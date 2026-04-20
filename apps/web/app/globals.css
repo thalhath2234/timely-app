@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -10,17 +11,26 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --color-tertiary: var(--tertiary);
+  --color-secondary: var(--secondary);
+  --color-primary: var(--primary);
+  --font: var(--font);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --font: #ffffff;
+    --glass-background: rgba(0, 0, 0, 0.4);
+    --background: linear-gradient(to right, #152331, #000000);
+    --backdrop-blur: 16px;
+    --tertiary: #007bff;
+    --secondary: #101d2a;
+    --primary: #000000;
   }
 }
 
 body {
   background: var(--background);
-  color: var(--foreground);
+  color: var(--font);
   font-family: Arial, Helvetica, sans-serif;
 }
