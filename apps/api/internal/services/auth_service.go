@@ -80,7 +80,7 @@ func (s *authService) Login(email, password string) (string, error) {
 	// Generate JWT token
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
-		jwtSecret = "default_secret_key"
+		panic("JWT_SECRET missing")
 	}
 
 	expiryHoursStr := os.Getenv("JWT_EXPIRY_HOURS")
@@ -95,6 +95,9 @@ func (s *authService) Login(email, password string) (string, error) {
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiryHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			Issuer:    "timely-api",
+			Audience:  []string{"timely-client"},
 		},
 	}
 

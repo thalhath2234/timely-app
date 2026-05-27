@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"net/http"
+	"os"
+	"time"
 	"timely-api/internal/repositories"
 	"timely-api/internal/services"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
 type AuthHandler struct {
@@ -34,7 +36,7 @@ type userProfileResponse struct {
 	Email string `json:"email"`
 }
 
-func (h *AuthHandler) Register(c echo.Context) error {
+func (h *AuthHandler) Register(c *echo.Context) error {
 	var req authRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")
@@ -53,7 +55,7 @@ func (h *AuthHandler) Register(c echo.Context) error {
 	return c.JSON(http.StatusCreated, res)
 }
 
-func (h *AuthHandler) Login(c echo.Context) error {
+func (h *AuthHandler) Login(c *echo.Context) error {
 	var req authRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")
@@ -64,10 +66,44 @@ func (h *AuthHandler) Login(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
 	}
 
-	return c.JSON(http.StatusOK, authResponse{Token: token})
+	cookie := new(http.Cookie)
+	cookie.Name = "session"
+	cookie.Value = token
+	cookie.HttpOnly = true
+	cookie.Secure = os.Getenv("ENV") == "production"
+	cookie.Path = "/"
+	cookie.SameSite = http.SameSiteLaxMode
+	cookie.Expires = time.Now().Add(24 * time.Hour)
+
+	c.SetCookie(cookie)
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "logged in",
+	})
 }
 
-func (h *AuthHandler) Me(c echo.Context) error {
+func (h *AuthHandler) Logout(c *echo.Context) error {
+	cookie := new(http.Cookie)
+
+	cookie.Name = "session"
+	cookie.Value = ""
+	cookie.Path = "/"
+	cookie.HttpOnly = true
+	cookie.Expires = time.Unix(0, 0)
+	cookie.MaxAge = -1
+	cookie.SameSite = http.SameSiteLaxMode
+
+	// Set true in production with HTTPS
+	cookie.Secure = os.Getenv("ENV") == "production"
+
+	c.SetCookie(cookie)
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "logged out",
+	})
+}
+
+func (h *AuthHandler) Me(c *echo.Context) error {
 	userID, ok := c.Get("userID").(uint)
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
