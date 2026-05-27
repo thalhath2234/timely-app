@@ -1,22 +1,37 @@
 "use client";
 import Link from "next/link";
 import { SidebarProps } from "../_types/types";
-import { Brain, Calendar, ListTodo } from "lucide-react";
+import { Brain, Calendar, ListTodo, Search } from "lucide-react";
 import { useSidebarStore } from "../_store/sidebarStore";
+import * as motion from "motion/react-client";
+import { usePathname } from "next/navigation";
 
 export default function SidebarButton({ item }: { item: SidebarProps }) {
   const { activeItem, setActiveItem } = useSidebarStore();
-  const isActive = activeItem === item.name;
+  const pathname = usePathname();
+  const isActive = pathname.startsWith(item.href);
+
+  const linkHref =
+  item.name === "Calendar"
+    ? {
+        pathname: "/calendar",
+        query: { view: "month" },
+      }
+    : item.href;
   return (
-    <div className={`rounded-md p-2 border-none m-0 cursor-pointer ${isActive ? " text-tertiary" : " text-white"}`}>
-    <Link
-      href={item.href}
-      className={`w-full h-full flex items-center justify-center ${isActive ? "text-tertiary" : "text-white"}`}
+    <motion.div
+      className={`rounded-md border-none m-0 cursor-pointer ${isActive ? " text-tertiary" : " text-white"} hover:text-tertiary`}
+      whileHover={{ scale: 1.05}}
+      whileTap={{ scale: 0.9 }}
       onClick={() => setActiveItem(item.name)}
     >
-      <SidebarButtonIcon icon={item.icon} />
-    </Link>
-    </div>
+      <Link
+        href={linkHref}
+        className={`p-2 w-full h-full flex items-center justify-center ${isActive ? "text-tertiary" : "text-white"} hover:text-tertiary`}
+      >
+        <SidebarButtonIcon icon={item.icon} />
+      </Link>
+    </motion.div>
   );
 }
 
