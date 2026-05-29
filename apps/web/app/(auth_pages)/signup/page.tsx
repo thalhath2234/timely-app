@@ -18,8 +18,6 @@ export default function SignupPage() {
     const signupMutation = useMutation({
         mutationFn: async () => {
             setValidationError('');
-            // Since this is a prototype, registering will call our login endpoint
-            // to automatically authenticate the user.
             const response = await fetch('http://localhost:8080/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -57,7 +55,7 @@ export default function SignupPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#152331] to-[#0a0e14] p-4 text-white">
+        <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-[#152331] to-[#0a0e14] p-4 text-white">
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -69,7 +67,7 @@ export default function SignupPage() {
                 <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
 
                 <div className="text-center mb-8 relative">
-                    <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                    <h1 className="text-3xl font-extrabold tracking-tight bg-linear-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
                         Create Account
                     </h1>
                     <p className="text-slate-400 text-sm mt-2">
@@ -159,7 +157,7 @@ export default function SignupPage() {
                     <button
                         type="submit"
                         disabled={signupMutation.isPending || success}
-                        className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-blue-500/50 disabled:to-purple-600/50 rounded-xl font-semibold text-sm transition cursor-pointer shadow-lg hover:shadow-blue-500/20 active:scale-[0.98] select-none"
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-linear-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:from-blue-500/50 disabled:to-purple-600/50 rounded-xl font-semibold text-sm transition cursor-pointer shadow-lg hover:shadow-blue-500/20 active:scale-[0.98] select-none"
                     >
                         {signupMutation.isPending ? (
                             <>

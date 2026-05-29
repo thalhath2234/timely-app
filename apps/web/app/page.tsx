@@ -3,14 +3,14 @@ import { Calendar, ListTodo, Brain, ArrowRight, ShieldCheck } from 'lucide-react
 
 export default function Home() {
     return (
-        <div className="min-h-screen bg-gradient-to-br from-[#152331] to-[#0a0e14] text-white flex flex-col justify-between selection:bg-blue-500 selection:text-white">
+        <div className="min-h-screen bg-linear-to-br from-[#152331] to-[#0a0e14] text-white flex flex-col justify-between selection:bg-blue-500 selection:text-white">
             {/* Header */}
             <header className="max-w-7xl w-full mx-auto px-6 py-6 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-400 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <div className="w-9 h-9 rounded-xl bg-linear-to-br from-blue-400 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
                         <span className="font-extrabold text-white text-lg">T</span>
                     </div>
-                    <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">Timely</span>
+                    <span className="font-bold text-xl tracking-tight bg-linear-to-r from-white to-slate-300 bg-clip-text text-transparent">Timely</span>
                 </div>
                 <div className="flex items-center gap-4">
                     <Link
@@ -38,7 +38,7 @@ export default function Home() {
 
                 <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight leading-tight">
                     Manage Your Time <br />
-                    <span className="bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                    <span className="bg-linear-to-r from-blue-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
                         Effortlessly with Timely
                     </span>
                 </h1>
@@ -50,7 +50,7 @@ export default function Home() {
                 <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center items-center w-full max-w-sm sm:max-w-none">
                     <Link
                         href="/signup"
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 rounded-xl font-bold transition shadow-xl hover:shadow-blue-500/10 active:scale-[0.98]"
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-linear-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 rounded-xl font-bold transition shadow-xl hover:shadow-blue-500/10 active:scale-[0.98]"
                     >
                         Get Started Free
                         <ArrowRight className="size-5" />
