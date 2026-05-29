@@ -31,8 +31,13 @@ func main() {
 
 	// Initialize repository, service, and handler
 	userRepo := repositories.NewUserRepository(db)
+	taskRepo := repositories.NewTaskRepository(db)
+
 	authService := services.NewAuthService(userRepo)
+	taskService := services.NewTaskService(taskRepo)
+
 	authHandler := handlers.NewAuthHandler(authService, userRepo)
+	taskHandler := handlers.NewTaskHandler(taskService)
 
 	// Create Echo instance
 	e := echo.New()
@@ -64,6 +69,8 @@ func main() {
 	r := e.Group("")
 	r.Use(middleware.JWTMiddleware())
 	r.GET("/me", authHandler.Me)
+	r.POST("/tasks", taskHandler.Create)
+	r.GET("/tasks", taskHandler.GetAllTaskByUser)
 
 	// Start server
 	port := os.Getenv("PORT")

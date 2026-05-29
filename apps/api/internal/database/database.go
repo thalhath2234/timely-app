@@ -31,7 +31,17 @@ func InitDB() *gorm.DB {
 	log.Println("Database connection established")
 
 	// Run auto migrations
-	err = db.AutoMigrate(&models.User{})
+	err = db.AutoMigrate(
+		&models.User{},
+		&models.Priority{},
+		&models.Project{},
+		&models.Schedule{},
+		&models.Stage{},
+		&models.Status{},
+		&models.Task{},
+		&models.Workspace{},
+	)
+
 	if err != nil {
 		log.Fatalf("Failed to run database migrations: %v", err)
 	}
