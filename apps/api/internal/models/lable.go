@@ -15,5 +15,5 @@ type Label struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
-	// Tasks []Task `gorm:"many2many:task_labels;"`
+	Tasks []Task `gorm:"many2many:task_labels;"`
 }

@@ -11,10 +11,13 @@ type Workspace struct {
 
 	Name        string `gorm:"not null"`
 	Description string `gorm:"type:text"`
+	UserID      *uuid.UUID
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
-	// Projects []Project
-	// Tasks    []Task
+	User User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+
+	Projects []Project
+	Tasks    []Task
 }

@@ -71,7 +71,7 @@ func main() {
 	r.GET("/me", authHandler.Me)
 	r.POST("/tasks", taskHandler.Create)
 	r.GET("/tasks", taskHandler.GetAllTaskByUser)
-
+	r.GET("/tasks/:id", taskHandler.GetTaskById)
 	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {

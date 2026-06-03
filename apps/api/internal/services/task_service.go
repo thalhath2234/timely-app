@@ -11,6 +11,7 @@ import (
 type TaskService interface {
 	Create(task *models.Task) (*models.Task, error)
 	GetAllTaskByUser(userID uuid.UUID) ([]models.Task, error)
+	GetTaskById(userID uuid.UUID, taskId uuid.UUID) (*models.Task, error)
 }
 
 type taskService struct {
@@ -49,4 +50,17 @@ func (s *taskService) GetAllTaskByUser(userID uuid.UUID) ([]models.Task, error) 
 	}
 
 	return tasks, nil
+}
+
+func (s *taskService) GetTaskById(userID uuid.UUID, taskId uuid.UUID) (*models.Task, error) {
+	if userID == uuid.Nil {
+		return nil, errors.New("invalid user id")
+	}
+
+	task, err := s.repo.GetTaskById(userID, taskId)
+	if err != nil {
+		return nil, err
+	}
+
+	return task, nil
 }

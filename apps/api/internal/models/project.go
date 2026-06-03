@@ -19,5 +19,5 @@ type Project struct {
 
 	Workspace Workspace `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
-	// Tasks []Task
+	Tasks []Task
 }
