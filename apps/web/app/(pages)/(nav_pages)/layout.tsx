@@ -1,6 +1,6 @@
-import Sidebar from "../_components/_layout/sidebar";
-import SearchModal from "../_ui/modal/search";
-import AddItemModal from "../_ui/modal/addItem";
+import Sidebar from "@/app/_components/_layout/sidebar";
+import SearchModal from "@/app/_ui/modal/search";
+import AddItemModal from "@/app/_ui/modal/addItem";
 
 export default function DashboardLayout({
   children,
