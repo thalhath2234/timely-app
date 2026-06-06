@@ -70,14 +70,6 @@ func DefaultSeeds(db *gorm.DB) error {
 		{Name: "Critical", Level: 4},
 	}
 
-	workspaces := []models.Workspace{
-		{Name: "Default Workspace", Description: "Default workspace"},
-	}
-	err := db.FirstOrCreate(&workspaces[0]).Error
-	if err != nil {
-		return err
-	}
-
 	for _, status := range statuses {
 		err := db.
 			Where("name = ?", status.Name).
@@ -99,4 +91,3 @@ func DefaultSeeds(db *gorm.DB) error {
 	}
 	return nil
 }
-

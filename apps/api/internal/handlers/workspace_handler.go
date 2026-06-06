@@ -20,8 +20,7 @@ func NewWorkspaceHandler(workspaceService services.WorkspaceService) *WorkspaceH
 }
 
 type createWorkspaceRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name string `json:"name"`
 }
 
 func (h *WorkspaceHandler) Create(c *echo.Context) error {
@@ -43,9 +42,8 @@ func (h *WorkspaceHandler) Create(c *echo.Context) error {
 	}
 
 	workspace := &models.Workspace{
-		Name:        req.Name,
-		Description: req.Description,
-		UserID:      &userID,
+		Name:   req.Name,
+		UserID: &userID,
 	}
 
 	createdWorkspace, err := h.workspaceService.Create(workspace)
