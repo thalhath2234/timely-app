@@ -36,18 +36,17 @@ type Task struct {
 
 	// Self Referencing Tasks
 	BlockedByID *uuid.UUID
-	BlockingID  *uuid.UUID
 
 	// Relationships
 	User *User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
-	Project *Project `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Project *Project `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
 	Status *Status `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	Priority *Priority `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
-	Workspace *Workspace `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	Workspace *Workspace `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
 
 	Schedule *Schedule `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
@@ -55,8 +54,6 @@ type Task struct {
 
 	// Self References
 	BlockedBy *Task `gorm:"foreignKey:BlockedByID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
-
-	Blocking *Task `gorm:"foreignKey:BlockingID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
 	// Many-to-Many Labels
 	Labels []*Label `gorm:"many2many:task_labels;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`

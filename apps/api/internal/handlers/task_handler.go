@@ -75,7 +75,6 @@ func (h *TaskHandler) Create(c *echo.Context) error {
 		StageID:     req.StageID,
 
 		BlockedByID: req.BlockedByID,
-		BlockingID:  req.BlockingID,
 	}
 
 	createdTask, err := h.taskService.Create(task)

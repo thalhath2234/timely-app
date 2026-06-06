@@ -32,13 +32,13 @@ func main() {
 	// Initialize repository, service, and handler
 	userRepo := repositories.NewUserRepository(db)
 	taskRepo := repositories.NewTaskRepository(db)
-
+	projectRepo := repositories.NewProjectRepository(db)
 	authService := services.NewAuthService(userRepo)
-	taskService := services.NewTaskService(taskRepo)
-
+	taskService := services.NewTaskService(taskRepo, projectRepo)
+	projectService := services.NewProjectService(projectRepo)
 	authHandler := handlers.NewAuthHandler(authService, userRepo)
 	taskHandler := handlers.NewTaskHandler(taskService)
-
+	projectHandler := handlers.NewProjectHandler(projectService)
 	// Create Echo instance
 	e := echo.New()
 
@@ -72,6 +72,9 @@ func main() {
 	r.POST("/tasks", taskHandler.Create)
 	r.GET("/tasks", taskHandler.GetAllTaskByUser)
 	r.GET("/tasks/:id", taskHandler.GetTaskById)
+	r.POST("/projects", projectHandler.Create)
+	r.GET("/projects", projectHandler.GetAllProjectByUser)
+	r.GET("/projects/:id", projectHandler.GetProjectById)
 	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {

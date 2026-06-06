@@ -15,5 +15,5 @@ type Priority struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
-	// Tasks []Task
+	Tasks []Task
 }

@@ -12,12 +12,12 @@ type Stage struct {
 	Name  string `gorm:"not null"`
 	Order int
 
-	ProjectID *uuid.UUID
-
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
+	ProjectID *uuid.UUID
+
 	Project Project `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 
-	// Tasks []Task
+	Tasks []Task
 }

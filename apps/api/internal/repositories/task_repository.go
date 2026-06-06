@@ -8,7 +8,7 @@ import (
 )
 
 type TaskRepository interface {
-	CreateTask(task *models.Task) error
+	CreateTask(task *models.Task) (*models.Task, error)
 	GetAllTaskByUser(user_id uuid.UUID) ([]models.Task, error)
 	GetTaskById(userID uuid.UUID, taskId uuid.UUID) (*models.Task, error)
 }
@@ -21,7 +21,7 @@ func NewTaskRepository(db *gorm.DB) TaskRepository {
 	return &taskRepository{db: db}
 }
 
-func (r *taskRepository) CreateTask(task *models.Task) error {
+func (r *taskRepository) CreateTask(task *models.Task) (*models.Task, error) {
 
 	if task.StatusID == nil {
 		var status models.Status
@@ -30,7 +30,7 @@ func (r *taskRepository) CreateTask(task *models.Task) error {
 			Where("name = ?", "Todo").
 			First(&status).Error
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		task.StatusID = &status.ID
@@ -43,13 +43,34 @@ func (r *taskRepository) CreateTask(task *models.Task) error {
 			Where("name = ?", "Low").
 			First(&priority).Error
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		task.PriorityID = &priority.ID
 	}
 
-	return r.db.Create(task).Error
+	if err := r.db.Create(task).Error; err != nil {
+		return nil, err
+	}
+
+	var createdTask models.Task
+
+	err := r.db.
+		Preload("Labels").
+		Preload("Project").
+		Preload("Status").
+		Preload("Priority").
+		Preload("Workspace").
+		Preload("Schedule").
+		Preload("Stage").
+		Where("id = ?", task.ID).
+		First(&createdTask).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &createdTask, nil
 }
 
 func (r *taskRepository) GetAllTaskByUser(userID uuid.UUID) ([]models.Task, error) {
@@ -64,6 +85,9 @@ func (r *taskRepository) GetAllTaskByUser(userID uuid.UUID) ([]models.Task, erro
 		Preload("Workspace").
 		Preload("Schedule").
 		Preload("Stage").
+		Preload("BlockedBy", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id, name")
+		}).
 		Find(&tasks).Error
 
 	if err != nil {
