@@ -10,6 +10,8 @@ type SidebarState = {
   setActiveItem: (item: SidebarItemName) => void;
   searchMode: boolean;
   setSearchMode: (mode: boolean) => void;
+  addItemMode: boolean;
+  setAddItemMode: (mode: boolean) => void;
 };
 
 export const useSidebarStore = create<SidebarState>((set) => ({
@@ -17,4 +19,6 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   setActiveItem: (item) => set({ activeItem: item }),
   searchMode: false,
   setSearchMode: (mode) => set({ searchMode: mode }),
+  addItemMode: false,
+  setAddItemMode: (mode) => set({ addItemMode: mode }),
 }));

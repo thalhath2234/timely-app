@@ -11,11 +11,11 @@ export const verifySession = cache(async () => {
     const cookie = cookieStore.get('session')?.value;
     const session = await decrypt(cookie);
 
-    if (!session?.userId) {
+    if (!session?.user_id) {
         redirect('/login');
     }
 
-    return { isAuth: true, userId: session.userId };
+    return { isAuth: true, userId: session.user_id };
 });
 
 export const getCurrentUser = cache(async () => {
