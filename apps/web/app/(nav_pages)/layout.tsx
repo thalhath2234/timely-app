@@ -1,5 +1,6 @@
 import Sidebar from "../_components/_layout/sidebar";
 import SearchModal from "../_ui/modal/search";
+import AddItemModal from "../_ui/modal/addItem";
 
 export default function DashboardLayout({
   children,
@@ -9,6 +10,7 @@ export default function DashboardLayout({
   return (
     <>
       <SearchModal />
+      <AddItemModal/>
       <div className="flex flex-row h-full overflow-hidden w-full">
         <div className="w-16 items-center justify-center h-full">
           <Sidebar />

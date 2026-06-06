@@ -10,7 +10,8 @@ import { useMutation } from "@tanstack/react-query";
 import { useRouter, usePathname } from "next/navigation";
 
 export default function Sidebar() {
-  const { activeItem, setSearchMode } = useSidebarStore();
+  const { activeItem, setSearchMode, addItemMode, setAddItemMode } =
+    useSidebarStore();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -38,7 +39,10 @@ export default function Sidebar() {
     <div className="flex flex-col w-full h-full  mt-2 gap-y-2">
       <div className="flex items-center justify-center h-auto">
         <div className="flex flex-col items-center justify-center gap-y-2">
-          <button className="flex bg-blue-900 rounded-md p-2 border-none m-0 cursor-pointer">
+          <button
+            className="flex bg-blue-900 rounded-md p-2 border-none m-0 cursor-pointer"
+            onClick={() => setAddItemMode(true)}
+          >
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <Plus className="color-white size-5" />
             </motion.div>
