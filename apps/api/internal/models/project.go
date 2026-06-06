@@ -7,17 +7,22 @@ import (
 )
 
 type Project struct {
-	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 
-	Name        string `gorm:"not null"`
-	Description string `gorm:"type:text"`
+	Name        string `gorm:"not null" json:"name"`
+	Description string `gorm:"type:text" json:"description"`
 
-	WorkspaceID *uuid.UUID
+	UserID      *uuid.UUID `json:"userId"`
+	WorkspaceID *uuid.UUID `json:"workspaceId"`
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 
-	Workspace Workspace `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+	User User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"user,omitempty"`
 
-	// Tasks []Task
+	Workspace *Workspace `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"workspace,omitempty"`
+
+	Stages []*Stage `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"stages,omitempty"`
+
+	Tasks []*Task `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"tasks,omitempty"`
 }

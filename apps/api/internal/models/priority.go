@@ -7,13 +7,13 @@ import (
 )
 
 type Priority struct {
-	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 
-	Name  string `gorm:"not null;unique"`
-	Level int
+	Name  string `gorm:"not null;unique" json:"name"`
+	Level int    `json:"level"`
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 
-	// Tasks []Task
+	Tasks []Task `json:"tasks,omitempty"`
 }

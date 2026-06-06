@@ -32,13 +32,16 @@ func main() {
 	// Initialize repository, service, and handler
 	userRepo := repositories.NewUserRepository(db)
 	taskRepo := repositories.NewTaskRepository(db)
-
+	projectRepo := repositories.NewProjectRepository(db)
+	workspaceRepo := repositories.NewWorkspaceRepository(db)
 	authService := services.NewAuthService(userRepo)
-	taskService := services.NewTaskService(taskRepo)
-
+	taskService := services.NewTaskService(taskRepo, projectRepo)
+	projectService := services.NewProjectService(projectRepo)
+	workspaceService := services.NewWorkspaceService(workspaceRepo)
 	authHandler := handlers.NewAuthHandler(authService, userRepo)
 	taskHandler := handlers.NewTaskHandler(taskService)
-
+	projectHandler := handlers.NewProjectHandler(projectService)
+	workspaceHandler := handlers.NewWorkspaceHandler(workspaceService)
 	// Create Echo instance
 	e := echo.New()
 
@@ -71,7 +74,13 @@ func main() {
 	r.GET("/me", authHandler.Me)
 	r.POST("/tasks", taskHandler.Create)
 	r.GET("/tasks", taskHandler.GetAllTaskByUser)
-
+	r.GET("/tasks/:id", taskHandler.GetTaskById)
+	r.POST("/projects", projectHandler.Create)
+	r.GET("/projects", projectHandler.GetAllProjectByUser)
+	r.GET("/projects/:id", projectHandler.GetProjectById)
+	r.POST("/workspaces", workspaceHandler.Create)
+	r.GET("/workspaces", workspaceHandler.GetAllWorkspaceByUser)
+	r.GET("/workspaces/:id", workspaceHandler.GetWorkspaceById)
 	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {

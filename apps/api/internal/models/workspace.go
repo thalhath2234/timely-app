@@ -7,14 +7,16 @@ import (
 )
 
 type Workspace struct {
-	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 
-	Name        string `gorm:"not null"`
-	Description string `gorm:"type:text"`
+	Name   string     `gorm:"not null" json:"name"`
+	UserID *uuid.UUID `json:"userId"`
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 
-	// Projects []Project
-	// Tasks    []Task
+	User *User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"user,omitempty"`
+
+	Projects []Project `json:"projects,omitempty"`
+	Tasks    []Task    `json:"tasks,omitempty"`
 }
