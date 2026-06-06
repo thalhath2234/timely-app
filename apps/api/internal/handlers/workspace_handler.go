@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"log"
 	"net/http"
 	"timely-api/internal/models"
 	"timely-api/internal/services"
@@ -10,24 +9,23 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-type ProjectHandler struct {
-	projectService services.ProjectService
+type WorkspaceHandler struct {
+	workspaceService services.WorkspaceService
 }
 
-func NewProjectHandler(projectService services.ProjectService) *ProjectHandler {
-	return &ProjectHandler{
-		projectService: projectService,
+func NewWorkspaceHandler(workspaceService services.WorkspaceService) *WorkspaceHandler {
+	return &WorkspaceHandler{
+		workspaceService: workspaceService,
 	}
 }
 
-type createProjectRequest struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	WorkspaceID *uuid.UUID `json:"workspaceId"`
+type createWorkspaceRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
-func (h *ProjectHandler) Create(c *echo.Context) error {
-	var req createProjectRequest
+func (h *WorkspaceHandler) Create(c *echo.Context) error {
+	var req createWorkspaceRequest
 
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(
@@ -44,15 +42,13 @@ func (h *ProjectHandler) Create(c *echo.Context) error {
 		)
 	}
 
-	project := &models.Project{
+	workspace := &models.Workspace{
 		Name:        req.Name,
 		Description: req.Description,
-
 		UserID:      &userID,
-		WorkspaceID: req.WorkspaceID,
 	}
 
-	createdProject, err := h.projectService.Create(project)
+	createdWorkspace, err := h.workspaceService.Create(workspace)
 	if err != nil {
 		return echo.NewHTTPError(
 			http.StatusBadRequest,
@@ -60,12 +56,10 @@ func (h *ProjectHandler) Create(c *echo.Context) error {
 		)
 	}
 
-	log.Println("createdProject", createdProject)
-
-	return c.JSON(http.StatusCreated, map[string]interface{}{"message": "project created successfully", "project": createdProject})
+	return c.JSON(http.StatusCreated, map[string]interface{}{"message": "workspace created successfully", "workspace": createdWorkspace})
 }
 
-func (h *ProjectHandler) GetAllProjectByUser(c *echo.Context) error {
+func (h *WorkspaceHandler) GetAllWorkspaceByUser(c *echo.Context) error {
 	userID, ok := c.Get("userID").(uuid.UUID)
 	if !ok {
 		return echo.NewHTTPError(
@@ -74,7 +68,7 @@ func (h *ProjectHandler) GetAllProjectByUser(c *echo.Context) error {
 		)
 	}
 
-	projects, err := h.projectService.GetAllProjectByUser(userID)
+	workspaces, err := h.workspaceService.GetAllWorkspaceByUser(userID)
 	if err != nil {
 		return echo.NewHTTPError(
 			http.StatusInternalServerError,
@@ -82,10 +76,10 @@ func (h *ProjectHandler) GetAllProjectByUser(c *echo.Context) error {
 		)
 	}
 
-	return c.JSON(http.StatusOK, projects)
+	return c.JSON(http.StatusOK, workspaces)
 }
 
-func (h *ProjectHandler) GetProjectById(c *echo.Context) error {
+func (h *WorkspaceHandler) GetWorkspaceById(c *echo.Context) error {
 	userID, ok := c.Get("userID").(uuid.UUID)
 	if !ok {
 		return echo.NewHTTPError(
@@ -94,15 +88,15 @@ func (h *ProjectHandler) GetProjectById(c *echo.Context) error {
 		)
 	}
 
-	projectId, err := uuid.Parse(c.Param("id"))
+	workspaceID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return echo.NewHTTPError(
 			http.StatusBadRequest,
-			"invalid project id",
+			"invalid workspace id",
 		)
 	}
 
-	project, err := h.projectService.GetProjectById(userID, projectId)
+	workspace, err := h.workspaceService.GetWorkspaceById(userID, workspaceID)
 	if err != nil {
 		return echo.NewHTTPError(
 			http.StatusInternalServerError,
@@ -110,5 +104,5 @@ func (h *ProjectHandler) GetProjectById(c *echo.Context) error {
 		)
 	}
 
-	return c.JSON(http.StatusOK, project)
+	return c.JSON(http.StatusOK, workspace)
 }

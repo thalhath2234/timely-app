@@ -7,18 +7,18 @@ import (
 )
 
 type Schedule struct {
-	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 
-	Name string `gorm:"not null"`
+	Name string `gorm:"not null" json:"name"`
 
 	// Example:
 	// daily
 	// weekly
 	// custom
-	Type string
+	Type string `json:"type"`
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 
-	Tasks []Task
+	Tasks []Task `json:"tasks,omitempty"`
 }

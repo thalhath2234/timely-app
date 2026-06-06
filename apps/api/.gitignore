@@ -2,3 +2,4 @@
 .cursor/
 ./tmp
 .tmp
+tmp/
