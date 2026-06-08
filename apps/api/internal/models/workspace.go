@@ -17,6 +17,6 @@ type Workspace struct {
 
 	User *User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"user,omitempty"`
 
-	Projects []Project `json:"projects,omitempty"`
-	Tasks    []Task    `json:"tasks,omitempty"`
+	Projects []*Project `json:"projects,omitempty"`
+	Tasks    []*Task    `json:"tasks,omitempty"`
 }

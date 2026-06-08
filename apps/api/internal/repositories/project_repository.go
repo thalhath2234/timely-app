@@ -35,7 +35,6 @@ func (r *projectRepository) GetAllProjectByUser(userID uuid.UUID) ([]models.Proj
 		Preload("Stages").
 		Preload("Tasks").
 		Preload("Workspace").
-		Preload("User").
 		Find(&projects).Error
 
 	if err != nil {
@@ -55,7 +54,6 @@ func (r *projectRepository) GetProjectById(userID uuid.UUID, projectId uuid.UUID
 		Preload("Stages.Tasks").
 		Preload("Tasks", "stage_id IS NULL").
 		Preload("Workspace").
-		Preload("User").
 		First(&project).Error
 	if err != nil {
 		return nil, err

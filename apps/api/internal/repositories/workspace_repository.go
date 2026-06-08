@@ -31,7 +31,6 @@ func (r *workspaceRepository) GetAllWorkspaceByUser(userID uuid.UUID) ([]models.
 	err := r.db.
 		Where("user_id = ?", userID).
 		Preload("Projects").
-		Preload("Tasks").
 		Find(&workspaces).Error
 
 	if err != nil {
@@ -48,7 +47,6 @@ func (r *workspaceRepository) GetWorkspaceById(userID uuid.UUID, workspaceID uui
 		Where("user_id = ?", userID).
 		Where("id = ?", workspaceID).
 		Preload("Projects").
-		Preload("Tasks").
 		First(&workspace).Error
 	if err != nil {
 		return nil, err
