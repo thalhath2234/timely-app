@@ -8,7 +8,7 @@ import (
 )
 
 type TaskService interface {
-	Create(task *models.Task) (*models.Task, error)
+	Create(task *models.Task, customFieldValues []*models.CustomFieldValue) (*models.Task, error)
 	GetAllTaskByUser(userID string) ([]models.Task, error)
 	GetTaskById(userID string, taskId string) (*models.Task, error)
 }
@@ -22,7 +22,7 @@ func NewTaskService(taskRepo repositories.TaskRepository, projectRepo repositori
 	return &taskService{taskRepo: taskRepo, projectRepo: projectRepo}
 }
 
-func (s *taskService) Create(task *models.Task) (*models.Task, error) {
+func (s *taskService) Create(task *models.Task, customFieldValues []*models.CustomFieldValue) (*models.Task, error) {
 	if task.Name == "" {
 		return nil, errors.New("task name cannot be empty")
 	}
@@ -45,7 +45,13 @@ func (s *taskService) Create(task *models.Task) (*models.Task, error) {
 	task.CreatedAt = utils.GetCurrentTime()
 	task.UpdatedAt = utils.GetCurrentTime()
 
-	task, err := s.taskRepo.CreateTask(task)
+	for _, cfv := range customFieldValues {
+		cfv.ID = utils.NewCustomFieldValueID()
+		cfv.CreatedAt = utils.GetCurrentTime()
+		cfv.UpdatedAt = utils.GetCurrentTime()
+	}
+
+	task, err := s.taskRepo.CreateTask(task, customFieldValues)
 	if err != nil {
 		return nil, err
 	}

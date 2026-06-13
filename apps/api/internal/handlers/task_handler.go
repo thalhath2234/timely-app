@@ -19,9 +19,10 @@ func NewTaskHandler(taskService services.TaskService) *TaskHandler {
 }
 
 type customFieldValueRequest struct {
-	CustomFieldID string `json:"customFieldId"`
-	Value         string `json:"value"`
-	Type          string `json:"type"`
+	CustomFieldID string                         `json:"id"`
+	OptionsValue  []models.CustomFieldValueInput `json:"optionsValue"`
+	Type          string                         `json:"type"`
+	StringValue   *string                        `json:"stringValue,omitempty"`
 }
 
 type createTaskRequest struct {
@@ -63,6 +64,16 @@ func (h *TaskHandler) Create(c *echo.Context) error {
 		)
 	}
 
+	customFieldValues := make([]*models.CustomFieldValue, len(req.CustomFieldValues))
+	for i, cfv := range req.CustomFieldValues {
+		customFieldValues[i] = &models.CustomFieldValue{
+			CustomFieldID: cfv.CustomFieldID,
+			OptionsValue:  cfv.OptionsValue,
+			Type:          cfv.Type,
+			StringValue:   cfv.StringValue,
+		}
+	}
+
 	task := &models.Task{
 		Name:        req.Name,
 		Description: req.Description,
@@ -81,7 +92,7 @@ func (h *TaskHandler) Create(c *echo.Context) error {
 		BlockedByID: req.BlockedByID,
 	}
 
-	createdTask, err := h.taskService.Create(task)
+	createdTask, err := h.taskService.Create(task, customFieldValues)
 	if err != nil {
 		return echo.NewHTTPError(
 			http.StatusBadRequest,

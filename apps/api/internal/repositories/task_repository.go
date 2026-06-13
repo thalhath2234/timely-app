@@ -7,7 +7,7 @@ import (
 )
 
 type TaskRepository interface {
-	CreateTask(task *models.Task) (*models.Task, error)
+	CreateTask(task *models.Task, customFieldValues []*models.CustomFieldValue) (*models.Task, error)
 	GetAllTaskByUser(user_id string) ([]models.Task, error)
 	GetTaskById(userID string, taskId string) (*models.Task, error)
 }
@@ -20,7 +20,7 @@ func NewTaskRepository(db *gorm.DB) TaskRepository {
 	return &taskRepository{db: db}
 }
 
-func (r *taskRepository) CreateTask(task *models.Task) (*models.Task, error) {
+func (r *taskRepository) CreateTask(task *models.Task, customFieldValues []*models.CustomFieldValue) (*models.Task, error) {
 
 	if task.StatusID == nil {
 		var status models.Status
@@ -40,7 +40,22 @@ func (r *taskRepository) CreateTask(task *models.Task) (*models.Task, error) {
 		task.PriorityLevel = &priorityLevel
 	}
 
-	if err := r.db.Create(task).Error; err != nil {
+	tx := r.db.Begin()
+
+	if err := tx.Create(task).Error; err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	for _, cfv := range customFieldValues {
+		cfv.TaskID = task.ID
+		if err := tx.Create(cfv).Error; err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 
@@ -53,6 +68,7 @@ func (r *taskRepository) CreateTask(task *models.Task) (*models.Task, error) {
 		Preload("Workspace").
 		Preload("Schedule").
 		Preload("Stage").
+		Preload("CustomFieldValues").
 		Where("id = ?", task.ID).
 		First(&createdTask).Error
 
@@ -77,6 +93,7 @@ func (r *taskRepository) GetAllTaskByUser(userID string) ([]models.Task, error) 
 		Preload("BlockedBy", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, name")
 		}).
+		Preload("CustomFieldValues").
 		Find(&tasks).Error
 
 	if err != nil {
@@ -90,7 +107,6 @@ func (r *taskRepository) GetTaskById(userID string, taskId string) (*models.Task
 	var task models.Task
 
 	err := r.db.
-		Where("user_id = ?", userID).
 		Where("id = ?", taskId).
 		// Preload("Labels").
 		Preload("Project").
@@ -98,6 +114,10 @@ func (r *taskRepository) GetTaskById(userID string, taskId string) (*models.Task
 		Preload("Workspace").
 		Preload("Schedule").
 		Preload("Stage").
+		Preload("BlockedBy", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id, name")
+		}).
+		Preload("CustomFieldValues").
 		First(&task).Error
 	if err != nil {
 		return nil, err

@@ -7,8 +7,8 @@ tmp_dir = "tmp"
 
 [build]
   args_bin = []
-  bin = "dlv"
-  cmd = "go build -gcflags='all=-N -l' -o ./tmp/main ./cmd"
+  bin = "./tmp/main"
+  cmd = "go build -o ./tmp/main ./cmd"
   delay = 1000
   entrypoint = ["./tmp/main"]
   exclude_dir = ["assets", "tmp", "vendor", "testdata"]
@@ -16,7 +16,7 @@ tmp_dir = "tmp"
   exclude_regex = ["_test.go"]
   exclude_unchanged = false
   follow_symlink = false
-  full_bin = "dlv exec ./tmp/main --headless --listen=:2345 --api-version=2 --accept-multiclient"
+  full_bin = ""
   ignore_dangerous_root_dir = false
   include_dir = []
   include_ext = ["go", "tpl", "tmpl", "html"]
@@ -26,8 +26,8 @@ tmp_dir = "tmp"
   poll = false
   poll_interval = 0
   post_cmd = []
-  pre_cmd = ["sh -c 'lsof -ti:2345 | xargs -r kill -9'", "sh -c 'lsof -ti:8080 | xargs -r kill -9'"]
-  rerun = true
+  pre_cmd = []
+  rerun = false
   rerun_delay = 500
   send_interrupt = false
   stop_on_error = false
