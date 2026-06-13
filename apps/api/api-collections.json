@@ -1,0 +1,492 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Timely",
+    "description": "",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/login": {
+      "post": {
+        "summary": "login",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "login",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "email": "thalhathva2@gmail.com",
+                "password": "12341234"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "summary": "me",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/tasks": {
+      "post": {
+        "summary": "createTask",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "createTask",
+        "tags": [
+          "Task"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": "{\n  \"name\": \"New Task With Workspace\",\n  \"description\": \"Implement task creation endpoint\",\n  \"duration\": 120,\n  \"deadline\": \"2026-06-30\",\n  \"startDate\": \"2026-06-08\",\n  \"time_chunks\": 4,\n\n  // \"project_id\": \"c0dfab19-9e22-4fc8-825e-88697bcdbbe7\",\n  \"statusId\": \"tst_68b60b75-759b-480a-a0d9-e925e34e2171\", // default status ToDo\n  // \"priority_id\": \"bd3a4a91-5e2d-4c4d-9f80-52c98e9c1e12\",\n  \"workspaceId\": \"ws_c25898bc-3738-41db-abd3-55951b363633\",\n  // \"schedule_id\": \"4d9a1d08-5c4d-4c6a-80f0-0d2e4a6f9b91\",\n  // \"stage_id\": \"2a6b0c6e-f0b2-4d8c-b7ea-7f79a6c2b1f4\",\n\n  // \"blockedById\": \"864a2392-12dc-4101-b4b4-aa2d0d7a6fdb\",\n\n  // \"label_ids\": [\n  //   \"5b7d4b4e-6d11-4f41-94b4-3c2d1e9f5c11\",\n  //   \"7c8f9a21-2f44-4d6e-b4f1-9f7d3b1e6c22\"\n  // ]\n}"
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "gteAllTasks",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "gteAllTasks",
+        "tags": [
+          "Task"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": "{\n  \"name\": \"Finish Task API\",\n  \"description\": \"Implement task creation endpoint\",\n  \"duration\": 120,\n  \"deadline\": \"2026-06-15T00:00:00Z\",\n  \"start_date\": \"2026-06-01T00:00:00Z\",\n  \"time_chunks\": 4,\n\n  // \"project_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  // \"status_id\": \"6f1c4db6-5db4-4f65-ae67-c6dd4b26d4f3\",\n  // \"priority_id\": \"bd3a4a91-5e2d-4c4d-9f80-52c98e9c1e12\",\n  // \"workspace_id\": \"8b3d0f94-b29d-4c2d-97d4-3e4e1b27d60f\",\n  // \"schedule_id\": \"4d9a1d08-5c4d-4c6a-80f0-0d2e4a6f9b91\",\n  // \"stage_id\": \"2a6b0c6e-f0b2-4d8c-b7ea-7f79a6c2b1f4\",\n\n  // \"blocked_by_id\": \"1f76c8f0-9d44-4cfd-8e8f-74cb83a32f0d\",\n  // \"blocking_id\": \"2c6d8b40-1d63-48b0-8f9c-cf57c57b6e10\",\n\n  // \"label_ids\": [\n  //   \"5b7d4b4e-6d11-4f41-94b4-3c2d1e9f5c11\",\n  //   \"7c8f9a21-2f44-4d6e-b4f1-9f7d3b1e6c22\"\n  // ]\n}"
+            }
+          }
+        }
+      }
+    },
+    "/tasks/tsk_49150ec5-167f-422d-b7e6-7fa9f65b0840": {
+      "get": {
+        "summary": "taskById",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "taskById",
+        "tags": [
+          "Task"
+        ]
+      }
+    },
+    "/projects": {
+      "post": {
+        "summary": "createProject",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "createProject",
+        "tags": [
+          "Project"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": "{\n  \"name\": \"Project With Workspace\",\n  \"description\": \"Implement task creation endpoint\",\n  \"workspaceId\": \"9b2a54b9-caf4-45f7-9c29-8e88958aa2a4\",\n}"
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "gteAllProject",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "gteAllProject",
+        "tags": [
+          "Project"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": "{\n  \"name\": \"Finish Task API\",\n  \"description\": \"Implement task creation endpoint\",\n  \"duration\": 120,\n  \"deadline\": \"2026-06-15T00:00:00Z\",\n  \"start_date\": \"2026-06-01T00:00:00Z\",\n  \"time_chunks\": 4,\n\n  // \"project_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  // \"status_id\": \"6f1c4db6-5db4-4f65-ae67-c6dd4b26d4f3\",\n  // \"priority_id\": \"bd3a4a91-5e2d-4c4d-9f80-52c98e9c1e12\",\n  // \"workspace_id\": \"8b3d0f94-b29d-4c2d-97d4-3e4e1b27d60f\",\n  // \"schedule_id\": \"4d9a1d08-5c4d-4c6a-80f0-0d2e4a6f9b91\",\n  // \"stage_id\": \"2a6b0c6e-f0b2-4d8c-b7ea-7f79a6c2b1f4\",\n\n  // \"blocked_by_id\": \"1f76c8f0-9d44-4cfd-8e8f-74cb83a32f0d\",\n  // \"blocking_id\": \"2c6d8b40-1d63-48b0-8f9c-cf57c57b6e10\",\n\n  // \"label_ids\": [\n  //   \"5b7d4b4e-6d11-4f41-94b4-3c2d1e9f5c11\",\n  //   \"7c8f9a21-2f44-4d6e-b4f1-9f7d3b1e6c22\"\n  // ]\n}"
+            }
+          }
+        }
+      }
+    },
+    "/projects/c0dfab19-9e22-4fc8-825e-88697bcdbbe7": {
+      "get": {
+        "summary": "projectById",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "projectById",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/workspaces": {
+      "post": {
+        "summary": "createWrokspace",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "createWrokspace",
+        "tags": [
+          "Worksapce"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Test Default Statuses"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "gteAllWorksapces",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "gteAllWorksapces",
+        "tags": [
+          "Worksapce"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": "{\n  \"name\": \"Finish Task API\",\n  \"description\": \"Implement task creation endpoint\",\n  \"duration\": 120,\n  \"deadline\": \"2026-06-15T00:00:00Z\",\n  \"start_date\": \"2026-06-01T00:00:00Z\",\n  \"time_chunks\": 4,\n\n  // \"project_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  // \"status_id\": \"6f1c4db6-5db4-4f65-ae67-c6dd4b26d4f3\",\n  // \"priority_id\": \"bd3a4a91-5e2d-4c4d-9f80-52c98e9c1e12\",\n  // \"workspace_id\": \"8b3d0f94-b29d-4c2d-97d4-3e4e1b27d60f\",\n  // \"schedule_id\": \"4d9a1d08-5c4d-4c6a-80f0-0d2e4a6f9b91\",\n  // \"stage_id\": \"2a6b0c6e-f0b2-4d8c-b7ea-7f79a6c2b1f4\",\n\n  // \"blocked_by_id\": \"1f76c8f0-9d44-4cfd-8e8f-74cb83a32f0d\",\n  // \"blocking_id\": \"2c6d8b40-1d63-48b0-8f9c-cf57c57b6e10\",\n\n  // \"label_ids\": [\n  //   \"5b7d4b4e-6d11-4f41-94b4-3c2d1e9f5c11\",\n  //   \"7c8f9a21-2f44-4d6e-b4f1-9f7d3b1e6c22\"\n  // ]\n}"
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/ws_c25898bc-3738-41db-abd3-55951b363633": {
+      "get": {
+        "summary": "workspaceById",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "workspaceById",
+        "tags": [
+          "Worksapce"
+        ]
+      }
+    },
+    "/workspaces/ws_c25898bc-3738-41db-abd3-55951b363633/custom-field": {
+      "post": {
+        "summary": "createCustomField",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "createCustomField",
+        "tags": [
+          "Worksapce"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Repo",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "Frontend",
+                    "color": "#30A66D"
+                  },
+                  {
+                    "value": "Backend",
+                    "color": "#FFB224"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/ws_c25898bc-3738-41db-abd3-55951b363633/lable": {
+      "post": {
+        "summary": "createLable",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        },
+        "operationId": "createLable",
+        "tags": [
+          "Worksapce"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": "{\n  \"name\": \"Repo\",\n  \"color\": \"#30A66D\",\n}"
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/ws_c25898bc-3738-41db-abd3-55951b363633/lable/{lableId}": {
+      "put": {
+        "summary": "updateLable",
+        "operationId": "updateLable",
+        "tags": [
+          "Worksapce"
+        ],
+        "parameters": [
+          {
+            "name": "lableId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Repo Updated",
+                "color": "#30A66D"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      },
+      "delete": {
+        "summary": "deleteLable",
+        "operationId": "deleteLable",
+        "tags": [
+          "Worksapce"
+        ],
+        "parameters": [
+          {
+            "name": "lableId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/workspaces/ws_c25898bc-3738-41db-abd3-55951b363633/custom-field/{customFieldId}": {
+      "put": {
+        "summary": "updateCustomField",
+        "operationId": "updateCustomField",
+        "tags": [
+          "Worksapce"
+        ],
+        "parameters": [
+          {
+            "name": "customFieldId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "Repo",
+                "type": "select",
+                "options": [
+                  {
+                    "value": "Frontend",
+                    "color": "#30A66D"
+                  },
+                  {
+                    "value": "Backend",
+                    "color": "#FFB224"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      },
+      "delete": {
+        "summary": "deleteCustomField",
+        "operationId": "deleteCustomField",
+        "tags": [
+          "Worksapce"
+        ],
+        "parameters": [
+          {
+            "name": "customFieldId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/workspaces/ws_c25898bc-3738-41db-abd3-55951b363633/status/{statusId}": {
+      "put": {
+        "summary": "updateStatus",
+        "operationId": "updateStatus",
+        "tags": [
+          "Worksapce"
+        ],
+        "parameters": [
+          {
+            "name": "statusId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "name": "In Progress",
+                "color": "#FFB224"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      },
+      "delete": {
+        "summary": "deleteStatus",
+        "operationId": "deleteStatus",
+        "tags": [
+          "Worksapce"
+        ],
+        "parameters": [
+          {
+            "name": "statusId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080"
+    }
+  ],
+  "tags": [
+    {
+      "name": "auth"
+    },
+    {
+      "name": "Task"
+    },
+    {
+      "name": "Project"
+    },
+    {
+      "name": "Worksapce"
+    }
+  ],
+  "x-hoppscotch-folder-tags": "slash",
+  "x-hoppscotch-dropped-requests": [
+    {
+      "tagPath": "Worksapce",
+      "request": {
+        "v": "17",
+        "name": "createStatus",
+        "method": "POST",
+        "endpoint": "http://localhost:8080/workspaces/ws_c25898bc-3738-41db-abd3-55951b363633/lable",
+        "params": [],
+        "headers": [],
+        "preRequestScript": "",
+        "testScript": "",
+        "auth": {
+          "authActive": true,
+          "authType": "none"
+        },
+        "body": {
+          "contentType": "application/json",
+          "body": "{\n  \"name\": \"Repo\",\n  \"color\": \"#30A66D\",\n}"
+        },
+        "requestVariables": [],
+        "responses": {},
+        "_ref_id": "req_mq58a203_0b94e1ec-b43e-4add-a56a-3adbdde83484",
+        "description": null
+      }
+    }
+  ]
+}

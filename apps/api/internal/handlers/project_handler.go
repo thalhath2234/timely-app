@@ -6,7 +6,6 @@ import (
 	"timely-api/internal/models"
 	"timely-api/internal/services"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
 
@@ -21,9 +20,9 @@ func NewProjectHandler(projectService services.ProjectService) *ProjectHandler {
 }
 
 type createProjectRequest struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	WorkspaceID *uuid.UUID `json:"workspaceId"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	WorkspaceID *string `json:"workspaceId"`
 }
 
 func (h *ProjectHandler) Create(c *echo.Context) error {
@@ -36,11 +35,10 @@ func (h *ProjectHandler) Create(c *echo.Context) error {
 		)
 	}
 
-	userID, ok := c.Get("userID").(uuid.UUID)
-	if !ok {
+	if req.WorkspaceID == nil {
 		return echo.NewHTTPError(
-			http.StatusUnauthorized,
-			"user not authenticated",
+			http.StatusBadRequest,
+			"workspaceId is required",
 		)
 	}
 
@@ -48,7 +46,6 @@ func (h *ProjectHandler) Create(c *echo.Context) error {
 		Name:        req.Name,
 		Description: req.Description,
 
-		UserID:      &userID,
 		WorkspaceID: req.WorkspaceID,
 	}
 
@@ -66,7 +63,7 @@ func (h *ProjectHandler) Create(c *echo.Context) error {
 }
 
 func (h *ProjectHandler) GetAllProjectByUser(c *echo.Context) error {
-	userID, ok := c.Get("userID").(uuid.UUID)
+	userID, ok := c.Get("userID").(string)
 	if !ok {
 		return echo.NewHTTPError(
 			http.StatusUnauthorized,
@@ -86,7 +83,7 @@ func (h *ProjectHandler) GetAllProjectByUser(c *echo.Context) error {
 }
 
 func (h *ProjectHandler) GetProjectById(c *echo.Context) error {
-	userID, ok := c.Get("userID").(uuid.UUID)
+	userID, ok := c.Get("userID").(string)
 	if !ok {
 		return echo.NewHTTPError(
 			http.StatusUnauthorized,
@@ -94,8 +91,8 @@ func (h *ProjectHandler) GetProjectById(c *echo.Context) error {
 		)
 	}
 
-	projectId, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	projectId := c.Param("id")
+	if projectId == "" {
 		return echo.NewHTTPError(
 			http.StatusBadRequest,
 			"invalid project id",

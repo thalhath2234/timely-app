@@ -1,13 +1,13 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"time"
 	"timely-api/internal/repositories"
 	"timely-api/internal/services"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
 
@@ -33,8 +33,8 @@ type authResponse struct {
 }
 
 type userProfileResponse struct {
-	ID    uuid.UUID `json:"id"`
-	Email string    `json:"email"`
+	ID    string `json:"id"`
+	Email string `json:"email"`
 }
 
 func (h *AuthHandler) Register(c *echo.Context) error {
@@ -105,7 +105,7 @@ func (h *AuthHandler) Logout(c *echo.Context) error {
 }
 
 func (h *AuthHandler) Me(c *echo.Context) error {
-	userID, ok := c.Get("userID").(uuid.UUID)
+	userID, ok := c.Get("userID").(string)
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
 	}
@@ -119,6 +119,6 @@ func (h *AuthHandler) Me(c *echo.Context) error {
 		ID:    userID,
 		Email: email,
 	}
-
+	log.Printf("User ID: %s, Email: %s", userID, email)
 	return c.JSON(http.StatusOK, res)
 }

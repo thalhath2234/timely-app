@@ -1,19 +1,15 @@
 package models
 
-import (
-	"time"
-
-	"github.com/google/uuid"
-)
-
 type Status struct {
-	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	ID string `gorm:"type:text;primaryKey" json:"id"`
 
-	Name  string `gorm:"not null;unique" json:"name"`
-	Color string `json:"color"`
+	Name        string `gorm:"not null" json:"name"`
+	Color       string `json:"color"`
+	WorkspaceID string `gorm:"type:uuid;not null" json:"workspaceId"`
+	IsDefault   bool   `gorm:"default:false" json:"isDefault"`
 
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 
 	Tasks []Task `json:"tasks,omitempty"`
 }

@@ -81,6 +81,15 @@ func main() {
 	r.POST("/workspaces", workspaceHandler.Create)
 	r.GET("/workspaces", workspaceHandler.GetAllWorkspaceByUser)
 	r.GET("/workspaces/:id", workspaceHandler.GetWorkspaceById)
+	r.POST("/workspaces/:id/lable", workspaceHandler.CreateLable)
+	r.PUT("/workspaces/:workspaceId/lable/:lableId", workspaceHandler.UpdateLable)
+	r.DELETE("/workspaces/:workspaceId/lable/:lableId", workspaceHandler.DeleteLable)
+	r.POST("/workspaces/:id/status", workspaceHandler.CreateStatus)
+	r.PUT("/workspaces/:workspaceId/status/:statusId", workspaceHandler.UpdateStatus)
+	r.DELETE("/workspaces/:workspaceId/status/:statusId", workspaceHandler.DeleteStatus)
+	r.POST("/workspaces/:id/custom-field", workspaceHandler.CreateCustomField)
+	r.PUT("/workspaces/:workspaceId/custom-field/:customFieldId", workspaceHandler.UpdateCustomField)
+	r.DELETE("/workspaces/:workspaceId/custom-field/:customFieldId", workspaceHandler.DeleteCustomField)
 	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {

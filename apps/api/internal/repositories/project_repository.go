@@ -3,15 +3,14 @@ package repositories
 import (
 	"timely-api/internal/models"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type ProjectRepository interface {
 	CreateProject(project *models.Project) error
-	GetAllProjectByUser(user_id uuid.UUID) ([]models.Project, error)
-	GetProjectById(userID uuid.UUID, projectId uuid.UUID) (*models.Project, error)
-	GetStageById(projectID uuid.UUID, stageID uuid.UUID) (*models.Stage, error)
+	GetAllProjectByUser(user_id string) ([]models.Project, error)
+	GetProjectById(userID string, projectId string) (*models.Project, error)
+	GetStageById(projectID string, stageID string) (*models.Stage, error)
 }
 
 type projectRepository struct {
@@ -27,7 +26,7 @@ func (r *projectRepository) CreateProject(project *models.Project) error {
 	return r.db.Create(project).Error
 }
 
-func (r *projectRepository) GetAllProjectByUser(userID uuid.UUID) ([]models.Project, error) {
+func (r *projectRepository) GetAllProjectByUser(userID string) ([]models.Project, error) {
 	var projects []models.Project
 
 	err := r.db.
@@ -44,7 +43,7 @@ func (r *projectRepository) GetAllProjectByUser(userID uuid.UUID) ([]models.Proj
 	return projects, nil
 }
 
-func (r *projectRepository) GetProjectById(userID uuid.UUID, projectId uuid.UUID) (*models.Project, error) {
+func (r *projectRepository) GetProjectById(userID string, projectId string) (*models.Project, error) {
 	var project models.Project
 
 	err := r.db.
@@ -62,7 +61,7 @@ func (r *projectRepository) GetProjectById(userID uuid.UUID, projectId uuid.UUID
 	return &project, nil
 }
 
-func (r *projectRepository) GetStageById(projectID uuid.UUID, stageID uuid.UUID) (*models.Stage, error) {
+func (r *projectRepository) GetStageById(projectID string, stageID string) (*models.Stage, error) {
 	var stage models.Stage
 
 	err := r.db.
