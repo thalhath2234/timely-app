@@ -1,19 +1,11 @@
 package models
 
-import (
-	"time"
+type Lable struct {
+	ID          string `gorm:"type:text;primaryKey" json:"id"`
+	Name        string `gorm:"not null;unique" json:"name"`
+	Color       string `json:"color"`
+	WorkspaceID string `gorm:"type:uuid;not null" json:"workspaceId"`
 
-	"github.com/google/uuid"
-)
-
-type Label struct {
-	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-
-	Name  string `gorm:"not null;unique" json:"name"`
-	Color string `json:"color"`
-
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-
-	Tasks []Task `gorm:"many2many:task_labels;" json:"tasks,omitempty"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 }

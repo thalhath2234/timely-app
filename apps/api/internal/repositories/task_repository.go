@@ -3,14 +3,13 @@ package repositories
 import (
 	"timely-api/internal/models"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type TaskRepository interface {
 	CreateTask(task *models.Task) (*models.Task, error)
-	GetAllTaskByUser(user_id uuid.UUID) ([]models.Task, error)
-	GetTaskById(userID uuid.UUID, taskId uuid.UUID) (*models.Task, error)
+	GetAllTaskByUser(user_id string) ([]models.Task, error)
+	GetTaskById(userID string, taskId string) (*models.Task, error)
 }
 
 type taskRepository struct {
@@ -36,17 +35,9 @@ func (r *taskRepository) CreateTask(task *models.Task) (*models.Task, error) {
 		task.StatusID = &status.ID
 	}
 
-	if task.PriorityID == nil {
-		var priority models.Priority
-
-		err := r.db.
-			Where("name = ?", "Low").
-			First(&priority).Error
-		if err != nil {
-			return nil, err
-		}
-
-		task.PriorityID = &priority.ID
+	if task.PriorityLevel == nil || *task.PriorityLevel == "" {
+		priorityLevel := "Low"
+		task.PriorityLevel = &priorityLevel
 	}
 
 	if err := r.db.Create(task).Error; err != nil {
@@ -56,10 +47,9 @@ func (r *taskRepository) CreateTask(task *models.Task) (*models.Task, error) {
 	var createdTask models.Task
 
 	err := r.db.
-		Preload("Labels").
+		// Preload("Labels").
 		Preload("Project").
 		Preload("Status").
-		Preload("Priority").
 		Preload("Workspace").
 		Preload("Schedule").
 		Preload("Stage").
@@ -73,15 +63,14 @@ func (r *taskRepository) CreateTask(task *models.Task) (*models.Task, error) {
 	return &createdTask, nil
 }
 
-func (r *taskRepository) GetAllTaskByUser(userID uuid.UUID) ([]models.Task, error) {
+func (r *taskRepository) GetAllTaskByUser(userID string) ([]models.Task, error) {
 	var tasks []models.Task
 
 	err := r.db.
 		Where("user_id = ?", userID).
-		Preload("Labels").
+		// Preload("Labels").
 		Preload("Project").
 		Preload("Status").
-		Preload("Priority").
 		Preload("Workspace").
 		Preload("Schedule").
 		Preload("Stage").
@@ -97,16 +86,15 @@ func (r *taskRepository) GetAllTaskByUser(userID uuid.UUID) ([]models.Task, erro
 	return tasks, nil
 }
 
-func (r *taskRepository) GetTaskById(userID uuid.UUID, taskId uuid.UUID) (*models.Task, error) {
+func (r *taskRepository) GetTaskById(userID string, taskId string) (*models.Task, error) {
 	var task models.Task
 
 	err := r.db.
 		Where("user_id = ?", userID).
 		Where("id = ?", taskId).
-		Preload("Labels").
+		// Preload("Labels").
 		Preload("Project").
 		Preload("Status").
-		Preload("Priority").
 		Preload("Workspace").
 		Preload("Schedule").
 		Preload("Stage").

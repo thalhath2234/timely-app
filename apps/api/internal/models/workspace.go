@@ -1,22 +1,17 @@
 package models
 
-import (
-	"time"
-
-	"github.com/google/uuid"
-)
-
 type Workspace struct {
-	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	ID string `gorm:"type:text;primaryKey" json:"id"`
 
-	Name   string     `gorm:"not null" json:"name"`
-	UserID *uuid.UUID `json:"userId"`
+	Name   string  `gorm:"not null" json:"name"`
+	UserID *string `json:"userId"`
 
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 
-	User *User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"user,omitempty"`
-
-	Projects []*Project `json:"projects,omitempty"`
-	Tasks    []*Task    `json:"tasks,omitempty"`
+	Status       []*Status      `json:"status,omitempty"`
+	Lables       []*Lable       `json:"lables,omitempty"`
+	Projects     []*Project     `json:"projects,omitempty"`
+	Tasks        []*Task        `json:"tasks,omitempty"`
+	CustomFields []*CustomField `json:"customFields,omitempty"`
 }

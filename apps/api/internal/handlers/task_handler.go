@@ -2,11 +2,9 @@ package handlers
 
 import (
 	"net/http"
-	"time"
 	"timely-api/internal/models"
 	"timely-api/internal/services"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
 
@@ -20,25 +18,33 @@ func NewTaskHandler(taskService services.TaskService) *TaskHandler {
 	}
 }
 
+type customFieldValueRequest struct {
+	CustomFieldID string `json:"customFieldId"`
+	Value         string `json:"value"`
+	Type          string `json:"type"`
+}
+
 type createTaskRequest struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Duration    int        `json:"duration"`
-	Deadline    *time.Time `json:"deadline"`
-	StartDate   *time.Time `json:"startDate"`
-	TimeChunks  int        `json:"timeChunks"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Duration    int     `json:"duration"`
+	Deadline    *string `json:"deadline"`
+	StartDate   *string `json:"startDate"`
+	TimeChunks  int     `json:"timeChunks"`
 
-	ProjectID   *uuid.UUID `json:"projectId"`
-	StatusID    *uuid.UUID `json:"statusId"`
-	PriorityID  *uuid.UUID `json:"priorityId"`
-	WorkspaceID *uuid.UUID `json:"workspaceId"`
-	ScheduleID  *uuid.UUID `json:"scheduleId"`
-	StageID     *uuid.UUID `json:"stageId"`
+	CustomFieldValues []customFieldValueRequest `json:"customFieldValues"`
 
-	BlockedByID *uuid.UUID `json:"blockedById"`
-	BlockingID  *uuid.UUID `json:"blockingId"`
+	ProjectID     *string `json:"projectId"`
+	StatusID      *string `json:"statusId"`
+	PriorityLevel *string `json:"priorityLevel"`
+	WorkspaceID   *string `json:"workspaceId"`
+	ScheduleID    *string `json:"scheduleId"`
+	StageID       *string `json:"stageId"`
 
-	LabelIDs []uuid.UUID `json:"labelIds"`
+	BlockedByID *string `json:"blockedById"`
+	BlockingID  *string `json:"blockingId"`
+
+	LabelIDs []string `json:"labelIds"`
 }
 
 func (h *TaskHandler) Create(c *echo.Context) error {
@@ -50,12 +56,10 @@ func (h *TaskHandler) Create(c *echo.Context) error {
 			"invalid request payload",
 		)
 	}
-
-	userID, ok := c.Get("userID").(uuid.UUID)
-	if !ok {
+	if req.WorkspaceID == nil {
 		return echo.NewHTTPError(
-			http.StatusUnauthorized,
-			"user not authenticated",
+			http.StatusBadRequest,
+			"workspaceId is required",
 		)
 	}
 
@@ -64,15 +68,15 @@ func (h *TaskHandler) Create(c *echo.Context) error {
 		Description: req.Description,
 		Duration:    req.Duration,
 		TimeChunks:  req.TimeChunks,
+		Deadline:    req.Deadline,
+		StartDate:   req.StartDate,
 
-		UserId: &userID,
-
-		ProjectID:   req.ProjectID,
-		StatusID:    req.StatusID,
-		PriorityID:  req.PriorityID,
-		WorkspaceID: req.WorkspaceID,
-		ScheduleID:  req.ScheduleID,
-		StageID:     req.StageID,
+		ProjectID:     req.ProjectID,
+		StatusID:      req.StatusID,
+		PriorityLevel: req.PriorityLevel,
+		WorkspaceID:   req.WorkspaceID,
+		ScheduleID:    req.ScheduleID,
+		StageID:       req.StageID,
 
 		BlockedByID: req.BlockedByID,
 	}
@@ -89,7 +93,7 @@ func (h *TaskHandler) Create(c *echo.Context) error {
 }
 
 func (h *TaskHandler) GetAllTaskByUser(c *echo.Context) error {
-	userID, ok := c.Get("userID").(uuid.UUID)
+	userID, ok := c.Get("userID").(string)
 	if !ok {
 		return echo.NewHTTPError(
 			http.StatusUnauthorized,
@@ -109,7 +113,7 @@ func (h *TaskHandler) GetAllTaskByUser(c *echo.Context) error {
 }
 
 func (h *TaskHandler) GetTaskById(c *echo.Context) error {
-	userID, ok := c.Get("userID").(uuid.UUID)
+	userID, ok := c.Get("userID").(string)
 	if !ok {
 		return echo.NewHTTPError(
 			http.StatusUnauthorized,
@@ -117,8 +121,8 @@ func (h *TaskHandler) GetTaskById(c *echo.Context) error {
 		)
 	}
 
-	taskId, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	taskId := c.Param("id")
+	if taskId == "" {
 		return echo.NewHTTPError(
 			http.StatusBadRequest,
 			"invalid task id",

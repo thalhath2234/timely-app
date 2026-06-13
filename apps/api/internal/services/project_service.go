@@ -4,14 +4,13 @@ import (
 	"errors"
 	"timely-api/internal/models"
 	"timely-api/internal/repositories"
-
-	"github.com/google/uuid"
+	"timely-api/internal/utils"
 )
 
 type ProjectService interface {
 	Create(project *models.Project) (*models.Project, error)
-	GetAllProjectByUser(userID uuid.UUID) ([]models.Project, error)
-	GetProjectById(userID uuid.UUID, projectId uuid.UUID) (*models.Project, error)
+	GetAllProjectByUser(userID string) ([]models.Project, error)
+	GetProjectById(userID string, projectId string) (*models.Project, error)
 }
 
 type projectService struct {
@@ -27,9 +26,11 @@ func (s *projectService) Create(project *models.Project) (*models.Project, error
 		return nil, errors.New("project name cannot be empty")
 	}
 
-	if project.UserID == nil {
-		return nil, errors.New("user id is required")
-	}
+	// Generate prefixed ID
+	project.ID = utils.NewProjectID()
+
+	project.CreatedAt = utils.GetCurrentTime()
+	project.UpdatedAt = utils.GetCurrentTime()
 
 	err := s.repo.CreateProject(project)
 	if err != nil {
@@ -39,8 +40,8 @@ func (s *projectService) Create(project *models.Project) (*models.Project, error
 	return project, nil
 }
 
-func (s *projectService) GetAllProjectByUser(userID uuid.UUID) ([]models.Project, error) {
-	if userID == uuid.Nil {
+func (s *projectService) GetAllProjectByUser(userID string) ([]models.Project, error) {
+	if userID == "" {
 		return nil, errors.New("invalid user id")
 	}
 
@@ -52,8 +53,8 @@ func (s *projectService) GetAllProjectByUser(userID uuid.UUID) ([]models.Project
 	return projects, nil
 }
 
-func (s *projectService) GetProjectById(userID uuid.UUID, projectId uuid.UUID) (*models.Project, error) {
-	if userID == uuid.Nil {
+func (s *projectService) GetProjectById(userID string, projectId string) (*models.Project, error) {
+	if userID == "" {
 		return nil, errors.New("invalid user id")
 	}
 

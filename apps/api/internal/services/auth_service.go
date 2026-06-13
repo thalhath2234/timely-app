@@ -8,8 +8,9 @@ import (
 	"timely-api/internal/models"
 	"timely-api/internal/repositories"
 
+	"timely-api/internal/utils"
+
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -27,8 +28,8 @@ func NewAuthService(repo repositories.UserRepository) AuthService {
 }
 
 type JWTClaims struct {
-	UserID uuid.UUID `json:"user_id"`
-	Email  string    `json:"email"`
+	UserID string `json:"user_id"`
+	Email  string `json:"email"`
 	jwt.RegisteredClaims
 }
 
@@ -53,6 +54,8 @@ func (s *authService) Register(email, password string) (*models.User, error) {
 		Email:    email,
 		Password: string(hashedPassword),
 	}
+
+	user.ID = utils.NewUserID()
 
 	err = s.repo.CreateUser(user)
 	if err != nil {

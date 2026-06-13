@@ -1,13 +1,7 @@
 package models
 
-import (
-	"time"
-
-	"github.com/google/uuid"
-)
-
 type Schedule struct {
-	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	ID string `gorm:"type:text;primaryKey" json:"id"`
 
 	Name string `gorm:"not null" json:"name"`
 
@@ -17,8 +11,8 @@ type Schedule struct {
 	// custom
 	Type string `json:"type"`
 
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 
 	Tasks []Task `json:"tasks,omitempty"`
 }

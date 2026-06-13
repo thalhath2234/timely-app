@@ -33,16 +33,16 @@ func InitDB() *gorm.DB {
 	// Run auto migrations
 	err = db.AutoMigrate(
 		&models.User{},
-		&models.Priority{},
 		&models.Project{},
 		&models.Schedule{},
 		&models.Stage{},
 		&models.Status{},
 		&models.Task{},
 		&models.Workspace{},
+		&models.Lable{},
+		&models.CustomField{},
+		&models.CustomFieldValue{},
 	)
-
-	DefaultSeeds(db)
 
 	if err != nil {
 		log.Fatalf("Failed to run database migrations: %v", err)
@@ -51,43 +51,4 @@ func InitDB() *gorm.DB {
 
 	DB = db
 	return db
-}
-
-func DefaultSeeds(db *gorm.DB) error {
-	statuses := []models.Status{
-		{Name: "Backlog", Color: "#6B7280"},
-		{Name: "Todo", Color: "#3B82F6"},
-		{Name: "In Progress", Color: "#F59E0B"},
-		{Name: "Done", Color: "#10B981"},
-		{Name: "Paused", Color: "#8B5CF6"},
-		{Name: "Cancelled", Color: "#EF4444"},
-	}
-
-	priorities := []models.Priority{
-		{Name: "Low", Level: 1},
-		{Name: "Medium", Level: 2},
-		{Name: "High", Level: 3},
-		{Name: "Critical", Level: 4},
-	}
-
-	for _, status := range statuses {
-		err := db.
-			Where("name = ?", status.Name).
-			FirstOrCreate(&status).Error
-
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, priority := range priorities {
-		err := db.
-			Where("name = ?", priority.Name).
-			FirstOrCreate(&priority).Error
-
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }

@@ -1,15 +1,9 @@
 package models
 
-import (
-	"time"
-
-	"github.com/google/uuid"
-)
-
 type User struct {
-	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	Email     string    `gorm:"uniqueIndex;not null" json:"email"`
-	Password  string    `gorm:"not null" json:"-"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        string `gorm:"type:text;primaryKey" json:"id"`
+	Email     string `gorm:"uniqueIndex;not null" json:"email"`
+	Password  string `gorm:"not null" json:"-"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 }
