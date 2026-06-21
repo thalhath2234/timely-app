@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { SIDEBAR_ITEMS } from "../_types/types";
+import { SIDEBAR_ITEMS, AddNewModeOptions } from "../_types/types";
 
 export type SidebarItemName = typeof SIDEBAR_ITEMS[0]["name"];
 
@@ -10,8 +10,10 @@ type SidebarState = {
   setActiveItem: (item: SidebarItemName) => void;
   searchMode: boolean;
   setSearchMode: (mode: boolean) => void;
-  addItemMode: boolean;
-  setAddItemMode: (mode: boolean) => void;
+  isAddItemModalOpen: boolean;
+  setIsAddItemModalOpen: (mode: boolean) => void;
+  addNewMode: AddNewModeOptions;
+  setAddNewMode: (item: AddNewModeOptions) => void;
 };
 
 export const useSidebarStore = create<SidebarState>((set) => ({
@@ -19,6 +21,8 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   setActiveItem: (item) => set({ activeItem: item }),
   searchMode: false,
   setSearchMode: (mode) => set({ searchMode: mode }),
-  addItemMode: false,
-  setAddItemMode: (mode) => set({ addItemMode: mode }),
+  isAddItemModalOpen: false,
+  setIsAddItemModalOpen: (mode) => set({ isAddItemModalOpen: mode }),
+  addNewMode: "task",
+  setAddNewMode: (item) => set({ addNewMode: item }),
 }));

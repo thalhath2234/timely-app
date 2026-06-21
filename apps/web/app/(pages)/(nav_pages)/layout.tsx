@@ -1,8 +1,8 @@
 import Sidebar from "@/app/_components/_layout/sidebar";
-import SearchModal from "@/app/_ui/modal/search";
-import AddItemModal from "@/app/_ui/modal/addItem";
+import SearchModal from "@/app/_components/_ui/modal/search";
+import AddItemModal from "@/app/_components/_ui/modal/addItem";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
@@ -10,7 +10,7 @@ export default function DashboardLayout({
   return (
     <>
       <SearchModal />
-      <AddItemModal/>
+      <AddItemModal />
       <div className="flex flex-row h-full overflow-hidden w-full">
         <div className="w-16 items-center justify-center h-full">
           <Sidebar />

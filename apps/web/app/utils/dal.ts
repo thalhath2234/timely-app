@@ -26,7 +26,7 @@ export const getCurrentUser = cache(async () => {
         // Return mock user data matching the verified session ID
         return {
             id: session.userId,
-            name: 'John Doe',
+            name: 'Test User',
             email: 'user@example.com',
         };
     } catch (error) {

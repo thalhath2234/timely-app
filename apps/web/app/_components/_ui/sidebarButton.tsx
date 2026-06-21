@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
-import { SidebarProps } from "../_types/types";
+import { SidebarProps } from "../../_types/types";
 import { Brain, Calendar, ListTodo, Search } from "lucide-react";
-import { useSidebarStore } from "../_store/sidebarStore";
+import { useSidebarStore } from "../../_store/sidebarStore";
 import * as motion from "motion/react-client";
 import { usePathname } from "next/navigation";
 

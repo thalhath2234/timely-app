@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Mail, Lock, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import * as motion from "motion/react-client";
+import { getMe } from "@/app/utils/api/user";
 
 export default function LoginPage() {
+  const queryClient = useQueryClient();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,9 +30,17 @@ export default function LoginPage() {
       }
       return data;
     },
-    onSuccess: () => {
-      router.push("/calendar");
-      router.refresh();
+    onSuccess: async () => {
+      const me = await getMe();
+
+      queryClient.setQueryData(["me"], me);
+      console.log("me: ", me)
+
+      if (me.isOnBoardingCompleted ?? me.IsOnBoardingCompleted) {
+        router.replace("/calendar");
+      } else {
+        router.replace("/onboarding");
+      }
     },
   });
 
