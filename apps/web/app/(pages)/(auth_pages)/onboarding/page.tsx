@@ -4,9 +4,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { completeOnboarding, createWorkspace } from "@/app/utils/api/worksapce";
 import { Config } from "@/app/_types/types";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useConfig } from "@/app/utils/hooks/workspaces";
 
 const workspaceSchema = z.object({
   name: z
@@ -20,6 +22,18 @@ type WorkspaceForm = z.infer<typeof workspaceSchema>;
 export default function Onboarding() {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const { data: config, isLoading: isConfigLoading } = useConfig();
+
+  const typedConfig = config as Config | undefined;
+  const isOnboardingDone = Boolean(
+    typedConfig?.isOnboardingCompleted ?? typedConfig?.isOnBoardingCompleted,
+  );
+
+  useEffect(() => {
+    if (isOnboardingDone) {
+      router.replace("/calendar");
+    }
+  }, [isOnboardingDone, router]);
 
   const {
     register,
@@ -34,7 +48,9 @@ export default function Onboarding() {
     mutationFn: async (data: { name: string }) => {
       const workspace = await createWorkspace(data);
 
-      await completeOnboarding();
+      if (!isOnboardingDone) {
+        await completeOnboarding();
+      }
 
       return workspace;
     },
@@ -64,6 +80,10 @@ export default function Onboarding() {
   const onSubmit = (data: WorkspaceForm) => {
     mutate(data);
   };
+
+  if (isConfigLoading || isOnboardingDone) {
+    return null;
+  }
 
   return (
     <div>

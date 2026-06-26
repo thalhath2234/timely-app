@@ -1,7 +1,8 @@
 // features/tasks/hooks.ts
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getWorkspaces, getConfig } from "@/app/utils/api/worksapce";
+import { updateTaskViewsConfig } from "@/app/utils/api/worksapce";
 
 export function useWorkspaces() {
   return useQuery({
@@ -15,5 +16,11 @@ export function useConfig() {
     queryKey: ["config"],
     queryFn: getConfig,
     staleTime: 1000 * 60 * 5,
+  });
+}
+
+export function useUpdateTaskViewsConfig() {
+  return useMutation({
+    mutationFn: updateTaskViewsConfig,
   });
 }

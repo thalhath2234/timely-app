@@ -172,6 +172,8 @@ export interface Config {
   isOnBoardingCompleted?: boolean;
   isOnboardingCompleted: boolean;
   customFields?: CustomField[];
+  taskViews?: TaskViewConfig[];
+  activeTaskViewId?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -193,3 +195,30 @@ export type TaskListGroupBy =
   | "project"
   | "priority"
   | `cf:${string}`;
+
+export type TaskListGroupField =
+  | "workspace"
+  | "project"
+  | "stage"
+  | "status"
+  | "priority"
+  | `cf:${string}`;
+
+export type TaskListGroupSortDirection = "asc" | "desc";
+
+export type TaskListDataMode = "task" | "project";
+
+export type TaskRenderMode = "list" | "kanban" | "gantt";
+
+export interface TaskViewConfig {
+  id: string;
+  name: string;
+  dataMode: TaskListDataMode;
+  renderMode: TaskRenderMode;
+  groupFields: TaskListGroupField[];
+  groupSortDirection: TaskListGroupSortDirection;
+  groupValueOrders: Record<string, string[]>;
+  sortBy: TaskListSortBy;
+  sortDirection: TaskListSortDirection;
+  selectedWorkspaceIds: string[];
+}
