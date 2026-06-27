@@ -1,5 +1,56 @@
 package models
 
+import (
+	"database/sql/driver"
+	"encoding/json"
+	"timely-api/internal/utils"
+
+	"gorm.io/gorm"
+)
+
+type LabelInput struct {
+	Id string `json:"id"`
+}
+
+type LabelInputs []LabelInput
+
+func (l LabelInputs) Value() (driver.Value, error) {
+	return json.Marshal(l)
+}
+
+func (l *LabelInputs) Scan(value any) error {
+	if value == nil {
+		*l = nil
+		return nil
+	}
+
+	var bytes []byte
+	switch v := value.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		return nil
+	}
+
+	if len(bytes) == 0 {
+		*l = nil
+		return nil
+	}
+
+	if bytes[0] == '{' {
+		var single LabelInput
+		if err := json.Unmarshal(bytes, &single); err != nil {
+			return err
+		}
+		*l = LabelInputs{single}
+		return nil
+	}
+
+	return json.Unmarshal(bytes, l)
+}
+
 type Task struct {
 	ID string `gorm:"type:text;primaryKey" json:"id"`
 
@@ -20,6 +71,7 @@ type Task struct {
 	UpdatedAt string `json:"updatedAt"`
 
 	// Foreign Keys
+	UserID        *string `json:"userId"`
 	ProjectID     *string `json:"projectId"`
 	StatusID      *string `json:"statusId"`
 	PriorityLevel *string `json:"priorityLevel"`
@@ -47,6 +99,23 @@ type Task struct {
 
 	CustomFieldValues []*CustomFieldValue `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"customFieldValues,omitempty"`
 
+	LabelIDs LabelInputs `gorm:"type:jsonb;" json:"labelIds"`
+	Labels   []*Lable    `gorm:"-" json:"labels,omitempty"`
+
 	// Many-to-Many Labels
 	// Labels []*Labels `gorm:"many2many:task_labels;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"labels,omitempty"`
+}
+
+func (t *Task) BeforeCreate(tx *gorm.DB) error {
+	now := utils.GetCurrentTime()
+	if t.CreatedAt == "" {
+		t.CreatedAt = now
+	}
+	t.UpdatedAt = now
+	return nil
+}
+
+func (t *Task) BeforeUpdate(tx *gorm.DB) error {
+	t.UpdatedAt = utils.GetCurrentTime()
+	return nil
 }

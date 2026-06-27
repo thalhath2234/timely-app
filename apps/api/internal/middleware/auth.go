@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 	"os"
-	"timely-api/internal/services"
+	"timely-api/internal/features/auth"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
@@ -18,7 +18,7 @@ func JWTMiddleware() echo.MiddlewareFunc {
 			}
 
 			tokenString := cookie.Value
-			claims := &services.JWTClaims{}
+			claims := &auth.JWTClaims{}
 
 			token, err := jwt.ParseWithClaims(
 				tokenString,
@@ -34,6 +34,7 @@ func JWTMiddleware() echo.MiddlewareFunc {
 
 			c.Set("userID", claims.UserID)
 			c.Set("email", claims.Email)
+			c.Set("IsOnBoardingCompleted", claims.IsOnBoardingCompleted)
 
 			return next(c)
 		}

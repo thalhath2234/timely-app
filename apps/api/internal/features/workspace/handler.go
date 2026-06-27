@@ -1,20 +1,19 @@
-package handlers
+package workspace
 
 import (
 	"net/http"
 	"timely-api/internal/models"
-	"timely-api/internal/services"
 	"timely-api/internal/utils"
 
 	"github.com/labstack/echo/v5"
 )
 
-type WorkspaceHandler struct {
-	workspaceService services.WorkspaceService
+type Handler struct {
+	workspaceService WorkspaceService
 }
 
-func NewWorkspaceHandler(workspaceService services.WorkspaceService) *WorkspaceHandler {
-	return &WorkspaceHandler{
+func NewHandler(workspaceService WorkspaceService) *Handler {
+	return &Handler{
 		workspaceService: workspaceService,
 	}
 }
@@ -44,7 +43,7 @@ type createCustomFieldRequest struct {
 	Options []createOptionRequest  `json:"options,omitempty"`
 }
 
-func (h *WorkspaceHandler) Create(c *echo.Context) error {
+func (h *Handler) Create(c *echo.Context) error {
 	var req createWorkspaceRequest
 
 	if err := c.Bind(&req); err != nil {
@@ -78,7 +77,7 @@ func (h *WorkspaceHandler) Create(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, map[string]interface{}{"message": "workspace created successfully", "workspace": createdWorkspace})
 }
 
-func (h *WorkspaceHandler) GetAllWorkspaceByUser(c *echo.Context) error {
+func (h *Handler) GetAllWorkspaceByUser(c *echo.Context) error {
 	userID, ok := c.Get("userID").(string)
 	if !ok {
 		return echo.NewHTTPError(
@@ -98,7 +97,7 @@ func (h *WorkspaceHandler) GetAllWorkspaceByUser(c *echo.Context) error {
 	return c.JSON(http.StatusOK, workspaces)
 }
 
-func (h *WorkspaceHandler) GetWorkspaceById(c *echo.Context) error {
+func (h *Handler) GetWorkspaceById(c *echo.Context) error {
 	userID, ok := c.Get("userID").(string)
 	if !ok {
 		return echo.NewHTTPError(
@@ -108,8 +107,6 @@ func (h *WorkspaceHandler) GetWorkspaceById(c *echo.Context) error {
 	}
 
 	workspaceID := c.Param("id")
-
-	//check whether workspaceID is empty or not, if empty return bad request error
 
 	if workspaceID == "" {
 		return echo.NewHTTPError(
@@ -129,8 +126,7 @@ func (h *WorkspaceHandler) GetWorkspaceById(c *echo.Context) error {
 	return c.JSON(http.StatusOK, workspace)
 }
 
-func (h *WorkspaceHandler) CreateLable(c *echo.Context) error {
-
+func (h *Handler) CreateLable(c *echo.Context) error {
 	workspaceID := c.Param("id")
 
 	var req createLableRequest
@@ -158,8 +154,7 @@ func (h *WorkspaceHandler) CreateLable(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, createdLable)
 }
 
-func (h *WorkspaceHandler) CreateStatus(c *echo.Context) error {
-
+func (h *Handler) CreateStatus(c *echo.Context) error {
 	workspaceID := c.Param("id")
 
 	var req createStatusRequest
@@ -187,8 +182,7 @@ func (h *WorkspaceHandler) CreateStatus(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, createdStatus)
 }
 
-func (h *WorkspaceHandler) CreateCustomField(c *echo.Context) error {
-
+func (h *Handler) CreateCustomField(c *echo.Context) error {
 	workspaceID := c.Param("id")
 
 	options := models.Options{
@@ -232,7 +226,7 @@ func (h *WorkspaceHandler) CreateCustomField(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, createdCustomField)
 }
 
-func (h *WorkspaceHandler) UpdateLable(c *echo.Context) error {
+func (h *Handler) UpdateLable(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
 	lableID := c.Param("lableId")
 
@@ -262,7 +256,7 @@ func (h *WorkspaceHandler) UpdateLable(c *echo.Context) error {
 	return c.JSON(http.StatusOK, updatedLable)
 }
 
-func (h *WorkspaceHandler) DeleteLable(c *echo.Context) error {
+func (h *Handler) DeleteLable(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
 	lableID := c.Param("lableId")
 
@@ -276,7 +270,7 @@ func (h *WorkspaceHandler) DeleteLable(c *echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *WorkspaceHandler) UpdateStatus(c *echo.Context) error {
+func (h *Handler) UpdateStatus(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
 	statusID := c.Param("statusId")
 
@@ -306,7 +300,7 @@ func (h *WorkspaceHandler) UpdateStatus(c *echo.Context) error {
 	return c.JSON(http.StatusOK, updatedStatus)
 }
 
-func (h *WorkspaceHandler) DeleteStatus(c *echo.Context) error {
+func (h *Handler) DeleteStatus(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
 	statusID := c.Param("statusId")
 
@@ -320,7 +314,7 @@ func (h *WorkspaceHandler) DeleteStatus(c *echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *WorkspaceHandler) UpdateCustomField(c *echo.Context) error {
+func (h *Handler) UpdateCustomField(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
 	customFieldID := c.Param("customFieldId")
 
@@ -360,7 +354,7 @@ func (h *WorkspaceHandler) UpdateCustomField(c *echo.Context) error {
 	return c.JSON(http.StatusOK, updatedCustomField)
 }
 
-func (h *WorkspaceHandler) DeleteCustomField(c *echo.Context) error {
+func (h *Handler) DeleteCustomField(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
 	customFieldID := c.Param("customFieldId")
 
@@ -372,4 +366,64 @@ func (h *WorkspaceHandler) DeleteCustomField(c *echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) GetConfig(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(
+			http.StatusUnauthorized,
+			"user not authenticated",
+		)
+	}
+
+	config, err := h.workspaceService.GetConfig(userID)
+	if err != nil {
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			err.Error(),
+		)
+	}
+
+	return c.JSON(http.StatusOK, config)
+}
+
+func (h *Handler) UpdateConfig(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(
+			http.StatusUnauthorized,
+			"user not authenticated",
+		)
+	}
+
+	var req struct {
+		IsOnBoardingCompleted bool             `json:"isOnboardingCompleted"`
+		TaskViews             models.TaskViews `json:"taskViews"`
+		ActiveTaskViewId      string           `json:"activeTaskViewId"`
+	}
+
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			"invalid request payload",
+		)
+	}
+
+	config := &models.Config{
+		UserID:                userID,
+		IsOnBoardingCompleted: req.IsOnBoardingCompleted,
+		TaskViews:             req.TaskViews,
+		ActiveTaskViewId:      req.ActiveTaskViewId,
+	}
+
+	updatedConfig, err := h.workspaceService.UpdateConfig(config)
+	if err != nil {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			err.Error(),
+		)
+	}
+
+	return c.JSON(http.StatusOK, updatedConfig)
 }

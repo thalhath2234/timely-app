@@ -1,16 +1,26 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
-	"timely-api/internal/models"
 
+	"github.com/pressly/goose/v3"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 var DB *gorm.DB
+
+// RunMigrations executes Goose migrations from the migrations directory
+func RunMigrations(db *sql.DB) error {
+	if err := goose.Up(db, "migrations"); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
+}
 
 func InitDB() *gorm.DB {
 	host := os.Getenv("DB_HOST")
@@ -30,24 +40,16 @@ func InitDB() *gorm.DB {
 
 	log.Println("Database connection established")
 
-	// Run auto migrations
-	err = db.AutoMigrate(
-		&models.User{},
-		&models.Project{},
-		&models.Schedule{},
-		&models.Stage{},
-		&models.Status{},
-		&models.Task{},
-		&models.Workspace{},
-		&models.Lable{},
-		&models.CustomField{},
-		&models.CustomFieldValue{},
-	)
-
+	// Get raw SQL DB from GORM for Goose migrations
+	sqlDB, err := db.DB()
 	if err != nil {
-		log.Fatalf("Failed to run database migrations: %v", err)
+		log.Fatalf("Failed to get raw database connection: %v", err)
 	}
-	log.Println("Database migrations completed successfully")
+
+	// Run Goose migrations
+	if err := RunMigrations(sqlDB); err != nil {
+		log.Fatalf("Failed to run Goose migrations: %v", err)
+	}
 
 	DB = db
 	return db

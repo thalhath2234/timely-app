@@ -1,9 +1,8 @@
-package services
+package workspace
 
 import (
 	"errors"
 	"timely-api/internal/models"
-	"timely-api/internal/repositories"
 	"timely-api/internal/utils"
 )
 
@@ -20,13 +19,15 @@ type WorkspaceService interface {
 	DeleteStatuses(statusID string, workspaceID string) error
 	UpdateCustomFields(customField *models.CustomField) (*models.CustomField, error)
 	DeleteCustomFields(customFieldID string, workspaceID string) error
+	GetConfig(userID string) (*models.Config, error)
+	UpdateConfig(config *models.Config) (*models.Config, error)
 }
 
 type workspaceService struct {
-	repo repositories.WorkspaceRepository
+	repo WorkspaceRepository
 }
 
-func NewWorkspaceService(repo repositories.WorkspaceRepository) WorkspaceService {
+func NewWorkspaceService(repo WorkspaceRepository) WorkspaceService {
 	return &workspaceService{repo: repo}
 }
 
@@ -39,9 +40,7 @@ func (s *workspaceService) Create(workspace *models.Workspace) (*models.Workspac
 		return nil, errors.New("user id is required")
 	}
 
-	// Generate prefixed ID
 	workspace.ID = utils.NewWorkspaceID()
-	// Generate default statuses for the workspace
 	defaultStatuses := []models.Status{
 		{
 			ID:          utils.NewStatusID(),
@@ -87,9 +86,6 @@ func (s *workspaceService) Create(workspace *models.Workspace) (*models.Workspac
 		},
 	}
 
-	workspace.CreatedAt = utils.GetCurrentTime()
-	workspace.UpdatedAt = utils.GetCurrentTime()
-
 	err := s.repo.CreateWorkspace(workspace, defaultStatuses)
 	if err != nil {
 		return nil, err
@@ -131,9 +127,6 @@ func (s *workspaceService) CreateLables(lable *models.Lable) (*models.Lable, err
 
 	lable.ID = utils.NewLableID()
 
-	lable.CreatedAt = utils.GetCurrentTime()
-	lable.UpdatedAt = utils.GetCurrentTime()
-
 	createdLable, err := s.repo.CreateLables(lable)
 	if err != nil {
 		return nil, err
@@ -143,15 +136,11 @@ func (s *workspaceService) CreateLables(lable *models.Lable) (*models.Lable, err
 }
 
 func (s *workspaceService) CreateStatuses(status *models.Status) (*models.Status, error) {
-
 	if status == nil {
 		return nil, errors.New("invalid status data")
 	}
 
 	status.ID = utils.NewStatusID()
-
-	status.CreatedAt = utils.GetCurrentTime()
-	status.UpdatedAt = utils.GetCurrentTime()
 
 	createdStatus, err := s.repo.CreateStatuses(status)
 	if err != nil {
@@ -163,8 +152,6 @@ func (s *workspaceService) CreateStatuses(status *models.Status) (*models.Status
 
 func (s *workspaceService) CreateCustomFields(customField *models.CustomField) (*models.CustomField, error) {
 	customField.ID = utils.NewCustomFieldID()
-	customField.CreatedAt = utils.GetCurrentTime()
-	customField.UpdatedAt = utils.GetCurrentTime()
 
 	createdCustomField, err := s.repo.CreateCustomFields(customField)
 	if err != nil {
@@ -178,8 +165,6 @@ func (s *workspaceService) UpdateLables(lable *models.Lable) (*models.Lable, err
 	if lable == nil || lable.ID == "" {
 		return nil, errors.New("invalid lable data")
 	}
-
-	lable.UpdatedAt = utils.GetCurrentTime()
 
 	updatedLable, err := s.repo.UpdateLables(lable)
 	if err != nil {
@@ -202,8 +187,6 @@ func (s *workspaceService) UpdateStatuses(status *models.Status) (*models.Status
 		return nil, errors.New("invalid status data")
 	}
 
-	status.UpdatedAt = utils.GetCurrentTime()
-
 	updatedStatus, err := s.repo.UpdateStatuses(status)
 	if err != nil {
 		return nil, err
@@ -225,8 +208,6 @@ func (s *workspaceService) UpdateCustomFields(customField *models.CustomField) (
 		return nil, errors.New("invalid custom field data")
 	}
 
-	customField.UpdatedAt = utils.GetCurrentTime()
-
 	updatedCustomField, err := s.repo.UpdateCustomFields(customField)
 	if err != nil {
 		return nil, err
@@ -241,4 +222,81 @@ func (s *workspaceService) DeleteCustomFields(customFieldID string, workspaceID 
 	}
 
 	return s.repo.DeleteCustomFields(customFieldID, workspaceID)
+}
+
+func (s *workspaceService) GetConfig(userID string) (*models.Config, error) {
+	if userID == "" {
+		return nil, errors.New("invalid user id")
+	}
+
+	config, err := s.repo.GetConfig(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Backfill for users who pre-date the task views feature.
+	if len(config.TaskViews) == 0 {
+		config.TaskViews = models.DefaultTaskViews()
+		config.ActiveTaskViewId = "view_task_list"
+	}
+
+	customFields, err := s.repo.GetAllCustomFields(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	config.CustomFields = customFields
+
+	return config, nil
+}
+
+// UpdateConfig validates and persists a config update.
+func (s *workspaceService) UpdateConfig(config *models.Config) (*models.Config, error) {
+	if config == nil || config.UserID == "" {
+		return nil, errors.New("invalid config data")
+	}
+
+	if err := validateTaskViews(config.TaskViews, config.ActiveTaskViewId); err != nil {
+		return nil, err
+	}
+
+	updatedConfig, err := s.repo.UpdateConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	// Re-attach custom fields so the response is complete.
+	customFields, err := s.repo.GetAllCustomFields(config.UserID)
+	if err != nil {
+		return nil, err
+	}
+	updatedConfig.CustomFields = customFields
+
+	return updatedConfig, nil
+}
+
+// validateTaskViews checks structural constraints on a set of task views.
+// customFieldIDs is nil here (we do not re-validate cf: IDs on every write to
+// keep things fast; the DB is the source-of-truth for custom field existence).
+func validateTaskViews(views models.TaskViews, activeID string) error {
+	if len(views) > models.MaxTaskViews {
+		return errors.New("too many task views (max 20)")
+	}
+
+	ids := make(map[string]bool, len(views))
+	for _, v := range views {
+		if err := v.Validate(nil); err != nil {
+			return err
+		}
+		if ids[v.ID] {
+			return errors.New("duplicate view id: " + v.ID)
+		}
+		ids[v.ID] = true
+	}
+
+	if activeID != "" && !ids[activeID] {
+		return errors.New("activeTaskViewId does not match any view id")
+	}
+
+	return nil
 }

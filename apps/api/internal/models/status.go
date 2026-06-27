@@ -1,5 +1,11 @@
 package models
 
+import (
+	"timely-api/internal/utils"
+
+	"gorm.io/gorm"
+)
+
 type Status struct {
 	ID string `gorm:"type:text;primaryKey" json:"id"`
 
@@ -12,4 +18,18 @@ type Status struct {
 	UpdatedAt string `json:"updatedAt"`
 
 	Tasks []Task `json:"tasks,omitempty"`
+}
+
+func (s *Status) BeforeCreate(tx *gorm.DB) error {
+	now := utils.GetCurrentTime()
+	if s.CreatedAt == "" {
+		s.CreatedAt = now
+	}
+	s.UpdatedAt = now
+	return nil
+}
+
+func (s *Status) BeforeUpdate(tx *gorm.DB) error {
+	s.UpdatedAt = utils.GetCurrentTime()
+	return nil
 }

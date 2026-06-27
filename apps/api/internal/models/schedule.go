@@ -1,5 +1,11 @@
 package models
 
+import (
+	"timely-api/internal/utils"
+
+	"gorm.io/gorm"
+)
+
 type Schedule struct {
 	ID string `gorm:"type:text;primaryKey" json:"id"`
 
@@ -15,4 +21,18 @@ type Schedule struct {
 	UpdatedAt string `json:"updatedAt"`
 
 	Tasks []Task `json:"tasks,omitempty"`
+}
+
+func (s *Schedule) BeforeCreate(tx *gorm.DB) error {
+	now := utils.GetCurrentTime()
+	if s.CreatedAt == "" {
+		s.CreatedAt = now
+	}
+	s.UpdatedAt = now
+	return nil
+}
+
+func (s *Schedule) BeforeUpdate(tx *gorm.DB) error {
+	s.UpdatedAt = utils.GetCurrentTime()
+	return nil
 }

@@ -1,19 +1,18 @@
-package handlers
+package task
 
 import (
 	"net/http"
 	"timely-api/internal/models"
-	"timely-api/internal/services"
 
 	"github.com/labstack/echo/v5"
 )
 
-type TaskHandler struct {
-	taskService services.TaskService
+type Handler struct {
+	taskService TaskService
 }
 
-func NewTaskHandler(taskService services.TaskService) *TaskHandler {
-	return &TaskHandler{
+func NewHandler(taskService TaskService) *Handler {
+	return &Handler{
 		taskService: taskService,
 	}
 }
@@ -45,10 +44,12 @@ type createTaskRequest struct {
 	BlockedByID *string `json:"blockedById"`
 	BlockingID  *string `json:"blockingId"`
 
-	LabelIDs []string `json:"labelIds"`
+	LabelIDs []models.LabelInput `json:"labelIds"`
 }
 
-func (h *TaskHandler) Create(c *echo.Context) error {
+func (h *Handler) Create(c *echo.Context) error {
+	userID := c.Get("userID").(string)
+
 	var req createTaskRequest
 
 	if err := c.Bind(&req); err != nil {
@@ -81,6 +82,7 @@ func (h *TaskHandler) Create(c *echo.Context) error {
 		TimeChunks:  req.TimeChunks,
 		Deadline:    req.Deadline,
 		StartDate:   req.StartDate,
+		UserID:      &userID,
 
 		ProjectID:     req.ProjectID,
 		StatusID:      req.StatusID,
@@ -90,6 +92,7 @@ func (h *TaskHandler) Create(c *echo.Context) error {
 		StageID:       req.StageID,
 
 		BlockedByID: req.BlockedByID,
+		LabelIDs:    models.LabelInputs(req.LabelIDs),
 	}
 
 	createdTask, err := h.taskService.Create(task, customFieldValues)
@@ -103,16 +106,8 @@ func (h *TaskHandler) Create(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, map[string]interface{}{"message": "task created successfully", "task": createdTask})
 }
 
-func (h *TaskHandler) GetAllTaskByUser(c *echo.Context) error {
-	userID, ok := c.Get("userID").(string)
-	if !ok {
-		return echo.NewHTTPError(
-			http.StatusUnauthorized,
-			"user not authenticated",
-		)
-	}
-
-	tasks, err := h.taskService.GetAllTaskByUser(userID)
+func (h *Handler) GetAllTaskByUser(c *echo.Context) error {
+	tasks, err := h.taskService.GetAllTaskByUser(c.Get("userID").(string))
 	if err != nil {
 		return echo.NewHTTPError(
 			http.StatusInternalServerError,
@@ -123,14 +118,7 @@ func (h *TaskHandler) GetAllTaskByUser(c *echo.Context) error {
 	return c.JSON(http.StatusOK, tasks)
 }
 
-func (h *TaskHandler) GetTaskById(c *echo.Context) error {
-	userID, ok := c.Get("userID").(string)
-	if !ok {
-		return echo.NewHTTPError(
-			http.StatusUnauthorized,
-			"user not authenticated",
-		)
-	}
+func (h *Handler) GetTaskById(c *echo.Context) error {
 
 	taskId := c.Param("id")
 	if taskId == "" {
@@ -140,7 +128,7 @@ func (h *TaskHandler) GetTaskById(c *echo.Context) error {
 		)
 	}
 
-	task, err := h.taskService.GetTaskById(userID, taskId)
+	task, err := h.taskService.GetTaskById(taskId)
 	if err != nil {
 		return echo.NewHTTPError(
 			http.StatusInternalServerError,

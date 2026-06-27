@@ -1,13 +1,12 @@
-package services
+package auth
 
 import (
 	"errors"
 	"os"
 	"strconv"
 	"time"
+	"timely-api/internal/features/workspace"
 	"timely-api/internal/models"
-	"timely-api/internal/repositories"
-
 	"timely-api/internal/utils"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -19,18 +18,26 @@ type AuthService interface {
 	Login(email, password string) (string, error)
 }
 
-type authService struct {
-	repo repositories.UserRepository
-}
-
-func NewAuthService(repo repositories.UserRepository) AuthService {
-	return &authService{repo: repo}
-}
-
 type JWTClaims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
+	UserID                string `json:"user_id"`
+	Email                 string `json:"email"`
+	IsOnBoardingCompleted bool   `json:"is_on_boarding_completed"`
 	jwt.RegisteredClaims
+}
+
+type authService struct {
+	repo      UserRepository
+	workspace workspace.WorkspaceRepository
+}
+
+func NewAuthService(
+	repo UserRepository,
+	workspaceRepo workspace.WorkspaceRepository,
+) AuthService {
+	return &authService{
+		repo:      repo,
+		workspace: workspaceRepo,
+	}
 }
 
 func (s *authService) Register(email, password string) (*models.User, error) {
@@ -38,13 +45,11 @@ func (s *authService) Register(email, password string) (*models.User, error) {
 		return nil, errors.New("email and password cannot be empty")
 	}
 
-	// Check if user already exists
 	existingUser, _ := s.repo.GetUserByEmail(email)
 	if existingUser != nil {
 		return nil, errors.New("user with this email already exists")
 	}
 
-	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
@@ -75,13 +80,13 @@ func (s *authService) Login(email, password string) (string, error) {
 		return "", errors.New("invalid email or password")
 	}
 
-	// Verify password
+	config, err := s.workspace.GetConfig(user.ID)
+
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 	if err != nil {
 		return "", errors.New("invalid email or password")
 	}
 
-	// Generate JWT token
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		panic("JWT_SECRET missing")
@@ -90,12 +95,13 @@ func (s *authService) Login(email, password string) (string, error) {
 	expiryHoursStr := os.Getenv("JWT_EXPIRY_HOURS")
 	expiryHours, err := strconv.Atoi(expiryHoursStr)
 	if err != nil {
-		expiryHours = 24 // default to 24 hours
+		expiryHours = 24
 	}
 
 	claims := &JWTClaims{
-		UserID: user.ID,
-		Email:  user.Email,
+		UserID:                user.ID,
+		Email:                 user.Email,
+		IsOnBoardingCompleted: config.IsOnBoardingCompleted,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiryHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

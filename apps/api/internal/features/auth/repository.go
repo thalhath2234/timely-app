@@ -1,7 +1,8 @@
-package repositories
+package auth
 
 import (
 	"timely-api/internal/models"
+	"timely-api/internal/utils"
 
 	"gorm.io/gorm"
 )
@@ -20,7 +21,31 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 }
 
 func (r *userRepository) CreateUser(user *models.User) error {
-	return r.db.Create(user).Error
+	tx := r.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if err := tx.Create(user).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	config := &models.Config{
+		ID:                    utils.NewConfigID(),
+		UserID:                user.ID,
+		IsOnBoardingCompleted: false,
+		TaskViews:             models.DefaultTaskViews(),
+		ActiveTaskViewId:      "view_task_list",
+	}
+
+	if err := tx.Create(config).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return tx.Commit().Error
 }
 
 func (r *userRepository) GetUserByEmail(email string) (*models.User, error) {

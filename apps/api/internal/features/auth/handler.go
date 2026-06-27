@@ -1,23 +1,21 @@
-package handlers
+package auth
 
 import (
 	"log"
 	"net/http"
 	"os"
 	"time"
-	"timely-api/internal/repositories"
-	"timely-api/internal/services"
 
 	"github.com/labstack/echo/v5"
 )
 
-type AuthHandler struct {
-	authService services.AuthService
-	userRepo    repositories.UserRepository
+type Handler struct {
+	authService AuthService
+	userRepo    UserRepository
 }
 
-func NewAuthHandler(authService services.AuthService, userRepo repositories.UserRepository) *AuthHandler {
-	return &AuthHandler{
+func NewHandler(authService AuthService, userRepo UserRepository) *Handler {
+	return &Handler{
 		authService: authService,
 		userRepo:    userRepo,
 	}
@@ -28,16 +26,13 @@ type authRequest struct {
 	Password string `json:"password"`
 }
 
-type authResponse struct {
-	Token string `json:"token"`
-}
-
 type userProfileResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
+	ID                    string `json:"id"`
+	Email                 string `json:"email"`
+	IsOnBoardingCompleted bool   `json:"is_on_boarding_completed"`
 }
 
-func (h *AuthHandler) Register(c *echo.Context) error {
+func (h *Handler) Register(c *echo.Context) error {
 	var req authRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")
@@ -56,7 +51,7 @@ func (h *AuthHandler) Register(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, res)
 }
 
-func (h *AuthHandler) Login(c *echo.Context) error {
+func (h *Handler) Login(c *echo.Context) error {
 	var req authRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")
@@ -83,7 +78,7 @@ func (h *AuthHandler) Login(c *echo.Context) error {
 	})
 }
 
-func (h *AuthHandler) Logout(c *echo.Context) error {
+func (h *Handler) Logout(c *echo.Context) error {
 	cookie := new(http.Cookie)
 
 	cookie.Name = "session"
@@ -93,8 +88,6 @@ func (h *AuthHandler) Logout(c *echo.Context) error {
 	cookie.Expires = time.Unix(0, 0)
 	cookie.MaxAge = -1
 	cookie.SameSite = http.SameSiteLaxMode
-
-	// Set true in production with HTTPS
 	cookie.Secure = os.Getenv("ENV") == "production"
 
 	c.SetCookie(cookie)
@@ -104,7 +97,7 @@ func (h *AuthHandler) Logout(c *echo.Context) error {
 	})
 }
 
-func (h *AuthHandler) Me(c *echo.Context) error {
+func (h *Handler) Me(c *echo.Context) error {
 	userID, ok := c.Get("userID").(string)
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
@@ -115,9 +108,15 @@ func (h *AuthHandler) Me(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
 	}
 
+	IsOnBoardingCompleted, ok := c.Get("IsOnBoardingCompleted").(bool)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
+	}
+
 	res := userProfileResponse{
-		ID:    userID,
-		Email: email,
+		ID:                    userID,
+		Email:                 email,
+		IsOnBoardingCompleted: IsOnBoardingCompleted,
 	}
 	log.Printf("User ID: %s, Email: %s", userID, email)
 	return c.JSON(http.StatusOK, res)

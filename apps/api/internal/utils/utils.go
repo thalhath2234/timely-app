@@ -59,6 +59,58 @@ func NewCustomFieldValueID() string {
 	return PrefixedUUID("cfv")
 }
 
+func NewConfigID() string {
+	return PrefixedUUID("cfg")
+}
+
+// DefaultTaskViews returns the four built-in task views every new user starts with.
+func DefaultTaskViews() []map[string]any {
+	empty := []string{}
+	emptyOrders := map[string][]string{}
+	return []map[string]any{
+		{
+			"id": "view_task_list", "name": "Task List",
+			"dataMode": "task", "renderMode": "list",
+			"groupFields":          []string{"workspace", "project", "stage"},
+			"groupSortDirection":   "asc",
+			"groupValueOrders":     emptyOrders,
+			"sortBy":               "deadline",
+			"sortDirection":        "asc",
+			"selectedWorkspaceIds": empty,
+		},
+		{
+			"id": "view_my_deadlines", "name": "My Deadlines",
+			"dataMode": "task", "renderMode": "list",
+			"groupFields":          []string{"priority"},
+			"groupSortDirection":   "asc",
+			"groupValueOrders":     emptyOrders,
+			"sortBy":               "deadline",
+			"sortDirection":        "asc",
+			"selectedWorkspaceIds": empty,
+		},
+		{
+			"id": "view_overview", "name": "Overview",
+			"dataMode": "task", "renderMode": "list",
+			"groupFields":          []string{"workspace"},
+			"groupSortDirection":   "asc",
+			"groupValueOrders":     emptyOrders,
+			"sortBy":               "createdAt",
+			"sortDirection":        "desc",
+			"selectedWorkspaceIds": empty,
+		},
+		{
+			"id": "view_project_timelines", "name": "Project Timelines",
+			"dataMode": "project", "renderMode": "gantt",
+			"groupFields":          []string{"workspace"},
+			"groupSortDirection":   "asc",
+			"groupValueOrders":     emptyOrders,
+			"sortBy":               "startDate",
+			"sortDirection":        "asc",
+			"selectedWorkspaceIds": empty,
+		},
+	}
+}
+
 // GetCurrentTime returns the current time using simple date function and parse it to string
 func GetCurrentTime() string {
 	return fmt.Sprintf("%s", time.Now().Format("2006-01-02"))

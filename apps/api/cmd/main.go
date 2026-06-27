@@ -3,17 +3,17 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"timely-api/internal/database"
-	"timely-api/internal/handlers"
-	"timely-api/internal/middleware"
-	"timely-api/internal/repositories"
-	"timely-api/internal/services"
+	"timely-api/internal/features/auth"
+	"timely-api/internal/features/project"
+	"timely-api/internal/features/task"
+	"timely-api/internal/features/workspace"
+	"timely-api/internal/routes"
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v5"
@@ -30,18 +30,19 @@ func main() {
 	db := database.InitDB()
 
 	// Initialize repository, service, and handler
-	userRepo := repositories.NewUserRepository(db)
-	taskRepo := repositories.NewTaskRepository(db)
-	projectRepo := repositories.NewProjectRepository(db)
-	workspaceRepo := repositories.NewWorkspaceRepository(db)
-	authService := services.NewAuthService(userRepo)
-	taskService := services.NewTaskService(taskRepo, projectRepo)
-	projectService := services.NewProjectService(projectRepo)
-	workspaceService := services.NewWorkspaceService(workspaceRepo)
-	authHandler := handlers.NewAuthHandler(authService, userRepo)
-	taskHandler := handlers.NewTaskHandler(taskService)
-	projectHandler := handlers.NewProjectHandler(projectService)
-	workspaceHandler := handlers.NewWorkspaceHandler(workspaceService)
+	userRepo := auth.NewUserRepository(db)
+	taskRepo := task.NewTaskRepository(db)
+	projectRepo := project.NewProjectRepository(db)
+	workspaceRepo := workspace.NewWorkspaceRepository(db)
+	authService := auth.NewAuthService(userRepo, workspaceRepo)
+	taskService := task.NewTaskService(taskRepo, projectRepo)
+	projectService := project.NewProjectService(projectRepo)
+	workspaceService := workspace.NewWorkspaceService(workspaceRepo)
+	authHandler := auth.NewHandler(authService, userRepo)
+	taskHandler := task.NewHandler(taskService)
+	projectHandler := project.NewHandler(projectService)
+	workspaceHandler := workspace.NewHandler(workspaceService)
+
 	// Create Echo instance
 	e := echo.New()
 
@@ -58,38 +59,8 @@ func main() {
 		},
 	}))
 
-	// Public routes
-	e.GET("/", func(c *echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]string{
-			"message": "Hello from Timely API",
-		})
-	})
-	e.POST("/register", authHandler.Register)
-	e.POST("/login", authHandler.Login)
-	e.POST("/logout", authHandler.Logout)
-
-	// Protected routes group
-	r := e.Group("")
-	r.Use(middleware.JWTMiddleware())
-	r.GET("/me", authHandler.Me)
-	r.POST("/tasks", taskHandler.Create)
-	r.GET("/tasks", taskHandler.GetAllTaskByUser)
-	r.GET("/tasks/:id", taskHandler.GetTaskById)
-	r.POST("/projects", projectHandler.Create)
-	r.GET("/projects", projectHandler.GetAllProjectByUser)
-	r.GET("/projects/:id", projectHandler.GetProjectById)
-	r.POST("/workspaces", workspaceHandler.Create)
-	r.GET("/workspaces", workspaceHandler.GetAllWorkspaceByUser)
-	r.GET("/workspaces/:id", workspaceHandler.GetWorkspaceById)
-	r.POST("/workspaces/:id/lable", workspaceHandler.CreateLable)
-	r.PUT("/workspaces/:workspaceId/lable/:lableId", workspaceHandler.UpdateLable)
-	r.DELETE("/workspaces/:workspaceId/lable/:lableId", workspaceHandler.DeleteLable)
-	r.POST("/workspaces/:id/status", workspaceHandler.CreateStatus)
-	r.PUT("/workspaces/:workspaceId/status/:statusId", workspaceHandler.UpdateStatus)
-	r.DELETE("/workspaces/:workspaceId/status/:statusId", workspaceHandler.DeleteStatus)
-	r.POST("/workspaces/:id/custom-field", workspaceHandler.CreateCustomField)
-	r.PUT("/workspaces/:workspaceId/custom-field/:customFieldId", workspaceHandler.UpdateCustomField)
-	r.DELETE("/workspaces/:workspaceId/custom-field/:customFieldId", workspaceHandler.DeleteCustomField)
+	// Setup all routes
+	routes.SetupRoutes(e, authHandler, taskHandler, projectHandler, workspaceHandler)
 	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
