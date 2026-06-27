@@ -12,14 +12,14 @@ import { useProjects } from "@/app/utils/hooks/projects";
 import { createProject } from "@/app/utils/api/projects";
 import { Project, Workspace } from "@/app/_types/types";
 
-const addItemSchema = z.object({
+const addWorkspaceSchema = z.object({
   name: z
     .string()
     .min(2, "Workspace name must be at least 2 characters")
     .max(100, "Workspace name must be less than 100 characters"),
 });
 
-type AddItemForm = z.infer<typeof addItemSchema>;
+type AddWorkspaceForm = z.infer<typeof addWorkspaceSchema>;
 
 const addProjectSchema = z.object({
   title: z
@@ -27,7 +27,19 @@ const addProjectSchema = z.object({
     .min(2, "Project name must be at least 2 characters")
     .max(100, "Project name must be less than 100 characters"),
   workspaceId: z.string().min(1, "Please select a workspace"),
-  description: z.string().max(500, "Description must be less than 500 characters").optional(),
+  description: z
+    .string()
+    .max(500, "Description must be less than 500 characters")
+    .optional(),
+  statusId: z
+    .string()
+    .regex(
+      /^tst_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+      "Status ID must be a valid tst UUID",
+    ),
+  priorityLevel: z.string(),
+  startDate: z.date(),
+  deadline: z.date(),
   color: z
     .string()
     .regex(/^#([0-9a-fA-F]{6})$/, "Color must be a valid hex value"),
@@ -44,10 +56,19 @@ export default function AddItemModal() {
   const { data: projects } = useProjects();
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
 
-  const typedWorkspaces = useMemo(() => (workspaces ?? []) as Workspace[], [workspaces]);
-  const typedProjects = useMemo(() => (projects ?? []) as Project[], [projects]);
+  const typedWorkspaces = useMemo(
+    () => (workspaces ?? []) as Workspace[],
+    [workspaces],
+  );
+  const typedProjects = useMemo(
+    () => (projects ?? []) as Project[],
+    [projects],
+  );
   const selectedProjects = useMemo(
-    () => typedProjects.filter((project) => selectedProjectIds.includes(project.id)),
+    () =>
+      typedProjects.filter((project) =>
+        selectedProjectIds.includes(project.id),
+      ),
     [typedProjects, selectedProjectIds],
   );
 
@@ -56,8 +77,8 @@ export default function AddItemModal() {
     handleSubmit,
     reset,
     formState: { errors, isValid },
-  } = useForm<AddItemForm>({
-    resolver: zodResolver(addItemSchema),
+  } = useForm<AddWorkspaceForm>({
+    resolver: zodResolver(addWorkspaceSchema),
     mode: "onChange",
   });
 
@@ -75,7 +96,7 @@ export default function AddItemModal() {
   });
 
   const createWorkspaceMutation = useMutation({
-    mutationFn: async (data: AddItemForm) => {
+    mutationFn: async (data: AddWorkspaceForm) => {
       const response = await fetch("http://localhost:8080/workspaces", {
         method: "POST",
         credentials: "include",
@@ -104,7 +125,7 @@ export default function AddItemModal() {
     },
   });
 
-  const onSubmit = (data: AddItemForm) => {
+  const onSubmit = (data: AddWorkspaceForm) => {
     createWorkspaceMutation.mutate(data);
   };
 
@@ -227,7 +248,9 @@ export default function AddItemModal() {
                     />
 
                     {projectErrors.title && (
-                      <p className="text-xs text-red-400">{projectErrors.title.message}</p>
+                      <p className="text-xs text-red-400">
+                        {projectErrors.title.message}
+                      </p>
                     )}
 
                     <select
@@ -246,7 +269,9 @@ export default function AddItemModal() {
                     </select>
 
                     {projectErrors.workspaceId && (
-                      <p className="text-xs text-red-400">{projectErrors.workspaceId.message}</p>
+                      <p className="text-xs text-red-400">
+                        {projectErrors.workspaceId.message}
+                      </p>
                     )}
 
                     <textarea
@@ -265,7 +290,9 @@ export default function AddItemModal() {
                     </div>
 
                     {projectErrors.color && (
-                      <p className="text-xs text-red-400">{projectErrors.color.message}</p>
+                      <p className="text-xs text-red-400">
+                        {projectErrors.color.message}
+                      </p>
                     )}
 
                     <div className="mt-auto flex justify-end gap-2">
@@ -279,16 +306,22 @@ export default function AddItemModal() {
 
                       <button
                         type="submit"
-                        disabled={!isProjectValid || createProjectMutation.isPending}
+                        disabled={
+                          !isProjectValid || createProjectMutation.isPending
+                        }
                         className="px-4 py-2 rounded-md bg-blue-900 hover:bg-blue-800 text-white font-medium transition-colors cursor-pointer disabled:bg-blue-900/50 disabled:text-zinc-400 disabled:cursor-not-allowed"
                       >
-                        {createProjectMutation.isPending ? "Saving..." : "Save Project"}
+                        {createProjectMutation.isPending
+                          ? "Saving..."
+                          : "Save Project"}
                       </button>
                     </div>
                   </form>
 
                   <div className="p-3 flex flex-col gap-3">
-                    <p className="text-sm text-white/80 font-medium">Select Projects</p>
+                    <p className="text-sm text-white/80 font-medium">
+                      Select Projects
+                    </p>
 
                     <div className="flex-1 overflow-auto border border-white/10 rounded-md p-2 space-y-1">
                       {typedProjects.map((project) => {
@@ -299,19 +332,25 @@ export default function AddItemModal() {
                             className="flex items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer"
                           >
                             <span className="text-sm text-white/85 truncate">
-                              {project.name || project.title || "Untitled project"}
+                              {project.name ||
+                                project.title ||
+                                "Untitled project"}
                             </span>
                             <input
                               type="checkbox"
                               checked={checked}
-                              onChange={() => toggleProjectSelection(project.id)}
+                              onChange={() =>
+                                toggleProjectSelection(project.id)
+                              }
                             />
                           </label>
                         );
                       })}
 
                       {typedProjects.length === 0 && (
-                        <p className="text-xs text-white/50 px-2 py-2">No projects found.</p>
+                        <p className="text-xs text-white/50 px-2 py-2">
+                          No projects found.
+                        </p>
                       )}
                     </div>
 
@@ -321,12 +360,19 @@ export default function AddItemModal() {
                       </p>
                       <div className="max-h-28 overflow-auto space-y-1">
                         {selectedProjects.map((project) => (
-                          <p key={project.id} className="text-xs text-white/85 truncate">
-                            {project.name || project.title || "Untitled project"}
+                          <p
+                            key={project.id}
+                            className="text-xs text-white/85 truncate"
+                          >
+                            {project.name ||
+                              project.title ||
+                              "Untitled project"}
                           </p>
                         ))}
                         {selectedProjects.length === 0 && (
-                          <p className="text-xs text-white/40">No selected projects yet.</p>
+                          <p className="text-xs text-white/40">
+                            No selected projects yet.
+                          </p>
                         )}
                       </div>
                     </div>

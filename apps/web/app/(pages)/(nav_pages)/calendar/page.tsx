@@ -1,5 +1,5 @@
 "use client";
-import { ChevronDown, ChevronLeft, ChevronRight, View } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState, useRef, useEffect, Suspense, useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as motion from "motion/react-client";
@@ -23,8 +23,6 @@ function CalendarContent() {
   const router = useRouter();
   const pathname = usePathname();
   const view = searchParams.get("view") as CalendarView;
-  const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const {
     activeView,
     setActiveView,
@@ -47,15 +45,6 @@ function CalendarContent() {
   useEffect(() => {
     if (view && view !== activeView) setActiveView(view as CalendarView);
   }, [view]);
-
-  useEffect(() => {
-    setSelectedDate(currentDate);
-    function handleClickOutside(e: MouseEvent) {
-      if (!wrapperRef.current?.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   function shift(date: Date, view: CalendarView, dir: 1 | -1) {
     const d = new Date(date);
