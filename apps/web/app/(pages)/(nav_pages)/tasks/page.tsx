@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Config,
@@ -18,10 +19,15 @@ import {
 import { useConfig, useUpdateTaskViewsConfig, useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { ApiError } from "@/app/utils/api/worksapce";
-import { ChevronDown, GripVertical, MoreHorizontal, Plus, Pencil, Search, X } from "lucide-react";
+import { ChevronDown, GripVertical, MoreHorizontal, Plus, Pencil, X } from "lucide-react";
+import Select from "@/app/_components/_ui/select";
 import TasksTable from "@/app/_components/_ui/tasks/tasktable";
+import EntityDetailPanel from "@/app/_components/_ui/tasks/entityDetailPanel";
 
 type TaskViewMode = TaskRenderMode;
+
+/** Project rows are synthesised from their tasks and carry a prefixed id. */
+const PROJECT_ROW_PREFIX = "project-";
 
 const areStringArraysEqual = (a: string[], b: string[]) =>
   a.length === b.length && a.every((value, index) => value === b[index]);
@@ -51,9 +57,22 @@ const NEW_VIEW_TEMPLATE: Omit<TaskViewConfig, "id" | "name"> = {
   sortBy: "deadline",
   sortDirection: "asc",
   selectedWorkspaceIds: [],
+  selectedStatusIds: [],
+  columnOrder: [],
 };
 
-export default function Tasks() {
+// useSearchParams needs a Suspense boundary for the page to prerender.
+export default function TasksPage() {
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading...</div>}>
+      <Tasks />
+    </Suspense>
+  );
+}
+
+function Tasks() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { data: config, isLoading, status } = useConfig();
   const { data: workspaces } = useWorkspaces();
@@ -71,6 +90,8 @@ export default function Tasks() {
     useState<TaskListGroupSortDirection>("asc");
   const [dataMode, setDataMode] = useState<TaskListDataMode>("task");
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
+  const [selectedStatusIds, setSelectedStatusIds] = useState<string[]>([]);
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [groupValueOrders, setGroupValueOrders] = useState<Record<string, string[]>>({});
   const [sortBy, setSortBy] = useState<TaskListSortBy>("deadline");
   const [sortDirection, setSortDirection] = useState<TaskListSortDirection>("asc");
@@ -86,6 +107,26 @@ export default function Tasks() {
   );
 
   const saveViewsMutation = useUpdateTaskViewsConfig();
+
+  // The open row lives in the URL so an @mention can link straight to it.
+  const detailTaskId = searchParams.get("taskId");
+  const detailProjectId = searchParams.get("projectId");
+
+  const openRow = useCallback(
+    (row: Task) => {
+      const query = row.id.startsWith(PROJECT_ROW_PREFIX)
+        ? `projectId=${encodeURIComponent(row.id.slice(PROJECT_ROW_PREFIX.length))}`
+        : `taskId=${encodeURIComponent(row.id)}`;
+
+      router.push(`/tasks?${query}`, { scroll: false });
+    },
+    [router],
+  );
+
+  const closeDetail = useCallback(
+    () => router.push("/tasks", { scroll: false }),
+    [router],
+  );
 
   useEffect(() => {
     const configViews = typedConfig?.taskViews ?? [];
@@ -132,6 +173,14 @@ export default function Tasks() {
         ? previous
         : activeTaskView.selectedWorkspaceIds
     );
+    setSelectedStatusIds((previous) => {
+      const next = activeTaskView.selectedStatusIds ?? [];
+      return areStringArraysEqual(previous, next) ? previous : next;
+    });
+    setColumnOrder((previous) => {
+      const next = activeTaskView.columnOrder ?? [];
+      return areStringArraysEqual(previous, next) ? previous : next;
+    });
     setGroupValueOrders((previous) =>
       areRecordsOfStringArraysEqual(previous, activeTaskView.groupValueOrders)
         ? previous
@@ -167,6 +216,8 @@ export default function Tasks() {
           groupSortDirection,
           dataMode,
           selectedWorkspaceIds,
+          selectedStatusIds,
+          columnOrder,
           groupValueOrders,
           sortBy,
           sortDirection,
@@ -180,6 +231,8 @@ export default function Tasks() {
           updated.sortDirection === view.sortDirection &&
           areStringArraysEqual(updated.groupFields, view.groupFields) &&
           areStringArraysEqual(updated.selectedWorkspaceIds, view.selectedWorkspaceIds) &&
+          areStringArraysEqual(updated.selectedStatusIds, view.selectedStatusIds ?? []) &&
+          areStringArraysEqual(updated.columnOrder, view.columnOrder ?? []) &&
           areRecordsOfStringArraysEqual(updated.groupValueOrders, view.groupValueOrders);
 
         if (!isUnchanged) {
@@ -199,6 +252,8 @@ export default function Tasks() {
     groupSortDirection,
     dataMode,
     selectedWorkspaceIds,
+    selectedStatusIds,
+    columnOrder,
     groupValueOrders,
     sortBy,
     sortDirection,
@@ -299,7 +354,7 @@ export default function Tasks() {
 
     const projects = new Map<string, Task[]>();
     typedTasks.forEach((task) => {
-      const projectId = task.project?.id || task.projectId || task.projectid;
+      const projectId = task.project?.id || task.projectId;
       if (!projectId) return;
       const existing = projects.get(projectId) ?? [];
       existing.push(task);
@@ -313,7 +368,7 @@ export default function Tasks() {
 
       return {
         id: `project-${projectId}`,
-        name: project?.name || project?.title || "Untitled project",
+        name: project?.title || "Untitled project",
         description: project?.description || "",
         timeChunks: 0,
         duration: totalDuration,
@@ -327,7 +382,7 @@ export default function Tasks() {
         projectId,
         statusId: project?.statusId || null,
         priorityLevel: project?.priorityLevel || first.priorityLevel || null,
-        workspaceId: project?.workspaceId || first.workspaceId || first.workspaceid || null,
+        workspaceId: project?.workspaceId || first.workspaceId || null,
         scheduleId: null,
         stageId: null,
         blockedById: null,
@@ -343,10 +398,10 @@ export default function Tasks() {
 
   const getGroupLabel = (task: Task, groupBy: TaskListGroupField): string => {
     if (groupBy === "workspace") return task.workspace?.name || "No workspace";
-    if (groupBy === "project") return task.project?.title || task.project?.name || "No project";
+    if (groupBy === "project") return task.project?.title || "No project";
     if (groupBy === "status") return task.status?.name || "No status";
     if (groupBy === "priority") return task.priorityLevel || "No priority";
-    if (groupBy === "stage") return task.stageId || task.stageid || "No stage";
+    if (groupBy === "stage") return task.stageId || "No stage";
     if (groupBy.startsWith("cf:")) {
       const value = task.customFieldValues?.find((entry) => entry.customFieldId === groupBy.slice(3));
       if (!value) return "-";
@@ -376,7 +431,7 @@ export default function Tasks() {
     if (selectedWorkspaceIds.length === 0) return dataRows;
 
     return dataRows.filter((row) => {
-      const workspaceId = row.workspace?.id || row.workspaceId || row.workspaceid;
+      const workspaceId = row.workspace?.id || row.workspaceId;
       if (!workspaceId) return false;
       return selectedWorkspaceIds.includes(workspaceId);
     });
@@ -385,11 +440,13 @@ export default function Tasks() {
   const dataCount = filteredDataRows.length;
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
   }
 
   if (status === "error") {
-    return <div>Something went wrong</div>;
+    return (
+      <div className="p-4 text-sm text-destructive">Something went wrong</div>
+    );
   }
 
   return (
@@ -406,13 +463,13 @@ export default function Tasks() {
       />
 
       {taskViews.length === 0 && (
-        <div className="mx-4 mt-4 rounded-lg border border-white/10 bg-[#111923] p-4 text-sm text-white/75">
+        <div className="mx-4 mt-4 rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
           No task views found in config. Create a new view using the + button.
         </div>
       )}
 
       {syncError && (
-        <div className="mx-4 mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        <div className="mx-4 mt-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
           {syncError}
         </div>
       )}
@@ -434,6 +491,8 @@ export default function Tasks() {
             workspaces={typedWorkspaces}
             selectedWorkspaceIds={selectedWorkspaceIds}
             setSelectedWorkspaceIds={setSelectedWorkspaceIds}
+            selectedStatusIds={selectedStatusIds}
+            setSelectedStatusIds={setSelectedStatusIds}
             dataCount={dataCount}
             sortBy={sortBy}
             setSortBy={setSortBy}
@@ -455,18 +514,48 @@ export default function Tasks() {
                 dataMode={dataMode}
                 sortBy={sortBy}
                 sortDirection={sortDirection}
+                columnOrder={columnOrder}
+                onColumnOrderChange={setColumnOrder}
+                onSelectRow={openRow}
               />
             )}
 
             {viewMode === "kanban" && (
-              <KanbanView rows={filteredDataRows} dataMode={dataMode} />
+              <KanbanView
+                rows={filteredDataRows}
+                dataMode={dataMode}
+                onSelectRow={openRow}
+                workspaces={typedWorkspaces}
+                selectedWorkspaceIds={selectedWorkspaceIds}
+                selectedStatusIds={selectedStatusIds}
+              />
             )}
 
             {viewMode === "gantt" && (
-              <GanttView rows={filteredDataRows} dataMode={dataMode} />
+              <GanttView
+                rows={filteredDataRows}
+                dataMode={dataMode}
+                onSelectRow={openRow}
+              />
             )}
           </div>
         </>
+      )}
+
+      {detailTaskId && (
+        <EntityDetailPanel
+          kind="task"
+          id={detailTaskId}
+          onClose={closeDetail}
+        />
+      )}
+
+      {!detailTaskId && detailProjectId && (
+        <EntityDetailPanel
+          kind="project"
+          id={detailProjectId}
+          onClose={closeDetail}
+        />
       )}
     </div>
   );
@@ -474,11 +563,13 @@ export default function Tasks() {
 
 export function TaskHeader() {
   return (
-    <div className="h-14 border-b border-white/10 flex items-center justify-between px-4">
+    <div className="h-14 border-b border-border flex items-center justify-between px-4">
       <div className="flex items-center gap-2">
-        <div className="size-5 rounded bg-blue-500" />
+        <div className="size-5 rounded-md bg-primary" />
 
-        <h1 className="font-semibold text-white">Projects & Tasks</h1>
+        <h1 className="font-semibold tracking-tight text-foreground">
+          Projects &amp; Tasks
+        </h1>
 
         <button>
           <MoreHorizontal size={16} />
@@ -486,7 +577,7 @@ export function TaskHeader() {
       </div>
 
       <div className="flex items-center gap-3">
-        <button className="text-xs px-3 py-1 rounded bg-secondary border border-white/10">
+        <button className="text-xs px-3 py-1 rounded-lg bg-secondary text-secondary-foreground border border-border hover:bg-accent hover:text-accent-foreground transition-colors">
           Create Dashboard
         </button>
       </div>
@@ -535,7 +626,7 @@ export function TaskNavigationBar({
   };
 
   return (
-    <div className="h-12 border-b border-white/10 flex items-center justify-between px-4">
+    <div className="h-12 border-b border-border flex items-center justify-between px-4">
       <div className="flex items-center gap-6 text-sm">
         {views.map((view) => {
           const isEditing = editingViewId === view.id;
@@ -559,7 +650,7 @@ export function TaskNavigationBar({
                   }
                 }}
                 autoFocus
-                className="h-7 w-40 rounded border border-white/20 bg-[#111923] px-2 text-sm text-white/90 outline-none focus:border-blue-400/50"
+                className="h-7 w-40 rounded-md border border-border bg-input/30 px-2 text-sm text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring/40"
               />
             );
           }
@@ -569,8 +660,8 @@ export function TaskNavigationBar({
               key={view.id}
               className={
                 isActive
-                  ? "font-medium border-b border-white"
-                  : "text-white/80 hover:text-white"
+                  ? "font-medium text-foreground border-b border-primary"
+                  : "text-muted-foreground hover:text-foreground"
               }
               onClick={() => onSelectView(view.id)}
             >
@@ -581,19 +672,19 @@ export function TaskNavigationBar({
 
         <div className="flex gap-1">
           <button
-            className="p-1 rounded bg-secondary"
+            className="p-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
             onClick={() => (editingViewId ? applyRename() : startRenaming())}
             title={editingViewId ? "Save view name" : "Rename active view"}
           >
             <Pencil size={14} />
           </button>
 
-          <button className="p-1 rounded bg-secondary" onClick={onAddView}>
+          <button className="p-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors" onClick={onAddView}>
             <Plus size={14} />
           </button>
 
           <button
-            className="p-1 rounded bg-secondary disabled:opacity-50"
+            className="p-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
             onClick={onDeleteView}
             disabled={views.length <= 1}
             title={views.length <= 1 ? "At least one view is required" : "Delete active view"}
@@ -603,11 +694,7 @@ export function TaskNavigationBar({
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 text-sm">
-          <Search size={14} />
-          Search
-        </div>
+      <div className="flex items-center gap-4"> 
 
         <button className="text-sm">Hide options</button>
       </div>
@@ -630,6 +717,8 @@ type TaskToolbarProps = {
   workspaces: Workspace[];
   selectedWorkspaceIds: string[];
   setSelectedWorkspaceIds: (value: string[]) => void;
+  selectedStatusIds: string[];
+  setSelectedStatusIds: (value: string[]) => void;
   dataCount: number;
   sortBy: TaskListSortBy;
   setSortBy: (value: TaskListSortBy) => void;
@@ -653,6 +742,8 @@ export function TaskToolbar({
   workspaces,
   selectedWorkspaceIds,
   setSelectedWorkspaceIds,
+  selectedStatusIds,
+  setSelectedStatusIds,
   dataCount,
   sortBy,
   setSortBy,
@@ -663,6 +754,7 @@ export function TaskToolbar({
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [groupSortPanelOpen, setGroupSortPanelOpen] = useState(false);
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
+  const [statusPanelOpen, setStatusPanelOpen] = useState(false);
   const [dragGroupIndex, setDragGroupIndex] = useState<number | null>(null);
   const [dragGroupValue, setDragGroupValue] = useState<{
     field: TaskListGroupField;
@@ -671,6 +763,7 @@ export function TaskToolbar({
   const groupPanelRef = useRef<HTMLDivElement>(null);
   const groupSortPanelRef = useRef<HTMLDivElement>(null);
   const workspacePanelRef = useRef<HTMLDivElement>(null);
+  const statusPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent | TouchEvent) => {
@@ -699,6 +792,14 @@ export function TaskToolbar({
       ) {
         setWorkspacePanelOpen(false);
       }
+
+      if (
+        statusPanelOpen &&
+        statusPanelRef.current &&
+        !statusPanelRef.current.contains(target)
+      ) {
+        setStatusPanelOpen(false);
+      }
     };
 
     const handleEscape = (event: KeyboardEvent) => {
@@ -706,6 +807,7 @@ export function TaskToolbar({
         setGroupPanelOpen(false);
         setGroupSortPanelOpen(false);
         setWorkspacePanelOpen(false);
+        setStatusPanelOpen(false);
       }
     };
 
@@ -718,7 +820,7 @@ export function TaskToolbar({
       document.removeEventListener("touchstart", handleOutsideClick);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [groupPanelOpen, groupSortPanelOpen, workspacePanelOpen]);
+  }, [groupPanelOpen, groupSortPanelOpen, workspacePanelOpen, statusPanelOpen]);
 
   const availableGroups: TaskListGroupField[] = [
     "workspace",
@@ -798,6 +900,37 @@ export function TaskToolbar({
     setSelectedWorkspaceIds([...selectedWorkspaceIds, workspaceId]);
   };
 
+  const scopedWorkspaces =
+    selectedWorkspaceIds.length === 0
+      ? workspaces
+      : workspaces.filter((workspace) => selectedWorkspaceIds.includes(workspace.id));
+
+  const statusOptions = scopedWorkspaces.flatMap((workspace) =>
+    (workspace.status ?? []).map((status) => ({
+      id: status.id,
+      name: status.name,
+      color: status.color,
+      workspaceName: workspace.name,
+    })),
+  );
+  const duplicateStatusNames = new Set(
+    statusOptions
+      .map((status) => status.name)
+      .filter((name, index, names) => names.indexOf(name) !== index),
+  );
+
+  const toggleStatus = (statusId: string) => {
+    const allIds = statusOptions.map((status) => status.id);
+    const current =
+      selectedStatusIds.length === 0 ? allIds : selectedStatusIds;
+
+    const next = current.includes(statusId)
+      ? current.filter((id) => id !== statusId)
+      : [...current, statusId];
+
+    setSelectedStatusIds(next.length === 0 || next.length === allIds.length ? [] : next);
+  };
+
   const workspaceButtonLabel =
     selectedWorkspaceIds.length === 0
       ? "Workspace: All"
@@ -805,18 +938,19 @@ export function TaskToolbar({
       ? `Workspace: ${workspaces.find((item) => item.id === selectedWorkspaceIds[0])?.name ?? "Selected"}`
       : `Workspace: ${selectedWorkspaceIds.length} selected`;
 
-  const dropdownSmallClass =
-    "appearance-none bg-[#111923] border border-white/15 text-white/90 text-xs rounded-md px-2 py-1 pr-7 shadow-inner shadow-black/20 transition focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400/50 hover:border-white/25";
-
-  const dropdownPanelClass =
-    "appearance-none bg-[#0f141b] border border-white/15 text-white/90 text-sm rounded-md px-2 py-1.5 pr-8 shadow-inner shadow-black/20 transition focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400/50 hover:border-white/25";
+  const selectedStatusLabel =
+    selectedStatusIds.length === 0
+      ? "Status: All"
+      : selectedStatusIds.length === 1
+        ? `Status: ${statusOptions.find((status) => status.id === selectedStatusIds[0])?.name ?? "Selected"}`
+        : `Status: ${selectedStatusIds.length} selected`;
 
   return (
-    <div className="h-12 border-b border-white/10 flex items-center justify-between px-4">
+    <div className="h-12 border-b border-border flex items-center justify-between px-4">
       <div className="flex items-center gap-2">
         <div className="relative" ref={groupPanelRef}>
           <button
-            className="px-2 py-1 rounded bg-blue-600/20 text-blue-300 text-xs inline-flex items-center gap-1"
+            className="px-2 py-1 rounded-md bg-primary/15 text-primary text-xs inline-flex items-center gap-1 hover:bg-primary/20 transition-colors"
             onClick={() => setGroupPanelOpen((prev) => !prev)}
           >
             Group by: {currentGroups.length ? currentGroups.map(groupLabel).join(" > ") : "None"}
@@ -824,10 +958,10 @@ export function TaskToolbar({
           </button>
 
           {groupPanelOpen && (
-            <div className="absolute top-9 left-0 z-40 w-[320px] rounded-xl border border-white/10 bg-[#1d252f] p-3 shadow-xl">
+            <div className="absolute top-9 left-0 z-40 w-[320px] rounded-xl border border-border bg-popover text-popover-foreground p-3 shadow-xl">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-semibold text-white/90">Groups</h4>
-                <button className="text-xs text-white/70 hover:text-white" onClick={resetGroups}>
+                <h4 className="text-sm font-semibold text-foreground">Groups</h4>
+                <button className="text-xs text-muted-foreground hover:text-foreground" onClick={resetGroups}>
                   Reset
                 </button>
               </div>
@@ -852,33 +986,29 @@ export function TaskToolbar({
                     }}
                     onDragEnd={() => setDragGroupIndex(null)}
                   >
-                    <span className="text-white/45 cursor-grab active:cursor-grabbing">
+                    <span className="text-muted-foreground cursor-grab active:cursor-grabbing">
                       <GripVertical size={14} />
                     </span>
 
-                    <div className="relative flex-1">
-                      <select
+                    <div className="flex-1">
+                      <Select
+                        size="sm"
                         value={value}
-                        onChange={(event) =>
-                          updateGroupField(index, event.target.value as TaskListGroupField | "none")
+                        onChange={(next) =>
+                          updateGroupField(
+                            index,
+                            next as TaskListGroupField | "none",
+                          )
                         }
-                        className={`w-full ${dropdownPanelClass}`}
-                      >
-                        {availableGroups.map((option) => (
-                          <option key={option} value={option}>
-                            {groupLabel(option)}
-                          </option>
-                        ))}
-                      </select>
-
-                      <ChevronDown
-                        size={14}
-                        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-white/60"
+                        options={availableGroups.map((option) => ({
+                          value: option,
+                          label: groupLabel(option),
+                        }))}
                       />
                     </div>
 
                     <button
-                      className="p-1 text-white/60 hover:text-white"
+                      className="p-1 text-muted-foreground hover:text-foreground"
                       onClick={() => updateGroupField(index, "none")}
                     >
                       <X size={14} />
@@ -889,7 +1019,7 @@ export function TaskToolbar({
 
               <div className="mt-2 flex items-center justify-between">
                 <button
-                  className="px-2 py-1 rounded bg-secondary text-xs disabled:opacity-50"
+                  className="px-2 py-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors text-xs disabled:opacity-50"
                   disabled={currentGroups.length >= 3}
                   onClick={addGroupField}
                 >
@@ -897,7 +1027,7 @@ export function TaskToolbar({
                 </button>
 
                 <button
-                  className="px-2 py-1 rounded bg-secondary text-xs"
+                  className="px-2 py-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors text-xs"
                   onClick={() =>
                     setGroupSortDirection(groupSortDirection === "asc" ? "desc" : "asc")
                   }
@@ -906,23 +1036,17 @@ export function TaskToolbar({
                 </button>
               </div>
 
-              <div className="mt-3 border-t border-white/10 pt-3">
-                <label className="text-xs text-white/70 block mb-1">Data</label>
-                <div className="relative">
-                  <select
-                    value={dataMode}
-                    onChange={(event) => setDataMode(event.target.value as TaskListDataMode)}
-                    className={`w-full ${dropdownPanelClass}`}
-                  >
-                    <option value="task">Task</option>
-                    <option value="project">Project</option>
-                  </select>
-
-                  <ChevronDown
-                    size={14}
-                    className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-white/60"
-                  />
-                </div>
+              <div className="mt-3 border-t border-border pt-3">
+                <label className="text-xs text-muted-foreground block mb-1">Data</label>
+                <Select
+                  size="sm"
+                  value={dataMode}
+                  onChange={(next) => setDataMode(next as TaskListDataMode)}
+                  options={[
+                    { value: "task", label: "Task" },
+                    { value: "project", label: "Project" },
+                  ]}
+                />
               </div>
             </div>
           )}
@@ -930,20 +1054,20 @@ export function TaskToolbar({
 
         <div className="relative" ref={groupSortPanelRef}>
           <button
-            className="px-2 py-1 rounded bg-secondary text-xs"
+            className="px-2 py-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors text-xs"
             onClick={() => setGroupSortPanelOpen((prev) => !prev)}
           >
             Sort Groups
           </button>
 
           {groupSortPanelOpen && (
-            <div className="absolute top-9 left-0 z-40 rounded-xl border border-white/10 bg-[#252b31] shadow-xl overflow-hidden">
+            <div className="absolute top-9 left-0 z-40 rounded-xl border border-border bg-popover text-popover-foreground shadow-xl overflow-hidden">
               <div className="flex">
                 {currentGroups.map((field) => {
                   const values = groupValueOrders[field] ?? groupOptionsByField[field] ?? [];
                   return (
-                    <div key={`sort-field-${field}`} className="w-60 border-r last:border-r-0 border-white/10">
-                      <div className="px-3 py-2 border-b border-white/10 text-sm font-semibold text-white/85">
+                    <div key={`sort-field-${field}`} className="w-60 border-r last:border-r-0 border-border">
+                      <div className="px-3 py-2 border-b border-border text-sm font-semibold text-foreground">
                         {groupLabel(field)}
                       </div>
 
@@ -951,7 +1075,7 @@ export function TaskToolbar({
                         {values.map((value, index) => (
                           <div
                             key={`${field}-${value}`}
-                            className="flex items-center gap-2 rounded px-2 py-1.5 bg-[#2d3339]"
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 bg-muted"
                             draggable
                             onDragStart={(event) => {
                               event.dataTransfer.effectAllowed = "move";
@@ -967,10 +1091,10 @@ export function TaskToolbar({
                             }}
                             onDragEnd={() => setDragGroupValue(null)}
                           >
-                            <span className="text-white/45 cursor-grab active:cursor-grabbing">
+                            <span className="text-muted-foreground cursor-grab active:cursor-grabbing">
                               <GripVertical size={14} />
                             </span>
-                            <span className="text-sm text-white/85 flex-1 truncate">{value}</span>
+                            <span className="text-sm text-foreground flex-1 truncate">{value}</span>
                           </div>
                         ))}
                       </div>
@@ -982,12 +1106,12 @@ export function TaskToolbar({
           )}
         </div>
 
-        <div className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-[#0f141b] p-1">
+        <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted p-1">
           <button
             className={`min-w-16 px-2.5 py-1.5 text-xs rounded-md transition whitespace-nowrap ${
               viewMode === "list"
-                ? "bg-blue-500/25 text-blue-100 font-medium shadow-[0_0_0_1px_rgba(96,165,250,0.45)]"
-                : "bg-transparent text-white/70 hover:text-white hover:bg-white/5"
+                ? "bg-background text-foreground font-medium shadow-xs"
+                : "bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent"
             }`}
             onClick={() => setViewMode("list")}
             aria-pressed={viewMode === "list"}
@@ -998,8 +1122,8 @@ export function TaskToolbar({
           <button
             className={`min-w-16 px-2.5 py-1.5 text-xs rounded-md transition whitespace-nowrap ${
               viewMode === "kanban"
-                ? "bg-blue-500/25 text-blue-100 font-medium shadow-[0_0_0_1px_rgba(96,165,250,0.45)]"
-                : "bg-transparent text-white/70 hover:text-white hover:bg-white/5"
+                ? "bg-background text-foreground font-medium shadow-xs"
+                : "bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent"
             }`}
             onClick={() => setViewMode("kanban")}
             aria-pressed={viewMode === "kanban"}
@@ -1010,8 +1134,8 @@ export function TaskToolbar({
           <button
             className={`min-w-16 px-2.5 py-1.5 text-xs rounded-md transition whitespace-nowrap ${
               viewMode === "gantt"
-                ? "bg-blue-500/25 text-blue-100 font-medium shadow-[0_0_0_1px_rgba(96,165,250,0.45)]"
-                : "bg-transparent text-white/70 hover:text-white hover:bg-white/5"
+                ? "bg-background text-foreground font-medium shadow-xs"
+                : "bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent"
             }`}
             onClick={() => setViewMode("gantt")}
             aria-pressed={viewMode === "gantt"}
@@ -1020,31 +1144,27 @@ export function TaskToolbar({
           </button>
         </div>
 
-        <label className="text-xs text-white/70">Sort</label>
+        <label className="text-xs text-muted-foreground">Sort</label>
 
-        <div className="relative">
-          <select
+        <div className="w-36">
+          <Select
+            size="sm"
             value={sortBy}
-            onChange={(event) => setSortBy(event.target.value as TaskListSortBy)}
-            className={dropdownSmallClass}
-          >
-            <option value="name">Name</option>
-            <option value="deadline">Deadline</option>
-            <option value="startDate">Start date</option>
-            <option value="createdAt">Created at</option>
-            <option value="priority">Priority</option>
-            <option value="status">Status</option>
-            <option value="project">Project</option>
-          </select>
-
-          <ChevronDown
-            size={14}
-            className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-white/60"
+            onChange={(next) => setSortBy(next as TaskListSortBy)}
+            options={[
+              { value: "name", label: "Name" },
+              { value: "deadline", label: "Deadline" },
+              { value: "startDate", label: "Start date" },
+              { value: "createdAt", label: "Created at" },
+              { value: "priority", label: "Priority" },
+              { value: "status", label: "Status" },
+              { value: "project", label: "Project" },
+            ]}
           />
         </div>
 
         <button
-          className="px-2 py-1 rounded bg-secondary text-xs"
+          className="px-2 py-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors text-xs"
           onClick={() =>
             setSortDirection(sortDirection === "asc" ? "desc" : "asc")
           }
@@ -1054,9 +1174,69 @@ export function TaskToolbar({
       </div>
 
       <div className="flex items-center gap-2">
+        <div className="relative" ref={statusPanelRef}>
+          <button
+            className="px-2 py-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors text-xs inline-flex items-center gap-1"
+            onClick={() => setStatusPanelOpen((prev) => !prev)}
+          >
+            {selectedStatusLabel}
+            <ChevronDown size={14} />
+          </button>
+
+          {statusPanelOpen && (
+            <div className="absolute top-9 right-0 z-40 w-64 rounded-xl border border-border bg-popover text-popover-foreground p-3 shadow-xl">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-foreground">Statuses</h4>
+                <button
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setSelectedStatusIds([])}
+                >
+                  All
+                </button>
+              </div>
+
+              <div className="max-h-56 overflow-auto space-y-1">
+                {statusOptions.map((status) => {
+                  const checked =
+                    selectedStatusIds.length === 0 ||
+                    selectedStatusIds.includes(status.id);
+                  const label = duplicateStatusNames.has(status.name)
+                    ? `${status.name} · ${status.workspaceName}`
+                    : status.name;
+
+                  return (
+                    <label
+                      key={status.id}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleStatus(status.id)}
+                        className="accent-primary"
+                      />
+                      <span
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: status.color }}
+                      />
+                      <span className="truncate text-sm text-foreground">{label}</span>
+                    </label>
+                  );
+                })}
+
+                {statusOptions.length === 0 && (
+                  <div className="text-xs text-muted-foreground px-2 py-1">
+                    No statuses found
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="relative" ref={workspacePanelRef}>
           <button
-            className="px-2 py-1 rounded bg-secondary text-xs inline-flex items-center gap-1"
+            className="px-2 py-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors text-xs inline-flex items-center gap-1"
             onClick={() => setWorkspacePanelOpen((prev) => !prev)}
           >
             {workspaceButtonLabel}
@@ -1064,11 +1244,11 @@ export function TaskToolbar({
           </button>
 
           {workspacePanelOpen && (
-            <div className="absolute top-9 right-0 z-40 w-64 rounded-xl border border-white/10 bg-[#1d252f] p-3 shadow-xl">
+            <div className="absolute top-9 right-0 z-40 w-64 rounded-xl border border-border bg-popover text-popover-foreground p-3 shadow-xl">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-semibold text-white/90">Workspaces</h4>
+                <h4 className="text-sm font-semibold text-foreground">Workspaces</h4>
                 <button
-                  className="text-xs text-white/70 hover:text-white"
+                  className="text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => setSelectedWorkspaceIds([])}
                 >
                   All
@@ -1081,27 +1261,28 @@ export function TaskToolbar({
                   return (
                     <label
                       key={workspace.id}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer"
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleWorkspace(workspace.id)}
+                        className="accent-primary"
                       />
-                      <span className="text-sm text-white/85">{workspace.name}</span>
+                      <span className="text-sm text-foreground">{workspace.name}</span>
                     </label>
                   );
                 })}
 
                 {workspaces.length === 0 && (
-                  <div className="text-xs text-white/60 px-2 py-1">No workspaces found</div>
+                  <div className="text-xs text-muted-foreground px-2 py-1">No workspaces found</div>
                 )}
               </div>
             </div>
           )}
         </div>
 
-        <span className="text-xs text-white/60">
+        <span className="text-xs text-muted-foreground">
           {dataMode === "task" ? "TASKS" : "PROJECTS"}: {dataCount}
         </span>
       </div>
@@ -1111,14 +1292,14 @@ export function TaskToolbar({
 
 export function TaskOptionsBar() {
   return (
-    <div className="h-10 border-b border-white/10 flex items-center gap-6 px-4 text-sm">
+    <div className="h-10 border-b border-border flex items-center gap-6 px-4 text-sm text-muted-foreground">
       <label className="flex items-center gap-2">
-        <input type="checkbox" />
+        <input type="checkbox" className="accent-primary" />
         Only show scheduled past deadline
       </label>
 
       <label className="flex items-center gap-2">
-        <input type="checkbox" />
+        <input type="checkbox" className="accent-primary" />
         Show resolved tasks
       </label>
     </div>
@@ -1128,6 +1309,7 @@ export function TaskOptionsBar() {
 type AlternateViewProps = {
   rows: Task[];
   dataMode: TaskListDataMode;
+  onSelectRow: (row: Task) => void;
 };
 
 function formatDateLabel(value?: string | null) {
@@ -1147,50 +1329,122 @@ function parseDateValue(value?: string | null) {
   return date;
 }
 
-function KanbanView({ rows, dataMode }: AlternateViewProps) {
+function KanbanView({
+  rows,
+  dataMode,
+  onSelectRow,
+  workspaces,
+  selectedWorkspaceIds,
+  selectedStatusIds,
+}: AlternateViewProps & {
+  workspaces: Workspace[];
+  selectedWorkspaceIds: string[];
+  selectedStatusIds: string[];
+}) {
   const columns = useMemo(() => {
+    const scopedWorkspaces =
+      selectedWorkspaceIds.length === 0
+        ? workspaces
+        : workspaces.filter((workspace) =>
+            selectedWorkspaceIds.includes(workspace.id),
+          );
+
+    const visibleStatusIds = new Set(selectedStatusIds);
+    const showAllStatuses = selectedStatusIds.length === 0;
+
     const grouped = new Map<string, Task[]>();
+    const colors = new Map<string, string>();
+    const order: string[] = [];
 
-    rows.forEach((row) => {
+    const addColumn = (name: string, color?: string) => {
+      if (grouped.has(name)) return;
+      grouped.set(name, []);
+      order.push(name);
+      if (color) colors.set(name, color);
+    };
+
+    for (const workspace of scopedWorkspaces) {
+      for (const status of workspace.status ?? []) {
+        if (showAllStatuses || visibleStatusIds.has(status.id)) {
+          addColumn(status.name, status.color);
+        }
+      }
+    }
+
+    for (const row of rows) {
+      const statusId = row.statusId ?? row.status?.id;
       const statusName = row.status?.name || "No status";
-      const existing = grouped.get(statusName) ?? [];
-      existing.push(row);
-      grouped.set(statusName, existing);
-    });
 
-    return Array.from(grouped.entries()).sort(([a], [b]) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" })
-    );
-  }, [rows]);
+      if (!showAllStatuses) {
+        if (!statusId || !visibleStatusIds.has(statusId)) continue;
+      }
+
+      if (!grouped.has(statusName)) {
+        if (statusName === "No status") {
+          if (!showAllStatuses) continue;
+          addColumn(statusName);
+        } else if (showAllStatuses || (statusId && visibleStatusIds.has(statusId))) {
+          addColumn(statusName, row.status?.color);
+        } else {
+          continue;
+        }
+      }
+
+      grouped.get(statusName)?.push(row);
+    }
+
+    return order.map((name) => ({
+      name,
+      color: colors.get(name),
+      items: grouped.get(name) ?? [],
+    }));
+  }, [rows, workspaces, selectedWorkspaceIds, selectedStatusIds]);
 
   if (columns.length === 0) {
-    return <div className="p-4 text-sm text-white/70">No items found for Kanban view.</div>;
+    return <div className="p-4 text-sm text-muted-foreground">No items found for Kanban view.</div>;
   }
 
   return (
     <div className="h-full overflow-auto">
       <div className="min-w-max p-4 flex gap-3">
-        {columns.map(([column, items]) => (
+        {columns.map((column) => (
           <section
-            key={column}
-            className="w-72 shrink-0 rounded-lg border border-white/10 bg-[#141b24]"
+            key={column.name}
+            className="w-72 shrink-0 rounded-lg border border-border bg-muted/40"
           >
-            <header className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white/90 truncate">{column}</h3>
-              <span className="text-xs text-white/50">{items.length}</span>
+            <header className="px-3 py-2 border-b border-border flex items-center justify-between gap-2">
+              <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
+                {column.color && (
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: column.color }}
+                  />
+                )}
+                <span className="truncate">{column.name}</span>
+              </h3>
+              <span className="text-xs text-muted-foreground">{column.items.length}</span>
             </header>
 
-            <div className="p-2 space-y-2 max-h-[calc(100vh-270px)] overflow-auto">
-              {items.map((item) => (
+            <div className="p-2 space-y-2 min-h-24 max-h-[calc(100vh-270px)] overflow-auto">
+              {column.items.map((item) => (
                 <article
                   key={item.id}
-                  className="rounded-md border border-white/10 bg-[#1b2430] p-3"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onSelectRow(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectRow(item);
+                    }
+                  }}
+                  className="cursor-pointer rounded-lg border border-border bg-card p-3 shadow-xs transition-colors hover:border-primary/40"
                 >
-                  <div className="text-sm text-white/90 font-medium line-clamp-2">{item.name}</div>
-                  <div className="mt-1 text-xs text-white/60">
+                  <div className="text-sm text-foreground font-medium line-clamp-2">{item.name}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
                     {dataMode === "project" ? "Project" : "Task"} • {item.workspace?.name || "No workspace"}
                   </div>
-                  <div className="mt-2 text-xs text-white/70">
+                  <div className="mt-2 text-xs text-muted-foreground">
                     Deadline: {formatDateLabel(item.deadline)}
                   </div>
                 </article>
@@ -1203,7 +1457,7 @@ function KanbanView({ rows, dataMode }: AlternateViewProps) {
   );
 }
 
-function GanttView({ rows, dataMode }: AlternateViewProps) {
+function GanttView({ rows, dataMode, onSelectRow }: AlternateViewProps) {
   const timelineRows = useMemo(() => {
     const normalized = rows.map((row) => {
       const start =
@@ -1253,15 +1507,15 @@ function GanttView({ rows, dataMode }: AlternateViewProps) {
   );
 
   if (timelineRows.entries.length === 0) {
-    return <div className="p-4 text-sm text-white/70">No items found for Gantt view.</div>;
+    return <div className="p-4 text-sm text-muted-foreground">No items found for Gantt view.</div>;
   }
 
   return (
     <div className="h-full overflow-auto p-4">
-      <div className="min-w-245 rounded-lg border border-white/10 bg-[#141b24]">
-        <div className="grid grid-cols-[320px_1fr] border-b border-white/10 bg-[#111923]">
-          <div className="px-3 py-2 text-xs text-white/60 uppercase tracking-wide">{dataMode}</div>
-          <div className="px-3 py-2 text-xs text-white/60 uppercase tracking-wide">
+      <div className="min-w-245 rounded-lg border border-border bg-card">
+        <div className="grid grid-cols-[320px_1fr] border-b border-border bg-muted/40">
+          <div className="px-3 py-2 text-xs text-muted-foreground uppercase tracking-wide">{dataMode}</div>
+          <div className="px-3 py-2 text-xs text-muted-foreground uppercase tracking-wide">
             {formatDateLabel(timelineRows.min.toISOString())} - {formatDateLabel(timelineRows.max.toISOString())}
           </div>
         </div>
@@ -1275,17 +1529,26 @@ function GanttView({ rows, dataMode }: AlternateViewProps) {
           return (
             <div
               key={row.id}
-              className="grid grid-cols-[320px_1fr] border-b border-white/5 last:border-b-0"
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelectRow(row)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectRow(row);
+                }
+              }}
+              className="grid cursor-pointer grid-cols-[320px_1fr] border-b border-border transition-colors last:border-b-0 hover:bg-muted/40"
             >
               <div className="px-3 py-3">
-                <div className="text-sm text-white/90 truncate">{row.name}</div>
-                <div className="text-xs text-white/60 mt-1 truncate">{row.workspace?.name || "No workspace"}</div>
+                <div className="text-sm text-foreground truncate">{row.name}</div>
+                <div className="text-xs text-muted-foreground mt-1 truncate">{row.workspace?.name || "No workspace"}</div>
               </div>
 
               <div className="px-3 py-3">
-                <div className="relative h-8 rounded bg-[#1c2632] border border-white/10">
+                <div className="relative h-8 rounded-md bg-muted border border-border">
                   <div
-                    className="absolute top-1/2 -translate-y-1/2 h-4 rounded bg-blue-500/80"
+                    className="absolute top-1/2 -translate-y-1/2 h-4 rounded-md bg-primary"
                     style={{
                       left: `${left}%`,
                       width: `${width}%`,
@@ -1293,7 +1556,7 @@ function GanttView({ rows, dataMode }: AlternateViewProps) {
                   />
                 </div>
 
-                <div className="mt-1 text-[11px] text-white/60">
+                <div className="mt-1 text-[11px] text-muted-foreground">
                   {formatDateLabel(start.toISOString())} - {formatDateLabel(end.toISOString())}
                 </div>
               </div>

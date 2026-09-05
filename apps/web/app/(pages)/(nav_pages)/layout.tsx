@@ -11,11 +11,11 @@ export default async function DashboardLayout({
     <>
       <SearchModal />
       <AddItemModal />
-      <div className="flex flex-row h-full overflow-hidden w-full">
-        <div className="w-16 items-center justify-center h-full">
+      <div className="flex flex-row h-full overflow-hidden w-full bg-sidebar">
+        <div className="w-16 items-center justify-center h-full bg-sidebar text-sidebar-foreground">
           <Sidebar />
         </div>
-        <div className="flex-1 m-1 rounded-md bg-secondary backdrop-blur border border-white/30 shadow-lg overflow-hidden">
+        <div className="flex-1 m-1 rounded-lg bg-card text-card-foreground border border-border shadow-sm overflow-hidden">
           {children}
         </div>
       </div>

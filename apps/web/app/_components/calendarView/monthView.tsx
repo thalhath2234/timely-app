@@ -1,97 +1,134 @@
-import { useCalendarStore } from "@/app/_store/calendarStore";
-import * as motion from "motion/react-client";
-import { AnimatePresence } from "framer-motion";
+"use client";
 
-const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+import { useMemo } from "react";
+import {
+  eventsForDay,
+  eventStyle,
+  isSameDay,
+  monthGrid,
+  type CalendarEvent,
+} from "@/app/utils/calendar";
+import { cn } from "@/app/utils/cn";
 
-export default function MonthView() {
-  const { selectedDate, direction } = useCalendarStore();
-  const days = getMonthGrid(selectedDate);
-  const monthKey = `${selectedDate.getFullYear()}-${selectedDate.getMonth()}`;
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MAX_CHIPS_PER_DAY = 3;
+
+type MonthViewProps = {
+  selectedDate: Date;
+  events: CalendarEvent[];
+  onSelectEvent: (event: CalendarEvent) => void;
+  onOpenDay: (day: Date) => void;
+  /** Empty-cell click schedules a task at 9:00 that day. */
+  onSelectSlot?: (day: Date, hour: number) => void;
+};
+
+export default function MonthView({
+  selectedDate,
+  events,
+  onSelectEvent,
+  onOpenDay,
+  onSelectSlot,
+}: MonthViewProps) {
+  const { days, rows } = useMemo(() => monthGrid(selectedDate), [selectedDate]);
+  const today = new Date();
+
   return (
-    <motion.div
-      className="w-full h-full flex flex-col"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1, transition: { duration: 0.2, ease: "easeInOut" } }}
-      exit={{ opacity: 0 }}
-    >
-      <div className="w-full h-8 grid grid-cols-7 gap-1 text-bold text-center items-center justify-center bg-slate-900 text-xs text-white/50">
-        {daysOfWeek.map((day) => (
-          <div key={day} id={day}>
+    <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+      <div className="grid grid-cols-7 border-b border-border">
+        {DAY_NAMES.map((day) => (
+          <div
+            key={day}
+            className="px-2 py-2 text-center text-xs font-medium text-muted-foreground"
+          >
             {day}
           </div>
         ))}
       </div>
+
       <div
-        className="relative flex-1 w-full overflow-auto"
-        style={{ scrollbarWidth: "none" }}
+        className="grid flex-1 grid-cols-7 overflow-auto"
+        style={{ gridTemplateRows: `repeat(${rows}, minmax(6rem, 1fr))` }}
       >
-        <AnimatePresence mode="wait" custom={direction} initial={false}>
-          <motion.div
-            key={monthKey}
-            custom={direction}
-            variants={slideVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.1, ease: [0.4, 0, 0.2, 1] }}
-            className="absolute inset-0 grid grid-cols-7 grid-rows-6 gap-1"
-          >
-            {days.map((day) => {
-              const inMonth = day.getMonth() === selectedDate.getMonth();
-              const isToday = isSameDay(day, new Date());
-              return (
-                <div
-                  key={day.toISOString()}
-                  className={[
-                    "border border-white/10 p-1 text-sm",
-                    inMonth ? "text-white" : "text-white/30",
-                    isToday ? "bg-slate-700/40" : "",
-                  ].join(" ")}
-                >
-                  {day.getDate()}
-                </div>
-              );
-            })}
-          </motion.div>
-        </AnimatePresence>
+        {days.map((day) => {
+          const inMonth = day.getMonth() === selectedDate.getMonth();
+          const isToday = isSameDay(day, today);
+          const dayEvents = eventsForDay(events, day);
+
+          return (
+            <div
+              key={day.toISOString()}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelectSlot?.(day, 9)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectSlot?.(day, 9);
+                }
+              }}
+              className={cn(
+                "flex min-h-24 cursor-pointer flex-col gap-1 border-b border-r border-border p-1.5 transition-colors hover:bg-accent/20 [&:nth-child(7n)]:border-r-0",
+                !inMonth && "bg-muted/30",
+              )}
+            >
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenDay(day);
+                }}
+                aria-label={`Open day view for ${day.toLocaleDateString("en-US", {
+                  month: "long",
+                  day: "numeric",
+                })}`}
+                className={cn(
+                  "flex size-6 items-center justify-center rounded-full text-xs tabular-nums transition-colors",
+                  isToday
+                    ? "bg-primary font-semibold text-primary-foreground hover:bg-primary/90"
+                    : inMonth
+                      ? "text-muted-foreground hover:bg-muted"
+                      : "text-muted-foreground/50 hover:bg-muted",
+                )}
+              >
+                {day.getDate()}
+              </button>
+
+              <div className="flex flex-col gap-0.5">
+                {dayEvents.slice(0, MAX_CHIPS_PER_DAY).map((event) => (
+                  <button
+                    key={event.id}
+                    type="button"
+                    onClick={(clickEvent) => {
+                      clickEvent.stopPropagation();
+                      onSelectEvent(event);
+                    }}
+                    style={eventStyle(event.color)}
+                    className={cn(
+                      "truncate rounded border px-1.5 py-0.5 text-left text-[10px] leading-tight text-foreground transition-all hover:brightness-110",
+                      !inMonth && "opacity-60",
+                    )}
+                  >
+                    {event.title}
+                  </button>
+                ))}
+
+                {dayEvents.length > MAX_CHIPS_PER_DAY && (
+                  <button
+                    type="button"
+                    onClick={(clickEvent) => {
+                      clickEvent.stopPropagation();
+                      onOpenDay(day);
+                    }}
+                    className="px-1 text-left text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    +{dayEvents.length - MAX_CHIPS_PER_DAY} more
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
-    </motion.div>
+    </div>
   );
 }
-
-function getMonthGrid(date: Date) {
-  const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
-
-  const gridStart = new Date(firstOfMonth);
-  gridStart.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
-
-  const days: Date[] = [];
-  for (let i = 0; i < 42; i++) {
-    const d = new Date(gridStart);
-    d.setDate(gridStart.getDate() + i);
-    days.push(d);
-  }
-  return days;
-}
-
-function isSameDay(a: Date, b: Date) {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-const slideVariants = {
-  enter: (dir: 1 | -1 | 0) => ({
-    x: dir === 0 ? 0 : dir * 40,
-    opacity: 0,
-  }),
-  center: { x: 0, opacity: 1 },
-  exit: (dir: 1 | -1 | 0) => ({
-    x: dir === 0 ? 0 : dir * -40,
-    opacity: 0,
-    position: "absolute" as const,
-  }),
-};

@@ -1,21 +1,25 @@
-FROM oven/bun:1 AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json bun.lock* ./
+RUN corepack enable
 
-RUN bun install
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-RUN bun run build
+RUN pnpm run build
 
-FROM oven/bun:1
+FROM node:22-alpine
 
 WORKDIR /app
+
+RUN corepack enable
 
 COPY --from=builder /app .
 
 EXPOSE 3000
 
-CMD ["bun", "start"]
+CMD ["pnpm", "start"]

@@ -16,15 +16,37 @@ export const SIDEBAR_ITEMS = [
     href: "/tasks",
   },
   {
+    name: "Docs",
+    icon: "FileText",
+    href: "/docs",
+  },
+  {
+    name: "Sheets",
+    icon: "Sheet",
+    href: "/sheets",
+  },
+  {
     name: "Report",
     icon: "Brain",
     href: "/report",
+  },
+  {
+    name: "Settings",
+    icon: "Settings",
+    href: "/settings",
   },
 ];
 
 export type AddNewModeOptions = "workspace" | "task" | "project" | "event" | "doc" | "sheet";
 
-export type CalendarView = "month" | "week" | "day";
+export type CalendarView = "month" | "week" | "day" | "agenda";
+
+export const CALENDAR_VIEWS: { label: string; value: CalendarView }[] = [
+  { label: "Day", value: "day" },
+  { label: "Week", value: "week" },
+  { label: "Month", value: "month" },
+  { label: "Agenda", value: "agenda" },
+];
 
 export type AddNewModeOption = AddNewModeOptions;
 
@@ -49,7 +71,6 @@ export interface BaseEntity {
 }
 
 export interface Status extends BaseEntity {
-  id: string;
   name: string;
   color: string;
   workspaceId: string;
@@ -57,11 +78,10 @@ export interface Status extends BaseEntity {
 }
 
 export interface Project extends BaseEntity {
-  title?: string;
-  name?: string;
+  title: string;
   description: string | null;
-  userId?: string;
-  statusId?: string;
+  descriptionRich?: DocContent | null;
+  statusId?: string | null;
   deadline?: string | null;
   startDate?: string | null;
   completedAt?: string | null;
@@ -74,7 +94,9 @@ export interface Project extends BaseEntity {
 export interface Workspace extends BaseEntity {
   name: string;
   userId: string;
-  description?: string | null;
+  status: Status[];
+  customFields: CustomField[];
+  lables?: Label[];
 }
 
 export interface Label extends BaseEntity {
@@ -83,23 +105,35 @@ export interface Label extends BaseEntity {
   workspaceId: string;
 }
 
+export type CustomFieldType =
+  | "text"
+  | "select"
+  | "multi_select"
+  | "number"
+  | "url"
+  | "date"
+  | "boolean";
+
 export interface CustomFieldOption {
   id: string;
   value: string;
   color?: string;
 }
 
+export interface CustomFieldOptions {
+  options: CustomFieldOption[];
+}
+
 export interface CustomField {
   id: string;
   name: string;
   workspaceId: string;
-  createdTime?: string;
-  updatedTime?: string;
-  type: string;
-  options?: {
-    options: CustomFieldOption[];
-  };
+  createdTime: string;
+  updatedTime: string;
+  type: CustomFieldType;
+  options: CustomFieldOptions;
 }
+
 
 export interface TaskCustomFieldValue extends BaseEntity {
   customFieldValueId?: string;
@@ -115,6 +149,17 @@ export interface TaskCustomFieldValue extends BaseEntity {
   optionValue?: CustomFieldOption[];
 }
 
+/**
+ * Custom field value as written back to the API. `id` is the custom field id;
+ * option-based types use `optionsValue`, everything else `stringValue`.
+ */
+export interface CustomFieldValueInput {
+  id: string;
+  type: CustomFieldType;
+  stringValue?: string;
+  optionsValue?: { id: string }[];
+}
+
 export interface TaskLabelId {
   id: string;
 }
@@ -123,6 +168,7 @@ export interface Task {
   id: string;
   name: string;
   description: string;
+  descriptionRich?: DocContent | null;
   timeChunks: number;
   duration: number;
 
@@ -151,29 +197,260 @@ export interface Task {
   labelIds?: TaskLabelId[];
   labels?: Label[];
 
-  projectid?: string | null;
-  statusid?: string | null;
-  workspaceid?: string | null;
-  scheduleid?: string | null;
-  stageid?: string | null;
-  blockedByid?: string | null;
+  /** Set when the task repeats (haircut every 4 weeks, run every Tuesday). */
+  recurrence?: RecurrenceRule | null;
+  /** Calendar time reserved for a one-off task; empty when unscheduled. */
+  blocks?: ScheduledBlock[];
+}
+
+/** Payload for attaching a recurrence rule to a task or event. */
+export interface RecurrenceInput {
+  /** RFC 5545 RRULE, e.g. `FREQ=WEEKLY;BYDAY=TU,TH`. */
+  rrule: string;
+  /** ISO timestamp of the first occurrence; carries the time of day. */
+  dtstart: string;
+  /** IANA zone occurrences are expanded in. */
+  timezone: string;
+}
+
+export interface RecurrenceException {
+  id: string;
+  ruleId: string;
+  originalStart: string;
+  newStart: string | null;
+  newEnd: string | null;
+  isCancelled: boolean;
+  completedAt: string | null;
+}
+
+export interface RecurrenceRule extends RecurrenceInput {
+  id: string;
+  ownerType: "task" | "event";
+  ownerId: string;
+  exceptions?: RecurrenceException[];
+}
+
+export type BlockSource = "manual" | "engine";
+
+export interface ScheduledBlock {
+  id: string;
+  taskId: string;
+  start: string;
+  end: string;
+  source: BlockSource;
+  chunkIndex: number;
+}
+
+export interface CalendarEventEntity {
+  id: string;
+  title: string;
+  description: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  color: string | null;
+  userId: string;
+  workspaceId: string | null;
+  projectId: string | null;
+  taskId: string | null;
+  recurrence?: RecurrenceRule | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CalendarItemKind =
+  | "task"
+  | "event"
+  | "taskOccurrence"
+  | "eventOccurrence";
+
+/** One entry from GET /calendar. */
+export interface CalendarItem {
+  id: string;
+  kind: CalendarItemKind;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  color: string | null;
+  blockId?: string;
+  source?: BlockSource;
+  chunkIndex: number;
+  chunkCount: number;
+  taskId?: string;
+  eventId?: string;
+  seriesId?: string;
+  originalStart?: string;
+  moved?: boolean;
+  completedAt?: string | null;
+  task?: Task;
+  event?: CalendarEventEntity;
+}
+
+export interface CalendarRange {
+  from: string;
+  to: string;
+  items: CalendarItem[];
+}
+
+export interface WorkingWindow {
+  start: string;
+  end: string;
+}
+
+export type WeekdayKey = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
+
+export interface WorkingHours {
+  timezone: string;
+  days: Partial<Record<WeekdayKey, WorkingWindow[]>>;
+  isDefault?: boolean;
+}
+
+export type ScheduleSkipReason =
+  | "no_capacity"
+  | "blocked"
+  | "manual"
+  | "no_duration"
+  | "recurring"
+  | "completed";
+
+export interface ScheduleProposalBlock {
+  start: string;
+  end: string;
+  chunkIndex: number;
+}
+
+export interface ScheduleProposal {
+  taskId: string;
+  taskName: string;
+  blocks: ScheduleProposalBlock[];
+  endsAt: string;
+  deadline?: string;
+  pastDeadline: boolean;
+}
+
+export interface ScheduleSkipped {
+  taskId: string;
+  taskName: string;
+  reason: ScheduleSkipReason;
+}
+
+export interface SchedulePlan {
+  from: string;
+  to: string;
+  timezone: string;
+  proposals: ScheduleProposal[];
+  skipped: ScheduleSkipped[];
+  freeMinutes: number;
+  plannedMinutes: number;
+  applied: boolean;
+}
+
+export interface TaskActivity {
+  id: string;
+  taskId: string;
+  userId: string;
+  actorName: string;
+  action: "created" | "updated" | "commented";
+  field?: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+  message: string;
+  createdAt: string;
+}
+
+/** ProseMirror document tree as produced by the Tiptap editor. */
+export interface DocContent {
+  type?: string;
+  content?: unknown[];
+  [key: string]: unknown;
+}
+
+/** Entities that can be @-mentioned from inside any rich text field. */
+export type MentionEntityType = "doc" | "sheet" | "task" | "project";
+
+export interface MentionAttrs {
+  id: string;
+  label: string;
+  entityType: MentionEntityType;
+}
+
+export interface Doc {
+  id: string;
+  title: string;
+  icon: string | null;
+  content: DocContent;
+  plainText: string;
+  parentId: string | null;
+  workspaceId: string;
+  projectId: string | null;
+  userId: string;
+  isFavorite: boolean;
+  archivedAt: string | null;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SheetColumnType = "text" | "number" | "date" | "boolean";
+
+export interface SheetColumn {
+  id: string;
+  name: string;
+  width: number;
+  type: SheetColumnType;
+}
+
+export interface SheetRow {
+  id: string;
+  cells: Record<string, string>;
+}
+
+export interface Sheet {
+  id: string;
+  title: string;
+  icon: string | null;
+  description: string;
+  descriptionRich?: DocContent | null;
+  columns: SheetColumn[];
+  rows: SheetRow[];
+  workspaceId: string;
+  projectId: string | null;
+  userId: string;
+  isFavorite: boolean;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface User {
   id: string;
   email: string;
-  isOnBoardingCompleted?: boolean;
-  IsOnBoardingCompleted?: boolean;
+  name?: string;
+  is_on_boarding_completed?: boolean;
+}
+
+export interface ApiKey {
+  id: string;
+  userId: string;
+  name: string;
+  prefix: string;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreatedApiKey extends ApiKey {
+  key: string;
 }
 
 export interface Config {
   id: string;
   userId: string;
-  isOnBoardingCompleted?: boolean;
-  isOnboardingCompleted: boolean;
+  isOnBoardingCompleted: boolean;
   customFields?: CustomField[];
   taskViews?: TaskViewConfig[];
   activeTaskViewId?: string;
+  workingHours?: WorkingHours;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -221,4 +498,7 @@ export interface TaskViewConfig {
   sortBy: TaskListSortBy;
   sortDirection: TaskListSortDirection;
   selectedWorkspaceIds: string[];
+  selectedStatusIds: string[];
+  /** Built-in ids plus `cf:{customFieldId}`. Empty means the default order. */
+  columnOrder: string[];
 }

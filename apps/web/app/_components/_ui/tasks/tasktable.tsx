@@ -1,7 +1,22 @@
-import { Fragment, useMemo, useState } from "react";
+"use client";
+
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   Config,
+  CustomField,
   Task,
   TaskListDataMode,
   TaskListGroupField,
@@ -10,6 +25,7 @@ import {
   TaskListSortDirection,
 } from "@/app/_types/types";
 import { useTasks } from "@/app/utils/hooks/tasks";
+import { cn } from "@/app/utils/cn";
 
 type TasksTableProps = {
   config: Config;
@@ -20,7 +36,140 @@ type TasksTableProps = {
   selectedWorkspaceIds: string[];
   sortBy: TaskListSortBy;
   sortDirection: TaskListSortDirection;
+  columnOrder: string[];
+  onColumnOrderChange: (order: string[]) => void;
+  onSelectRow: (row: Task) => void;
 };
+
+const BUILTIN_COLUMNS = [
+  { id: "name", label: "Task", width: "w-64", align: "left" },
+  { id: "description", label: "Description", width: "w-80", align: "left" },
+  { id: "duration", label: "Duration", width: "w-24", align: "right" },
+  { id: "startDate", label: "Start Date", width: "w-32", align: "center" },
+  { id: "deadline", label: "Deadline", width: "w-32", align: "center" },
+  { id: "scheduledOn", label: "Scheduled On", width: "w-32", align: "center" },
+  { id: "completedAt", label: "Completed At", width: "w-32", align: "center" },
+  { id: "createdAt", label: "Created At", width: "w-32", align: "center" },
+  { id: "updatedAt", label: "Updated At", width: "w-32", align: "center" },
+  { id: "project", label: "Project", width: "w-44", align: "left" },
+  { id: "workspace", label: "Workspace", width: "w-48", align: "left" },
+  { id: "blockedBy", label: "Blocked By", width: "w-36", align: "left" },
+  { id: "priority", label: "Priority", width: "w-24", align: "center" },
+  { id: "stageId", label: "Stage ID", width: "w-24", align: "center" },
+  { id: "scheduleId", label: "Schedule ID", width: "w-28", align: "center" },
+  { id: "status", label: "Status", width: "w-32", align: "left" },
+  { id: "labels", label: "Labels", width: "w-36", align: "left" },
+] as const;
+
+type ColumnAlign = "left" | "center" | "right";
+
+type ListColumn = {
+  id: string;
+  label: string;
+  width: string;
+  align: ColumnAlign;
+};
+
+function customFieldColumn(field: CustomField): ListColumn {
+  return {
+    id: `cf:${field.id}`,
+    label: field.name,
+    width: "w-44",
+    align: "left",
+  };
+}
+
+function defaultListColumns(customFields: CustomField[]): ListColumn[] {
+  return [
+    ...BUILTIN_COLUMNS.map((column) => ({ ...column })),
+    ...customFields.map(customFieldColumn),
+  ];
+}
+
+function resolveListColumns(
+  savedOrder: string[],
+  customFields: CustomField[],
+): ListColumn[] {
+  const available = defaultListColumns(customFields);
+  const byId = new Map(available.map((column) => [column.id, column]));
+  const ordered: ListColumn[] = [];
+
+  for (const id of savedOrder) {
+    const column = byId.get(id);
+    if (!column) continue;
+    ordered.push(column);
+    byId.delete(id);
+  }
+
+  for (const column of available) {
+    if (byId.has(column.id)) ordered.push(column);
+  }
+
+  return ordered;
+}
+
+function reorderColumnIds(ids: string[], fromIndex: number, toIndex: number): string[] {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return ids;
+  const next = [...ids];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
+function columnShiftX(
+  fromIndex: number,
+  overIndex: number,
+  index: number,
+  width: number,
+): number {
+  if (index === fromIndex || fromIndex === overIndex) return 0;
+  if (fromIndex < overIndex && index > fromIndex && index <= overIndex) return -width;
+  if (fromIndex > overIndex && index >= overIndex && index < fromIndex) return width;
+  return 0;
+}
+
+type ColumnSlot = { left: number; width: number };
+
+type LiveColumnDrag = {
+  id: string;
+  fromIndex: number;
+  overIndex: number;
+  width: number;
+  label: string;
+  slots: ColumnSlot[];
+  startX: number;
+  lastClientX: number;
+  grabOffsetX: number;
+  originTop: number;
+  headerHeight: number;
+  startScrollLeft: number;
+  pointerId: number;
+  active: boolean;
+};
+
+type ColumnDragState = {
+  id: string;
+  fromIndex: number;
+  overIndex: number;
+  width: number;
+  label: string;
+};
+
+function dropSlotLeft(
+  slots: ColumnSlot[],
+  fromIndex: number,
+  overIndex: number,
+  draggedWidth: number,
+  scrollDx: number,
+): number | null {
+  if (fromIndex === overIndex) return null;
+  const slot = slots[overIndex];
+  if (!slot) return null;
+  if (fromIndex < overIndex) {
+    return slot.left + slot.width - draggedWidth - scrollDx;
+  }
+  return slot.left - scrollDx;
+}
 
 type GroupNode = {
   key: string;
@@ -30,6 +179,23 @@ type GroupNode = {
   children: GroupNode[];
   rows: Task[];
 };
+
+// Status/label colors come from the API as hex; fall back to theme tokens when unset.
+function swatchStyle(color?: string | null): CSSProperties {
+  if (!color) {
+    return {
+      backgroundColor: "var(--muted)",
+      color: "var(--muted-foreground)",
+      borderColor: "var(--border)",
+    };
+  }
+
+  return {
+    backgroundColor: `${color}1a`,
+    color,
+    borderColor: `${color}66`,
+  };
+}
 
 function formatDate(value?: string | null): string {
   if (!value) return "-";
@@ -73,10 +239,10 @@ function getCustomFieldDisplayValue(task: Task, fieldId: string): string {
 
 function getGroupLabel(task: Task, groupBy: TaskListGroupField): string {
   if (groupBy === "workspace") return task.workspace?.name || "No workspace";
-  if (groupBy === "project") return task.project?.title || task.project?.name || "No project";
+  if (groupBy === "project") return task.project?.title || "No project";
   if (groupBy === "status") return task.status?.name || "No status";
   if (groupBy === "priority") return task.priorityLevel || "No priority";
-  if (groupBy === "stage") return task.stageId || task.stageid || "No stage";
+  if (groupBy === "stage") return task.stageId || "No stage";
   if (groupBy.startsWith("cf:")) return getCustomFieldDisplayValue(task, groupBy.slice(3));
   return "No group";
 }
@@ -164,8 +330,8 @@ function compareTasks(a: Task, b: Task, sortBy: TaskListSortBy): number {
     case "status":
       return (a.status?.name || "").localeCompare(b.status?.name || "");
     case "project":
-      return (a.project?.title || a.project?.name || "").localeCompare(
-        b.project?.title || b.project?.name || ""
+      return (a.project?.title || "").localeCompare(
+        b.project?.title || ""
       );
     default:
       return 0;
@@ -176,14 +342,14 @@ function getBlockedByDisplayValue(task: Task): string {
   const blockedBy = (task as Task & { blockedBy?: { id: string; name?: string } | null }).blockedBy;
   if (blockedBy?.name) return blockedBy.name;
   if (blockedBy?.id) return blockedBy.id;
-  return task.blockedById || task.blockedByid || "-";
+  return task.blockedById || "-";
 }
 
 function buildProjectRows(tasks: Task[]): Task[] {
   const projects = new Map<string, Task[]>();
 
   tasks.forEach((task) => {
-    const projectId = task.project?.id || task.projectId || task.projectid;
+    const projectId = task.project?.id || task.projectId;
     if (!projectId) return;
     const existing = projects.get(projectId) ?? [];
     existing.push(task);
@@ -197,7 +363,7 @@ function buildProjectRows(tasks: Task[]): Task[] {
 
     return {
       id: `project-${projectId}`,
-      name: project?.name || project?.title || "Untitled project",
+      name: project?.title || "Untitled project",
       description: project?.description || "",
       timeChunks: 0,
       duration: totalDuration,
@@ -211,7 +377,7 @@ function buildProjectRows(tasks: Task[]): Task[] {
       projectId,
       statusId: project?.statusId || null,
       priorityLevel: project?.priorityLevel || first.priorityLevel || null,
-      workspaceId: project?.workspaceId || first.workspaceId || first.workspaceid || null,
+      workspaceId: project?.workspaceId || first.workspaceId || null,
       scheduleId: null,
       stageId: null,
       blockedById: null,
@@ -234,11 +400,20 @@ export default function TasksTable({
   selectedWorkspaceIds,
   sortBy,
   sortDirection,
+  columnOrder,
+  onColumnOrderChange,
+  onSelectRow,
 }: TasksTableProps) {
   const { data: tasks, isLoading, status } = useTasks();
   const typedTasks = (tasks ?? []) as Task[];
   const customFields = config.customFields ?? [];
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [columnDrag, setColumnDrag] = useState<ColumnDragState | null>(null);
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const headerCellRefs = useRef<Map<string, HTMLTableCellElement>>(new Map());
+  const liveDragRef = useRef<LiveColumnDrag | null>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
+  const dropPreviewRef = useRef<HTMLDivElement>(null);
 
   const dataRows = useMemo(
     () => (dataMode === "project" ? buildProjectRows(typedTasks) : typedTasks),
@@ -249,7 +424,7 @@ export default function TasksTable({
     if (selectedWorkspaceIds.length === 0) return dataRows;
 
     return dataRows.filter((row) => {
-      const workspaceId = row.workspace?.id || row.workspaceId || row.workspaceid;
+      const workspaceId = row.workspace?.id || row.workspaceId;
       if (!workspaceId) return false;
       return selectedWorkspaceIds.includes(workspaceId);
     });
@@ -276,138 +451,492 @@ export default function TasksTable({
     }));
   };
 
+  const columns = useMemo(
+    () => resolveListColumns(columnOrder, customFields),
+    [columnOrder, customFields],
+  );
+
+  const updateDragOverlays = useCallback((clientX?: number) => {
+    const live = liveDragRef.current;
+    const wrap = tableWrapRef.current;
+    if (!live?.active || !wrap) return;
+
+    const wrapRect = wrap.getBoundingClientRect();
+    const scrollDx = wrap.scrollLeft - live.startScrollLeft;
+    const ghost = ghostRef.current;
+    if (ghost) {
+      const x = (clientX ?? live.lastClientX) - live.grabOffsetX;
+      ghost.style.width = `${live.width}px`;
+      ghost.style.height = `${live.headerHeight}px`;
+      ghost.style.transform = `translate3d(${x}px, ${wrapRect.top}px, 0) scale(1.02)`;
+      ghost.style.transformOrigin = "top left";
+    }
+
+    const preview = dropPreviewRef.current;
+    if (preview) {
+      const left = dropSlotLeft(
+        live.slots,
+        live.fromIndex,
+        live.overIndex,
+        live.width,
+        scrollDx,
+      );
+      if (left === null) {
+        preview.style.opacity = "0";
+      } else {
+        preview.style.opacity = "1";
+        preview.style.left = `${left}px`;
+        preview.style.top = `${wrapRect.top}px`;
+        preview.style.width = `${live.width}px`;
+        preview.style.height = `${wrapRect.height}px`;
+      }
+    }
+  }, []);
+
+  const stopColumnDrag = useCallback((commit: boolean) => {
+    const live = liveDragRef.current;
+    liveDragRef.current = null;
+
+    if (commit && live?.active && live.overIndex !== live.fromIndex) {
+      onColumnOrderChange(
+        reorderColumnIds(
+          columns.map((column) => column.id),
+          live.fromIndex,
+          live.overIndex,
+        ),
+      );
+    }
+
+    setColumnDrag(null);
+  }, [columns, onColumnOrderChange]);
+
+  const onColumnPointerDown = useCallback(
+    (column: ListColumn, event: ReactPointerEvent<HTMLTableCellElement>) => {
+      if (event.button !== 0) return;
+
+      const header = event.currentTarget;
+      const wrap = tableWrapRef.current;
+      const index = columns.findIndex((item) => item.id === column.id);
+      if (index < 0 || !wrap) return;
+
+      event.preventDefault();
+      header.setPointerCapture(event.pointerId);
+
+      const slots = columns.map((item) => {
+        const el = headerCellRefs.current.get(item.id);
+        const rect = el?.getBoundingClientRect();
+        return { left: rect?.left ?? 0, width: rect?.width ?? 0 };
+      });
+      const rect = header.getBoundingClientRect();
+
+      liveDragRef.current = {
+        id: column.id,
+        fromIndex: index,
+        overIndex: index,
+        width: rect.width,
+        label:
+          column.id === "name"
+            ? dataMode === "project"
+              ? "Project"
+              : "Task"
+            : column.label,
+        slots,
+        startX: event.clientX,
+        lastClientX: event.clientX,
+        grabOffsetX: event.clientX - rect.left,
+        originTop: rect.top,
+        headerHeight: rect.height,
+        startScrollLeft: wrap.scrollLeft,
+        pointerId: event.pointerId,
+        active: false,
+      };
+    },
+    [columns, dataMode],
+  );
+
+  const onColumnPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLTableCellElement>) => {
+      const live = liveDragRef.current;
+      if (!live || live.pointerId !== event.pointerId) return;
+
+      const wrap = tableWrapRef.current;
+      const deltaX = event.clientX - live.startX;
+      if (!live.active) {
+        if (Math.abs(deltaX) < 6) return;
+        live.active = true;
+        setColumnDrag({
+          id: live.id,
+          fromIndex: live.fromIndex,
+          overIndex: live.fromIndex,
+          width: live.width,
+          label: live.label,
+        });
+      }
+
+      if (wrap) {
+        const rect = wrap.getBoundingClientRect();
+        if (event.clientX > rect.right - 48) wrap.scrollLeft += 18;
+        else if (event.clientX < rect.left + 48) wrap.scrollLeft -= 18;
+      }
+
+      const scrollDx = (wrap?.scrollLeft ?? 0) - live.startScrollLeft;
+      let overIndex = live.slots.length - 1;
+      if (event.clientX < live.slots[0].left - scrollDx) {
+        overIndex = 0;
+      } else {
+        for (let i = 0; i < live.slots.length; i += 1) {
+          const right = live.slots[i].left - scrollDx + live.slots[i].width;
+          if (event.clientX < right) {
+            overIndex = i;
+            break;
+          }
+        }
+      }
+
+      live.lastClientX = event.clientX;
+
+      if (overIndex !== live.overIndex) {
+        live.overIndex = overIndex;
+        setColumnDrag((current) =>
+          current ? { ...current, overIndex } : current,
+        );
+      }
+
+      updateDragOverlays(event.clientX);
+    },
+    [updateDragOverlays],
+  );
+
+  const onColumnPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLTableCellElement>) => {
+      const live = liveDragRef.current;
+      if (!live || live.pointerId !== event.pointerId) return;
+      stopColumnDrag(true);
+    },
+    [stopColumnDrag],
+  );
+
+  const onColumnPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLTableCellElement>) => {
+      const live = liveDragRef.current;
+      if (!live || live.pointerId !== event.pointerId) return;
+      stopColumnDrag(false);
+    },
+    [stopColumnDrag],
+  );
+
+  useLayoutEffect(() => {
+    if (!columnDrag) return;
+    updateDragOverlays();
+  }, [columnDrag, updateDragOverlays]);
+
+  useEffect(() => {
+    if (!columnDrag) return;
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "grabbing";
+    document.body.style.userSelect = "none";
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") stopColumnDrag(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [columnDrag, stopColumnDrag]);
+
   const headerOffset = 36;
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
   }
 
   if (status === "error") {
-    return <div>Something went wrong</div>;
+    return (
+      <div className="p-4 text-sm text-destructive">Something went wrong</div>
+    );
   }
 
   if (!sortedTasks.length) {
-    return <div className="p-4 text-sm text-white/70">No tasks yet.</div>;
+    return <div className="p-4 text-sm text-muted-foreground">No tasks yet.</div>;
   }
 
-  const headerCellClass = "px-3 py-2 font-medium whitespace-nowrap bg-[#13212f] align-middle";
-  const textCell = "px-3 py-2 text-white/85 whitespace-nowrap align-middle";
-  const primaryTextCell = "px-3 py-2 font-medium text-white/95 whitespace-nowrap align-middle";
-  const descriptionCell = "px-3 py-2 text-white/80 max-w-80 truncate align-middle";
-  const numericCell = "px-3 py-2 text-white/80 text-right tabular-nums whitespace-nowrap align-middle";
-  const dateCell = "px-3 py-2 text-white/80 text-center tabular-nums whitespace-nowrap align-middle";
+  const headerCellClass =
+    "px-3 py-2 font-medium whitespace-nowrap bg-muted/60 text-muted-foreground align-middle";
+  const textCell = "px-3 py-2 text-foreground whitespace-nowrap align-middle";
+  const primaryTextCell = "px-3 py-2 font-medium text-foreground whitespace-nowrap align-middle";
+  const descriptionCell = "px-3 py-2 text-muted-foreground max-w-80 truncate align-middle";
+  const numericCell = "px-3 py-2 text-muted-foreground text-right tabular-nums whitespace-nowrap align-middle";
+  const dateCell = "px-3 py-2 text-muted-foreground text-center tabular-nums whitespace-nowrap align-middle";
+
+  const alignHeader = (align: ColumnAlign) =>
+    align === "center" ? "text-center" : align === "right" ? "text-right" : "";
+
+  const columnMotionStyle = (columnId: string): CSSProperties => {
+    if (!columnDrag) return {};
+    const index = columns.findIndex((column) => column.id === columnId);
+    if (index < 0) return {};
+    const isDragged = columnId === columnDrag.id;
+    const x = columnShiftX(
+      columnDrag.fromIndex,
+      columnDrag.overIndex,
+      index,
+      columnDrag.width,
+    );
+    return {
+      transform: `translate3d(${x}px, 0, 0)`,
+      transition: isDragged
+        ? "opacity 150ms ease"
+        : "transform 200ms cubic-bezier(0.22, 1, 0.36, 1)",
+      opacity: isDragged ? 0 : 1,
+      position: "relative",
+      zIndex: isDragged ? 0 : 1,
+      willChange: "transform",
+    };
+  };
+
+  const bodyCellClass = (base: string, columnId: string) =>
+    cn(base, columnDrag && columnDrag.id !== columnId && "bg-background");
+
+  const renderColumnCell = (column: ListColumn, task: Task, indentDepth = 0): ReactNode => {
+    if (column.id.startsWith("cf:")) {
+      return (
+        <td
+          key={column.id}
+          className={bodyCellClass(textCell, column.id)}
+          style={columnMotionStyle(column.id)}
+        >
+          {getCustomFieldDisplayValue(task, column.id.slice(3))}
+        </td>
+      );
+    }
+
+    switch (column.id) {
+      case "name":
+        return (
+          <td
+            key={column.id}
+            className={bodyCellClass(primaryTextCell, column.id)}
+            style={{
+              paddingLeft: `${12 + indentDepth * 16}px`,
+              ...columnMotionStyle(column.id),
+            }}
+          >
+            {task.name}
+          </td>
+        );
+      case "description":
+        return (
+          <td
+            key={column.id}
+            className={bodyCellClass(descriptionCell, column.id)}
+            style={columnMotionStyle(column.id)}
+          >
+            {task.description || "-"}
+          </td>
+        );
+      case "duration":
+        return (
+          <td
+            key={column.id}
+            className={bodyCellClass(numericCell, column.id)}
+            style={columnMotionStyle(column.id)}
+          >
+            {typeof task.duration === "number" ? `${task.duration}m` : "-"}
+          </td>
+        );
+      case "startDate":
+        return (
+          <td key={column.id} className={bodyCellClass(dateCell, column.id)} style={columnMotionStyle(column.id)}>
+            {formatDate(task.startDate)}
+          </td>
+        );
+      case "deadline":
+        return (
+          <td key={column.id} className={bodyCellClass(dateCell, column.id)} style={columnMotionStyle(column.id)}>
+            {formatDate(task.deadline)}
+          </td>
+        );
+      case "scheduledOn":
+        return (
+          <td key={column.id} className={bodyCellClass(dateCell, column.id)} style={columnMotionStyle(column.id)}>
+            {formatDate(task.scheduledOn)}
+          </td>
+        );
+      case "completedAt":
+        return (
+          <td key={column.id} className={bodyCellClass(dateCell, column.id)} style={columnMotionStyle(column.id)}>
+            {formatDate(task.completedAt)}
+          </td>
+        );
+      case "createdAt":
+        return (
+          <td key={column.id} className={bodyCellClass(dateCell, column.id)} style={columnMotionStyle(column.id)}>
+            {formatDate(task.createdAt)}
+          </td>
+        );
+      case "updatedAt":
+        return (
+          <td key={column.id} className={bodyCellClass(dateCell, column.id)} style={columnMotionStyle(column.id)}>
+            {formatDate(task.updatedAt)}
+          </td>
+        );
+      case "project":
+        return (
+          <td key={column.id} className={bodyCellClass(textCell, column.id)} style={columnMotionStyle(column.id)}>
+            {task.project?.title || "-"}
+          </td>
+        );
+      case "workspace":
+        return (
+          <td key={column.id} className={bodyCellClass(textCell, column.id)} style={columnMotionStyle(column.id)}>
+            {task.workspace?.name || "-"}
+          </td>
+        );
+      case "blockedBy":
+        return (
+          <td key={column.id} className={bodyCellClass(textCell, column.id)} style={columnMotionStyle(column.id)}>
+            {getBlockedByDisplayValue(task)}
+          </td>
+        );
+      case "priority":
+        return (
+          <td
+            key={column.id}
+            className={bodyCellClass(
+              "px-3 py-2 text-center text-muted-foreground whitespace-nowrap align-middle",
+              column.id,
+            )}
+            style={columnMotionStyle(column.id)}
+          >
+            {task.priorityLevel || "-"}
+          </td>
+        );
+      case "stageId":
+        return (
+          <td
+            key={column.id}
+            className={bodyCellClass(
+              "px-3 py-2 text-center text-muted-foreground tabular-nums whitespace-nowrap align-middle",
+              column.id,
+            )}
+            style={columnMotionStyle(column.id)}
+          >
+            {task.stageId || "-"}
+          </td>
+        );
+      case "scheduleId":
+        return (
+          <td
+            key={column.id}
+            className={bodyCellClass(
+              "px-3 py-2 text-center text-muted-foreground tabular-nums whitespace-nowrap align-middle",
+              column.id,
+            )}
+            style={columnMotionStyle(column.id)}
+          >
+            {task.scheduleId || "-"}
+          </td>
+        );
+      case "status":
+        return (
+          <td
+            key={column.id}
+            className={bodyCellClass("px-3 py-2 align-middle", column.id)}
+            style={columnMotionStyle(column.id)}
+          >
+            <span
+              className="inline-flex items-center rounded-4xl border px-2 py-0.5 text-xs font-normal"
+              style={swatchStyle(task.status?.color)}
+            >
+              {task.status?.name || "-"}
+            </span>
+          </td>
+        );
+      case "labels":
+        return (
+          <td
+            key={column.id}
+            className={bodyCellClass("px-3 py-2 align-middle", column.id)}
+            style={columnMotionStyle(column.id)}
+          >
+            <div className="flex flex-wrap gap-1">
+              {(task.labels ?? []).length === 0 && (
+                <span className="text-muted-foreground">-</span>
+              )}
+              {(task.labels ?? []).map((label) => (
+                <span
+                  key={label.id}
+                  className="inline-flex items-center rounded-4xl border px-2 py-0.5 text-xs font-normal"
+                  style={swatchStyle(label.color)}
+                >
+                  {label.name}
+                </span>
+              ))}
+            </div>
+          </td>
+        );
+      default:
+        return (
+          <td key={column.id} className={bodyCellClass(textCell, column.id)} style={columnMotionStyle(column.id)}>
+            -
+          </td>
+        );
+    }
+  };
 
   const renderTaskCells = (task: Task, indentDepth = 0) => (
     <>
-      <td
-        className={primaryTextCell}
-        style={{
-          paddingLeft: `${12 + indentDepth * 16}px`,
-        }}
-      >
-        {task.name}
-      </td>
-      <td className={descriptionCell}>{task.description || "-"}</td>
-      <td className={numericCell}>{typeof task.duration === "number" ? `${task.duration}m` : "-"}</td>
-      <td className={dateCell}>{formatDate(task.startDate)}</td>
-      <td className={dateCell}>{formatDate(task.deadline)}</td>
-      <td className={dateCell}>{formatDate(task.scheduledOn)}</td>
-      <td className={dateCell}>{formatDate(task.completedAt)}</td>
-      <td className={dateCell}>{formatDate(task.createdAt)}</td>
-      <td className={dateCell}>{formatDate(task.updatedAt)}</td>
-      <td className={textCell}>{task.project?.name || task.project?.title || "-"}</td>
-      <td className={textCell}>{task.workspace?.name || "-"}</td>
-      <td className={textCell}>{getBlockedByDisplayValue(task)}</td>
-      <td className="px-3 py-2 text-white/80 text-center whitespace-nowrap align-middle">{task.priorityLevel || "-"}</td>
-      <td className="px-3 py-2 text-white/80 text-center tabular-nums whitespace-nowrap align-middle">{task.stageId || task.stageid || "-"}</td>
-      <td className="px-3 py-2 text-white/80 text-center tabular-nums whitespace-nowrap align-middle">{task.scheduleId || task.scheduleid || "-"}</td>
-
-      <td className="px-3 py-2 align-middle">
-        <span
-          className="inline-flex items-center px-2 py-0.5 rounded text-xs"
-          style={{
-            backgroundColor: `${task.status?.color || "#889096"}33`,
-            color: task.status?.color || "#d1d5db",
-          }}
-        >
-          {task.status?.name || "-"}
-        </span>
-      </td>
-
-      <td className="px-3 py-2 align-middle">
-        <div className="flex flex-wrap gap-1">
-          {(task.labels ?? []).length === 0 && <span className="text-white/50">-</span>}
-
-          {(task.labels ?? []).map((label) => (
-            <span
-              key={label.id}
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs"
-              style={{
-                backgroundColor: `${label.color || "#889096"}33`,
-                color: label.color || "#d1d5db",
-              }}
-            >
-              {label.name}
-            </span>
-          ))}
-        </div>
-      </td>
-
-      {customFields.map((field) => (
-        <td key={`${task.id}-${field.id}`} className={textCell}>
-          {getCustomFieldDisplayValue(task, field.id)}
-        </td>
-      ))}
+      {columns.map((column) => renderColumnCell(column, task, indentDepth))}
     </>
   );
 
   return (
-    <div className="w-full h-full overflow-x-auto overflow-y-auto relative isolate">
-      <table className="w-max min-w-full text-sm border-collapse">
+    <div
+      ref={tableWrapRef}
+      className={cn(
+        "relative isolate h-full w-full overflow-x-auto overflow-y-auto",
+        columnDrag && "select-none",
+      )}
+    >
+      <table className="w-max min-w-full border-collapse text-sm">
         <colgroup>
-          <col className="w-64" />
-          <col className="w-80" />
-          <col className="w-24" />
-          <col className="w-32" />
-          <col className="w-32" />
-          <col className="w-32" />
-          <col className="w-32" />
-          <col className="w-32" />
-          <col className="w-32" />
-          <col className="w-44" />
-          <col className="w-48" />
-          <col className="w-36" />
-          <col className="w-24" />
-          <col className="w-24" />
-          <col className="w-28" />
-          <col className="w-32" />
-          <col className="w-36" />
-          {customFields.map((field) => (
-            <col key={`col-${field.id}`} className="w-44" />
+          {columns.map((column) => (
+            <col key={`col-${column.id}`} className={column.width} />
           ))}
         </colgroup>
         <thead className="sticky top-0 z-30">
-          <tr className="text-left border-b border-white/10 bg-[#13212f]">
-            <th className={headerCellClass}>{dataMode === "project" ? "Project" : "Task"}</th>
-            <th className={headerCellClass}>Description</th>
-            <th className={`${headerCellClass} text-right`}>Duration</th>
-            <th className={`${headerCellClass} text-center`}>Start Date</th>
-            <th className={`${headerCellClass} text-center`}>Deadline</th>
-            <th className={`${headerCellClass} text-center`}>Scheduled On</th>
-            <th className={`${headerCellClass} text-center`}>Completed At</th>
-            <th className={`${headerCellClass} text-center`}>Created At</th>
-            <th className={`${headerCellClass} text-center`}>Updated At</th>
-            <th className={headerCellClass}>Project</th>
-            <th className={headerCellClass}>Workspace</th>
-            <th className={headerCellClass}>Blocked By</th>
-            <th className={`${headerCellClass} text-center`}>Priority</th>
-            <th className={`${headerCellClass} text-center`}>Stage ID</th>
-            <th className={`${headerCellClass} text-center`}>Schedule ID</th>
-            <th className={headerCellClass}>Status</th>
-            <th className={headerCellClass}>Labels</th>
-            {customFields.map((field) => (
-              <th key={field.id} className={headerCellClass}>
-                {field.name}
+          <tr className="border-b border-border bg-muted/60 text-left">
+            {columns.map((column) => (
+              <th
+                key={column.id}
+                ref={(element) => {
+                  if (element) headerCellRefs.current.set(column.id, element);
+                  else headerCellRefs.current.delete(column.id);
+                }}
+                title="Drag to reorder"
+                onPointerDown={(event) => onColumnPointerDown(column, event)}
+                onPointerMove={onColumnPointerMove}
+                onPointerUp={onColumnPointerUp}
+                onPointerCancel={onColumnPointerCancel}
+                className={cn(
+                  headerCellClass,
+                  alignHeader(column.align),
+                  "cursor-grab touch-none select-none active:cursor-grabbing",
+                  columnDrag?.id === column.id && "cursor-grabbing",
+                )}
+                style={columnMotionStyle(column.id)}
+              >
+                {column.id === "name"
+                  ? dataMode === "project"
+                    ? "Project"
+                    : "Task"
+                  : column.label}
               </th>
             ))}
           </tr>
@@ -416,7 +945,11 @@ export default function TasksTable({
         <tbody>
           {groupFields.length === 0 &&
             sortedTasks.map((task) => (
-              <tr key={task.id} className="border-b border-white/5 hover:bg-white/3">
+              <tr
+                key={task.id}
+                onClick={() => onSelectRow(task)}
+                className="cursor-pointer border-b border-border transition-colors hover:bg-muted/40"
+              >
                 {renderTaskCells(task, 0)}
               </tr>
             ))}
@@ -430,14 +963,13 @@ export default function TasksTable({
 
                 return (
                   <Fragment key={node.key}>
-                    <tr className="border-b border-white/10">
+                    <tr className="border-b border-border">
                       <td
-                        colSpan={17 + customFields.length}
-                        className="px-3 py-2 text-xs font-semibold text-white/85 sticky"
+                        colSpan={columns.length}
+                        className="px-3 py-2 text-xs font-semibold text-foreground bg-muted sticky"
                         style={{
                           top: `${stickyTop}px`,
                           zIndex,
-                          backgroundColor: "#182736",
                         }}
                       >
                         <button
@@ -447,7 +979,9 @@ export default function TasksTable({
                         >
                           {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                           <span>{node.label}</span>
-                          <span className="text-white/60">({node.count})</span>
+                          <span className="text-muted-foreground tabular-nums">
+                            ({node.count})
+                          </span>
                         </button>
                       </td>
                     </tr>
@@ -456,7 +990,11 @@ export default function TasksTable({
                       (node.children.length > 0
                         ? node.children.map((child) => renderNode(child))
                         : node.rows.map((task) => (
-                            <tr key={task.id} className="border-b border-white/5 hover:bg-white/3">
+                            <tr
+                              key={task.id}
+                              onClick={() => onSelectRow(task)}
+                              className="cursor-pointer border-b border-border transition-colors hover:bg-muted/40"
+                            >
                               {renderTaskCells(task, node.depth + 1)}
                             </tr>
                           ))) }
@@ -468,6 +1006,24 @@ export default function TasksTable({
             })}
         </tbody>
       </table>
+      {columnDrag &&
+        createPortal(
+          <>
+            <div
+              ref={dropPreviewRef}
+              className="pointer-events-none fixed z-40 rounded-md border border-dashed border-primary/70 bg-primary/10 shadow-[inset_3px_0_0_0_var(--primary)] transition-[left,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              style={{ opacity: 0 }}
+            />
+            <div
+              ref={ghostRef}
+              className="pointer-events-none fixed top-0 left-0 z-50 flex items-center overflow-hidden rounded-md border border-border bg-muted px-3 text-sm font-medium whitespace-nowrap text-foreground shadow-lg"
+              style={{ willChange: "transform" }}
+            >
+              {columnDrag.label}
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }

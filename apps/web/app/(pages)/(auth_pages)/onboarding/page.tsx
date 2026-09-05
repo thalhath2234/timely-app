@@ -26,7 +26,7 @@ export default function Onboarding() {
 
   const typedConfig = config as Config | undefined;
   const isOnboardingDone = Boolean(
-    typedConfig?.isOnboardingCompleted ?? typedConfig?.isOnBoardingCompleted,
+    typedConfig?.isOnBoardingCompleted,
   );
 
   useEffect(() => {
@@ -68,7 +68,7 @@ export default function Onboarding() {
         old
           ? {
               ...old,
-              isOnboardingCompleted: true,
+              isOnBoardingCompleted: true,
             }
           : old,
       );
@@ -87,8 +87,10 @@ export default function Onboarding() {
 
   return (
     <div>
-      <div className="fixed inset-0 flex flex-col items-center justify-center bg-background bg-opacity-50 z-50">
-        <h1 className="text-2xl font-bold mb-4">Create Your First Workspace</h1>
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm z-50">
+        <h1 className="text-2xl font-semibold tracking-tight text-balance mb-4">
+          Create Your First Workspace
+        </h1>
         <form
           onSubmit={handleSubmit(onSubmit)}
           className="mt-4 flex flex-row gap-2"
@@ -96,18 +98,18 @@ export default function Onboarding() {
           <input
             type="text"
             placeholder="Workspace Name"
-            className="px-4 py-2 rounded-md bg-secondary text-white focus:outline-none focus:ring-2 focus:ring-tertiary"
+            className="px-4 py-2 rounded-lg bg-input/30 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring transition"
             {...register("name")}
           />
 
           {errors.name && (
-            <p className="text-sm text-red-500">{errors.name.message}</p>
+            <p className="text-sm text-destructive">{errors.name.message}</p>
           )}
 
           <button
             type="submit"
             disabled={!isValid || isPending}
-            className="px-4 py-2 rounded-md bg-tertiary text-white font-medium hover:bg-tertiary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isPending ? "Creating..." : "Create"}
           </button>

@@ -79,14 +79,14 @@ export default function Sidebar() {
         <div className="flex flex-col items-center justify-center gap-y-2">
           <div className="relative" ref={addMenuRef}>
             <button
-              className="flex bg-blue-900 rounded-md p-2 border-none m-0 cursor-pointer"
+              className="flex bg-sidebar-primary text-sidebar-primary-foreground rounded-lg p-2 border-none m-0 cursor-pointer transition-colors hover:bg-sidebar-primary/90"
               onClick={() => setShowAddMenu((prev) => !prev)}
             >
               <motion.div
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
-                <Plus className="text-white size-5" />
+                <Plus className="size-5" />
               </motion.div>
             </button>
 
@@ -97,12 +97,12 @@ export default function Sidebar() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -5 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute left-full ml-2 top-0 z-50 min-w-36 rounded-md border border-white/10 bg-zinc-900 shadow-lg overflow-hidden"
+                  className="absolute left-full ml-2 top-0 z-50 min-w-36 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg overflow-hidden"
                 >
                   {addNewOptions.map((option) => (
                     <button
                       key={option.value}
-                      className="w-full px-3 py-2 text-left text-sm text-white hover:bg-zinc-800 transition-colors"
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
                       onClick={() => {
                         setAddNewMode(option.value);
                         setIsAddItemModalOpen(true);
@@ -117,19 +117,19 @@ export default function Sidebar() {
             </AnimatePresence>
           </div>
           <button
-            className="flex bg-blue-900 rounded-md p-2 border-none m-0 cursor-pointer"
+            className="flex bg-sidebar-primary text-sidebar-primary-foreground rounded-lg p-2 border-none m-0 cursor-pointer transition-colors hover:bg-sidebar-primary/90"
             onClick={() => setSearchMode(true)}
           >
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Search className="color-white size-5" />
+              <Search className="size-5" />
             </motion.div>
           </button>
         </div>
       </div>
       <div className="w-full flex items-center justify-center">
-        <p className="border-b border-white/30 w-1/2"> </p>
+        <p className="border-b border-sidebar-border w-1/2"> </p>
       </div>
-      <div className="flex flex-col items-center gap-y-1 text-white">
+      <div className="flex flex-col items-center gap-y-1 text-sidebar-foreground">
         {SIDEBAR_ITEMS.map((item: SidebarProps) => {
           const isActive = pathname.startsWith(item.href);
 
@@ -144,7 +144,7 @@ export default function Sidebar() {
                       stiffness: 400,
                       damping: 32,
                     }}
-                    className="absolute inset-0 rounded-md bg-white -z-10"
+                    className="absolute inset-0 rounded-lg bg-sidebar-accent -z-10"
                   />
                 )}
               </AnimatePresence>
@@ -155,11 +155,11 @@ export default function Sidebar() {
         })}
       </div>
       <button
-        className="flex items-center justify-center"
+        className="flex items-center justify-center text-sidebar-foreground hover:text-sidebar-primary transition-colors cursor-pointer"
         onClick={() => logoutMutation.mutate()}
       >
         <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-          <LogOut className="color-white size-5" />
+          <LogOut className="size-5" />
         </motion.div>
       </button>
     </div>
