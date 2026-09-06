@@ -58,7 +58,7 @@ const SLASH: {
   { title: "Quote", description: "Capture a quotation", cmd: "quote", shortcut: ">", keywords: ["blockquote"] },
   { title: "Code block", description: "Monospaced code", cmd: "code", shortcut: "```", keywords: ["pre"] },
   { title: "Table", description: "Insert a 3×3 table", cmd: "table", keywords: ["grid"] },
-  { title: "Divider", description: "Visually separate sections", cmd: "hr", shortcut: "---", keywords: ["hr", "rule"] },
+  { title: "Divider", description: "Line — type - then space", cmd: "hr", shortcut: "-", keywords: ["hr", "rule"] },
   { title: "Mention", description: "Reference a doc, sheet, task or project", cmd: "mentionChar", shortcut: "@", keywords: ["@", "mention"] },
 ];
 
@@ -121,15 +121,23 @@ function filterMentions<T extends { label: string; hint?: string }>(items: T[], 
 export default function RichTextEditor({
   content,
   onChange,
+  onFocusChange,
   placeholder = "Start writing. Type '/' for blocks, '@' to mention…",
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
+  onFocusChange?: (focused: boolean) => void;
   placeholder?: string;
 }) {
   const webRef = useRef<WebView>(null);
   const insets = useSafeAreaInsets();
   const html = useMemo(() => buildEditorHtml(content, placeholder), []);
+  const focusedRef = useRef(false);
+  const appliedRef = useRef(JSON.stringify(content));
+  const contentRef = useRef(content);
+  contentRef.current = content;
+  const onFocusChangeRef = useRef(onFocusChange);
+  onFocusChangeRef.current = onFocusChange;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [picker, setPicker] = useState<Picker>(null);
@@ -169,6 +177,19 @@ export default function RichTextEditor({
     run("setChrome", { bottomPad: barHeight + 32 });
   }, [ready, barHeight, run]);
 
+  const applyRemoteIfIdle = useCallback(() => {
+    if (!ready || focusedRef.current) return;
+    const serialized = JSON.stringify(contentRef.current);
+    if (serialized === appliedRef.current) return;
+    appliedRef.current = serialized;
+    const js = `window.__timely && window.__timely.set(${JSON.stringify(contentRef.current)}); true;`;
+    webRef.current?.injectJavaScript(js);
+  }, [ready]);
+
+  useEffect(() => {
+    applyRemoteIfIdle();
+  }, [applyRemoteIfIdle, content]);
+
   function onMessage(event: WebViewMessageEvent) {
     try {
       const msg = JSON.parse(event.nativeEvent.data) as {
@@ -181,7 +202,17 @@ export default function RichTextEditor({
         inTable?: boolean;
       };
       if (msg.type === "change" && msg.content) {
+        appliedRef.current = JSON.stringify(msg.content);
         onChange({ content: msg.content, plainText: msg.plainText ?? "" });
+      }
+      if (msg.type === "focus") {
+        focusedRef.current = true;
+        onFocusChangeRef.current?.(true);
+      }
+      if (msg.type === "blur") {
+        focusedRef.current = false;
+        onFocusChangeRef.current?.(false);
+        applyRemoteIfIdle();
       }
       if (msg.type === "slash" || msg.type === "mention") {
         setPicker({ kind: msg.type, query: msg.query ?? "", from: msg.from ?? 0, to: msg.to ?? 0 });

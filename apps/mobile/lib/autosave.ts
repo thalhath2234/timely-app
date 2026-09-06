@@ -62,7 +62,8 @@ export function useAutosave<T extends object>(
     };
   }, []);
 
-  const hasUnsavedChanges = () => pendingRef.current !== null;
+  const hasUnsavedChanges = () =>
+    pendingRef.current !== null || inFlightRef.current;
 
   return { schedule, flush, status, hasUnsavedChanges };
 }

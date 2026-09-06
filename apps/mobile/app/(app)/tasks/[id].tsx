@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, Trash2 } from "lucide-react-native";
+import { Bell, CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
-import CustomFieldEditor from "../../../components/ui/CustomFieldEditor";
-import { Chip, Dot, Field, PrimaryButton } from "../../../components/ui/primitives";
+import TaskMetaEditor from "../../../components/ui/TaskMetaEditor";
+import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
+import { Dot, Field, PrimaryButton } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
 import { toCustomFieldDrafts } from "../../../lib/customFields";
 import type { CustomFieldValueInput } from "../../../lib/types";
@@ -18,20 +19,30 @@ import {
   useProjectsQuery,
   useSaveTask,
   useTaskActivityQuery,
+  useTaskQuery,
   useTasksQuery,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { formatDuration, formatRelativeDay, formatShortDate, formatTimeRange, isOverdue, PRIORITY_META, PRIORITY_ORDER } from "../../../lib/format";
+import { formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, isOverdue, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
+import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent } from "../../../lib/richText";
 import { colors } from "../../../lib/theme";
 
-type Picker = "status" | "priority" | "project" | "due" | "schedule" | null;
+type Picker = "status" | "priority" | "project" | "workspace" | "due" | "start" | "schedule" | "duration" | null;
+
+function applyClock(day: Date, clock: Date) {
+  const next = new Date(day);
+  next.setHours(clock.getHours(), clock.getMinutes(), 0, 0);
+  return next;
+}
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const tasks = useTasksQuery().data ?? [];
-  const task = tasks.find((t) => t.id === id);
+  const listed = tasks.find((t) => t.id === id);
+  const fetched = useTaskQuery(!listed ? id : undefined);
+  const task = listed ?? fetched.data;
   const spaces = useWorkspacesQuery().data ?? [];
   const projects = useProjectsQuery().data ?? [];
   const save = useSaveTask();
@@ -45,10 +56,10 @@ export default function TaskDetailScreen() {
   const [commentText, setCommentText] = useState("");
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValueInput[]>([]);
+  const [metaWorkspaceId, setMetaWorkspaceId] = useState("");
 
-  const workspace = spaces.find((w) => w.id === task?.workspaceId);
-  const scopedProjects = projects.filter((p) => p.workspaceId === task?.workspaceId);
-  const workspaceLabels = workspace?.lables ?? [];
+  const workspace = spaces.find((w) => w.id === (task?.workspaceId || metaWorkspaceId));
+  const scopedProjects = projects.filter((p) => p.workspaceId === (task?.workspaceId || metaWorkspaceId));
   const customFields = workspace?.customFields ?? [];
 
   useMemo(() => {
@@ -62,27 +73,47 @@ export default function TaskDetailScreen() {
     if (!task) return;
     setLabelIds(task.labels?.map((label) => label.id) ?? task.labelIds?.map((label) => label.id) ?? []);
     setCustomFieldValues(toCustomFieldDrafts(customFields, task.customFieldValues ?? []));
-  }, [task?.id, customFields.map((field) => field.id).join(",")]);
+    if (task.workspaceId) setMetaWorkspaceId(task.workspaceId);
+    else if (!metaWorkspaceId && spaces[0]?.id) setMetaWorkspaceId(spaces[0].id);
+  }, [task?.id, customFields.map((field) => field.id).join(","), spaces[0]?.id]);
 
   if (!task) {
     return (
       <Screen>
         <MobileHeader title="Task" back large={false} />
-        <EmptyState icon={CircleDot} title="Task not found" description="It may have been deleted." />
+        {fetched.isLoading ? null : (
+          <EmptyState icon={CircleDot} title="Task not found" description="It may have been deleted." />
+        )}
       </Screen>
     );
   }
 
+  const isReminder = (task.duration ?? 0) <= 0;
+  const recAnchor = task.scheduledOn
+    ? new Date(task.scheduledOn)
+    : task.recurrence?.dtstart
+      ? new Date(task.recurrence.dtstart)
+      : task.startDate
+        ? new Date(task.startDate)
+        : new Date();
+
   const overdue = isOverdue(task.deadline, task.completedAt);
 
   function persist(data: Parameters<typeof save.mutate>[0]["data"]) {
-    save.mutate({ id: task!.id, data });
+    const assigningMeta = Boolean(data.labelIds || data.customFieldValues);
+    save.mutate({
+      id: task!.id,
+      data: {
+        ...data,
+        ...(!task!.workspaceId && assigningMeta && metaWorkspaceId ? { workspaceId: metaWorkspaceId } : {}),
+      },
+    });
   }
 
   return (
     <Screen>
       <MobileHeader
-        title={task.project?.title || workspace?.name || "Task"}
+        title={isReminder ? "Reminder" : task.project?.title || workspace?.name || "Task"}
         back
         large={false}
         actions={
@@ -98,6 +129,7 @@ export default function TaskDetailScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
         <Field value={task.name} onChangeText={(name) => persist({ name })} autoCapitalize="sentences" />
         <View style={styles.card}>
+          {!isReminder ? (
           <Row
             icon={<CircleDot size={16} color={task.status?.color || colors.mutedForeground} />}
             label="Status"
@@ -105,59 +137,112 @@ export default function TaskDetailScreen() {
             swatch={task.status?.color}
             onPress={() => setPicker("status")}
           />
+          ) : null}
           <Row icon={<Flag size={16} color={colors.mutedForeground} />} label="Priority" value={task.priorityLevel ? PRIORITY_META[task.priorityLevel]?.label ?? task.priorityLevel : "None"} onPress={() => setPicker("priority")} />
+          {!isReminder ? (
+          <Row icon={<FolderKanban size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
+          ) : null}
+          {isReminder && spaces.length > 0 ? (
+          <Row
+            icon={<FolderKanban size={16} color={colors.mutedForeground} />}
+            label="Workspace"
+            value={workspace?.name ?? "None"}
+            onPress={() => setPicker("workspace")}
+          />
+          ) : null}
+          <Row
+            icon={<Clock size={16} color={colors.mutedForeground} />}
+            label="Duration"
+            value={isReminder ? "Reminder" : formatDuration(task.duration) ?? `${task.duration}m`}
+            onPress={() => setPicker("duration")}
+            action={
+              isReminder ? (
+                <Pressable onPress={() => persist({ duration: 30 })} hitSlop={8}>
+                  <Text style={styles.rowAction}>Add duration</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => persist({ duration: 0 })}
+                  hitSlop={8}
+                  style={styles.reminderChip}
+                >
+                  <Bell size={12} color={colors.accentForeground} />
+                  <Text style={styles.reminderChipText}>Reminder</Text>
+                </Pressable>
+              )
+            }
+          />
+          <Row
+            icon={<CalendarDays size={16} color={colors.mutedForeground} />}
+            label="Start date"
+            value={task.startDate ? formatShortDate(task.startDate) : "None"}
+            onPress={() => setPicker("start")}
+          />
           <Row
             icon={<CalendarDays size={16} color={overdue ? colors.destructive : colors.mutedForeground} />}
-            label="Due"
-            value={task.deadline ? formatShortDate(task.deadline) : "No date"}
+            label="Deadline"
+            value={task.deadline ? formatShortDate(task.deadline) : "None"}
             tone={overdue ? colors.destructive : undefined}
             onPress={() => setPicker("due")}
           />
-          <Row icon={<FolderKanban size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
-          <Row icon={<Clock size={16} color={colors.mutedForeground} />} label="Duration" value={formatDuration(task.duration) ?? "Not set"} />
         </View>
-        <Text style={styles.section}>Labels</Text>
-        {workspaceLabels.length === 0 ? (
-          <Text style={styles.activity}>No labels in this workspace. Add some in Settings.</Text>
-        ) : (
-          <View style={styles.chips}>
-            {workspaceLabels.map((label) => {
-              const active = labelIds.includes(label.id);
-              return (
-                <Chip
-                  key={label.id}
-                  label={label.name}
-                  color={label.color}
-                  active={active}
-                  onPress={() => {
-                    const next = active ? labelIds.filter((id) => id !== label.id) : [...labelIds, label.id];
-                    setLabelIds(next);
-                    persist({ labelIds: next.map((id) => ({ id })) });
-                  }}
-                />
-              );
-            })}
-          </View>
-        )}
-        {customFields.length > 0 ? (
-          <CustomFieldEditor
-            fields={customFields}
-            values={customFieldValues}
-            onChange={(next) => {
-              setCustomFieldValues(next);
-              persist({ customFieldValues: next });
-            }}
-          />
-        ) : null}
-        <Text style={styles.section}>Scheduled</Text>
-        {(task.blocks ?? []).map((block) => (
-          <View key={block.id} style={styles.block}>
-            <Text style={styles.blockText}>
-              {formatRelativeDay(new Date(block.start))} · {formatTimeRange(block.start, block.end)}
+        <RecurrenceEditor
+          value={task.recurrence ? rruleToDraft(task.recurrence.rrule, recAnchor) : null}
+          anchor={recAnchor}
+          onChange={(draft) => {
+            const recurrence = buildRecurrenceInput(draft, recAnchor);
+            persist({
+              recurrence,
+              ...(recurrence && isReminder ? { scheduledOn: recurrence.dtstart } : {}),
+            });
+          }}
+        />
+        <TaskMetaEditor
+          workspace={workspace}
+          workspaceId={task.workspaceId || metaWorkspaceId}
+          labelIds={labelIds}
+          onLabelIds={(next) => {
+            setLabelIds(next);
+            persist({ labelIds: next.map((id) => ({ id })) });
+          }}
+          values={customFieldValues}
+          onValues={(next) => {
+            setCustomFieldValues(next);
+            persist({ customFieldValues: next });
+          }}
+        />
+        <Text style={styles.section}>Schedule</Text>
+        {isReminder || task.recurrence ? (
+          <>
+            <Pressable onPress={() => setPicker("schedule")} style={styles.block}>
+              <Text style={styles.blockText}>
+                {task.scheduledOn || task.recurrence?.dtstart
+                  ? `Time · ${formatTime(task.scheduledOn ?? task.recurrence!.dtstart)}`
+                  : "Pick a time"}
+              </Text>
+            </Pressable>
+            <Text style={styles.activity}>
+              {task.recurrence
+                ? isReminder
+                  ? "Each repeat pings at this time and does not reserve a work block."
+                  : "Each occurrence starts at this time; auto-schedule will not give the block to other tasks."
+                : task.scheduledOn
+                  ? `Pings at ${formatTime(task.scheduledOn)}. Use start date for the day.`
+                  : "Pick a time to show this reminder on the calendar. Use start date for the day."}
             </Text>
-          </View>
-        ))}
-        <PrimaryButton label="+ Add time" onPress={() => setPicker("schedule")} />
+          </>
+        ) : (
+          <>
+            {(task.blocks ?? []).map((block) => (
+              <View key={block.id} style={styles.block}>
+                <Text style={styles.blockText}>
+                  {formatRelativeDay(new Date(block.start))} · {formatTimeRange(block.start, block.end)}
+                </Text>
+              </View>
+            ))}
+            <PrimaryButton label="+ Add time" onPress={() => setPicker("schedule")} />
+          </>
+        )}
         <Text style={styles.section}>Notes</Text>
         <Field
           value={note}
@@ -222,6 +307,21 @@ export default function TaskDetailScreen() {
           </SheetOption>
         ))}
       </BottomSheet>
+      <BottomSheet open={picker === "workspace"} onClose={() => setPicker(null)} title="Workspace">
+        {spaces.map((space) => (
+          <SheetOption
+            key={space.id}
+            selected={space.id === metaWorkspaceId}
+            onSelect={() => {
+              setMetaWorkspaceId(space.id);
+              persist({ workspaceId: space.id });
+              setPicker(null);
+            }}
+          >
+            {space.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
       <BottomSheet open={picker === "project"} onClose={() => setPicker(null)} title="Project">
         <SheetOption selected={!task.projectId} onSelect={() => { persist({ projectId: null }); setPicker(null); }}>
           No project
@@ -232,16 +332,75 @@ export default function TaskDetailScreen() {
           </SheetOption>
         ))}
       </BottomSheet>
+      <BottomSheet open={picker === "duration"} onClose={() => setPicker(null)} title="Duration">
+        <SheetOption
+          selected={task.duration <= 0}
+          onSelect={() => {
+            persist({ duration: 0 });
+            setPicker(null);
+          }}
+        >
+          Reminder
+        </SheetOption>
+        {[15, 30, 45, 60, 90, 120].map((minutes) => (
+          <SheetOption
+            key={minutes}
+            selected={task.duration === minutes}
+            onSelect={() => {
+              persist({ duration: minutes });
+              setPicker(null);
+            }}
+          >
+            {formatDuration(minutes) ?? `${minutes}m`}
+          </SheetOption>
+        ))}
+      </BottomSheet>
       <DateTimeSheet
-        open={picker === "due" || picker === "schedule"}
-        value={picker === "due" && task.deadline ? new Date(task.deadline) : new Date()}
-        mode={picker === "due" ? "date" : "datetime"}
-        title={picker === "due" ? "Deadline" : "Schedule"}
+        open={picker === "due" || picker === "start" || picker === "schedule"}
+        value={
+          picker === "due" && task.deadline
+            ? new Date(task.deadline)
+            : picker === "start" && task.startDate
+              ? new Date(task.startDate)
+              : picker === "schedule" && (task.scheduledOn || task.recurrence?.dtstart)
+                ? new Date(task.scheduledOn ?? task.recurrence!.dtstart)
+                : new Date()
+        }
+        mode={
+          picker === "due" || picker === "start"
+            ? "date"
+            : isReminder || Boolean(task.recurrence)
+              ? "time"
+              : "datetime"
+        }
+        title={picker === "due" ? "Deadline" : picker === "start" ? "Start date" : isReminder || task.recurrence ? "Time" : "Schedule"}
         onClose={() => setPicker(null)}
         onChange={(next) => {
-          if (picker === "due") persist({ deadline: next ? next.toISOString() : null });
+          if (picker === "due") persist({ deadline: next ? toDateInputValue(next) : null });
+          if (picker === "start") {
+            if (!next) {
+              persist({ startDate: null });
+              return;
+            }
+            const timeOnly = isReminder && !task.recurrence;
+            persist({
+              startDate: toDateInputValue(next),
+              ...(timeOnly && task.scheduledOn
+                ? { scheduledOn: applyClock(next, new Date(task.scheduledOn)).toISOString() }
+                : {}),
+            });
+          }
           if (picker === "schedule" && next) {
-            addBlock.mutate({ taskId: task.id, data: { start: next.toISOString(), durationMinutes: task.duration || 60 } });
+            if (isReminder || task.recurrence) {
+              const day = task.scheduledOn
+                ? new Date(task.scheduledOn)
+                : task.startDate
+                  ? new Date(task.startDate)
+                  : new Date();
+              persist({ scheduledOn: applyClock(day, next).toISOString() });
+            } else {
+              addBlock.mutate({ taskId: task.id, data: { start: next.toISOString(), durationMinutes: task.duration } });
+            }
           }
         }}
       />
@@ -256,6 +415,7 @@ function Row({
   onPress,
   tone,
   swatch,
+  action,
 }: {
   icon: ReactNode;
   label: string;
@@ -263,6 +423,7 @@ function Row({
   onPress?: () => void;
   tone?: string;
   swatch?: string | null;
+  action?: ReactNode;
 }) {
   return (
     <Pressable onPress={onPress} disabled={!onPress} style={styles.row}>
@@ -270,6 +431,7 @@ function Row({
       <Text style={styles.rowLabel}>{label}</Text>
       {swatch ? <Dot color={swatch} /> : null}
       <Text style={[styles.rowValue, tone ? { color: tone } : null]}>{value}</Text>
+      {action}
     </Pressable>
   );
 }
@@ -289,6 +451,17 @@ const styles = StyleSheet.create({
   row: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
   rowLabel: { width: 72, color: colors.mutedForeground, fontSize: 13 },
   rowValue: { flex: 1, color: colors.foreground, fontSize: 15 },
+  rowAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
+  reminderChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 8,
+    backgroundColor: colors.accent,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  reminderChipText: { color: colors.accentForeground, fontSize: 12, fontWeight: "600" },
   section: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   block: { borderRadius: 10, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 12 },

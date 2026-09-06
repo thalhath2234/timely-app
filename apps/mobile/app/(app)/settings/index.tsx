@@ -1,6 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { Clock, KeyRound, Tag, UserRound } from "lucide-react-native";
+import { Bell, Clock, KeyRound, Tag, UserRound } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { useAuth } from "../../../lib/auth/AuthProvider";
@@ -11,6 +11,7 @@ export default function SettingsIndex() {
   const { logout } = useAuth();
   const rows = [
     { href: "/(app)/settings/account", title: "Account", meta: "Name, email, password", Icon: UserRound },
+    { href: "/(app)/settings/notifications", title: "Notifications", meta: "Reminder pings on this device", Icon: Bell },
     { href: "/(app)/settings/schedule", title: "Working hours", meta: "Timezone and availability", Icon: Clock },
     { href: "/(app)/settings/workspaces", title: "Workspaces", meta: "Statuses, labels, custom fields", Icon: Tag },
     { href: "/(app)/settings/api-keys", title: "API keys", meta: "Automations and MCP", Icon: KeyRound },

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Dimensions, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { addDays, dayKey, isSameDay, startOfDay } from "../../lib/format";
 import { colors } from "../../lib/theme";
 
@@ -13,28 +13,47 @@ export default function DateStrip({
   busyDays: Set<string>;
 }) {
   const scrollRef = useRef<ScrollView>(null);
+  const ignoreScroll = useRef(true);
   const [pageWidth, setPageWidth] = useState(Dimensions.get("window").width);
   const today = new Date();
   const weekStart = addDays(startOfDay(selected), -selected.getDay());
   const days = Array.from({ length: 21 }, (_, i) => addDays(weekStart, i - 7));
 
   useEffect(() => {
+    ignoreScroll.current = true;
     scrollRef.current?.scrollTo({ x: pageWidth, animated: false });
+    const id = requestAnimationFrame(() => {
+      ignoreScroll.current = false;
+    });
+    return () => cancelAnimationFrame(id);
   }, [weekStart.getTime(), pageWidth]);
+
+  function onPage(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (ignoreScroll.current || pageWidth <= 0) return;
+    const page = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
+    if (page === 1) return;
+    onSelect(addDays(selected, (page - 1) * 7));
+  }
 
   return (
     <ScrollView
       ref={scrollRef}
       horizontal
       pagingEnabled
+      decelerationRate="fast"
       showsHorizontalScrollIndicator={false}
+      onMomentumScrollEnd={onPage}
+      onScrollEndDrag={(event) => {
+        const velocity = event.nativeEvent.velocity?.x ?? 0;
+        if (Math.abs(velocity) < 0.05) onPage(event);
+      }}
       onLayout={(event) => {
         const width = event.nativeEvent.layout.width;
         if (width > 0 && width !== pageWidth) setPageWidth(width);
       }}
     >
       {[0, 1, 2].map((week) => (
-        <View key={week} style={[styles.week, { width: pageWidth }]}>
+        <View key={`${weekStart.getTime()}-${week}`} style={[styles.week, { width: pageWidth }]}>
           {days.slice(week * 7, week * 7 + 7).map((d) => {
             const on = isSameDay(d, selected);
             const isToday = isSameDay(d, today);

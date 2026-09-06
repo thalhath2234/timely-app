@@ -10,6 +10,13 @@ export function addDays(d: Date, n: number) {
   return x;
 }
 
+export function addMonths(d: Date, n: number) {
+  const year = d.getFullYear();
+  const month = d.getMonth() + n;
+  const last = new Date(year, month + 1, 0).getDate();
+  return startOfDay(new Date(year, month, Math.min(d.getDate(), last)));
+}
+
 export function isSameDay(a: Date, b: Date) {
   return (
     a.getFullYear() === b.getFullYear() &&

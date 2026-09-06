@@ -1,9 +1,21 @@
 import { Platform } from "react-native";
+import Constants from "expo-constants";
+import { BUNDLED_API_URL } from "./bundledUrl";
 import { getToken, clearToken, emitSessionExpired } from "../auth/session";
 
-export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL ??
-  (Platform.OS === "android" ? "http://10.0.2.2:8080" : "http://localhost:8080");
+function bundledApiUrl() {
+  const extra = Constants.expoConfig?.extra as { apiUrl?: string } | undefined;
+  return BUNDLED_API_URL || process.env.EXPO_PUBLIC_API_URL || extra?.apiUrl || "";
+}
+
+function fallbackApiUrl() {
+  // 10.0.2.2 is the emulator host only. Never use it on a phone.
+  if (Platform.OS === "android" && Constants.isDevice === false) return "http://10.0.2.2:8080";
+  if (Platform.OS !== "android") return "http://localhost:8080";
+  return "";
+}
+
+export const API_URL = bundledApiUrl() || fallbackApiUrl();
 
 export class ApiError extends Error {
   status: number;
@@ -31,11 +43,14 @@ type RequestOptions = {
 };
 
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  if (!API_URL) {
+    throw new ApiError("This install has no API URL. Rebuild the app with EXPO_PUBLIC_API_URL set.", 0);
+  }
   const { method = "GET", body, auth = true } = options;
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (API_URL.includes("ngrok")) {
-    headers["ngrok-skip-browser-warning"] = "1";
+    headers["ngrok-skip-browser-warning"] = "true";
   }
 
   if (auth) {

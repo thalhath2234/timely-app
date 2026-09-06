@@ -60,7 +60,7 @@ export function deleteLabel(workspaceId: string, labelId: string) {
 export type CustomFieldPayload = {
   name: string;
   type: CustomFieldType;
-  options?: { value: string; color?: string }[];
+  options?: { id?: string; value: string; color?: string }[];
 };
 
 export function createCustomField(workspaceId: string, data: CustomFieldPayload) {

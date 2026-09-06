@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMe } from "./api/auth";
-import { getTasks, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment } from "./api/tasks";
+import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
 import type { Doc } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet } from "./api/sheets";
@@ -16,7 +16,8 @@ import {
   previewSchedule,
   updateWorkingHours,
 } from "./api/schedule";
-import { createEvent, updateEvent, deleteEvent } from "./api/events";
+import { useScheduleActivity } from "./scheduleActivity";
+import { createEvent, deleteEvent, editEventOccurrence, getEvent, splitEventSeries, updateEvent } from "./api/events";
 import { searchItems } from "./api/search";
 import { listApiKeys, createApiKey, revokeApiKey } from "./api/apiKeys";
 import type { UpdateTaskPayload } from "./api/tasks";
@@ -38,6 +39,7 @@ function mentionTime(value?: string | null) {
 export const keys = {
   me: ["me"] as const,
   tasks: ["tasks"] as const,
+  task: (id: string) => ["task", id] as const,
   docs: ["docs"] as const,
   doc: (id: string) => ["docs", id] as const,
   sheets: ["sheets"] as const,
@@ -49,6 +51,7 @@ export const keys = {
   hours: ["working-hours"] as const,
   activity: (id: string) => ["task-activity", id] as const,
   search: (q: string) => ["search", q] as const,
+  event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
 };
 
@@ -60,12 +63,28 @@ export function useTasksQuery() {
   return useQuery({ queryKey: keys.tasks, queryFn: getTasks });
 }
 
+export function useTaskQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.task(id ?? ""),
+    queryFn: () => getTask(id!),
+    enabled: Boolean(id),
+  });
+}
+
 export function useDocsQuery() {
   return useQuery({ queryKey: keys.docs, queryFn: getDocs });
 }
 
 export function useDocQuery(id: string) {
-  return useQuery({ queryKey: keys.doc(id), queryFn: () => getDoc(id), enabled: Boolean(id) });
+  return useQuery({
+    queryKey: keys.doc(id),
+    queryFn: () => getDoc(id),
+    enabled: Boolean(id),
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
 }
 
 export function useSheetsQuery() {
@@ -73,12 +92,14 @@ export function useSheetsQuery() {
 }
 
 export function useSheetQuery(id: string) {
-  const client = useQueryClient();
   return useQuery({
     queryKey: keys.sheet(id),
     queryFn: () => getSheet(id),
     enabled: Boolean(id),
-    placeholderData: () => client.getQueryData<Sheet[]>(keys.sheets)?.find((sheet) => sheet.id === id),
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 }
 
@@ -202,6 +223,21 @@ export function useInvalidateAll() {
     ]);
 }
 
+export function useAutoScheduleAfterCreate() {
+  const invalidate = useInvalidateAll();
+  return async () => {
+    const activity = useScheduleActivity.getState();
+    activity.start();
+    try {
+      const plan = await applySchedule({});
+      await invalidate();
+      activity.finish(plan.proposals?.length ?? 0);
+    } catch (err) {
+      activity.fail(err instanceof Error ? err.message : "Could not auto-schedule.");
+    }
+  };
+}
+
 export function useSaveTask() {
   const client = useQueryClient();
   return useMutation({
@@ -213,9 +249,98 @@ export function useSaveTask() {
   });
 }
 
+export function useEditTaskOccurrence() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string;
+      originalStart: string;
+      action: "complete" | "uncomplete" | "skip" | "restore" | "move";
+      newStart?: string;
+      newEnd?: string;
+    }) => editTaskOccurrence(id, data),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.tasks });
+      client.invalidateQueries({ queryKey: ["calendar"] });
+    },
+  });
+}
+
+export function useSplitTaskSeries() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string;
+      fromStart: string;
+      recurrence?: Parameters<typeof splitTaskSeries>[1]["recurrence"];
+      name?: string;
+      duration?: number;
+    }) => splitTaskSeries(id, data),
+    onSuccess: invalidate,
+  });
+}
+
+export function useEventQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.event(id ?? ""),
+    queryFn: () => getEvent(id!),
+    enabled: Boolean(id),
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+}
+
+export function useEditEventOccurrence() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string;
+      originalStart: string;
+      action: "skip" | "restore" | "move";
+      newStart?: string;
+      newEnd?: string;
+    }) => editEventOccurrence(id, data),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSplitEventSeries() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string;
+      fromStart: string;
+      recurrence?: Parameters<typeof splitEventSeries>[1]["recurrence"];
+      title?: string;
+      start?: string;
+      end?: string;
+    }) => splitEventSeries(id, data),
+    onSuccess: invalidate,
+  });
+}
+
 export function useCreateTask() {
   const invalidate = useInvalidateAll();
-  return useMutation({ mutationFn: createTask, onSuccess: invalidate });
+  const autoSchedule = useAutoScheduleAfterCreate();
+  return useMutation({
+    mutationFn: createTask,
+    onSuccess: async () => {
+      await invalidate();
+      void autoSchedule();
+    },
+  });
 }
 
 export function useDeleteTask() {
@@ -235,11 +360,23 @@ export function useUpdateDoc() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateDoc>[1] }) => updateDoc(id, data),
-    onSuccess: (next, vars) => {
-      client.setQueryData(keys.doc(vars.id), next);
-      client.invalidateQueries({ queryKey: keys.docs });
+    onSuccess: (next) => {
+      client.setQueryData(keys.doc(next.id), next);
+      client.setQueryData<Doc[]>(keys.docs, (docs) =>
+        docs?.map((item) => (item.id === next.id ? next : item)),
+      );
     },
   });
+}
+
+/** True when the watch frame is our own save echo or an older revision. */
+function isEchoOrStale(incoming?: string, known?: string | null) {
+  if (!incoming || !known) return false;
+  if (incoming === known) return true;
+  const next = Date.parse(incoming);
+  const prev = Date.parse(known);
+  if (Number.isNaN(next) || Number.isNaN(prev)) return false;
+  return next <= prev;
 }
 
 export function useDocWatch(
@@ -248,6 +385,7 @@ export function useDocWatch(
     enabled?: boolean;
     lastSavedAtRef: MutableRefObject<string | null>;
     hasLocalEdits: () => boolean;
+    isEditorFocused?: () => boolean;
     onRemote?: () => void;
     onDeleted?: () => void;
   },
@@ -269,17 +407,18 @@ export function useDocWatch(
         return;
       }
       if (event.type !== "updated") return;
-      if (event.updatedAt && event.updatedAt === current.lastSavedAtRef.current) return;
+      if (isEchoOrStale(event.updatedAt, current.lastSavedAtRef.current)) return;
       if (current.hasLocalEdits()) return;
       if (event.document) {
         client.setQueryData(keys.doc(id), event.document);
         client.setQueryData<Doc[]>(keys.docs, (docs) =>
           docs?.map((item) => (item.id === id ? (event.document as Doc) : item)),
         );
-      } else {
+      } else if (!current.isEditorFocused?.()) {
         client.invalidateQueries({ queryKey: keys.doc(id) });
+      } else {
+        return;
       }
-      client.invalidateQueries({ queryKey: keys.docs });
       if (event.updatedAt) current.lastSavedAtRef.current = event.updatedAt;
       current.onRemote?.();
     });
@@ -328,7 +467,14 @@ export function useDeleteSheet() {
 
 export function useCreateEvent() {
   const invalidate = useInvalidateAll();
-  return useMutation({ mutationFn: createEvent, onSuccess: invalidate });
+  const autoSchedule = useAutoScheduleAfterCreate();
+  return useMutation({
+    mutationFn: createEvent,
+    onSuccess: async () => {
+      await invalidate();
+      void autoSchedule();
+    },
+  });
 }
 
 export function useUpdateEvent() {

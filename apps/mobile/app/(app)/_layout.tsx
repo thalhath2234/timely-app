@@ -1,5 +1,6 @@
 import { Redirect, Stack } from "expo-router";
 import { ActivityIndicator, View } from "react-native";
+import ReminderNotifications from "../../components/ReminderNotifications";
 import { isOnboarded, useAuth } from "../../lib/auth/AuthProvider";
 import { colors } from "../../lib/theme";
 
@@ -16,6 +17,9 @@ export default function AppLayout() {
   if (!isOnboarded(user)) return <Redirect href="/onboarding" />;
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
+    <>
+      <ReminderNotifications />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
+    </>
   );
 }

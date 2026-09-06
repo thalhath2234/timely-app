@@ -285,6 +285,8 @@ export interface CalendarItem {
   completedAt?: string | null;
   task?: Task;
   event?: CalendarEventEntity;
+  /** Timed ping with no work estimate; does not reserve a schedule block. */
+  reminder?: boolean;
 }
 
 export interface CalendarRange {
@@ -311,6 +313,7 @@ export type ScheduleSkipReason =
   | "blocked"
   | "manual"
   | "no_duration"
+  | "reminder"
   | "recurring"
   | "completed";
 

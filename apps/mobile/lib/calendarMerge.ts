@@ -8,7 +8,13 @@ export function mergeCalendarItems(items: CalendarItem[]): CalendarItem[] {
   const rest: CalendarItem[] = [];
 
   for (const item of items) {
-    if (!item.allDay && item.kind === "task" && (item.taskId || item.task?.id)) {
+    if (
+      !item.allDay &&
+      item.kind === "task" &&
+      !item.reminder &&
+      (item.task?.duration ?? 1) > 0 &&
+      (item.taskId || item.task?.id)
+    ) {
       timedTasks.push(item);
     } else {
       rest.push(item);

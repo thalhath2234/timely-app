@@ -42,29 +42,33 @@ export default function CustomFieldEditor({
             <View key={field.id} style={styles.block}>
               <Text style={styles.label}>{field.name}</Text>
               <View style={styles.wrap}>
-                {options.map((option) => {
-                  const active = selectedIds.includes(option.id);
-                  return (
-                    <Chip
-                      key={option.id}
-                      label={option.value}
-                      color={option.color}
-                      active={active}
-                      onPress={() => {
-                        if (field.type === "select") {
-                          patch(field, { optionsValue: active ? [] : [{ id: option.id }] });
-                          return;
-                        }
-                        patch(field, {
-                          optionsValue: (active
-                            ? selectedIds.filter((id) => id !== option.id)
-                            : [...selectedIds, option.id]
-                          ).map((id) => ({ id })),
-                        });
-                      }}
-                    />
-                  );
-                })}
+                {options.length === 0 ? (
+                  <Text style={styles.empty}>No options yet. Add values in workspace settings.</Text>
+                ) : (
+                  options.map((option) => {
+                    const active = selectedIds.includes(option.id);
+                    return (
+                      <Chip
+                        key={option.id}
+                        label={option.value}
+                        color={option.color}
+                        active={active}
+                        onPress={() => {
+                          if (field.type === "select") {
+                            patch(field, { optionsValue: active ? [] : [{ id: option.id }] });
+                            return;
+                          }
+                          patch(field, {
+                            optionsValue: (active
+                              ? selectedIds.filter((id) => id !== option.id)
+                              : [...selectedIds, option.id]
+                            ).map((id) => ({ id })),
+                          });
+                        }}
+                      />
+                    );
+                  })
+                )}
               </View>
             </View>
           );
@@ -134,6 +138,7 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   label: { color: colors.mutedForeground, fontSize: 13 },
+  empty: { color: colors.mutedForeground, fontSize: 13 },
   value: { color: colors.foreground, fontSize: 14 },
   meta: {
     minHeight: 48,

@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { ListTodo, Search, X } from "lucide-react-native";
+import { ListTodo } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
-import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
-import { Field } from "../../../components/ui/primitives";
+import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import TaskCard from "../../../components/tasks/TaskCard";
 import TaskFilterBar, { type TaskFilter } from "../../../components/tasks/TaskFilterBar";
@@ -48,11 +47,12 @@ export default function TasksScreen() {
   const workspaces = spacesQ.data ?? [];
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
 
   const scoped = useMemo(
-    () => tasks.filter((t) => (workspaceId ? t.workspaceId === workspaceId : true)),
+    () =>
+      tasks
+        .filter((t) => (t.duration ?? 0) > 0)
+        .filter((t) => (workspaceId ? t.workspaceId === workspaceId : true)),
     [tasks, workspaceId],
   );
   const counts = useMemo(
@@ -63,11 +63,7 @@ export default function TasksScreen() {
     [scoped],
   );
   const groups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const visible = scoped
-      .filter((t) => matchesFilter(t, filter))
-      .filter((t) => (q ? t.name.toLowerCase().includes(q) : true))
-      .sort(sortTasks);
+    const visible = scoped.filter((t) => matchesFilter(t, filter)).sort(sortTasks);
     const map = new Map<string, { title: string; color: string | null; tasks: Task[] }>();
     for (const t of visible) {
       const key = t.projectId ?? `ws:${t.workspaceId}`;
@@ -81,31 +77,11 @@ export default function TasksScreen() {
       map.get(key)!.tasks.push(t);
     }
     return [...map.values()];
-  }, [scoped, filter, query]);
+  }, [scoped, filter]);
 
   return (
     <Screen>
-      <MobileHeader
-        title="Tasks"
-        subtitle={`${scoped.filter((t) => !t.completedAt).length} open`}
-        actions={
-          <HeaderIconButton
-            label="Search"
-            active={searchOpen}
-            onPress={() => {
-              setSearchOpen((v) => !v);
-              setQuery("");
-            }}
-          >
-            {searchOpen ? <X size={20} color={colors.foreground} /> : <Search size={20} color={colors.foreground} />}
-          </HeaderIconButton>
-        }
-      >
-        {searchOpen ? (
-          <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
-            <Field value={query} onChangeText={setQuery} placeholder="Search tasks" autoCapitalize="none" />
-          </View>
-        ) : null}
+      <MobileHeader title="Tasks" subtitle={`${scoped.filter((t) => !t.completedAt).length} open`}>
         <TaskFilterBar
           filter={filter}
           onFilter={setFilter}
@@ -120,7 +96,7 @@ export default function TasksScreen() {
           <EmptyState
             icon={ListTodo}
             title={filter === "done" ? "Nothing completed yet" : "All clear"}
-            description={query ? "No tasks match your search." : "Tap the + button to capture something new."}
+            description="Tap the + button to capture something new."
           />
         ) : (
           groups.map((group) => (

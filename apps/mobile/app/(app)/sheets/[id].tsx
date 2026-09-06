@@ -7,7 +7,7 @@ import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHea
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import SheetGrid from "../../../components/sheets/SheetGrid";
-import { useDeleteSheet, useSheetQuery, useSheetsQuery, useUpdateSheet, useWorkspacesQuery } from "../../../lib/hooks";
+import { useDeleteSheet, useSheetQuery, useUpdateSheet, useWorkspacesQuery } from "../../../lib/hooks";
 import { saveStatusLabel, useAutosave } from "../../../lib/autosave";
 import { normalizeSheet, routeParam, SHEET_ICON_CHOICES } from "../../../lib/sheet";
 import { timeAgo } from "../../../lib/format";
@@ -20,20 +20,17 @@ type GridState = { columns: SheetColumn[]; rows: SheetRow[] };
 export default function SheetDetailScreen() {
   const id = routeParam(useLocalSearchParams<{ id: string | string[] }>().id);
   const sheetQ = useSheetQuery(id);
-  const listSheet = (useSheetsQuery().data ?? []).find((item) => item.id === id);
-  const raw = sheetQ.data ?? listSheet;
-  const loading = !raw && (sheetQ.isPending || sheetQ.isLoading || sheetQ.isFetching);
 
-  if (!id || (!raw && loading)) {
+  if (!id || !sheetQ.isFetchedAfterMount || sheetQ.isLoading) {
     return (
       <Screen>
         <MobileHeader title="Sheet" back large={false} />
-        <EmptyState icon={SheetIcon} title="Opening sheet" description="Loading this table…" />
+        <EmptyState icon={SheetIcon} title="Opening sheet" description="Fetching the latest table…" />
       </Screen>
     );
   }
 
-  if (!raw) {
+  if (sheetQ.isError || !sheetQ.data) {
     return (
       <Screen>
         <MobileHeader title="Sheet" back large={false} />
@@ -42,7 +39,7 @@ export default function SheetDetailScreen() {
     );
   }
 
-  return <SheetEditor key={raw.id} sheet={normalizeSheet(raw)} />;
+  return <SheetEditor key={sheetQ.data.id} sheet={normalizeSheet(sheetQ.data)} />;
 }
 
 function SheetEditor({ sheet }: { sheet: Sheet }) {

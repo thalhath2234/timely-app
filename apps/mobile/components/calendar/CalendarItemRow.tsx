@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
-import { formatTimeRange } from "../../lib/format";
+import { formatTime, formatTimeRange } from "../../lib/format";
 import { colors } from "../../lib/theme";
 
 export function itemColor(item: CalendarItem) {
@@ -10,6 +10,14 @@ export function itemColor(item: CalendarItem) {
 
 export function isTaskItem(item: CalendarItem) {
   return item.kind === "task" || item.kind === "taskOccurrence";
+}
+
+export function isReminderItem(item: CalendarItem) {
+  return Boolean(
+    item.reminder ||
+      item.id.endsWith("@reminder") ||
+      (isTaskItem(item) && (item.task?.duration ?? 1) <= 0),
+  );
 }
 
 export default function CalendarItemRow({
@@ -32,7 +40,13 @@ export default function CalendarItemRow({
         </Text>
         <View style={styles.meta}>
           <Icon size={12} color={colors.mutedForeground} />
-          <Text style={styles.metaText}>{item.allDay ? "All day" : formatTimeRange(item.start, item.end)}</Text>
+          <Text style={styles.metaText}>
+            {item.allDay
+              ? "All day"
+              : isReminderItem(item)
+                ? `${formatTime(item.start)} · Reminder`
+                : formatTimeRange(item.start, item.end)}
+          </Text>
           {recurring ? <Repeat size={12} color={colors.mutedForeground} /> : null}
         </View>
       </View>

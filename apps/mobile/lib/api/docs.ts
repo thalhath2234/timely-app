@@ -70,7 +70,7 @@ export function watchDoc(id: string, onEvent: (event: DocWatchEvent) => void) {
       const token = await getToken();
       const headers: Record<string, string> = { Accept: "text/event-stream" };
       if (token) headers.Authorization = `Bearer ${token}`;
-      if (API_URL.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "1";
+      if (API_URL.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
 
       const response = await fetch(`${API_URL}/docs/${id}/watch`, {
         headers,

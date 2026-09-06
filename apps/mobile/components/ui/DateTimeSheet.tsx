@@ -194,22 +194,24 @@ export default function DateTimeSheet({
               </Text>
             ))}
           </View>
-          <View style={styles.grid}>
-            {cells.map((cell, index) => {
-              if (!cell) return <View key={`empty-${index}`} style={styles.cell} />;
-              const on = isSameDay(cell, day);
-              const isToday = isSameDay(cell, today);
-              return (
-                <Pressable key={cell.toISOString()} onPress={() => commitDay(cell)} style={styles.cell}>
-                  <View style={[styles.day, on && styles.dayOn, isToday && !on && styles.dayToday]}>
-                    <Text style={[styles.dayText, on && styles.dayOnText, isToday && !on && { color: colors.primary }]}>
-                      {cell.getDate()}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
+          {Array.from({ length: Math.ceil(cells.length / 7) }, (_, week) => (
+            <View key={week} style={styles.weekdays}>
+              {cells.slice(week * 7, week * 7 + 7).map((cell, index) => {
+                if (!cell) return <View key={`empty-${week}-${index}`} style={styles.cell} />;
+                const on = isSameDay(cell, day);
+                const isToday = isSameDay(cell, today);
+                return (
+                  <Pressable key={cell.toISOString()} onPress={() => commitDay(cell)} style={styles.cell}>
+                    <View style={[styles.day, on && styles.dayOn, isToday && !on && styles.dayToday]}>
+                      <Text style={[styles.dayText, on && styles.dayOnText, isToday && !on && { color: colors.primary }]}>
+                        {cell.getDate()}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
         </>
       ) : null}
 
@@ -276,9 +278,8 @@ const styles = StyleSheet.create({
   month: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
   weekdays: { flexDirection: "row", marginBottom: 4 },
   weekday: { flex: 1, textAlign: "center", color: colors.mutedForeground, fontSize: 11, fontWeight: "600" },
-  grid: { flexDirection: "row", flexWrap: "wrap" },
   cell: {
-    width: "14.285%",
+    flex: 1,
     aspectRatio: 1,
     alignItems: "center",
     justifyContent: "center",

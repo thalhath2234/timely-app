@@ -2,7 +2,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { CalendarDays } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
 import { dayKey, formatRelativeDay, isSameDay, startOfDay } from "../../lib/format";
-import CalendarItemRow from "./CalendarItemRow";
+import CalendarItemRow, { isReminderItem } from "./CalendarItemRow";
 import EmptyState from "../ui/EmptyState";
 import { colors } from "../../lib/theme";
 
@@ -15,7 +15,9 @@ export default function MobileAgenda({
   from: Date;
   onOpen: (item: CalendarItem) => void;
 }) {
-  const sorted = [...items].sort((a, b) => a.start.localeCompare(b.start));
+  const sorted = [...items]
+    .filter((item) => !isReminderItem(item))
+    .sort((a, b) => a.start.localeCompare(b.start));
   const groups = new Map<string, { date: Date; items: CalendarItem[] }>();
   for (const item of sorted) {
     const d = startOfDay(new Date(item.start));

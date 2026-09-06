@@ -12,6 +12,7 @@ import { saveStatusLabel, useAutosave } from "../../../lib/autosave";
 import { resolveDocContent } from "../../../lib/markdown";
 import { isRichContentEmpty } from "../../../lib/richText";
 import type { UpdateDocPayload } from "../../../lib/api/docs";
+import type { DocContent } from "../../../lib/types";
 import { colors } from "../../../lib/theme";
 
 const ICON_CHOICES = ["📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯", "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠"];
@@ -24,19 +25,20 @@ export default function DocDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const docQ = useDocQuery(id);
 
-  if (docQ.isError || (!docQ.isLoading && !docQ.data)) {
+  if (!docQ.isFetchedAfterMount || docQ.isLoading) {
     return (
       <Screen>
         <MobileHeader title="Doc" back large={false} />
-        <EmptyState icon={FileText} title="Doc not found" description="It may have been deleted." />
+        <EmptyState icon={FileText} title="Opening doc" description="Fetching the latest page…" />
       </Screen>
     );
   }
 
-  if (!docQ.data) {
+  if (docQ.isError || !docQ.data) {
     return (
       <Screen>
         <MobileHeader title="Doc" back large={false} />
+        <EmptyState icon={FileText} title="Doc not found" description="It may have been deleted." />
       </Screen>
     );
   }
@@ -53,11 +55,13 @@ function DocEditor({ docId }: { docId: string }) {
   const remove = useDeleteDoc();
 
   const [remoteEpoch, setRemoteEpoch] = useState(0);
+  const [remoteContent, setRemoteContent] = useState<DocContent | null>(null);
   const lastSavedAtRef = useRef<string | null>(doc?.updatedAt ?? null);
+  const editorFocusedRef = useRef(false);
 
-  const initialContent = useMemo(
+  const seedContent = useMemo(
     () => (doc ? resolveDocContent(doc.content, doc.plainText) : { type: "doc", content: [] }),
-    [doc?.id, remoteEpoch, doc?.updatedAt],
+    [doc?.id],
   );
 
   const [title, setTitle] = useState(doc?.title ?? "");
@@ -75,6 +79,7 @@ function DocEditor({ docId }: { docId: string }) {
   useDocWatch(docId, {
     lastSavedAtRef,
     hasLocalEdits: hasUnsavedChanges,
+    isEditorFocused: () => editorFocusedRef.current,
     onRemote: () => setRemoteEpoch((epoch) => epoch + 1),
     onDeleted: () => router.replace("/(app)/(tabs)/docs"),
   });
@@ -85,7 +90,8 @@ function DocEditor({ docId }: { docId: string }) {
     setIcon(doc.icon ?? "");
     setFavorite(Boolean(doc.isFavorite));
     setWordCount(countWords(doc.plainText));
-  }, [remoteEpoch, doc?.title, doc?.icon, doc?.isFavorite, doc?.plainText]);
+    setRemoteContent(resolveDocContent(doc.content, doc.plainText));
+  }, [remoteEpoch, doc?.title, doc?.icon, doc?.isFavorite, doc?.plainText, doc?.content]);
 
   if (!doc) return null;
 
@@ -140,8 +146,14 @@ function DocEditor({ docId }: { docId: string }) {
       </Text>
 
       <RichTextEditor
-        key={`${docId}:${remoteEpoch}`}
-        content={isRichContentEmpty(initialContent) ? { type: "doc", content: [{ type: "paragraph" }] } : initialContent}
+        content={
+          isRichContentEmpty(remoteContent ?? seedContent)
+            ? { type: "doc", content: [{ type: "paragraph" }] }
+            : (remoteContent ?? seedContent)
+        }
+        onFocusChange={(focused) => {
+          editorFocusedRef.current = focused;
+        }}
         onChange={({ content, plainText }) => {
           setWordCount(countWords(plainText));
           schedule({ content, plainText });

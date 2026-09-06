@@ -10,7 +10,8 @@ import MobileDay from "../../../components/calendar/MobileDay";
 import MobileMonth from "../../../components/calendar/MobileMonth";
 import CalendarItemSheet from "../../../components/calendar/CalendarItemSheet";
 import AutoScheduleSheet from "../../../components/calendar/AutoScheduleSheet";
-import { useCalendarQuery, useMoveBlock, useMoveEventTimes, useSaveTask } from "../../../lib/hooks";
+import { useCalendarQuery, useEditTaskOccurrence, useMoveBlock, useMoveEventTimes, useSaveTask } from "../../../lib/hooks";
+import { isReminderItem } from "../../../components/calendar/CalendarItemRow";
 import { mergeCalendarItems } from "../../../lib/calendarMerge";
 import { addDays, dayKey, formatMonthYear, isSameDay, startOfDay } from "../../../lib/format";
 import type { CalendarItem } from "../../../lib/types";
@@ -25,13 +26,10 @@ export default function CalendarScreen() {
   const [autoOpen, setAutoOpen] = useState(false);
 
   const { from, to } = useMemo(() => {
-    const first = new Date(selected.getFullYear(), selected.getMonth(), 1);
-    const gridStart = addDays(first, -first.getDay());
-    const gridEnd = addDays(gridStart, 42);
-    const agendaEnd = addDays(selected, 21);
+    const day = startOfDay(selected);
     return {
-      from: gridStart < addDays(selected, -7) ? gridStart : addDays(selected, -7),
-      to: gridEnd > agendaEnd ? gridEnd : agendaEnd,
+      from: addDays(day, -45),
+      to: addDays(day, 45),
     };
   }, [selected]);
 
@@ -40,6 +38,7 @@ export default function CalendarScreen() {
   const save = useSaveTask();
   const moveBlk = useMoveBlock();
   const moveEvt = useMoveEventTimes();
+  const editOccurrence = useEditTaskOccurrence();
 
   const busyDays = useMemo(() => {
     const set = new Set<string>();
@@ -54,23 +53,44 @@ export default function CalendarScreen() {
 
   function reschedule(item: CalendarItem, start: Date) {
     const duration = new Date(item.end).getTime() - new Date(item.start).getTime();
-    if (item.kind === "task" && item.blockId) {
-      void moveBlk.mutateAsync({ id: item.blockId, start: start.toISOString(), end: new Date(start.getTime() + duration).toISOString() });
+    const end = isReminderItem(item)
+      ? start
+      : new Date(start.getTime() + Math.max(duration, 0));
+    if (item.kind === "task" && isReminderItem(item) && item.taskId) {
+      void save.mutateAsync({ id: item.taskId, data: { scheduledOn: start.toISOString() } });
+    } else if (item.kind === "taskOccurrence" && item.taskId && item.originalStart) {
+      void editOccurrence.mutateAsync({
+        id: item.taskId,
+        originalStart: item.originalStart,
+        action: "move",
+        newStart: start.toISOString(),
+        newEnd: end.toISOString(),
+      });
+    } else if (item.kind === "task" && item.blockId) {
+      void moveBlk.mutateAsync({ id: item.blockId, start: start.toISOString(), end: end.toISOString() });
     } else if ((item.kind === "event" || item.kind === "eventOccurrence") && item.eventId) {
       void moveEvt.mutateAsync({
         id: item.eventId,
         start: start.toISOString(),
-        end: new Date(start.getTime() + duration).toISOString(),
+        end: end.toISOString(),
       });
     }
   }
 
   function toggleComplete(item: CalendarItem) {
     if (!item.taskId) return;
-    save.mutate({
-      id: item.taskId,
-      data: { completedAt: item.completedAt ? null : new Date().toISOString() },
-    });
+    if (item.kind === "taskOccurrence" && item.originalStart) {
+      void editOccurrence.mutateAsync({
+        id: item.taskId,
+        originalStart: item.originalStart,
+        action: item.completedAt ? "uncomplete" : "complete",
+      });
+    } else {
+      save.mutate({
+        id: item.taskId,
+        data: { completedAt: item.completedAt ? null : new Date().toISOString() },
+      });
+    }
     setOpen(null);
   }
 

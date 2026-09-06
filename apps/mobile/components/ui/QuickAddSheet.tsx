@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { CalendarClock, Check, FileText, ListTodo, Sheet as SheetIcon } from "lucide-react-native";
+import { Bell, CalendarClock, Check, FileText, ListTodo, Sheet as SheetIcon } from "lucide-react-native";
 import BottomSheet from "./BottomSheet";
-import CustomFieldEditor from "./CustomFieldEditor";
 import DateTimeSheet from "./DateTimeSheet";
+import TaskMetaEditor from "./TaskMetaEditor";
 import RecurrenceEditor from "./RecurrenceEditor";
 import { Chip, Field, PrimaryButton, SectionLabel, Select } from "./primitives";
 import { emptyCustomFieldDrafts, filledCustomFieldValues } from "../../lib/customFields";
@@ -15,15 +15,16 @@ import { formatDuration, formatShortDate, formatTime, toDateInputValue } from ".
 import type { CustomFieldValueInput } from "../../lib/types";
 import { colors } from "../../lib/theme";
 
-type Kind = "task" | "event" | "doc" | "sheet";
+type Kind = "task" | "reminder" | "event" | "doc" | "sheet";
 const KINDS: { value: Kind; label: string; Icon: typeof ListTodo }[] = [
   { value: "task", label: "Task", Icon: ListTodo },
+  { value: "reminder", label: "Reminder", Icon: Bell },
   { value: "event", label: "Event", Icon: CalendarClock },
   { value: "doc", label: "Doc", Icon: FileText },
   { value: "sheet", label: "Sheet", Icon: SheetIcon },
 ];
 const PRIORITIES = ["Low", "Medium", "High", "Urgent"] as const;
-const DURATION_PRESETS = [15, 30, 45, 60, 90, 120];
+const DURATION_PRESETS = [0, 15, 30, 45, 60, 90, 120];
 
 function nextRoundHour() {
   const next = new Date();
@@ -36,6 +37,17 @@ function formatDateValue(value: Date | null, withTime = false) {
   if (!value) return "None";
   const date = formatShortDate(value.toISOString());
   return withTime ? `${date} ${formatTime(value.toISOString())}` : date;
+}
+
+function applyClock(day: Date, clock: Date) {
+  const next = new Date(day);
+  next.setHours(clock.getHours(), clock.getMinutes(), 0, 0);
+  return next;
+}
+
+function makeReminderTime(current: Date | null) {
+  if (current) return current;
+  return nextRoundHour();
 }
 
 export default function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -75,8 +87,21 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
   const scopedProjects = projectList.filter((project) => project.workspaceId === activeWorkspaceId);
   const pending = createTask.isPending || createEvent.isPending || createDoc.isPending || createSheet.isPending;
 
+  const isReminder = kind === "reminder" || duration <= 0;
+  const taskTimeOnly = isReminder || Boolean(taskRecurrence);
   const taskAnchor = useMemo(() => scheduledOn ?? nextRoundHour(), [scheduledOn]);
   const eventMinutes = Math.max(15, eventDuration || 60);
+
+  function turnIntoReminder() {
+    setKind("reminder");
+    setDuration(0);
+    setScheduledOn((current) => makeReminderTime(current));
+  }
+
+  function addDuration() {
+    setKind("task");
+    setDuration(30);
+  }
 
   useEffect(() => {
     if (!open || list.length === 0) return;
@@ -125,25 +150,28 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
   async function submit() {
     const name = title.trim();
     if (!name || pending) return;
-    if (kind === "task") {
-      if (!activeWorkspaceId) return;
+    if (kind === "task" || kind === "reminder") {
+      if (!isReminder && !activeWorkspaceId) return;
+      const filledFields = filledCustomFieldValues(customFieldValues);
+      const wantsMeta = labelIds.length > 0 || filledFields.length > 0;
+      if (wantsMeta && !activeWorkspaceId) return;
       const recurrence = buildRecurrenceInput(taskRecurrence, taskAnchor);
       await createTask.mutateAsync({
         name,
         description: description.trim() || "",
-        workspaceId: activeWorkspaceId,
-        projectId: projectId || undefined,
-        statusId: statusId || undefined,
+        workspaceId: isReminder && !wantsMeta ? undefined : activeWorkspaceId,
+        projectId: isReminder ? undefined : projectId || undefined,
+        statusId: isReminder ? undefined : statusId || undefined,
         priorityLevel: priority,
         startDate: startDate ? toDateInputValue(startDate) : undefined,
         deadline: deadline ? toDateInputValue(deadline) : undefined,
         scheduledOn: !recurrence && scheduledOn ? scheduledOn.toISOString() : undefined,
-        duration,
-        labelIds: labelIds.map((id) => ({ id })),
-        customFieldValues: filledCustomFieldValues(customFieldValues),
+        duration: isReminder ? 0 : duration,
+        labelIds: labelIds.length ? labelIds.map((id) => ({ id })) : undefined,
+        customFieldValues: filledFields.length ? filledFields : undefined,
         recurrence: recurrence ?? undefined,
       });
-      finish("/(app)/(tabs)/tasks");
+      finish(isReminder ? "/(app)/(tabs)/calendar" : "/(app)/(tabs)/tasks");
       return;
     }
     if (kind === "event") {
@@ -196,7 +224,15 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
           {KINDS.map((item) => {
             const on = item.value === kind;
             return (
-              <Pressable key={item.value} onPress={() => setKind(item.value)} style={[styles.kind, on && styles.kindOn]}>
+              <Pressable
+                key={item.value}
+                onPress={() => {
+                  if (item.value === "reminder") turnIntoReminder();
+                  else if (item.value === "task" && isReminder) addDuration();
+                  else setKind(item.value);
+                }}
+                style={[styles.kind, on && styles.kindOn]}
+              >
                 <item.Icon size={20} color={on ? colors.accentForeground : colors.mutedForeground} />
                 <Text style={[styles.kindText, on && { color: colors.accentForeground }]}>{item.label}</Text>
               </Pressable>
@@ -208,21 +244,29 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
           value={title}
           onChangeText={setTitle}
           autoCapitalize="sentences"
-          placeholder={kind === "task" ? "Task name" : kind === "event" ? "Event title" : `Untitled ${kind}`}
+          placeholder={
+            kind === "task"
+              ? "Task name"
+              : kind === "reminder"
+                ? "Reminder"
+                : kind === "event"
+                  ? "Event title"
+                  : `Untitled ${kind}`
+          }
         />
 
-        {kind === "task" || kind === "event" ? (
+        {kind === "task" || kind === "reminder" || kind === "event" ? (
           <Field
             value={description}
             onChangeText={setDescription}
             multiline
             autoCapitalize="sentences"
-            placeholder={kind === "task" ? "Description" : "Notes, location, links..."}
+            placeholder={kind === "event" ? "Notes, location, links..." : "Description"}
           />
         ) : null}
 
-        {kind === "task" || kind === "doc" || kind === "sheet" ? (
-          list.length > 1 ? (
+        {(kind === "doc" || kind === "sheet" || kind === "task" || kind === "reminder") &&
+        list.length > 1 ? (
             <View>
               <SectionLabel>Workspace</SectionLabel>
               <Select
@@ -232,12 +276,11 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
                 options={list.map((workspace) => ({ value: workspace.id, label: workspace.name }))}
               />
             </View>
-          ) : null
         ) : null}
 
-        {kind === "task" ? (
+        {kind === "task" || kind === "reminder" ? (
           <View style={{ gap: 10 }}>
-            {scopedProjects.length > 0 ? (
+            {!isReminder && scopedProjects.length > 0 ? (
               <>
                 <SectionLabel>Project</SectionLabel>
                 <View style={styles.row}>
@@ -254,7 +297,7 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
               </>
             ) : null}
 
-            {(selectedWorkspace?.status ?? []).length > 0 ? (
+            {!isReminder && (selectedWorkspace?.status ?? []).length > 0 ? (
               <>
                 <SectionLabel>Status</SectionLabel>
                 <View style={styles.row}>
@@ -278,18 +321,29 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
               ))}
             </View>
 
-            <SectionLabel>Duration</SectionLabel>
-            <View style={styles.row}>
-              {DURATION_PRESETS.map((minutes) => (
-                <Chip
-                  key={minutes}
-                  label={formatDuration(minutes) ?? `${minutes}m`}
-                  active={duration === minutes}
-                  onPress={() => setDuration(minutes)}
-                />
-              ))}
-            </View>
-            <Stepper value={duration} suffix="min" step={15} min={0} onChange={setDuration} />
+            {isReminder ? (
+              <Pressable onPress={addDuration} style={styles.meta}>
+                <Text style={styles.metaLabel}>Duration</Text>
+                <Text style={styles.metaValue}>Reminder</Text>
+                <Text style={styles.metaAction}>Add duration</Text>
+              </Pressable>
+            ) : (
+              <>
+                <SectionLabel>Duration</SectionLabel>
+                <View style={styles.row}>
+                  <Chip label="Reminder" active={false} onPress={turnIntoReminder} />
+                  {DURATION_PRESETS.filter((minutes) => minutes > 0).map((minutes) => (
+                    <Chip
+                      key={minutes}
+                      label={formatDuration(minutes) ?? `${minutes}m`}
+                      active={duration === minutes}
+                      onPress={() => setDuration(minutes)}
+                    />
+                  ))}
+                </View>
+                <Stepper value={Math.max(duration, 15)} suffix="min" step={15} min={15} onChange={setDuration} />
+              </>
+            )}
 
             <Pressable onPress={() => setPicking("startDate")} style={styles.meta}>
               <Text style={styles.metaLabel}>Start date</Text>
@@ -300,45 +354,41 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
               <Text style={styles.metaValue}>{formatDateValue(deadline)}</Text>
             </Pressable>
             <Pressable onPress={() => setPicking("schedule")} style={styles.meta}>
-              <Text style={styles.metaLabel}>{taskRecurrence ? "First on" : "Schedule"}</Text>
-              <Text style={styles.metaValue}>{formatDateValue(scheduledOn, true)}</Text>
+              <Text style={styles.metaLabel}>{taskTimeOnly ? "Time" : "Schedule"}</Text>
+              <Text style={styles.metaValue}>
+                {taskTimeOnly
+                  ? scheduledOn
+                    ? formatTime(scheduledOn.toISOString())
+                    : "None"
+                  : formatDateValue(scheduledOn, true)}
+              </Text>
             </Pressable>
 
-            <RecurrenceEditor value={taskRecurrence} onChange={setTaskRecurrence} anchor={taskAnchor} />
+            <RecurrenceEditor
+              value={taskRecurrence}
+              onChange={(next) => {
+                setTaskRecurrence(next);
+                if (next && !scheduledOn) setScheduledOn(nextRoundHour());
+              }}
+              anchor={taskAnchor}
+            />
             <Text style={styles.hint}>
-              {taskRecurrence
-                ? "Each occurrence shows on the calendar and is completed on its own."
-                : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}
+              {isReminder
+                ? taskRecurrence
+                  ? "Each repeat pings at this time. No work block is reserved."
+                  : "Pings at this time. Use start date if you want a specific day."
+                : taskRecurrence
+                  ? "Each occurrence starts at this time. Auto-schedule keeps that block for this task."
+                  : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}
             </Text>
 
-            {(selectedWorkspace?.lables ?? []).length > 0 ? (
-              <>
-                <SectionLabel>Labels</SectionLabel>
-                <View style={styles.row}>
-                  {(selectedWorkspace?.lables ?? []).map((label) => {
-                    const active = labelIds.includes(label.id);
-                    return (
-                      <Chip
-                        key={label.id}
-                        label={label.name}
-                        color={label.color}
-                        active={active}
-                        onPress={() =>
-                          setLabelIds((current) =>
-                            active ? current.filter((id) => id !== label.id) : [...current, label.id],
-                          )
-                        }
-                      />
-                    );
-                  })}
-                </View>
-              </>
-            ) : null}
-
-            <CustomFieldEditor
-              fields={selectedWorkspace?.customFields ?? []}
+            <TaskMetaEditor
+              workspace={selectedWorkspace}
+              workspaceId={activeWorkspaceId}
+              labelIds={labelIds}
+              onLabelIds={setLabelIds}
               values={customFieldValues}
-              onChange={setCustomFieldValues}
+              onValues={setCustomFieldValues}
             />
           </View>
         ) : null}
@@ -346,12 +396,18 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
         {kind === "event" ? (
           <View style={{ gap: 10 }}>
             <Pressable onPress={() => setPicking("eventStart")} style={styles.meta}>
-              <Text style={styles.metaLabel}>Starts</Text>
-              <Text style={styles.metaValue}>{formatDateValue(eventStart, !allDay)}</Text>
+              <Text style={styles.metaLabel}>
+                {eventRecurrence && !allDay ? "Time" : "Starts"}
+              </Text>
+              <Text style={styles.metaValue}>
+                {eventRecurrence && !allDay
+                  ? formatTime(eventStart.toISOString())
+                  : formatDateValue(eventStart, !allDay)}
+              </Text>
             </Pressable>
             <SectionLabel>Duration</SectionLabel>
             <View style={styles.row}>
-              {DURATION_PRESETS.map((minutes) => (
+              {DURATION_PRESETS.filter((minutes) => minutes > 0).map((minutes) => (
                 <Chip
                   key={minutes}
                   label={formatDuration(minutes) ?? `${minutes}m`}
@@ -374,7 +430,9 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
               ]}
             />
             <Text style={styles.hint}>
-              Events block time on the calendar; Auto-schedule plans tasks around them.
+              {eventRecurrence && !allDay
+                ? "Each occurrence starts at this time. Dates come from the repeat rule."
+                : "Events block time on the calendar; Auto-schedule plans tasks around them."}
             </Text>
           </View>
         ) : null}
@@ -382,25 +440,53 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
         </View>
         <View style={{ height: 8 }} />
         <PrimaryButton
-          label={pending ? "Saving…" : `Add ${kind}`}
-          disabled={!title.trim() || pending || (kind === "task" && !activeWorkspaceId)}
+          label={pending ? "Saving…" : kind === "reminder" ? "Add reminder" : `Add ${kind}`}
+          disabled={!title.trim() || pending || (((kind === "task" && !isReminder) || kind === "doc" || kind === "sheet") && !activeWorkspaceId)}
           onPress={() => void submit()}
         />
         <View style={styles.hintRow}>
           <Check size={14} color={colors.mutedForeground} />
-          <Text style={styles.hint}>Creates it in your workspace immediately</Text>
+          <Text style={styles.hint}>
+            {kind === "reminder" ? "Shows on the calendar at that time" : "Creates it in your workspace immediately"}
+          </Text>
         </View>
       </BottomSheet>
       <DateTimeSheet
         open={picking !== null}
         value={pickerValue}
-        mode={picking === "due" || picking === "startDate" || (picking === "eventStart" && allDay) ? "date" : "datetime"}
+        mode={
+          picking === "due" || picking === "startDate" || (picking === "eventStart" && allDay)
+            ? "date"
+            : (picking === "schedule" && taskTimeOnly) ||
+                (picking === "eventStart" && Boolean(eventRecurrence) && !allDay)
+              ? "time"
+              : "datetime"
+        }
         onClose={() => setPicking(null)}
         onChange={(next) => {
           if (picking === "due") setDeadline(next);
-          if (picking === "startDate") setStartDate(next);
-          if (picking === "schedule") setScheduledOn(next);
-          if (picking === "eventStart" && next) setEventStart(next);
+          if (picking === "startDate") {
+            setStartDate(next);
+            if (next && scheduledOn && taskTimeOnly) {
+              setScheduledOn(applyClock(next, scheduledOn));
+            }
+          }
+          if (picking === "schedule") {
+            if (taskTimeOnly && next) {
+              setScheduledOn(applyClock(startDate ?? scheduledOn ?? new Date(), next));
+            } else {
+              setScheduledOn(next);
+            }
+          }
+          if (picking === "eventStart" && next) {
+            if (eventRecurrence && !allDay) {
+              const combined = new Date(eventStart);
+              combined.setHours(next.getHours(), next.getMinutes(), 0, 0);
+              setEventStart(combined);
+            } else {
+              setEventStart(next);
+            }
+          }
         }}
       />
     </>
@@ -438,9 +524,10 @@ function Stepper({
 
 const styles = StyleSheet.create({
   fields: { gap: 14 },
-  kinds: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  kinds: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
   kind: {
-    flex: 1,
+    width: "31%",
+    flexGrow: 1,
     alignItems: "center",
     gap: 6,
     borderRadius: 12,
@@ -465,6 +552,7 @@ const styles = StyleSheet.create({
   },
   metaLabel: { color: colors.mutedForeground, fontSize: 13 },
   metaValue: { color: colors.foreground, fontSize: 14 },
+  metaAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   hintRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 10 },
   hint: { color: colors.mutedForeground, fontSize: 12 },
   stepper: { flexDirection: "row", alignItems: "center", gap: 10 },

@@ -7,14 +7,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import {
-  ArrowDownToLine,
-  ArrowRightToLine,
-  Columns3,
-  Eraser,
-  Plus,
-  Trash2,
-} from "lucide-react-native";
+import { Eraser, Minus, Plus, Trash2 } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import { colors } from "../../lib/theme";
 import { columnIndexToLetter, createSheetEvaluator } from "../../lib/sheetFormula";
@@ -167,51 +160,68 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
 
   return (
     <View style={styles.root}>
-      <View style={styles.bar}>
-        <Text style={styles.addr}>{selectedAddress}</Text>
-        <TextInput
-          value={editing ? draft : selectedRaw}
-          onFocus={() => {
-            if (!editing) startEditing(selected, "formula");
-            else setEditSource("formula");
-          }}
-          onChangeText={(value) => {
-            if (!editing) startEditing(selected, "formula", value);
-            else setDraft(value);
-          }}
-          onSubmitEditing={commitEdit}
-          onBlur={() => {
-            if (editing && editSource === "formula") commitEdit();
-          }}
-          placeholder="Value or =SUM(A1:A5)"
-          placeholderTextColor={colors.mutedForeground}
-          style={styles.formula}
-        />
-        <Pressable accessibilityLabel="Insert row below" onPress={() => addRow(selected.row + 1)} style={styles.iconBtn}>
-          <ArrowDownToLine size={16} color={colors.foreground} />
-        </Pressable>
-        <Pressable accessibilityLabel="Insert column right" onPress={() => addColumn(selected.col + 1)} style={styles.iconBtn}>
-          <ArrowRightToLine size={16} color={colors.foreground} />
-        </Pressable>
-        <Pressable accessibilityLabel="Clear cell" onPress={() => setCellValue(selected, "")} style={styles.iconBtn}>
-          <Eraser size={16} color={colors.foreground} />
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Delete row"
-          onPress={() => deleteRow(selected.row)}
-          disabled={rows.length <= 1}
-          style={[styles.iconBtn, rows.length <= 1 && { opacity: 0.35 }]}
-        >
-          <Trash2 size={16} color={colors.destructive} />
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Delete column"
-          onPress={() => deleteColumn(selected.col)}
-          disabled={columns.length <= 1}
-          style={[styles.iconBtn, columns.length <= 1 && { opacity: 0.35 }]}
-        >
-          <Columns3 size={16} color={colors.destructive} />
-        </Pressable>
+      <View style={styles.toolbar}>
+        <View style={styles.formulaRow}>
+          <Text style={styles.addr}>{selectedAddress}</Text>
+          <TextInput
+            value={editing ? draft : selectedRaw}
+            onFocus={() => {
+              if (!editing) startEditing(selected, "formula");
+              else setEditSource("formula");
+            }}
+            onChangeText={(value) => {
+              if (!editing) startEditing(selected, "formula", value);
+              else setDraft(value);
+            }}
+            onSubmitEditing={commitEdit}
+            onBlur={() => {
+              if (editing && editSource === "formula") commitEdit();
+            }}
+            placeholder="Value or =SUM(A1:A5)"
+            placeholderTextColor={colors.mutedForeground}
+            style={styles.formula}
+          />
+        </View>
+        <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.tableBar}>
+          <Pressable accessibilityLabel="Add column before" onPress={() => addColumn(selected.col)} style={styles.tableTool}>
+            <Plus size={16} color={colors.foreground} />
+            <Text style={styles.tableCaption}>⟨Col</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Add column after" onPress={() => addColumn(selected.col + 1)} style={styles.tableTool}>
+            <Plus size={16} color={colors.foreground} />
+            <Text style={styles.tableCaption}>Col⟩</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Delete column"
+            onPress={() => deleteColumn(selected.col)}
+            disabled={columns.length <= 1}
+            style={[styles.tableTool, columns.length <= 1 && { opacity: 0.35 }]}
+          >
+            <Minus size={16} color={colors.destructive} />
+            <Text style={[styles.tableCaption, { color: colors.destructive }]}>−Col</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Add row before" onPress={() => addRow(selected.row)} style={styles.tableTool}>
+            <Plus size={16} color={colors.foreground} />
+            <Text style={styles.tableCaption}>⟨Row</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Add row after" onPress={() => addRow(selected.row + 1)} style={styles.tableTool}>
+            <Plus size={16} color={colors.foreground} />
+            <Text style={styles.tableCaption}>Row⟩</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Delete row"
+            onPress={() => deleteRow(selected.row)}
+            disabled={rows.length <= 1}
+            style={[styles.tableTool, rows.length <= 1 && { opacity: 0.35 }]}
+          >
+            <Minus size={16} color={colors.destructive} />
+            <Text style={[styles.tableCaption, { color: colors.destructive }]}>−Row</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Clear cell" onPress={() => setCellValue(selected, "")} style={styles.tableTool}>
+            <Eraser size={16} color={colors.foreground} />
+            <Text style={styles.tableCaption}>Clear</Text>
+          </Pressable>
+        </ScrollView>
       </View>
 
       <ScrollView horizontal nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
@@ -392,15 +402,34 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 280 },
-  bar: {
+  toolbar: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  formulaRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    paddingTop: 8,
   },
+  tableBar: {
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  tableTool: {
+    minWidth: 48,
+    height: 40,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    backgroundColor: colors.popover,
+  },
+  tableCaption: { color: colors.mutedForeground, fontSize: 10, fontWeight: "600" },
   addr: {
     width: 40,
     textAlign: "center",
@@ -418,13 +447,6 @@ const styles = StyleSheet.create({
     color: colors.foreground,
     paddingHorizontal: 8,
     fontSize: 13,
-  },
-  iconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
   },
   tr: { flexDirection: "row" },
   rowHead: {

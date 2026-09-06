@@ -1,12 +1,13 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { CalendarClock, Check, Flag } from "lucide-react-native";
+import { Ban, CalendarClock, Check, Flag, RotateCcw } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
-import { formatRelativeDay, formatTimeRange, startOfDay } from "../../lib/format";
+import { formatRelativeDay, formatTime, formatTimeRange, startOfDay } from "../../lib/format";
 import BottomSheet from "../ui/BottomSheet";
 import DateTimeSheet from "../ui/DateTimeSheet";
 import { PrimaryButton } from "../ui/primitives";
-import { itemColor, isTaskItem } from "./CalendarItemRow";
+import { itemColor, isReminderItem, isTaskItem } from "./CalendarItemRow";
+import { useEditEventOccurrence, useEditTaskOccurrence } from "../../lib/hooks";
 import { colors } from "../../lib/theme";
 import { useState } from "react";
 
@@ -23,8 +24,21 @@ export default function CalendarItemSheet({
 }) {
   const router = useRouter();
   const [picking, setPicking] = useState(false);
+  const editTaskOcc = useEditTaskOccurrence();
+  const editEventOcc = useEditEventOccurrence();
   if (!item) return null;
   const task = isTaskItem(item);
+  const occurrence = item.kind === "taskOccurrence" || item.kind === "eventOccurrence";
+
+  function runOccurrence(action: "skip" | "restore") {
+    if (!item?.originalStart) return;
+    if (item.kind === "taskOccurrence" && item.taskId) {
+      editTaskOcc.mutate({ id: item.taskId, originalStart: item.originalStart, action });
+    } else if (item.kind === "eventOccurrence" && item.eventId) {
+      editEventOcc.mutate({ id: item.eventId, originalStart: item.originalStart, action });
+    }
+    onClose();
+  }
 
   return (
     <>
@@ -32,12 +46,17 @@ export default function CalendarItemSheet({
         <View style={styles.meta}>
           <View style={[styles.swatch, { backgroundColor: itemColor(item) }]} />
           <Text style={styles.when}>
-            {formatRelativeDay(startOfDay(new Date(item.start)))} · {item.allDay ? "All day" : formatTimeRange(item.start, item.end)}
+            {formatRelativeDay(startOfDay(new Date(item.start)))} ·{" "}
+            {item.allDay
+              ? "All day"
+              : isReminderItem(item)
+                ? `${formatTime(item.start)} · Reminder`
+                : formatTimeRange(item.start, item.end)}
           </Text>
         </View>
         {task ? (
           <PrimaryButton
-            label={item.completedAt ? "Mark incomplete" : "Complete"}
+            label={item.completedAt ? "Mark incomplete" : occurrence ? "Complete this day" : "Complete"}
             onPress={() => onToggleComplete(item)}
           />
         ) : null}
@@ -46,6 +65,20 @@ export default function CalendarItemSheet({
           <CalendarClock size={18} color={colors.mutedForeground} />
           <Text style={styles.rowText}>Reschedule</Text>
         </Pressable>
+        {occurrence && item.originalStart ? (
+          <>
+            <Pressable onPress={() => runOccurrence("skip")} style={styles.row}>
+              <Ban size={18} color={colors.mutedForeground} />
+              <Text style={styles.rowText}>Skip this day</Text>
+            </Pressable>
+            {item.moved || item.completedAt ? (
+              <Pressable onPress={() => runOccurrence("restore")} style={styles.row}>
+                <RotateCcw size={18} color={colors.mutedForeground} />
+                <Text style={styles.rowText}>Restore original</Text>
+              </Pressable>
+            ) : null}
+          </>
+        ) : null}
         {item.taskId ? (
           <Pressable
             onPress={() => {

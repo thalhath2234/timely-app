@@ -1,12 +1,11 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Brain, Clock, KeyRound, Search, Settings, Tag } from "lucide-react-native";
+import { Bell, Brain, Clock, KeyRound, Tag } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { SectionLabel } from "../../../components/ui/primitives";
 import { useAuth } from "../../../lib/auth/AuthProvider";
-import { useWorkspacesQuery } from "../../../lib/hooks";
 import { colors } from "../../../lib/theme";
 
 function Row({
@@ -15,7 +14,7 @@ function Row({
   meta,
   onPress,
 }: {
-  icon: typeof Settings;
+  icon: typeof Tag;
   title: string;
   meta: string;
   onPress: () => void;
@@ -33,11 +32,10 @@ function Row({
   );
 }
 
-export default function MoreScreen() {
+export default function SettingsTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
-  const spaces = useWorkspacesQuery().data ?? [];
+  const { user, logout } = useAuth();
   const initials = (user?.name ?? user?.email ?? "T")
     .split(" ")
     .map((p) => p[0])
@@ -47,7 +45,7 @@ export default function MoreScreen() {
 
   return (
     <Screen>
-      <MobileHeader title="More" />
+      <MobileHeader title="Settings" />
       <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 24 + insets.bottom }}>
         <Pressable onPress={() => router.push("/(app)/settings/account")} style={styles.profile}>
           <View style={styles.avatar}>
@@ -58,22 +56,21 @@ export default function MoreScreen() {
             <Text style={styles.meta}>{user?.email}</Text>
           </View>
         </Pressable>
-        <SectionLabel>Workspaces</SectionLabel>
-        {spaces.map((w) => (
-          <Row
-            key={w.id}
-            icon={Tag}
-            title={w.name}
-            meta={`${(w.status ?? []).length} statuses · ${(w.lables ?? []).length} labels`}
-            onPress={() => router.push(`/(app)/settings/workspace/${w.id}`)}
-          />
-        ))}
+        <SectionLabel>Workspace</SectionLabel>
+        <Row
+          icon={Tag}
+          title="Workspaces"
+          meta="Statuses, labels, custom fields"
+          onPress={() => router.push("/(app)/settings/workspaces")}
+        />
         <SectionLabel>Tools</SectionLabel>
-        <Row icon={Search} title="Search" meta="Find tasks, docs, sheets, and events" onPress={() => router.push("/(app)/search")} />
+        <Row icon={Bell} title="Notifications" meta="Pings when a reminder is due" onPress={() => router.push("/(app)/settings/notifications")} />
         <Row icon={Brain} title="Report" meta="Weekly summary and focus time" onPress={() => router.push("/(app)/report")} />
         <Row icon={Clock} title="Working hours" meta="When the scheduler can place tasks" onPress={() => router.push("/(app)/settings/schedule")} />
         <Row icon={KeyRound} title="API keys" meta="Connect scripts and automations" onPress={() => router.push("/(app)/settings/api-keys")} />
-        <Row icon={Settings} title="Settings" meta="Account, workspaces, labels, fields" onPress={() => router.push("/(app)/settings")} />
+        <Pressable onPress={() => void logout()} style={styles.logout}>
+          <Text style={styles.logoutText}>Sign out</Text>
+        </Pressable>
       </ScrollView>
     </Screen>
   );
@@ -122,4 +119,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  logout: { alignItems: "center", paddingVertical: 20 },
+  logoutText: { color: colors.destructive, fontWeight: "600" },
 });

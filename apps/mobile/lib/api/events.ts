@@ -31,6 +31,21 @@ export function getEvents() {
   return api<CalendarEventEntity[]>("/events");
 }
 
+export function getEvent(id: string) {
+  return api<CalendarEventEntity>(`/events/${encodeURIComponent(id)}`);
+}
+
+export async function splitEventSeries(
+  id: string,
+  data: { fromStart: string; recurrence?: RecurrenceInput; title?: string; start?: string; end?: string },
+) {
+  const res = await api<CalendarEventEntity | { event: CalendarEventEntity }>(`/events/${id}/recurrence/split`, {
+    method: "POST",
+    body: data,
+  });
+  return unwrap(res, "event");
+}
+
 export async function createEvent(data: CreateEventPayload) {
   const res = await api<CalendarEventEntity | { event: CalendarEventEntity }>("/events", {
     method: "POST",

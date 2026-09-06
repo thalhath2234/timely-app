@@ -46,7 +46,7 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
 <body>
   <div id="editor"></div>
   <script type="module">
-    import { Editor, Node, Extension, wrappingInputRule } from "https://esm.sh/@tiptap/core@3.29.2";
+    import { Editor, Node, Extension, InputRule, wrappingInputRule } from "https://esm.sh/@tiptap/core@3.29.2";
     import StarterKit from "https://esm.sh/@tiptap/starter-kit@3.29.2";
     import { TableKit } from "https://esm.sh/@tiptap/extension-table@3.29.2";
     import TaskList from "https://esm.sh/@tiptap/extension-task-list@3.29.2";
@@ -82,12 +82,45 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
         const task = this.editor.schema.nodes.taskList;
         const rules = [];
         if (bullet) {
-          rules.push(wrappingInputRule({ find: /^\\.\\s$/, type: bullet }));
+          rules.push(wrappingInputRule({ find: /^\\s*\\.\\s$/, type: bullet }));
+          rules.push(wrappingInputRule({ find: /^\\s*\\*\\s$/, type: bullet }));
         }
         if (task) {
           rules.push(wrappingInputRule({ find: /^\\[\\]\\s$/, type: task }));
         }
+        const ordered = this.editor.schema.nodes.orderedList;
+        if (ordered) {
+          rules.push(wrappingInputRule({ find: /^\\s*1\\.\\s$/, type: ordered }));
+        }
+        const quote = this.editor.schema.nodes.blockquote;
+        if (quote) {
+          rules.push(wrappingInputRule({ find: /^>\\s$/, type: quote }));
+        }
+        rules.push(new InputRule({
+          find: /^(#{1,3})\\s$/,
+          handler: ({ range, chain, match }) => {
+            const level = match[1].length;
+            chain().deleteRange(range).setNode("heading", { level }).run();
+          },
+        }));
+        rules.push(new InputRule({
+          find: /^-\\s$/,
+          handler: ({ range, chain }) => {
+            chain().deleteRange(range).setHorizontalRule().run();
+          },
+        }));
         return rules;
+      },
+      addKeyboardShortcuts() {
+        return {
+          Space: () => {
+            const { $from } = this.editor.state.selection;
+            if (!$from.parent.isTextblock) return false;
+            if (this.editor.isActive("bulletList") || this.editor.isActive("orderedList") || this.editor.isActive("taskList")) return false;
+            if ($from.parentOffset !== 1 || $from.parent.textContent !== "-") return false;
+            return this.editor.chain().focus().deleteRange({ from: $from.start(), to: $from.pos }).setHorizontalRule().run();
+          },
+        };
       },
     });
 
@@ -144,7 +177,13 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
           heading: { levels: [1, 2, 3] },
           link: { openOnClick: false, autolink: true, defaultProtocol: "https" },
         }),
-        Placeholder.configure({ placeholder }),
+        Placeholder.configure({
+          showOnlyCurrent: false,
+          placeholder: ({ editor: ed, pos }) => {
+            if (!ed.isEmpty || pos !== 0) return "";
+            return placeholder;
+          },
+        }),
         TaskList,
         TaskItem.configure({ nested: true }),
         Highlight,
@@ -160,6 +199,8 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
         reportSelection();
       },
       onSelectionUpdate() { reportSelection(); },
+      onFocus() { send({ type: "focus" }); },
+      onBlur() { send({ type: "blur" }); },
     });
 
     const TABLE_CMDS = {
