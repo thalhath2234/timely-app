@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Brain, Clock, KeyRound, Search, Settings, Tag } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
@@ -34,6 +35,7 @@ function Row({
 
 export default function MoreScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const spaces = useWorkspacesQuery().data ?? [];
   const initials = (user?.name ?? user?.email ?? "T")
@@ -46,7 +48,7 @@ export default function MoreScreen() {
   return (
     <Screen>
       <MobileHeader title="More" />
-      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 110 }}>
+      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 24 + insets.bottom }}>
         <Pressable onPress={() => router.push("/(app)/settings/account")} style={styles.profile}>
           <View style={styles.avatar}>
             <Text style={styles.initials}>{initials}</Text>

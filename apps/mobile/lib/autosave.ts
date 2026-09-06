@@ -62,7 +62,9 @@ export function useAutosave<T extends object>(
     };
   }, []);
 
-  return { schedule, flush, status };
+  const hasUnsavedChanges = () => pendingRef.current !== null;
+
+  return { schedule, flush, status, hasUnsavedChanges };
 }
 
 export function saveStatusLabel(status: SaveStatus) {

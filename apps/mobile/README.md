@@ -7,7 +7,8 @@ Native client for [timely-api](../timely-api). Keep the Go API running on `:8080
 Set `EXPO_PUBLIC_API_URL` in `.env`:
 
 - Android emulator: `http://10.0.2.2:8080` (this maps to the host machine’s `localhost`)
-- Physical phone: `http://<your-pc-lan-ip>:8080`
+- Physical phone on the same Wi-Fi: `http://<your-pc-lan-ip>:8080`
+- Physical phone from anywhere: your current ngrok URL, e.g. `https://<subdomain>.ngrok-free.app`
 
 The app stores the JWT in SecureStore and sends `Authorization: Bearer <token>`.
 

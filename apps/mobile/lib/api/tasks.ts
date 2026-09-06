@@ -6,7 +6,6 @@ export type CreateTaskPayload = {
   description?: string;
   descriptionRich?: DocContent;
   duration?: number;
-  timeChunks?: number;
   deadline?: string;
   startDate?: string;
   scheduledOn?: string;
@@ -27,7 +26,6 @@ export type UpdateTaskPayload = {
   description?: string;
   descriptionRich?: DocContent;
   duration?: number;
-  timeChunks?: number;
   deadline?: string | null;
   startDate?: string | null;
   scheduledOn?: string | null;

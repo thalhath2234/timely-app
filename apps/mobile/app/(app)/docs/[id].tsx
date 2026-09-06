@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { FileText, MoreHorizontal, Smile, Star, Trash2 } from "lucide-react-native";
@@ -7,7 +7,7 @@ import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHea
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import RichTextEditor from "../../../components/editor/RichTextEditor";
-import { useDeleteDoc, useDocQuery, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
+import { useDeleteDoc, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { saveStatusLabel, useAutosave } from "../../../lib/autosave";
 import { resolveDocContent } from "../../../lib/markdown";
 import { isRichContentEmpty } from "../../../lib/richText";
@@ -52,9 +52,12 @@ function DocEditor({ docId }: { docId: string }) {
   const updateDoc = useUpdateDoc();
   const remove = useDeleteDoc();
 
+  const [remoteEpoch, setRemoteEpoch] = useState(0);
+  const lastSavedAtRef = useRef<string | null>(doc?.updatedAt ?? null);
+
   const initialContent = useMemo(
     () => (doc ? resolveDocContent(doc.content, doc.plainText) : { type: "doc", content: [] }),
-    [doc?.id],
+    [doc?.id, remoteEpoch, doc?.updatedAt],
   );
 
   const [title, setTitle] = useState(doc?.title ?? "");
@@ -63,9 +66,26 @@ function DocEditor({ docId }: { docId: string }) {
   const [wordCount, setWordCount] = useState(() => countWords(doc?.plainText ?? ""));
   const [menu, setMenu] = useState<"more" | "icon" | "parent" | "delete" | null>(null);
 
-  const { schedule, flush, status } = useAutosave<UpdateDocPayload>((patch) =>
-    updateDoc.mutateAsync({ id: docId, data: patch }),
-  );
+  const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateDocPayload>(async (patch) => {
+    const saved = await updateDoc.mutateAsync({ id: docId, data: patch });
+    lastSavedAtRef.current = saved.updatedAt;
+    return saved;
+  });
+
+  useDocWatch(docId, {
+    lastSavedAtRef,
+    hasLocalEdits: hasUnsavedChanges,
+    onRemote: () => setRemoteEpoch((epoch) => epoch + 1),
+    onDeleted: () => router.replace("/(app)/(tabs)/docs"),
+  });
+
+  useEffect(() => {
+    if (remoteEpoch === 0 || !doc) return;
+    setTitle(doc.title);
+    setIcon(doc.icon ?? "");
+    setFavorite(Boolean(doc.isFavorite));
+    setWordCount(countWords(doc.plainText));
+  }, [remoteEpoch, doc?.title, doc?.icon, doc?.isFavorite, doc?.plainText]);
 
   if (!doc) return null;
 
@@ -120,6 +140,7 @@ function DocEditor({ docId }: { docId: string }) {
       </Text>
 
       <RichTextEditor
+        key={`${docId}:${remoteEpoch}`}
         content={isRichContentEmpty(initialContent) ? { type: "doc", content: [{ type: "paragraph" }] } : initialContent}
         onChange={({ content, plainText }) => {
           setWordCount(countWords(plainText));

@@ -100,12 +100,27 @@ export function formatDuration(minutes: number) {
   return `${m}m`;
 }
 
-export const PRIORITY_META: Record<string, { label: string; color: string }> = {
+const PRIORITY_SWATCH = {
   urgent: { label: "Urgent", color: "#ef6b5c" },
   high: { label: "High", color: "#e8b54a" },
   medium: { label: "Medium", color: "#8b7cf7" },
   low: { label: "Low", color: "#9a9aa8" },
+} as const;
+
+export const PRIORITY_META: Record<string, { label: string; color: string }> = {
+  ...PRIORITY_SWATCH,
+  Urgent: PRIORITY_SWATCH.urgent,
+  High: PRIORITY_SWATCH.high,
+  Medium: PRIORITY_SWATCH.medium,
+  Low: PRIORITY_SWATCH.low,
 };
+
+export function toDateInputValue(value: Date) {
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, "0");
+  const d = String(value.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 
 export const PRIORITY_ORDER = ["urgent", "high", "medium", "low"];
 

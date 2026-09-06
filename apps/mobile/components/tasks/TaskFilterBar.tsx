@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, View } from "react-native";
 import type { Workspace } from "../../lib/types";
-import { Chip } from "../ui/primitives";
+import { Chip, Select } from "../ui/primitives";
 
 export type TaskFilter = "all" | "today" | "overdue" | "upcoming" | "nodate" | "done";
 
@@ -36,12 +36,17 @@ export default function TaskFilterBar({
         ))}
       </ScrollView>
       {workspaces.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-          <Chip label="All spaces" active={!workspaceId} onPress={() => onWorkspace(null)} />
-          {workspaces.map((w) => (
-            <Chip key={w.id} label={w.name} active={workspaceId === w.id} onPress={() => onWorkspace(w.id)} />
-          ))}
-        </ScrollView>
+        <View style={styles.select}>
+          <Select
+            value={workspaceId ?? ""}
+            onChange={(id) => onWorkspace(id || null)}
+            placeholder="All spaces"
+            options={[
+              { value: "", label: "All spaces" },
+              ...workspaces.map((w) => ({ value: w.id, label: w.name })),
+            ]}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -50,4 +55,5 @@ export default function TaskFilterBar({
 const styles = StyleSheet.create({
   wrap: { paddingBottom: 10, gap: 8 },
   row: { paddingHorizontal: 12, gap: 8 },
+  select: { paddingHorizontal: 12 },
 });

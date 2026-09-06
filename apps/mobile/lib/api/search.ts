@@ -1,4 +1,4 @@
-import { api } from "./client";
+import { ApiError, api } from "./client";
 
 export type SearchKind = "task" | "project" | "doc" | "sheet" | "event" | string;
 
@@ -20,7 +20,9 @@ export async function searchItems(query: string, semantic = true): Promise<Searc
     const data = await api<SearchHit[] | { hits: SearchHit[] }>(`/search?${params.toString()}`);
     return Array.isArray(data) ? data : data.hits ?? [];
   } catch (error) {
-    if (semantic) return searchItems(trimmed, false);
+    if (semantic && error instanceof ApiError && error.status === 503) {
+      return searchItems(trimmed, false);
+    }
     throw error;
   }
 }

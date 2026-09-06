@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Pressable, StyleSheet } from "react-native";
 import { Tabs, usePathname } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Calendar, FileText, ListTodo, Menu, Plus, Sheet } from "lucide-react-native";
 import QuickAddSheet from "../../../components/ui/QuickAddSheet";
 import { colors } from "../../../lib/theme";
@@ -8,14 +9,23 @@ import { colors } from "../../../lib/theme";
 export default function TabLayout() {
   const [addOpen, setAddOpen] = useState(false);
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const showFab = !pathname.endsWith("/more");
+  const bottomInset = Math.max(insets.bottom, 8);
+  const tabHeight = 56 + bottomInset;
 
   return (
     <>
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarStyle: styles.bar,
+          tabBarStyle: {
+            backgroundColor: colors.background,
+            borderTopColor: colors.border,
+            height: tabHeight,
+            paddingBottom: bottomInset,
+            paddingTop: 8,
+          },
           tabBarActiveTintColor: colors.foreground,
           tabBarInactiveTintColor: colors.mutedForeground,
           tabBarLabelStyle: { fontSize: 11, fontWeight: "500" },
@@ -44,7 +54,11 @@ export default function TabLayout() {
         />
       </Tabs>
       {showFab ? (
-        <Pressable accessibilityLabel="Add" onPress={() => setAddOpen(true)} style={styles.fab}>
+        <Pressable
+          accessibilityLabel="Add"
+          onPress={() => setAddOpen(true)}
+          style={[styles.fab, { bottom: tabHeight + 12 }]}
+        >
           <Plus size={26} color={colors.primaryForeground} />
         </Pressable>
       ) : null}
@@ -54,17 +68,9 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    backgroundColor: colors.background,
-    borderTopColor: colors.border,
-    height: 64,
-    paddingBottom: 8,
-    paddingTop: 8,
-  },
   fab: {
     position: "absolute",
     right: 16,
-    bottom: 80,
     width: 56,
     height: 56,
     borderRadius: 28,

@@ -2,7 +2,7 @@
   "expo": {
     "name": "timely-mobile",
     "slug": "timely-mobile",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "timelymobile",
@@ -11,6 +11,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.timely.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#1a1b22",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

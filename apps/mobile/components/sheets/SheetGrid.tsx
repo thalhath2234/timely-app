@@ -10,6 +10,7 @@ import {
 import {
   ArrowDownToLine,
   ArrowRightToLine,
+  Columns3,
   Eraser,
   Plus,
   Trash2,
@@ -39,6 +40,7 @@ export type SheetGridProps = {
 export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
   const [selected, setSelected] = useState<Address>({ col: 0, row: 0 });
   const [editing, setEditing] = useState<Address | null>(null);
+  const [editSource, setEditSource] = useState<"formula" | "cell" | null>(null);
   const [draft, setDraft] = useState("");
   const [renaming, setRenaming] = useState<number | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -129,23 +131,25 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
     });
   }
 
-  function startEditing(address: Address, initial?: string) {
+  function startEditing(address: Address, source: "formula" | "cell", initial?: string) {
     setSelected(address);
     setDraft(initial ?? rawAt(address));
     setEditing(address);
+    setEditSource(source);
   }
 
   function commitEdit() {
     if (!editing) return;
     setCellValue(editing, draft);
     setEditing(null);
+    setEditSource(null);
     setDraft("");
   }
 
   function tapCell(address: Address) {
     if (editing) commitEdit();
     const same = selected.col === address.col && selected.row === address.row;
-    if (same) startEditing(address);
+    if (same) startEditing(address, "cell");
     else setSelected(address);
   }
 
@@ -167,13 +171,17 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
         <Text style={styles.addr}>{selectedAddress}</Text>
         <TextInput
           value={editing ? draft : selectedRaw}
+          onFocus={() => {
+            if (!editing) startEditing(selected, "formula");
+            else setEditSource("formula");
+          }}
           onChangeText={(value) => {
-            if (!editing) startEditing(selected, value);
+            if (!editing) startEditing(selected, "formula", value);
             else setDraft(value);
           }}
           onSubmitEditing={commitEdit}
           onBlur={() => {
-            if (editing) commitEdit();
+            if (editing && editSource === "formula") commitEdit();
           }}
           placeholder="Value or =SUM(A1:A5)"
           placeholderTextColor={colors.mutedForeground}
@@ -196,10 +204,18 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
         >
           <Trash2 size={16} color={colors.destructive} />
         </Pressable>
+        <Pressable
+          accessibilityLabel="Delete column"
+          onPress={() => deleteColumn(selected.col)}
+          disabled={columns.length <= 1}
+          style={[styles.iconBtn, columns.length <= 1 && { opacity: 0.35 }]}
+        >
+          <Columns3 size={16} color={colors.destructive} />
+        </Pressable>
       </View>
 
-      <ScrollView horizontal nestedScrollEnabled style={{ flex: 1 }}>
-        <ScrollView nestedScrollEnabled>
+      <ScrollView horizontal nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
+        <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
           <View>
             <View style={styles.tr}>
               <View style={[styles.rowHead, styles.headCell]} />
@@ -275,7 +291,7 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
                         result.type === "error" && styles.errorCell,
                       ]}
                     >
-                      {isEditing ? (
+                      {isEditing && editSource === "cell" ? (
                         <TextInput
                           autoFocus
                           value={draft}

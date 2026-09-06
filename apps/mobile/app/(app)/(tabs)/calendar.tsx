@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -115,8 +115,12 @@ export default function CalendarScreen() {
         </View>
         {view !== "month" ? <DateStrip selected={selected} onSelect={setSelected} busyDays={busyDays} /> : null}
       </MobileHeader>
-      <View style={{ flex: 1 }}>
-        {view === "agenda" ? <MobileAgenda items={items} from={selected} onOpen={setOpen} /> : null}
+      <View style={{ flex: 1, minHeight: 0 }}>
+        {view === "agenda" ? (
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+            <MobileAgenda items={items} from={selected} onOpen={setOpen} />
+          </ScrollView>
+        ) : null}
         {view === "day" ? <MobileDay date={selected} items={dayItems} onOpen={setOpen} /> : null}
         {view === "month" ? (
           <MobileMonth month={selected} selected={selected} onSelect={setSelected} items={items} onOpen={setOpen} />

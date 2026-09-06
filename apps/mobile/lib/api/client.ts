@@ -34,6 +34,9 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   const { method = "GET", body, auth = true } = options;
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (API_URL.includes("ngrok")) {
+    headers["ngrok-skip-browser-warning"] = "1";
+  }
 
   if (auth) {
     const token = await getToken();

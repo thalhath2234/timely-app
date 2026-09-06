@@ -1,12 +1,15 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../../lib/theme";
 
 export default function BottomSheet({
@@ -22,14 +25,40 @@ export default function BottomSheet({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  const insets = useSafeAreaInsets();
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.root}>
         <Pressable style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={onClose} />
-        <View style={styles.sheet}>
+        <View
+          style={[
+            styles.sheet,
+            { paddingBottom: Math.max(insets.bottom, 12), marginBottom: keyboardHeight },
+          ]}
+        >
           <View style={styles.handle} />
           {title ? <Text style={styles.title}>{title}</Text> : null}
-          <ScrollView keyboardShouldPersistTaps="handled" style={styles.body} contentContainerStyle={{ paddingBottom: 24 }}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            style={styles.body}
+            contentContainerStyle={{ paddingBottom: 24 }}
+          >
             {children}
           </ScrollView>
           {footer ? <View style={styles.footer}>{footer}</View> : null}
@@ -69,7 +98,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    paddingBottom: 16,
   },
   handle: {
     alignSelf: "center",

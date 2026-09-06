@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, Trash2 } from "lucide-react-native";
@@ -6,8 +6,11 @@ import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
-import { Field, PrimaryButton } from "../../../components/ui/primitives";
+import CustomFieldEditor from "../../../components/ui/CustomFieldEditor";
+import { Chip, Dot, Field, PrimaryButton } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
+import { toCustomFieldDrafts } from "../../../lib/customFields";
+import type { CustomFieldValueInput } from "../../../lib/types";
 import {
   useAddBlock,
   useAddComment,
@@ -40,9 +43,13 @@ export default function TaskDetailScreen() {
   const [note, setNote] = useState("");
   const [noteReady, setNoteReady] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [labelIds, setLabelIds] = useState<string[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValueInput[]>([]);
 
   const workspace = spaces.find((w) => w.id === task?.workspaceId);
   const scopedProjects = projects.filter((p) => p.workspaceId === task?.workspaceId);
+  const workspaceLabels = workspace?.lables ?? [];
+  const customFields = workspace?.customFields ?? [];
 
   useMemo(() => {
     if (task && !noteReady) {
@@ -50,6 +57,12 @@ export default function TaskDetailScreen() {
       setNoteReady(true);
     }
   }, [task, noteReady]);
+
+  useEffect(() => {
+    if (!task) return;
+    setLabelIds(task.labels?.map((label) => label.id) ?? task.labelIds?.map((label) => label.id) ?? []);
+    setCustomFieldValues(toCustomFieldDrafts(customFields, task.customFieldValues ?? []));
+  }, [task?.id, customFields.map((field) => field.id).join(",")]);
 
   if (!task) {
     return (
@@ -85,7 +98,13 @@ export default function TaskDetailScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
         <Field value={task.name} onChangeText={(name) => persist({ name })} autoCapitalize="sentences" />
         <View style={styles.card}>
-          <Row icon={<CircleDot size={16} color={colors.mutedForeground} />} label="Status" value={task.status?.name ?? "None"} onPress={() => setPicker("status")} />
+          <Row
+            icon={<CircleDot size={16} color={task.status?.color || colors.mutedForeground} />}
+            label="Status"
+            value={task.status?.name ?? "None"}
+            swatch={task.status?.color}
+            onPress={() => setPicker("status")}
+          />
           <Row icon={<Flag size={16} color={colors.mutedForeground} />} label="Priority" value={task.priorityLevel ? PRIORITY_META[task.priorityLevel]?.label ?? task.priorityLevel : "None"} onPress={() => setPicker("priority")} />
           <Row
             icon={<CalendarDays size={16} color={overdue ? colors.destructive : colors.mutedForeground} />}
@@ -97,6 +116,39 @@ export default function TaskDetailScreen() {
           <Row icon={<FolderKanban size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
           <Row icon={<Clock size={16} color={colors.mutedForeground} />} label="Duration" value={formatDuration(task.duration) ?? "Not set"} />
         </View>
+        <Text style={styles.section}>Labels</Text>
+        {workspaceLabels.length === 0 ? (
+          <Text style={styles.activity}>No labels in this workspace. Add some in Settings.</Text>
+        ) : (
+          <View style={styles.chips}>
+            {workspaceLabels.map((label) => {
+              const active = labelIds.includes(label.id);
+              return (
+                <Chip
+                  key={label.id}
+                  label={label.name}
+                  color={label.color}
+                  active={active}
+                  onPress={() => {
+                    const next = active ? labelIds.filter((id) => id !== label.id) : [...labelIds, label.id];
+                    setLabelIds(next);
+                    persist({ labelIds: next.map((id) => ({ id })) });
+                  }}
+                />
+              );
+            })}
+          </View>
+        )}
+        {customFields.length > 0 ? (
+          <CustomFieldEditor
+            fields={customFields}
+            values={customFieldValues}
+            onChange={(next) => {
+              setCustomFieldValues(next);
+              persist({ customFieldValues: next });
+            }}
+          />
+        ) : null}
         <Text style={styles.section}>Scheduled</Text>
         {(task.blocks ?? []).map((block) => (
           <View key={block.id} style={styles.block}>
@@ -153,7 +205,12 @@ export default function TaskDetailScreen() {
 
       <BottomSheet open={picker === "status"} onClose={() => setPicker(null)} title="Status">
         {(workspace?.status ?? []).map((s) => (
-          <SheetOption key={s.id} selected={s.id === task.statusId} onSelect={() => { persist({ statusId: s.id }); setPicker(null); }}>
+          <SheetOption
+            key={s.id}
+            selected={s.id === task.statusId}
+            leading={<Dot color={s.color} />}
+            onSelect={() => { persist({ statusId: s.id }); setPicker(null); }}
+          >
             {s.name}
           </SheetOption>
         ))}
@@ -178,6 +235,8 @@ export default function TaskDetailScreen() {
       <DateTimeSheet
         open={picker === "due" || picker === "schedule"}
         value={picker === "due" && task.deadline ? new Date(task.deadline) : new Date()}
+        mode={picker === "due" ? "date" : "datetime"}
+        title={picker === "due" ? "Deadline" : "Schedule"}
         onClose={() => setPicker(null)}
         onChange={(next) => {
           if (picker === "due") persist({ deadline: next ? next.toISOString() : null });
@@ -196,17 +255,20 @@ function Row({
   value,
   onPress,
   tone,
+  swatch,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
   onPress?: () => void;
   tone?: string;
+  swatch?: string | null;
 }) {
   return (
     <Pressable onPress={onPress} disabled={!onPress} style={styles.row}>
       {icon}
       <Text style={styles.rowLabel}>{label}</Text>
+      {swatch ? <Dot color={swatch} /> : null}
       <Text style={[styles.rowValue, tone ? { color: tone } : null]}>{value}</Text>
     </Pressable>
   );
@@ -228,6 +290,7 @@ const styles = StyleSheet.create({
   rowLabel: { width: 72, color: colors.mutedForeground, fontSize: 13 },
   rowValue: { flex: 1, color: colors.foreground, fontSize: 15 },
   section: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase" },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   block: { borderRadius: 10, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 12 },
   blockText: { color: colors.foreground, fontSize: 14 },
   activity: { color: colors.mutedForeground, fontSize: 13 },

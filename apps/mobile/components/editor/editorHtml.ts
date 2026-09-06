@@ -18,7 +18,7 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
     :root { color-scheme: dark; }
     html, body { margin: 0; padding: 0; background: #1a1b22; }
     body { min-height: 100%; }
-    #editor { min-height: 70vh; padding: 4px 2px 96px; }
+    #editor { min-height: 70vh; padding: 4px 2px 120px; box-sizing: border-box; }
     .tiptap { outline: none; color: #ececf1; font-size: 16px; line-height: 1.55; font-family: ui-sans-serif, system-ui, sans-serif; }
     .tiptap p { margin: 0 0 0.75em; }
     .tiptap h1 { font-size: 26px; line-height: 1.25; font-weight: 700; margin: 0.8em 0 0.4em; }
@@ -46,7 +46,7 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
 <body>
   <div id="editor"></div>
   <script type="module">
-    import { Editor, Node } from "https://esm.sh/@tiptap/core@3.29.2";
+    import { Editor, Node, Extension, wrappingInputRule } from "https://esm.sh/@tiptap/core@3.29.2";
     import StarterKit from "https://esm.sh/@tiptap/starter-kit@3.29.2";
     import { TableKit } from "https://esm.sh/@tiptap/extension-table@3.29.2";
     import TaskList from "https://esm.sh/@tiptap/extension-task-list@3.29.2";
@@ -75,8 +75,45 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
       renderText({ node }) { return "@" + (node.attrs.label || "mention"); },
     });
 
+    const ExtraShortcuts = Extension.create({
+      name: "timelyShortcuts",
+      addInputRules() {
+        const bullet = this.editor.schema.nodes.bulletList;
+        const task = this.editor.schema.nodes.taskList;
+        const rules = [];
+        if (bullet) {
+          rules.push(wrappingInputRule({ find: /^\\.\\s$/, type: bullet }));
+        }
+        if (task) {
+          rules.push(wrappingInputRule({ find: /^\\[\\]\\s$/, type: task }));
+        }
+        return rules;
+      },
+    });
+
     function send(payload) {
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+    }
+
+    function inTable() {
+      return editor.isActive("table") || editor.isActive("tableCell") || editor.isActive("tableHeader");
+    }
+
+    function scrollCaret() {
+      try {
+        const { from } = editor.state.selection;
+        const coords = editor.view.coordsAtPos(from);
+        const limit = (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 28;
+        if (coords.bottom > limit) {
+          const delta = coords.bottom - limit + 16;
+          window.scrollBy(0, delta);
+          document.documentElement.scrollTop += delta;
+          document.body.scrollTop += delta;
+        }
+        const hit = editor.view.domAtPos(from);
+        const node = hit.node && hit.node.nodeType === 3 ? hit.node.parentElement : hit.node;
+        if (node && node.scrollIntoView) node.scrollIntoView({ block: "nearest" });
+      } catch (err) {}
     }
 
     function triggerText() {
@@ -85,13 +122,19 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
       const slash = text.match(/(?:^|\\s)\\/([^\\s]*)$/);
       const mention = text.match(/(?:^|\\s)@([^\\s]*)$/);
       const fromBase = $from.start();
-      if (slash) {
+      if (slash && !inTable()) {
         send({ type: "slash", query: slash[1], from: fromBase + slash.index + (slash[0].startsWith(" ") ? 1 : 0), to: $from.pos });
       } else if (mention) {
         send({ type: "mention", query: mention[1], from: fromBase + mention.index + (mention[0].startsWith(" ") ? 1 : 0), to: $from.pos });
       } else {
         send({ type: "hidePickers" });
       }
+    }
+
+    function reportSelection() {
+      send({ type: "selection", inTable: inTable() });
+      triggerText();
+      scrollCaret();
     }
 
     const editor = new Editor({
@@ -107,23 +150,37 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
         Highlight,
         TableKit.configure({ table: { resizable: false } }),
         Mention,
+        ExtraShortcuts,
       ],
       content: ${embed(initial)},
       editorProps: { attributes: { class: "tiptap" } },
-      onCreate() { send({ type: "ready" }); },
+      onCreate() { send({ type: "ready" }); reportSelection(); },
       onUpdate({ editor }) {
         send({ type: "change", content: editor.getJSON(), plainText: editor.getText() });
-        triggerText();
+        reportSelection();
       },
-      onSelectionUpdate() { triggerText(); },
+      onSelectionUpdate() { reportSelection(); },
     });
+
+    const TABLE_CMDS = {
+      addRowBefore: true, addRowAfter: true, deleteRow: true,
+      addColBefore: true, addColAfter: true, deleteCol: true,
+      deleteTable: true, headerRow: true, headerCol: true,
+    };
 
     window.__timely = {
       set(content) { editor.commands.setContent(content, { emitUpdate: false }); },
       cmd(name, payload) {
+        if (name === "setChrome") {
+          const pad = Number(payload && payload.bottomPad) || 120;
+          const root = document.getElementById("editor");
+          if (root) root.style.paddingBottom = pad + "px";
+          requestAnimationFrame(scrollCaret);
+          return;
+        }
         const chain = editor.chain().focus();
         const range = payload && payload.from != null ? { from: payload.from, to: payload.to } : null;
-        if (range) chain.deleteRange(range);
+        if (range && !TABLE_CMDS[name]) chain.deleteRange(range);
         switch (name) {
           case "paragraph": chain.setParagraph(); break;
           case "h1": chain.setNode("heading", { level: 1 }); break;
@@ -136,6 +193,15 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
           case "code": chain.toggleCodeBlock(); break;
           case "hr": chain.setHorizontalRule(); break;
           case "table": chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }); break;
+          case "addRowBefore": chain.addRowBefore(); break;
+          case "addRowAfter": chain.addRowAfter(); break;
+          case "deleteRow": chain.deleteRow(); break;
+          case "addColBefore": chain.addColumnBefore(); break;
+          case "addColAfter": chain.addColumnAfter(); break;
+          case "deleteCol": chain.deleteColumn(); break;
+          case "deleteTable": chain.deleteTable(); break;
+          case "headerRow": chain.toggleHeaderRow(); break;
+          case "headerCol": chain.toggleHeaderColumn(); break;
           case "bold": chain.toggleBold(); break;
           case "italic": chain.toggleItalic(); break;
           case "strike": chain.toggleStrike(); break;
@@ -150,6 +216,7 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
             break;
         }
         chain.run();
+        requestAnimationFrame(scrollCaret);
       },
     };
     send({ type: "ready" });

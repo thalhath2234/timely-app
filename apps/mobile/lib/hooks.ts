@@ -1,7 +1,9 @@
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMe } from "./api/auth";
 import { getTasks, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment } from "./api/tasks";
-import { getDocs, getDoc, createDoc, updateDoc, deleteDoc } from "./api/docs";
+import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
+import type { Doc } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet } from "./api/sheets";
 import { getProjects, createProject } from "./api/projects";
 import { getWorkspaces, getConfig } from "./api/workspaces";
@@ -18,7 +20,20 @@ import { createEvent, updateEvent, deleteEvent } from "./api/events";
 import { searchItems } from "./api/search";
 import { listApiKeys, createApiKey, revokeApiKey } from "./api/apiKeys";
 import type { UpdateTaskPayload } from "./api/tasks";
-import type { Sheet } from "./types";
+import type { MentionEntityType, Sheet } from "./types";
+
+export type MentionItem = {
+  id: string;
+  label: string;
+  entityType: MentionEntityType;
+  hint?: string;
+};
+
+function mentionTime(value?: string | null) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
 
 export const keys = {
   me: ["me"] as const,
@@ -94,11 +109,79 @@ export function useTaskActivityQuery(id: string) {
   return useQuery({ queryKey: keys.activity(id), queryFn: () => getTaskActivity(id), enabled: Boolean(id) });
 }
 
+export function useMentionItems(): MentionItem[] {
+  const docs = useDocsQuery().data ?? [];
+  const sheets = useSheetsQuery().data ?? [];
+  const tasks = useTasksQuery().data ?? [];
+  const projects = useProjectsQuery().data ?? [];
+  const workspaces = useWorkspacesQuery().data ?? [];
+
+  return useMemo(() => {
+    const workspaceNames = new Map(workspaces.map((workspace) => [workspace.id, workspace.name]));
+    const entries: { item: MentionItem; updatedAt: number }[] = [];
+
+    for (const doc of docs) {
+      entries.push({
+        item: {
+          id: doc.id,
+          label: doc.title,
+          entityType: "doc",
+          hint: workspaceNames.get(doc.workspaceId),
+        },
+        updatedAt: mentionTime(doc.updatedAt),
+      });
+    }
+    for (const sheet of sheets) {
+      entries.push({
+        item: {
+          id: sheet.id,
+          label: sheet.title,
+          entityType: "sheet",
+          hint: workspaceNames.get(sheet.workspaceId),
+        },
+        updatedAt: mentionTime(sheet.updatedAt),
+      });
+    }
+    for (const task of tasks) {
+      entries.push({
+        item: {
+          id: task.id,
+          label: task.name,
+          entityType: "task",
+          hint: task.project?.title ?? (task.workspaceId ? workspaceNames.get(task.workspaceId) : undefined),
+        },
+        updatedAt: mentionTime(task.updatedAt),
+      });
+    }
+    for (const project of projects) {
+      entries.push({
+        item: {
+          id: project.id,
+          label: project.title,
+          entityType: "project",
+          hint: workspaceNames.get(project.workspaceId),
+        },
+        updatedAt: mentionTime(project.updatedAt),
+      });
+    }
+
+    return entries.sort((a, b) => b.updatedAt - a.updatedAt).map((entry) => entry.item);
+  }, [docs, sheets, tasks, projects, workspaces]);
+}
+
 export function useSearchQuery(query: string) {
+  const [debounced, setDebounced] = useState(query);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(query), 250);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const trimmed = debounced.trim();
   return useQuery({
-    queryKey: keys.search(query),
-    queryFn: () => searchItems(query),
-    enabled: query.trim().length > 0,
+    queryKey: keys.search(trimmed),
+    queryFn: () => searchItems(trimmed),
+    enabled: trimmed.length > 0,
   });
 }
 
@@ -157,6 +240,50 @@ export function useUpdateDoc() {
       client.invalidateQueries({ queryKey: keys.docs });
     },
   });
+}
+
+export function useDocWatch(
+  id: string | undefined,
+  options: {
+    enabled?: boolean;
+    lastSavedAtRef: MutableRefObject<string | null>;
+    hasLocalEdits: () => boolean;
+    onRemote?: () => void;
+    onDeleted?: () => void;
+  },
+) {
+  const client = useQueryClient();
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
+  useEffect(() => {
+    if (!id || options.enabled === false) return;
+
+    return watchDoc(id, (event: DocWatchEvent) => {
+      const current = optionsRef.current;
+      if (event.type === "hello") return;
+      if (event.type === "deleted") {
+        client.removeQueries({ queryKey: keys.doc(id) });
+        client.invalidateQueries({ queryKey: keys.docs });
+        current.onDeleted?.();
+        return;
+      }
+      if (event.type !== "updated") return;
+      if (event.updatedAt && event.updatedAt === current.lastSavedAtRef.current) return;
+      if (current.hasLocalEdits()) return;
+      if (event.document) {
+        client.setQueryData(keys.doc(id), event.document);
+        client.setQueryData<Doc[]>(keys.docs, (docs) =>
+          docs?.map((item) => (item.id === id ? (event.document as Doc) : item)),
+        );
+      } else {
+        client.invalidateQueries({ queryKey: keys.doc(id) });
+      }
+      client.invalidateQueries({ queryKey: keys.docs });
+      if (event.updatedAt) current.lastSavedAtRef.current = event.updatedAt;
+      current.onRemote?.();
+    });
+  }, [id, options.enabled, client]);
 }
 
 export function useDeleteDoc() {
