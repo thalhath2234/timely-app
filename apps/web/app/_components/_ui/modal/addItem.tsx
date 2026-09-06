@@ -14,7 +14,6 @@ import {
   Flag,
   FolderKanban,
   GitBranch,
-  Layers,
   ListTodo,
   Palette,
   Plus,
@@ -147,7 +146,6 @@ const addTaskSchema = z.object({
   deadline: z.string().optional(),
   scheduledOn: z.string().optional(),
   duration: z.coerce.number().optional(),
-  timeChunks: z.coerce.number().optional(),
   labelIds: z.array(z.string()).default([]),
   customFieldValues: z.array(customFieldValueSchema).default([]),
 });
@@ -251,7 +249,6 @@ export default function AddItemModal() {
     mode: "onChange",
     defaultValues: {
       duration: 30,
-      timeChunks: 1,
       priorityLevel: "Medium",
       labelIds: [],
     },
@@ -416,7 +413,6 @@ export default function AddItemModal() {
           ? fromDatetimeLocalValue(data.scheduledOn)
           : undefined,
       duration: data.duration ? Number(data.duration) : 0,
-      timeChunks: data.timeChunks ? Number(data.timeChunks) : 0,
       labelIds: (data.labelIds ?? taskLabelIds ?? []).map((id) => ({ id })),
       customFieldValues: data.customFieldValues,
       recurrence: recurrence ?? undefined,
@@ -1038,15 +1034,6 @@ export default function AddItemModal() {
                 <span className="shrink-0 text-xs text-muted-foreground">
                   min
                 </span>
-              </PropertyRow>
-
-              <PropertyRow icon={Layers} label="Chunks">
-                <input
-                  type="number"
-                  min={1}
-                  {...registerTask("timeChunks")}
-                  className="w-full bg-transparent text-sm text-foreground outline-none"
-                />
               </PropertyRow>
 
               <PropertyRow icon={CalendarDays} label="Start date">

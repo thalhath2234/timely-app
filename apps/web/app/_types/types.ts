@@ -169,7 +169,7 @@ export interface Task {
   name: string;
   description: string;
   descriptionRich?: DocContent | null;
-  timeChunks: number;
+  timeChunks?: number;
   duration: number;
 
   deadline: string | null;

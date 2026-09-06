@@ -12,6 +12,7 @@ import { Editor, ReactRenderer } from "@tiptap/react";
 import { SuggestionKeyDownProps, SuggestionProps } from "@tiptap/suggestion";
 import { FileText, FolderKanban, ListTodo, Sheet } from "lucide-react";
 import { MentionEntityType } from "@/app/_types/types";
+import { placeCaretPopup, watchCaretPopup } from "./caretPopup";
 import { MENTION_TYPE_LABELS, MentionItem } from "./mention";
 
 const MENU_WIDTH = 320;
@@ -158,19 +159,21 @@ export function createMentionRenderer() {
   let component: ReactRenderer<MentionMenuHandle, MentionMenuProps> | null =
     null;
   let popup: HTMLDivElement | null = null;
+  let lastGetRect: (() => DOMRect | null) | null | undefined = null;
+  let stopWatch: (() => void) | null = null;
 
-  const place = (getRect: (() => DOMRect | null) | null | undefined) => {
-    const rect = getRect?.();
-    if (!popup || !rect) return;
-
-    const fitsBelow = window.innerHeight - rect.bottom > MENU_MAX_HEIGHT + 16;
-    const top = fitsBelow ? rect.bottom + 8 : rect.top - MENU_MAX_HEIGHT - 8;
-
-    popup.style.top = `${Math.max(8, top)}px`;
-    popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - MENU_WIDTH - 16))}px`;
+  const place = () => {
+    if (!popup) return;
+    placeCaretPopup(popup, lastGetRect, {
+      width: MENU_WIDTH,
+      maxHeight: MENU_MAX_HEIGHT,
+    });
   };
 
   const destroy = () => {
+    stopWatch?.();
+    stopWatch = null;
+    lastGetRect = null;
     popup?.remove();
     component?.destroy();
     popup = null;
@@ -190,12 +193,14 @@ export function createMentionRenderer() {
       popup.appendChild(component.element);
       document.body.appendChild(popup);
 
-      place(props.clientRect);
+      lastGetRect = props.clientRect;
+      stopWatch = watchCaretPopup(popup, place);
     },
 
     onUpdate: (props: MentionMenuProps) => {
       component?.updateProps(props);
-      place(props.clientRect);
+      lastGetRect = props.clientRect;
+      place();
     },
 
     onKeyDown: (props: SuggestionKeyDownProps) => {

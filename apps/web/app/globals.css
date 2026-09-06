@@ -172,6 +172,53 @@ body::-webkit-scrollbar-corner,
   background: var(--muted);
 }
 
+/* ---- Mobile prototype (/m) utilities ---- */
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Reuse the desktop editor and grid on the phone with touch-sized controls. */
+.mobile-editor .doc-editor-content {
+  font-size: 1rem; /* >= 16px keeps iOS from zooming the page on focus */
+}
+
+.mobile-editor .doc-editor-content.doc-editor-description {
+  min-height: 40vh;
+}
+
+.mobile-editor .doc-editor-compact {
+  min-height: 4.5rem;
+  font-size: 0.9375rem;
+}
+
+.mobile-editor > div > div:first-child > button {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.mobile-editor > div > div:first-child > button > svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.mobile-sheet-grid input,
+.mobile-sheet-grid select,
+.mobile-sheet-grid textarea {
+  font-size: 1rem;
+}
+
 /* ---- Notion-style document editor ---- */
 
 .doc-editor-content {

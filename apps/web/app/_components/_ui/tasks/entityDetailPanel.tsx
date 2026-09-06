@@ -252,7 +252,6 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     facts: [
       { label: "Project", value: task.project?.title || "-" },
       { label: "Workspace", value: task.workspace?.name || "-" },
-      { label: "Time chunks", value: String(task.timeChunks ?? 0) },
     ],
   };
 

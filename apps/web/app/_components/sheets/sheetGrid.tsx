@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDownToLine,
-  ArrowRightToLine,
+  BetweenHorizontalEnd,
+  BetweenHorizontalStart,
+  BetweenVerticalEnd,
+  BetweenVerticalStart,
   Eraser,
+  Minus,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -282,8 +285,82 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
   const selectedRaw = rawAt(selected);
   const selectedAddress = `${columnIndexToLetter(selected.col)}${selected.row + 1}`;
 
+  const toolbarGroups = [
+    [
+      {
+        label: "Add column before",
+        icon: BetweenVerticalStart,
+        disabled: false,
+        run: () => addColumn(selected.col),
+      },
+      {
+        label: "Add column after",
+        icon: BetweenVerticalEnd,
+        disabled: false,
+        run: () => addColumn(selected.col + 1),
+      },
+      {
+        label: "Delete column",
+        icon: Minus,
+        disabled: columns.length <= 1,
+        run: () => deleteColumn(selected.col),
+      },
+    ],
+    [
+      {
+        label: "Add row before",
+        icon: BetweenHorizontalStart,
+        disabled: false,
+        run: () => addRow(selected.row),
+      },
+      {
+        label: "Add row after",
+        icon: BetweenHorizontalEnd,
+        disabled: false,
+        run: () => addRow(selected.row + 1),
+      },
+      {
+        label: "Delete row",
+        icon: Minus,
+        disabled: rows.length <= 1,
+        run: () => deleteRow(selected.row),
+      },
+    ],
+    [
+      {
+        label: "Clear cell",
+        icon: Eraser,
+        disabled: false,
+        run: () => setCellValue(selected, ""),
+      },
+    ],
+  ];
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-popover px-2 py-1">
+        {toolbarGroups.map((group, groupIndex) => (
+          <div key={groupIndex} className="flex items-center gap-0.5">
+            {groupIndex > 0 && <span className="mx-0.5 h-5 w-px bg-border" />}
+            {group.map((button) => {
+              const Icon = button.icon;
+              return (
+                <button
+                  key={button.label}
+                  type="button"
+                  title={button.label}
+                  disabled={button.disabled}
+                  onClick={button.run}
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-35"
+                >
+                  <Icon className="size-4" />
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
       <div className="flex items-center gap-1 border-b border-border px-3 py-1.5">
         <span className="w-14 shrink-0 rounded-md border border-border bg-muted px-2 py-1 text-center font-mono text-xs text-muted-foreground">
           {selectedAddress}
@@ -311,42 +388,6 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
           placeholder="Enter a value or a formula like =SUM(A1:A5)"
           className="min-w-0 flex-1 rounded-md border border-border bg-input/30 px-2 py-1 font-mono text-xs text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring/40"
         />
-
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            title="Insert row below"
-            onClick={() => addRow(selected.row + 1)}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground"
-          >
-            <ArrowDownToLine className="size-4" />
-          </button>
-          <button
-            type="button"
-            title="Insert column right"
-            onClick={() => addColumn(selected.col + 1)}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground"
-          >
-            <ArrowRightToLine className="size-4" />
-          </button>
-          <button
-            type="button"
-            title="Clear cell"
-            onClick={() => setCellValue(selected, "")}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground"
-          >
-            <Eraser className="size-4" />
-          </button>
-          <button
-            type="button"
-            title="Delete row"
-            onClick={() => deleteRow(selected.row)}
-            disabled={rows.length <= 1}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-destructive disabled:opacity-40"
-          >
-            <Trash2 className="size-4" />
-          </button>
-        </div>
       </div>
 
       <div

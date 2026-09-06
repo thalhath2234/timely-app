@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Editor } from "@tiptap/react";
@@ -11,10 +11,12 @@ import { UpdateDocPayload } from "@/app/utils/api/docs";
 import {
   useDeleteDoc,
   useDoc,
+  useDocWatch,
   useDocs,
   useUpdateDoc,
 } from "@/app/utils/hooks/docs";
 import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
+import { isRichContentEmpty, toRichContent } from "@/app/utils/richText";
 
 const ICON_CHOICES = [
   "📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯",
@@ -85,11 +87,30 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [wordCount, setWordCount] = useState(() => countWords(doc.plainText));
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [remoteEpoch, setRemoteEpoch] = useState(0);
   const editorRef = useRef<Editor | null>(null);
+  const lastSavedAtRef = useRef<string | null>(doc.updatedAt);
 
-  const { schedule, flush, status } = useAutosave<UpdateDocPayload>((patch) =>
-    updateDoc.mutateAsync({ id: doc.id, ...patch }),
+  const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateDocPayload>(
+    async (patch) => {
+      const saved = await updateDoc.mutateAsync({ id: doc.id, ...patch });
+      lastSavedAtRef.current = saved.updatedAt;
+      return saved;
+    },
   );
+
+  useDocWatch(doc.id, {
+    lastSavedAtRef,
+    hasLocalEdits: hasUnsavedChanges,
+    onRemote: () => setRemoteEpoch((epoch) => epoch + 1),
+    onDeleted: () => router.push("/docs"),
+  });
+
+  useEffect(() => {
+    if (remoteEpoch === 0) return;
+    setTitle(doc.title);
+    setWordCount(countWords(doc.plainText));
+  }, [remoteEpoch, doc.title, doc.plainText]);
 
   const breadcrumb = useMemo(
     () => buildBreadcrumb(allDocs, doc.id),
@@ -255,7 +276,12 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           </p>
 
           <RichTextEditor
-            content={doc.content}
+            key={`${doc.id}:${remoteEpoch}`}
+            content={
+              isRichContentEmpty(doc.content)
+                ? toRichContent(null, doc.plainText)
+                : doc.content
+            }
             onReady={handleEditorReady}
             onChange={handleEditorChange}
           />

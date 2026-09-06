@@ -1,6 +1,15 @@
 import { Doc, DocContent } from "@/app/_types/types";
+import { isRichContentEmpty } from "@/app/utils/richText";
 
 const DOCS_URL = "http://localhost:8080/docs";
+
+export type DocWatchEvent = {
+  type: "hello" | "updated" | "deleted";
+  kind?: string;
+  id: string;
+  updatedAt?: string;
+  document?: Doc;
+};
 
 export interface CreateDocPayload {
   title?: string;
@@ -85,7 +94,38 @@ export async function updateDoc(
   }
 
   const resData = await response.json();
-  return resData.document ?? resData;
+  const saved: Doc = resData.document ?? resData;
+  if (
+    data.content &&
+    !isRichContentEmpty(data.content) &&
+    isRichContentEmpty(saved.content)
+  ) {
+    throw new Error("Document body was not persisted");
+  }
+  return saved;
+}
+
+/** SSE last-write-wins stream. Cookie session is sent via withCredentials. */
+export function watchDoc(id: string, onEvent: (event: DocWatchEvent) => void) {
+  const source = new EventSource(`${DOCS_URL}/${id}/watch`, {
+    withCredentials: true,
+  });
+
+  const handle = (fallback: DocWatchEvent["type"]) => (ev: MessageEvent) => {
+    try {
+      const data = JSON.parse(String(ev.data)) as DocWatchEvent;
+      onEvent({ ...data, type: data.type || fallback });
+    } catch {
+      // ignore a malformed frame
+    }
+  };
+
+  source.addEventListener("hello", handle("hello"));
+  source.addEventListener("updated", handle("updated"));
+  source.addEventListener("deleted", handle("deleted"));
+  source.onmessage = handle("updated");
+
+  return () => source.close();
 }
 
 export async function deleteDoc(id: string): Promise<void> {

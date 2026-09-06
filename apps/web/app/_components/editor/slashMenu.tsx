@@ -25,6 +25,7 @@ import {
   Table2,
   Type,
 } from "lucide-react";
+import { placeCaretPopup, watchCaretPopup } from "./caretPopup";
 import { SlashCommandItem } from "./slashCommand";
 
 const MENU_WIDTH = 300;
@@ -269,19 +270,21 @@ const SlashMenuList = forwardRef<SlashMenuHandle, SlashMenuProps>(
 export function createSlashRenderer() {
   let component: ReactRenderer<SlashMenuHandle, SlashMenuProps> | null = null;
   let popup: HTMLDivElement | null = null;
+  let lastGetRect: (() => DOMRect | null) | null | undefined = null;
+  let stopWatch: (() => void) | null = null;
 
-  const place = (getRect: (() => DOMRect | null) | null | undefined) => {
-    const rect = getRect?.();
-    if (!popup || !rect) return;
-
-    const fitsBelow = window.innerHeight - rect.bottom > MENU_MAX_HEIGHT + 16;
-    const top = fitsBelow ? rect.bottom + 8 : rect.top - MENU_MAX_HEIGHT - 8;
-
-    popup.style.top = `${Math.max(8, top)}px`;
-    popup.style.left = `${Math.min(rect.left, window.innerWidth - MENU_WIDTH - 16)}px`;
+  const place = () => {
+    if (!popup) return;
+    placeCaretPopup(popup, lastGetRect, {
+      width: MENU_WIDTH,
+      maxHeight: MENU_MAX_HEIGHT,
+    });
   };
 
   const destroy = () => {
+    stopWatch?.();
+    stopWatch = null;
+    lastGetRect = null;
     popup?.remove();
     component?.destroy();
     popup = null;
@@ -301,12 +304,14 @@ export function createSlashRenderer() {
       popup.appendChild(component.element);
       document.body.appendChild(popup);
 
-      place(props.clientRect);
+      lastGetRect = props.clientRect;
+      stopWatch = watchCaretPopup(popup, place);
     },
 
     onUpdate: (props: SlashMenuProps) => {
       component?.updateProps(props);
-      place(props.clientRect);
+      lastGetRect = props.clientRect;
+      place();
     },
 
     onKeyDown: (props: SuggestionKeyDownProps) => {

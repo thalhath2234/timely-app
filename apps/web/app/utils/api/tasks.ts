@@ -34,7 +34,6 @@ export interface CreateTaskPayload {
   description?: string;
   descriptionRich?: DocContent;
   duration?: number;
-  timeChunks?: number;
   deadline?: string;
   startDate?: string;
   scheduledOn?: string;
@@ -76,7 +75,6 @@ export interface UpdateTaskPayload {
   description?: string;
   descriptionRich?: DocContent;
   duration?: number;
-  timeChunks?: number;
   deadline?: string;
   startDate?: string;
   scheduledOn?: string;

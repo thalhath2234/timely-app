@@ -2,13 +2,15 @@ import 'server-only';
 
 import { jwtVerify } from 'jose';
 
-const secretKey = process.env.JWT_SECRET;
+function getEncodedKey() {
+    const secretKey = process.env.JWT_SECRET;
 
-if (!secretKey) {
-    throw new Error('JWT_SECRET is missing');
+    if (!secretKey) {
+        throw new Error('JWT_SECRET is missing');
+    }
+
+    return new TextEncoder().encode(secretKey);
 }
-
-const encodedKey = new TextEncoder().encode(secretKey);
 
 export type SessionPayload = {
     user_id: number;
@@ -21,7 +23,7 @@ export async function decrypt(session?: string) {
     if (!session) return null;
 
     try {
-        const { payload } = await jwtVerify(session, encodedKey, {
+        const { payload } = await jwtVerify(session, getEncodedKey(), {
             algorithms: ['HS256'],
         });
 

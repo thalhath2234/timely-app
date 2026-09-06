@@ -1,12 +1,15 @@
+import { useEffect, useRef, type MutableRefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CreateDocPayload,
+  DocWatchEvent,
   UpdateDocPayload,
   createDoc,
   deleteDoc,
   getDoc,
   getDocs,
   updateDoc,
+  watchDoc,
 } from "@/app/utils/api/docs";
 import { Doc } from "@/app/_types/types";
 
@@ -67,4 +70,51 @@ export function useDeleteDoc() {
       queryClient.invalidateQueries({ queryKey: docsKey });
     },
   });
+}
+
+/** Subscribe to GET /docs/:id/watch. Skips echoes of our own save and dirty editors. */
+export function useDocWatch(
+  id: string | undefined,
+  options: {
+    enabled?: boolean;
+    lastSavedAtRef: MutableRefObject<string | null>;
+    hasLocalEdits: () => boolean;
+    onRemote?: () => void;
+    onDeleted?: () => void;
+  },
+) {
+  const queryClient = useQueryClient();
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
+  useEffect(() => {
+    if (!id || options.enabled === false) return;
+
+    return watchDoc(id, (event: DocWatchEvent) => {
+      const current = optionsRef.current;
+      if (event.type === "hello") return;
+      if (event.type === "deleted") {
+        queryClient.removeQueries({ queryKey: docKey(id) });
+        queryClient.invalidateQueries({ queryKey: docsKey });
+        current.onDeleted?.();
+        return;
+      }
+      if (event.type !== "updated") return;
+      if (event.updatedAt && event.updatedAt === current.lastSavedAtRef.current) {
+        return;
+      }
+      if (current.hasLocalEdits()) return;
+      if (event.document) {
+        queryClient.setQueryData(docKey(id), event.document);
+        queryClient.setQueryData<Doc[]>(docsKey, (docs) =>
+          docs?.map((item) => (item.id === id ? (event.document as Doc) : item)),
+        );
+      } else {
+        queryClient.invalidateQueries({ queryKey: docKey(id) });
+      }
+      queryClient.invalidateQueries({ queryKey: docsKey });
+      if (event.updatedAt) current.lastSavedAtRef.current = event.updatedAt;
+      current.onRemote?.();
+    });
+  }, [id, options.enabled, queryClient]);
 }
