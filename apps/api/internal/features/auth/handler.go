@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -26,10 +25,37 @@ type authRequest struct {
 	Password string `json:"password"`
 }
 
+type updateProfileRequest struct {
+	Name            string `json:"name"`
+	Email           string `json:"email"`
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
 type userProfileResponse struct {
 	ID                    string `json:"id"`
 	Email                 string `json:"email"`
+	Name                  string `json:"name"`
 	IsOnBoardingCompleted bool   `json:"is_on_boarding_completed"`
+}
+
+type authSessionResponse struct {
+	Message string              `json:"message,omitempty"`
+	Token   string              `json:"token"`
+	User    userProfileResponse `json:"user"`
+}
+
+func (h *Handler) profileFor(userID, email, name string) userProfileResponse {
+	_, onboardingDone, err := h.authService.GetProfile(userID)
+	if err != nil {
+		onboardingDone = false
+	}
+	return userProfileResponse{
+		ID:                    userID,
+		Email:                 email,
+		Name:                  name,
+		IsOnBoardingCompleted: onboardingDone,
+	}
 }
 
 func (h *Handler) Register(c *echo.Context) error {
@@ -43,12 +69,17 @@ func (h *Handler) Register(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	res := userProfileResponse{
-		ID:    user.ID,
-		Email: user.Email,
+	token, err := h.authService.IssueToken(user)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to issue session")
 	}
 
-	return c.JSON(http.StatusCreated, res)
+	h.setSessionCookie(c, token)
+
+	return c.JSON(http.StatusCreated, authSessionResponse{
+		Token: token,
+		User:  h.profileFor(user.ID, user.Email, user.Name),
+	})
 }
 
 func (h *Handler) Login(c *echo.Context) error {
@@ -62,19 +93,21 @@ func (h *Handler) Login(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
 	}
 
-	cookie := new(http.Cookie)
-	cookie.Name = "session"
-	cookie.Value = token
-	cookie.HttpOnly = true
-	cookie.Secure = os.Getenv("ENV") == "production"
-	cookie.Path = "/"
-	cookie.SameSite = http.SameSiteLaxMode
-	cookie.Expires = time.Now().Add(24 * time.Hour)
+	h.setSessionCookie(c, token)
 
-	c.SetCookie(cookie)
+	user, err := h.userRepo.GetUserByEmail(req.Email)
+	if err != nil {
+		return c.JSON(http.StatusOK, authSessionResponse{
+			Message: "logged in",
+			Token:   token,
+			User:    userProfileResponse{Email: req.Email},
+		})
+	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "logged in",
+	return c.JSON(http.StatusOK, authSessionResponse{
+		Message: "logged in",
+		Token:   token,
+		User:    h.profileFor(user.ID, user.Email, user.Name),
 	})
 }
 
@@ -103,21 +136,63 @@ func (h *Handler) Me(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
 	}
 
-	email, ok := c.Get("email").(string)
+	user, onboardingDone, err := h.authService.GetProfile(userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "User not found")
+	}
+
+	return c.JSON(http.StatusOK, userProfileResponse{
+		ID:                    user.ID,
+		Email:                 user.Email,
+		Name:                  user.Name,
+		IsOnBoardingCompleted: onboardingDone,
+	})
+}
+
+func (h *Handler) UpdateMe(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
 	}
 
-	IsOnBoardingCompleted, ok := c.Get("IsOnBoardingCompleted").(bool)
-	if !ok {
-		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
+	var req updateProfileRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")
 	}
 
-	res := userProfileResponse{
-		ID:                    userID,
-		Email:                 email,
-		IsOnBoardingCompleted: IsOnBoardingCompleted,
+	user, token, err := h.authService.UpdateProfile(
+		userID,
+		req.Name,
+		req.Email,
+		req.CurrentPassword,
+		req.NewPassword,
+	)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	log.Printf("User ID: %s, Email: %s", userID, email)
-	return c.JSON(http.StatusOK, res)
+
+	if token != "" {
+		h.setSessionCookie(c, token)
+	}
+
+	_, onboardingDone, _ := h.authService.GetProfile(user.ID)
+
+	return c.JSON(http.StatusOK, userProfileResponse{
+		ID:                    user.ID,
+		Email:                 user.Email,
+		Name:                  user.Name,
+		IsOnBoardingCompleted: onboardingDone,
+	})
+}
+
+func (h *Handler) setSessionCookie(c *echo.Context, token string) {
+	cookie := new(http.Cookie)
+	cookie.Name = "session"
+	cookie.Value = token
+	cookie.HttpOnly = true
+	cookie.Secure = os.Getenv("ENV") == "production"
+	cookie.Path = "/"
+	cookie.SameSite = http.SameSiteLaxMode
+	cookie.Expires = time.Now().Add(24 * time.Hour)
+	c.SetCookie(cookie)
 }

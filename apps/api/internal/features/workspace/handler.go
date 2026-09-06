@@ -126,6 +126,53 @@ func (h *Handler) GetWorkspaceById(c *echo.Context) error {
 	return c.JSON(http.StatusOK, workspace)
 }
 
+func (h *Handler) Update(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(
+			http.StatusUnauthorized,
+			"user not authenticated",
+		)
+	}
+
+	workspaceID := c.Param("id")
+	if workspaceID == "" {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			"invalid workspace id",
+		)
+	}
+
+	var req createWorkspaceRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			"invalid request payload",
+		)
+	}
+
+	workspace, err := h.workspaceService.UpdateWorkspace(userID, workspaceID, req.Name)
+	if err != nil {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			err.Error(),
+		)
+	}
+
+	return c.JSON(http.StatusOK, workspace)
+}
+
+func (h *Handler) Delete(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	if err := h.workspaceService.Delete(userID, c.Param("id")); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]string{"message": "workspace deleted"})
+}
+
 func (h *Handler) CreateLable(c *echo.Context) error {
 	workspaceID := c.Param("id")
 

@@ -11,6 +11,7 @@ type WorkspaceRepository interface {
 	CreateWorkspace(workspace *models.Workspace, defaultStatuses []models.Status) error
 	GetAllWorkspaceByUser(userID string) ([]models.Workspace, error)
 	GetWorkspaceById(userID string, workspaceID string) (*models.Workspace, error)
+	UpdateWorkspace(workspace *models.Workspace) error
 	GetAllCustomFields(userID string) ([]models.CustomField, error)
 	CreateLables(lable *models.Lable) (*models.Lable, error)
 	CreateStatuses(status *models.Status) (*models.Status, error)
@@ -23,6 +24,8 @@ type WorkspaceRepository interface {
 	DeleteCustomFields(customFieldID string, workspaceID string) error
 	GetConfig(userID string) (*models.Config, error)
 	UpdateConfig(config *models.Config) (*models.Config, error)
+	CountByUser(userID string) (int64, error)
+	DeleteWorkspace(userID, workspaceID string) error
 }
 
 type workspaceRepository struct {
@@ -63,6 +66,10 @@ func (r *workspaceRepository) GetAllWorkspaceByUser(userID string) ([]models.Wor
 
 	err := r.db.
 		Where("user_id = ?", userID).
+		Preload("Projects").
+		Preload("Status").
+		Preload("CustomFields").
+		Preload("Lables").
 		Find(&workspaces).Error
 
 	if err != nil {
@@ -88,6 +95,15 @@ func (r *workspaceRepository) GetWorkspaceById(userID string, workspaceID string
 	}
 
 	return &workspace, nil
+}
+
+func (r *workspaceRepository) UpdateWorkspace(workspace *models.Workspace) error {
+	return r.db.Model(&models.Workspace{}).
+		Where("id = ?", workspace.ID).
+		Updates(map[string]any{
+			"name":       workspace.Name,
+			"updated_at": workspace.UpdatedAt,
+		}).Error
 }
 
 func (r *workspaceRepository) CreateLables(lable *models.Lable) (*models.Lable, error) {
@@ -151,14 +167,12 @@ func (r *workspaceRepository) DeleteStatuses(statusID string, workspaceID string
 }
 
 func (r *workspaceRepository) UpdateCustomFields(customField *models.CustomField) (*models.CustomField, error) {
-	if err := r.db.Model(&models.CustomField{}).
+	// Pass the populated struct as Model so BeforeUpdate sees Type/Options.
+	// Model(&CustomField{}) would leave Type empty and fail validation.
+	if err := r.db.Model(customField).
 		Where("id = ? AND workspace_id = ?", customField.ID, customField.WorkspaceID).
-		Updates(map[string]any{
-			"name":       customField.Name,
-			"type":       customField.Type,
-			"options":    customField.Options,
-			"updated_at": customField.UpdatedAt,
-		}).Error; err != nil {
+		Select("Name", "Type", "Options", "UpdatedAt").
+		Updates(customField).Error; err != nil {
 		return nil, err
 	}
 
@@ -186,13 +200,19 @@ func (r *workspaceRepository) GetConfig(userID string) (*models.Config, error) {
 func (r *workspaceRepository) UpdateConfig(config *models.Config) (*models.Config, error) {
 	updates := map[string]any{
 		"is_on_boarding_completed": config.IsOnBoardingCompleted,
-		"task_views":               config.TaskViews,
 		"active_task_view_id":      config.ActiveTaskViewId,
 	}
 
 	result := r.db.Model(&models.Config{}).
 		Where("user_id = ?", config.UserID).
 		Updates(updates)
+	if result.Error == nil {
+		if err := models.WriteJSONB(r.db, "configs", map[string]any{
+			"task_views": config.TaskViews,
+		}, "user_id = ?", config.UserID); err != nil {
+			result.Error = err
+		}
+	}
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -240,4 +260,21 @@ func (r *workspaceRepository) GetAllCustomFields(userID string) ([]models.Custom
 	}
 
 	return customFields, nil
+}
+
+func (r *workspaceRepository) CountByUser(userID string) (int64, error) {
+	var count int64
+	err := r.db.Model(&models.Workspace{}).Where("user_id = ?", userID).Count(&count).Error
+	return count, err
+}
+
+func (r *workspaceRepository) DeleteWorkspace(userID, workspaceID string) error {
+	result := r.db.Where("id = ? AND user_id = ?", workspaceID, userID).Delete(&models.Workspace{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }

@@ -11,8 +11,8 @@ import (
 type CustomFieldValue struct {
 	ID            string                 `gorm:"type:text;primaryKey" json:"customFieldValueId"`
 	CustomFieldID string                 `gorm:"type:text;not null;" json:"customFieldId"`
-	TaskID        string                 `gorm:"type:text;" json:"taskId, omitempty"`
-	ProjectID     string                 `gorm:"type:text;" json:"projectId, omitempty"`
+	TaskID        string                 `gorm:"type:text;" json:"taskId,omitempty"`
+	ProjectID     string                 `gorm:"type:text;" json:"projectId,omitempty"`
 	OptionsValue  CustomFieldValueInputs `gorm:"type:jsonb;" json:"-"`
 	Type          string                 `json:"type; not null"`
 	StringValue   *string                `gorm:"type:text" json:"stringValue,omitempty"`

@@ -9,8 +9,12 @@ import (
 type Project struct {
 	ID string `gorm:"type:text;primaryKey" json:"id"`
 
-	Title          string  `gorm:"not null" json:"title"`
-	Description    string  `gorm:"type:text" json:"description"`
+	Title       string `gorm:"not null" json:"title"`
+	Description string `gorm:"type:text" json:"description"`
+
+	// DescriptionRich is the editor document; Description holds its plain text.
+	DescriptionRich JSONMap `gorm:"type:jsonb;not null;default:'{}'" json:"descriptionRich"`
+
 	StatusID       *string `json:"statusId"`
 	Deadline       *string `gorm:"type:date" json:"deadline"`
 	StartDate      *string `gorm:"type:date" json:"startDate"`

@@ -63,6 +63,51 @@ func NewConfigID() string {
 	return PrefixedUUID("cfg")
 }
 
+// NewDocumentID generates a document ID with doc_ prefix
+func NewDocumentID() string {
+	return PrefixedUUID("doc")
+}
+
+// NewSheetID generates a sheet ID with sht_ prefix
+func NewSheetID() string {
+	return PrefixedUUID("sht")
+}
+
+// NewActivityID generates a task activity ID with act_ prefix
+func NewActivityID() string {
+	return PrefixedUUID("act")
+}
+
+// NewEventID generates a calendar event ID with evt_ prefix
+func NewEventID() string {
+	return PrefixedUUID("evt")
+}
+
+// NewRecurrenceRuleID generates a recurrence rule ID with rr_ prefix
+func NewRecurrenceRuleID() string {
+	return PrefixedUUID("rr")
+}
+
+// NewRecurrenceExceptionID generates a recurrence exception ID with rx_ prefix
+func NewRecurrenceExceptionID() string {
+	return PrefixedUUID("rx")
+}
+
+// NewBlockID generates a scheduled block ID with blk_ prefix
+func NewBlockID() string {
+	return PrefixedUUID("blk")
+}
+
+// NewApiKeyID generates an API key row ID with key_ prefix
+func NewApiKeyID() string {
+	return PrefixedUUID("key")
+}
+
+// NewEmbeddingID generates an embedding row ID with emb_ prefix
+func NewEmbeddingID() string {
+	return PrefixedUUID("emb")
+}
+
 // DefaultTaskViews returns the four built-in task views every new user starts with.
 func DefaultTaskViews() []map[string]any {
 	empty := []string{}
@@ -77,6 +122,8 @@ func DefaultTaskViews() []map[string]any {
 			"sortBy":               "deadline",
 			"sortDirection":        "asc",
 			"selectedWorkspaceIds": empty,
+			"selectedStatusIds":    empty,
+			"columnOrder":          empty,
 		},
 		{
 			"id": "view_my_deadlines", "name": "My Deadlines",
@@ -87,6 +134,8 @@ func DefaultTaskViews() []map[string]any {
 			"sortBy":               "deadline",
 			"sortDirection":        "asc",
 			"selectedWorkspaceIds": empty,
+			"selectedStatusIds":    empty,
+			"columnOrder":          empty,
 		},
 		{
 			"id": "view_overview", "name": "Overview",
@@ -97,6 +146,8 @@ func DefaultTaskViews() []map[string]any {
 			"sortBy":               "createdAt",
 			"sortDirection":        "desc",
 			"selectedWorkspaceIds": empty,
+			"selectedStatusIds":    empty,
+			"columnOrder":          empty,
 		},
 		{
 			"id": "view_project_timelines", "name": "Project Timelines",
@@ -107,6 +158,8 @@ func DefaultTaskViews() []map[string]any {
 			"sortBy":               "startDate",
 			"sortDirection":        "asc",
 			"selectedWorkspaceIds": empty,
+			"selectedStatusIds":    empty,
+			"columnOrder":          empty,
 		},
 	}
 }
@@ -114,4 +167,11 @@ func DefaultTaskViews() []map[string]any {
 // GetCurrentTime returns the current time using simple date function and parse it to string
 func GetCurrentTime() string {
 	return fmt.Sprintf("%s", time.Now().Format("2006-01-02"))
+}
+
+// GetCurrentTimestamp returns an RFC3339 timestamp. Autosaved records such as
+// documents and sheets are ordered by edit recency, so date-only precision is
+// not enough for them.
+func GetCurrentTimestamp() string {
+	return time.Now().UTC().Format(time.RFC3339)
 }

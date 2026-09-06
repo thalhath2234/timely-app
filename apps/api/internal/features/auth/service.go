@@ -16,6 +16,9 @@ import (
 type AuthService interface {
 	Register(email, password string) (*models.User, error)
 	Login(email, password string) (string, error)
+	IssueToken(user *models.User) (string, error)
+	GetProfile(userID string) (*models.User, bool, error)
+	UpdateProfile(userID string, name, email, currentPassword, newPassword string) (*models.User, string, error)
 }
 
 type JWTClaims struct {
@@ -80,11 +83,82 @@ func (s *authService) Login(email, password string) (string, error) {
 		return "", errors.New("invalid email or password")
 	}
 
-	config, err := s.workspace.GetConfig(user.ID)
-
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 	if err != nil {
 		return "", errors.New("invalid email or password")
+	}
+
+	return s.IssueToken(user)
+}
+
+func (s *authService) IssueToken(user *models.User) (string, error) {
+	return s.issueToken(user)
+}
+
+func (s *authService) GetProfile(userID string) (*models.User, bool, error) {
+	user, err := s.repo.GetUserByID(userID)
+	if err != nil {
+		return nil, false, err
+	}
+
+	config, err := s.workspace.GetConfig(user.ID)
+	if err != nil {
+		return user, false, nil
+	}
+
+	return user, config.IsOnBoardingCompleted, nil
+}
+
+func (s *authService) UpdateProfile(
+	userID string,
+	name, email, currentPassword, newPassword string,
+) (*models.User, string, error) {
+	user, err := s.repo.GetUserByID(userID)
+	if err != nil {
+		return nil, "", errors.New("user not found")
+	}
+
+	if email != "" && email != user.Email {
+		existing, _ := s.repo.GetUserByEmail(email)
+		if existing != nil && existing.ID != user.ID {
+			return nil, "", errors.New("email is already in use")
+		}
+		user.Email = email
+	}
+
+	user.Name = name
+
+	if newPassword != "" {
+		if currentPassword == "" {
+			return nil, "", errors.New("current password is required")
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(currentPassword)); err != nil {
+			return nil, "", errors.New("current password is incorrect")
+		}
+		hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, "", err
+		}
+		user.Password = string(hashed)
+	}
+
+	if err := s.repo.UpdateUser(user); err != nil {
+		return nil, "", err
+	}
+
+	token, err := s.issueToken(user)
+	if err != nil {
+		return user, "", nil
+	}
+
+	return user, token, nil
+}
+
+func (s *authService) issueToken(user *models.User) (string, error) {
+	config, err := s.workspace.GetConfig(user.ID)
+	onboardingDone := false
+	if err == nil && config != nil {
+		onboardingDone = config.IsOnBoardingCompleted
 	}
 
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -101,7 +175,7 @@ func (s *authService) Login(email, password string) (string, error) {
 	claims := &JWTClaims{
 		UserID:                user.ID,
 		Email:                 user.Email,
-		IsOnBoardingCompleted: config.IsOnBoardingCompleted,
+		IsOnBoardingCompleted: onboardingDone,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiryHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -112,10 +186,5 @@ func (s *authService) Login(email, password string) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(jwtSecret))
-	if err != nil {
-		return "", err
-	}
-
-	return tokenString, nil
+	return token.SignedString([]byte(jwtSecret))
 }

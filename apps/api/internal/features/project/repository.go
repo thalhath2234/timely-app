@@ -8,9 +8,17 @@ import (
 
 type ProjectRepository interface {
 	CreateProject(project *models.Project, customFieldValues []*models.CustomFieldValue) (*models.Project, error)
-	GetAllProjectByUser(workspaceID string) ([]models.Project, error)
+	GetAllProjectByUser(userID string) ([]models.Project, error)
 	GetProjectById(projectId string) (*models.Project, error)
+	GetProjectByIdForUser(userID string, projectID string) (*models.Project, error)
+	UpdateProject(userID string, projectID string, updates map[string]any) (*models.Project, error)
+	DeleteProject(userID string, projectID string) error
 	GetStageById(projectID string, stageID string) (*models.Stage, error)
+	CreateStage(stage *models.Stage) (*models.Stage, error)
+	UpdateStage(stage *models.Stage) (*models.Stage, error)
+	DeleteStage(projectID, stageID string) error
+	ReorderStages(projectID string, ids []string) error
+	NextStageOrder(projectID string) (int, error)
 }
 
 type projectRepository struct {
@@ -69,11 +77,12 @@ func (r *projectRepository) CreateProject(project *models.Project, customFieldVa
 
 }
 
-func (r *projectRepository) GetAllProjectByUser(workspaceID string) ([]models.Project, error) {
+func (r *projectRepository) GetAllProjectByUser(userID string) ([]models.Project, error) {
 	var projects []models.Project
 
 	err := r.db.
-		Where("workspace_id = ?", workspaceID).
+		Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
+		Where("workspaces.user_id = ?", userID).
 		Preload("Stages").
 		Preload("Tasks").
 		Preload("Workspace").
@@ -107,6 +116,122 @@ func (r *projectRepository) GetProjectById(projectId string) (*models.Project, e
 	r.enrichCustomFieldValuesForProject(&project)
 
 	return &project, nil
+}
+
+// Projects have no user column of their own, so ownership is proven through
+// the workspace they belong to.
+func (r *projectRepository) GetProjectByIdForUser(userID string, projectID string) (*models.Project, error) {
+	var project models.Project
+
+	err := r.db.
+		Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
+		Where("projects.id = ?", projectID).
+		Where("workspaces.user_id = ?", userID).
+		Preload("Stages").
+		Preload("Workspace").
+		Preload("CustomFieldValues.CustomField").
+		First(&project).Error
+	if err != nil {
+		return nil, err
+	}
+
+	r.enrichCustomFieldValuesForProject(&project)
+
+	return &project, nil
+}
+
+func (r *projectRepository) UpdateProject(userID string, projectID string, updates map[string]any) (*models.Project, error) {
+	if _, err := r.GetProjectByIdForUser(userID, projectID); err != nil {
+		return nil, err
+	}
+
+	jsonCols := takeJSONB(updates, "description_rich")
+
+	if len(updates) > 0 {
+		err := r.db.
+			Model(&models.Project{}).
+			Where("id = ?", projectID).
+			Updates(updates).Error
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := models.WriteJSONB(r.db, "projects", jsonCols, "id = ?", projectID); err != nil {
+		return nil, err
+	}
+
+	return r.GetProjectById(projectID)
+}
+
+func takeJSONB(updates map[string]any, columns ...string) map[string]any {
+	out := map[string]any{}
+	for _, column := range columns {
+		if value, ok := updates[column]; ok {
+			delete(updates, column)
+			out[column] = value
+		}
+	}
+	return out
+}
+
+func (r *projectRepository) DeleteProject(userID string, projectID string) error {
+	if _, err := r.GetProjectByIdForUser(userID, projectID); err != nil {
+		return err
+	}
+	return r.db.Where("id = ?", projectID).Delete(&models.Project{}).Error
+}
+
+func (r *projectRepository) CreateStage(stage *models.Stage) (*models.Stage, error) {
+	if err := r.db.Create(stage).Error; err != nil {
+		return nil, err
+	}
+	return stage, nil
+}
+
+func (r *projectRepository) UpdateStage(stage *models.Stage) (*models.Stage, error) {
+	if err := r.db.Model(&models.Stage{}).
+		Where("id = ? AND project_id = ?", stage.ID, stage.ProjectID).
+		Updates(map[string]any{
+			"name":       stage.Name,
+			"order":      stage.Order,
+			"updated_at": stage.UpdatedAt,
+		}).Error; err != nil {
+		return nil, err
+	}
+	return r.GetStageById(*stage.ProjectID, stage.ID)
+}
+
+func (r *projectRepository) DeleteStage(projectID, stageID string) error {
+	return r.db.Where("id = ? AND project_id = ?", stageID, projectID).Delete(&models.Stage{}).Error
+}
+
+func (r *projectRepository) ReorderStages(projectID string, ids []string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		for i, id := range ids {
+			if err := tx.Model(&models.Stage{}).
+				Where("id = ? AND project_id = ?", id, projectID).
+				Update("order", i).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *projectRepository) NextStageOrder(projectID string) (int, error) {
+	var max *int
+	err := r.db.Model(&models.Stage{}).
+		Where("project_id = ?", projectID).
+		Select("MAX(\"order\")").
+		Scan(&max).Error
+	if err != nil {
+		return 0, err
+	}
+	if max == nil {
+		return 0, nil
+	}
+	return *max + 1, nil
 }
 
 func (r *projectRepository) GetStageById(projectID string, stageID string) (*models.Stage, error) {

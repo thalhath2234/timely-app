@@ -71,6 +71,8 @@ type TaskViewConfig struct {
 	SortBy               SortByField         `json:"sortBy"`
 	SortDirection        SortDirection       `json:"sortDirection"`
 	SelectedWorkspaceIds []string            `json:"selectedWorkspaceIds"`
+	SelectedStatusIds    []string            `json:"selectedStatusIds"`
+	ColumnOrder          []string            `json:"columnOrder"`
 }
 
 func (tv TaskViewConfig) Validate(customFieldIDs map[string]bool) error {
@@ -163,6 +165,8 @@ func DefaultTaskViews() TaskViews {
 			GroupSortDirection: SortDirectionAsc, GroupValueOrders: emptyOrders,
 			SortBy: SortByDeadline, SortDirection: SortDirectionAsc,
 			SelectedWorkspaceIds: empty,
+			SelectedStatusIds:    empty,
+			ColumnOrder:          empty,
 		},
 		{
 			ID: "view_my_deadlines", Name: "My Deadlines",
@@ -171,6 +175,8 @@ func DefaultTaskViews() TaskViews {
 			GroupSortDirection: SortDirectionAsc, GroupValueOrders: emptyOrders,
 			SortBy: SortByDeadline, SortDirection: SortDirectionAsc,
 			SelectedWorkspaceIds: empty,
+			SelectedStatusIds:    empty,
+			ColumnOrder:          empty,
 		},
 		{
 			ID: "view_overview", Name: "Overview",
@@ -179,6 +185,8 @@ func DefaultTaskViews() TaskViews {
 			GroupSortDirection: SortDirectionAsc, GroupValueOrders: emptyOrders,
 			SortBy: SortByCreatedAt, SortDirection: SortDirectionDesc,
 			SelectedWorkspaceIds: empty,
+			SelectedStatusIds:    empty,
+			ColumnOrder:          empty,
 		},
 		{
 			ID: "view_project_timelines", Name: "Project Timelines",
@@ -187,6 +195,8 @@ func DefaultTaskViews() TaskViews {
 			GroupSortDirection: SortDirectionAsc, GroupValueOrders: emptyOrders,
 			SortBy: SortByStartDate, SortDirection: SortDirectionAsc,
 			SelectedWorkspaceIds: empty,
+			SelectedStatusIds:    empty,
+			ColumnOrder:          empty,
 		},
 	}
 }
@@ -199,6 +209,7 @@ type Config struct {
 	IsOnBoardingCompleted bool          `gorm:"default:false" json:"isOnBoardingCompleted"`
 	TaskViews             TaskViews     `gorm:"type:jsonb;not null;default:'[]'" json:"taskViews"`
 	ActiveTaskViewId      string        `gorm:"type:text;not null;default:''" json:"activeTaskViewId"`
+	WorkingHours          WorkingHours  `gorm:"type:jsonb;not null;default:'{}'" json:"workingHours"`
 	Version               int           `gorm:"not null;default:0" json:"-"`
 	CustomFields          []CustomField `gorm:"-" json:"customFields,omitempty"`
 	CreatedAt             string        `json:"createdAt"`

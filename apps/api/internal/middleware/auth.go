@@ -12,14 +12,16 @@ import (
 func JWTMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			cookie, err := c.Cookie("session")
-			if err != nil {
-				return echo.NewHTTPError(http.StatusUnauthorized, "Missing session cookie")
+			tokenString := bearerToken(c)
+			if tokenString == "" {
+				cookie, err := c.Cookie("session")
+				if err != nil || cookie.Value == "" {
+					return echo.NewHTTPError(http.StatusUnauthorized, "Missing session")
+				}
+				tokenString = cookie.Value
 			}
 
-			tokenString := cookie.Value
 			claims := &auth.JWTClaims{}
-
 			token, err := jwt.ParseWithClaims(
 				tokenString,
 				claims,
@@ -39,4 +41,12 @@ func JWTMiddleware() echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+func bearerToken(c *echo.Context) string {
+	header := c.Request().Header.Get("Authorization")
+	if len(header) < 8 || header[:7] != "Bearer " {
+		return ""
+	}
+	return header[7:]
 }

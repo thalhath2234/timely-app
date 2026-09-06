@@ -10,6 +10,7 @@ type WorkspaceService interface {
 	Create(workspace *models.Workspace) (*models.Workspace, error)
 	GetAllWorkspaceByUser(userID string) ([]models.Workspace, error)
 	GetWorkspaceById(userID string, workspaceID string) (*models.Workspace, error)
+	UpdateWorkspace(userID string, workspaceID string, name string) (*models.Workspace, error)
 	CreateLables(lable *models.Lable) (*models.Lable, error)
 	CreateStatuses(status *models.Status) (*models.Status, error)
 	CreateCustomFields(customField *models.CustomField) (*models.CustomField, error)
@@ -21,6 +22,7 @@ type WorkspaceService interface {
 	DeleteCustomFields(customFieldID string, workspaceID string) error
 	GetConfig(userID string) (*models.Config, error)
 	UpdateConfig(config *models.Config) (*models.Config, error)
+	Delete(userID, workspaceID string) error
 }
 
 type workspaceService struct {
@@ -120,6 +122,31 @@ func (s *workspaceService) GetWorkspaceById(userID string, workspaceID string) (
 	return workspace, nil
 }
 
+func (s *workspaceService) UpdateWorkspace(userID string, workspaceID string, name string) (*models.Workspace, error) {
+	if userID == "" {
+		return nil, errors.New("invalid user id")
+	}
+	if workspaceID == "" {
+		return nil, errors.New("invalid workspace id")
+	}
+	if name == "" {
+		return nil, errors.New("workspace name cannot be empty")
+	}
+
+	workspace, err := s.repo.GetWorkspaceById(userID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	workspace.Name = name
+	workspace.UpdatedAt = utils.GetCurrentTime()
+	if err := s.repo.UpdateWorkspace(workspace); err != nil {
+		return nil, err
+	}
+
+	return s.repo.GetWorkspaceById(userID, workspaceID)
+}
+
 func (s *workspaceService) CreateLables(lable *models.Lable) (*models.Lable, error) {
 	if lable == nil {
 		return nil, errors.New("invalid lable data")
@@ -206,6 +233,9 @@ func (s *workspaceService) DeleteStatuses(statusID string, workspaceID string) e
 func (s *workspaceService) UpdateCustomFields(customField *models.CustomField) (*models.CustomField, error) {
 	if customField == nil || customField.ID == "" {
 		return nil, errors.New("invalid custom field data")
+	}
+	if !customField.Type.IsValid() {
+		return nil, errors.New("invalid custom field type")
 	}
 
 	updatedCustomField, err := s.repo.UpdateCustomFields(customField)
@@ -299,4 +329,21 @@ func validateTaskViews(views models.TaskViews, activeID string) error {
 	}
 
 	return nil
+}
+
+func (s *workspaceService) Delete(userID, workspaceID string) error {
+	if userID == "" || workspaceID == "" {
+		return errors.New("invalid request")
+	}
+	if _, err := s.repo.GetWorkspaceById(userID, workspaceID); err != nil {
+		return err
+	}
+	count, err := s.repo.CountByUser(userID)
+	if err != nil {
+		return err
+	}
+	if count <= 1 {
+		return errors.New("cannot delete the last workspace")
+	}
+	return s.repo.DeleteWorkspace(userID, workspaceID)
 }

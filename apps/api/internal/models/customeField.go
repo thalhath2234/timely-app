@@ -37,7 +37,9 @@ func (c *CustomField) BeforeCreate(tx *gorm.DB) error {
 
 func (c *CustomField) BeforeUpdate(tx *gorm.DB) error {
 	c.UpdatedAt = utils.GetCurrentTime()
-	if !c.Type.IsValid() {
+	// Only validate when Type is present — map-based updates can invoke this
+	// hook with a partially filled destination.
+	if c.Type != "" && !c.Type.IsValid() {
 		return errors.New("invalid custom field type")
 	}
 	return nil

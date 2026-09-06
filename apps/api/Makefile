@@ -27,6 +27,14 @@ help: ## Show this help message
 	@echo "$(CYAN)Available migration targets:$(RESET)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-20s$(RESET) %s\n", $$1, $$2}'
 
+dev: ## Run the API with live reload (air)
+	@air
+
+install-air: ## Install the air live-reload CLI
+	@echo "$(CYAN)Installing air...$(RESET)"
+	@go install github.com/air-verse/air@latest
+	@echo "$(GREEN)✓ Air installed$(RESET)"
+
 migrate-up: ## Run all pending migrations (UP)
 	@echo "$(CYAN)Running pending migrations...$(RESET)"
 	@go run cmd/main.go

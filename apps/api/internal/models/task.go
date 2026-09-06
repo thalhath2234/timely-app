@@ -57,8 +57,8 @@ type Task struct {
 	Name        string `gorm:"not null" json:"name"`
 	Description string `gorm:"type:text" json:"description"`
 
-	// PostgreSQL text[]
-	TimeChunks int `gorm:"default:30" json:"timeChunks"` // 30 min chunks  break 5 min between each chunks
+	// DescriptionRich is the editor document; Description holds its plain text.
+	DescriptionRich JSONMap `gorm:"type:jsonb;not null;default:'{}'" json:"descriptionRich"`
 
 	Duration int `gorm:"default:0" json:"duration"` // total time to finish this task
 
@@ -99,8 +99,16 @@ type Task struct {
 
 	CustomFieldValues []*CustomFieldValue `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"customFieldValues,omitempty"`
 
-	LabelIDs LabelInputs `gorm:"type:jsonb;" json:"labelIds"`
+	LabelIDs LabelInputs `gorm:"column:label_ids;type:jsonb;" json:"labelIds"`
 	Labels   []*Lable    `gorm:"-" json:"labels,omitempty"`
+
+	// Recurrence is set for repeating tasks (haircut, weekly run). Such a task
+	// is a series: occurrences are expanded on read and completed one by one.
+	Recurrence *RecurrenceRule `gorm:"polymorphic:Owner;polymorphicValue:task" json:"recurrence"`
+
+	// Blocks are the calendar intervals reserved for a one-off task. ScheduledOn
+	// mirrors the earliest block start so list sorting keeps working.
+	Blocks []ScheduledBlock `gorm:"foreignKey:TaskID" json:"blocks"`
 
 	// Many-to-Many Labels
 	// Labels []*Labels `gorm:"many2many:task_labels;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"labels,omitempty"`
@@ -118,4 +126,21 @@ func (t *Task) BeforeCreate(tx *gorm.DB) error {
 func (t *Task) BeforeUpdate(tx *gorm.DB) error {
 	t.UpdatedAt = utils.GetCurrentTime()
 	return nil
+}
+
+// IsRecurring reports whether the task is a series rather than a one-off.
+func (t *Task) IsRecurring() bool {
+	return t.Recurrence != nil && t.Recurrence.RRule != ""
+}
+
+// IsCompleted reports whether the (one-off) task has been finished.
+func (t *Task) IsCompleted() bool {
+	return t.CompletedAt != nil && *t.CompletedAt != ""
+}
+
+// ChunkMinutes is the longest block the engine should schedule at once.
+// Time chunks were removed; a task is placed as one duration-sized block
+// (the engine still splits across working-hour gaps).
+func (t *Task) ChunkMinutes() int {
+	return t.Duration
 }
