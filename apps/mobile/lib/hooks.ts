@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMe } from "./api/auth";
-import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks } from "./api/tasks";
+import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, stopFocus, setTodayFocus } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
 import type { Doc } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet } from "./api/sheets";
-import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages } from "./api/projects";
+import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject } from "./api/projects";
 import { getWorkspaces, getConfig } from "./api/workspaces";
 import {
   addTaskBlock,
   applySchedule,
   getCalendarRange,
+  getToday,
   getWorkingHours,
   moveBlock,
   previewSchedule,
@@ -53,6 +54,8 @@ export const keys = {
   search: (q: string) => ["search", q] as const,
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
+  inbox: ["tasks", "inbox"] as const,
+  today: ["today"] as const,
 };
 
 export function useMeQuery() {
@@ -60,7 +63,15 @@ export function useMeQuery() {
 }
 
 export function useTasksQuery() {
-  return useQuery({ queryKey: keys.tasks, queryFn: getTasks });
+  return useQuery({ queryKey: keys.tasks, queryFn: () => getTasks() });
+}
+
+export function useInboxQuery() {
+  return useQuery({ queryKey: keys.inbox, queryFn: () => getTasks({ inbox: true }) });
+}
+
+export function useTodayQuery() {
+  return useQuery({ queryKey: keys.today, queryFn: () => getToday() });
 }
 
 export function useTaskQuery(id: string | undefined) {
@@ -228,6 +239,8 @@ export function useInvalidateAll() {
       client.invalidateQueries({ queryKey: keys.sheets }),
       client.invalidateQueries({ queryKey: keys.projects }),
       client.invalidateQueries({ queryKey: keys.workspaces }),
+      client.invalidateQueries({ queryKey: keys.inbox }),
+      client.invalidateQueries({ queryKey: keys.today }),
     ]);
 }
 
@@ -648,4 +661,64 @@ export function useRevokeApiKey() {
     mutationFn: revokeApiKey,
     onSuccess: () => client.invalidateQueries({ queryKey: keys.apiKeys }),
   });
+}
+
+export function useDuplicateTask() {
+  const invalidate = useInvalidateAll();
+  return useMutation({ mutationFn: duplicateTask, onSuccess: invalidate });
+}
+
+export function useAddChecklistItem() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) => addChecklistItem(id, title),
+    onSuccess: invalidate,
+  });
+}
+
+export function useToggleChecklistItem() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({
+      id,
+      itemId,
+      completed,
+    }: {
+      id: string;
+      itemId: string;
+      completed: boolean;
+    }) => updateChecklistItem(id, itemId, { completed }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteChecklistItem() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ id, itemId }: { id: string; itemId: string }) => deleteChecklistItem(id, itemId),
+    onSuccess: invalidate,
+  });
+}
+
+export function useStartFocus() {
+  const invalidate = useInvalidateAll();
+  return useMutation({ mutationFn: startFocus, onSuccess: invalidate });
+}
+
+export function useStopFocus() {
+  const invalidate = useInvalidateAll();
+  return useMutation({ mutationFn: stopFocus, onSuccess: invalidate });
+}
+
+export function useSetTodayFocus() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ id, date }: { id: string; date: string | null }) => setTodayFocus(id, date),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDuplicateProject() {
+  const invalidate = useInvalidateAll();
+  return useMutation({ mutationFn: duplicateProject, onSuccess: invalidate });
 }

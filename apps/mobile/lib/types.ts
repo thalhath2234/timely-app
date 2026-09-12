@@ -173,6 +173,15 @@ export interface TaskLabelId {
   id: string;
 }
 
+export interface ChecklistItem {
+  id: string;
+  title: string;
+  completedAt: string | null;
+  order: number;
+}
+
+export type TaskKind = "task" | "reminder" | "inbox";
+
 export interface Task {
   id: string;
   name: string;
@@ -180,6 +189,19 @@ export interface Task {
   descriptionRich?: DocContent | null;
   timeChunks?: number;
   duration: number;
+  kind?: TaskKind;
+  parentTaskId?: string | null;
+  checklist?: ChecklistItem[];
+  actualMinutes?: number;
+  focusStartedAt?: string | null;
+  todayFocusOn?: string | null;
+  openSubtaskCount?: number;
+  subtaskCount?: number;
+  checklistDone?: number;
+  checklistTotal?: number;
+  progressDone?: number;
+  progressTotal?: number;
+  subtasks?: Task[];
 
   deadline: string | null;
   startDate: string | null;
@@ -302,6 +324,19 @@ export interface CalendarRange {
   from: string;
   to: string;
   items: CalendarItem[];
+}
+
+export interface TodayResponse {
+  date: string;
+  timezone: string;
+  focusing: Task | null;
+  todayFocus: Task[];
+  items: CalendarItem[];
+  overdue: Task[];
+  inboxCount: number;
+  completedToday: Task[];
+  unfinished: Task[];
+  tomorrowFocus: Task[];
 }
 
 export interface WorkingWindow {

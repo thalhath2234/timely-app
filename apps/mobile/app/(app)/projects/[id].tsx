@@ -11,6 +11,7 @@ import {
   useCreateStage,
   useDeleteProject,
   useDeleteStage,
+  useDuplicateProject,
   useProjectQuery,
   useProjectsQuery,
   useReorderStages,
@@ -35,6 +36,7 @@ export default function ProjectDetailScreen() {
   const spaces = useWorkspacesQuery().data ?? [];
   const save = useUpdateProject();
   const remove = useDeleteProject();
+  const duplicate = useDuplicateProject();
   const addStage = useCreateStage();
   const renameStage = useUpdateStage();
   const deleteStage = useDeleteStage();
@@ -242,6 +244,12 @@ export default function ProjectDetailScreen() {
             </View>
           ))
         )}
+        <PrimaryButton
+          label={duplicate.isPending ? "Duplicating…" : "Duplicate project"}
+          onPress={() =>
+            void duplicate.mutateAsync(project.id).then((copy) => router.push(`/(app)/projects/${copy.id}`))
+          }
+        />
         <Pressable
           onPress={() =>
             Alert.alert("Delete project", "This cannot be undone.", [

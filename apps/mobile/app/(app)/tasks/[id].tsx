@@ -14,16 +14,24 @@ import { toCustomFieldDrafts } from "../../../lib/customFields";
 import type { CustomFieldValueInput } from "../../../lib/types";
 import {
   useAddBlock,
+  useAddChecklistItem,
   useAddComment,
+  useCreateTask,
+  useDeleteChecklistItem,
   useDeleteTask,
+  useDuplicateTask,
   useProjectsQuery,
   useSaveTask,
+  useSetTodayFocus,
+  useStartFocus,
+  useStopFocus,
   useTaskActivityQuery,
   useTaskQuery,
   useTasksQuery,
+  useToggleChecklistItem,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, isOverdue, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
+import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, isOverdue, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
 import { normalizePriority } from "../../../lib/priority";
 import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent } from "../../../lib/richText";
@@ -42,8 +50,8 @@ export default function TaskDetailScreen() {
   const router = useRouter();
   const tasks = useTasksQuery().data ?? [];
   const listed = tasks.find((t) => t.id === id);
-  const fetched = useTaskQuery(!listed ? id : undefined);
-  const task = listed ?? fetched.data;
+  const fetched = useTaskQuery(id);
+  const task = fetched.data ?? listed;
   const spaces = useWorkspacesQuery().data ?? [];
   const projects = useProjectsQuery().data ?? [];
   const save = useSaveTask();
@@ -55,6 +63,16 @@ export default function TaskDetailScreen() {
   const [note, setNote] = useState("");
   const [noteReady, setNoteReady] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [checkTitle, setCheckTitle] = useState("");
+  const [subtaskTitle, setSubtaskTitle] = useState("");
+  const addCheck = useAddChecklistItem();
+  const toggleCheck = useToggleChecklistItem();
+  const removeCheck = useDeleteChecklistItem();
+  const createSubtask = useCreateTask();
+  const duplicate = useDuplicateTask();
+  const startFocus = useStartFocus();
+  const stopFocus = useStopFocus();
+  const setTodayFocus = useSetTodayFocus();
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValueInput[]>([]);
   const [metaWorkspaceId, setMetaWorkspaceId] = useState("");
@@ -91,7 +109,9 @@ export default function TaskDetailScreen() {
     );
   }
 
-  const isReminder = (task.duration ?? 0) <= 0;
+  const isInbox = task.kind === "inbox";
+  const isReminder = task.kind === "reminder" || ((task.duration ?? 0) <= 0 && !isInbox && task.kind !== "task");
+  const onToday = dateOnly(task.todayFocusOn) === localDateStamp();
   const recAnchor = task.scheduledOn
     ? new Date(task.scheduledOn)
     : task.recurrence?.dtstart
@@ -256,6 +276,116 @@ export default function TaskDetailScreen() {
             <PrimaryButton label="+ Add time" onPress={() => setPicker("schedule")} />
           </>
         )}
+        <Text style={styles.section}>Focus</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          <PrimaryButton
+            label={task.focusStartedAt ? "Stop focus" : "Start focus"}
+            onPress={() =>
+              task.focusStartedAt
+                ? void stopFocus.mutateAsync(task.id)
+                : void startFocus.mutateAsync(task.id)
+            }
+          />
+          <PrimaryButton
+            label={onToday ? "Remove from Today" : "Add to Today"}
+            onPress={() =>
+              void setTodayFocus.mutateAsync({
+                id: task.id,
+                date: onToday ? null : localDateStamp(),
+              })
+            }
+          />
+          <PrimaryButton
+            label="Duplicate"
+            onPress={() =>
+              void duplicate.mutateAsync(task.id).then((copy) => router.push(`/(app)/tasks/${copy.id}`))
+            }
+          />
+        </View>
+        {(task.actualMinutes ?? 0) > 0 ? (
+          <Text style={styles.activity}>{task.actualMinutes}m actually focused</Text>
+        ) : null}
+        {isInbox ? (
+          <>
+            <Text style={styles.section}>Clarify inbox item</Text>
+            <PrimaryButton
+              label="Make a 30m task"
+              onPress={() =>
+                persist({
+                  kind: "task",
+                  duration: 30,
+                  workspaceId: metaWorkspaceId || spaces[0]?.id,
+                })
+              }
+            />
+            <PrimaryButton
+              label="Make a reminder in 1 hour"
+              onPress={() =>
+                persist({
+                  kind: "reminder",
+                  duration: 0,
+                  scheduledOn: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+                })
+              }
+            />
+          </>
+        ) : null}
+        <Text style={styles.section}>Checklist</Text>
+        {(task.checklist ?? []).map((item) => (
+          <Pressable
+            key={item.id}
+            onPress={() =>
+              void toggleCheck.mutateAsync({
+                id: task.id,
+                itemId: item.id,
+                completed: !item.completedAt,
+              })
+            }
+            onLongPress={() => void removeCheck.mutateAsync({ id: task.id, itemId: item.id })}
+            style={{ paddingVertical: 6 }}
+          >
+            <Text style={{ color: item.completedAt ? colors.mutedForeground : colors.foreground }}>
+              {item.completedAt ? "☑" : "☐"} {item.title}
+            </Text>
+          </Pressable>
+        ))}
+        <Field value={checkTitle} onChangeText={setCheckTitle} placeholder="Add checklist item" />
+        <PrimaryButton
+          label="Add item"
+          onPress={() => {
+            const title = checkTitle.trim();
+            if (!title) return;
+            void addCheck.mutateAsync({ id: task.id, title }).then(() => setCheckTitle(""));
+          }}
+        />
+        {!task.parentTaskId ? (
+          <>
+            <Text style={styles.section}>
+              Subtasks{task.openSubtaskCount ? ` (${task.openSubtaskCount} open)` : ""}
+            </Text>
+            {(task.subtasks ?? []).map((child) => (
+              <Pressable key={child.id} onPress={() => router.push(`/(app)/tasks/${child.id}`)} style={{ paddingVertical: 6 }}>
+                <Text style={{ color: colors.foreground }}>{child.completedAt ? "☑" : "☐"} {child.name}</Text>
+              </Pressable>
+            ))}
+            <Field value={subtaskTitle} onChangeText={setSubtaskTitle} placeholder="Add subtask" />
+            <PrimaryButton
+              label="Add subtask"
+              onPress={() => {
+                const name = subtaskTitle.trim();
+                if (!name) return;
+                void createSubtask
+                  .mutateAsync({
+                    name,
+                    parentTaskId: task.id,
+                    duration: 30,
+                    workspaceId: task.workspaceId ?? undefined,
+                  })
+                  .then(() => setSubtaskTitle(""));
+              }}
+            />
+          </>
+        ) : null}
         <Text style={styles.section}>Notes</Text>
         <Field
           value={note}

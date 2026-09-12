@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { Bell, CalendarClock, Check, FileText, ListTodo, Sheet as SheetIcon } from "lucide-react-native";
+import { Bell, CalendarClock, Check, FileText, Inbox, ListTodo, Sheet as SheetIcon } from "lucide-react-native";
 import BottomSheet from "./BottomSheet";
 import DateTimeSheet from "./DateTimeSheet";
 import TaskMetaEditor from "./TaskMetaEditor";
@@ -15,8 +15,9 @@ import { formatDuration, formatShortDate, formatTime, toDateInputValue } from ".
 import type { CustomFieldValueInput } from "../../lib/types";
 import { colors } from "../../lib/theme";
 
-type Kind = "task" | "reminder" | "event" | "doc" | "sheet";
+type Kind = "inbox" | "task" | "reminder" | "event" | "doc" | "sheet";
 const KINDS: { value: Kind; label: string; Icon: typeof ListTodo }[] = [
+  { value: "inbox", label: "Inbox", Icon: Inbox },
   { value: "task", label: "Task", Icon: ListTodo },
   { value: "reminder", label: "Reminder", Icon: Bell },
   { value: "event", label: "Event", Icon: CalendarClock },
@@ -155,6 +156,11 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
   async function submit() {
     const name = title.trim();
     if (!name || pending) return;
+    if (kind === "inbox") {
+      await createTask.mutateAsync({ name, kind: "inbox", priorityLevel: priority });
+      finish("/(app)/inbox");
+      return;
+    }
     if (kind === "task" || kind === "reminder") {
       if (!isReminder && !activeWorkspaceId) return;
       const filledFields = filledCustomFieldValues(customFieldValues);

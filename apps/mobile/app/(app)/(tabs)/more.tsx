@@ -1,7 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Brain, Clock, FolderKanban, KeyRound, Tag } from "lucide-react-native";
+import { Bell, Brain, Clock, FolderKanban, Inbox, KeyRound, Sun, Tag } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { SectionLabel } from "../../../components/ui/primitives";
@@ -56,6 +56,9 @@ export default function SettingsTab() {
             <Text style={styles.meta}>{user?.email}</Text>
           </View>
         </Pressable>
+        <SectionLabel>Planning</SectionLabel>
+        <Row icon={Sun} title="Today" meta="Focus, schedule, and end of day" onPress={() => router.push("/(app)/today")} />
+        <Row icon={Inbox} title="Inbox" meta="Capture now, organize later" onPress={() => router.push("/(app)/inbox")} />
         <SectionLabel>Workspace</SectionLabel>
         <Row
           icon={FolderKanban}

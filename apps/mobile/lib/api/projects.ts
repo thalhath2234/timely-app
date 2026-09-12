@@ -65,3 +65,8 @@ export function deleteStage(projectId: string, stageId: string) {
 export function reorderStages(projectId: string, ids: string[]) {
   return api<Stage[]>(`/projects/${projectId}/stages/reorder`, { method: "PUT", body: { ids } });
 }
+
+export async function duplicateProject(id: string) {
+  const res = await api<Project | { project: Project }>(`/projects/${id}/duplicate`, { method: "POST" });
+  return unwrap(res, "project");
+}

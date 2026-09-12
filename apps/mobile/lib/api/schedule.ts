@@ -1,4 +1,4 @@
-import type { CalendarRange, ScheduledBlock, SchedulePlan, Task, WorkingHours } from "../types";
+import type { CalendarRange, ScheduledBlock, SchedulePlan, Task, TodayResponse, WorkingHours } from "../types";
 import { deviceTimezone } from "../format";
 import { api, unwrap } from "./client";
 
@@ -67,4 +67,11 @@ export async function moveBlock(blockId: string, data: { start: string; end?: st
 
 export function deleteBlock(blockId: string) {
   return api<void>(`/blocks/${blockId}`, { method: "DELETE" });
+}
+
+export function getToday(date?: string) {
+  const params = new URLSearchParams({ tz: deviceTimezone() });
+  if (date) params.set("date", date);
+  params.set("timezone", deviceTimezone());
+  return api<TodayResponse>(`/today?${params.toString()}`);
 }
