@@ -1,6 +1,7 @@
 import { Redirect, Stack } from "expo-router";
 import { ActivityIndicator, View } from "react-native";
 import ReminderNotifications from "../../components/ReminderNotifications";
+import ToastHost from "../../components/ui/ToastHost";
 import { isOnboarded, useAuth } from "../../lib/auth/AuthProvider";
 import { colors } from "../../lib/theme";
 
@@ -19,6 +20,7 @@ export default function AppLayout() {
   return (
     <>
       <ReminderNotifications />
+      <ToastHost />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }} />
     </>
   );

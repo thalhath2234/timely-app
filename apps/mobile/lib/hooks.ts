@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMe } from "./api/auth";
-import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries } from "./api/tasks";
+import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
 import type { Doc } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet } from "./api/sheets";
-import { getProjects, createProject } from "./api/projects";
+import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages } from "./api/projects";
 import { getWorkspaces, getConfig } from "./api/workspaces";
 import {
   addTaskBlock,
@@ -105,6 +105,14 @@ export function useSheetQuery(id: string) {
 
 export function useProjectsQuery() {
   return useQuery({ queryKey: keys.projects, queryFn: getProjects });
+}
+
+export function useProjectQuery(id?: string) {
+  return useQuery({
+    queryKey: [...keys.projects, id],
+    queryFn: () => getProject(id!),
+    enabled: Boolean(id),
+  });
 }
 
 export function useWorkspacesQuery() {
@@ -348,6 +356,18 @@ export function useDeleteTask() {
   return useMutation({ mutationFn: deleteTask, onSuccess: invalidate });
 }
 
+export function useBulkUpdateTasks() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, update }: { ids: string[]; update: UpdateTaskPayload }) =>
+      bulkUpdateTasks(ids, update),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.tasks });
+      client.invalidateQueries({ queryKey: ["calendar"] });
+    },
+  });
+}
+
 export function useCreateDoc() {
   const client = useQueryClient();
   return useMutation({
@@ -495,6 +515,69 @@ export function useCreateProject() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: createProject,
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.projects }),
+  });
+}
+
+export function useUpdateProject() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateProject>[1] }) =>
+      updateProject(id, data),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.projects });
+      client.invalidateQueries({ queryKey: keys.tasks });
+    },
+  });
+}
+
+export function useDeleteProject() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: deleteProject,
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.projects }),
+  });
+}
+
+export function useCreateStage() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, name }: { projectId: string; name: string }) =>
+      createStage(projectId, name),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.projects }),
+  });
+}
+
+export function useUpdateStage() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      stageId,
+      name,
+    }: {
+      projectId: string;
+      stageId: string;
+      name: string;
+    }) => updateStage(projectId, stageId, name),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.projects }),
+  });
+}
+
+export function useDeleteStage() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, stageId }: { projectId: string; stageId: string }) =>
+      deleteStage(projectId, stageId),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.projects }),
+  });
+}
+
+export function useReorderStages() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, ids }: { projectId: string; ids: string[] }) =>
+      reorderStages(projectId, ids),
     onSuccess: () => client.invalidateQueries({ queryKey: keys.projects }),
   });
 }

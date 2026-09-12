@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Bell, CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, Trash2 } from "lucide-react-native";
+import { Bell, CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
@@ -24,11 +24,12 @@ import {
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, isOverdue, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
+import { normalizePriority } from "../../../lib/priority";
 import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent } from "../../../lib/richText";
 import { colors } from "../../../lib/theme";
 
-type Picker = "status" | "priority" | "project" | "workspace" | "due" | "start" | "schedule" | "duration" | null;
+type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | null;
 
 function applyClock(day: Date, clock: Date) {
   const next = new Date(day);
@@ -60,6 +61,8 @@ export default function TaskDetailScreen() {
 
   const workspace = spaces.find((w) => w.id === (task?.workspaceId || metaWorkspaceId));
   const scopedProjects = projects.filter((p) => p.workspaceId === (task?.workspaceId || metaWorkspaceId));
+  const selectedProject = projects.find((p) => p.id === task?.projectId);
+  const stages = [...(selectedProject?.stages ?? [])].sort((a, b) => a.order - b.order);
   const customFields = workspace?.customFields ?? [];
 
   useMemo(() => {
@@ -140,7 +143,17 @@ export default function TaskDetailScreen() {
           ) : null}
           <Row icon={<Flag size={16} color={colors.mutedForeground} />} label="Priority" value={task.priorityLevel ? PRIORITY_META[task.priorityLevel]?.label ?? task.priorityLevel : "None"} onPress={() => setPicker("priority")} />
           {!isReminder ? (
-          <Row icon={<FolderKanban size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
+            <>
+              <Row icon={<FolderKanban size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
+              {stages.length > 0 ? (
+                <Row
+                  icon={<ListTodo size={16} color={colors.mutedForeground} />}
+                  label="Stage"
+                  value={stages.find((stage) => stage.id === task.stageId)?.name ?? "None"}
+                  onPress={() => setPicker("stage")}
+                />
+              ) : null}
+            </>
           ) : null}
           {isReminder && spaces.length > 0 ? (
           <Row
@@ -302,7 +315,11 @@ export default function TaskDetailScreen() {
       </BottomSheet>
       <BottomSheet open={picker === "priority"} onClose={() => setPicker(null)} title="Priority">
         {PRIORITY_ORDER.map((p) => (
-          <SheetOption key={p} selected={task.priorityLevel === p} onSelect={() => { persist({ priorityLevel: p }); setPicker(null); }}>
+          <SheetOption
+            key={p}
+            selected={normalizePriority(task.priorityLevel) === p}
+            onSelect={() => { persist({ priorityLevel: p }); setPicker(null); }}
+          >
             {PRIORITY_META[p].label}
           </SheetOption>
         ))}
@@ -327,8 +344,22 @@ export default function TaskDetailScreen() {
           No project
         </SheetOption>
         {scopedProjects.map((p) => (
-          <SheetOption key={p.id} selected={p.id === task.projectId} onSelect={() => { persist({ projectId: p.id }); setPicker(null); }}>
+          <SheetOption key={p.id} selected={p.id === task.projectId} onSelect={() => { persist({ projectId: p.id, stageId: null }); setPicker(null); }}>
             {p.title}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picker === "stage"} onClose={() => setPicker(null)} title="Stage">
+        <SheetOption selected={!task.stageId} onSelect={() => { persist({ stageId: null }); setPicker(null); }}>
+          No stage
+        </SheetOption>
+        {stages.map((stage) => (
+          <SheetOption
+            key={stage.id}
+            selected={stage.id === task.stageId}
+            onSelect={() => { persist({ stageId: stage.id }); setPicker(null); }}
+          >
+            {stage.name}
           </SheetOption>
         ))}
       </BottomSheet>

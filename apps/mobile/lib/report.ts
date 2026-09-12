@@ -38,7 +38,7 @@ export type ReportData = {
   recent: ActivityItem[];
 };
 
-const PRIORITY_ORDER = ["Urgent", "Critical", "High", "Medium", "Low", "None"];
+const PRIORITY_ORDER = ["Urgent", "High", "Medium", "Low", "None"];
 
 function startOfToday() {
   const date = new Date();

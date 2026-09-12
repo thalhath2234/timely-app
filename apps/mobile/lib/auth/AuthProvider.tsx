@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { User } from "../types";
-import { completeOnboarding, getMe, login as loginApi, register as registerApi, logout as logoutApi } from "../api/auth";
+import { completeOnboarding, getMe, login as loginApi, register as registerApi, logout as logoutApi, refreshSession } from "../api/auth";
 import { createWorkspace } from "../api/workspaces";
 import { ApiError } from "../api/client";
-import { clearToken, getToken, onSessionExpired, setToken } from "./session";
+import { clearToken, getRefreshToken, getToken, onSessionExpired, setSession } from "./session";
 
 type AuthState = {
   ready: boolean;
@@ -14,7 +14,7 @@ type AuthState = {
 
 type AuthContextValue = AuthState & {
   login: (email: string, password: string) => Promise<User>;
-  signup: (email: string, password: string) => Promise<User>;
+  signup: (name: string, email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
   refresh: () => Promise<User | null>;
   finishOnboarding: (workspaceName: string) => Promise<void>;
@@ -47,9 +47,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         if (!cancelled) await hydrate(token);
-      } catch {
-        await clearToken();
-        if (!cancelled) setState({ ready: true, token: null, user: null });
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          await clearToken();
+          if (!cancelled) setState({ ready: true, token: null, user: null });
+          return;
+        }
+        if (!cancelled) setState({ ready: true, token, user: null });
       }
     })();
     return () => {
@@ -69,12 +73,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ...state,
       login: async (email, password) => {
         const session = await loginApi(email, password);
-        await setToken(session.token);
+        await setSession(session.token, session.refreshToken);
         return hydrate(session.token);
       },
-      signup: async (email, password) => {
-        const session = await registerApi(email, password);
-        await setToken(session.token);
+      signup: async (name, email, password) => {
+        const session = await registerApi(name, email, password);
+        await setSession(session.token, session.refreshToken);
         return hydrate(session.token);
       },
       logout: async () => {
@@ -102,6 +106,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       finishOnboarding: async (workspaceName: string) => {
         await createWorkspace({ name: workspaceName });
         if (!onboarded(state.user)) await completeOnboarding();
+        const refreshToken = await getRefreshToken();
+        if (refreshToken) {
+          try {
+            const session = await refreshSession(refreshToken);
+            await setSession(session.token, session.refreshToken);
+          } catch {
+            // keep the existing access token if refresh is unavailable
+          }
+        }
         const user = await getMe();
         queryClient.setQueryData(["me"], user);
         setState((prev) => ({ ...prev, user }));

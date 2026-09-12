@@ -24,6 +24,7 @@ export default function ScheduleSettings() {
   const hoursQ = useWorkingHoursQuery();
   const save = useSaveWorkingHours();
   const [hours, setHours] = useState<WorkingHours>({ timezone: deviceTimezone(), days: {} });
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (hoursQ.data) setHours(hoursQ.data);
@@ -36,46 +37,77 @@ export default function ScheduleSettings() {
     setHours({ ...hours, days: next });
   }
 
-  function setWindow(day: WeekdayKey, field: "start" | "end", value: string) {
-    const current = hours.days[day]?.[0] ?? DEFAULT_WINDOW;
-    setHours({
-      ...hours,
-      days: { ...hours.days, [day]: [{ ...current, [field]: value }] },
-    });
+  function setWindow(day: WeekdayKey, index: number, field: "start" | "end", value: string) {
+    const current = [...(hours.days[day] ?? [{ ...DEFAULT_WINDOW }])];
+    current[index] = { ...current[index], [field]: value };
+    setHours({ ...hours, days: { ...hours.days, [day]: current } });
+  }
+
+  function addWindow(day: WeekdayKey) {
+    const current = hours.days[day] ?? [{ ...DEFAULT_WINDOW }];
+    setHours({ ...hours, days: { ...hours.days, [day]: [...current, { start: "13:00", end: "17:00" }] } });
+  }
+
+  function removeWindow(day: WeekdayKey, index: number) {
+    const current = (hours.days[day] ?? []).filter((_, i) => i !== index);
+    const next = { ...hours.days };
+    if (current.length) next[day] = current;
+    else delete next[day];
+    setHours({ ...hours, days: next });
   }
 
   return (
     <Screen>
       <MobileHeader title="Working hours" back large={false} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
-        <Field value={hours.timezone} onChangeText={(timezone) => setHours({ ...hours, timezone })} placeholder="Timezone" />
+        {hoursQ.isError ? (
+          <Text style={styles.error}>Could not load working hours.</Text>
+        ) : null}
+        <Field value={hours.timezone} onChangeText={(timezone) => setHours({ ...hours, timezone })} placeholder="Timezone (IANA)" />
         {DAYS.map((d) => {
-          const on = Boolean(hours.days[d.key]?.length);
-          const window = hours.days[d.key]?.[0];
+          const windows = hours.days[d.key] ?? [];
+          const on = windows.length > 0;
           return (
-            <View key={d.key} style={styles.row}>
-              <Pressable onPress={() => toggle(d.key)} style={[styles.day, on && styles.dayOn]}>
-                <Text style={[styles.dayText, on && { color: colors.accentForeground }]}>{d.label}</Text>
-              </Pressable>
-              {on && window ? (
-                <View style={{ flex: 1, flexDirection: "row", gap: 8 }}>
+            <View key={d.key} style={styles.block}>
+              <View style={styles.row}>
+                <Pressable onPress={() => toggle(d.key)} style={[styles.day, on && styles.dayOn]}>
+                  <Text style={[styles.dayText, on && { color: colors.accentForeground }]}>{d.label}</Text>
+                </Pressable>
+                {on ? (
+                  <Pressable onPress={() => addWindow(d.key)}>
+                    <Text style={styles.link}>Add window</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.off}>Off</Text>
+                )}
+              </View>
+              {windows.map((window, index) => (
+                <View key={`${d.key}-${index}`} style={styles.windowRow}>
                   <View style={{ flex: 1 }}>
-                    <Field value={window.start} onChangeText={(v) => setWindow(d.key, "start", v)} placeholder="09:00" />
+                    <Field value={window.start} onChangeText={(v) => setWindow(d.key, index, "start", v)} placeholder="09:00" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Field value={window.end} onChangeText={(v) => setWindow(d.key, "end", v)} placeholder="17:00" />
+                    <Field value={window.end} onChangeText={(v) => setWindow(d.key, index, "end", v)} placeholder="17:00" />
                   </View>
+                  <Pressable onPress={() => removeWindow(d.key, index)}>
+                    <Text style={styles.remove}>Remove</Text>
+                  </Pressable>
                 </View>
-              ) : (
-                <Text style={styles.off}>Off</Text>
-              )}
+              ))}
             </View>
           );
         })}
+        {message ? <Text style={styles.msg}>{message}</Text> : null}
         <PrimaryButton
           label={save.isPending ? "Saving…" : "Save hours"}
           disabled={save.isPending}
-          onPress={() => save.mutate(hours)}
+          onPress={() => {
+            setMessage("");
+            save.mutate(hours, {
+              onSuccess: () => setMessage("Saved"),
+              onError: (err) => setMessage(err instanceof Error ? err.message : "Save failed"),
+            });
+          }}
         />
       </ScrollView>
     </Screen>
@@ -83,7 +115,9 @@ export default function ScheduleSettings() {
 }
 
 const styles = StyleSheet.create({
+  block: { gap: 8 },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
+  windowRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 66 },
   day: {
     width: 56,
     height: 48,
@@ -96,4 +130,8 @@ const styles = StyleSheet.create({
   dayOn: { backgroundColor: colors.accent, borderColor: colors.primary },
   dayText: { color: colors.mutedForeground, fontWeight: "600" },
   off: { color: colors.mutedForeground },
+  link: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  remove: { color: colors.destructive, fontSize: 12 },
+  msg: { color: colors.mutedForeground, fontSize: 13 },
+  error: { color: colors.destructive, fontSize: 13 },
 });

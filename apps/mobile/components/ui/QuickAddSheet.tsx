@@ -64,6 +64,7 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
   const [description, setDescription] = useState("");
   const [workspaceId, setWorkspaceId] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [stageId, setStageId] = useState("");
   const [statusId, setStatusId] = useState("");
   const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>("Medium");
   const [duration, setDuration] = useState(30);
@@ -85,6 +86,8 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
   const activeWorkspaceId = workspaceId || list[0]?.id || "";
   const selectedWorkspace = list.find((workspace) => workspace.id === activeWorkspaceId);
   const scopedProjects = projectList.filter((project) => project.workspaceId === activeWorkspaceId);
+  const selectedProject = projectList.find((project) => project.id === projectId);
+  const stages = [...(selectedProject?.stages ?? [])].sort((a, b) => a.order - b.order);
   const pending = createTask.isPending || createEvent.isPending || createDoc.isPending || createSheet.isPending;
 
   const isReminder = kind === "reminder" || duration <= 0;
@@ -115,6 +118,7 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
     const defaultStatus = selectedWorkspace.status?.find((status) => status.isDefault) ?? selectedWorkspace.status?.[0];
     setStatusId(defaultStatus?.id ?? "");
     setProjectId("");
+    setStageId("");
     setLabelIds([]);
     setCustomFieldValues(emptyCustomFieldDrafts(selectedWorkspace.customFields));
   }, [selectedWorkspace?.id]);
@@ -127,6 +131,7 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
     setTitle("");
     setDescription("");
     setProjectId("");
+    setStageId("");
     setPriority("Medium");
     setDuration(30);
     setStartDate(null);
@@ -161,6 +166,7 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
         description: description.trim() || "",
         workspaceId: isReminder && !wantsMeta ? undefined : activeWorkspaceId,
         projectId: isReminder ? undefined : projectId || undefined,
+        stageId: isReminder ? undefined : stageId || undefined,
         statusId: isReminder ? undefined : statusId || undefined,
         priorityLevel: priority,
         startDate: startDate ? toDateInputValue(startDate) : undefined,
@@ -284,13 +290,33 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
               <>
                 <SectionLabel>Project</SectionLabel>
                 <View style={styles.row}>
-                  <Chip label="No project" active={!projectId} onPress={() => setProjectId("")} />
+                  <Chip label="No project" active={!projectId} onPress={() => { setProjectId(""); setStageId(""); }} />
                   {scopedProjects.map((project) => (
                     <Chip
                       key={project.id}
                       label={project.title}
                       active={project.id === projectId}
-                      onPress={() => setProjectId(project.id)}
+                      onPress={() => {
+                        setProjectId(project.id);
+                        setStageId("");
+                      }}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : null}
+
+            {!isReminder && stages.length > 0 ? (
+              <>
+                <SectionLabel>Stage</SectionLabel>
+                <View style={styles.row}>
+                  <Chip label="None" active={!stageId} onPress={() => setStageId("")} />
+                  {stages.map((stage) => (
+                    <Chip
+                      key={stage.id}
+                      label={stage.name}
+                      active={stage.id === stageId}
+                      onPress={() => setStageId(stage.id)}
                     />
                   ))}
                 </View>

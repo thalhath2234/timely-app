@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { FileText, MoreHorizontal, Smile, Star, Trash2 } from "lucide-react-native";
+import { Archive, FileText, MoreHorizontal, Smile, Star, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import RichTextEditor from "../../../components/editor/RichTextEditor";
 import { useDeleteDoc, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
-import { saveStatusLabel, useAutosave } from "../../../lib/autosave";
+import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../../lib/autosave";
+import { showUndoToast } from "../../../lib/toast";
 import { resolveDocContent } from "../../../lib/markdown";
 import { isRichContentEmpty } from "../../../lib/richText";
 import type { UpdateDocPayload } from "../../../lib/api/docs";
@@ -19,6 +20,11 @@ const ICON_CHOICES = ["📄", "📝", "📌", "📊", "🗂️", "💡", "🚀",
 
 function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function countDescendants(docs: { id: string; parentId: string | null }[], id: string): number {
+  const children = docs.filter((doc) => doc.parentId === id);
+  return children.reduce((total, child) => total + 1 + countDescendants(docs, child.id), 0);
 }
 
 export default function DocDetailScreen() {
@@ -75,6 +81,7 @@ function DocEditor({ docId }: { docId: string }) {
     lastSavedAtRef.current = saved.updatedAt;
     return saved;
   });
+  useUnsavedLeaveGuard(hasUnsavedChanges);
 
   useDocWatch(docId, {
     lastSavedAtRef,
@@ -96,6 +103,7 @@ function DocEditor({ docId }: { docId: string }) {
   if (!doc) return null;
 
   const workspace = spaces.find((w) => w.id === doc.workspaceId);
+  const descendantCount = countDescendants(docs, doc.id);
   const parents = docs.filter((d) => d.id !== docId && d.workspaceId === doc.workspaceId);
   const parentTitle = docs.find((d) => d.id === doc.parentId)?.title || "None";
 
@@ -108,6 +116,11 @@ function DocEditor({ docId }: { docId: string }) {
         large={false}
         actions={
           <>
+            {status === "error" ? (
+              <Pressable onPress={() => void flush()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+                <Text style={{ color: colors.primary, fontWeight: "600" }}>Retry</Text>
+              </Pressable>
+            ) : null}
             <HeaderIconButton
               label={favorite ? "Remove from favorites" : "Add to favorites"}
               active={favorite}
@@ -166,6 +179,17 @@ function DocEditor({ docId }: { docId: string }) {
         </SheetOption>
         <SheetOption onSelect={() => setMenu("parent")}>
           Parent page: {parentTitle}
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            const next = !doc.archivedAt;
+            schedule({ archived: next });
+            showUndoToast(next ? "Archived" : "Unarchived", () => schedule({ archived: !next }));
+            setMenu(null);
+          }}
+          leading={<Archive size={18} color={colors.mutedForeground} />}
+        >
+          {doc.archivedAt ? "Unarchive" : "Archive"}
         </SheetOption>
         <SheetOption
           onSelect={() => setMenu("delete")}
@@ -228,7 +252,11 @@ function DocEditor({ docId }: { docId: string }) {
       </BottomSheet>
 
       <BottomSheet open={menu === "delete"} onClose={() => setMenu(null)} title="Delete this doc?">
-        <Text style={styles.warn}>The doc and all of its subpages will be removed.</Text>
+        <Text style={styles.warn}>
+          {descendantCount > 0
+            ? `This doc and ${descendantCount} subpage${descendantCount === 1 ? "" : "s"} will be removed.`
+            : "This doc will be removed."}
+        </Text>
         <Pressable
           onPress={() =>
             Alert.alert("Delete doc", "This cannot be undone.", [

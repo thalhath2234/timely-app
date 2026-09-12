@@ -1,7 +1,13 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { BUNDLED_API_URL } from "./bundledUrl";
-import { getToken, clearToken, emitSessionExpired } from "../auth/session";
+import {
+  getToken,
+  getRefreshToken,
+  clearToken,
+  emitSessionExpired,
+  setSession,
+} from "../auth/session";
 
 function bundledApiUrl() {
   const extra = Constants.expoConfig?.extra as { apiUrl?: string } | undefined;
@@ -9,7 +15,6 @@ function bundledApiUrl() {
 }
 
 function fallbackApiUrl() {
-  // 10.0.2.2 is the emulator host only. Never use it on a phone.
   if (Platform.OS === "android" && Constants.isDevice === false) return "http://10.0.2.2:8080";
   if (Platform.OS !== "android") return "http://localhost:8080";
   return "";
@@ -42,7 +47,35 @@ type RequestOptions = {
   auth?: boolean;
 };
 
-export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function refreshAccessToken() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const refreshToken = await getRefreshToken();
+    if (!refreshToken || !API_URL) return false;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (API_URL.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
+    const response = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!response.ok) {
+      await clearToken();
+      return false;
+    }
+    const data = (await response.json()) as { token?: string; refreshToken?: string };
+    if (!data.token) return false;
+    await setSession(data.token, data.refreshToken);
+    return true;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+export async function api<T>(path: string, options: RequestOptions = {}, retried = false): Promise<T> {
   if (!API_URL) {
     throw new ApiError("This install has no API URL. Rebuild the app with EXPO_PUBLIC_API_URL set.", 0);
   }
@@ -64,8 +97,11 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-  if (response.status === 401 && auth) {
-    await clearToken();
+  if (response.status === 401 && auth && !retried && path !== "/auth/refresh") {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return api<T>(path, options, true);
+    }
     emitSessionExpired();
     throw new ApiError("Session expired", 401);
   }

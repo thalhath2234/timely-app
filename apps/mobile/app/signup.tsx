@@ -9,6 +9,7 @@ import { colors } from "../lib/theme";
 export default function SignupScreen() {
   const { token, user, signup } = useAuth();
   const router = useRouter();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,14 +19,14 @@ export default function SignupScreen() {
   if (token) return <Redirect href="/onboarding" />;
 
   async function submit() {
-    if (!email.trim() || password.trim().length < 6) {
-      setError("Use a valid email and a password of at least 6 characters.");
+    if (!name.trim() || !email.trim() || password.trim().length < 8) {
+      setError("Use your name, a valid email, and a password of at least 8 characters.");
       return;
     }
     setPending(true);
     setError("");
     try {
-      await signup(email.trim(), password);
+      await signup(name.trim(), email.trim(), password);
       router.replace("/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign up failed");
@@ -40,8 +41,9 @@ export default function SignupScreen() {
         <Text style={styles.title}>Create account</Text>
         <Text style={styles.sub}>Start planning in Timely</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        <Field value={name} onChangeText={setName} placeholder="Full name" autoCapitalize="words" />
         <Field value={email} onChangeText={setEmail} placeholder="Email" />
-        <Field value={password} onChangeText={setPassword} placeholder="Password" secure />
+        <Field value={password} onChangeText={setPassword} placeholder="Password (min 8 characters)" secure />
         <PrimaryButton label={pending ? "Creating…" : "Create account"} disabled={pending} onPress={() => void submit()} />
         <Link href="/login" asChild>
           <Pressable>

@@ -16,19 +16,23 @@ type Kind = "docs" | "sheets";
 export default function FilesScreen() {
   const router = useRouter();
   const [kind, setKind] = useState<Kind>("docs");
+  const [showArchived, setShowArchived] = useState(false);
   const docsQ = useDocsQuery();
   const sheetsQ = useSheetsQuery();
   const spaces = useWorkspacesQuery().data ?? [];
   const docs = useMemo(
-    () => (docsQ.data ?? []).filter((d) => !d.archivedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    [docsQ.data],
+    () =>
+      (docsQ.data ?? [])
+        .filter((d) => (showArchived ? Boolean(d.archivedAt) : !d.archivedAt))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [docsQ.data, showArchived],
   );
   const sheets = useMemo(
     () =>
       (sheetsQ.data ?? [])
-        .filter((s) => !s.archivedAt)
+        .filter((s) => (showArchived ? Boolean(s.archivedAt) : !s.archivedAt))
         .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")),
-    [sheetsQ.data],
+    [sheetsQ.data, showArchived],
   );
   const wsById = useMemo(() => new Map(spaces.map((w) => [w.id, w])), [spaces]);
   const favoriteDocs = docs.filter((d) => d.isFavorite);
@@ -50,10 +54,21 @@ export default function FilesScreen() {
             value={kind}
             onChange={setKind}
           />
+          <Pressable onPress={() => setShowArchived((previous) => !previous)} style={{ paddingTop: 8 }}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
+              {showArchived ? "Showing archived · tap for active" : "Show archived"}
+            </Text>
+          </Pressable>
         </View>
       </MobileHeader>
       <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 110, gap: 10 }}>
-        {kind === "docs" ? (
+        {(kind === "docs" ? docsQ.isError : sheetsQ.isError) ? (
+          <EmptyState
+            icon={kind === "docs" ? FileText : SheetIcon}
+            title={kind === "docs" ? "Couldn't load docs" : "Couldn't load sheets"}
+            description="Check your connection and try again."
+          />
+        ) : kind === "docs" ? (
           docs.length === 0 ? (
             <EmptyState icon={FileText} title="No docs yet" description="Tap + to start a page." />
           ) : (

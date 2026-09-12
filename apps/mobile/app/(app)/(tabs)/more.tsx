@@ -1,7 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Brain, Clock, KeyRound, Tag } from "lucide-react-native";
+import { Bell, Brain, Clock, FolderKanban, KeyRound, Tag } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { SectionLabel } from "../../../components/ui/primitives";
@@ -57,6 +57,12 @@ export default function SettingsTab() {
           </View>
         </Pressable>
         <SectionLabel>Workspace</SectionLabel>
+        <Row
+          icon={FolderKanban}
+          title="Projects"
+          meta="List, stages, and project edit"
+          onPress={() => router.push("/(app)/projects")}
+        />
         <Row
           icon={Tag}
           title="Workspaces"

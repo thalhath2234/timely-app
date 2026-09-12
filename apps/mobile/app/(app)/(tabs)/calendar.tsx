@@ -10,6 +10,7 @@ import MobileDay from "../../../components/calendar/MobileDay";
 import MobileMonth from "../../../components/calendar/MobileMonth";
 import CalendarItemSheet from "../../../components/calendar/CalendarItemSheet";
 import AutoScheduleSheet from "../../../components/calendar/AutoScheduleSheet";
+import EmptyState from "../../../components/ui/EmptyState";
 import { useCalendarQuery, useEditTaskOccurrence, useMoveBlock, useMoveEventTimes, useSaveTask, useTasksQuery } from "../../../lib/hooks";
 import { isReminderItem } from "../../../components/calendar/CalendarItemRow";
 import { mergeCalendarItems } from "../../../lib/calendarMerge";
@@ -142,15 +143,21 @@ export default function CalendarScreen() {
         {view !== "month" ? <DateStrip selected={selected} onSelect={setSelected} busyDays={busyDays} /> : null}
       </MobileHeader>
       <View style={{ flex: 1, minHeight: 0 }}>
-        {view === "agenda" ? (
+        {query.isError ? (
+          <EmptyState
+            icon={Sparkles}
+            title="Couldn't load calendar"
+            description="Check your connection and try again."
+          />
+        ) : view === "agenda" ? (
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
             <MobileAgenda items={items} from={selected} overdue={overdue} onOpen={setOpen} />
           </ScrollView>
-        ) : null}
-        {view === "day" ? <MobileDay date={selected} items={dayItems} onOpen={setOpen} /> : null}
-        {view === "month" ? (
+        ) : view === "day" ? (
+          <MobileDay date={selected} items={dayItems} onOpen={setOpen} />
+        ) : (
           <MobileMonth month={selected} selected={selected} onSelect={setSelected} items={items} onOpen={setOpen} />
-        ) : null}
+        )}
       </View>
       <CalendarItemSheet item={open} onClose={() => setOpen(null)} onToggleComplete={toggleComplete} onReschedule={reschedule} />
       <AutoScheduleSheet open={autoOpen} onClose={() => setAutoOpen(false)} />

@@ -13,7 +13,6 @@ export type CreateTaskPayload = {
   projectId?: string;
   statusId?: string;
   priorityLevel?: string;
-  scheduleId?: string;
   stageId?: string;
   blockedById?: string;
   labelIds?: { id: string }[];
@@ -59,6 +58,14 @@ export async function createTask(data: CreateTaskPayload) {
 export async function updateTask(id: string, data: UpdateTaskPayload) {
   const res = await api<Task | { task: Task }>(`/tasks/${id}`, { method: "PUT", body: data });
   return unwrap(res, "task");
+}
+
+export async function bulkUpdateTasks(ids: string[], update: UpdateTaskPayload) {
+  const res = await api<{ tasks: Task[] } | Task[]>("/tasks/bulk", {
+    method: "PATCH",
+    body: { ids, update },
+  });
+  return Array.isArray(res) ? res : res.tasks;
 }
 
 export function deleteTask(id: string) {

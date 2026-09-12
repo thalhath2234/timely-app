@@ -77,6 +77,12 @@ export interface Status extends BaseEntity {
   isDefault?: boolean;
 }
 
+export interface Stage extends BaseEntity {
+  name: string;
+  order: number;
+  projectId?: string | null;
+}
+
 export interface Project extends BaseEntity {
   title: string;
   description: string | null;
@@ -89,6 +95,9 @@ export interface Project extends BaseEntity {
   color?: string | null;
   doesHaveStages?: boolean;
   workspaceId: string;
+  status?: Status | null;
+  workspace?: Workspace | null;
+  stages?: Stage[];
 }
 
 export interface Workspace extends BaseEntity {

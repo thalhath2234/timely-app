@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { MoreHorizontal, Sheet as SheetIcon, Smile, Star, Trash2 } from "lucide-react-native";
+import { Archive, MoreHorizontal, Sheet as SheetIcon, Smile, Star, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import SheetGrid from "../../../components/sheets/SheetGrid";
 import { useDeleteSheet, useSheetQuery, useUpdateSheet, useWorkspacesQuery } from "../../../lib/hooks";
-import { saveStatusLabel, useAutosave } from "../../../lib/autosave";
+import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../../lib/autosave";
+import { showUndoToast } from "../../../lib/toast";
 import { normalizeSheet, routeParam, SHEET_ICON_CHOICES } from "../../../lib/sheet";
 import { timeAgo } from "../../../lib/format";
 import type { UpdateSheetPayload } from "../../../lib/api/sheets";
@@ -58,9 +59,10 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   );
   const [menu, setMenu] = useState<"more" | "icon" | "delete" | null>(null);
 
-  const { schedule, flush, status } = useAutosave<UpdateSheetPayload>((patch) =>
+  const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateSheetPayload>((patch) =>
     save.mutateAsync({ id: sheet.id, data: patch }),
   );
+  useUnsavedLeaveGuard(hasUnsavedChanges);
 
   const workspace = spaces.find((w) => w.id === sheet.workspaceId);
 
@@ -82,6 +84,11 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         large={false}
         actions={
           <View style={styles.actions}>
+            {status === "error" ? (
+              <Pressable onPress={() => void flush()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+                <Text style={{ color: colors.primary, fontWeight: "600" }}>Retry</Text>
+              </Pressable>
+            ) : null}
             <HeaderIconButton
               label={favorite ? "Remove from favorites" : "Add to favorites"}
               active={favorite}
@@ -158,6 +165,17 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
             Add description
           </SheetOption>
         ) : null}
+        <SheetOption
+          onSelect={() => {
+            const next = !sheet.archivedAt;
+            schedule({ archived: next });
+            showUndoToast(next ? "Archived" : "Unarchived", () => schedule({ archived: !next }));
+            setMenu(null);
+          }}
+          leading={<Archive size={18} color={colors.mutedForeground} />}
+        >
+          {sheet.archivedAt ? "Unarchive" : "Archive"}
+        </SheetOption>
         <SheetOption
           onSelect={() => setMenu("delete")}
           leading={<Trash2 size={18} color={colors.destructive} />}

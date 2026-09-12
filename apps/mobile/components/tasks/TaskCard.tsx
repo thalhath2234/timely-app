@@ -6,7 +6,19 @@ import { formatDueDate, isOverdue, PRIORITY_META } from "../../lib/format";
 import { colors } from "../../lib/theme";
 import { Dot } from "../ui/primitives";
 
-export default function TaskCard({ task, onToggle }: { task: Task; onToggle: (task: Task) => void }) {
+export default function TaskCard({
+  task,
+  onToggle,
+  selected,
+  selecting,
+  onSelect,
+}: {
+  task: Task;
+  onToggle: (task: Task) => void;
+  selected?: boolean;
+  selecting?: boolean;
+  onSelect?: (task: Task) => void;
+}) {
   const router = useRouter();
   const done = Boolean(task.completedAt);
   const overdue = isOverdue(task.deadline, task.completedAt);
@@ -14,7 +26,7 @@ export default function TaskCard({ task, onToggle }: { task: Task; onToggle: (ta
   const priority = task.priorityLevel ? PRIORITY_META[task.priorityLevel] : null;
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, selected && styles.selected]}>
       <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked: done }}
@@ -23,7 +35,11 @@ export default function TaskCard({ task, onToggle }: { task: Task; onToggle: (ta
       >
         <View style={[styles.box, done && styles.boxOn]}>{done ? <Check size={14} color={colors.primaryForeground} /> : null}</View>
       </Pressable>
-      <Pressable onPress={() => router.push(`/(app)/tasks/${task.id}`)} style={styles.body}>
+      <Pressable
+        onPress={() => (selecting && onSelect ? onSelect(task) : router.push(`/(app)/tasks/${task.id}`))}
+        onLongPress={() => onSelect?.(task)}
+        style={styles.body}
+      >
         <Text numberOfLines={1} style={[styles.name, done && styles.done]}>
           {task.name}
         </Text>
@@ -64,6 +80,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.card,
   },
+  selected: { borderColor: colors.primary },
   check: { width: 48, alignItems: "center", justifyContent: "center" },
   box: {
     width: 22,

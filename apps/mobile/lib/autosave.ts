@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert } from "react-native";
+import { useNavigation } from "expo-router";
 
 export type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
 
@@ -28,15 +30,15 @@ export function useAutosave<T extends object>(
 
     try {
       await saveRef.current(patch);
-      setStatus(pendingRef.current ? "unsaved" : "saved");
-    } catch {
-      pendingRef.current = { ...patch, ...(pendingRef.current ?? {}) };
-      setStatus("error");
-    } finally {
       inFlightRef.current = false;
+      setStatus(pendingRef.current ? "unsaved" : "saved");
       if (pendingRef.current) {
         timerRef.current = setTimeout(() => flushRef.current(), delay);
       }
+    } catch {
+      pendingRef.current = { ...patch, ...(pendingRef.current ?? {}) };
+      inFlightRef.current = false;
+      setStatus("error");
     }
   }, [delay]);
 
@@ -62,10 +64,12 @@ export function useAutosave<T extends object>(
     };
   }, []);
 
-  const hasUnsavedChanges = () =>
-    pendingRef.current !== null || inFlightRef.current;
+  const hasUnsavedChanges = useCallback(
+    () => pendingRef.current !== null || inFlightRef.current,
+    [],
+  );
 
-  return { schedule, flush, status, hasUnsavedChanges };
+  return { schedule, flush, retry: flush, status, hasUnsavedChanges };
 }
 
 export function saveStatusLabel(status: SaveStatus) {
@@ -77,8 +81,27 @@ export function saveStatusLabel(status: SaveStatus) {
     case "saved":
       return "Saved";
     case "error":
-      return "Save failed — retrying";
+      return "Save failed";
     default:
       return "";
   }
+}
+
+export function useUnsavedLeaveGuard(hasUnsaved: () => boolean) {
+  const navigation = useNavigation();
+  useEffect(() => {
+    const sub = navigation.addListener("beforeRemove", (event) => {
+      if (!hasUnsaved()) return;
+      event.preventDefault();
+      Alert.alert("Unsaved changes", "Leave this page without finishing the save?", [
+        { text: "Stay", style: "cancel" },
+        {
+          text: "Leave",
+          style: "destructive",
+          onPress: () => navigation.dispatch(event.data.action),
+        },
+      ]);
+    });
+    return sub;
+  }, [hasUnsaved, navigation]);
 }

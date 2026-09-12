@@ -16,7 +16,7 @@ function hrefFor(kind: SearchKind, id: string) {
   if (kind === "doc") return `/(app)/docs/${id}`;
   if (kind === "sheet") return sheetHref(id);
   if (kind === "event") return `/(app)/events/${id}`;
-  if (kind === "project") return `/(app)/(tabs)/tasks?projectId=${id}`;
+  if (kind === "project") return `/(app)/projects/${id}`;
   return "/(app)/(tabs)/tasks";
 }
 

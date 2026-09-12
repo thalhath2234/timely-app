@@ -15,6 +15,8 @@ import {
   emptySheetRow,
   newSheetId,
   SHEET_COLUMN_TYPES,
+  isFormulaValue,
+  normalizeTypedCell,
 } from "../../lib/sheet";
 import type { SheetColumn, SheetColumnType, SheetRow } from "../../lib/types";
 
@@ -58,7 +60,15 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
     if (!column) return;
     onChange({
       rows: rows.map((row, index) =>
-        index === address.row ? { ...row, cells: { ...row.cells, [column.id]: value } } : row,
+        index === address.row
+          ? {
+              ...row,
+              cells: {
+                ...row.cells,
+                [column.id]: isFormulaValue(value) ? value : normalizeTypedCell(column.type, value),
+              },
+            }
+          : row,
       ),
     });
   }

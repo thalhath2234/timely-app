@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import Screen from "../../../../components/ui/Screen";
 import MobileHeader from "../../../../components/ui/MobileHeader";
@@ -14,7 +14,7 @@ import CustomFieldBuilder, {
   type OptionDraft,
 } from "../../../../components/ui/CustomFieldBuilder";
 import { Field, PrimaryButton, SectionLabel } from "../../../../components/ui/primitives";
-import { keys, useWorkspacesQuery } from "../../../../lib/hooks";
+import { keys, useProjectsQuery, useWorkspacesQuery } from "../../../../lib/hooks";
 import {
   createCustomField,
   createLabel,
@@ -31,8 +31,10 @@ import { colors } from "../../../../lib/theme";
 
 export default function WorkspaceEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const client = useQueryClient();
   const workspace = (useWorkspacesQuery().data ?? []).find((w) => w.id === id);
+  const projects = useProjectsQuery();
   const [name, setName] = useState(workspace?.name ?? "");
   const [statusName, setStatusName] = useState("");
   const [labelName, setLabelName] = useState("");
@@ -230,6 +232,18 @@ export default function WorkspaceEditor() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <SectionLabel>Projects</SectionLabel>
+        {(projects.data ?? [])
+          .filter((project) => project.workspaceId === workspace.id)
+          .map((project) => (
+            <Pressable
+              key={project.id}
+              onPress={() => router.push(`/(app)/projects/${project.id}`)}
+              style={styles.card}
+            >
+              <Text style={styles.item}>{project.title}</Text>
+              <Text style={styles.meta}>{project.status?.name || "Open project"}</Text>
+            </Pressable>
+          ))}
         <Field value={projectName} onChangeText={setProjectName} placeholder="New project" autoCapitalize="words" />
         <PrimaryButton
           label="Add project"

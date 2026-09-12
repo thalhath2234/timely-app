@@ -120,7 +120,10 @@ export const PRIORITY_META: Record<string, { label: string; color: string }> = {
   High: PRIORITY_SWATCH.high,
   Medium: PRIORITY_SWATCH.medium,
   Low: PRIORITY_SWATCH.low,
+  Critical: PRIORITY_SWATCH.urgent,
 };
+
+export const PRIORITY_ORDER = ["Urgent", "High", "Medium", "Low"];
 
 export function toDateInputValue(value: Date) {
   const y = value.getFullYear();
@@ -128,8 +131,6 @@ export function toDateInputValue(value: Date) {
   const d = String(value.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
-
-export const PRIORITY_ORDER = ["urgent", "high", "medium", "low"];
 
 export function deviceTimezone() {
   try {

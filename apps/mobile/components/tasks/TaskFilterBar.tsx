@@ -2,7 +2,7 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import type { Workspace } from "../../lib/types";
 import { Chip, Select } from "../ui/primitives";
 
-export type TaskFilter = "all" | "today" | "overdue" | "upcoming" | "nodate" | "done";
+export type TaskFilter = "all" | "today" | "overdue" | "upcoming" | "nodate" | "done" | "reminders" | "board";
 
 export default function TaskFilterBar({
   filter,
@@ -26,6 +26,8 @@ export default function TaskFilterBar({
     { id: "upcoming", label: "Upcoming" },
     { id: "nodate", label: "No date" },
     { id: "done", label: "Done" },
+    { id: "reminders", label: "Reminders" },
+    { id: "board", label: "Board" },
   ];
 
   return (
