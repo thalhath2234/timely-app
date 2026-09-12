@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Editor } from "@tiptap/react";
-import { ChevronRight, Smile, Star, Trash2 } from "lucide-react";
+import { ChevronRight, Archive, Smile, Star, Trash2 } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import { Doc } from "@/app/_types/types";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
@@ -15,8 +15,10 @@ import {
   useDocs,
   useUpdateDoc,
 } from "@/app/utils/hooks/docs";
-import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
+import { useAutosave } from "@/app/utils/hooks/useAutosave";
 import { isRichContentEmpty, toRichContent } from "@/app/utils/richText";
+import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
+import { showUndoToast } from "@/app/_store/toastStore";
 
 const ICON_CHOICES = [
   "📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯",
@@ -78,6 +80,14 @@ export default function DocPage() {
   return <DocView key={doc.id} doc={doc} allDocs={allDocs ?? []} />;
 }
 
+function countDescendantsFromList(docs: Doc[], id: string): number {
+  const children = docs.filter((doc) => doc.parentId === id);
+  return children.reduce(
+    (total, child) => total + 1 + countDescendantsFromList(docs, child.id),
+    0,
+  );
+}
+
 function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const router = useRouter();
   const updateDoc = useUpdateDoc();
@@ -88,8 +98,16 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [remoteEpoch, setRemoteEpoch] = useState(0);
+  const [remoteContent, setRemoteContent] = useState<Doc["content"] | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const lastSavedAtRef = useRef<string | null>(doc.updatedAt);
+  const seedContent = useMemo(
+    () =>
+      isRichContentEmpty(doc.content)
+        ? toRichContent(null, doc.plainText)
+        : doc.content,
+    [doc.id],
+  );
 
   const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateDocPayload>(
     async (patch) => {
@@ -102,6 +120,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   useDocWatch(doc.id, {
     lastSavedAtRef,
     hasLocalEdits: hasUnsavedChanges,
+    isEditorFocused: () => Boolean(editorRef.current?.isFocused),
     onRemote: () => setRemoteEpoch((epoch) => epoch + 1),
     onDeleted: () => router.push("/docs"),
   });
@@ -110,8 +129,14 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     if (remoteEpoch === 0) return;
     setTitle(doc.title);
     setWordCount(countWords(doc.plainText));
-  }, [remoteEpoch, doc.title, doc.plainText]);
+    setRemoteContent(
+      isRichContentEmpty(doc.content)
+        ? toRichContent(null, doc.plainText)
+        : doc.content,
+    );
+  }, [remoteEpoch, doc.title, doc.plainText, doc.content]);
 
+  const descendantCount = countDescendantsFromList(allDocs, doc.id);
   const breadcrumb = useMemo(
     () => buildBreadcrumb(allDocs, doc.id),
     [allDocs, doc.id],
@@ -159,9 +184,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           <span className="truncate text-foreground">{doc.title}</span>
         </nav>
 
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {saveStatusLabel(status)}
-        </span>
+        <SaveStatusBadge status={status} onRetry={() => void flush()} />
 
         <button
           type="button"
@@ -172,6 +195,21 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           <Star
             className={`size-4 ${doc.isFavorite ? "fill-warning text-warning" : ""}`}
           />
+        </button>
+
+        <button
+          type="button"
+          title={doc.archivedAt ? "Unarchive" : "Archive"}
+          onClick={() => {
+            const next = !doc.archivedAt;
+            schedule({ archived: next });
+            showUndoToast(next ? "Archived" : "Unarchived", () =>
+              schedule({ archived: !next }),
+            );
+          }}
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
+        >
+          <Archive className={`size-4 ${doc.archivedAt ? "text-warning" : ""}`} />
         </button>
 
         <div className="relative shrink-0">
@@ -187,7 +225,11 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           {isConfirmingDelete && (
             <div className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-border bg-popover p-3 text-xs shadow-xl">
               <p className="text-muted-foreground">
-                Delete this doc and all of its subpages?
+                Delete <span className="text-foreground">{doc.title || "this doc"}</span>
+                {descendantCount > 0
+                  ? ` and its ${descendantCount} subpage${descendantCount === 1 ? "" : "s"}`
+                  : ""}
+                ?
               </p>
               <div className="mt-2 flex justify-end gap-1.5">
                 <button
@@ -276,12 +318,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           </p>
 
           <RichTextEditor
-            key={`${doc.id}:${remoteEpoch}`}
-            content={
-              isRichContentEmpty(doc.content)
-                ? toRichContent(null, doc.plainText)
-                : doc.content
-            }
+            content={remoteContent ?? seedContent}
             onReady={handleEditorReady}
             onChange={handleEditorChange}
           />

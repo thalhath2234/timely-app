@@ -5,10 +5,11 @@ import { useSearchParams } from "next/navigation";
 import AccountSettings from "@/app/_components/settings/accountSettings";
 import WorkspaceSettings from "@/app/_components/settings/workspaceSettings";
 import WorkingHoursSettings from "@/app/_components/settings/workingHoursSettings";
+import NotificationSettings from "@/app/_components/settings/notificationSettings";
 import ApiKeysSettings from "@/app/_components/settings/apiKeysSettings";
 import { cn } from "@/app/utils/cn";
 
-type SettingsTab = "account" | "schedule" | "workspaces" | "integrations";
+type SettingsTab = "account" | "schedule" | "notifications" | "workspaces" | "integrations";
 
 const TABS: { id: SettingsTab; label: string; description: string }[] = [
   {
@@ -19,7 +20,12 @@ const TABS: { id: SettingsTab; label: string; description: string }[] = [
   {
     id: "schedule",
     label: "Schedule",
-    description: "Working hours for auto-schedule",
+    description: "Working hours, freeze, and engine controls",
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    description: "Reminders, digests, quiet hours, and jobs",
   },
   {
     id: "workspaces",
@@ -87,6 +93,7 @@ function SettingsContent() {
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {tab === "account" && <AccountSettings />}
           {tab === "schedule" && <WorkingHoursSettings />}
+          {tab === "notifications" && <NotificationSettings />}
           {tab === "workspaces" && <WorkspaceSettings />}
           {tab === "integrations" && <ApiKeysSettings />}
         </div>

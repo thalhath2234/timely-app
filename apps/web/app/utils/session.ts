@@ -13,8 +13,10 @@ function getEncodedKey() {
 }
 
 export type SessionPayload = {
-    user_id: number;
+    user_id: string;
     email: string;
+    sid?: string;
+    is_on_boarding_completed?: boolean;
     exp: number;
     iat: number;
 };

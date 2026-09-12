@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronRight, Smile, Star, Trash2 } from "lucide-react";
+import { Archive, ChevronRight, Smile, Star, Trash2 } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import SheetGrid from "@/app/_components/sheets/sheetGrid";
 import { Sheet, SheetColumn, SheetRow } from "@/app/_types/types";
@@ -13,8 +13,10 @@ import {
   useSheet,
   useUpdateSheet,
 } from "@/app/utils/hooks/sheets";
-import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
+import { useAutosave } from "@/app/utils/hooks/useAutosave";
 import { toRichContent } from "@/app/utils/richText";
+import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
+import { showUndoToast } from "@/app/_store/toastStore";
 
 const ICON_CHOICES = [
   "📊", "📈", "📉", "🧮", "💰", "📋", "🗓️", "⚙️",
@@ -108,9 +110,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
           <span className="truncate text-foreground">{sheet.title}</span>
         </nav>
 
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {saveStatusLabel(status)}
-        </span>
+        <SaveStatusBadge status={status} onRetry={() => void flush()} />
 
         <button
           type="button"
@@ -121,6 +121,21 @@ function SheetView({ sheet }: { sheet: Sheet }) {
           <Star
             className={`size-4 ${sheet.isFavorite ? "fill-warning text-warning" : ""}`}
           />
+        </button>
+
+        <button
+          type="button"
+          title={sheet.archivedAt ? "Unarchive" : "Archive"}
+          onClick={() => {
+            const next = !sheet.archivedAt;
+            schedule({ archived: next });
+            showUndoToast(next ? "Archived" : "Unarchived", () =>
+              schedule({ archived: !next }),
+            );
+          }}
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
+        >
+          <Archive className={`size-4 ${sheet.archivedAt ? "text-warning" : ""}`} />
         </button>
 
         <div className="relative shrink-0">

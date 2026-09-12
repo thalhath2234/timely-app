@@ -26,7 +26,7 @@ import { useProjects } from "@/app/utils/hooks/projects";
 import { useCreateDoc } from "@/app/utils/hooks/docs";
 import { useCreateSheet } from "@/app/utils/hooks/sheets";
 import { createProject } from "@/app/utils/api/projects";
-import { createTask } from "@/app/utils/api/tasks";
+import { useCreateTask } from "@/app/utils/hooks/tasks";
 import { useCreateEvent } from "@/app/utils/hooks/calendar";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
 import CustomFieldControl, {
@@ -35,7 +35,7 @@ import CustomFieldControl, {
   findCustomFieldDraft,
   withCustomFieldDraft,
 } from "@/app/_components/_ui/customFieldControl";
-import DatePicker from "@/app/_components/_ui/datePicker";
+import DatePicker, { TimeField } from "@/app/_components/_ui/datePicker";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
 import LabelPicker from "@/app/_components/_ui/labelPicker";
 import Select from "@/app/_components/_ui/select";
@@ -61,20 +61,19 @@ import {
   Workspace,
   Status,
 } from "@/app/_types/types";
+import { apiFetch } from "@/app/utils/api/client";
 import {
+  applyClockToDate,
+  dateFromDateInput,
   formatDuration,
   fromDatetimeLocalValue,
   toDatetimeLocalValue,
+  toTimeInputValue,
 } from "@/app/utils/calendar";
 import { buildRecurrenceInput, type RecurrenceDraft } from "@/app/utils/recurrence";
 import { isRichContentEmpty } from "@/app/utils/richText";
-
-const PRIORITY_OPTIONS = [
-  { value: "Low", label: "Low" },
-  { value: "Medium", label: "Medium" },
-  { value: "High", label: "High" },
-  { value: "Urgent", label: "Urgent" },
-];
+import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { stagesForProject } from "@/app/utils/stages";
 
 interface RichDescription {
   content: DocContent;
@@ -133,22 +132,33 @@ const addProjectSchema = z.object({
 
 type AddProjectForm = z.input<typeof addProjectSchema>;
 
-const addTaskSchema = z.object({
-  name: z
-    .string()
-    .min(2, "Task name must be at least 2 characters")
-    .max(100, "Task name must be less than 100 characters"),
-  workspaceId: z.string().min(1, "Please select a workspace"),
-  projectId: z.string().optional(),
-  statusId: z.string().optional(),
-  priorityLevel: z.string().optional(),
-  startDate: z.string().optional(),
-  deadline: z.string().optional(),
-  scheduledOn: z.string().optional(),
-  duration: z.coerce.number().optional(),
-  labelIds: z.array(z.string()).default([]),
-  customFieldValues: z.array(customFieldValueSchema).default([]),
-});
+const addTaskSchema = z
+  .object({
+    name: z
+      .string()
+      .min(2, "Task name must be at least 2 characters")
+      .max(100, "Task name must be less than 100 characters"),
+    workspaceId: z.string().optional(),
+    projectId: z.string().optional(),
+    statusId: z.string().optional(),
+    stageId: z.string().optional(),
+    priorityLevel: z.string().optional(),
+    startDate: z.string().optional(),
+    deadline: z.string().optional(),
+    scheduledOn: z.string().optional(),
+    duration: z.coerce.number().optional(),
+    labelIds: z.array(z.string()).default([]),
+    customFieldValues: z.array(customFieldValueSchema).default([]),
+  })
+  .superRefine((data, ctx) => {
+    if ((Number(data.duration) || 0) > 0 && !data.workspaceId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["workspaceId"],
+        message: "Please select a workspace",
+      });
+    }
+  });
 
 type AddTaskForm = z.input<typeof addTaskSchema>;
 
@@ -276,11 +286,15 @@ export default function AddItemModal() {
   const projectColor = watch("color") ?? "#30A66D";
   const selectedTaskWorkspaceId = watchTask("workspaceId");
   const taskProjectId = watchTask("projectId") ?? "";
+  const taskStageId = watchTask("stageId") ?? "";
   const taskStatusId = watchTask("statusId") ?? "";
   const taskPriorityLevel = watchTask("priorityLevel") ?? "Medium";
   const taskStartDate = watchTask("startDate") ?? "";
   const taskDeadline = watchTask("deadline") ?? "";
   const taskScheduledOn = watchTask("scheduledOn") ?? "";
+  const taskDuration = Number(watchTask("duration") ?? 0);
+  const taskIsReminder = taskDuration <= 0;
+  const taskTimeOnly = taskIsReminder || Boolean(taskRecurrence);
   const taskLabelIds = watchTask("labelIds") ?? [];
   const selectedPageWorkspaceId = watchPage("workspaceId");
 
@@ -315,12 +329,12 @@ export default function AddItemModal() {
       ),
     [typedProjects, selectedTaskWorkspaceId],
   );
+  const availableTaskStages = stagesForProject(typedProjects, taskProjectId);
 
   const createWorkspaceMutation = useMutation({
     mutationFn: async (data: AddWorkspaceForm) => {
-      const response = await fetch("http://localhost:8080/workspaces", {
+      const response = await apiFetch("/workspaces", {
         method: "POST",
-        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -374,15 +388,7 @@ export default function AddItemModal() {
     });
   };
 
-  const createTaskMutation = useMutation({
-    mutationFn: createTask,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["tasks"],
-      });
-      closeModal();
-    },
-  });
+  const createTaskMutation = useCreateTask();
 
   // The first occurrence of a repeating task is the "Schedule" time when set,
   // otherwise the next round hour, so the series starts somewhere sensible.
@@ -391,31 +397,63 @@ export default function AddItemModal() {
     [taskScheduledOn],
   );
 
+  const setTaskClock = (hhmm: string) => {
+    if (!hhmm) {
+      setValueTask("scheduledOn", "", { shouldValidate: true, shouldDirty: true });
+      return;
+    }
+    const day = taskStartDate
+      ? dateFromDateInput(taskStartDate)
+      : taskScheduledOn
+        ? new Date(taskScheduledOn)
+        : new Date();
+    setValueTask("scheduledOn", toDatetimeLocalValue(applyClockToDate(day, hhmm)), {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+  };
+
+  const makeTaskReminder = () => {
+    setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
+    if (!taskScheduledOn) {
+      setTaskClock(toTimeInputValue(nextRoundHour()));
+    }
+  };
+
   const onTaskSubmit = (data: AddTaskForm) => {
     const hasDescription =
       !isRichContentEmpty(taskDescription.content) ||
       taskDescription.plainText.trim().length > 0;
     const recurrence = buildRecurrenceInput(taskRecurrence, taskRecurrenceAnchor);
 
-    createTaskMutation.mutate({
+    const isReminder =
+      (Number(data.duration) || 0) <= 0 && Boolean(data.scheduledOn || recurrence);
+    const isInbox = (Number(data.duration) || 0) <= 0 && !isReminder;
+    createTaskMutation.mutate(
+      {
       name: data.name,
       description: hasDescription ? taskDescription.plainText : "",
       descriptionRich: hasDescription ? taskDescription.content : undefined,
-      workspaceId: data.workspaceId,
-      projectId: data.projectId || undefined,
-      statusId: data.statusId || undefined,
+      workspaceId: isReminder || isInbox ? undefined : data.workspaceId,
+      projectId: isReminder || isInbox ? undefined : data.projectId || undefined,
+      stageId: isReminder || isInbox ? undefined : data.stageId || undefined,
+      statusId: isReminder || isInbox ? undefined : data.statusId || undefined,
       priorityLevel: data.priorityLevel || undefined,
       startDate: data.startDate || undefined,
       deadline: data.deadline || undefined,
-      // A repeating task is placed by its rule, not by a pinned block.
       scheduledOn:
         !recurrence && data.scheduledOn
           ? fromDatetimeLocalValue(data.scheduledOn)
           : undefined,
       duration: data.duration ? Number(data.duration) : 0,
-      labelIds: (data.labelIds ?? taskLabelIds ?? []).map((id) => ({ id })),
-      customFieldValues: data.customFieldValues,
+      kind: isInbox ? "inbox" : isReminder ? "reminder" : "task",
+      labelIds: isReminder || isInbox
+        ? undefined
+        : (data.labelIds ?? taskLabelIds ?? []).map((id) => ({ id })),
+      customFieldValues: isReminder || isInbox ? undefined : data.customFieldValues,
       recurrence: recurrence ?? undefined,
+    }, {
+      onSuccess: () => closeModal(),
     });
   };
 
@@ -425,6 +463,7 @@ export default function AddItemModal() {
     [eventStart],
   );
   const isEventValid = eventTitle.trim().length > 0 && Boolean(eventStart);
+  const eventTimeOnly = Boolean(eventRecurrence) && !eventAllDay;
 
   const onEventSubmit = async (submit: React.FormEvent<HTMLFormElement>) => {
     submit.preventDefault();
@@ -945,6 +984,8 @@ export default function AddItemModal() {
 
           <ModalSidebar>
             <div className="flex flex-col gap-1">
+              {!taskIsReminder ? (
+                <>
               <PropertyRow icon={FolderKanban} label="Workspace">
                 <Select
                   size="sm"
@@ -968,12 +1009,13 @@ export default function AddItemModal() {
                 <Select
                   size="sm"
                   value={taskProjectId}
-                  onChange={(projectId) =>
+                  onChange={(projectId) => {
                     setValueTask("projectId", projectId, {
                       shouldValidate: true,
                       shouldDirty: true,
-                    })
-                  }
+                    });
+                    setValueTask("stageId", "", { shouldDirty: true });
+                  }}
                   placeholder="No project"
                   className="border-0 bg-transparent px-0 shadow-none"
                   options={[
@@ -985,6 +1027,30 @@ export default function AddItemModal() {
                   ]}
                 />
               </PropertyRow>
+
+              {availableTaskStages.length > 0 ? (
+              <PropertyRow icon={GitBranch} label="Stage">
+                <Select
+                  size="sm"
+                  value={taskStageId}
+                  onChange={(stageId) =>
+                    setValueTask("stageId", stageId, {
+                      shouldValidate: true,
+                      shouldDirty: true,
+                    })
+                  }
+                  placeholder="No stage"
+                  className="border-0 bg-transparent px-0 shadow-none"
+                  options={[
+                    { value: "", label: "No stage" },
+                    ...availableTaskStages.map((stage) => ({
+                      value: stage.id,
+                      label: stage.name,
+                    })),
+                  ]}
+                />
+              </PropertyRow>
+              ) : null}
 
               <PropertyRow icon={Circle} label="Status">
                 <Select
@@ -1007,6 +1073,8 @@ export default function AddItemModal() {
                   )}
                 />
               </PropertyRow>
+                </>
+              ) : null}
 
               <PropertyRow icon={Flag} label="Priority">
                 <Select
@@ -1024,28 +1092,69 @@ export default function AddItemModal() {
               </PropertyRow>
 
               <PropertyRow icon={Clock} label="Duration">
-                <input
-                  type="number"
-                  min={0}
-                  step={15}
-                  {...registerTask("duration")}
-                  className="w-full bg-transparent text-sm text-foreground outline-none"
-                />
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  min
-                </span>
+                {taskIsReminder ? (
+                  <>
+                    <span className="min-w-0 flex-1 text-sm text-foreground">
+                      Reminder
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setValueTask("duration", 30, {
+                          shouldValidate: true,
+                          shouldDirty: true,
+                        })
+                      }
+                      className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      Add duration
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="number"
+                      min={0}
+                      step={15}
+                      {...registerTask("duration")}
+                      className="w-full bg-transparent text-sm text-foreground outline-none"
+                    />
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      min
+                    </span>
+                    <button
+                      type="button"
+                      onClick={makeTaskReminder}
+                      className="shrink-0 rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
+                    >
+                      Reminder
+                    </button>
+                  </>
+                )}
               </PropertyRow>
 
               <PropertyRow icon={CalendarDays} label="Start date">
                 <DatePicker
                   mode="date"
                   value={taskStartDate}
-                  onChange={(startDate) =>
+                  onChange={(startDate) => {
                     setValueTask("startDate", startDate, {
                       shouldValidate: true,
                       shouldDirty: true,
-                    })
-                  }
+                    });
+                    if (taskTimeOnly && taskScheduledOn) {
+                      const clock = toTimeInputValue(taskScheduledOn);
+                      if (clock) {
+                        setValueTask(
+                          "scheduledOn",
+                          toDatetimeLocalValue(
+                            applyClockToDate(dateFromDateInput(startDate), clock),
+                          ),
+                          { shouldValidate: true, shouldDirty: true },
+                        );
+                      }
+                    }
+                  }}
                 />
               </PropertyRow>
 
@@ -1063,19 +1172,29 @@ export default function AddItemModal() {
               </PropertyRow>
 
               <PropertyRow
-                icon={CalendarDays}
-                label={taskRecurrence ? "First on" : "Schedule"}
+                icon={Clock}
+                label={taskTimeOnly ? "Time" : "Schedule"}
               >
-                <DatePicker
-                  mode="datetime"
-                  value={taskScheduledOn}
-                  onChange={(scheduledOn) =>
-                    setValueTask("scheduledOn", scheduledOn, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                />
+                {taskTimeOnly ? (
+                  <TimeField
+                    className="min-w-0 flex-1"
+                    value={toTimeInputValue(taskScheduledOn)}
+                    clearable
+                    aria-label="Time"
+                    onChange={setTaskClock}
+                  />
+                ) : (
+                  <DatePicker
+                    mode="datetime"
+                    value={taskScheduledOn}
+                    onChange={(scheduledOn) =>
+                      setValueTask("scheduledOn", scheduledOn, {
+                        shouldValidate: true,
+                        shouldDirty: true,
+                      })
+                    }
+                  />
+                )}
               </PropertyRow>
 
               <RecurrenceEditor
@@ -1083,22 +1202,33 @@ export default function AddItemModal() {
                 icon={Repeat}
                 value={taskRecurrence}
                 anchor={taskRecurrenceAnchor}
-                onChange={setTaskRecurrence}
+                onChange={(next) => {
+                  setTaskRecurrence(next);
+                  if (next && !toTimeInputValue(taskScheduledOn)) {
+                    setTaskClock(toTimeInputValue(nextRoundHour()));
+                  }
+                }}
               />
             </div>
 
             <p className="mt-1 px-1 text-[11px] text-muted-foreground">
-              {taskRecurrence
-                ? "Each occurrence shows on the calendar and is completed on its own."
-                : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}
+              {taskIsReminder
+                ? taskRecurrence
+                  ? "Each repeat pings at this time. No work block is reserved."
+                  : "Pings at this time. Use start date if you want a specific day."
+                : taskRecurrence
+                  ? "Each occurrence starts at this time. Auto-schedule keeps that block for this task."
+                  : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}
             </p>
 
-            {taskErrors.workspaceId && (
+            {!taskIsReminder && taskErrors.workspaceId && (
               <p className="mt-2 px-1 text-xs text-destructive">
                 {taskErrors.workspaceId.message}
               </p>
             )}
 
+            {!taskIsReminder ? (
+            <>
             <div className="pt-3">
               <SidebarSectionTitle>Labels</SidebarSectionTitle>
               <LabelPicker
@@ -1141,6 +1271,8 @@ export default function AddItemModal() {
                 onCreated={addTaskCustomField}
               />
             </div>
+            </>
+            ) : null}
           </ModalSidebar>
         </form>
       </EntityModalShell>
@@ -1197,13 +1329,27 @@ export default function AddItemModal() {
 
           <ModalSidebar>
             <div className="flex flex-col gap-1">
-              <PropertyRow icon={CalendarDays} label="Starts">
-                <DatePicker
-                  mode="datetime"
-                  value={eventStart}
-                  onChange={setEventStart}
-                  clearable={false}
-                />
+              <PropertyRow icon={eventTimeOnly ? Clock : CalendarDays} label={eventTimeOnly ? "Time" : "Starts"}>
+                {eventTimeOnly ? (
+                  <TimeField
+                    className="min-w-0 flex-1"
+                    value={toTimeInputValue(eventStart)}
+                    clearable={false}
+                    aria-label="Time"
+                    onChange={(hhmm) =>
+                      setEventStart(
+                        toDatetimeLocalValue(applyClockToDate(eventStartDate, hhmm)),
+                      )
+                    }
+                  />
+                ) : (
+                  <DatePicker
+                    mode={eventAllDay ? "date" : "datetime"}
+                    value={eventStart}
+                    onChange={setEventStart}
+                    clearable={false}
+                  />
+                )}
               </PropertyRow>
 
               <PropertyRow icon={Clock} label="Duration">
@@ -1238,6 +1384,11 @@ export default function AddItemModal() {
                 anchor={eventStartDate}
                 onChange={setEventRecurrence}
               />
+              {eventTimeOnly ? (
+                <p className="mt-1 px-1 text-[11px] text-muted-foreground">
+                  Each occurrence starts at this time. Dates come from the repeat rule.
+                </p>
+              ) : null}
 
               <PropertyRow icon={FolderKanban} label="Workspace">
                 <Select

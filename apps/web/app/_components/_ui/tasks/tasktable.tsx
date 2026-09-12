@@ -26,6 +26,7 @@ import {
 } from "@/app/_types/types";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
+import { filterTasks, type TaskListFilters } from "@/app/utils/taskFilters";
 
 type TasksTableProps = {
   config: Config;
@@ -39,6 +40,10 @@ type TasksTableProps = {
   columnOrder: string[];
   onColumnOrderChange: (order: string[]) => void;
   onSelectRow: (row: Task) => void;
+  filters?: TaskListFilters;
+  stageNames?: Record<string, string>;
+  selectedIds?: string[];
+  onSelectedIdsChange?: (ids: string[]) => void;
 };
 
 const BUILTIN_COLUMNS = [
@@ -55,8 +60,7 @@ const BUILTIN_COLUMNS = [
   { id: "workspace", label: "Workspace", width: "w-48", align: "left" },
   { id: "blockedBy", label: "Blocked By", width: "w-36", align: "left" },
   { id: "priority", label: "Priority", width: "w-24", align: "center" },
-  { id: "stageId", label: "Stage ID", width: "w-24", align: "center" },
-  { id: "scheduleId", label: "Schedule ID", width: "w-28", align: "center" },
+  { id: "stageId", label: "Stage", width: "w-32", align: "left" },
   { id: "status", label: "Status", width: "w-32", align: "left" },
   { id: "labels", label: "Labels", width: "w-36", align: "left" },
 ] as const;
@@ -205,9 +209,8 @@ function formatDate(value?: string | null): string {
 }
 
 function getPriorityWeight(priority?: string | null): number {
-  switch ((priority ?? "").toLowerCase()) {
+  switch ((priority ?? "").trim().toLowerCase()) {
     case "critical":
-      return 5;
     case "urgent":
       return 4;
     case "high":
@@ -237,12 +240,16 @@ function getCustomFieldDisplayValue(task: Task, fieldId: string): string {
   return "-";
 }
 
-function getGroupLabel(task: Task, groupBy: TaskListGroupField): string {
+function getGroupLabel(
+  task: Task,
+  groupBy: TaskListGroupField,
+  stageNames: Record<string, string> = {},
+): string {
   if (groupBy === "workspace") return task.workspace?.name || "No workspace";
   if (groupBy === "project") return task.project?.title || "No project";
   if (groupBy === "status") return task.status?.name || "No status";
   if (groupBy === "priority") return task.priorityLevel || "No priority";
-  if (groupBy === "stage") return task.stageId || "No stage";
+  if (groupBy === "stage") return (task.stageId && stageNames[task.stageId]) || "No stage";
   if (groupBy.startsWith("cf:")) return getCustomFieldDisplayValue(task, groupBy.slice(3));
   return "No group";
 }
@@ -274,6 +281,7 @@ function buildNestedGroups(
   groupFields: TaskListGroupField[],
   groupSortDirection: TaskListGroupSortDirection,
   groupValueOrders: Record<string, string[]>,
+  stageNames: Record<string, string> = {},
   depth = 0,
   parentKey = ""
 ): GroupNode[] {
@@ -283,7 +291,7 @@ function buildNestedGroups(
   const grouped = new Map<string, Task[]>();
 
   rows.forEach((task) => {
-    const label = getGroupLabel(task, field);
+    const label = getGroupLabel(task, field, stageNames);
     const existing = grouped.get(label) ?? [];
     existing.push(task);
     grouped.set(label, existing);
@@ -300,6 +308,7 @@ function buildNestedGroups(
         groupFields,
         groupSortDirection,
         groupValueOrders,
+        stageNames,
         depth + 1,
         nodeKey
       );
@@ -403,6 +412,10 @@ export default function TasksTable({
   columnOrder,
   onColumnOrderChange,
   onSelectRow,
+  filters,
+  stageNames = {},
+  selectedIds = [],
+  onSelectedIdsChange,
 }: TasksTableProps) {
   const { data: tasks, isLoading, status } = useTasks();
   const typedTasks = (tasks ?? []) as Task[];
@@ -415,12 +428,13 @@ export default function TasksTable({
   const ghostRef = useRef<HTMLDivElement>(null);
   const dropPreviewRef = useRef<HTMLDivElement>(null);
 
-  const dataRows = useMemo(
-    () => (dataMode === "project" ? buildProjectRows(typedTasks) : typedTasks),
-    [dataMode, typedTasks]
-  );
+  const dataRows = useMemo(() => {
+    const source = filters ? filterTasks(typedTasks, filters) : typedTasks;
+    return dataMode === "project" ? buildProjectRows(source) : source;
+  }, [dataMode, typedTasks, filters]);
 
   const filteredRows = useMemo(() => {
+    if (filters) return dataRows;
     if (selectedWorkspaceIds.length === 0) return dataRows;
 
     return dataRows.filter((row) => {
@@ -428,7 +442,7 @@ export default function TasksTable({
       if (!workspaceId) return false;
       return selectedWorkspaceIds.includes(workspaceId);
     });
-  }, [dataRows, selectedWorkspaceIds]);
+  }, [dataRows, selectedWorkspaceIds, filters]);
 
   const sortedTasks = useMemo(() => {
     const sorted = [...filteredRows].sort((a, b) => {
@@ -440,8 +454,8 @@ export default function TasksTable({
   }, [filteredRows, sortBy, sortDirection]);
 
   const nestedGroups = useMemo(
-    () => buildNestedGroups(sortedTasks, groupFields, groupSortDirection, groupValueOrders),
-    [sortedTasks, groupFields, groupSortDirection, groupValueOrders]
+    () => buildNestedGroups(sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames),
+    [sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames]
   );
 
   const toggleGroup = (key: string) => {
@@ -455,6 +469,35 @@ export default function TasksTable({
     () => resolveListColumns(columnOrder, customFields),
     [columnOrder, customFields],
   );
+
+  const canSelect = dataMode === "task" && Boolean(onSelectedIdsChange);
+  const visibleIds = sortedTasks.map((task) => task.id);
+  const allSelected =
+    canSelect && visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+
+  const toggleRow = (id: string) => {
+    if (!onSelectedIdsChange) return;
+    onSelectedIdsChange(
+      selectedIds.includes(id)
+        ? selectedIds.filter((item) => item !== id)
+        : [...selectedIds, id],
+    );
+  };
+
+  const selectCell = (task: Task) =>
+    canSelect ? (
+      <td
+        className="w-10 px-2 align-middle"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <input
+          type="checkbox"
+          checked={selectedIds.includes(task.id)}
+          onChange={() => toggleRow(task.id)}
+          className="accent-primary"
+        />
+      </td>
+    ) : null;
 
   const updateDragOverlays = useCallback((clientX?: number) => {
     const live = liveDragRef.current;
@@ -827,20 +870,7 @@ export default function TasksTable({
             )}
             style={columnMotionStyle(column.id)}
           >
-            {task.stageId || "-"}
-          </td>
-        );
-      case "scheduleId":
-        return (
-          <td
-            key={column.id}
-            className={bodyCellClass(
-              "px-3 py-2 text-center text-muted-foreground tabular-nums whitespace-nowrap align-middle",
-              column.id,
-            )}
-            style={columnMotionStyle(column.id)}
-          >
-            {task.scheduleId || "-"}
+            {task.stageId ? stageNames[task.stageId] || task.stageId : "-"}
           </td>
         );
       case "status":
@@ -906,12 +936,25 @@ export default function TasksTable({
     >
       <table className="w-max min-w-full border-collapse text-sm">
         <colgroup>
+          {canSelect ? <col className="w-10" /> : null}
           {columns.map((column) => (
             <col key={`col-${column.id}`} className={column.width} />
           ))}
         </colgroup>
         <thead className="sticky top-0 z-30">
           <tr className="border-b border-border bg-muted/60 text-left">
+            {canSelect ? (
+              <th className="w-10 px-2">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() =>
+                    onSelectedIdsChange?.(allSelected ? [] : visibleIds)
+                  }
+                  className="accent-primary"
+                />
+              </th>
+            ) : null}
             {columns.map((column) => (
               <th
                 key={column.id}
@@ -950,6 +993,7 @@ export default function TasksTable({
                 onClick={() => onSelectRow(task)}
                 className="cursor-pointer border-b border-border transition-colors hover:bg-muted/40"
               >
+                {selectCell(task)}
                 {renderTaskCells(task, 0)}
               </tr>
             ))}
@@ -965,7 +1009,7 @@ export default function TasksTable({
                   <Fragment key={node.key}>
                     <tr className="border-b border-border">
                       <td
-                        colSpan={columns.length}
+                        colSpan={columns.length + (canSelect ? 1 : 0)}
                         className="px-3 py-2 text-xs font-semibold text-foreground bg-muted sticky"
                         style={{
                           top: `${stickyTop}px`,
@@ -995,6 +1039,7 @@ export default function TasksTable({
                               onClick={() => onSelectRow(task)}
                               className="cursor-pointer border-b border-border transition-colors hover:bg-muted/40"
                             >
+                              {selectCell(task)}
                               {renderTaskCells(task, node.depth + 1)}
                             </tr>
                           ))) }

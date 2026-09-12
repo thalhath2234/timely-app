@@ -8,8 +8,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { Editor, ReactRenderer } from "@tiptap/react";
-import { SuggestionKeyDownProps, SuggestionProps } from "@tiptap/suggestion";
+import { Editor, Range, ReactRenderer } from "@tiptap/react";
+import {
+  exitSuggestion,
+  SuggestionKeyDownProps,
+  SuggestionProps,
+} from "@tiptap/suggestion";
 import {
   AtSign,
   CheckSquare,
@@ -25,14 +29,29 @@ import {
   Table2,
   Type,
 } from "lucide-react";
-import { placeCaretPopup, watchCaretPopup } from "./caretPopup";
-import { SlashCommandItem } from "./slashCommand";
+import { dismissOnOutsidePointer, placeCaretPopup, watchCaretPopup } from "./caretPopup";
+import { SlashCommandItem, SlashCommandPluginKey } from "./slashCommand";
 
 const MENU_WIDTH = 300;
 const MENU_MAX_HEIGHT = 330;
 
 /** Emitted on the editor DOM node so the editor can open its link popover. */
 export const OPEN_LINK_EDITOR_EVENT = "timely:open-link-editor";
+
+function clampedRange(editor: Editor, range: Range): Range {
+  const size = editor.state.doc.content.size;
+  const from = Math.max(0, Math.min(range.from, size));
+  const to = Math.max(from, Math.min(range.to, size));
+  return { from, to };
+}
+
+function runSlash(
+  editor: Editor,
+  range: Range,
+  apply: (chain: ReturnType<Editor["chain"]>) => boolean,
+) {
+  return apply(editor.chain().focus().deleteRange(clampedRange(editor, range)));
+}
 
 export function createSlashItems(): SlashCommandItem[] {
   return [
@@ -42,7 +61,7 @@ export function createSlashItems(): SlashCommandItem[] {
       icon: Type,
       keywords: ["paragraph", "plain", "body"],
       run: ({ editor, range }) =>
-        editor.chain().focus().deleteRange(range).setParagraph().run(),
+        runSlash(editor, range, (chain) => chain.setParagraph().run()),
     },
     {
       title: "Heading 1",
@@ -50,12 +69,9 @@ export function createSlashItems(): SlashCommandItem[] {
       icon: Heading1,
       keywords: ["h1", "title", "big"],
       run: ({ editor, range }) =>
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .setNode("heading", { level: 1 })
-          .run(),
+        runSlash(editor, range, (chain) =>
+          chain.setNode("heading", { level: 1 }).run(),
+        ),
     },
     {
       title: "Heading 2",
@@ -63,12 +79,9 @@ export function createSlashItems(): SlashCommandItem[] {
       icon: Heading2,
       keywords: ["h2", "subtitle"],
       run: ({ editor, range }) =>
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .setNode("heading", { level: 2 })
-          .run(),
+        runSlash(editor, range, (chain) =>
+          chain.setNode("heading", { level: 2 }).run(),
+        ),
     },
     {
       title: "Heading 3",
@@ -76,20 +89,17 @@ export function createSlashItems(): SlashCommandItem[] {
       icon: Heading3,
       keywords: ["h3"],
       run: ({ editor, range }) =>
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .setNode("heading", { level: 3 })
-          .run(),
+        runSlash(editor, range, (chain) =>
+          chain.setNode("heading", { level: 3 }).run(),
+        ),
     },
     {
       title: "Bulleted list",
-      description: "Simple bulleted list",
+      description: "Bullets — type . then space",
       icon: List,
       keywords: ["unordered", "point", "ul", "bullet"],
       run: ({ editor, range }) =>
-        editor.chain().focus().deleteRange(range).toggleBulletList().run(),
+        runSlash(editor, range, (chain) => chain.toggleBulletList().run()),
     },
     {
       title: "Numbered list",
@@ -97,7 +107,7 @@ export function createSlashItems(): SlashCommandItem[] {
       icon: ListOrdered,
       keywords: ["ordered", "ol", "number"],
       run: ({ editor, range }) =>
-        editor.chain().focus().deleteRange(range).toggleOrderedList().run(),
+        runSlash(editor, range, (chain) => chain.toggleOrderedList().run()),
     },
     {
       title: "To-do list",
@@ -105,7 +115,7 @@ export function createSlashItems(): SlashCommandItem[] {
       icon: CheckSquare,
       keywords: ["todo", "task", "checkbox", "check"],
       run: ({ editor, range }) =>
-        editor.chain().focus().deleteRange(range).toggleTaskList().run(),
+        runSlash(editor, range, (chain) => chain.toggleTaskList().run()),
     },
     {
       title: "Quote",
@@ -113,15 +123,15 @@ export function createSlashItems(): SlashCommandItem[] {
       icon: Quote,
       keywords: ["blockquote", "citation"],
       run: ({ editor, range }) =>
-        editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
+        runSlash(editor, range, (chain) => chain.toggleBlockquote().run()),
     },
     {
       title: "Code block",
-      description: "Monospaced code with syntax",
+      description: "Monospace code with syntax",
       icon: Code2,
       keywords: ["snippet", "pre", "monospace"],
       run: ({ editor, range }) =>
-        editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
+        runSlash(editor, range, (chain) => chain.toggleCodeBlock().run()),
     },
     {
       title: "Table",
@@ -129,20 +139,17 @@ export function createSlashItems(): SlashCommandItem[] {
       icon: Table2,
       keywords: ["grid", "rows", "columns"],
       run: ({ editor, range }) =>
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-          .run(),
+        runSlash(editor, range, (chain) =>
+          chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+        ),
     },
     {
       title: "Divider",
-      description: "Visually separate sections",
+      description: "Line — type - then space",
       icon: Minus,
       keywords: ["hr", "line", "separator", "rule"],
       run: ({ editor, range }) =>
-        editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
+        runSlash(editor, range, (chain) => chain.setHorizontalRule().run()),
     },
     {
       title: "Link",
@@ -150,7 +157,7 @@ export function createSlashItems(): SlashCommandItem[] {
       icon: Link2,
       keywords: ["url", "href", "hyperlink", "anchor"],
       run: ({ editor, range }) => {
-        editor.chain().focus().deleteRange(range).run();
+        runSlash(editor, range, (chain) => chain.run());
         editor.view.dom.dispatchEvent(new CustomEvent(OPEN_LINK_EDITOR_EVENT));
       },
     },
@@ -159,9 +166,8 @@ export function createSlashItems(): SlashCommandItem[] {
       description: "Reference a doc, sheet, task or project",
       icon: AtSign,
       keywords: ["@", "reference", "link", "doc", "sheet", "task", "project"],
-      // Typing the character is what opens the mention picker.
       run: ({ editor, range }) =>
-        editor.chain().focus().deleteRange(range).insertContent("@").run(),
+        runSlash(editor, range, (chain) => chain.insertContent("@").run()),
     },
   ];
 }
@@ -227,6 +233,7 @@ const SlashMenuList = forwardRef<SlashMenuHandle, SlashMenuProps>(
     return (
       <div
         ref={listRef}
+        onMouseDown={(event) => event.preventDefault()}
         className="w-75 max-h-82 overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl"
       >
         {items.map((item, index) => {
@@ -272,6 +279,7 @@ export function createSlashRenderer() {
   let popup: HTMLDivElement | null = null;
   let lastGetRect: (() => DOMRect | null) | null | undefined = null;
   let stopWatch: (() => void) | null = null;
+  let stopOutside: (() => void) | null = null;
 
   const place = () => {
     if (!popup) return;
@@ -284,6 +292,8 @@ export function createSlashRenderer() {
   const destroy = () => {
     stopWatch?.();
     stopWatch = null;
+    stopOutside?.();
+    stopOutside = null;
     lastGetRect = null;
     popup?.remove();
     component?.destroy();
@@ -299,13 +309,17 @@ export function createSlashRenderer() {
       });
 
       popup = document.createElement("div");
+      popup.dataset.caretPopup = "true";
       popup.style.position = "fixed";
-      popup.style.zIndex = "60";
+      popup.style.zIndex = "80";
       popup.appendChild(component.element);
       document.body.appendChild(popup);
 
       lastGetRect = props.clientRect;
       stopWatch = watchCaretPopup(popup, place);
+      stopOutside = dismissOnOutsidePointer(popup, () =>
+        exitSuggestion(props.editor.view, SlashCommandPluginKey),
+      );
     },
 
     onUpdate: (props: SlashMenuProps) => {

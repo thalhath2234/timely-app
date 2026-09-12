@@ -22,7 +22,7 @@ export default function DocsPage() {
   const { data: docs, isLoading } = useDocs();
   const createDoc = useCreateDoc();
 
-  const recentDocs = (docs ?? []).slice(0, 12);
+  const recentDocs = (docs ?? []).filter((doc) => !doc.archivedAt).slice(0, 12);
 
   const handleCreate = async () => {
     const doc = await createDoc.mutateAsync({});

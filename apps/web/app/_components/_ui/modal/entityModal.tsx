@@ -33,7 +33,13 @@ export function EntityModalShell({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
-      onClick={onClose}
+      onPointerDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        // Slash/mention menus render on document.body above this overlay.
+        // Closing here would discard the description when picking a command.
+        if (document.querySelector("[data-caret-popup]")) return;
+        onClose();
+      }}
     >
       <div
         role="dialog"

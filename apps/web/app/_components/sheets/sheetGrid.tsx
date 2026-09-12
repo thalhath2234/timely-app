@@ -11,11 +11,17 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { SheetColumn, SheetRow } from "@/app/_types/types";
+import { SheetColumn, SheetColumnType, SheetRow } from "@/app/_types/types";
 import {
   columnIndexToLetter,
   createSheetEvaluator,
 } from "@/app/utils/sheetFormula";
+import {
+  isBooleanTrue,
+  isFormulaValue,
+  normalizeTypedCell,
+  SHEET_COLUMN_TYPES,
+} from "@/app/utils/sheetColumns";
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 640;
@@ -50,6 +56,7 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
   const [renamingColumnIndex, setRenamingColumnIndex] = useState<number | null>(
     null,
   );
+  const [typeMenuIndex, setTypeMenuIndex] = useState<number | null>(null);
 
   const gridRef = useRef<HTMLDivElement>(null);
   const cellInputRef = useRef<HTMLInputElement>(null);
@@ -82,14 +89,32 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
   const setCellValue = (address: CellAddress, value: string) => {
     const column = columns[address.col];
     if (!column) return;
+    const nextValue = isFormulaValue(value)
+      ? value
+      : normalizeTypedCell(column.type, value);
 
     onChange({
       rows: rows.map((row, index) =>
         index === address.row
-          ? { ...row, cells: { ...row.cells, [column.id]: value } }
+          ? { ...row, cells: { ...row.cells, [column.id]: nextValue } }
           : row,
       ),
     });
+  };
+
+  const setColumnType = (index: number, type: SheetColumnType) => {
+    onChange({
+      columns: columns.map((column, columnIndex) =>
+        columnIndex === index ? { ...column, type } : column,
+      ),
+    });
+    setTypeMenuIndex(null);
+  };
+
+  const toggleBoolean = (address: CellAddress) => {
+    const current = rawAt(address);
+    if (isFormulaValue(current)) return;
+    setCellValue(address, isBooleanTrue(current) ? "FALSE" : "TRUE");
   };
 
   const addColumn = (atIndex = columns.length) => {
@@ -440,6 +465,37 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
                   </button>
                 )}
 
+                <div className="relative shrink-0">
+                  <button
+                    type="button"
+                    title="Column type"
+                    onClick={() =>
+                      setTypeMenuIndex((current) => (current === index ? null : index))
+                    }
+                    className="rounded px-1 text-[10px] uppercase text-muted-foreground hover:bg-accent"
+                  >
+                    {column.type?.[0] ?? "t"}
+                  </button>
+                  {typeMenuIndex === index ? (
+                    <div className="absolute right-0 top-6 z-40 min-w-28 rounded-md border border-border bg-popover p-1 shadow-lg">
+                      {SHEET_COLUMN_TYPES.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setColumnType(index, option.value)}
+                          className={`block w-full rounded px-2 py-1 text-left text-xs ${
+                            column.type === option.value
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:bg-accent"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
                 <button
                   type="button"
                   title="Delete column"
@@ -503,6 +559,12 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
                     onDoubleClick={() =>
                       startEditing({ col: colIndex, row: rowIndex })
                     }
+                    onClick={() => {
+                      if (!isSelected) return;
+                      if (column.type === "boolean" && !isFormulaValue(rawAt({ col: colIndex, row: rowIndex }))) {
+                        toggleBoolean({ col: colIndex, row: rowIndex });
+                      }
+                    }}
                     className={`relative min-w-0 border-b border-r border-border px-2 py-1 text-sm ${
                       isSelected ? "ring-2 ring-inset ring-ring" : ""
                     } ${result.type === "number" ? "text-right font-mono" : ""} ${

@@ -4,9 +4,8 @@ import { useEffect, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import * as motion from "motion/react-client";
 import { AlertTriangle, Sparkles, X } from "lucide-react";
-import type { ScheduleSkipReason } from "@/app/_types/types";
 import { formatDateTime, formatDuration, formatTime, isSameDay } from "@/app/utils/calendar";
-import { useApplySchedule, usePreviewSchedule } from "@/app/utils/hooks/calendar";
+import { useApplySchedule, usePreviewSchedule, useUndoSchedule } from "@/app/utils/hooks/calendar";
 import { cn } from "@/app/utils/cn";
 
 type AutoScheduleDialogProps = {
@@ -16,13 +15,21 @@ type AutoScheduleDialogProps = {
   onOpenSettings?: () => void;
 };
 
-const SKIP_REASONS: Record<ScheduleSkipReason, string> = {
+const SKIP_REASONS: Record<string, string> = {
   no_capacity: "No free time before the end of the window",
   blocked: "Waiting on another task",
   manual: "Already placed by hand",
   no_duration: "No time estimate",
-  recurring: "Repeating tasks are placed by their rule",
+  reminder: "Reminders stay at their ping time",
+  recurring: "Repeating reminder — stays on its rule",
   completed: "Already done",
+  inbox: "Clarify this inbox item first",
+  parent_has_subtasks: "Schedulable subtasks replace the parent",
+  locked: "Pinned — the engine will not move it",
+  frozen: "Inside the freeze window",
+  workspace_excluded: "Workspace excluded from auto-schedule",
+  contiguous_no_fit: "Must run in one sitting; no slot is long enough",
+  before_earliest: "Cannot start before the earliest start time",
 };
 
 export default function AutoScheduleDialog({
@@ -57,28 +64,46 @@ function AutoSchedulePanel({
 }) {
   const preview = usePreviewSchedule();
   const apply = useApplySchedule();
+  const undo = useUndoSchedule();
   const [includeManual, setIncludeManual] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { mutate: runPreview } = preview;
   useEffect(() => {
+    setApplied(false);
     runPreview({ includeManual });
   }, [includeManual, runPreview]);
 
-  const plan = preview.data;
+  const [applied, setApplied] = useState(false);
+  const plan = (applied && apply.data) || preview.data;
   const proposals = plan?.proposals ?? [];
   const skipped = (plan?.skipped ?? []).filter(
     (item) => item.reason !== "recurring" && item.reason !== "completed",
   );
+  const changes = plan?.changes ?? [];
+  const risks = plan?.risks ?? [];
+  const capacity = plan?.capacity ?? [];
   const lateCount = proposals.filter((item) => item.pastDeadline).length;
+  const canUndo = Boolean(plan?.canUndo);
 
   const confirm = async () => {
     setError(null);
     try {
       await apply.mutateAsync({ includeManual });
-      onClose();
+      setApplied(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not apply schedule.");
+    }
+  };
+
+  const undoLast = async () => {
+    setError(null);
+    try {
+      await undo.mutateAsync();
+      setApplied(false);
+      runPreview({ includeManual });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not undo schedule.");
     }
   };
 
@@ -117,9 +142,9 @@ function AutoSchedulePanel({
             Auto-schedule
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Open tasks with a time estimate are placed into your working hours,
-            around events, pinned blocks and repeating items. Nothing is saved until
-            you apply.
+            {applied
+              ? "Schedule applied. Undo restores the previous engine blocks."
+              : "Open work is placed into working hours around events, pins, and freeze. Nothing is saved until you apply."}
           </p>
         </div>
 
@@ -169,6 +194,69 @@ function AutoSchedulePanel({
               )}
             </div>
 
+            {risks.length > 0 && (
+              <ul className="flex flex-col gap-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                {risks.map((risk, index) => (
+                  <li key={`${risk.kind}-${risk.taskId ?? index}`} className="flex items-start gap-1">
+                    <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                    <span>
+                      {risk.taskName ? `${risk.taskName}: ` : ""}
+                      {risk.message}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {capacity.length > 0 && (
+              <details className="rounded-lg border border-border">
+                <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
+                  Capacity by day
+                </summary>
+                <ul className="divide-y divide-border border-t border-border">
+                  {capacity.map((day) => (
+                    <li
+                      key={day.date}
+                      className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-xs"
+                    >
+                      <span className="tabular-nums text-foreground">{formatCapacityDate(day.date)}</span>
+                      <span
+                        className={cn(
+                          "shrink-0 tabular-nums",
+                          day.overCapacity ? "text-destructive" : "text-muted-foreground",
+                        )}
+                      >
+                        {formatDuration(day.plannedMinutes)} of {formatDuration(day.availableMinutes)}
+                        {day.overCapacity ? " over capacity" : ""}
+                        {day.atRisk && !day.overCapacity ? " at risk" : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
+            {changes.length > 0 && (
+              <details className="rounded-lg border border-border" open>
+                <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
+                  {changes.length} change{changes.length === 1 ? "" : "s"}
+                </summary>
+                <ul className="divide-y divide-border border-t border-border">
+                  {changes.map((change, index) => (
+                    <li
+                      key={`${change.action}-${change.taskId}-${index}`}
+                      className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-xs"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {change.taskName || change.taskId}
+                      </span>
+                      <span className="shrink-0 text-muted-foreground">{change.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
             {proposals.length === 0 ? (
               <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
                 Nothing to place. Tasks need a time estimate and no pinned block.
@@ -177,7 +265,7 @@ function AutoSchedulePanel({
               <ul className="flex flex-col gap-2">
                 {proposals.map((proposal) => (
                   <li
-                    key={proposal.taskId}
+                    key={`${proposal.taskId}-${proposal.blocks[0]?.occurrenceStart ?? ""}`}
                     className={cn(
                       "rounded-lg border px-3 py-2",
                       proposal.pastDeadline
@@ -207,6 +295,9 @@ function AutoSchedulePanel({
                         );
                       })}
                     </ul>
+                    {proposal.reason ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{proposal.reason}</p>
+                    ) : null}
                     {proposal.pastDeadline && proposal.deadline && (
                       <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
                         <AlertTriangle className="size-3" />
@@ -236,7 +327,7 @@ function AutoSchedulePanel({
                     >
                       <span className="min-w-0 flex-1 truncate">{item.taskName}</span>
                       <span className="shrink-0 text-muted-foreground">
-                        {SKIP_REASONS[item.reason] ?? item.reason}
+                        {item.message || SKIP_REASONS[item.reason] || item.reason}
                       </span>
                     </li>
                   ))}
@@ -259,12 +350,22 @@ function AutoSchedulePanel({
             onClick={onClose}
             className="cursor-pointer rounded-lg bg-secondary px-3 py-1.5 font-medium text-secondary-foreground transition-colors hover:bg-accent"
           >
-            Cancel
+            {applied ? "Done" : "Cancel"}
           </button>
+          {(canUndo || applied) && (
+            <button
+              type="button"
+              onClick={undoLast}
+              disabled={undo.isPending}
+              className="cursor-pointer rounded-lg bg-secondary px-3 py-1.5 font-medium text-secondary-foreground transition-colors hover:bg-accent disabled:opacity-60"
+            >
+              {undo.isPending ? "Undoing..." : "Undo last apply"}
+            </button>
+          )}
           <button
             type="button"
             onClick={confirm}
-            disabled={apply.isPending || !plan || proposals.length === 0}
+            disabled={apply.isPending || applied || !plan || proposals.length === 0}
             className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
           >
             {apply.isPending ? "Applying..." : "Apply schedule"}
@@ -273,4 +374,10 @@ function AutoSchedulePanel({
       </motion.div>
     </motion.div>
   );
+}
+
+function formatCapacityDate(value: string): string {
+  const date = new Date(value.includes("T") ? value : `${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useTasks, useUpdateTask } from "@/app/utils/hooks/tasks";
+import { useMemo } from "react";
+import { useTask, useTasks, useUpdateTask } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useProjects } from "@/app/utils/hooks/projects";
 import {
@@ -22,110 +22,71 @@ import type {
   User,
   Workspace,
 } from "@/app/_types/types";
-import {
-  SAMPLE_CALENDAR_ITEMS,
-  SAMPLE_DOCS,
-  SAMPLE_PROJECTS,
-  SAMPLE_SHEETS,
-  SAMPLE_TASKS,
-  SAMPLE_USER,
-  SAMPLE_WORKSPACES,
-} from "./sampleData";
-import { useDemoStore } from "./demoStore";
 import { mergeCalendarItems } from "./mergeBlocks";
-
-/** How long we wait for the Go backend before showing sample data. */
-const FALLBACK_AFTER_MS = 1200;
 
 interface MobileData<T> {
   data: T;
-  isDemo: boolean;
+  isDemo: false;
   isLoading: boolean;
+  isError: boolean;
 }
 
-/**
- * Uses the live query result when the API answers; otherwise (network error or
- * still pending after a short grace period) swaps in the sample dataset.
- */
 interface QueryLike<T> {
   data: T | undefined;
   isSuccess: boolean;
   isError: boolean;
+  isPending?: boolean;
+  refetch?: () => void;
 }
 
-function useWithFallback<T>(query: QueryLike<T>, sample: T): MobileData<T> {
-  const [timedOut, setTimedOut] = useState(false);
-
-  useEffect(() => {
-    if (query.isSuccess) return;
-    const id = window.setTimeout(() => setTimedOut(true), FALLBACK_AFTER_MS);
-    return () => window.clearTimeout(id);
-  }, [query.isSuccess]);
-
+function useLive<T>(query: QueryLike<T>, fallback: T): MobileData<T> {
   if (query.isSuccess && query.data !== undefined) {
-    return { data: query.data, isDemo: false, isLoading: false };
+    return { data: query.data, isDemo: false, isLoading: false, isError: false };
   }
-  if (query.isError || timedOut) {
-    return { data: sample, isDemo: true, isLoading: false };
-  }
-  return { data: sample, isDemo: true, isLoading: true };
+  return {
+    data: fallback,
+    isDemo: false,
+    isLoading: Boolean(query.isPending) || (!query.isSuccess && !query.isError),
+    isError: query.isError,
+  };
 }
 
-export function useMobileUser(): MobileData<User> {
-  return useWithFallback(useMe(), SAMPLE_USER);
+export function useMobileUser(): MobileData<User | null> {
+  return useLive(useMe(), null);
 }
 
 export function useMobileWorkspaces(): MobileData<Workspace[]> {
-  return useWithFallback(useWorkspaces(), SAMPLE_WORKSPACES);
+  return useLive(useWorkspaces(), []);
 }
 
 export function useMobileProjects(): MobileData<Project[]> {
-  return useWithFallback(useProjects(), SAMPLE_PROJECTS);
+  return useLive(useProjects(), []);
 }
 
 export function useMobileTasks(): MobileData<Task[]> {
-  const result = useWithFallback(useTasks(), SAMPLE_TASKS);
-  const overrides = useDemoStore((s) => s.taskOverrides);
-  const created = useDemoStore((s) => s.createdTasks);
-  const removed = useDemoStore((s) => s.removedTaskIds);
-
-  const data = useMemo(() => {
-    if (!result.isDemo) return result.data;
-    return [...created, ...result.data]
-      .filter((t) => !removed.includes(t.id))
-      .map((t) => (overrides[t.id] ? { ...t, ...overrides[t.id] } : t));
-  }, [result.isDemo, result.data, overrides, created, removed]);
-
-  return { ...result, data };
+  return useLive(useTasks(), []);
 }
 
 export function useMobileTask(id: string) {
   const tasks = useMobileTasks();
+  const fromList = tasks.data.find((t) => t.id === id) ?? null;
+  const fetched = useTask(!fromList ? id : undefined);
   return {
     ...tasks,
-    data: tasks.data.find((t) => t.id === id) ?? null,
+    isLoading: tasks.isLoading || (!fromList && fetched.isLoading),
+    isError: tasks.isError || fetched.isError,
+    data: fromList ?? fetched.data ?? null,
   };
 }
 
-/** Save helper that writes through to the API when live, or locally in demo. */
-export function useMobileTaskSaver(isDemo: boolean) {
+export function useMobileTaskSaver(_isDemo: boolean) {
   const update = useUpdateTask();
-  const patchTask = useDemoStore((s) => s.patchTask);
-
   return (id: string, patch: Partial<Task>) => {
-    if (isDemo) {
-      patchTask(id, { ...patch, updatedAt: new Date().toISOString() });
-      return;
-    }
     update.mutate({ id, ...(patch as object) });
   };
 }
 
-/**
- * Moves an existing block or pins a new one for a task. In sample mode this is
- * a no-op beyond closing the picker; the sample dataset has no block store.
- */
-export function useMobileBlockScheduler(isDemo: boolean) {
+export function useMobileBlockScheduler(_isDemo: boolean) {
   const move = useMoveBlock();
   const add = useAddTaskBlock();
   const update = useUpdateEvent();
@@ -133,7 +94,6 @@ export function useMobileBlockScheduler(isDemo: boolean) {
   return {
     pending: move.isPending || add.isPending || update.isPending,
     moveBlock(blockId: string, start: Date, durationMs: number) {
-      if (isDemo) return Promise.resolve();
       return move.mutateAsync({
         blockId,
         start: start.toISOString(),
@@ -141,11 +101,9 @@ export function useMobileBlockScheduler(isDemo: boolean) {
       });
     },
     scheduleTask(taskId: string, start: Date, durationMinutes: number) {
-      if (isDemo) return Promise.resolve();
       return add.mutateAsync({ taskId, start: start.toISOString(), durationMinutes });
     },
     moveEvent(eventId: string, start: Date, end: Date) {
-      if (isDemo) return Promise.resolve();
       return update.mutateAsync({
         id: eventId,
         start: start.toISOString(),
@@ -157,40 +115,16 @@ export function useMobileBlockScheduler(isDemo: boolean) {
 
 export function useMobileCalendar(from: Date, to: Date): MobileData<CalendarItem[]> {
   const query = useCalendarRange(from, to);
-  const sample = useMemo(
-    () =>
-      SAMPLE_CALENDAR_ITEMS.filter((item) => {
-        const s = new Date(item.start).getTime();
-        const e = new Date(item.end).getTime();
-        return e >= from.getTime() && s <= to.getTime();
-      }),
-    [from, to],
+  const result = useLive<CalendarItem[]>(
+    { data: query.data?.items, isSuccess: query.isSuccess, isError: query.isError, isPending: query.isPending },
+    [],
   );
-  const result = useWithFallback<CalendarItem[]>(
-    { data: query.data?.items, isSuccess: query.isSuccess, isError: query.isError },
-    sample,
-  );
-
-  const overrides = useDemoStore((s) => s.taskOverrides);
-  const data = useMemo(() => {
-    const merged = mergeCalendarItems(result.data);
-    if (!result.isDemo) return merged;
-    return merged.map((item) =>
-      item.taskId && overrides[item.taskId]
-        ? {
-            ...item,
-            completedAt: overrides[item.taskId].completedAt ?? item.completedAt,
-            title: overrides[item.taskId].name ?? item.title,
-          }
-        : item,
-    );
-  }, [result.isDemo, result.data, overrides]);
-
+  const data = useMemo(() => mergeCalendarItems(result.data), [result.data]);
   return { ...result, data };
 }
 
 export function useMobileDocs(): MobileData<Doc[]> {
-  return useWithFallback(useDocs(), SAMPLE_DOCS);
+  return useLive(useDocs(), []);
 }
 
 export function useMobileDoc(id: string) {
@@ -199,7 +133,7 @@ export function useMobileDoc(id: string) {
 }
 
 export function useMobileSheets(): MobileData<Sheet[]> {
-  return useWithFallback(useSheets(), SAMPLE_SHEETS);
+  return useLive(useSheets(), []);
 }
 
 export function useMobileSheet(id: string) {

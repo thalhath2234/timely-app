@@ -134,6 +134,7 @@ export const Mention = TiptapNode.create<MentionOptions>({
       Suggestion({
         editor: this.editor,
         ...this.options.suggestion,
+        pluginKey: MentionPluginKey,
       }),
     ];
   },

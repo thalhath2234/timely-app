@@ -22,7 +22,7 @@ export default function SheetsPage() {
   const { data: sheets, isLoading } = useSheets();
   const createSheet = useCreateSheet();
 
-  const recentSheets = (sheets ?? []).slice(0, 12);
+  const recentSheets = (sheets ?? []).filter((sheet) => !sheet.archivedAt).slice(0, 12);
 
   const handleCreate = async () => {
     const sheet = await createSheet.mutateAsync({});

@@ -4,16 +4,19 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import * as motion from "motion/react-client";
 import { CalendarDays, ListTodo, Repeat, Search, X } from "lucide-react";
-import DatePicker from "@/app/_components/_ui/datePicker";
+import DatePicker, { TimeField } from "@/app/_components/_ui/datePicker";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
 import { Task } from "@/app/_types/types";
 import {
+  applyClockToDate,
   formatDuration,
   fromDatetimeLocalValue,
   toDatetimeLocalValue,
+  toTimeInputValue,
 } from "@/app/utils/calendar";
 import { buildRecurrenceInput, type RecurrenceDraft } from "@/app/utils/recurrence";
 import { useAddTaskBlock, useCreateEvent } from "@/app/utils/hooks/calendar";
+import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
 
 export type ScheduleSlot = {
@@ -90,6 +93,7 @@ function ScheduleDialogPanel({
 }) {
   const addBlock = useAddTaskBlock();
   const createEvent = useCreateEvent();
+  const updateTask = useUpdateTask();
 
   const [mode, setMode] = useState<ScheduleMode>(slot.mode ?? "task");
   const [when, setWhen] = useState(() => toDatetimeLocalValue(slot.at));
@@ -126,14 +130,16 @@ function ScheduleDialogPanel({
   }, [tasks, search]);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
+  const reminderTask = mode === "task" && Boolean(selectedTask) && (selectedTask?.duration ?? 0) <= 0;
   const duration =
     durationOverride ??
-    (mode === "task" && selectedTask?.duration
+    (mode === "task" && selectedTask && selectedTask.duration > 0
       ? selectedTask.duration
       : (slot.durationMinutes ?? 30));
   const setDuration = setDurationOverride;
 
-  const pending = addBlock.isPending || createEvent.isPending;
+  const pending = addBlock.isPending || createEvent.isPending || updateTask.isPending;
+  const eventTimeOnly = mode === "event" && Boolean(recurrence) && !allDay;
 
   const submit = async () => {
     if (!when) {
@@ -150,11 +156,18 @@ function ScheduleDialogPanel({
           setError("Pick a task to schedule.");
           return;
         }
-        await addBlock.mutateAsync({
-          taskId: selectedTaskId,
-          start: startDate.toISOString(),
-          end: end.toISOString(),
-        });
+        if (reminderTask) {
+          await updateTask.mutateAsync({
+            id: selectedTaskId,
+            scheduledOn: startDate.toISOString(),
+          });
+        } else {
+          await addBlock.mutateAsync({
+            taskId: selectedTaskId,
+            start: startDate.toISOString(),
+            end: end.toISOString(),
+          });
+        }
         onScheduled?.(selectedTaskId);
       } else {
         if (!title.trim()) {
@@ -261,28 +274,47 @@ function ScheduleDialogPanel({
 
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">When</span>
-            <DatePicker
-              mode="datetime"
-              value={when}
-              onChange={setWhen}
-              clearable={false}
-            />
+            <span className="text-xs text-muted-foreground">
+              {eventTimeOnly ? "Time" : "When"}
+            </span>
+            {eventTimeOnly ? (
+              <TimeField
+                value={toTimeInputValue(when)}
+                clearable={false}
+                aria-label="Time"
+                onChange={(hhmm) =>
+                  setWhen(toDatetimeLocalValue(applyClockToDate(startDate, hhmm)))
+                }
+              />
+            ) : (
+              <DatePicker
+                mode={mode === "event" && allDay ? "date" : "datetime"}
+                value={when}
+                onChange={setWhen}
+                clearable={false}
+              />
+            )}
           </label>
 
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">
-              Duration ({formatDuration(Math.max(15, duration || 30))})
-            </span>
-            <input
-              type="number"
-              min={15}
-              step={15}
-              value={duration}
-              onChange={(event) => setDuration(Number(event.target.value) || 30)}
-              className={fieldClass}
-            />
-          </label>
+          {reminderTask ? (
+            <p className="flex flex-col justify-end text-xs text-muted-foreground">
+              Reminder — pings at this time, no work block.
+            </p>
+          ) : (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">
+                Duration ({formatDuration(Math.max(15, duration || 30))})
+              </span>
+              <input
+                type="number"
+                min={15}
+                step={15}
+                value={duration}
+                onChange={(event) => setDuration(Number(event.target.value) || 30)}
+                className={fieldClass}
+              />
+            </label>
+          )}
         </div>
 
         {mode === "task" ? (
@@ -327,11 +359,9 @@ function ScheduleDialogPanel({
                               {task.priorityLevel ? ` · ${task.priorityLevel}` : ""}
                             </span>
                           </span>
-                          {task.duration ? (
-                            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                              {formatDuration(task.duration)}
-                            </span>
-                          ) : null}
+                          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                            {task.duration > 0 ? formatDuration(task.duration) : "Reminder"}
+                          </span>
                         </button>
                       </li>
                     );

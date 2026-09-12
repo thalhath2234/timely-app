@@ -59,7 +59,7 @@ export default function Home() {
                         href="/login"
                         className="w-full sm:w-auto flex items-center justify-center px-8 py-4 bg-card hover:bg-accent hover:text-accent-foreground border border-border rounded-xl font-semibold transition"
                     >
-                        Sign In Demo
+                        Sign In
                     </Link>
                 </div>
 

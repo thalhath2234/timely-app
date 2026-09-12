@@ -1,7 +1,11 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMe, useUpdateMe } from "@/app/utils/hooks/user";
+import { listSessions, revokeSession, type DeviceSession } from "@/app/utils/api/user";
+import { apiFetch, setAccessToken } from "@/app/utils/api/client";
+import { useRouter } from "next/navigation";
 
 export default function AccountSettings() {
   const { data: user, isLoading } = useMe();
@@ -19,11 +23,14 @@ export default function AccountSettings() {
   }
 
   return (
-    <AccountSettingsForm
-      key={`${user.id}:${user.email}:${user.name ?? ""}`}
-      initialName={user.name ?? ""}
-      initialEmail={user.email}
-    />
+    <>
+      <AccountSettingsForm
+        key={`${user.id}:${user.email}:${user.name ?? ""}`}
+        initialName={user.name ?? ""}
+        initialEmail={user.email}
+      />
+      <DeviceSessions />
+    </>
   );
 }
 
@@ -136,5 +143,72 @@ function AccountSettingsForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function DeviceSessions() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const sessions = useQuery({ queryKey: ["sessions"], queryFn: listSessions });
+  const revoke = useMutation({
+    mutationFn: revokeSession,
+    onSuccess: async (_data, id) => {
+      const current = sessions.data?.find((item) => item.id === id)?.current;
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      if (current) {
+        await apiFetch("/logout", { method: "POST" });
+        setAccessToken(null);
+        router.push("/login");
+        router.refresh();
+      }
+    },
+  });
+
+  return (
+    <section className="mt-8 flex max-w-lg flex-col gap-3">
+      <div>
+        <h2 className="text-base font-semibold text-foreground">Devices</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Sign out a device if you no longer use it.
+        </p>
+      </div>
+      {sessions.isError ? (
+        <p className="text-xs text-destructive">Could not load sessions.</p>
+      ) : null}
+      <ul className="flex flex-col gap-2">
+        {(sessions.data ?? []).map((session: DeviceSession) => (
+          <li
+            key={session.id}
+            className="flex items-start justify-between gap-3 rounded-lg border border-border px-3 py-2"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">
+                {session.deviceLabel || "Unknown device"}
+                {session.current ? (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    this device
+                  </span>
+                ) : null}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Last used {session.lastUsedAt}
+              </p>
+            </div>
+            {!session.revokedAt ? (
+              <button
+                type="button"
+                disabled={revoke.isPending}
+                onClick={() => revoke.mutate(session.id)}
+                className="shrink-0 text-xs text-destructive hover:underline disabled:opacity-60"
+              >
+                Log out
+              </button>
+            ) : (
+              <span className="text-xs text-muted-foreground">Revoked</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

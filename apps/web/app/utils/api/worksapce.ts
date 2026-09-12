@@ -6,6 +6,7 @@ import {
   Status,
   Workspace,
 } from "@/app/_types/types";
+import { apiFetch } from "./client";
 
 export class ApiError extends Error {
   status: number;
@@ -20,7 +21,7 @@ export class ApiError extends Error {
 
 
 export async function getWorkspaces(): Promise<Workspace[]> {
-  const response = await fetch("http://localhost:8080/workspaces", {
+  const response = await apiFetch("/workspaces", {
     credentials: "include",
   });
 
@@ -32,7 +33,7 @@ export async function getWorkspaces(): Promise<Workspace[]> {
 }
 
 export async function getConfig(): Promise<Config> {
-  const response = await fetch("http://localhost:8080/config", {
+  const response = await apiFetch("/config", {
     credentials: "include",
   });
 
@@ -46,7 +47,7 @@ export async function getConfig(): Promise<Config> {
 export async function createWorkspace(data: {
   name: string;
 }): Promise<Workspace> {
-  const response = await fetch("http://localhost:8080/workspaces", {
+  const response = await apiFetch("/workspaces", {
     method: "POST",
     credentials: "include",
     headers: {
@@ -69,8 +70,8 @@ export async function updateWorkspace(data: {
   id: string;
   name: string;
 }): Promise<Workspace> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(data.id)}`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(data.id)}`,
     {
       method: "PUT",
       credentials: "include",
@@ -123,8 +124,8 @@ export async function createStatus(
   workspaceId: string,
   data: NamedColorPayload,
 ): Promise<Status> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(workspaceId)}/status`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(workspaceId)}/status`,
     {
       method: "POST",
       credentials: "include",
@@ -143,8 +144,8 @@ export async function updateStatus(
   statusId: string,
   data: NamedColorPayload,
 ): Promise<Status> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(workspaceId)}/status/${encodeURIComponent(statusId)}`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(workspaceId)}/status/${encodeURIComponent(statusId)}`,
     {
       method: "PUT",
       credentials: "include",
@@ -162,8 +163,8 @@ export async function deleteStatus(
   workspaceId: string,
   statusId: string,
 ): Promise<void> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(workspaceId)}/status/${encodeURIComponent(statusId)}`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(workspaceId)}/status/${encodeURIComponent(statusId)}`,
     {
       method: "DELETE",
       credentials: "include",
@@ -178,8 +179,8 @@ export async function createLabel(
   workspaceId: string,
   data: NamedColorPayload,
 ): Promise<Label> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(workspaceId)}/lable`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(workspaceId)}/lable`,
     {
       method: "POST",
       credentials: "include",
@@ -198,8 +199,8 @@ export async function updateLabel(
   labelId: string,
   data: NamedColorPayload,
 ): Promise<Label> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(workspaceId)}/lable/${encodeURIComponent(labelId)}`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(workspaceId)}/lable/${encodeURIComponent(labelId)}`,
     {
       method: "PUT",
       credentials: "include",
@@ -217,8 +218,8 @@ export async function deleteLabel(
   workspaceId: string,
   labelId: string,
 ): Promise<void> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(workspaceId)}/lable/${encodeURIComponent(labelId)}`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(workspaceId)}/lable/${encodeURIComponent(labelId)}`,
     {
       method: "DELETE",
       credentials: "include",
@@ -233,8 +234,8 @@ export async function createCustomField(
   workspaceId: string,
   data: CustomFieldPayload,
 ): Promise<CustomField> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(workspaceId)}/custom-field`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(workspaceId)}/custom-field`,
     {
       method: "POST",
       credentials: "include",
@@ -253,8 +254,8 @@ export async function updateCustomField(
   customFieldId: string,
   data: CustomFieldPayload,
 ): Promise<CustomField> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(workspaceId)}/custom-field/${encodeURIComponent(customFieldId)}`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(workspaceId)}/custom-field/${encodeURIComponent(customFieldId)}`,
     {
       method: "PUT",
       credentials: "include",
@@ -272,8 +273,8 @@ export async function deleteCustomField(
   workspaceId: string,
   customFieldId: string,
 ): Promise<void> {
-  const response = await fetch(
-    `http://localhost:8080/workspaces/${encodeURIComponent(workspaceId)}/custom-field/${encodeURIComponent(customFieldId)}`,
+  const response = await apiFetch(
+    `/workspaces/${encodeURIComponent(workspaceId)}/custom-field/${encodeURIComponent(customFieldId)}`,
     {
       method: "DELETE",
       credentials: "include",
@@ -285,7 +286,7 @@ export async function deleteCustomField(
 }
 
 export async function completeOnboarding(): Promise<Config> {
-  const response = await fetch("http://localhost:8080/config", {
+  const response = await apiFetch("/config", {
     method: "PUT",
     credentials: "include",
     headers: {
@@ -308,7 +309,7 @@ export async function updateTaskViewsConfig(data: {
   activeTaskViewId: string;
   isOnboardingCompleted?: boolean;
 }): Promise<Config> {
-  const response = await fetch("http://localhost:8080/config", {
+  const response = await apiFetch("/config", {
     method: "PUT",
     credentials: "include",
     headers: {

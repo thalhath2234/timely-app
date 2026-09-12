@@ -1,24 +1,63 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addTaskComment,
+  createTask,
   deleteTask,
   editTaskOccurrence,
   UpdateTaskPayload,
+  getTask,
   getTaskActivity,
   getTasks,
+  bulkUpdateTasks,
   splitTaskSeries,
   updateTask,
+  duplicateTask,
+  addChecklistItem,
+  updateChecklistItem,
+  deleteChecklistItem,
+  startFocus,
+  stopFocus,
+  setTodayFocus,
+  type CreateTaskPayload,
   type SplitTaskSeriesPayload,
   type TaskOccurrencePayload,
 } from "@/app/utils/api/tasks";
+import { useAutoScheduleAfterChange } from "@/app/utils/hooks/autoSchedule";
 import { Label, Task, TaskActivity } from "@/app/_types/types";
 
 export const tasksKey = ["tasks"] as const;
+export const inboxKey = ["tasks", "inbox"] as const;
+export const todayKey = ["today"] as const;
+
+export function taskKey(id: string) {
+  return ["task", id] as const;
+}
 
 export function useTasks() {
   return useQuery({
     queryKey: tasksKey,
-    queryFn: getTasks,
+    queryFn: () => getTasks(),
+  });
+}
+
+export function useTask(id: string | undefined) {
+  return useQuery({
+    queryKey: taskKey(id ?? ""),
+    queryFn: () => getTask(id!),
+    enabled: Boolean(id),
+  });
+}
+
+export function useCreateTask() {
+  const queryClient = useQueryClient();
+  const autoSchedule = useAutoScheduleAfterChange();
+  return useMutation({
+    mutationFn: (data: CreateTaskPayload) => createTask(data),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: tasksKey });
+      await queryClient.invalidateQueries({ queryKey: inboxKey });
+      void autoSchedule();
+    },
   });
 }
 
@@ -70,6 +109,9 @@ export function useUpdateTask() {
           item.id === task.id ? mergeTaskUpdate(item, task) : item,
         ),
       );
+      queryClient.setQueryData<Task>(taskKey(task.id), (current) =>
+        current ? mergeTaskUpdate(current, task) : task,
+      );
       queryClient.invalidateQueries({ queryKey: taskActivityKey(task.id) });
       // Schedule, duration and recurrence edits all change calendar time.
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
@@ -120,6 +162,27 @@ export function useTaskActivity(taskId: string, enabled = true) {
   });
 }
 
+export function useBulkUpdateTasks() {
+  const queryClient = useQueryClient();
+  const autoSchedule = useAutoScheduleAfterChange();
+  return useMutation({
+    mutationFn: ({ ids, update }: { ids: string[]; update: UpdateTaskPayload }) =>
+      bulkUpdateTasks(ids, update),
+    onSuccess: (tasks) => {
+      queryClient.setQueryData<Task[]>(tasksKey, (current) => {
+        if (!current) return tasks;
+        const byId = new Map(tasks.map((task) => [task.id, task]));
+        return current.map((item) => {
+          const next = byId.get(item.id);
+          return next ? mergeTaskUpdate(item, next) : item;
+        });
+      });
+      queryClient.invalidateQueries({ queryKey: ["calendar"] });
+      void autoSchedule();
+    },
+  });
+}
+
 export function useDeleteTask() {
   const queryClient = useQueryClient();
 
@@ -145,5 +208,81 @@ export function useAddTaskComment(taskId: string) {
         (entries) => [entry, ...(entries ?? [])],
       );
     },
+  });
+}
+
+export function useInboxTasks() {
+  return useQuery({
+    queryKey: inboxKey,
+    queryFn: () => getTasks({ inbox: true }),
+  });
+}
+
+function invalidateExecution(
+  queryClient: ReturnType<typeof useQueryClient>,
+  taskId?: string,
+) {
+  queryClient.invalidateQueries({ queryKey: tasksKey });
+  queryClient.invalidateQueries({ queryKey: inboxKey });
+  queryClient.invalidateQueries({ queryKey: todayKey });
+  queryClient.invalidateQueries({ queryKey: ["calendar"] });
+  if (taskId) queryClient.invalidateQueries({ queryKey: taskKey(taskId) });
+}
+
+export function useDuplicateTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: duplicateTask,
+    onSuccess: (task) => invalidateExecution(queryClient, task.id),
+  });
+}
+
+export function useAddChecklistItem(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (title: string) => addChecklistItem(taskId, title),
+    onSuccess: () => invalidateExecution(queryClient, taskId),
+  });
+}
+
+export function useToggleChecklistItem(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, completed }: { itemId: string; completed: boolean }) =>
+      updateChecklistItem(taskId, itemId, { completed }),
+    onSuccess: () => invalidateExecution(queryClient, taskId),
+  });
+}
+
+export function useDeleteChecklistItem(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) => deleteChecklistItem(taskId, itemId),
+    onSuccess: () => invalidateExecution(queryClient, taskId),
+  });
+}
+
+export function useStartFocus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: startFocus,
+    onSuccess: (task) => invalidateExecution(queryClient, task.id),
+  });
+}
+
+export function useStopFocus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: stopFocus,
+    onSuccess: (task) => invalidateExecution(queryClient, task.id),
+  });
+}
+
+export function useSetTodayFocus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, date }: { taskId: string; date: string | null }) =>
+      setTodayFocus(taskId, date),
+    onSuccess: (task) => invalidateExecution(queryClient, task.id),
   });
 }

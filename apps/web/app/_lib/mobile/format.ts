@@ -109,6 +109,11 @@ export const PRIORITY_META: Record<
   high: { label: "High", className: "text-warning" },
   medium: { label: "Medium", className: "text-primary" },
   low: { label: "Low", className: "text-muted-foreground" },
+  Urgent: { label: "Urgent", className: "text-destructive" },
+  High: { label: "High", className: "text-warning" },
+  Medium: { label: "Medium", className: "text-primary" },
+  Low: { label: "Low", className: "text-muted-foreground" },
+  Critical: { label: "Urgent", className: "text-destructive" },
 };
 
-export const PRIORITY_ORDER = ["urgent", "high", "medium", "low"];
+export const PRIORITY_ORDER = ["Urgent", "High", "Medium", "Low"];

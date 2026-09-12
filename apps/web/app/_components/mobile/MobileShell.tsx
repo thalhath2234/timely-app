@@ -6,6 +6,7 @@ import { Plus } from "lucide-react";
 import BottomTabBar from "./BottomTabBar";
 import { SHEET_PORTAL_ID } from "./BottomSheet";
 import QuickAddSheet from "./QuickAddSheet";
+import AutoScheduleIndicator from "@/app/_components/calendarView/autoScheduleIndicator";
 
 const TAB_ROOTS = ["/m/calendar", "/m/tasks", "/m/docs", "/m/sheets"];
 
@@ -41,6 +42,7 @@ export default function MobileShell({ children }: { children: ReactNode }) {
         </div>
         {showTabs ? <BottomTabBar /> : null}
         <QuickAddSheet open={addOpen} onClose={() => setAddOpen(false)} />
+        <AutoScheduleIndicator className="absolute bottom-24 right-3" />
       </div>
     </div>
   );

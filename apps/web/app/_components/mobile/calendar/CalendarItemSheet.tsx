@@ -14,8 +14,8 @@ import {
 import type { CalendarItem } from "@/app/_types/types";
 import BottomSheet from "../BottomSheet";
 import DateTimeSheet from "../DateTimeSheet";
-import { formatDuration, formatRelativeDay, formatTimeRange } from "@/app/_lib/mobile/format";
-import { isTaskItem, itemColor } from "./CalendarItemRow";
+import { formatDuration, formatRelativeDay, formatTime, formatTimeRange } from "@/app/_lib/mobile/format";
+import { isReminderItem, isTaskItem, itemColor } from "./CalendarItemRow";
 
 interface CalendarItemSheetProps {
   item: CalendarItem | null;
@@ -36,15 +36,18 @@ export default function CalendarItemSheet({
   const isTask = item ? isTaskItem(item) : false;
   const done = Boolean(item?.completedAt);
   const description = task?.description || item?.event?.description || "";
+  const reminder = item ? isReminderItem(item) : false;
   const minutes = item
     ? Math.round((new Date(item.end).getTime() - new Date(item.start).getTime()) / 60_000)
     : 0;
   // Recurring occurrences are edited through their series on desktop; keep the
-  // mobile move action to concrete blocks and one-off events.
+  // mobile move action to concrete blocks, one-off reminders, and one-off events.
   const canMove =
     Boolean(onReschedule) &&
     Boolean(item) &&
-    (item!.kind === "task" ? Boolean(item!.blockId) : item!.kind === "event");
+    (item!.kind === "task"
+      ? Boolean(item!.blockId) || reminder
+      : item!.kind === "event");
 
   return (
     <>
@@ -59,7 +62,7 @@ export default function CalendarItemSheet({
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {isTask ? <ListTodo size={12} /> : <CalendarClock size={12} />}
-                  {isTask ? "Task block" : "Event"}
+                  {reminder ? "Reminder" : isTask ? "Task block" : "Event"}
                 </p>
                 <h2
                   className={`text-[20px] font-semibold leading-tight text-foreground ${
@@ -89,8 +92,12 @@ export default function CalendarItemSheet({
                     })}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {item.allDay ? "All day" : formatTimeRange(item.start, item.end)}
-                    {!item.allDay && minutes ? ` · ${formatDuration(minutes)}` : ""}
+                    {item.allDay
+                      ? "All day"
+                      : reminder
+                        ? `${formatTime(item.start)} · Reminder`
+                        : formatTimeRange(item.start, item.end)}
+                    {!item.allDay && !reminder && minutes ? ` · ${formatDuration(minutes)}` : ""}
                   </p>
                 </div>
                 {canMove ? <MoveRight size={16} className="text-muted-foreground/60" /> : null}

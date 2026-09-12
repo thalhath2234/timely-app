@@ -18,6 +18,7 @@ import EntityDetailPanel from "@/app/_components/_ui/tasks/entityDetailPanel";
 
 import { CALENDAR_VIEWS, CalendarView, Task } from "@/app/_types/types";
 import { useCalendarStore } from "@/app/_store/calendarStore";
+import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useCalendarRange } from "@/app/utils/hooks/calendar";
 import {
@@ -31,6 +32,7 @@ import {
   viewRange,
   type CalendarEvent,
 } from "@/app/utils/calendar";
+import { overdueAgendaTasks, taskToCalendarItem } from "@/app/utils/overdue";
 import { cn } from "@/app/utils/cn";
 
 function CalendarContent() {
@@ -41,6 +43,7 @@ function CalendarContent() {
 
   const { activeView, setActiveView, selectedDate, setSelectedDate } =
     useCalendarStore();
+  const scheduleStatus = useScheduleActivityStore((state) => state.status);
 
   const { data: tasks } = useTasks();
   const range = useMemo(
@@ -63,6 +66,10 @@ function CalendarContent() {
     () => toCalendarEvents(calendar?.items ?? []),
     [calendar],
   );
+  const overdueEvents = useMemo(
+    () => toCalendarEvents(overdueAgendaTasks(typedTasks).map(taskToCalendarItem)),
+    [typedTasks],
+  );
   const legend = useMemo(() => eventLegend(events), [events]);
   const unscheduledCount = useMemo(
     () => typedTasks.filter(isUnscheduled).length,
@@ -72,8 +79,11 @@ function CalendarContent() {
   // Selection is held by id so a refetch shows fresh data in the dialog, and
   // a block or occurrence that disappeared simply closes it.
   const selectedEvent = useMemo(
-    () => events.find((event) => event.id === selectedEventId) ?? null,
-    [events, selectedEventId],
+    () =>
+      events.find((event) => event.id === selectedEventId) ??
+      overdueEvents.find((event) => event.id === selectedEventId) ??
+      null,
+    [events, overdueEvents, selectedEventId],
   );
   const setSelectedEvent = useCallback(
     (event: CalendarEvent | null) => setSelectedEventId(event?.id ?? null),
@@ -167,8 +177,13 @@ function CalendarContent() {
             onClick={() => setAutoOpen(true)}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-input px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
           >
-            <Sparkles className="size-3.5" />
-            Auto-schedule
+            <Sparkles
+              className={cn(
+                "size-3.5",
+                scheduleStatus === "running" && "animate-pulse text-primary",
+              )}
+            />
+            {scheduleStatus === "running" ? "Scheduling…" : "Auto-schedule"}
             {unscheduledCount > 0 && (
               <span className="rounded-full bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground">
                 {unscheduledCount}
@@ -246,7 +261,7 @@ function CalendarContent() {
 
       {!isLoading && status !== "error" && (
         <>
-          {events.length === 0 && (
+          {events.length === 0 && overdueEvents.length === 0 && (
             <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
               Nothing in this period. Click an empty slot to place a task or
               add an event, or let Auto-schedule fill your working hours.
@@ -286,6 +301,7 @@ function CalendarContent() {
             <AgendaView
               selectedDate={selectedDate}
               events={events}
+              overdueEvents={overdueEvents}
               onSelectEvent={setSelectedEvent}
             />
           )}

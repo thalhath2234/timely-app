@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Mail, Lock, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import * as motion from "motion/react-client";
 import { getMe } from "@/app/utils/api/user";
+import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 
 export default function LoginPage() {
   const queryClient = useQueryClient();
@@ -18,16 +19,16 @@ export default function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: async () => {
       setValidationError("");
-      const response = await fetch("http://localhost:8080/login", {
+      const response = await apiFetch("/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ email, password }),
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || "Login failed");
+        throw new Error(data.message || data.error || "Login failed");
       }
+      setAccessToken(data.token);
       return data;
     },
     onSuccess: async () => {
@@ -56,7 +57,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 text-foreground">
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
         className="w-full max-w-md bg-card text-card-foreground border border-border shadow-xl rounded-2xl p-8 relative overflow-hidden"
@@ -144,7 +145,7 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-8 text-center text-sm text-muted-foreground relative">
-          "Don&apos;t have an account?"{" "}
+          Don&apos;t have an account?{" "}
           <Link
             href="/signup"
             className="text-primary hover:underline font-semibold"
@@ -152,17 +153,17 @@ export default function LoginPage() {
             Sign up
           </Link>
         </div>
-
-        {/* Demo Helper Message */}
-        <div className="mt-6 pt-5 border-t border-border text-center text-xs text-muted-foreground relative">
-          <p className="font-semibold text-foreground">Demo Account Info:</p>
-          <p className="mt-1">
-            Email: <code className="text-primary font-mono">user@example.com</code>
-          </p>
-          <p>
-            Password: <code className="text-primary font-mono">password123</code>
-          </p>
-        </div>
+        {process.env.NODE_ENV === "development" ? (
+          <div className="mt-6 pt-5 border-t border-border text-center text-xs text-muted-foreground relative">
+            <p className="font-semibold text-foreground">Development seed account</p>
+            <p className="mt-1">
+              Email: <code className="text-primary font-mono">user@example.com</code>
+            </p>
+            <p>
+              Password: <code className="text-primary font-mono">password123</code>
+            </p>
+          </div>
+        ) : null}
       </motion.div>
     </div>
   );

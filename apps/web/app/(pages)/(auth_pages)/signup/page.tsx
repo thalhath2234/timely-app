@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { User, Mail, Lock, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import * as motion from 'motion/react-client';
+import { apiFetch, setAccessToken } from '@/app/utils/api/client';
 
 export default function SignupPage() {
     const router = useRouter();
@@ -18,26 +19,28 @@ export default function SignupPage() {
     const signupMutation = useMutation({
         mutationFn: async () => {
             setValidationError('');
-            const response = await fetch('http://localhost:8080/register', {
+            const response = await apiFetch('/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    email,
+                    name: name.trim(),
+                    email: email.trim(),
                     password,
                 }),
             });
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.error || 'Signup failed');
+                throw new Error(data.message || data.error || 'Signup failed');
             }
+            setAccessToken(data.token);
             return data;
         },
         onSuccess: () => {
             setSuccess(true);
             setTimeout(() => {
-                router.push('/calendar');
+                router.push('/onboarding');
                 router.refresh();
-            }, 1000);
+            }, 400);
         },
     });
 
@@ -57,7 +60,7 @@ export default function SignupPage() {
     return (
         <div className="min-h-screen flex items-center justify-center bg-background p-4 text-foreground">
             <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, ease: 'easeOut' }}
                 className="w-full max-w-md bg-card text-card-foreground border border-border shadow-xl rounded-2xl p-8 relative overflow-hidden"

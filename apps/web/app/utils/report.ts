@@ -89,11 +89,14 @@ function isCompleted(task: Task) {
   return Boolean(task.completedAt);
 }
 
-const PRIORITY_ORDER = ["Urgent", "Critical", "High", "Medium", "Low", "None"];
+const PRIORITY_ORDER = ["Urgent", "High", "Medium", "Low", "None"];
 
 function priorityKey(value?: string | null) {
   const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : "None";
+  if (!trimmed) return "None";
+  const lower = trimmed.toLowerCase();
+  if (lower === "critical") return "Urgent";
+  return trimmed[0].toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
 /**

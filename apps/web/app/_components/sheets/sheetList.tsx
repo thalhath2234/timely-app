@@ -21,10 +21,13 @@ export default function SheetList() {
 
   const [search, setSearch] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const visibleSheets = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const all = sheets ?? [];
+    const all = (sheets ?? []).filter((sheet) =>
+      showArchived ? Boolean(sheet.archivedAt) : !sheet.archivedAt,
+    );
     if (!query) return all;
 
     return all.filter(
@@ -32,7 +35,7 @@ export default function SheetList() {
         sheet.title.toLowerCase().includes(query) ||
         sheet.description.toLowerCase().includes(query),
     );
-  }, [sheets, search]);
+  }, [sheets, search, showArchived]);
 
   const handleCreate = async () => {
     const sheet = await createSheet.mutateAsync({});
@@ -49,7 +52,9 @@ export default function SheetList() {
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar/40">
       <div className="flex items-center justify-between px-3 py-3">
-        <h2 className="text-sm font-semibold text-foreground">Sheets</h2>
+        <h2 className="text-sm font-semibold text-foreground">
+          {showArchived ? "Archived" : "Sheets"}
+        </h2>
         <button
           type="button"
           title="New sheet"
@@ -71,6 +76,13 @@ export default function SheetList() {
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
         </div>
+        <button
+          type="button"
+          onClick={() => setShowArchived((previous) => !previous)}
+          className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+        >
+          {showArchived ? "Show active sheets" : "Show archived"}
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">

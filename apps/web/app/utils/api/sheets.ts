@@ -1,6 +1,6 @@
 import { DocContent, Sheet, SheetColumn, SheetRow } from "@/app/_types/types";
+import { apiFetch } from "./client";
 
-const SHEETS_URL = "http://localhost:8080/sheets";
 
 export interface CreateSheetPayload {
   title?: string;
@@ -35,7 +35,7 @@ async function readError(response: Response, fallback: string) {
 }
 
 export async function getSheets(): Promise<Sheet[]> {
-  const response = await fetch(SHEETS_URL, { credentials: "include" });
+  const response = await apiFetch("/sheets", { credentials: "include" });
 
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to fetch sheets"));
@@ -45,7 +45,7 @@ export async function getSheets(): Promise<Sheet[]> {
 }
 
 export async function getSheet(id: string): Promise<Sheet> {
-  const response = await fetch(`${SHEETS_URL}/${id}`, {
+  const response = await apiFetch(`/sheets/${id}`, {
     credentials: "include",
   });
 
@@ -59,7 +59,7 @@ export async function getSheet(id: string): Promise<Sheet> {
 export async function createSheet(
   data: CreateSheetPayload = {},
 ): Promise<Sheet> {
-  const response = await fetch(SHEETS_URL, {
+  const response = await apiFetch("/sheets", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -78,7 +78,7 @@ export async function updateSheet(
   id: string,
   data: UpdateSheetPayload,
 ): Promise<Sheet> {
-  const response = await fetch(`${SHEETS_URL}/${id}`, {
+  const response = await apiFetch(`/sheets/${id}`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -94,7 +94,7 @@ export async function updateSheet(
 }
 
 export async function deleteSheet(id: string): Promise<void> {
-  const response = await fetch(`${SHEETS_URL}/${id}`, {
+  const response = await apiFetch(`/sheets/${id}`, {
     method: "DELETE",
     credentials: "include",
   });

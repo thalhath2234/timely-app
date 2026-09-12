@@ -45,9 +45,12 @@ import {
 } from "lucide-react";
 import { DocContent } from "@/app/_types/types";
 import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
-import { Mention } from "./mention";
+import { useSidebarStore } from "@/app/_store/sidebarStore";
+import { dismissSuggestionAndQuery } from "./dismissSuggestion";
+import { Mention, MentionPluginKey } from "./mention";
 import { createMentionRenderer, filterMentionItems } from "./mentionMenu";
-import { SlashCommand } from "./slashCommand";
+import { SlashCommand, SlashCommandPluginKey } from "./slashCommand";
+import { DotBulletShortcut } from "./dotBullet";
 import {
   OPEN_LINK_EDITOR_EVENT,
   createSlashItems,
@@ -91,7 +94,12 @@ function clampToViewport(left: number, width: number) {
 }
 
 function isInsideTable(editor: Editor, pos: number) {
-  const $pos = editor.state.doc.resolve(Math.max(0, pos));
+  const doc = editor.state.doc;
+  // Placeholder decorations are built against the transaction's new doc while
+  // editor.state can still be the previous one. Resolving a future position
+  // throws RangeError and aborts the command that triggered the update.
+  if (pos < 0 || pos > doc.content.size) return false;
+  const $pos = doc.resolve(pos);
 
   for (let depth = $pos.depth; depth > 0; depth -= 1) {
     const name = $pos.node(depth).type.name;
@@ -182,6 +190,7 @@ export default function RichTextEditor({
       }),
       Placeholder.configure({
         includeChildren: true,
+        showOnlyCurrent: false,
         placeholder: ({
           editor: placeholderEditor,
           node,
@@ -199,6 +208,8 @@ export default function RichTextEditor({
           if (isInsideTable(placeholderEditor, pos)) {
             return hasAnchor ? "Type @ to mention" : "";
           }
+          // First child of an empty doc is at pos 0 (resolve(0).depth is 0).
+          if (!placeholderEditor.isEmpty || pos !== 0) return "";
           return placeholder ?? defaultPlaceholder;
         },
       }),
@@ -208,6 +219,7 @@ export default function RichTextEditor({
       TableKit.configure({
         table: { resizable: true, handleWidth: 6, cellMinWidth: 80 },
       }),
+      DotBulletShortcut,
     ];
 
     if (enableSlashCommands) {
@@ -215,6 +227,7 @@ export default function RichTextEditor({
         SlashCommand.configure({
           suggestion: {
             char: "/",
+            pluginKey: SlashCommandPluginKey,
             allow: ({ editor: slashEditor, range }) =>
               !isInsideTable(slashEditor, range.from),
             items: ({ query }: { query: string }) =>
@@ -229,6 +242,7 @@ export default function RichTextEditor({
       list.push(
         Mention.configure({
           suggestion: {
+            pluginKey: MentionPluginKey,
             items: ({ query }: { query: string }) =>
               filterMentionItems(mentionItemsRef.current, query),
             render: createMentionRenderer,
@@ -254,10 +268,15 @@ export default function RichTextEditor({
           variant === "compact" ? "doc-editor-compact" : ""
         } ${toolbar === "fixed" ? "doc-editor-description" : ""}`,
       },
-      handleKeyDown: (_view, event) => {
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      handleKeyDown: (view, event) => {
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          (event.key.toLowerCase() === "k" || event.code === "KeyK")
+        ) {
           event.preventDefault();
-          openLinkEditor();
+          dismissSuggestionAndQuery(view, SlashCommandPluginKey);
+          dismissSuggestionAndQuery(view, MentionPluginKey);
+          setLinkPosition(null);
           return true;
         }
         return false;
@@ -275,6 +294,34 @@ export default function RichTextEditor({
     onChangeRef.current = onChange;
     mentionItemsRef.current = mentionItems;
   });
+
+  // Apply incoming content from another client only when it actually changed.
+  // Do not listen to blur unconditionally: clicking the slash/mention menu
+  // blurs the editor, and resetting to the last saved `content` would wipe
+  // the `/query` and abort the insert (RangeError: position out of range).
+  const incomingContent = toEditorContent(content);
+  const incomingContentKey = JSON.stringify(incomingContent);
+
+  useEffect(() => {
+    if (!editor) return;
+    if (JSON.stringify(editor.getJSON()) === incomingContentKey) return;
+
+    const next = JSON.parse(incomingContentKey) as JSONContent;
+    if (!editor.isFocused) {
+      editor.commands.setContent(next, { emitUpdate: false });
+      return;
+    }
+
+    const applyOnBlur = () => {
+      editor.off("blur", applyOnBlur);
+      if (JSON.stringify(editor.getJSON()) === incomingContentKey) return;
+      editor.commands.setContent(next, { emitUpdate: false });
+    };
+    editor.on("blur", applyOnBlur);
+    return () => {
+      editor.off("blur", applyOnBlur);
+    };
+  }, [editor, incomingContentKey]);
 
   useEffect(() => {
     editorRef.current = editor ?? null;
@@ -303,6 +350,19 @@ export default function RichTextEditor({
     element.addEventListener("click", handleClick);
     return () => element.removeEventListener("click", handleClick);
   }, [editor, router]);
+
+  // Search (Ctrl+K) owns that shortcut — close editor overlays so they do
+  // not sit under the search palette.
+  useEffect(() => {
+    if (!editor) return;
+
+    return useSidebarStore.subscribe((state) => {
+      if (!state.searchMode) return;
+      dismissSuggestionAndQuery(editor.view, SlashCommandPluginKey);
+      dismissSuggestionAndQuery(editor.view, MentionPluginKey);
+      setLinkPosition(null);
+    });
+  }, [editor]);
 
   // The slash menu asks for the link popover through a DOM event so the menu
   // items stay independent of this component's state.
@@ -658,7 +718,7 @@ export default function RichTextEditor({
 
             <button
               type="button"
-              title="Add link (Ctrl+K)"
+              title="Add link"
               onClick={openLinkEditor}
               className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
                 editor.isActive("link") ? "bg-accent text-accent-foreground" : ""
@@ -703,7 +763,7 @@ export default function RichTextEditor({
 
           <button
             type="button"
-            title="Add link (Ctrl+K)"
+            title="Add link"
             onClick={openLinkEditor}
             className={`flex size-7 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground ${
               editor.isActive("link") ? "bg-accent text-accent-foreground" : ""

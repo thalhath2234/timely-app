@@ -1,6 +1,6 @@
 import { CalendarEventEntity, RecurrenceInput } from "@/app/_types/types";
+import { apiFetch } from "./client";
 
-const BASE = "http://localhost:8080";
 
 async function readError(response: Response, fallback: string) {
   try {
@@ -59,7 +59,7 @@ export interface SplitEventSeriesPayload {
 }
 
 export async function getEvents(): Promise<CalendarEventEntity[]> {
-  const response = await fetch(`${BASE}/events`, { credentials: "include" });
+  const response = await apiFetch(`/events`, { credentials: "include" });
   if (!response.ok) throw new Error("Failed to fetch events");
   return response.json();
 }
@@ -67,7 +67,7 @@ export async function getEvents(): Promise<CalendarEventEntity[]> {
 export async function createEvent(
   data: CreateEventPayload,
 ): Promise<CalendarEventEntity> {
-  const response = await fetch(`${BASE}/events`, {
+  const response = await apiFetch(`/events`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -84,7 +84,7 @@ export async function updateEvent(
   id: string,
   data: UpdateEventPayload,
 ): Promise<CalendarEventEntity> {
-  const response = await fetch(`${BASE}/events/${id}`, {
+  const response = await apiFetch(`/events/${id}`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -98,7 +98,7 @@ export async function updateEvent(
 }
 
 export async function deleteEvent(id: string): Promise<void> {
-  const response = await fetch(`${BASE}/events/${id}`, {
+  const response = await apiFetch(`/events/${id}`, {
     method: "DELETE",
     credentials: "include",
   });
@@ -111,7 +111,7 @@ export async function editEventOccurrence(
   id: string,
   data: EventOccurrencePayload,
 ): Promise<CalendarEventEntity> {
-  const response = await fetch(`${BASE}/events/${id}/occurrences`, {
+  const response = await apiFetch(`/events/${id}/occurrences`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -128,7 +128,7 @@ export async function splitEventSeries(
   id: string,
   data: SplitEventSeriesPayload,
 ): Promise<CalendarEventEntity> {
-  const response = await fetch(`${BASE}/events/${id}/recurrence/split`, {
+  const response = await apiFetch(`/events/${id}/recurrence/split`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },

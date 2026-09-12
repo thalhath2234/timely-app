@@ -6,6 +6,16 @@ export type SidebarProps = {
 
 export const SIDEBAR_ITEMS = [
   {
+    name: "Today",
+    icon: "Sun",
+    href: "/today",
+  },
+  {
+    name: "Inbox",
+    icon: "Inbox",
+    href: "/inbox",
+  },
+  {
     name: "Calendar",
     icon: "Calendar",
     href: "/calendar",
@@ -14,6 +24,11 @@ export const SIDEBAR_ITEMS = [
     name: "Tasks",
     icon: "ListTodo",
     href: "/tasks",
+  },
+  {
+    name: "Projects",
+    icon: "FolderKanban",
+    href: "/projects",
   },
   {
     name: "Docs",
@@ -29,6 +44,11 @@ export const SIDEBAR_ITEMS = [
     name: "Report",
     icon: "Brain",
     href: "/report",
+  },
+  {
+    name: "Notifications",
+    icon: "Bell",
+    href: "/notifications",
   },
   {
     name: "Settings",
@@ -77,6 +97,12 @@ export interface Status extends BaseEntity {
   isDefault?: boolean;
 }
 
+export interface Stage extends BaseEntity {
+  name: string;
+  order: number;
+  projectId?: string | null;
+}
+
 export interface Project extends BaseEntity {
   title: string;
   description: string | null;
@@ -89,6 +115,10 @@ export interface Project extends BaseEntity {
   color?: string | null;
   doesHaveStages?: boolean;
   workspaceId: string;
+  status?: Status | null;
+  workspace?: Workspace | null;
+  stages?: Stage[];
+  tasks?: Task[];
 }
 
 export interface Workspace extends BaseEntity {
@@ -164,6 +194,15 @@ export interface TaskLabelId {
   id: string;
 }
 
+export interface ChecklistItem {
+  id: string;
+  title: string;
+  completedAt: string | null;
+  order: number;
+}
+
+export type TaskKind = "task" | "reminder" | "inbox";
+
 export interface Task {
   id: string;
   name: string;
@@ -171,6 +210,25 @@ export interface Task {
   descriptionRich?: DocContent | null;
   timeChunks?: number;
   duration: number;
+  kind?: TaskKind;
+  parentTaskId?: string | null;
+  checklist?: ChecklistItem[];
+  actualMinutes?: number;
+  focusStartedAt?: string | null;
+  todayFocusOn?: string | null;
+  minChunkMinutes?: number;
+  preferredChunkMinutes?: number | null;
+  contiguous?: boolean;
+  earliestStartAt?: string | null;
+  preferredWindows?: PreferredWindow[];
+  scheduleLocked?: boolean;
+  openSubtaskCount?: number;
+  subtaskCount?: number;
+  checklistDone?: number;
+  checklistTotal?: number;
+  progressDone?: number;
+  progressTotal?: number;
+  subtasks?: Task[];
 
   deadline: string | null;
   startDate: string | null;
@@ -239,6 +297,8 @@ export interface ScheduledBlock {
   end: string;
   source: BlockSource;
   chunkIndex: number;
+  locked?: boolean;
+  occurrenceStart?: string | null;
 }
 
 export interface CalendarEventEntity {
@@ -285,12 +345,27 @@ export interface CalendarItem {
   completedAt?: string | null;
   task?: Task;
   event?: CalendarEventEntity;
+  /** Timed ping with no work estimate; does not reserve a schedule block. */
+  reminder?: boolean;
 }
 
 export interface CalendarRange {
   from: string;
   to: string;
   items: CalendarItem[];
+}
+
+export interface TodayResponse {
+  date: string;
+  timezone: string;
+  focusing: Task | null;
+  todayFocus: Task[];
+  items: CalendarItem[];
+  overdue: Task[];
+  inboxCount: number;
+  completedToday: Task[];
+  unfinished: Task[];
+  tomorrowFocus: Task[];
 }
 
 export interface WorkingWindow {
@@ -306,18 +381,92 @@ export interface WorkingHours {
   isDefault?: boolean;
 }
 
+export interface PreferredWindow {
+  days?: string[];
+  start: string;
+  end: string;
+}
+
+export interface ScheduleSettings {
+  breakMinutes: number;
+  freezeHours: number;
+  excludedWorkspaceIds: string[];
+}
+
+export interface NotificationSettings {
+  reminders: boolean;
+  digestMorning: boolean;
+  digestEvening: boolean;
+  planning: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+  timezone: string;
+  morningDigestAt: string;
+  eveningDigestAt: string;
+}
+
+export type NotificationCategory = "reminder" | "digest" | "planning";
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  data?: Record<string, unknown>;
+  dedupeKey?: string | null;
+  readAt?: string | null;
+  snoozedUntil?: string | null;
+  deliveredAt?: string | null;
+  createdAt: string;
+}
+
+export interface JobRecord {
+  id: string;
+  userId: string;
+  kind: string;
+  status: string;
+  dedupeKey?: string | null;
+  payload?: Record<string, unknown>;
+  runAt: string;
+  attempts: number;
+  maxAttempts: number;
+  lastError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JobHealth {
+  pending: number;
+  running: number;
+  failed: number;
+  succeededLastHour: number;
+}
+
 export type ScheduleSkipReason =
   | "no_capacity"
   | "blocked"
   | "manual"
   | "no_duration"
+  | "reminder"
   | "recurring"
-  | "completed";
+  | "completed"
+  | "inbox"
+  | "parent_has_subtasks"
+  | "locked"
+  | "frozen"
+  | "workspace_excluded"
+  | "contiguous_no_fit"
+  | "before_earliest"
+  | string;
 
 export interface ScheduleProposalBlock {
   start: string;
   end: string;
   chunkIndex: number;
+  occurrenceStart?: string;
 }
 
 export interface ScheduleProposal {
@@ -327,12 +476,38 @@ export interface ScheduleProposal {
   endsAt: string;
   deadline?: string;
   pastDeadline: boolean;
+  reason?: string;
+  change?: string;
 }
 
 export interface ScheduleSkipped {
   taskId: string;
   taskName: string;
   reason: ScheduleSkipReason;
+  message?: string;
+}
+
+export interface ScheduleChange {
+  action: "add" | "move" | "remove" | "pin" | string;
+  taskId: string;
+  taskName?: string;
+  message: string;
+}
+
+export interface ScheduleRisk {
+  kind: string;
+  taskId?: string;
+  taskName?: string;
+  message: string;
+}
+
+export interface DayCapacity {
+  date: string;
+  availableMinutes: number;
+  scheduledMinutes: number;
+  plannedMinutes: number;
+  overCapacity: boolean;
+  atRisk: boolean;
 }
 
 export interface SchedulePlan {
@@ -341,9 +516,13 @@ export interface SchedulePlan {
   timezone: string;
   proposals: ScheduleProposal[];
   skipped: ScheduleSkipped[];
+  changes?: ScheduleChange[];
+  risks?: ScheduleRisk[];
+  capacity?: DayCapacity[];
   freeMinutes: number;
   plannedMinutes: number;
   applied: boolean;
+  canUndo?: boolean;
 }
 
 export interface TaskActivity {
@@ -499,6 +678,17 @@ export interface TaskViewConfig {
   sortDirection: TaskListSortDirection;
   selectedWorkspaceIds: string[];
   selectedStatusIds: string[];
+  selectedProjectIds?: string[];
+  selectedPriorityLevels?: string[];
+  selectedLabelIds?: string[];
+  selectedStageIds?: string[];
+  /** When false, completed tasks are hidden. Defaults to true. */
+  showCompleted?: boolean;
+  onlyOverdue?: boolean;
+  onlyScheduled?: boolean;
+  onlyRecurring?: boolean;
+  /** When true, the view shows duration-0 reminders instead of work tasks. */
+  showReminders?: boolean;
   /** Built-in ids plus `cf:{customFieldId}`. Empty means the default order. */
   columnOrder: string[];
 }

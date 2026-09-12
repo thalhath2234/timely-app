@@ -2,39 +2,37 @@
 
 import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarClock,
   CalendarDays,
   Check,
   FileText,
   Flag,
+  Inbox,
   ListTodo,
   Sheet as SheetIcon,
   type LucideIcon,
 } from "lucide-react";
 import BottomSheet from "./BottomSheet";
 import DateTimeField from "./DateTimeField";
-import { createTask } from "@/app/utils/api/tasks";
-import { tasksKey } from "@/app/utils/hooks/tasks";
+import { useCreateTask } from "@/app/utils/hooks/tasks";
 import { useCreateEvent } from "@/app/utils/hooks/calendar";
 import { useCreateDoc } from "@/app/utils/hooks/docs";
 import { useCreateSheet } from "@/app/utils/hooks/sheets";
 import { useMobileWorkspaces } from "@/app/_lib/mobile/useMobileData";
-import { useDemoStore } from "@/app/_lib/mobile/demoStore";
 import { addDays, startOfDay } from "@/app/_lib/mobile/format";
-import type { Task } from "@/app/_types/types";
 
-type Kind = "task" | "event" | "doc" | "sheet";
+type Kind = "inbox" | "task" | "event" | "doc" | "sheet";
 
 const KINDS: { value: Kind; label: string; icon: LucideIcon; hint: string }[] = [
+  { value: "inbox", label: "Inbox", icon: Inbox, hint: "Capture a title" },
   { value: "task", label: "Task", icon: ListTodo, hint: "Something to do" },
   { value: "event", label: "Event", icon: CalendarClock, hint: "Time on the calendar" },
   { value: "doc", label: "Doc", icon: FileText, hint: "Notes and writing" },
   { value: "sheet", label: "Sheet", icon: SheetIcon, hint: "Rows and columns" },
 ];
 
-const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+const PRIORITIES = ["Low", "Medium", "High", "Urgent"] as const;
 
 /** Next quarter-hour from now, the natural default for a new event. */
 function nextSlot() {
@@ -51,9 +49,7 @@ export default function QuickAddSheet({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const queryClient = useQueryClient();
-  const { data: workspaces, isDemo } = useMobileWorkspaces();
-  const addDemoTask = useDemoStore((s) => s.addTask);
+  const { data: workspaces, isError } = useMobileWorkspaces();
 
   const [kind, setKind] = useState<Kind>("task");
   const [title, setTitle] = useState("");
@@ -66,10 +62,7 @@ export default function QuickAddSheet({
 
   const activeWorkspaceId = workspaceId || workspaces[0]?.id || "";
 
-  const createTaskMutation = useMutation({
-    mutationFn: createTask,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: tasksKey }),
-  });
+  const createTaskMutation = useCreateTask();
   const createEvent = useCreateEvent();
   const createDoc = useCreateDoc();
   const createSheet = useCreateSheet();
@@ -114,45 +107,20 @@ export default function QuickAddSheet({
     const name = title.trim();
     if (!name || pending) return;
 
+    if (kind === "inbox") {
+      await createTaskMutation.mutateAsync({
+        name,
+        kind: "inbox",
+      });
+      finish("/m/tasks");
+      return;
+    }
+
     if (kind === "task") {
-      if (isDemo) {
-        const ws = workspaces.find((w) => w.id === activeWorkspaceId);
-        const status = ws?.status.find((s) => s.isDefault) ?? ws?.status[0] ?? null;
-        const now = new Date().toISOString();
-        const demoTask: Task = {
-          id: `t_new_${Date.now()}`,
-          name,
-          description: "",
-          timeChunks: 1,
-          duration: 60,
-          deadline: dueDate() ?? null,
-          startDate: null,
-          scheduledOn: null,
-          completedAt: null,
-          createdAt: now,
-          updatedAt: now,
-          userId: "u_1",
-          projectId: null,
-          statusId: status?.id ?? null,
-          priorityLevel: priority,
-          workspaceId: activeWorkspaceId,
-          scheduleId: null,
-          stageId: null,
-          blockedById: null,
-          project: null,
-          workspace: ws ?? null,
-          status,
-          labels: [],
-          labelIds: [],
-          blocks: [],
-        };
-        addDemoTask(demoTask);
-        finish("/m/tasks");
-        return;
-      }
       await createTaskMutation.mutateAsync({
         name,
         workspaceId: activeWorkspaceId,
+        duration: 30,
         deadline: dueDate(),
         priorityLevel: priority ?? undefined,
       });
@@ -161,36 +129,26 @@ export default function QuickAddSheet({
     }
 
     if (kind === "event") {
-      if (!isDemo) {
-        const { start, end } = eventRange();
-        await createEvent.mutateAsync({
-          title: name,
-          start: start.toISOString(),
-          end: end.toISOString(),
-          allDay,
-          workspaceId: activeWorkspaceId,
-        });
-      }
+      const { start, end } = eventRange();
+      await createEvent.mutateAsync({
+        title: name,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        allDay,
+        workspaceId: activeWorkspaceId,
+      });
       finish("/m/calendar");
       return;
     }
 
     if (kind === "doc") {
-      if (!isDemo) {
-        const doc = await createDoc.mutateAsync({ title: name, workspaceId: activeWorkspaceId });
-        finish(`/m/docs/${doc.id}`);
-        return;
-      }
-      finish("/m/docs");
+      const doc = await createDoc.mutateAsync({ title: name, workspaceId: activeWorkspaceId });
+      finish(`/m/docs/${doc.id}`);
       return;
     }
 
-    if (!isDemo) {
-      const sheet = await createSheet.mutateAsync({ title: name, workspaceId: activeWorkspaceId });
-      finish(`/m/sheets/${sheet.id}`);
-      return;
-    }
-    finish("/m/sheets");
+    const sheet = await createSheet.mutateAsync({ title: name, workspaceId: activeWorkspaceId });
+    finish(`/m/sheets/${sheet.id}`);
   }
 
   function finish(href: string) {
@@ -348,9 +306,9 @@ export default function QuickAddSheet({
           <Check size={18} />
           {pending ? "Saving…" : `Add ${kind}`}
         </button>
-        {isDemo && kind !== "task" ? (
-          <p className="text-center text-xs text-muted-foreground">
-            Sample mode: {kind}s are not persisted without the API.
+        {isError ? (
+          <p className="text-center text-xs text-destructive">
+            Could not load workspaces. Check your connection and retry.
           </p>
         ) : null}
       </form>

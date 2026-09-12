@@ -1,4 +1,4 @@
-const SEARCH_URL = "http://localhost:8080/search";
+import { apiFetch } from "./client";
 
 export type SearchKind = "task" | "project" | "doc" | "sheet" | "event" | string;
 
@@ -30,7 +30,7 @@ export async function searchItems(
   const params = new URLSearchParams({ q: trimmed });
   if (semantic) params.set("mode", "semantic");
 
-  const response = await fetch(`${SEARCH_URL}?${params.toString()}`, {
+  const response = await apiFetch(`/search?${params.toString()}`, {
     credentials: "include",
   });
 

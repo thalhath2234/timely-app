@@ -1,11 +1,13 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Config,
   CustomField,
+  Project,
   Task,
   TaskRenderMode,
   TaskViewConfig,
@@ -23,6 +25,12 @@ import { ChevronDown, GripVertical, MoreHorizontal, Plus, Pencil, X } from "luci
 import Select from "@/app/_components/_ui/select";
 import TasksTable from "@/app/_components/_ui/tasks/tasktable";
 import EntityDetailPanel from "@/app/_components/_ui/tasks/entityDetailPanel";
+import KanbanView from "@/app/_components/_ui/tasks/kanbanView";
+import BulkActionBar from "@/app/_components/_ui/tasks/bulkActionBar";
+import { useProjects } from "@/app/utils/hooks/projects";
+import { filterTasks } from "@/app/utils/taskFilters";
+import { stageNameMap } from "@/app/utils/stages";
+import { PRIORITY_OPTIONS } from "@/app/utils/priority";
 
 type TaskViewMode = TaskRenderMode;
 
@@ -58,6 +66,15 @@ const NEW_VIEW_TEMPLATE: Omit<TaskViewConfig, "id" | "name"> = {
   sortDirection: "asc",
   selectedWorkspaceIds: [],
   selectedStatusIds: [],
+  selectedProjectIds: [],
+  selectedPriorityLevels: [],
+  selectedLabelIds: [],
+  selectedStageIds: [],
+  showCompleted: true,
+  onlyOverdue: false,
+  onlyScheduled: false,
+  onlyRecurring: false,
+  showReminders: false,
   columnOrder: [],
 };
 
@@ -77,6 +94,7 @@ function Tasks() {
   const { data: config, isLoading, status } = useConfig();
   const { data: workspaces } = useWorkspaces();
   const { data: tasks } = useTasks();
+  const { data: projects } = useProjects();
   const [taskViews, setTaskViews] = useState<TaskViewConfig[]>([]);
   const [activeTaskViewId, setActiveTaskViewId] = useState<string>("");
   const [viewsReady, setViewsReady] = useState(false);
@@ -91,6 +109,16 @@ function Tasks() {
   const [dataMode, setDataMode] = useState<TaskListDataMode>("task");
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
   const [selectedStatusIds, setSelectedStatusIds] = useState<string[]>([]);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [selectedPriorityLevels, setSelectedPriorityLevels] = useState<string[]>([]);
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
+  const [selectedStageIds, setSelectedStageIds] = useState<string[]>([]);
+  const [showCompleted, setShowCompleted] = useState(true);
+  const [onlyOverdue, setOnlyOverdue] = useState(false);
+  const [onlyScheduled, setOnlyScheduled] = useState(false);
+  const [onlyRecurring, setOnlyRecurring] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [groupValueOrders, setGroupValueOrders] = useState<Record<string, string[]>>({});
   const [sortBy, setSortBy] = useState<TaskListSortBy>("deadline");
@@ -100,11 +128,13 @@ function Tasks() {
 
   const typedConfig = config as Config | undefined;
   const typedWorkspaces = useMemo(() => (workspaces ?? []) as Workspace[], [workspaces]);
-  const typedTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
+  const typedProjects = useMemo(() => (projects ?? []) as Project[], [projects]);
+  const allTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
   const customFields = useMemo(
     () => typedConfig?.customFields ?? [],
     [typedConfig?.customFields]
   );
+  const stageNames = useMemo(() => stageNameMap(typedProjects), [typedProjects]);
 
   const saveViewsMutation = useUpdateTaskViewsConfig();
 
@@ -177,6 +207,27 @@ function Tasks() {
       const next = activeTaskView.selectedStatusIds ?? [];
       return areStringArraysEqual(previous, next) ? previous : next;
     });
+    setSelectedProjectIds((previous) => {
+      const next = activeTaskView.selectedProjectIds ?? [];
+      return areStringArraysEqual(previous, next) ? previous : next;
+    });
+    setSelectedPriorityLevels((previous) => {
+      const next = activeTaskView.selectedPriorityLevels ?? [];
+      return areStringArraysEqual(previous, next) ? previous : next;
+    });
+    setSelectedLabelIds((previous) => {
+      const next = activeTaskView.selectedLabelIds ?? [];
+      return areStringArraysEqual(previous, next) ? previous : next;
+    });
+    setSelectedStageIds((previous) => {
+      const next = activeTaskView.selectedStageIds ?? [];
+      return areStringArraysEqual(previous, next) ? previous : next;
+    });
+    setShowCompleted(activeTaskView.showCompleted !== false);
+    setOnlyOverdue(Boolean(activeTaskView.onlyOverdue));
+    setOnlyScheduled(Boolean(activeTaskView.onlyScheduled));
+    setOnlyRecurring(Boolean(activeTaskView.onlyRecurring));
+    setShowReminders(Boolean(activeTaskView.showReminders));
     setColumnOrder((previous) => {
       const next = activeTaskView.columnOrder ?? [];
       return areStringArraysEqual(previous, next) ? previous : next;
@@ -217,6 +268,15 @@ function Tasks() {
           dataMode,
           selectedWorkspaceIds,
           selectedStatusIds,
+          selectedProjectIds,
+          selectedPriorityLevels,
+          selectedLabelIds,
+          selectedStageIds,
+          showCompleted,
+          onlyOverdue,
+          onlyScheduled,
+          onlyRecurring,
+          showReminders,
           columnOrder,
           groupValueOrders,
           sortBy,
@@ -229,9 +289,18 @@ function Tasks() {
           updated.dataMode === view.dataMode &&
           updated.sortBy === view.sortBy &&
           updated.sortDirection === view.sortDirection &&
+          updated.showCompleted === (view.showCompleted !== false) &&
+          Boolean(updated.onlyOverdue) === Boolean(view.onlyOverdue) &&
+          Boolean(updated.onlyScheduled) === Boolean(view.onlyScheduled) &&
+          Boolean(updated.onlyRecurring) === Boolean(view.onlyRecurring) &&
+          Boolean(updated.showReminders) === Boolean(view.showReminders) &&
           areStringArraysEqual(updated.groupFields, view.groupFields) &&
           areStringArraysEqual(updated.selectedWorkspaceIds, view.selectedWorkspaceIds) &&
           areStringArraysEqual(updated.selectedStatusIds, view.selectedStatusIds ?? []) &&
+          areStringArraysEqual(updated.selectedProjectIds ?? [], view.selectedProjectIds ?? []) &&
+          areStringArraysEqual(updated.selectedPriorityLevels ?? [], view.selectedPriorityLevels ?? []) &&
+          areStringArraysEqual(updated.selectedLabelIds ?? [], view.selectedLabelIds ?? []) &&
+          areStringArraysEqual(updated.selectedStageIds ?? [], view.selectedStageIds ?? []) &&
           areStringArraysEqual(updated.columnOrder, view.columnOrder ?? []) &&
           areRecordsOfStringArraysEqual(updated.groupValueOrders, view.groupValueOrders);
 
@@ -253,6 +322,15 @@ function Tasks() {
     dataMode,
     selectedWorkspaceIds,
     selectedStatusIds,
+    selectedProjectIds,
+    selectedPriorityLevels,
+    selectedLabelIds,
+    selectedStageIds,
+    showCompleted,
+    onlyOverdue,
+    onlyScheduled,
+    onlyRecurring,
+    showReminders,
     columnOrder,
     groupValueOrders,
     sortBy,
@@ -349,11 +427,42 @@ function Tasks() {
     );
   };
 
+  const listFilters = useMemo(
+    () => ({
+      workspaceIds: selectedWorkspaceIds,
+      statusIds: selectedStatusIds,
+      projectIds: detailProjectId ? [detailProjectId] : selectedProjectIds,
+      priorityLevels: selectedPriorityLevels,
+      labelIds: selectedLabelIds,
+      stageIds: selectedStageIds,
+      showCompleted,
+      onlyOverdue,
+      onlyScheduled,
+      onlyRecurring,
+      showReminders,
+    }),
+    [
+      selectedWorkspaceIds,
+      selectedStatusIds,
+      selectedProjectIds,
+      selectedPriorityLevels,
+      selectedLabelIds,
+      selectedStageIds,
+      showCompleted,
+      onlyOverdue,
+      onlyScheduled,
+      onlyRecurring,
+      showReminders,
+      detailProjectId,
+    ],
+  );
+
   const dataRows = useMemo(() => {
-    if (dataMode === "task") return typedTasks;
+    const filtered = filterTasks(allTasks, listFilters);
+    if (dataMode === "task" || showReminders) return filtered;
 
     const projects = new Map<string, Task[]>();
-    typedTasks.forEach((task) => {
+    filtered.forEach((task) => {
       const projectId = task.project?.id || task.projectId;
       if (!projectId) return;
       const existing = projects.get(projectId) ?? [];
@@ -394,14 +503,14 @@ function Tasks() {
         labels: [],
       } as Task;
     });
-  }, [dataMode, typedTasks]);
+  }, [allTasks, dataMode, listFilters, showReminders]);
 
   const getGroupLabel = (task: Task, groupBy: TaskListGroupField): string => {
     if (groupBy === "workspace") return task.workspace?.name || "No workspace";
     if (groupBy === "project") return task.project?.title || "No project";
     if (groupBy === "status") return task.status?.name || "No status";
     if (groupBy === "priority") return task.priorityLevel || "No priority";
-    if (groupBy === "stage") return task.stageId || "No stage";
+    if (groupBy === "stage") return (task.stageId && stageNames[task.stageId]) || "No stage";
     if (groupBy.startsWith("cf:")) {
       const value = task.customFieldValues?.find((entry) => entry.customFieldId === groupBy.slice(3));
       if (!value) return "-";
@@ -427,16 +536,7 @@ function Tasks() {
     return options;
   }, [dataRows, groupFields]);
 
-  const filteredDataRows = useMemo(() => {
-    if (selectedWorkspaceIds.length === 0) return dataRows;
-
-    return dataRows.filter((row) => {
-      const workspaceId = row.workspace?.id || row.workspaceId;
-      if (!workspaceId) return false;
-      return selectedWorkspaceIds.includes(workspaceId);
-    });
-  }, [dataRows, selectedWorkspaceIds]);
-
+  const filteredDataRows = dataRows;
   const dataCount = filteredDataRows.length;
 
   if (isLoading) {
@@ -499,9 +599,54 @@ function Tasks() {
             sortDirection={sortDirection}
             setSortDirection={setSortDirection}
             customFields={customFields}
+            showReminders={showReminders}
+            setShowReminders={setShowReminders}
           />
 
-          <TaskOptionsBar />
+          <TaskOptionsBar
+            showCompleted={showCompleted}
+            setShowCompleted={setShowCompleted}
+            onlyOverdue={onlyOverdue}
+            setOnlyOverdue={setOnlyOverdue}
+            onlyScheduled={onlyScheduled}
+            setOnlyScheduled={setOnlyScheduled}
+            onlyRecurring={onlyRecurring}
+            setOnlyRecurring={setOnlyRecurring}
+            projects={typedProjects}
+            workspaces={typedWorkspaces}
+            selectedProjectIds={selectedProjectIds}
+            setSelectedProjectIds={setSelectedProjectIds}
+            selectedPriorityLevels={selectedPriorityLevels}
+            setSelectedPriorityLevels={setSelectedPriorityLevels}
+            selectedLabelIds={selectedLabelIds}
+            setSelectedLabelIds={setSelectedLabelIds}
+            selectedStageIds={selectedStageIds}
+            setSelectedStageIds={setSelectedStageIds}
+          />
+
+          {detailProjectId ? (
+            <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-sm">
+              <span className="text-muted-foreground">
+                Filtered to{" "}
+                {typedProjects.find((project) => project.id === detailProjectId)?.title || "this project"}
+              </span>
+              <Link href={`/projects/${detailProjectId}`} className="font-medium text-foreground underline-offset-2 hover:underline">
+                Open project
+              </Link>
+              <button type="button" onClick={closeDetail} className="ml-auto text-xs text-muted-foreground">
+                Clear
+              </button>
+            </div>
+          ) : null}
+
+          {dataMode === "task" && !showReminders ? (
+            <BulkActionBar
+              ids={selectedTaskIds}
+              workspaces={typedWorkspaces}
+              projects={typedProjects}
+              onClear={() => setSelectedTaskIds([])}
+            />
+          ) : null}
 
           <div className="flex-1 overflow-auto">
             {typedConfig && viewMode === "list" && (
@@ -511,12 +656,16 @@ function Tasks() {
                 groupSortDirection={groupSortDirection}
                 groupValueOrders={groupValueOrders}
                 selectedWorkspaceIds={selectedWorkspaceIds}
-                dataMode={dataMode}
+                dataMode={showReminders ? "task" : dataMode}
                 sortBy={sortBy}
                 sortDirection={sortDirection}
                 columnOrder={columnOrder}
                 onColumnOrderChange={setColumnOrder}
                 onSelectRow={openRow}
+                filters={listFilters}
+                stageNames={stageNames}
+                selectedIds={selectedTaskIds}
+                onSelectedIdsChange={setSelectedTaskIds}
               />
             )}
 
@@ -725,6 +874,8 @@ type TaskToolbarProps = {
   sortDirection: TaskListSortDirection;
   setSortDirection: (value: TaskListSortDirection) => void;
   customFields: CustomField[];
+  showReminders: boolean;
+  setShowReminders: (value: boolean) => void;
 };
 
 export function TaskToolbar({
@@ -750,6 +901,8 @@ export function TaskToolbar({
   sortDirection,
   setSortDirection,
   customFields,
+  showReminders,
+  setShowReminders,
 }: TaskToolbarProps) {
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [groupSortPanelOpen, setGroupSortPanelOpen] = useState(false);
@@ -1040,11 +1193,20 @@ export function TaskToolbar({
                 <label className="text-xs text-muted-foreground block mb-1">Data</label>
                 <Select
                   size="sm"
-                  value={dataMode}
-                  onChange={(next) => setDataMode(next as TaskListDataMode)}
+                  value={showReminders ? "reminder" : dataMode}
+                  onChange={(next) => {
+                    if (next === "reminder") {
+                      setShowReminders(true);
+                      setDataMode("task");
+                      return;
+                    }
+                    setShowReminders(false);
+                    setDataMode(next as TaskListDataMode);
+                  }}
                   options={[
-                    { value: "task", label: "Task" },
-                    { value: "project", label: "Project" },
+                    { value: "task", label: "Tasks" },
+                    { value: "reminder", label: "Reminders" },
+                    { value: "project", label: "Projects" },
                   ]}
                 />
               </div>
@@ -1283,25 +1445,144 @@ export function TaskToolbar({
         </div>
 
         <span className="text-xs text-muted-foreground">
-          {dataMode === "task" ? "TASKS" : "PROJECTS"}: {dataCount}
+          {dataMode === "task" ? (showReminders ? "REMINDERS" : "TASKS") : "PROJECTS"}: {dataCount}
         </span>
       </div>
     </div>
   );
 }
 
-export function TaskOptionsBar() {
-  return (
-    <div className="h-10 border-b border-border flex items-center gap-6 px-4 text-sm text-muted-foreground">
-      <label className="flex items-center gap-2">
-        <input type="checkbox" className="accent-primary" />
-        Only show scheduled past deadline
-      </label>
+export function TaskOptionsBar({
+  showCompleted,
+  setShowCompleted,
+  onlyOverdue,
+  setOnlyOverdue,
+  onlyScheduled,
+  setOnlyScheduled,
+  onlyRecurring,
+  setOnlyRecurring,
+  projects,
+  workspaces,
+  selectedProjectIds,
+  setSelectedProjectIds,
+  selectedPriorityLevels,
+  setSelectedPriorityLevels,
+  selectedLabelIds,
+  setSelectedLabelIds,
+  selectedStageIds,
+  setSelectedStageIds,
+}: {
+  showCompleted: boolean;
+  setShowCompleted: (value: boolean) => void;
+  onlyOverdue: boolean;
+  setOnlyOverdue: (value: boolean) => void;
+  onlyScheduled: boolean;
+  setOnlyScheduled: (value: boolean) => void;
+  onlyRecurring: boolean;
+  setOnlyRecurring: (value: boolean) => void;
+  projects: Project[];
+  workspaces: Workspace[];
+  selectedProjectIds: string[];
+  setSelectedProjectIds: (value: string[]) => void;
+  selectedPriorityLevels: string[];
+  setSelectedPriorityLevels: (value: string[]) => void;
+  selectedLabelIds: string[];
+  setSelectedLabelIds: (value: string[]) => void;
+  selectedStageIds: string[];
+  setSelectedStageIds: (value: string[]) => void;
+}) {
+  const labels = workspaces.flatMap((workspace) => workspace.lables ?? []);
+  const stages = projects.flatMap((project) =>
+    (project.stages ?? []).map((stage) => ({
+      id: stage.id,
+      label: `${project.title}: ${stage.name}`,
+    })),
+  );
 
+  return (
+    <div className="flex flex-wrap items-center gap-4 border-b border-border px-4 py-2 text-sm text-muted-foreground">
       <label className="flex items-center gap-2">
-        <input type="checkbox" className="accent-primary" />
-        Show resolved tasks
+        <input
+          type="checkbox"
+          className="accent-primary"
+          checked={onlyOverdue}
+          onChange={(event) => setOnlyOverdue(event.target.checked)}
+        />
+        Overdue
       </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          className="accent-primary"
+          checked={showCompleted}
+          onChange={(event) => setShowCompleted(event.target.checked)}
+        />
+        Show completed
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          className="accent-primary"
+          checked={onlyScheduled}
+          onChange={(event) => setOnlyScheduled(event.target.checked)}
+        />
+        Scheduled
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          className="accent-primary"
+          checked={onlyRecurring}
+          onChange={(event) => setOnlyRecurring(event.target.checked)}
+        />
+        Recurring
+      </label>
+      <div className="w-40">
+        <Select
+          size="sm"
+          value={selectedProjectIds[0] ?? ""}
+          placeholder="Project"
+          onChange={(projectId) => setSelectedProjectIds(projectId ? [projectId] : [])}
+          options={[
+            { value: "", label: "All projects" },
+            ...projects.map((project) => ({ value: project.id, label: project.title })),
+          ]}
+        />
+      </div>
+      <div className="w-32">
+        <Select
+          size="sm"
+          value={selectedPriorityLevels[0] ?? ""}
+          placeholder="Priority"
+          onChange={(priority) => setSelectedPriorityLevels(priority ? [priority] : [])}
+          options={[{ value: "", label: "All priorities" }, ...PRIORITY_OPTIONS]}
+        />
+      </div>
+      {labels.length > 0 ? (
+        <div className="w-36">
+          <Select
+            size="sm"
+            value={selectedLabelIds[0] ?? ""}
+            placeholder="Label"
+            onChange={(labelId) => setSelectedLabelIds(labelId ? [labelId] : [])}
+            options={[
+              { value: "", label: "All labels" },
+              ...labels.map((label) => ({ value: label.id, label: label.name, color: label.color })),
+            ]}
+          />
+        </div>
+      ) : null}
+      {stages.length > 0 ? (
+        <div className="w-44">
+          <Select
+            size="sm"
+            value={selectedStageIds[0] ?? ""}
+            placeholder="Stage"
+            onChange={(stageId) => setSelectedStageIds(stageId ? [stageId] : [])}
+            options={[{ value: "", label: "All stages" }, ...stages.map((stage) => ({ value: stage.id, label: stage.label }))]}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1327,134 +1608,6 @@ function parseDateValue(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date;
-}
-
-function KanbanView({
-  rows,
-  dataMode,
-  onSelectRow,
-  workspaces,
-  selectedWorkspaceIds,
-  selectedStatusIds,
-}: AlternateViewProps & {
-  workspaces: Workspace[];
-  selectedWorkspaceIds: string[];
-  selectedStatusIds: string[];
-}) {
-  const columns = useMemo(() => {
-    const scopedWorkspaces =
-      selectedWorkspaceIds.length === 0
-        ? workspaces
-        : workspaces.filter((workspace) =>
-            selectedWorkspaceIds.includes(workspace.id),
-          );
-
-    const visibleStatusIds = new Set(selectedStatusIds);
-    const showAllStatuses = selectedStatusIds.length === 0;
-
-    const grouped = new Map<string, Task[]>();
-    const colors = new Map<string, string>();
-    const order: string[] = [];
-
-    const addColumn = (name: string, color?: string) => {
-      if (grouped.has(name)) return;
-      grouped.set(name, []);
-      order.push(name);
-      if (color) colors.set(name, color);
-    };
-
-    for (const workspace of scopedWorkspaces) {
-      for (const status of workspace.status ?? []) {
-        if (showAllStatuses || visibleStatusIds.has(status.id)) {
-          addColumn(status.name, status.color);
-        }
-      }
-    }
-
-    for (const row of rows) {
-      const statusId = row.statusId ?? row.status?.id;
-      const statusName = row.status?.name || "No status";
-
-      if (!showAllStatuses) {
-        if (!statusId || !visibleStatusIds.has(statusId)) continue;
-      }
-
-      if (!grouped.has(statusName)) {
-        if (statusName === "No status") {
-          if (!showAllStatuses) continue;
-          addColumn(statusName);
-        } else if (showAllStatuses || (statusId && visibleStatusIds.has(statusId))) {
-          addColumn(statusName, row.status?.color);
-        } else {
-          continue;
-        }
-      }
-
-      grouped.get(statusName)?.push(row);
-    }
-
-    return order.map((name) => ({
-      name,
-      color: colors.get(name),
-      items: grouped.get(name) ?? [],
-    }));
-  }, [rows, workspaces, selectedWorkspaceIds, selectedStatusIds]);
-
-  if (columns.length === 0) {
-    return <div className="p-4 text-sm text-muted-foreground">No items found for Kanban view.</div>;
-  }
-
-  return (
-    <div className="h-full overflow-auto">
-      <div className="min-w-max p-4 flex gap-3">
-        {columns.map((column) => (
-          <section
-            key={column.name}
-            className="w-72 shrink-0 rounded-lg border border-border bg-muted/40"
-          >
-            <header className="px-3 py-2 border-b border-border flex items-center justify-between gap-2">
-              <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-                {column.color && (
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: column.color }}
-                  />
-                )}
-                <span className="truncate">{column.name}</span>
-              </h3>
-              <span className="text-xs text-muted-foreground">{column.items.length}</span>
-            </header>
-
-            <div className="p-2 space-y-2 min-h-24 max-h-[calc(100vh-270px)] overflow-auto">
-              {column.items.map((item) => (
-                <article
-                  key={item.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onSelectRow(item)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onSelectRow(item);
-                    }
-                  }}
-                  className="cursor-pointer rounded-lg border border-border bg-card p-3 shadow-xs transition-colors hover:border-primary/40"
-                >
-                  <div className="text-sm text-foreground font-medium line-clamp-2">{item.name}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {dataMode === "project" ? "Project" : "Task"} • {item.workspace?.name || "No workspace"}
-                  </div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Deadline: {formatDateLabel(item.deadline)}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function GanttView({ rows, dataMode, onSelectRow }: AlternateViewProps) {

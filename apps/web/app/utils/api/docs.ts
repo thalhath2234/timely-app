@@ -1,7 +1,7 @@
 import { Doc, DocContent } from "@/app/_types/types";
 import { isRichContentEmpty } from "@/app/utils/richText";
+import { apiFetch, apiUrl } from "./client";
 
-const DOCS_URL = "http://localhost:8080/docs";
 
 export type DocWatchEvent = {
   type: "hello" | "updated" | "deleted";
@@ -43,7 +43,7 @@ async function readError(response: Response, fallback: string) {
 }
 
 export async function getDocs(): Promise<Doc[]> {
-  const response = await fetch(DOCS_URL, { credentials: "include" });
+  const response = await apiFetch("/docs", { credentials: "include" });
 
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to fetch docs"));
@@ -53,7 +53,7 @@ export async function getDocs(): Promise<Doc[]> {
 }
 
 export async function getDoc(id: string): Promise<Doc> {
-  const response = await fetch(`${DOCS_URL}/${id}`, { credentials: "include" });
+  const response = await apiFetch(`/docs/${id}`, { credentials: "include" });
 
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to fetch doc"));
@@ -63,7 +63,7 @@ export async function getDoc(id: string): Promise<Doc> {
 }
 
 export async function createDoc(data: CreateDocPayload = {}): Promise<Doc> {
-  const response = await fetch(DOCS_URL, {
+  const response = await apiFetch("/docs", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -82,7 +82,7 @@ export async function updateDoc(
   id: string,
   data: UpdateDocPayload,
 ): Promise<Doc> {
-  const response = await fetch(`${DOCS_URL}/${id}`, {
+  const response = await apiFetch(`/docs/${id}`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -107,7 +107,7 @@ export async function updateDoc(
 
 /** SSE last-write-wins stream. Cookie session is sent via withCredentials. */
 export function watchDoc(id: string, onEvent: (event: DocWatchEvent) => void) {
-  const source = new EventSource(`${DOCS_URL}/${id}/watch`, {
+  const source = new EventSource(apiUrl(`/docs/${id}/watch`), {
     withCredentials: true,
   });
 
@@ -129,7 +129,7 @@ export function watchDoc(id: string, onEvent: (event: DocWatchEvent) => void) {
 }
 
 export async function deleteDoc(id: string): Promise<void> {
-  const response = await fetch(`${DOCS_URL}/${id}`, {
+  const response = await apiFetch(`/docs/${id}`, {
     method: "DELETE",
     credentials: "include",
   });

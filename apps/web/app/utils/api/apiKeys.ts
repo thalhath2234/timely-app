@@ -1,4 +1,5 @@
 import { ApiKey, CreatedApiKey } from "@/app/_types/types";
+import { apiFetch } from "./client";
 
 async function readError(response: Response, fallback: string) {
   try {
@@ -10,7 +11,7 @@ async function readError(response: Response, fallback: string) {
 }
 
 export async function listApiKeys(): Promise<ApiKey[]> {
-  const response = await fetch("http://localhost:8080/api-keys", {
+  const response = await apiFetch("/api-keys", {
     credentials: "include",
   });
   if (!response.ok) {
@@ -20,7 +21,7 @@ export async function listApiKeys(): Promise<ApiKey[]> {
 }
 
 export async function createApiKey(name: string): Promise<CreatedApiKey> {
-  const response = await fetch("http://localhost:8080/api-keys", {
+  const response = await apiFetch("/api-keys", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -33,7 +34,7 @@ export async function createApiKey(name: string): Promise<CreatedApiKey> {
 }
 
 export async function revokeApiKey(id: string): Promise<void> {
-  const response = await fetch(`http://localhost:8080/api-keys/${id}`, {
+  const response = await apiFetch(`/api-keys/${id}`, {
     method: "DELETE",
     credentials: "include",
   });

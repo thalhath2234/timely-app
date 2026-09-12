@@ -14,6 +14,7 @@ const FIELD_TYPES: { value: CustomFieldType; label: string }[] = [
   { value: "number", label: "Number" },
   { value: "date", label: "Date" },
   { value: "url", label: "URL" },
+  { value: "boolean", label: "Yes / No" },
   { value: "select", label: "Select" },
   { value: "multi_select", label: "Multi select" },
 ];

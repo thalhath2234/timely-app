@@ -5,7 +5,13 @@ import { Plus, X } from "lucide-react";
 import { TimeField } from "@/app/_components/_ui/datePicker";
 import type { WeekdayKey, WorkingHours, WorkingWindow } from "@/app/_types/types";
 import { browserTimezone } from "@/app/utils/api/schedule";
-import { useUpdateWorkingHours, useWorkingHours } from "@/app/utils/hooks/calendar";
+import {
+  useScheduleSettings,
+  useUpdateScheduleSettings,
+  useUpdateWorkingHours,
+  useWorkingHours,
+} from "@/app/utils/hooks/calendar";
+import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { cn } from "@/app/utils/cn";
 
 const DAYS: { key: WeekdayKey; label: string }[] = [
@@ -35,7 +41,12 @@ export default function WorkingHoursSettings() {
   }
 
   // Remount on server changes so the draft starts from what is saved.
-  return <WorkingHoursForm key={JSON.stringify(hours)} initial={hours} />;
+  return (
+    <div className="flex flex-col gap-12">
+      <WorkingHoursForm key={JSON.stringify(hours)} initial={hours} />
+      <EngineSettingsPanel />
+    </div>
+  );
 }
 
 function WorkingHoursForm({ initial }: { initial: WorkingHours }) {
@@ -275,4 +286,151 @@ function fromMinutes(total: number): string {
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function EngineSettingsPanel() {
+  const { data: settings, isLoading, isError } = useScheduleSettings();
+  const { data: workspaces } = useWorkspaces();
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading engine settings…</p>;
+  }
+  if (isError || !settings) {
+    return <p className="text-sm text-muted-foreground">Could not load engine settings.</p>;
+  }
+
+  return (
+    <EngineSettingsForm
+      initial={settings}
+      workspaces={(workspaces ?? []).map((space) => ({ id: space.id, name: space.name }))}
+    />
+  );
+}
+
+function EngineSettingsForm({
+  initial,
+  workspaces,
+}: {
+  initial: { breakMinutes: number; freezeHours: number; excludedWorkspaceIds: string[] };
+  workspaces: { id: string; name: string }[];
+}) {
+  const update = useUpdateScheduleSettings();
+  const [breakMinutes, setBreakMinutes] = useState(String(initial.breakMinutes ?? 5));
+  const [freezeHours, setFreezeHours] = useState(String(initial.freezeHours ?? 0));
+  const [excluded, setExcluded] = useState<string[]>(initial.excludedWorkspaceIds ?? []);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggleWorkspace = (id: string) => {
+    setExcluded((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  };
+
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    const breakValue = Number(breakMinutes);
+    const freezeValue = Number(freezeHours);
+    if (!Number.isFinite(breakValue) || breakValue < 1 || breakValue > 60) {
+      setError("Buffer must be between 1 and 60 minutes.");
+      return;
+    }
+    if (!Number.isFinite(freezeValue) || freezeValue < 0 || freezeValue > 168) {
+      setError("Freeze window must be between 0 and 168 hours.");
+      return;
+    }
+    try {
+      await update.mutateAsync({
+        breakMinutes: Math.round(breakValue),
+        freezeHours: Math.round(freezeValue),
+        excludedWorkspaceIds: excluded,
+      });
+      setMessage("Engine settings saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save engine settings.");
+    }
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="flex max-w-2xl flex-col gap-5 border-t border-border pt-8">
+      <div>
+        <h2 className="text-base font-semibold text-foreground">Auto-schedule engine</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Buffer time sits between placed blocks. Freeze keeps the next hours from being
+          rewritten. Excluded workspaces are skipped entirely.
+        </p>
+      </div>
+
+      <div className="grid max-w-lg grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Buffer between blocks (minutes)</span>
+          <input
+            type="number"
+            min={1}
+            max={60}
+            value={breakMinutes}
+            onChange={(event) => setBreakMinutes(event.target.value)}
+            className={fieldClass}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Freeze next hours</span>
+          <input
+            type="number"
+            min={0}
+            max={168}
+            value={freezeHours}
+            onChange={(event) => setFreezeHours(event.target.value)}
+            className={fieldClass}
+          />
+          <span className="text-[11px] text-muted-foreground">
+            0 keeps every hour movable. 24 freezes about the next day.
+          </span>
+        </label>
+      </div>
+
+      {workspaces.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="text-xs text-muted-foreground">Exclude workspaces from auto-schedule</span>
+          <div className="flex flex-wrap gap-2">
+            {workspaces.map((space) => {
+              const on = excluded.includes(space.id);
+              return (
+                <label
+                  key={space.id}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs",
+                    on ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => toggleWorkspace(space.id)}
+                    className="size-3.5 accent-primary"
+                  />
+                  {space.name}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {message && !error && <p className="text-xs text-success">{message}</p>}
+
+      <div>
+        <button
+          type="submit"
+          disabled={update.isPending}
+          className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+        >
+          {update.isPending ? "Saving..." : "Save engine settings"}
+        </button>
+      </div>
+    </form>
+  );
 }

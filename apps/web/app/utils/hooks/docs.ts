@@ -16,6 +16,16 @@ import { Doc } from "@/app/_types/types";
 export const docsKey = ["docs"] as const;
 export const docKey = (id: string) => ["docs", id] as const;
 
+/** True when the watch frame is our own save echo or an older revision. */
+function isEchoOrStale(incoming?: string, known?: string | null) {
+  if (!incoming || !known) return false;
+  if (incoming === known) return true;
+  const next = Date.parse(incoming);
+  const prev = Date.parse(known);
+  if (Number.isNaN(next) || Number.isNaN(prev)) return false;
+  return next <= prev;
+}
+
 export function useDocs() {
   return useQuery({
     queryKey: docsKey,
@@ -79,6 +89,7 @@ export function useDocWatch(
     enabled?: boolean;
     lastSavedAtRef: MutableRefObject<string | null>;
     hasLocalEdits: () => boolean;
+    isEditorFocused?: () => boolean;
     onRemote?: () => void;
     onDeleted?: () => void;
   },
@@ -100,19 +111,18 @@ export function useDocWatch(
         return;
       }
       if (event.type !== "updated") return;
-      if (event.updatedAt && event.updatedAt === current.lastSavedAtRef.current) {
-        return;
-      }
+      if (isEchoOrStale(event.updatedAt, current.lastSavedAtRef.current)) return;
       if (current.hasLocalEdits()) return;
       if (event.document) {
         queryClient.setQueryData(docKey(id), event.document);
         queryClient.setQueryData<Doc[]>(docsKey, (docs) =>
           docs?.map((item) => (item.id === id ? (event.document as Doc) : item)),
         );
-      } else {
+      } else if (!current.isEditorFocused?.()) {
         queryClient.invalidateQueries({ queryKey: docKey(id) });
+      } else {
+        return;
       }
-      queryClient.invalidateQueries({ queryKey: docsKey });
       if (event.updatedAt) current.lastSavedAtRef.current = event.updatedAt;
       current.onRemote?.();
     });

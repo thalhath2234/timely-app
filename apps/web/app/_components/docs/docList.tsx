@@ -78,8 +78,15 @@ export default function DocList() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
-  const allDocs = useMemo(() => docs ?? [], [docs]);
+  const allDocs = useMemo(
+    () =>
+      (docs ?? []).filter((doc) =>
+        showArchived ? Boolean(doc.archivedAt) : !doc.archivedAt,
+      ),
+    [docs, showArchived],
+  );
   const tree = useMemo(() => buildTree(allDocs), [allDocs]);
 
   const searchResults = useMemo(() => {
@@ -241,7 +248,9 @@ export default function DocList() {
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar/40">
       <div className="flex items-center justify-between px-3 py-3">
-        <h2 className="text-sm font-semibold text-foreground">Docs</h2>
+        <h2 className="text-sm font-semibold text-foreground">
+          {showArchived ? "Archived" : "Docs"}
+        </h2>
         <button
           type="button"
           title="New doc"
@@ -263,6 +272,13 @@ export default function DocList() {
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
         </div>
+        <button
+          type="button"
+          onClick={() => setShowArchived((previous) => !previous)}
+          className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+        >
+          {showArchived ? "Show active docs" : "Show archived"}
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">

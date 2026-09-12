@@ -65,7 +65,9 @@ export function toCustomFieldDrafts(
     return {
       id: field.id,
       type: field.type,
-      stringValue: match?.stringValue ?? "",
+      stringValue:
+        match?.stringValue ??
+        (typeof match?.boolValue === "boolean" ? (match.boolValue ? "true" : "false") : ""),
       optionsValue: (match?.optionValue ?? []).map((option) => ({
         id: option.id,
       })),

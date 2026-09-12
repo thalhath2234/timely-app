@@ -16,18 +16,26 @@ import {
   clearTaskBlocks,
   deleteBlock,
   getCalendarRange,
+  getScheduleSettings,
+  getToday,
   getWorkingHours,
   moveBlock,
+  pinBlock,
+  pinTask,
   previewSchedule,
+  undoSchedule,
+  updateScheduleSettings,
   updateWorkingHours,
   type AddBlockPayload,
   type PlanRequest,
 } from "@/app/utils/api/schedule";
-import { tasksKey } from "@/app/utils/hooks/tasks";
+import { useAutoScheduleAfterChange } from "@/app/utils/hooks/autoSchedule";
+import { tasksKey, todayKey } from "@/app/utils/hooks/tasks";
 
 export const calendarKey = ["calendar"] as const;
 export const eventsKey = ["events"] as const;
 export const workingHoursKey = ["working-hours"] as const;
+export const scheduleSettingsKey = ["schedule-settings"] as const;
 
 /** Range keys are minute-stable so navigating back reuses the cache. */
 export function calendarRangeKey(from: Date, to: Date) {
@@ -52,6 +60,8 @@ export function useInvalidateCalendar() {
       queryClient.invalidateQueries({ queryKey: calendarKey }),
       queryClient.invalidateQueries({ queryKey: tasksKey }),
       queryClient.invalidateQueries({ queryKey: eventsKey }),
+      queryClient.invalidateQueries({ queryKey: todayKey }),
+      queryClient.invalidateQueries({ queryKey: scheduleSettingsKey }),
     ]);
 }
 
@@ -61,7 +71,14 @@ export function useEvents() {
 
 export function useCreateEvent() {
   const invalidate = useInvalidateCalendar();
-  return useMutation({ mutationFn: createEvent, onSuccess: invalidate });
+  const autoSchedule = useAutoScheduleAfterChange();
+  return useMutation({
+    mutationFn: createEvent,
+    onSuccess: async () => {
+      await invalidate();
+      void autoSchedule();
+    },
+  });
 }
 
 export function useUpdateEvent() {
@@ -129,6 +146,44 @@ export function useApplySchedule() {
   });
 }
 
+export function useUndoSchedule() {
+  const invalidate = useInvalidateCalendar();
+  return useMutation({
+    mutationFn: undoSchedule,
+    onSuccess: invalidate,
+  });
+}
+
+export function useScheduleSettings() {
+  return useQuery({ queryKey: scheduleSettingsKey, queryFn: getScheduleSettings });
+}
+
+export function useUpdateScheduleSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateScheduleSettings,
+    onSuccess: (settings) => {
+      queryClient.setQueryData(scheduleSettingsKey, settings);
+    },
+  });
+}
+
+export function usePinTask() {
+  const invalidate = useInvalidateCalendar();
+  return useMutation({
+    mutationFn: ({ taskId, locked }: { taskId: string; locked: boolean }) => pinTask(taskId, locked),
+    onSuccess: invalidate,
+  });
+}
+
+export function usePinBlock() {
+  const invalidate = useInvalidateCalendar();
+  return useMutation({
+    mutationFn: ({ blockId, locked }: { blockId: string; locked: boolean }) => pinBlock(blockId, locked),
+    onSuccess: invalidate,
+  });
+}
+
 export function useAddTaskBlock() {
   const invalidate = useInvalidateCalendar();
   return useMutation({
@@ -161,4 +216,17 @@ export function useMoveBlock() {
 export function useDeleteBlock() {
   const invalidate = useInvalidateCalendar();
   return useMutation({ mutationFn: deleteBlock, onSuccess: invalidate });
+}
+
+export function useToday(date?: string) {
+  return useQuery({
+    queryKey: [...todayKey, date ?? ""] as const,
+    queryFn: () =>
+      getToday(
+        date,
+        typeof Intl !== "undefined"
+          ? Intl.DateTimeFormat().resolvedOptions().timeZone
+          : undefined,
+      ),
+  });
 }

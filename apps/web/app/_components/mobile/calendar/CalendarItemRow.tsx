@@ -2,7 +2,7 @@
 
 import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react";
 import type { CalendarItem } from "@/app/_types/types";
-import { formatTimeRange } from "@/app/_lib/mobile/format";
+import { formatRelativeDay, formatTime, formatTimeRange } from "@/app/_lib/mobile/format";
 
 export function itemColor(item: CalendarItem) {
   return item.color ?? item.task?.project?.color ?? "var(--primary)";
@@ -12,16 +12,29 @@ export function isTaskItem(item: CalendarItem) {
   return item.kind === "task" || item.kind === "taskOccurrence";
 }
 
+export function isReminderItem(item: CalendarItem) {
+  return Boolean(item.reminder || (isTaskItem(item) && (item.task?.duration ?? 1) <= 0));
+}
+
 export default function CalendarItemRow({
   item,
   onOpen,
+  overdue,
 }: {
   item: CalendarItem;
   onOpen: (item: CalendarItem) => void;
+  overdue?: boolean;
 }) {
   const done = Boolean(item.completedAt);
   const recurring = item.kind.endsWith("Occurrence") || Boolean(item.seriesId);
   const Icon = isTaskItem(item) ? ListTodo : CalendarClock;
+  const when = item.allDay
+    ? overdue
+      ? `Due ${formatRelativeDay(new Date(item.start))}`
+      : "All day"
+    : isReminderItem(item)
+      ? `${formatTime(item.start)} · Reminder`
+      : `${formatTimeRange(item.start, item.end)}${overdue ? ` · ${formatRelativeDay(new Date(item.start))}` : ""}`;
 
   return (
     <button
@@ -43,7 +56,7 @@ export default function CalendarItemRow({
         </p>
         <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Icon size={12} />
-          {item.allDay ? "All day" : formatTimeRange(item.start, item.end)}
+          <span className={overdue ? "text-destructive" : undefined}>{when}</span>
           {item.chunkCount > 1 ? ` · part ${item.chunkIndex + 1}/${item.chunkCount}` : ""}
           {recurring ? <Repeat size={12} /> : null}
         </p>

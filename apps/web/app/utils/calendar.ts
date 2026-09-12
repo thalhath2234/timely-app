@@ -49,6 +49,7 @@ export type CalendarEvent = {
   moved: boolean;
   completedAt: Date | null;
   item: CalendarItem;
+  reminder: boolean;
 };
 
 export function isTaskKind(kind: CalendarItemKind) {
@@ -68,10 +69,14 @@ export function toCalendarEvents(items: CalendarItem[]): CalendarEvent[] {
     const end = new Date(item.end);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
 
-    const durationMinutes = Math.max(
+    const rawMinutes = Math.max(
       Math.round((end.getTime() - start.getTime()) / 60_000),
       item.allDay ? MINUTES_PER_DAY : 0,
-    ) || DEFAULT_EVENT_MINUTES;
+    );
+    const reminder = Boolean(item.reminder || (isTaskKind(item.kind) && (item.task?.duration ?? 1) <= 0));
+    const durationMinutes = reminder
+      ? 20
+      : rawMinutes || DEFAULT_EVENT_MINUTES;
     const startMinutes = start.getHours() * 60 + start.getMinutes();
     const task = item.task;
 
@@ -79,6 +84,7 @@ export function toCalendarEvents(items: CalendarItem[]): CalendarEvent[] {
     const subtitleParts = isTask
       ? [task?.project?.title ?? task?.workspace?.name ?? null]
       : ["Event"];
+    if (reminder) subtitleParts.unshift("Reminder");
     if (item.kind === "task" && item.chunkCount > 1) {
       subtitleParts.push(`Part ${item.chunkIndex + 1} of ${item.chunkCount}`);
     }
@@ -111,6 +117,7 @@ export function toCalendarEvents(items: CalendarItem[]): CalendarEvent[] {
       moved: Boolean(item.moved),
       completedAt: item.completedAt ? new Date(item.completedAt) : null,
       item,
+      reminder,
     });
   }
 
@@ -126,7 +133,7 @@ export function toCalendarEvents(items: CalendarItem[]): CalendarEvent[] {
 const ADJACENT_GAP_MS = 5 * 60_000 + 1_000;
 
 function taskMergeId(event: CalendarEvent): string | undefined {
-  if (event.allDay || event.kind !== "task") return undefined;
+  if (event.allDay || event.kind !== "task" || event.reminder) return undefined;
   return event.task?.id ?? event.item.taskId ?? `title:${event.title}`;
 }
 
@@ -322,12 +329,15 @@ export function layoutDayEvents(events: CalendarEvent[]): PositionedEvent[] {
 export function eventStyle(color?: string | null): CSSProperties {
   if (!color) {
     return {
-      backgroundColor: "color-mix(in oklab, var(--primary) 18%, transparent)",
-      borderColor: "color-mix(in oklab, var(--primary) 45%, transparent)",
+      backgroundColor: "color-mix(in oklab, var(--primary) 32%, var(--card))",
+      borderColor: "color-mix(in oklab, var(--primary) 50%, var(--border))",
     };
   }
 
-  return { backgroundColor: `${color}2e`, borderColor: `${color}66` };
+  return {
+    backgroundColor: `color-mix(in oklab, ${color} 38%, var(--card))`,
+    borderColor: `color-mix(in oklab, ${color} 55%, var(--border))`,
+  };
 }
 
 export function swatchColor(color?: string | null): string {
@@ -385,9 +395,31 @@ export function shiftDate(
   return next;
 }
 
+/** Local calendar day as `YYYY-MM-DD`. */
+export function localDateStamp(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/** First ten characters of a date-only or RFC3339 value. */
+export function dateOnly(value?: string | Date | null): string {
+  if (!value) return "";
+  if (value instanceof Date) return localDateStamp(value);
+  return /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : "";
+}
+
+export function addCalendarDays(stamp: string, days: number): string {
+  const [year, month, day] = stamp.split("-").map(Number);
+  return localDateStamp(new Date(year, month - 1, day + days));
+}
+
 /** Value for date inputs / pickers (`YYYY-MM-DD`) from an ISO / date string. */
 export function toDateInputValue(value?: string | Date | null): string {
   if (!value) return "";
+  const fromStamp = dateOnly(value);
+  if (fromStamp) return fromStamp;
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
@@ -410,6 +442,50 @@ export function fromDatetimeLocalValue(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toISOString();
+}
+
+/** Clock value (`HH:mm`) from an ISO timestamp, datetime-local string, or Date. */
+export function toTimeInputValue(value?: string | Date | null): string {
+  if (!value) return "";
+  if (typeof value === "string" && /^\d{1,2}:\d{2}$/.test(value.trim())) {
+    const [hours, minutes] = value.trim().split(":");
+    return `${hours.padStart(2, "0")}:${minutes}`;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Local calendar day from `YYYY-MM-DD`, falling back to today. */
+export function dateFromDateInput(value?: string | null): Date {
+  if (!value) {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  }
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+/** Keep the calendar day, replace the clock. `hhmm` is `HH:mm`. */
+export function applyClockToDate(day: Date, hhmm: string): Date {
+  const [hours, minutes] = hhmm.split(":").map(Number);
+  return new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    Number.isFinite(hours) ? hours : 0,
+    Number.isFinite(minutes) ? minutes : 0,
+    0,
+    0,
+  );
 }
 
 /** Build a slot at `hour:00` on the given day (local time). */

@@ -48,13 +48,17 @@ export default function SearchModal() {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setSearchMode(false);
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key.toLowerCase() === "k" || e.code === "KeyK")
+      ) {
         e.preventDefault();
+        e.stopPropagation();
         setSearchMode(!useSidebarStore.getState().searchMode);
       }
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [setSearchMode]);
 
   const openHit = (hit: SearchHit) => {

@@ -3,15 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import * as motion from "motion/react-client";
-import { Check, Pin, Repeat, Sparkles, X } from "lucide-react";
-import DatePicker from "@/app/_components/_ui/datePicker";
+import { Check, Clock, Pin, Repeat, Sparkles, X } from "lucide-react";
+import DatePicker, { TimeField } from "@/app/_components/_ui/datePicker";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
 import {
+  applyClockToDate,
   formatDateTime,
   formatDuration,
   fromDatetimeLocalValue,
   swatchColor,
   toDatetimeLocalValue,
+  toTimeInputValue,
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import {
@@ -112,13 +114,15 @@ function DialogFrame({
   children: React.ReactNode;
 }) {
   const badge =
-    event.kind === "task"
-      ? event.source === "engine"
-        ? { icon: Sparkles, label: "Auto-scheduled" }
-        : { icon: Pin, label: "Pinned" }
-      : event.kind === "taskOccurrence" || event.kind === "eventOccurrence"
-        ? { icon: Repeat, label: event.kind === "taskOccurrence" ? "Repeating task" : "Repeating event" }
-        : null;
+    event.reminder
+      ? { icon: Clock, label: "Reminder" }
+      : event.kind === "task"
+        ? event.source === "engine"
+          ? { icon: Sparkles, label: "Auto-scheduled" }
+          : { icon: Pin, label: "Pinned" }
+        : event.kind === "taskOccurrence" || event.kind === "eventOccurrence"
+          ? { icon: Repeat, label: event.kind === "taskOccurrence" ? "Repeating task" : "Repeating event" }
+          : null;
 
   return (
     <motion.div
@@ -194,6 +198,7 @@ function TaskDetails({ event }: { event: CalendarEvent }) {
   if (!task) return null;
 
   const details = [
+    { label: "Type", value: event.reminder ? "Reminder" : null },
     { label: "Project", value: task.project?.title },
     { label: "Workspace", value: task.workspace?.name },
     { label: "Priority", value: task.priorityLevel },
@@ -294,33 +299,55 @@ function TimeFields({
   onWhen,
   onDuration,
   label = "Scheduled",
+  reminder = false,
+  timeOnly = false,
 }: {
   when: string;
   duration: number;
   onWhen: (value: string) => void;
   onDuration: (value: number) => void;
   label?: string;
+  reminder?: boolean;
+  timeOnly?: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 gap-3">
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">{label}</span>
-        <DatePicker mode="datetime" value={when} onChange={onWhen} clearable={false} />
+        {timeOnly ? (
+          <TimeField
+            value={toTimeInputValue(when)}
+            clearable={false}
+            aria-label={label}
+            onChange={(hhmm) => {
+              const day = when ? new Date(fromDatetimeLocalValue(when)) : new Date();
+              onWhen(toDatetimeLocalValue(applyClockToDate(day, hhmm)));
+            }}
+          />
+        ) : (
+          <DatePicker mode="datetime" value={when} onChange={onWhen} clearable={false} />
+        )}
       </label>
 
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">
-          Duration ({formatDuration(duration)})
-        </span>
-        <input
-          type="number"
-          min={15}
-          step={15}
-          value={duration}
-          onChange={(input) => onDuration(Number(input.target.value) || 30)}
-          className={fieldClass}
-        />
-      </label>
+      {reminder ? (
+        <p className="text-xs text-muted-foreground">
+          Reminder — pings at this time, no work block.
+        </p>
+      ) : (
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">
+            Duration ({formatDuration(duration)})
+          </span>
+          <input
+            type="number"
+            min={15}
+            step={15}
+            value={duration}
+            onChange={(input) => onDuration(Number(input.target.value) || 30)}
+            className={fieldClass}
+          />
+        </label>
+      )}
     </div>
   );
 }
@@ -341,24 +368,40 @@ function TaskBlockPanel({
   const moveBlock = useMoveBlock();
   const deleteBlock = useDeleteBlock();
   const clearBlocks = useClearTaskBlocks();
+  const updateTask = useUpdateTask();
   const [when, setWhen] = useState(() => toDatetimeLocalValue(event.start));
   const [duration, setDuration] = useState(event.durationMinutes);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
-  const pending = moveBlock.isPending || deleteBlock.isPending || clearBlocks.isPending;
+  const reminder = event.reminder;
+  const pending =
+    moveBlock.isPending ||
+    deleteBlock.isPending ||
+    clearBlocks.isPending ||
+    updateTask.isPending;
 
   const save = async () => {
-    if (!when || !event.blockId) {
+    if (!when) {
       setError("Choose a date and time.");
       return;
     }
     const start = new Date(fromDatetimeLocalValue(when));
     try {
-      await moveBlock.mutateAsync({
-        blockId: event.blockId,
-        start: start.toISOString(),
-        end: new Date(start.getTime() + Math.max(15, duration) * 60_000).toISOString(),
-      });
+      if (reminder && event.task) {
+        await updateTask.mutateAsync({
+          id: event.task.id,
+          scheduledOn: start.toISOString(),
+        });
+      } else if (event.blockId) {
+        await moveBlock.mutateAsync({
+          blockId: event.blockId,
+          start: start.toISOString(),
+          end: new Date(start.getTime() + Math.max(15, duration) * 60_000).toISOString(),
+        });
+      } else {
+        setError("Choose a date and time.");
+        return;
+      }
       setDirty(false);
       onClose();
     } catch (err) {
@@ -367,6 +410,15 @@ function TaskBlockPanel({
   };
 
   const remove = async () => {
+    if (reminder && event.task) {
+      try {
+        await updateTask.mutateAsync({ id: event.task.id, scheduledOn: "" });
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not clear reminder.");
+      }
+      return;
+    }
     if (!event.blockId) return;
     try {
       await deleteBlock.mutateAsync(event.blockId);
@@ -379,7 +431,11 @@ function TaskBlockPanel({
   const unschedule = async () => {
     if (!event.task) return;
     try {
-      await clearBlocks.mutateAsync(event.task.id);
+      if (reminder) {
+        await updateTask.mutateAsync({ id: event.task.id, scheduledOn: "" });
+      } else {
+        await clearBlocks.mutateAsync(event.task.id);
+      }
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not unschedule task.");
@@ -391,6 +447,8 @@ function TaskBlockPanel({
       <TimeFields
         when={when}
         duration={duration}
+        reminder={reminder}
+        label={reminder ? "Reminder" : "Scheduled"}
         onWhen={(next) => {
           setWhen(next);
           setDirty(true);
@@ -419,7 +477,11 @@ function TaskBlockPanel({
           Open task
         </button>
         <button type="button" onClick={remove} disabled={pending} className={dangerButton}>
-          {event.chunkCount > 1 ? "Remove this block" : "Remove from calendar"}
+          {reminder
+            ? "Clear reminder"
+            : event.chunkCount > 1
+              ? "Remove this block"
+              : "Remove from calendar"}
         </button>
         {event.chunkCount > 1 && (
           <button type="button" onClick={unschedule} disabled={pending} className={dangerButton}>
@@ -432,7 +494,7 @@ function TaskBlockPanel({
           disabled={pending || !dirty}
           className={cn(primaryButton, "ml-auto")}
         >
-          {moveBlock.isPending ? "Saving..." : "Save"}
+          {moveBlock.isPending || updateTask.isPending ? "Saving..." : "Save"}
         </button>
       </div>
     </>
@@ -530,7 +592,11 @@ function TaskOccurrencePanel({
   const save = () => {
     if (!task || !rule || !when) return;
     const newStart = new Date(fromDatetimeLocalValue(when));
-    const newEnd = new Date(newStart.getTime() + Math.max(15, duration) * 60_000);
+    const reminder = event.reminder;
+    const newEnd = reminder
+      ? newStart
+      : new Date(newStart.getTime() + Math.max(15, duration) * 60_000);
+    const nextDuration = reminder ? 0 : Math.max(15, duration);
 
     if (scope === "this") {
       return run(
@@ -556,7 +622,7 @@ function TaskOccurrencePanel({
               dtstart: newStart.toISOString(),
               timezone: rule.timezone || browserTimezone(),
             },
-            duration: Math.max(15, duration),
+            duration: nextDuration,
           }),
         "Could not update series.",
       );
@@ -566,7 +632,7 @@ function TaskOccurrencePanel({
       () =>
         updateTask.mutateAsync({
           id: task.id,
-          duration: Math.max(15, duration),
+          duration: nextDuration,
           recurrence: {
             rrule: rule.rrule,
             dtstart: withTimeOfDay(new Date(rule.dtstart), newStart).toISOString(),
@@ -591,6 +657,7 @@ function TaskOccurrencePanel({
       <TimeFields
         when={when}
         duration={duration}
+        reminder={event.reminder}
         onWhen={(next) => {
           setWhen(next);
           setDirty(true);
@@ -835,6 +902,7 @@ function EventPanel({ event, onClose }: { event: CalendarEvent; onClose: () => v
       <TimeFields
         when={when}
         duration={duration}
+        timeOnly={Boolean(draft || rule) && !allDay && effectiveScope !== "this"}
         onWhen={(next) => {
           setWhen(next);
           setDirty(true);
@@ -843,7 +911,13 @@ function EventPanel({ event, onClose }: { event: CalendarEvent; onClose: () => v
           setDuration(next);
           setDirty(true);
         }}
-        label={isOccurrence ? "This occurrence" : "Starts"}
+        label={
+          isOccurrence && effectiveScope === "this"
+            ? "This occurrence"
+            : Boolean(draft || rule) && !allDay
+              ? "Time"
+              : "Starts"
+        }
       />
 
       <label className="flex items-center gap-2 text-xs text-muted-foreground">

@@ -13,6 +13,7 @@ import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
+import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 
 const addNewOptions: { lable: string; value: AddNewModeOptions }[] = [
   { lable: "Task", value: "task" },
@@ -38,16 +39,15 @@ export default function Sidebar() {
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch("http://localhost:8080/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw new Error("Logout failed");
+      try {
+        const response = await apiFetch("/logout", { method: "POST" });
+        if (!response.ok) {
+          throw new Error("Logout failed");
+        }
+        return response.json();
+      } finally {
+        setAccessToken(null);
       }
-
-      return response.json();
     },
 
     onSuccess: () => {

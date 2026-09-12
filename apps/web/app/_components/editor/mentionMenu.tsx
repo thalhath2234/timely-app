@@ -9,11 +9,15 @@ import {
   useState,
 } from "react";
 import { Editor, ReactRenderer } from "@tiptap/react";
-import { SuggestionKeyDownProps, SuggestionProps } from "@tiptap/suggestion";
+import {
+  exitSuggestion,
+  SuggestionKeyDownProps,
+  SuggestionProps,
+} from "@tiptap/suggestion";
 import { FileText, FolderKanban, ListTodo, Sheet } from "lucide-react";
 import { MentionEntityType } from "@/app/_types/types";
-import { placeCaretPopup, watchCaretPopup } from "./caretPopup";
-import { MENTION_TYPE_LABELS, MentionItem } from "./mention";
+import { dismissOnOutsidePointer, placeCaretPopup, watchCaretPopup } from "./caretPopup";
+import { MENTION_TYPE_LABELS, MentionItem, MentionPluginKey } from "./mention";
 
 const MENU_WIDTH = 320;
 const MENU_MAX_HEIGHT = 300;
@@ -108,6 +112,7 @@ const MentionMenuList = forwardRef<MentionMenuHandle, MentionMenuProps>(
     return (
       <div
         ref={listRef}
+        onMouseDown={(event) => event.preventDefault()}
         className="w-80 max-h-75 overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl"
       >
         {items.map((item, index) => {
@@ -161,6 +166,7 @@ export function createMentionRenderer() {
   let popup: HTMLDivElement | null = null;
   let lastGetRect: (() => DOMRect | null) | null | undefined = null;
   let stopWatch: (() => void) | null = null;
+  let stopOutside: (() => void) | null = null;
 
   const place = () => {
     if (!popup) return;
@@ -173,6 +179,8 @@ export function createMentionRenderer() {
   const destroy = () => {
     stopWatch?.();
     stopWatch = null;
+    stopOutside?.();
+    stopOutside = null;
     lastGetRect = null;
     popup?.remove();
     component?.destroy();
@@ -188,13 +196,17 @@ export function createMentionRenderer() {
       });
 
       popup = document.createElement("div");
+      popup.dataset.caretPopup = "true";
       popup.style.position = "fixed";
-      popup.style.zIndex = "70";
+      popup.style.zIndex = "80";
       popup.appendChild(component.element);
       document.body.appendChild(popup);
 
       lastGetRect = props.clientRect;
       stopWatch = watchCaretPopup(popup, place);
+      stopOutside = dismissOnOutsidePointer(popup, () =>
+        exitSuggestion(props.editor.view, MentionPluginKey),
+      );
     },
 
     onUpdate: (props: MentionMenuProps) => {

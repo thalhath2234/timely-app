@@ -1,9 +1,8 @@
 import { User } from "@/app/_types/types";
+import { apiFetch } from "@/app/utils/api/client";
 
 export async function getMe(): Promise<User> {
-  const response = await fetch("http://localhost:8080/me", {
-    credentials: "include",
-  });
+  const response = await apiFetch("/me");
 
   if (!response.ok) {
     throw new Error("Failed to fetch user");
@@ -20,9 +19,8 @@ export type UpdateMePayload = {
 };
 
 export async function updateMe(payload: UpdateMePayload): Promise<User> {
-  const response = await fetch("http://localhost:8080/me", {
+  const response = await apiFetch("/me", {
     method: "PUT",
-    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
@@ -32,8 +30,8 @@ export async function updateMe(payload: UpdateMePayload): Promise<User> {
   if (!response.ok) {
     let message = "Failed to update profile";
     try {
-      const payload = (await response.json()) as { message?: string };
-      if (payload.message) message = payload.message;
+      const body = (await response.json()) as { message?: string };
+      if (body.message) message = body.message;
     } catch {
       // keep fallback
     }
@@ -41,4 +39,29 @@ export async function updateMe(payload: UpdateMePayload): Promise<User> {
   }
 
   return response.json();
+}
+
+export type DeviceSession = {
+  id: string;
+  deviceLabel: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+  current: boolean;
+};
+
+export async function listSessions(): Promise<DeviceSession[]> {
+  const response = await apiFetch("/sessions");
+  if (!response.ok) {
+    throw new Error("Failed to load sessions");
+  }
+  return response.json();
+}
+
+export async function revokeSession(id: string): Promise<void> {
+  const response = await apiFetch(`/sessions/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error("Failed to sign out that device");
+  }
 }

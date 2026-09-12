@@ -35,15 +35,15 @@ export function useAutosave<T extends object>(
 
     try {
       await saveRef.current(patch);
-      setStatus(pendingRef.current ? "unsaved" : "saved");
-    } catch {
-      pendingRef.current = { ...patch, ...(pendingRef.current ?? {}) };
-      setStatus("error");
-    } finally {
       inFlightRef.current = false;
+      setStatus(pendingRef.current ? "unsaved" : "saved");
       if (pendingRef.current) {
         timerRef.current = setTimeout(() => flushRef.current(), delay);
       }
+    } catch {
+      pendingRef.current = { ...patch, ...(pendingRef.current ?? {}) };
+      inFlightRef.current = false;
+      setStatus("error");
     }
   }, [delay]);
 
@@ -63,7 +63,8 @@ export function useAutosave<T extends object>(
     [delay],
   );
 
-  const hasUnsavedChanges = () => pendingRef.current !== null;
+  const hasUnsavedChanges = () =>
+    pendingRef.current !== null || inFlightRef.current;
 
   // Warn on tab close and make a best effort to persist on unmount.
   useEffect(() => {
@@ -80,7 +81,7 @@ export function useAutosave<T extends object>(
     };
   }, []);
 
-  return { schedule, flush, status, hasUnsavedChanges };
+  return { schedule, flush, retry: flush, status, hasUnsavedChanges };
 }
 
 export function saveStatusLabel(status: SaveStatus) {
@@ -92,7 +93,7 @@ export function saveStatusLabel(status: SaveStatus) {
     case "saved":
       return "Saved";
     case "error":
-      return "Save failed - retrying";
+      return "Save failed";
     default:
       return "";
   }

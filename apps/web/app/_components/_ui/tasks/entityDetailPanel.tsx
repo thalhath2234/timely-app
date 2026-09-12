@@ -38,6 +38,7 @@ import {
   CustomFieldValueInput,
   DocContent,
   Label,
+  PreferredWindow,
   Project,
   RecurrenceInput,
   RecurrenceRule,
@@ -55,15 +56,25 @@ import {
   useAddTaskComment,
   useDeleteTask,
   useTaskActivity,
+  useTask,
   useTasks,
   useUpdateTask,
 } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
-import { toDateInputValue } from "@/app/utils/calendar";
-import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
+import {
+  applyClockToDate,
+  dateFromDateInput,
+  toDateInputValue,
+  toTimeInputValue,
+} from "@/app/utils/calendar";
+import { useAutosave } from "@/app/utils/hooks/useAutosave";
 import { toRichContent } from "@/app/utils/richText";
+import { stagesForProject } from "@/app/utils/stages";
+import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
+import { showUndoToast } from "@/app/_store/toastStore";
+import TaskExecution from "@/app/_components/_ui/tasks/taskExecution";
 
-const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Urgent", "Critical"];
+const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Urgent"];
 
 function isCompletedStatus(status: Status) {
   const name = status.name.trim().toLowerCase();
@@ -91,9 +102,16 @@ interface DetailPatch {
   duration?: number;
   completedAt?: string;
   blockedById?: string;
+  stageId?: string;
   labelIds?: { id: string }[];
   customFieldValues?: CustomFieldValueInput[];
   recurrence?: RecurrenceInput | null;
+  scheduleLocked?: boolean;
+  contiguous?: boolean;
+  minChunkMinutes?: number;
+  preferredChunkMinutes?: number | null;
+  earliestStartAt?: string | null;
+  preferredWindows?: PreferredWindow[];
 }
 
 interface DetailView {
@@ -105,13 +123,21 @@ interface DetailView {
   priorityLevel: string | null;
   statusId: string | null;
   workspaceId: string | null;
+  projectId?: string | null;
   startDate: string | null;
   deadline: string | null;
   scheduledOn?: string | null;
   duration?: number | null;
   recurrence?: RecurrenceRule | null;
   blocks?: ScheduledBlock[];
+  scheduleLocked?: boolean;
+  contiguous?: boolean;
+  minChunkMinutes?: number;
+  preferredChunkMinutes?: number | null;
+  earliestStartAt?: string | null;
+  preferredWindows?: PreferredWindow[];
   blockedById?: string | null;
+  stageId?: string | null;
   labelIds?: string[];
   customFieldValues?: TaskCustomFieldValue[];
   completedAt: string | null;
@@ -152,16 +178,23 @@ export default function EntityDetailPanel({
   const { data: tasks, isLoading: tasksLoading } = useTasks();
   const { data: projects, isLoading: projectsLoading } = useProjects();
 
-  const task =
+  const listedTask =
     kind === "task"
       ? ((tasks ?? []) as Task[]).find((item) => item.id === id)
       : undefined;
+  const { data: fetchedTask, isLoading: taskLoading } = useTask(
+    kind === "task" && !tasksLoading && !listedTask ? id : undefined,
+  );
+  const task = listedTask ?? fetchedTask;
   const project =
     kind === "project"
       ? ((projects ?? []) as Project[]).find((item) => item.id === id)
       : undefined;
 
-  const isLoading = kind === "task" ? tasksLoading : projectsLoading;
+  const isLoading =
+    kind === "task"
+      ? tasksLoading || (!listedTask && taskLoading)
+      : projectsLoading;
 
   if (isLoading) {
     return (
@@ -234,13 +267,21 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     priorityLevel: task.priorityLevel,
     statusId: task.statusId,
     workspaceId: task.workspaceId ?? task.workspace?.id ?? null,
+    projectId: task.projectId ?? task.project?.id ?? null,
     startDate: task.startDate,
     deadline: task.deadline,
     scheduledOn: task.scheduledOn,
     duration: task.duration,
     recurrence: task.recurrence ?? null,
     blocks: task.blocks ?? [],
+    scheduleLocked: task.scheduleLocked,
+    contiguous: task.contiguous,
+    minChunkMinutes: task.minChunkMinutes,
+    preferredChunkMinutes: task.preferredChunkMinutes,
+    earliestStartAt: task.earliestStartAt,
+    preferredWindows: task.preferredWindows,
     blockedById: task.blockedById,
+    stageId: task.stageId,
     labelIds:
       task.labelIds?.map((item) => item.id) ??
       task.labels?.map((item) => item.id) ??
@@ -249,10 +290,15 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     completedAt: task.completedAt,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
-    facts: [
-      { label: "Project", value: task.project?.title || "-" },
-      { label: "Workspace", value: task.workspace?.name || "-" },
-    ],
+    facts:
+      task.kind === "inbox"
+        ? [{ label: "Inbox", value: "Unprocessed" }]
+        : (task.duration ?? 0) <= 0
+        ? []
+        : [
+            { label: "Project", value: task.project?.title || "-" },
+            { label: "Workspace", value: task.workspace?.name || "-" },
+          ],
   };
 
   return (
@@ -270,7 +316,9 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
             }
           : undefined
       }
-    />
+    >
+      <TaskExecution task={task} />
+    </DetailBody>
   );
 }
 
@@ -315,6 +363,7 @@ function ProjectDetail({
     priorityLevel: project.priorityLevel ?? null,
     statusId: project.statusId ?? null,
     workspaceId: project.workspaceId,
+    projectId: project.id,
     startDate: project.startDate ?? null,
     deadline: project.deadline ?? null,
     completedAt: project.completedAt ?? null,
@@ -380,6 +429,7 @@ function DetailBody({
   onDelete?: () => Promise<void> | void;
   children?: React.ReactNode;
 }) {
+  const router = useRouter();
   const { data: workspaces } = useWorkspaces();
   const { data: tasks } = useTasks();
   const [title, setTitle] = useState(view.title);
@@ -392,6 +442,8 @@ function DetailBody({
   } | null>(null);
 
   const { schedule, flush, status } = useAutosave<DetailPatch>(save);
+  const { data: projects } = useProjects();
+  const stageOptions = stagesForProject((projects ?? []) as Project[], view.projectId);
 
   // Adopt the saved label set whenever it changes, so a save landing (or an
   // edit from elsewhere) is reflected without an extra render pass.
@@ -471,12 +523,23 @@ function DetailBody({
     const nextStatus = completing
       ? findCompletedStatus(statusOptions)
       : findDefaultStatus(statusOptions);
+    const previousCompletedAt = view.completedAt ?? "";
+    const previousStatusId = view.statusId ?? "";
 
     schedule({
       completedAt: completing ? new Date().toISOString() : "",
       ...(nextStatus ? { statusId: nextStatus.id } : {}),
     });
     void flush();
+    if (completing) {
+      showUndoToast("Marked complete", () => {
+        schedule({
+          completedAt: previousCompletedAt,
+          statusId: previousStatusId,
+        });
+        void flush();
+      });
+    }
   };
 
   const saveDescription = async () => {
@@ -495,6 +558,7 @@ function DetailBody({
     }
   };
 
+  const isReminder = view.kind === "task" && (view.duration ?? 0) <= 0 && !view.facts.some((fact) => fact.label === "Inbox");
   const workspaceName =
     view.facts.find((fact) => fact.label === "Workspace")?.value ?? "-";
   const projectName =
@@ -504,7 +568,7 @@ function DetailBody({
     <PanelShell
       kind={view.kind}
       completed={Boolean(view.completedAt)}
-      saveStatus={saveStatusLabel(status)}
+      saveStatus={<SaveStatusBadge status={status} onRetry={() => void flush()} />}
       onToggleComplete={toggleComplete}
       onClose={onClose}
       onDelete={onDelete}
@@ -546,6 +610,8 @@ function DetailBody({
           </div>
         </div>
 
+        {children}
+
         <section className="mt-8 border-t border-border pt-4">
           <h3 className="text-sm font-medium text-foreground">Activity</h3>
           {view.kind === "task" ? (
@@ -562,21 +628,33 @@ function DetailBody({
             </p>
           )}
         </section>
-
-        {children}
       </ModalMain>
 
       <ModalSidebar>
+        {!isReminder ? (
         <div className="mb-4 space-y-1 text-sm">
           <PropertyRow icon={FolderKanban} label="Workspace">
             <span className="truncate text-foreground">{workspaceName}</span>
           </PropertyRow>
           <PropertyRow icon={ListTodo} label="Project">
-            <span className="truncate text-foreground">{projectName}</span>
+            {view.projectId ? (
+              <button
+                type="button"
+                onClick={() => router.push(`/projects/${view.projectId}`)}
+                className="truncate text-left text-foreground underline-offset-2 hover:underline"
+              >
+                {projectName}
+              </button>
+            ) : (
+              <span className="truncate text-foreground">{projectName}</span>
+            )}
           </PropertyRow>
         </div>
+        ) : null}
 
         <div className="flex flex-col gap-1">
+          {!isReminder ? (
+          <>
           <PropertyRow icon={Circle} label="Status">
             <Select
               size="sm"
@@ -605,6 +683,26 @@ function DetailBody({
               ]}
             />
           </PropertyRow>
+          {view.kind === "task" && stageOptions.length > 0 ? (
+          <PropertyRow icon={FolderKanban} label="Stage">
+            <Select
+              size="sm"
+              value={view.stageId ?? ""}
+              onChange={(stageId) => schedule({ stageId })}
+              placeholder="No stage"
+              className="border-0 bg-transparent px-0 shadow-none"
+              options={[
+                { value: "", label: "No stage" },
+                ...stageOptions.map((stage) => ({
+                  value: stage.id,
+                  label: stage.name,
+                })),
+              ]}
+            />
+          </PropertyRow>
+          ) : null}
+          </>
+          ) : null}
 
           <PropertyRow icon={Flag} label="Priority">
             <Select
@@ -625,20 +723,52 @@ function DetailBody({
 
           {view.kind === "task" && (
             <PropertyRow icon={Clock} label="Duration">
-              <input
-                type="number"
-                min={0}
-                step={15}
-                key={`duration-${view.id}-${view.duration ?? 0}`}
-                defaultValue={view.duration ?? 30}
-                onChange={(event) =>
-                  schedule({
-                    duration: Number(event.target.value) || 0,
-                  })
-                }
-                className="w-full bg-transparent text-sm text-foreground outline-none"
-              />
-              <span className="shrink-0 text-xs text-muted-foreground">min</span>
+              {(view.duration ?? 0) <= 0 ? (
+                <>
+                  <span className="min-w-0 flex-1 text-sm text-foreground">
+                    Reminder
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      schedule({ duration: 30 });
+                      void flush();
+                    }}
+                    className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    Add duration
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="number"
+                    min={0}
+                    step={15}
+                    key={`duration-${view.id}-${view.duration ?? 0}`}
+                    defaultValue={view.duration ?? 0}
+                    onChange={(event) =>
+                      schedule({
+                        duration: Number(event.target.value) || 0,
+                      })
+                    }
+                    className="w-full bg-transparent text-sm text-foreground outline-none"
+                  />
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    min
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      schedule({ duration: 0 });
+                      void flush();
+                    }}
+                    className="shrink-0 rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
+                  >
+                    Reminder
+                  </button>
+                </>
+              )}
             </PropertyRow>
           )}
 
@@ -646,7 +776,23 @@ function DetailBody({
             <DatePicker
               mode="date"
               value={toDateInputValue(view.startDate)}
-              onChange={(startDate) => schedule({ startDate })}
+              onChange={(startDate) => {
+                const timeOnly =
+                  view.kind === "task" &&
+                  (view.duration ?? 0) <= 0 &&
+                  !view.recurrence;
+                if (timeOnly && view.scheduledOn && startDate) {
+                  schedule({
+                    startDate,
+                    scheduledOn: applyClockToDate(
+                      dateFromDateInput(startDate),
+                      toTimeInputValue(view.scheduledOn),
+                    ).toISOString(),
+                  });
+                  return;
+                }
+                schedule({ startDate });
+              }}
             />
           </PropertyRow>
 
@@ -664,15 +810,28 @@ function DetailBody({
                 taskId={view.id}
                 duration={view.duration ?? 0}
                 deadline={view.deadline}
+                startDate={view.startDate}
                 completed={Boolean(view.completedAt)}
+                scheduledOn={view.scheduledOn}
                 recurrence={view.recurrence}
                 blocks={view.blocks}
+                scheduleLocked={view.scheduleLocked}
+                contiguous={view.contiguous}
+                minChunkMinutes={view.minChunkMinutes}
+                preferredChunkMinutes={view.preferredChunkMinutes}
+                earliestStartAt={view.earliestStartAt}
+                preferredWindows={view.preferredWindows}
                 onRecurrenceChange={(recurrence) => {
                   schedule({ recurrence });
                   void flush();
                 }}
+                onScheduledOnChange={(scheduledOn) => {
+                  schedule({ scheduledOn });
+                  void flush();
+                }}
               />
 
+              {!isReminder ? (
               <div className="pt-2">
                 <p className="mb-1.5 text-xs text-muted-foreground">Labels</p>
                 <LabelPicker
@@ -688,8 +847,9 @@ function DetailBody({
                   }}
                 />
               </div>
+              ) : null}
 
-              {customFields.length > 0 && (
+              {!isReminder && customFields.length > 0 && (
                 <div className="mt-4 border-t border-border pt-3">
                   <SidebarSectionTitle>Custom fields</SidebarSectionTitle>
                   {customFields.map((field) => (
@@ -708,6 +868,7 @@ function DetailBody({
                 </div>
               )}
 
+              {!isReminder ? (
               <div className="mt-4 border-t border-border pt-3">
                 <PropertyRow icon={Ban} label="Blocked by">
                   <Select
@@ -733,6 +894,7 @@ function DetailBody({
                   </span>
                 </PropertyRow>
               </div>
+              ) : null}
             </>
           )}
         </div>
@@ -847,7 +1009,7 @@ function PanelShell({
 }: {
   children: React.ReactNode;
   onClose: () => void;
-  saveStatus?: string;
+  saveStatus?: React.ReactNode;
   kind?: "task" | "project";
   completed?: boolean;
   onToggleComplete?: () => void;
@@ -860,9 +1022,7 @@ function PanelShell({
       onClose={onClose}
       headerRight={
         <>
-          {saveStatus && (
-            <span className="text-xs text-muted-foreground">{saveStatus}</span>
-          )}
+          {saveStatus}
 
           {onToggleComplete && (
             <button

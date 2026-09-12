@@ -9,6 +9,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useConfig } from "@/app/utils/hooks/workspaces";
+import { apiFetch } from "@/app/utils/api/client";
 
 const workspaceSchema = z.object({
   name: z
@@ -63,6 +64,8 @@ export default function Onboarding() {
       await queryClient.invalidateQueries({
         queryKey: ["config"],
       });
+
+      await apiFetch("/auth/refresh", { method: "POST" });
 
       await queryClient.setQueryData(["config"], (old: Config | undefined) =>
         old
