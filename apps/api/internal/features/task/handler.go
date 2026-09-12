@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"timely-api/internal/models"
 
 	"github.com/labstack/echo/v5"
@@ -44,11 +45,12 @@ type createTaskRequest struct {
 	StatusID      *string `json:"statusId"`
 	PriorityLevel *string `json:"priorityLevel"`
 	WorkspaceID   *string `json:"workspaceId"`
-	ScheduleID    *string `json:"scheduleId"`
 	StageID       *string `json:"stageId"`
 
 	BlockedByID *string `json:"blockedById"`
-	BlockingID  *string `json:"blockingId"`
+
+	Kind         string  `json:"kind"`
+	ParentTaskID *string `json:"parentTaskId"`
 
 	LabelIDs []models.LabelInput `json:"labelIds"`
 
@@ -67,21 +69,31 @@ func (h *Handler) Create(c *echo.Context) error {
 			"invalid request payload",
 		)
 	}
-	if req.WorkspaceID == nil {
+	req.WorkspaceID = nonemptyID(req.WorkspaceID)
+	kind := models.ResolveCreateKind(req.Kind, req.Duration, req.ScheduledOn, req.Recurrence != nil && req.Recurrence.RRule != "", req.ParentTaskID)
+	if kind == models.KindTask && req.WorkspaceID == nil {
 		return echo.NewHTTPError(
 			http.StatusBadRequest,
 			"workspaceId is required",
 		)
 	}
+	if kind == models.KindReminder {
+		req.ProjectID = nil
+		req.StatusID = nil
+		req.StageID = nil
+		if len(req.LabelIDs) == 0 && len(req.CustomFieldValues) == 0 {
+			req.WorkspaceID = nil
+		}
+	}
 
-	customFieldValues := make([]*models.CustomFieldValue, len(req.CustomFieldValues))
-	for i, cfv := range req.CustomFieldValues {
-		customFieldValues[i] = &models.CustomFieldValue{
+	customFieldValues := make([]*models.CustomFieldValue, 0, len(req.CustomFieldValues))
+	for _, cfv := range req.CustomFieldValues {
+		customFieldValues = append(customFieldValues, &models.CustomFieldValue{
 			CustomFieldID: cfv.CustomFieldID,
 			OptionsValue:  cfv.OptionsValue,
 			Type:          cfv.Type,
 			StringValue:   cfv.StringValue,
-		}
+		})
 	}
 
 	task := &models.Task{
@@ -94,23 +106,21 @@ func (h *Handler) Create(c *echo.Context) error {
 		ScheduledOn:     req.ScheduledOn,
 		UserID:          &userID,
 
-		ProjectID:     req.ProjectID,
-		StatusID:      req.StatusID,
+		ProjectID:     nonemptyID(req.ProjectID),
+		StatusID:      nonemptyID(req.StatusID),
 		PriorityLevel: req.PriorityLevel,
 		WorkspaceID:   req.WorkspaceID,
-		ScheduleID:    req.ScheduleID,
 		StageID:       req.StageID,
 
-		BlockedByID: req.BlockedByID,
-		LabelIDs:    models.LabelInputs(req.LabelIDs),
+		BlockedByID:  req.BlockedByID,
+		Kind:         kind,
+		ParentTaskID: nonemptyID(req.ParentTaskID),
+		LabelIDs:     models.LabelInputs(req.LabelIDs),
 	}
 
 	createdTask, err := h.taskService.Create(task, customFieldValues, req.Recurrence)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusBadRequest,
-			err.Error(),
-		)
+		return taskError(err)
 	}
 
 	return c.JSON(http.StatusCreated, map[string]interface{}{"message": "task created successfully", "task": createdTask})
@@ -154,10 +164,39 @@ func (h *Handler) BulkUpdate(c *echo.Context) error {
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
 	}
-	var req bulkUpdateRequest
-	if err := c.Bind(&req); err != nil {
+	body, err := io.ReadAll(c.Request().Body)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
 	}
+	var req bulkUpdateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
+	}
+
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal(body, &raw)
+	var updateKeys map[string]json.RawMessage
+	if updateRaw, ok := raw["update"]; ok {
+		_ = json.Unmarshal(updateRaw, &updateKeys)
+	}
+
+	var labelIDs *models.LabelInputs
+	if labelRaw, ok := updateKeys["labelIds"]; ok {
+		if string(labelRaw) == "null" {
+			empty := models.LabelInputs{}
+			labelIDs = &empty
+		} else {
+			parsed := models.LabelInputs{}
+			if err := json.Unmarshal(labelRaw, &parsed); err != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, "invalid labelIds")
+			}
+			if parsed == nil {
+				parsed = models.LabelInputs{}
+			}
+			labelIDs = &parsed
+		}
+	}
+
 	update := TaskUpdate{
 		Name:            req.Update.Name,
 		Description:     req.Update.Description,
@@ -172,8 +211,11 @@ func (h *Handler) BulkUpdate(c *echo.Context) error {
 		PriorityLevel:   req.Update.PriorityLevel,
 		StageID:         req.Update.StageID,
 		BlockedByID:     req.Update.BlockedByID,
+		Kind:            req.Update.Kind,
+		ParentTaskID:    req.Update.ParentTaskID,
+		LabelIDs:        labelIDs,
 	}
-	if req.Update.Recurrence != nil {
+	if _, ok := updateKeys["recurrence"]; ok {
 		update.RecurrenceSet = true
 		update.Recurrence = req.Update.Recurrence
 	}
@@ -199,11 +241,23 @@ func parseTaskFilter(c *echo.Context) TaskFilter {
 		DueAfter:      c.QueryParam("dueAfter"),
 		Scheduled:     parseBoolQuery(c.QueryParam("scheduled")),
 		HasRecurrence: parseBoolQuery(c.QueryParam("recurring")),
-		Text:          c.QueryParam("q"),
+		Reminders:       parseBoolQuery(c.QueryParam("reminders")),
+		Kind:            c.QueryParam("kind"),
+		Inbox:           parseBoolQuery(c.QueryParam("inbox")),
+		ParentID:        c.QueryParam("parentId"),
+		IncludeSubtasks: parseBoolQuery(c.QueryParam("includeSubtasks")) != nil && *parseBoolQuery(c.QueryParam("includeSubtasks")),
+		Text:            c.QueryParam("q"),
 		Sort:          c.QueryParam("sort"),
 		Limit:         parseIntQuery(c.QueryParam("limit")),
 		Offset:        parseIntQuery(c.QueryParam("offset")),
 	}
+}
+
+func nonemptyID(id *string) *string {
+	if id == nil || strings.TrimSpace(*id) == "" {
+		return nil
+	}
+	return id
 }
 
 func parseBoolQuery(raw string) *bool {
@@ -225,6 +279,10 @@ func parseIntQuery(raw string) int {
 }
 
 func (h *Handler) GetTaskById(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
 
 	taskId := c.Param("id")
 	if taskId == "" {
@@ -234,12 +292,9 @@ func (h *Handler) GetTaskById(c *echo.Context) error {
 		)
 	}
 
-	task, err := h.taskService.GetTaskById(taskId)
+	task, err := h.taskService.GetForUser(userID, taskId)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		return taskError(err)
 	}
 
 	return c.JSON(http.StatusOK, task)
@@ -254,11 +309,21 @@ type updateTaskRequest struct {
 	StartDate         *string                   `json:"startDate"`
 	ScheduledOn       *string                   `json:"scheduledOn"`
 	CompletedAt       *string                   `json:"completedAt"`
+	WorkspaceID       *string                   `json:"workspaceId"`
 	ProjectID         *string                   `json:"projectId"`
 	StatusID          *string                   `json:"statusId"`
 	PriorityLevel     *string                   `json:"priorityLevel"`
 	StageID           *string                   `json:"stageId"`
 	BlockedByID       *string                   `json:"blockedById"`
+	Kind              *string                   `json:"kind"`
+	ParentTaskID      *string                   `json:"parentTaskId"`
+	TodayFocusOn      *string                   `json:"todayFocusOn"`
+	MinChunkMinutes       *int                      `json:"minChunkMinutes"`
+	PreferredChunkMinutes *int                      `json:"preferredChunkMinutes"`
+	Contiguous            *bool                     `json:"contiguous"`
+	EarliestStartAt       *string                   `json:"earliestStartAt"`
+	PreferredWindows      *models.PreferredWindows  `json:"preferredWindows"`
+	ScheduleLocked        *bool                     `json:"scheduleLocked"`
 	LabelIDs          *models.LabelInputs       `json:"labelIds"`
 	CustomFieldValues []customFieldValueRequest `json:"customFieldValues"`
 	Recurrence        *models.RecurrenceInput   `json:"recurrence"`
@@ -324,19 +389,29 @@ func (h *Handler) Update(c *echo.Context) error {
 	_, recurrenceSet := rawKeys["recurrence"]
 
 	task, err := h.taskService.Update(userID, taskID, TaskUpdate{
-		Name:            req.Name,
-		Description:     req.Description,
-		DescriptionRich: req.DescriptionRich,
-		Duration:        req.Duration,
-		Deadline:        req.Deadline,
-		StartDate:       req.StartDate,
-		ScheduledOn:     req.ScheduledOn,
-		CompletedAt:     req.CompletedAt,
-		ProjectID:       req.ProjectID,
-		StatusID:        req.StatusID,
-		PriorityLevel:   req.PriorityLevel,
-		StageID:         req.StageID,
+		Name:              req.Name,
+		Description:       req.Description,
+		DescriptionRich:   req.DescriptionRich,
+		Duration:          req.Duration,
+		Deadline:          req.Deadline,
+		StartDate:         req.StartDate,
+		ScheduledOn:       req.ScheduledOn,
+		CompletedAt:       req.CompletedAt,
+		WorkspaceID:       req.WorkspaceID,
+		ProjectID:         req.ProjectID,
+		StatusID:          req.StatusID,
+		PriorityLevel:     req.PriorityLevel,
+		StageID:           req.StageID,
 		BlockedByID:       req.BlockedByID,
+		Kind:              req.Kind,
+		ParentTaskID:      req.ParentTaskID,
+		TodayFocusOn:      req.TodayFocusOn,
+		MinChunkMinutes:       req.MinChunkMinutes,
+		PreferredChunkMinutes: req.PreferredChunkMinutes,
+		Contiguous:            req.Contiguous,
+		EarliestStartAt:       req.EarliestStartAt,
+		PreferredWindows:      req.PreferredWindows,
+		ScheduleLocked:        req.ScheduleLocked,
 		LabelIDs:          labelIDs,
 		CustomFieldValues: customFieldValues,
 		RecurrenceSet:     recurrenceSet,
@@ -426,7 +501,7 @@ func (h *Handler) Split(c *echo.Context) error {
 
 func taskError(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return echo.NewHTTPError(http.StatusNotFound, "task not found")
+		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
 	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 }

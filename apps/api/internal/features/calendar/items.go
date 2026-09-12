@@ -46,6 +46,10 @@ type Item struct {
 
 	Task  *models.Task  `json:"task,omitempty"`
 	Event *models.Event `json:"event,omitempty"`
+
+	// Reminder is a timed ping with no work estimate. It is drawn on the
+	// calendar but does not occupy auto-schedule busy time.
+	Reminder bool `json:"reminder,omitempty"`
 }
 
 // Collect expands everything that overlaps [from, to). Tasks must have their
@@ -56,12 +60,36 @@ func Collect(tasks []models.Task, events []models.Event, from, to time.Time) ([]
 	for i := range tasks {
 		task := &tasks[i]
 		if task.IsRecurring() {
+			if task.IsSchedulableWork() {
+				chunkCount := len(task.Blocks)
+				for _, block := range task.Blocks {
+					if !block.StartAt.Before(to) || !block.EndAt.After(from) {
+						continue
+					}
+					item := taskBlockItem(task, block, chunkCount)
+					if block.OccurrenceStart != nil {
+						original := *block.OccurrenceStart
+						item.OriginalStart = &original
+						item.SeriesID = task.Recurrence.ID
+						item.Kind = KindTaskOccurrence
+					}
+					items = append(items, item)
+				}
+				continue
+			}
 			occurrences, err := recurrence.Expand(task.Recurrence, taskDuration(task), from, to)
 			if err != nil {
 				return nil, fmt.Errorf("task %s: %w", task.ID, err)
 			}
 			for _, occurrence := range occurrences {
 				items = append(items, taskOccurrenceItem(task, occurrence))
+			}
+			continue
+		}
+
+		if task.IsReminder() {
+			if item, ok := oneOffReminderItem(task, from, to); ok {
+				items = append(items, item)
 			}
 			continue
 		}
@@ -104,10 +132,38 @@ func Collect(tasks []models.Task, events []models.Event, from, to time.Time) ([]
 }
 
 func taskDuration(task *models.Task) time.Duration {
-	if task.Duration <= 0 {
-		return 30 * time.Minute
+	if task.IsReminder() {
+		return 0
 	}
 	return time.Duration(task.Duration) * time.Minute
+}
+
+func oneOffReminderItem(task *models.Task, from, to time.Time) (Item, bool) {
+	if task.ScheduledOn == nil || *task.ScheduledOn == "" {
+		return Item{}, false
+	}
+	start, err := recurrence.ParseTime(*task.ScheduledOn)
+	if err != nil {
+		return Item{}, false
+	}
+	if !start.Before(to) || !start.Add(time.Second).After(from) {
+		return Item{}, false
+	}
+	return reminderItem(task, start), true
+}
+
+func reminderItem(task *models.Task, start time.Time) Item {
+	return Item{
+		ID:       task.ID + "@reminder",
+		Kind:     KindTask,
+		Title:    task.Name,
+		Start:    start,
+		End:      start,
+		Color:    taskColor(task),
+		TaskID:   task.ID,
+		Task:     task,
+		Reminder: true,
+	}
 }
 
 func taskColor(task *models.Task) *string {
@@ -137,12 +193,16 @@ func taskBlockItem(task *models.Task, block models.ScheduledBlock, chunkCount in
 
 func taskOccurrenceItem(task *models.Task, occurrence recurrence.Occurrence) Item {
 	original := occurrence.OriginalStart
+	end := occurrence.End
+	if task.IsReminder() {
+		end = occurrence.Start
+	}
 	return Item{
 		ID:            task.ID + "@" + original.UTC().Format(time.RFC3339),
 		Kind:          KindTaskOccurrence,
 		Title:         task.Name,
 		Start:         occurrence.Start,
-		End:           occurrence.End,
+		End:           end,
 		Color:         taskColor(task),
 		TaskID:        task.ID,
 		SeriesID:      task.Recurrence.ID,
@@ -150,6 +210,7 @@ func taskOccurrenceItem(task *models.Task, occurrence recurrence.Occurrence) Ite
 		Moved:         occurrence.Moved,
 		CompletedAt:   occurrence.CompletedAt,
 		Task:          task,
+		Reminder:      task.IsReminder(),
 	}
 }
 

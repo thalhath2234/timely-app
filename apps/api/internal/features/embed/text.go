@@ -4,9 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+	"timely-api/internal/models"
 	"unicode"
 	"unicode/utf8"
-	"timely-api/internal/models"
 )
 
 const (

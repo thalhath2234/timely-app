@@ -9,7 +9,11 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-func JWTMiddleware() echo.MiddlewareFunc {
+type SessionGuard interface {
+	SessionIsActive(sessionID string) bool
+}
+
+func JWTMiddleware(guard SessionGuard) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			tokenString := bearerToken(c)
@@ -34,8 +38,13 @@ func JWTMiddleware() echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
 			}
 
+			if guard != nil && !guard.SessionIsActive(claims.SessionID) {
+				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
+			}
+
 			c.Set("userID", claims.UserID)
 			c.Set("email", claims.Email)
+			c.Set("sessionID", claims.SessionID)
 			c.Set("IsOnBoardingCompleted", claims.IsOnBoardingCompleted)
 
 			return next(c)

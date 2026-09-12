@@ -58,6 +58,11 @@ func (h *Handler) Create(c *echo.Context) error {
 		)
 	}
 
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+
 	project := &models.Project{
 		Title:           req.Title,
 		Description:     req.Description,
@@ -81,8 +86,11 @@ func (h *Handler) Create(c *echo.Context) error {
 		}
 	}
 
-	createdProject, err := h.projectService.Create(project, customFieldValues)
+	createdProject, err := h.projectService.Create(userID, project, customFieldValues)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, "workspace not found")
+		}
 		return echo.NewHTTPError(
 			http.StatusBadRequest,
 			err.Error(),
@@ -115,6 +123,10 @@ func (h *Handler) GetAllProjectByUser(c *echo.Context) error {
 }
 
 func (h *Handler) GetProjectById(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
 
 	projectId := c.Param("id")
 	if projectId == "" {
@@ -124,15 +136,30 @@ func (h *Handler) GetProjectById(c *echo.Context) error {
 		)
 	}
 
-	project, err := h.projectService.GetProjectById(projectId)
+	project, err := h.projectService.GetProjectById(userID, projectId)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, "project not found")
+		}
+		return echo.NewHTTPError(http.StatusNotFound, "project not found")
 	}
 
 	return c.JSON(http.StatusOK, project)
+}
+
+func (h *Handler) Duplicate(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	project, err := h.projectService.Duplicate(userID, c.Param("id"))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, "project not found")
+		}
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusCreated, map[string]any{"message": "project duplicated", "project": project})
 }
 
 type updateProjectRequest struct {

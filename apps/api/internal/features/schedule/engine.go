@@ -2,7 +2,6 @@ package schedule
 
 import (
 	"sort"
-	"strings"
 	"time"
 	"timely-api/internal/models"
 )
@@ -13,8 +12,16 @@ const (
 	ReasonBlocked      = "blocked"
 	ReasonManual       = "manual"
 	ReasonNoDuration   = "no_duration"
+	ReasonReminder     = "reminder"
 	ReasonRecurring    = "recurring"
 	ReasonCompleted    = "completed"
+	ReasonInbox        = "inbox"
+	ReasonHasSubtasks  = "parent_has_subtasks"
+	ReasonLocked       = "locked"
+	ReasonFrozen       = "frozen"
+	ReasonWorkspace    = "workspace_excluded"
+	ReasonContiguous   = "contiguous_no_fit"
+	ReasonBeforeEarliest = "before_earliest"
 	defaultBreakMinute = 5
 	slotGranularity    = 5 * time.Minute
 )
@@ -28,23 +35,29 @@ func (i Interval) Minutes() int {
 	return int(i.End.Sub(i.Start).Minutes())
 }
 
-// Candidate is a one-off task the engine may place.
+// Candidate is a one-off task or one recurring occurrence the engine may place.
 type Candidate struct {
 	ID              string
+	TaskID          string
 	Name            string
 	DurationMinutes int
 	ChunkMinutes    int
+	MinChunkMinutes int
+	Contiguous      bool
 	Priority        string
 	CreatedAt       string
-	// Deadline / StartDate are calendar days in the planning zone.
-	Deadline  *time.Time
-	StartDate *time.Time
-	// BlockedByID references another task. When that task is also a candidate
-	// the engine orders them; otherwise the caller resolves it into
-	// ExternalBlocked or ExternalBlockerEnd.
+	Deadline        *time.Time
+	StartDate       *time.Time
+	EarliestStart   *time.Time
+	PreferredWindows []models.PreferredWindow
 	BlockedByID        string
 	ExternalBlocked    bool
 	ExternalBlockerEnd *time.Time
+	OccurrenceStart    *time.Time
+	TodayFocus         bool
+	ActualMinutes      int
+	Unscheduled        bool
+	Rank               Rank
 }
 
 type PlanInput struct {
@@ -58,18 +71,22 @@ type PlanInput struct {
 }
 
 type Proposal struct {
-	TaskID       string     `json:"taskId"`
-	TaskName     string     `json:"taskName"`
-	Blocks       []Interval `json:"blocks"`
-	EndsAt       time.Time  `json:"endsAt"`
-	Deadline     *time.Time `json:"deadline,omitempty"`
-	PastDeadline bool       `json:"pastDeadline"`
+	TaskID          string     `json:"taskId"`
+	TaskName        string     `json:"taskName"`
+	Blocks          []Interval `json:"blocks"`
+	EndsAt          time.Time  `json:"endsAt"`
+	Deadline        *time.Time `json:"deadline,omitempty"`
+	PastDeadline    bool       `json:"pastDeadline"`
+	Reason          string     `json:"reason"`
+	OccurrenceStart *time.Time `json:"occurrenceStart,omitempty"`
+	CandidateID     string     `json:"-"`
 }
 
 type Skipped struct {
 	TaskID   string `json:"taskId"`
 	TaskName string `json:"taskName"`
 	Reason   string `json:"reason"`
+	Message  string `json:"message"`
 }
 
 type PlanResult struct {
@@ -79,9 +96,12 @@ type PlanResult struct {
 	PlannedMinutes int        `json:"plannedMinutes"`
 }
 
-// Plan is the deterministic v1 engine: blockers first, then deadline urgency,
-// then priority; each task goes into the earliest free working time after its
-// start date, split into chunks with a short break between them.
+func skip(id, name, reason string) Skipped {
+	return Skipped{TaskID: id, TaskName: name, Reason: reason, Message: ExplainSkip(reason)}
+}
+
+// Plan is the deterministic v2 engine: score (shared with what_next), then
+// hoist blockers, then earliest fit with chunk/contiguous/window rules.
 func Plan(input PlanInput) PlanResult {
 	loc := input.Location
 	if loc == nil {
@@ -111,8 +131,12 @@ func Plan(input PlanInput) PlanResult {
 	skipped := map[string]bool{}
 
 	for _, candidate := range order(input.Candidates, byID) {
+		taskID := candidate.TaskID
+		if taskID == "" {
+			taskID = candidate.ID
+		}
 		if candidate.DurationMinutes <= 0 {
-			result.Skipped = append(result.Skipped, Skipped{candidate.ID, candidate.Name, ReasonNoDuration})
+			result.Skipped = append(result.Skipped, skip(taskID, candidate.Name, ReasonNoDuration))
 			skipped[candidate.ID] = true
 			continue
 		}
@@ -121,11 +145,14 @@ func Plan(input PlanInput) PlanResult {
 		if candidate.StartDate != nil && candidate.StartDate.After(earliest) {
 			earliest = *candidate.StartDate
 		}
+		if candidate.EarliestStart != nil && candidate.EarliestStart.After(earliest) {
+			earliest = *candidate.EarliestStart
+		}
 
 		if candidate.BlockedByID != "" {
 			if _, isCandidate := byID[candidate.BlockedByID]; isCandidate {
 				if skipped[candidate.BlockedByID] {
-					result.Skipped = append(result.Skipped, Skipped{candidate.ID, candidate.Name, ReasonBlocked})
+					result.Skipped = append(result.Skipped, skip(taskID, candidate.Name, ReasonBlocked))
 					skipped[candidate.ID] = true
 					continue
 				}
@@ -133,7 +160,7 @@ func Plan(input PlanInput) PlanResult {
 					earliest = end
 				}
 			} else if candidate.ExternalBlocked {
-				result.Skipped = append(result.Skipped, Skipped{candidate.ID, candidate.Name, ReasonBlocked})
+				result.Skipped = append(result.Skipped, skip(taskID, candidate.Name, ReasonBlocked))
 				skipped[candidate.ID] = true
 				continue
 			} else if candidate.ExternalBlockerEnd != nil && candidate.ExternalBlockerEnd.After(earliest) {
@@ -141,9 +168,28 @@ func Plan(input PlanInput) PlanResult {
 			}
 		}
 
-		blocks, ok := place(free, earliest, candidate.DurationMinutes, candidate.ChunkMinutes, breakMinutes)
+		if !earliest.Before(input.To) {
+			result.Skipped = append(result.Skipped, skip(taskID, candidate.Name, ReasonBeforeEarliest))
+			skipped[candidate.ID] = true
+			continue
+		}
+
+		slotFree := free
+		if len(candidate.PreferredWindows) > 0 {
+			slotFree = intersectPreferred(free, candidate.PreferredWindows, loc)
+		}
+
+		minChunk := candidate.MinChunkMinutes
+		if minChunk < 15 {
+			minChunk = 15
+		}
+		blocks, ok := place(slotFree, earliest, candidate.DurationMinutes, minChunk, candidate.ChunkMinutes, breakMinutes, candidate.Contiguous)
 		if !ok {
-			result.Skipped = append(result.Skipped, Skipped{candidate.ID, candidate.Name, ReasonNoCapacity})
+			reason := ReasonNoCapacity
+			if candidate.Contiguous {
+				reason = ReasonContiguous
+			}
+			result.Skipped = append(result.Skipped, skip(taskID, candidate.Name, reason))
 			skipped[candidate.ID] = true
 			continue
 		}
@@ -156,11 +202,17 @@ func Plan(input PlanInput) PlanResult {
 
 		endsAt := blocks[len(blocks)-1].End
 		ends[candidate.ID] = endsAt
+		if candidate.TaskID != "" {
+			ends[candidate.TaskID] = endsAt
+		}
 		proposal := Proposal{
-			TaskID:   candidate.ID,
-			TaskName: candidate.Name,
-			Blocks:   blocks,
-			EndsAt:   endsAt,
+			TaskID:          taskID,
+			TaskName:        candidate.Name,
+			Blocks:          blocks,
+			EndsAt:          endsAt,
+			Reason:          joinReasons(candidate.Rank.Reasons),
+			OccurrenceStart: candidate.OccurrenceStart,
+			CandidateID:     candidate.ID,
 		}
 		if candidate.Deadline != nil {
 			deadlineEnd := endOfDay(*candidate.Deadline, loc)
@@ -179,6 +231,9 @@ func order(candidates []Candidate, byID map[string]*Candidate) []Candidate {
 	sorted := append([]Candidate(nil), candidates...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		a, b := sorted[i], sorted[j]
+		if a.Rank.Score != b.Rank.Score {
+			return a.Rank.Score > b.Rank.Score
+		}
 		if (a.Deadline == nil) != (b.Deadline == nil) {
 			return a.Deadline != nil
 		}
@@ -214,30 +269,26 @@ func order(candidates []Candidate, byID map[string]*Candidate) []Candidate {
 }
 
 func priorityRank(priority string) int {
-	switch strings.ToLower(strings.TrimSpace(priority)) {
-	case "critical", "urgent":
-		return 0
-	case "high":
-		return 1
-	case "medium":
-		return 2
-	case "low":
-		return 3
-	default:
-		return 2
-	}
+	return models.PriorityRank(priority)
 }
 
 // place fills `duration` minutes into the free intervals starting at or after
-// `earliest`, in chunks of at most `chunk` minutes separated by `gap`. A chunk
-// that does not fit the remaining room is cut to fit, so `chunk` is a ceiling.
-func place(free []Interval, earliest time.Time, duration, chunk, gap int) ([]Interval, bool) {
-	if chunk <= 0 || chunk > duration {
-		chunk = duration
+// `earliest`. preferredChunk is a ceiling; minChunk is the smallest leftover
+// the engine will keep. Contiguous tasks must fit in a single interval.
+func place(free []Interval, earliest time.Time, duration, minChunk, preferredChunk, gap int, contiguous bool) ([]Interval, bool) {
+	if minChunk < 15 {
+		minChunk = 15
 	}
-	if chunk < 15 {
-		chunk = 15
+	if preferredChunk <= 0 || preferredChunk > duration {
+		preferredChunk = duration
 	}
+	if preferredChunk < minChunk {
+		preferredChunk = minChunk
+	}
+	if contiguous {
+		return placeContiguous(free, earliest, duration)
+	}
+
 	remaining := duration
 	var blocks []Interval
 
@@ -247,21 +298,17 @@ func place(free []Interval, earliest time.Time, duration, chunk, gap int) ([]Int
 		}
 		cursor := roundUp(maxTime(interval.Start, earliest))
 		for remaining > 0 {
-			size := chunk
+			size := preferredChunk
 			if remaining < size {
 				size = remaining
 			}
 			end := cursor.Add(time.Duration(size) * time.Minute)
 			if end.After(interval.End) {
-				// Not enough room for a whole chunk. Use the gap only if it is
-				// a meaningful share of the chunk (at least half, and 15 min);
-				// a 45-minute task should not become 20 + 25 across two days.
 				room := int(interval.End.Sub(cursor).Minutes())
-				if room >= 15 && room < size && room*2 >= size {
+				if room >= minChunk && room < size && room*2 >= size {
 					blocks = append(blocks, Interval{Start: cursor, End: interval.End})
 					remaining -= room
-					// A sliver left over is absorbed rather than scheduled on its own.
-					if remaining < 15 {
+					if remaining < minChunk {
 						remaining = 0
 					}
 				}
@@ -276,6 +323,73 @@ func place(free []Interval, earliest time.Time, duration, chunk, gap int) ([]Int
 		}
 	}
 	return nil, false
+}
+
+func placeContiguous(free []Interval, earliest time.Time, duration int) ([]Interval, bool) {
+	need := time.Duration(duration) * time.Minute
+	for _, interval := range free {
+		if !interval.End.After(earliest) {
+			continue
+		}
+		cursor := roundUp(maxTime(interval.Start, earliest))
+		end := cursor.Add(need)
+		if !end.After(interval.End) {
+			return []Interval{{Start: cursor, End: end}}, true
+		}
+	}
+	return nil, false
+}
+
+func intersectPreferred(free []Interval, windows []models.PreferredWindow, loc *time.Location) []Interval {
+	var allowed []Interval
+	for _, interval := range free {
+		day := time.Date(interval.Start.In(loc).Year(), interval.Start.In(loc).Month(), interval.Start.In(loc).Day(), 0, 0, 0, 0, loc)
+		key := models.WeekdayKey(day.Weekday())
+		for _, window := range windows {
+			if len(window.Days) > 0 && !containsDay(window.Days, key) {
+				continue
+			}
+			startMin, err := models.ParseClock(window.Start)
+			if err != nil {
+				continue
+			}
+			endMin, err := models.ParseClock(window.End)
+			if err != nil || endMin <= startMin {
+				continue
+			}
+			win := Interval{Start: day.Add(time.Duration(startMin) * time.Minute), End: day.Add(time.Duration(endMin) * time.Minute)}
+			start := maxTime(interval.Start, win.Start)
+			end := interval.End
+			if win.End.Before(end) {
+				end = win.End
+			}
+			if end.After(start) {
+				allowed = append(allowed, Interval{Start: start, End: end})
+			}
+		}
+	}
+	sort.Slice(allowed, func(i, j int) bool { return allowed[i].Start.Before(allowed[j].Start) })
+	return allowed
+}
+
+func containsDay(days []string, key string) bool {
+	for _, day := range days {
+		if day == key {
+			return true
+		}
+	}
+	return false
+}
+
+func joinReasons(reasons []string) string {
+	if len(reasons) == 0 {
+		return "open work"
+	}
+	out := reasons[0]
+	for i := 1; i < len(reasons); i++ {
+		out += ", " + reasons[i]
+	}
+	return out
 }
 
 // workingIntervals lays the weekly template over [from, to).

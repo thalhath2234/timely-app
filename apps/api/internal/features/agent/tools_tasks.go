@@ -26,6 +26,11 @@ type listTasksIn struct {
 	DueAfter     string   `json:"dueAfter,omitempty"`
 	Scheduled    *bool    `json:"scheduled,omitempty"`
 	Recurring    *bool    `json:"recurring,omitempty"`
+	Reminders    *bool    `json:"reminders,omitempty" jsonschema:"true lists duration-0 reminders instead of work tasks"`
+	Kind         string   `json:"kind,omitempty" jsonschema:"task, reminder, or inbox"`
+	Inbox        *bool    `json:"inbox,omitempty"`
+	ParentID     string   `json:"parentId,omitempty"`
+	IncludeSubtasks bool  `json:"includeSubtasks,omitempty"`
 	Text         string   `json:"text,omitempty"`
 	Sort         string   `json:"sort,omitempty"`
 	Limit        int      `json:"limit,omitempty"`
@@ -46,7 +51,12 @@ func (in listTasksIn) filter() task.TaskFilter {
 		DueAfter:      in.DueAfter,
 		Scheduled:     in.Scheduled,
 		HasRecurrence: in.Recurring,
-		Text:          in.Text,
+		Reminders:       in.Reminders,
+		Kind:            in.Kind,
+		Inbox:           in.Inbox,
+		ParentID:        in.ParentID,
+		IncludeSubtasks: in.IncludeSubtasks,
+		Text:            in.Text,
 		Sort:          in.Sort,
 		Limit:         in.Limit,
 		Offset:        in.Offset,
@@ -92,12 +102,14 @@ func (s *Server) getTask(ctx context.Context, req *mcp.CallToolRequest, in taskI
 
 type createTaskIn struct {
 	Name          string      `json:"name"`
-	WorkspaceID   string      `json:"workspaceId"`
+	WorkspaceID   string      `json:"workspaceId,omitempty" jsonschema:"required for work (duration > 0); optional on reminders when setting labels or custom fields"`
 	Description   string      `json:"description,omitempty" jsonschema:"markdown"`
-	Duration      int         `json:"duration,omitempty"`
+	Duration      int         `json:"duration,omitempty" jsonschema:"minutes of work; omit or 0 without a ping time captures to inbox"`
+	Kind          string      `json:"kind,omitempty" jsonschema:"task, reminder, or inbox. Title-only create is inbox"`
+	ParentTaskID  string      `json:"parentTaskId,omitempty"`
 	Deadline      string      `json:"deadline,omitempty"`
 	StartDate     string      `json:"startDate,omitempty"`
-	ScheduleAt    string      `json:"scheduleAt,omitempty" jsonschema:"RFC3339 start of a first block"`
+	ScheduleAt    string      `json:"scheduleAt,omitempty" jsonschema:"RFC3339 ping time for a reminder, or start of the first work block"`
 	ProjectID     string      `json:"projectId,omitempty"`
 	StatusID      string      `json:"statusId,omitempty"`
 	PriorityLevel string      `json:"priorityLevel,omitempty"`
@@ -113,14 +125,25 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	if err != nil {
 		return fail(err)
 	}
-	if in.WorkspaceID == "" {
+	if in.Duration > 0 && in.WorkspaceID == "" && in.Kind != models.KindInbox {
 		return fail(fmt.Errorf("workspaceId is required"))
+	}
+	kind := models.ResolveCreateKind(in.Kind, in.Duration, strPtr(in.ScheduleAt), in.Recurrence != nil, strPtr(in.ParentTaskID))
+	if kind == models.KindReminder {
+		in.ProjectID = ""
+		in.StatusID = ""
+		in.StageID = ""
+		if len(in.LabelIDs) == 0 && len(in.CustomFields) == 0 {
+			in.WorkspaceID = ""
+		}
 	}
 	t := &models.Task{
 		Name:          in.Name,
 		UserID:        &uid,
 		WorkspaceID:   strPtr(in.WorkspaceID),
 		Duration:      in.Duration,
+		Kind:          kind,
+		ParentTaskID:  strPtr(in.ParentTaskID),
 		Deadline:      strPtr(in.Deadline),
 		StartDate:     strPtr(in.StartDate),
 		ScheduledOn:   strPtr(in.ScheduleAt),
@@ -155,12 +178,22 @@ type updateTaskIn struct {
 	Deadline        *string     `json:"deadline,omitempty"`
 	StartDate       *string     `json:"startDate,omitempty"`
 	ScheduledOn     *string     `json:"scheduledOn,omitempty"`
+	ScheduleAt      *string     `json:"scheduleAt,omitempty" jsonschema:"alias for scheduledOn"`
 	CompletedAt     *string     `json:"completedAt,omitempty"`
+	WorkspaceID     *string     `json:"workspaceId,omitempty"`
 	ProjectID       *string     `json:"projectId,omitempty"`
 	StatusID        *string     `json:"statusId,omitempty"`
 	PriorityLevel   *string     `json:"priorityLevel,omitempty"`
 	StageID         *string     `json:"stageId,omitempty"`
 	BlockedByID     *string     `json:"blockedById,omitempty"`
+	Kind            *string     `json:"kind,omitempty" jsonschema:"task, reminder, or inbox"`
+	ParentTaskID    *string     `json:"parentTaskId,omitempty"`
+	TodayFocusOn    *string     `json:"todayFocusOn,omitempty"`
+	MinChunkMinutes       *int                      `json:"minChunkMinutes,omitempty"`
+	PreferredChunkMinutes *int                      `json:"preferredChunkMinutes,omitempty"`
+	Contiguous            *bool                     `json:"contiguous,omitempty"`
+	EarliestStartAt       *string                   `json:"earliestStartAt,omitempty"`
+	ScheduleLocked        *bool                     `json:"scheduleLocked,omitempty"`
 	LabelIDs        []string    `json:"labelIds,omitempty"`
 	CustomFields    []cfValueIn `json:"customFields,omitempty"`
 	Recurrence      *recIn      `json:"recurrence,omitempty"`
@@ -168,18 +201,31 @@ type updateTaskIn struct {
 }
 
 func (in updateTaskIn) toUpdate() task.TaskUpdate {
+	scheduledOn := in.ScheduledOn
+	if scheduledOn == nil {
+		scheduledOn = in.ScheduleAt
+	}
 	update := task.TaskUpdate{
 		Name:          in.Name,
 		Duration:      in.Duration,
 		Deadline:      in.Deadline,
 		StartDate:     in.StartDate,
-		ScheduledOn:   in.ScheduledOn,
+		ScheduledOn:   scheduledOn,
 		CompletedAt:   in.CompletedAt,
+		WorkspaceID:   in.WorkspaceID,
 		ProjectID:     in.ProjectID,
 		StatusID:      in.StatusID,
 		PriorityLevel: in.PriorityLevel,
 		StageID:       in.StageID,
 		BlockedByID:   in.BlockedByID,
+		Kind:          in.Kind,
+		ParentTaskID:  in.ParentTaskID,
+		TodayFocusOn:  in.TodayFocusOn,
+		MinChunkMinutes:       in.MinChunkMinutes,
+		PreferredChunkMinutes: in.PreferredChunkMinutes,
+		Contiguous:            in.Contiguous,
+		EarliestStartAt:       in.EarliestStartAt,
+		ScheduleLocked:        in.ScheduleLocked,
 	}
 	if in.Description != nil {
 		rich, plain := md(*in.Description)
@@ -257,6 +303,44 @@ func (s *Server) reopenTask(ctx context.Context, req *mcp.CallToolRequest, in ta
 		return fail(err)
 	}
 	return reply("reopened "+t.Name, taskPayload(t))
+}
+
+type moveTaskStatusIn struct {
+	TaskID   string `json:"taskId"`
+	StatusID string `json:"statusId" jsonschema:"workspace status id (tst_); empty clears status"`
+}
+
+func (s *Server) moveTaskToStatus(ctx context.Context, req *mcp.CallToolRequest, in moveTaskStatusIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	t, err := s.tasksFor(req).Update(uid, in.TaskID, task.TaskUpdate{StatusID: emptyPtr(in.StatusID)})
+	if err != nil {
+		return fail(err)
+	}
+	return reply("moved "+t.Name+" to status "+in.StatusID, taskPayload(t))
+}
+
+type moveTaskStageIn struct {
+	TaskID  string `json:"taskId"`
+	StageID string `json:"stageId,omitempty" jsonschema:"stg_ id; omit or empty to unstage"`
+}
+
+func (s *Server) moveTaskToStage(ctx context.Context, req *mcp.CallToolRequest, in moveTaskStageIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	t, err := s.tasksFor(req).Update(uid, in.TaskID, task.TaskUpdate{StageID: emptyPtr(in.StageID)})
+	if err != nil {
+		return fail(err)
+	}
+	label := "Unstaged"
+	if in.StageID != "" {
+		label = in.StageID
+	}
+	return reply("moved "+t.Name+" to "+label, taskPayload(t))
 }
 
 func (s *Server) deleteTask(ctx context.Context, req *mcp.CallToolRequest, in taskIDIn) (*mcp.CallToolResult, any, error) {

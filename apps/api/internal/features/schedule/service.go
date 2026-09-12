@@ -1,6 +1,7 @@
 package schedule
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 	"timely-api/internal/blocks"
@@ -9,6 +10,7 @@ import (
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
+	"timely-api/internal/utils"
 
 	"gorm.io/gorm"
 )
@@ -30,29 +32,62 @@ type PlanRequest struct {
 }
 
 type BlockOut struct {
-	Start      time.Time `json:"start"`
-	End        time.Time `json:"end"`
-	ChunkIndex int       `json:"chunkIndex"`
+	Start           time.Time  `json:"start"`
+	End             time.Time  `json:"end"`
+	ChunkIndex      int        `json:"chunkIndex"`
+	OccurrenceStart *time.Time `json:"occurrenceStart,omitempty"`
 }
 
 type ProposalOut struct {
-	TaskID       string     `json:"taskId"`
-	TaskName     string     `json:"taskName"`
-	Blocks       []BlockOut `json:"blocks"`
-	EndsAt       time.Time  `json:"endsAt"`
-	Deadline     *time.Time `json:"deadline,omitempty"`
-	PastDeadline bool       `json:"pastDeadline"`
+	TaskID          string     `json:"taskId"`
+	TaskName        string     `json:"taskName"`
+	Blocks          []BlockOut `json:"blocks"`
+	EndsAt          time.Time  `json:"endsAt"`
+	Deadline        *time.Time `json:"deadline,omitempty"`
+	PastDeadline    bool       `json:"pastDeadline"`
+	Reason          string     `json:"reason,omitempty"`
+	OccurrenceStart *time.Time `json:"occurrenceStart,omitempty"`
+	Change          string     `json:"change,omitempty"`
+}
+
+type PlanChange struct {
+	Action   string    `json:"action"`
+	TaskID   string    `json:"taskId"`
+	TaskName string    `json:"taskName"`
+	Message  string    `json:"message"`
+	Before   *BlockOut `json:"before,omitempty"`
+	After    *BlockOut `json:"after,omitempty"`
+}
+
+type PlanRisk struct {
+	Kind     string `json:"kind"`
+	TaskID   string `json:"taskId,omitempty"`
+	TaskName string `json:"taskName,omitempty"`
+	Message  string `json:"message"`
+}
+
+type DayCapacity struct {
+	Date             string `json:"date"`
+	AvailableMinutes int    `json:"availableMinutes"`
+	ScheduledMinutes int    `json:"scheduledMinutes"`
+	PlannedMinutes   int    `json:"plannedMinutes"`
+	OverCapacity     bool   `json:"overCapacity"`
+	AtRisk           bool   `json:"atRisk"`
 }
 
 type PlanResponse struct {
-	From           time.Time     `json:"from"`
-	To             time.Time     `json:"to"`
-	Timezone       string        `json:"timezone"`
-	Proposals      []ProposalOut `json:"proposals"`
-	Skipped        []Skipped     `json:"skipped"`
-	FreeMinutes    int           `json:"freeMinutes"`
-	PlannedMinutes int           `json:"plannedMinutes"`
-	Applied        bool          `json:"applied"`
+	From           time.Time      `json:"from"`
+	To             time.Time      `json:"to"`
+	Timezone       string         `json:"timezone"`
+	Proposals      []ProposalOut  `json:"proposals"`
+	Skipped        []Skipped      `json:"skipped"`
+	Changes        []PlanChange   `json:"changes"`
+	Risks          []PlanRisk     `json:"risks"`
+	Capacity       []DayCapacity  `json:"capacity"`
+	FreeMinutes    int            `json:"freeMinutes"`
+	PlannedMinutes int            `json:"plannedMinutes"`
+	Applied        bool           `json:"applied"`
+	CanUndo        bool           `json:"canUndo"`
 }
 
 type BlockInput struct {
@@ -70,8 +105,14 @@ type WorkingHoursResponse struct {
 type Service interface {
 	GetWorkingHours(userID, fallbackTimezone string) (*WorkingHoursResponse, error)
 	UpdateWorkingHours(userID string, hours models.WorkingHours) (*WorkingHoursResponse, error)
+	GetSettings(userID string) (models.ScheduleSettings, error)
+	UpdateSettings(userID string, settings models.ScheduleSettings) (models.ScheduleSettings, error)
 	Preview(userID string, req PlanRequest) (*PlanResponse, error)
 	Apply(userID string, req PlanRequest) (*PlanResponse, error)
+	Undo(userID string) (*PlanResponse, error)
+	Capacity(userID string, from, to time.Time, timezone string) ([]DayCapacity, error)
+	PinTask(userID, taskID string, locked bool) (*models.Task, error)
+	PinBlock(userID, blockID string, locked bool) (*models.ScheduledBlock, error)
 	AddBlock(userID, taskID string, input BlockInput) (*models.Task, error)
 	MoveBlock(userID, blockID string, start string, end *string) (*models.ScheduledBlock, error)
 	DeleteBlock(userID, blockID string) error
@@ -115,22 +156,36 @@ func (s *service) UpdateWorkingHours(userID string, hours models.WorkingHours) (
 }
 
 func (s *service) Preview(userID string, req PlanRequest) (*PlanResponse, error) {
-	plan, _, _, err := s.plan(userID, req)
-	return plan, err
+	plan, _, _, _, err := s.plan(userID, req)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.repo.LatestRevision(userID); err == nil {
+		plan.CanUndo = true
+	}
+	return plan, nil
 }
 
 // Apply recomputes and writes engine blocks for every candidate. Candidates
 // that no longer fit lose their stale engine blocks so the calendar never
-// shows a plan the engine would not produce again.
+// shows a plan the engine would not produce again. A revision is stored so
+// the last apply can be undone. Concurrent applies for one user serialize.
 func (s *service) Apply(userID string, req PlanRequest) (*PlanResponse, error) {
-	plan, candidateIDs, replaceManual, err := s.plan(userID, req)
+	plan, candidateIDs, replaceManual, freezeUntil, err := s.plan(userID, req)
 	if err != nil {
 		return nil, err
 	}
 
 	err = s.blocks.DB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", userID).Error; err != nil {
+			return err
+		}
 		store := s.blocks.WithTx(tx)
-		if err := store.DeleteEngineBlocksForTasks(tx, candidateIDs); err != nil {
+		snapshot, err := snapshotEngineBlocks(tx, userID, candidateIDs, plan.From, plan.To)
+		if err != nil {
+			return err
+		}
+		if err := store.DeleteEngineBlocksInRange(tx, candidateIDs, plan.From, plan.To, freezeUntil); err != nil {
 			return err
 		}
 		for _, id := range replaceManual {
@@ -142,36 +197,57 @@ func (s *service) Apply(userID string, req PlanRequest) (*PlanResponse, error) {
 		for _, proposal := range plan.Proposals {
 			for _, block := range proposal.Blocks {
 				next = append(next, models.ScheduledBlock{
-					TaskID:     proposal.TaskID,
-					UserID:     userID,
-					StartAt:    block.Start,
-					EndAt:      block.End,
-					Source:     models.BlockSourceEngine,
-					ChunkIndex: block.ChunkIndex,
+					TaskID:          proposal.TaskID,
+					UserID:          userID,
+					StartAt:         block.Start,
+					EndAt:           block.End,
+					Source:          models.BlockSourceEngine,
+					ChunkIndex:      block.ChunkIndex,
+					OccurrenceStart: proposal.OccurrenceStart,
 				})
 			}
 		}
-		return store.InsertMany(tx, next)
+		if err := store.InsertMany(tx, next); err != nil {
+			return err
+		}
+		raw, err := json.Marshal(snapshot)
+		if err != nil {
+			return err
+		}
+		return tx.Create(&models.ScheduleRevision{
+			ID:          utils.NewScheduleRevisionID(),
+			UserID:      userID,
+			CreatedAt:   utils.GetCurrentTimestamp(),
+			HorizonFrom: plan.From.UTC().Format(time.RFC3339),
+			HorizonTo:   plan.To.UTC().Format(time.RFC3339),
+			Snapshot:    raw,
+		}).Error
 	})
 	if err != nil {
 		return nil, err
 	}
 	plan.Applied = true
+	plan.CanUndo = true
 	return plan, nil
 }
 
 // plan gathers availability, busy time and candidates, then runs the engine.
 // It returns the candidate ids (whose engine blocks are replaceable) and the
 // ids whose manual blocks the caller agreed to replace.
-func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string, []string, error) {
+func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string, []string, time.Time, error) {
 	if userID == "" {
-		return nil, nil, nil, errors.New("user not authenticated")
+		return nil, nil, nil, time.Time{}, errors.New("user not authenticated")
 	}
 
 	hours, err := s.repo.GetWorkingHours(userID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, time.Time{}, err
 	}
+	settings, err := s.repo.GetSettings(userID)
+	if err != nil {
+		return nil, nil, nil, time.Time{}, err
+	}
+	settings = settings.Normalized()
 	loc := time.UTC
 	if req.Timezone != "" {
 		if parsed, err := time.LoadLocation(req.Timezone); err == nil {
@@ -185,17 +261,17 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 
 	tasks, err := s.tasks.GetAllTaskByUser(userID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, time.Time{}, err
 	}
 
 	from, to, err := s.horizon(req, tasks, loc)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, time.Time{}, err
 	}
 
 	events, err := s.events.ListInRange(userID, from, to)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, time.Time{}, err
 	}
 
 	requested := map[string]bool{}
@@ -214,48 +290,104 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	candidateSet := map[string]bool{}
 	var replaceManual []string
 
+	parentHasWork := map[string]bool{}
+	for i := range tasks {
+		child := &tasks[i]
+		if child.ParentTaskID == nil || *child.ParentTaskID == "" {
+			continue
+		}
+		if child.IsSchedulableWork() {
+			parentHasWork[*child.ParentTaskID] = true
+		}
+	}
+
+	freezeUntil := time.Time{}
+	if settings.FreezeHours > 0 {
+		freezeUntil = from.Add(time.Duration(settings.FreezeHours) * time.Hour)
+		if freezeUntil.After(to) {
+			freezeUntil = to
+		}
+	}
+
+	todayStamp := from.Format("2006-01-02")
+
 	for i := range tasks {
 		t := &tasks[i]
 		if explicit && !requested[t.ID] {
 			continue
 		}
-		// Done and repeating tasks are never engine work, so a full run stays
-		// quiet about them; tasks the user could fix (no estimate, pinned by
-		// hand) are always reported so the preview explains itself.
 		switch {
 		case t.IsCompleted():
 			if explicit {
-				skipped = append(skipped, Skipped{t.ID, t.Name, ReasonCompleted})
+				skipped = append(skipped, skip(t.ID, t.Name, ReasonCompleted))
 			}
 			continue
-		case t.IsRecurring():
+		case t.IsInbox():
+			skipped = append(skipped, skip(t.ID, t.Name, ReasonInbox))
+			continue
+		case t.IsReminder() && !t.IsRecurring():
 			if explicit {
-				skipped = append(skipped, Skipped{t.ID, t.Name, ReasonRecurring})
+				skipped = append(skipped, skip(t.ID, t.Name, ReasonReminder))
 			}
 			continue
-		case t.Duration <= 0:
-			skipped = append(skipped, Skipped{t.ID, t.Name, ReasonNoDuration})
+		case parentHasWork[t.ID]:
+			skipped = append(skipped, skip(t.ID, t.Name, ReasonHasSubtasks))
 			continue
 		}
-		if hasManualBlock(t) {
-			if !req.IncludeManual {
-				skipped = append(skipped, Skipped{t.ID, t.Name, ReasonManual})
+		if t.WorkspaceID != nil && settings.ExcludesWorkspace(*t.WorkspaceID) {
+			skipped = append(skipped, skip(t.ID, t.Name, ReasonWorkspace))
+			continue
+		}
+		if t.ScheduleLocked {
+			skipped = append(skipped, skip(t.ID, t.Name, ReasonLocked))
+			continue
+		}
+		if t.IsRecurring() {
+			if t.IsReminder() || !t.IsSchedulableWork() {
+				if explicit {
+					skipped = append(skipped, skip(t.ID, t.Name, ReasonReminder))
+				}
 				continue
 			}
+			occs, err := recurrence.Expand(t.Recurrence, time.Duration(t.Duration)*time.Minute, from, to)
+			if err != nil {
+				return nil, nil, nil, time.Time{}, err
+			}
+			for _, occ := range occs {
+				if occ.CompletedAt != nil {
+					continue
+				}
+				if blockLockedOrFrozen(t, occ.OriginalStart, freezeUntil) {
+					skipped = append(skipped, skip(t.ID, t.Name, ReasonFrozen))
+					continue
+				}
+				original := occ.OriginalStart
+				cand := s.makeCandidate(t, loc, todayStamp, from)
+				cand.ID = t.ID + "@" + original.UTC().Format(time.RFC3339)
+				cand.TaskID = t.ID
+				cand.OccurrenceStart = &original
+				cand.EarliestStart = maxTimePtr(cand.EarliestStart, &occ.Start)
+				cand.Unscheduled = !hasOccurrenceBlock(t, original)
+				candidates = append(candidates, cand)
+				candidateSet[t.ID] = true
+			}
+			continue
+		}
+		if hasPinnedBlock(t, freezeUntil) && !req.IncludeManual {
+			skipped = append(skipped, skip(t.ID, t.Name, ReasonManual))
+			continue
+		}
+		if hasManualBlock(t) && req.IncludeManual {
 			replaceManual = append(replaceManual, t.ID)
 		}
+		if frozenOnly(t, freezeUntil) {
+			skipped = append(skipped, skip(t.ID, t.Name, ReasonFrozen))
+			continue
+		}
+		cand := s.makeCandidate(t, loc, todayStamp, from)
+		cand.Unscheduled = len(t.Blocks) == 0
+		candidates = append(candidates, cand)
 		candidateSet[t.ID] = true
-		candidates = append(candidates, Candidate{
-			ID:              t.ID,
-			Name:            t.Name,
-			DurationMinutes: t.Duration,
-			ChunkMinutes:    t.ChunkMinutes(),
-			Priority:        derefString(t.PriorityLevel),
-			CreatedAt:       t.CreatedAt,
-			Deadline:        parseDay(t.Deadline, loc),
-			StartDate:       parseDay(t.StartDate, loc),
-			BlockedByID:     derefString(t.BlockedByID),
-		})
 	}
 
 	// Blockers outside the candidate set are resolved from their current
@@ -284,30 +416,48 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 
 	items, err := calendar.Collect(tasks, events, from, to)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, time.Time{}, err
 	}
 	var busy []Interval
 	for _, item := range items {
+		if item.Kind == calendar.KindTaskOccurrence && item.Task != nil && item.Task.IsSchedulableWork() {
+			continue
+		}
 		if item.Kind == calendar.KindTask && candidateSet[item.TaskID] {
-			// The engine rebuilds its own blocks; manual ones stay busy unless
-			// the caller asked to replace them.
 			if item.Source == models.BlockSourceEngine || req.IncludeManual {
-				continue
+				if freezeUntil.IsZero() || !item.Start.Before(freezeUntil) {
+					continue
+				}
 			}
 		}
-		if item.AllDay {
+		if item.AllDay || item.Reminder {
 			continue
 		}
 		busy = append(busy, Interval{Start: item.Start, End: item.End})
 	}
 
+	for i := range candidates {
+		c := &candidates[i]
+		c.Rank = ScoreTask(ScoreInput{
+			Priority:      c.Priority,
+			Deadline:      c.Deadline,
+			Now:           from,
+			Blocked:       c.BlockedByID != "" || c.ExternalBlocked,
+			Unscheduled:   c.Unscheduled,
+			TodayFocus:    c.TodayFocus,
+			ActualMinutes: c.ActualMinutes,
+			Duration:      c.DurationMinutes,
+		})
+	}
+
 	result := Plan(PlanInput{
-		From:       from,
-		To:         to,
-		Location:   loc,
-		Hours:      hours,
-		Busy:       busy,
-		Candidates: candidates,
+		From:         from,
+		To:           to,
+		Location:     loc,
+		Hours:        hours,
+		Busy:         busy,
+		Candidates:   candidates,
+		BreakMinutes: settings.BreakMinutes,
 	})
 
 	response := &PlanResponse{
@@ -316,32 +466,58 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 		Timezone:       loc.String(),
 		Proposals:      make([]ProposalOut, 0, len(result.Proposals)),
 		Skipped:        append(skipped, result.Skipped...),
+		Changes:        []PlanChange{},
+		Risks:          []PlanRisk{},
+		Capacity:       []DayCapacity{},
 		FreeMinutes:    result.FreeMinutes,
 		PlannedMinutes: result.PlannedMinutes,
 	}
 	if response.Skipped == nil {
 		response.Skipped = []Skipped{}
 	}
+	current := currentEngineBlocks(tasks, from, to)
 	for _, proposal := range result.Proposals {
 		out := ProposalOut{
-			TaskID:       proposal.TaskID,
-			TaskName:     proposal.TaskName,
-			EndsAt:       proposal.EndsAt,
-			Deadline:     proposal.Deadline,
-			PastDeadline: proposal.PastDeadline,
-			Blocks:       make([]BlockOut, 0, len(proposal.Blocks)),
+			TaskID:          proposal.TaskID,
+			TaskName:        proposal.TaskName,
+			EndsAt:          proposal.EndsAt,
+			Deadline:        proposal.Deadline,
+			PastDeadline:    proposal.PastDeadline,
+			Reason:          proposal.Reason,
+			OccurrenceStart: proposal.OccurrenceStart,
+			Blocks:          make([]BlockOut, 0, len(proposal.Blocks)),
 		}
 		for index, block := range proposal.Blocks {
-			out.Blocks = append(out.Blocks, BlockOut{Start: block.Start, End: block.End, ChunkIndex: index})
+			out.Blocks = append(out.Blocks, BlockOut{
+				Start:           block.Start,
+				End:             block.End,
+				ChunkIndex:      index,
+				OccurrenceStart: proposal.OccurrenceStart,
+			})
 		}
+		out.Change = classifyChange(current[proposal.TaskID], out.Blocks)
 		response.Proposals = append(response.Proposals, out)
+		if proposal.PastDeadline {
+			response.Risks = append(response.Risks, PlanRisk{
+				Kind: "past_deadline", TaskID: proposal.TaskID, TaskName: proposal.TaskName,
+				Message: proposal.TaskName + " finishes after its deadline",
+			})
+		}
+	}
+	response.Changes = diffPlan(current, response.Proposals, skipped)
+	response.Capacity = dayCapacity(from, to, loc, hours, items, response.Proposals)
+	if result.FreeMinutes < result.PlannedMinutes {
+		response.Risks = append(response.Risks, PlanRisk{
+			Kind:    "insufficient_capacity",
+			Message: "Planned work uses more minutes than remaining free time",
+		})
 	}
 
 	candidateIDs := make([]string, 0, len(candidateSet))
 	for id := range candidateSet {
 		candidateIDs = append(candidateIDs, id)
 	}
-	return response, candidateIDs, replaceManual, nil
+	return response, candidateIDs, replaceManual, freezeUntil, nil
 }
 
 // horizon picks the planning window: now (or `from`) to two weeks out, pushed
@@ -393,12 +569,23 @@ func (s *service) AddBlock(userID, taskID string, input BlockInput) (*models.Tas
 	if err != nil {
 		return nil, err
 	}
+	if t.IsInbox() {
+		return nil, errors.New("clarify this inbox item before scheduling")
+	}
 	if t.IsRecurring() {
 		return nil, errors.New("recurring tasks are placed by their recurrence; move an occurrence instead")
 	}
 	start, err := recurrence.ParseTime(input.Start)
 	if err != nil {
 		return nil, errors.New("invalid start")
+	}
+	if t.IsReminder() {
+		if err := s.blocks.DeleteForTask(taskID, ""); err != nil {
+			return nil, err
+		}
+		return s.tasks.UpdateTask(userID, taskID, map[string]any{
+			"scheduled_on": start.Format(time.RFC3339),
+		})
 	}
 	end, err := resolveEnd(start, input.End, input.DurationMinutes, t.Duration)
 	if err != nil {
@@ -453,11 +640,19 @@ func (s *service) DeleteBlock(userID, blockID string) error {
 }
 
 func (s *service) ClearBlocks(userID, taskID string) (*models.Task, error) {
-	if _, err := s.tasks.GetTaskByIdForUser(userID, taskID); err != nil {
+	t, err := s.tasks.GetTaskByIdForUser(userID, taskID)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.blocks.DeleteForTask(taskID, ""); err != nil {
 		return nil, err
+	}
+	if t.IsReminder() {
+		if _, err := s.tasks.UpdateTask(userID, taskID, map[string]any{
+			"scheduled_on": nil,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	return s.tasks.GetTaskByIdForUser(userID, taskID)
 }
@@ -559,7 +754,7 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 	}
 	var busy []Interval
 	for _, item := range items {
-		if item.AllDay {
+		if item.AllDay || item.Reminder {
 			continue
 		}
 		busy = append(busy, Interval{Start: item.Start, End: item.End})

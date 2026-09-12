@@ -20,10 +20,12 @@ type ScheduledBlock struct {
 	TaskID string `gorm:"type:text;not null" json:"taskId"`
 	UserID string `gorm:"type:text;not null" json:"userId"`
 
-	StartAt    time.Time `gorm:"type:timestamptz;not null" json:"start"`
-	EndAt      time.Time `gorm:"type:timestamptz;not null" json:"end"`
-	Source     string    `gorm:"type:text;not null;default:'manual'" json:"source"`
-	ChunkIndex int       `gorm:"not null;default:0" json:"chunkIndex"`
+	StartAt         time.Time  `gorm:"type:timestamptz;not null" json:"start"`
+	EndAt           time.Time  `gorm:"type:timestamptz;not null" json:"end"`
+	Source          string     `gorm:"type:text;not null;default:'manual'" json:"source"`
+	ChunkIndex      int        `gorm:"not null;default:0" json:"chunkIndex"`
+	Locked          bool       `gorm:"not null;default:false" json:"locked"`
+	OccurrenceStart *time.Time `gorm:"type:timestamptz" json:"occurrenceStart,omitempty"`
 
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`

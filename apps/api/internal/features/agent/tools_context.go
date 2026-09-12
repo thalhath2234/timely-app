@@ -12,7 +12,6 @@ import (
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
-	"timely-api/internal/utils"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -60,6 +59,18 @@ func (s *Server) semanticSearch(ctx context.Context, req *mcp.CallToolRequest, i
 	return reply(fmt.Sprintf("%d semantic hits for %q", len(hits), in.Query), map[string]any{"hits": hits})
 }
 
+func (s *Server) reindexSearch(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	n, err := s.Search.Reindex(ctx, uid)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("reindexed %d items", n), map[string]any{"indexed": n})
+}
+
 func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
@@ -87,16 +98,43 @@ func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emp
 	}
 
 	type projectSum struct {
-		ID, Title, WorkspaceID string
-		Completed              bool
+		ID             string   `json:"id"`
+		Title          string   `json:"title"`
+		WorkspaceID    string   `json:"workspaceId"`
+		Completed      bool     `json:"completed"`
+		DoesHaveStages bool     `json:"doesHaveStages"`
+		StatusID       string   `json:"statusId,omitempty"`
+		PriorityLevel  string   `json:"priorityLevel,omitempty"`
+		Deadline       string   `json:"deadline,omitempty"`
+		StartDate      string   `json:"startDate,omitempty"`
+		Stages         []string `json:"stages"`
+		Open           int      `json:"open"`
+		Done           int      `json:"done"`
+		Progress       int      `json:"progress"`
 	}
+	tasks, _ := s.Tasks.List(uid, task.TaskFilter{Limit: 2000})
 	sums := make([]projectSum, 0, len(projects))
 	for _, p := range projects {
-		ws := ""
-		if p.WorkspaceID != nil {
-			ws = *p.WorkspaceID
-		}
-		sums = append(sums, projectSum{ID: p.ID, Title: p.Title, WorkspaceID: ws, Completed: p.CompletedAt != nil && *p.CompletedAt != ""})
+		stats := projectSummary(p, tasks)
+		stageNames, _ := stats["stages"].([]string)
+		open, _ := stats["open"].(int)
+		done, _ := stats["completedCount"].(int)
+		progress, _ := stats["progress"].(int)
+		sums = append(sums, projectSum{
+			ID:             p.ID,
+			Title:          p.Title,
+			WorkspaceID:    deref(p.WorkspaceID),
+			Completed:      p.CompletedAt != nil && *p.CompletedAt != "",
+			DoesHaveStages: p.DoesHaveStages,
+			StatusID:       deref(p.StatusID),
+			PriorityLevel:  deref(p.PriorityLevel),
+			Deadline:       deref(p.Deadline),
+			StartDate:      deref(p.StartDate),
+			Stages:         stageNames,
+			Open:           open,
+			Done:           done,
+			Progress:       progress,
+		})
 	}
 
 	out := map[string]any{
@@ -165,21 +203,36 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 	if err != nil {
 		return fail(err)
 	}
-	today := utils.GetCurrentTime()
-	var overdue, unscheduled []map[string]string
+	now := time.Now().In(loc)
+	overdue := make([]map[string]string, 0)
+	unscheduled := make([]map[string]string, 0)
 	for _, t := range tasks {
-		if t.IsCompleted() {
+		if t.IsCompleted() || t.IsReminder() {
 			continue
 		}
-		if t.Deadline != nil && *t.Deadline != "" && *t.Deadline < today {
-			overdue = append(overdue, map[string]string{"id": t.ID, "name": t.Name, "deadline": *t.Deadline})
+		if task.IsOverdue(t, now) && !task.HasRemainingSchedule(t, now) {
+			entry := map[string]string{"id": t.ID, "name": t.Name}
+			if t.Deadline != nil && *t.Deadline != "" {
+				entry["deadline"] = *t.Deadline
+			}
+			if t.ScheduledOn != nil && *t.ScheduledOn != "" {
+				entry["scheduledOn"] = *t.ScheduledOn
+			}
+			overdue = append(overdue, entry)
 		}
 		if !t.IsRecurring() && len(t.Blocks) == 0 {
 			unscheduled = append(unscheduled, map[string]string{"id": t.ID, "name": t.Name})
 		}
 	}
-	lines := []string{fmt.Sprintf("Agenda %s → %s (%s)", from.In(loc).Format("Mon Jan 2 15:04"), to.In(loc).Format("Mon Jan 2 15:04"), loc)}
+	agendaItems := []calendar.Item{}
 	for _, item := range cal.Items {
+		if item.Reminder {
+			continue
+		}
+		agendaItems = append(agendaItems, item)
+	}
+	lines := []string{fmt.Sprintf("Agenda %s → %s (%s)", from.In(loc).Format("Mon Jan 2 15:04"), to.In(loc).Format("Mon Jan 2 15:04"), loc)}
+	for _, item := range agendaItems {
 		stamp := item.Start.In(loc).Format("15:04")
 		if item.AllDay {
 			stamp = "all-day"
@@ -188,8 +241,19 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 	}
 	if len(overdue) > 0 {
 		lines = append(lines, fmt.Sprintf("%d overdue", len(overdue)))
+		for _, item := range overdue {
+			stamp := item["scheduledOn"]
+			if stamp == "" {
+				stamp = item["deadline"]
+			}
+			if stamp == "" {
+				lines = append(lines, fmt.Sprintf("- %s", item["name"]))
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("- %s (%s)", item["name"], stamp))
+		}
 	}
-	out := map[string]any{"from": from, "to": to, "items": cal.Items, "overdue": overdue, "unscheduled": unscheduled, "text": strings.Join(lines, "\n")}
+	out := map[string]any{"from": from, "to": to, "items": agendaItems, "overdue": overdue, "unscheduled": unscheduled, "text": strings.Join(lines, "\n")}
 	return reply(strings.Join(lines, "\n"), out)
 }
 
@@ -222,45 +286,37 @@ func (s *Server) whatNext(ctx context.Context, req *mcp.CallToolRequest, _ empty
 	if err != nil {
 		return fail(err)
 	}
-	today := utils.GetCurrentTime()
+	now := time.Now()
+	today := now.Format("2006-01-02")
 	type ranked struct {
 		ID, Name, Reason string
+		Reasons          []string
 		Score            int
 	}
 	var list []ranked
 	for _, t := range tasks {
-		if t.IsRecurring() {
+		if t.IsInbox() || t.IsReminder() {
 			continue
 		}
-		score := 0
-		reason := "open"
+		deadline := (*time.Time)(nil)
 		if t.Deadline != nil && *t.Deadline != "" {
-			if *t.Deadline < today {
-				score += 100
-				reason = "overdue"
-			} else if *t.Deadline == today {
-				score += 50
-				reason = "due today"
-			} else {
-				score += 10
+			if parsed, err := time.Parse("2006-01-02", models.NormalizeDate(*t.Deadline)); err == nil {
+				deadline = &parsed
 			}
 		}
-		switch strings.ToLower(deref(t.PriorityLevel)) {
-		case "urgent":
-			score += 40
-		case "high":
-			score += 25
-		case "medium":
-			score += 10
-		}
-		if t.BlockedByID != nil && *t.BlockedByID != "" {
-			score -= 80
-			reason = "blocked"
-		}
-		if len(t.Blocks) == 0 {
-			score += 5
-		}
-		list = append(list, ranked{ID: t.ID, Name: t.Name, Reason: reason, Score: score})
+		rank := schedule.ScoreTask(schedule.ScoreInput{
+			Priority:      deref(t.PriorityLevel),
+			Deadline:      deadline,
+			Now:           now,
+			Blocked:       t.BlockedByID != nil && *t.BlockedByID != "",
+			Unscheduled:   len(t.Blocks) == 0 && !t.IsRecurring(),
+			TodayFocus:    models.NormalizeDate(deref(t.TodayFocusOn)) == today,
+			ActualMinutes: t.ActualMinutes,
+			Duration:      t.Duration,
+		})
+		list = append(list, ranked{
+			ID: t.ID, Name: t.Name, Reason: strings.Join(rank.Reasons, ", "), Reasons: rank.Reasons, Score: rank.Score,
+		})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Score > list[j].Score })
 	if len(list) > 15 {
@@ -299,12 +355,16 @@ func (s *Server) getCalendar(ctx context.Context, req *mcp.CallToolRequest, in r
 	return reply(fmt.Sprintf("%d calendar items", len(cal.Items)), cal)
 }
 
-func (s *Server) getWorkingHours(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
+type hoursQueryIn struct {
+	Timezone string `json:"timezone,omitempty" jsonschema:"IANA timezone fallback, same as HTTP ?tz="`
+}
+
+func (s *Server) getWorkingHours(ctx context.Context, req *mcp.CallToolRequest, in hoursQueryIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
 	}
-	hours, err := s.Schedule.GetWorkingHours(uid, "")
+	hours, err := s.Schedule.GetWorkingHours(uid, in.Timezone)
 	if err != nil {
 		return fail(err)
 	}

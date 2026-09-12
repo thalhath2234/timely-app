@@ -1,11 +1,13 @@
 package workspace
 
 import (
+	"errors"
 	"net/http"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
 
 	"github.com/labstack/echo/v5"
+	"gorm.io/gorm"
 )
 
 type Handler struct {
@@ -33,8 +35,21 @@ type createLableRequest struct {
 }
 
 type createOptionRequest struct {
+	ID    string `json:"id,omitempty"`
 	Value string `json:"value"`
 	Color string `json:"color"`
+}
+
+func optionFromRequest(option createOptionRequest) models.Option {
+	id := option.ID
+	if id == "" {
+		id = utils.NewOptionID()
+	}
+	return models.Option{
+		ID:    id,
+		Value: option.Value,
+		Color: option.Color,
+	}
 }
 
 type createCustomFieldRequest struct {
@@ -117,10 +132,7 @@ func (h *Handler) GetWorkspaceById(c *echo.Context) error {
 
 	workspace, err := h.workspaceService.GetWorkspaceById(userID, workspaceID)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		return workspaceError(err)
 	}
 
 	return c.JSON(http.StatusOK, workspace)
@@ -153,10 +165,7 @@ func (h *Handler) Update(c *echo.Context) error {
 
 	workspace, err := h.workspaceService.UpdateWorkspace(userID, workspaceID, req.Name)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusBadRequest,
-			err.Error(),
-		)
+		return workspaceError(err)
 	}
 
 	return c.JSON(http.StatusOK, workspace)
@@ -168,13 +177,16 @@ func (h *Handler) Delete(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
 	}
 	if err := h.workspaceService.Delete(userID, c.Param("id")); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return workspaceError(err)
 	}
 	return c.JSON(http.StatusOK, map[string]string{"message": "workspace deleted"})
 }
 
 func (h *Handler) CreateLable(c *echo.Context) error {
 	workspaceID := c.Param("id")
+	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+		return err
+	}
 
 	var req createLableRequest
 	if err := c.Bind(&req); err != nil {
@@ -203,6 +215,9 @@ func (h *Handler) CreateLable(c *echo.Context) error {
 
 func (h *Handler) CreateStatus(c *echo.Context) error {
 	workspaceID := c.Param("id")
+	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+		return err
+	}
 
 	var req createStatusRequest
 	if err := c.Bind(&req); err != nil {
@@ -231,6 +246,9 @@ func (h *Handler) CreateStatus(c *echo.Context) error {
 
 func (h *Handler) CreateCustomField(c *echo.Context) error {
 	workspaceID := c.Param("id")
+	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+		return err
+	}
 
 	options := models.Options{
 		Options: []models.Option{},
@@ -245,14 +263,7 @@ func (h *Handler) CreateCustomField(c *echo.Context) error {
 	}
 
 	for _, option := range req.Options {
-		options.Options = append(
-			options.Options,
-			models.Option{
-				ID:    utils.NewOptionID(),
-				Value: option.Value,
-				Color: option.Color,
-			},
-		)
+		options.Options = append(options.Options, optionFromRequest(option))
 	}
 
 	customField := &models.CustomField{
@@ -275,6 +286,9 @@ func (h *Handler) CreateCustomField(c *echo.Context) error {
 
 func (h *Handler) UpdateLable(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
+	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+		return err
+	}
 	lableID := c.Param("lableId")
 
 	var req createLableRequest
@@ -305,6 +319,9 @@ func (h *Handler) UpdateLable(c *echo.Context) error {
 
 func (h *Handler) DeleteLable(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
+	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+		return err
+	}
 	lableID := c.Param("lableId")
 
 	if err := h.workspaceService.DeleteLables(lableID, workspaceID); err != nil {
@@ -319,6 +336,9 @@ func (h *Handler) DeleteLable(c *echo.Context) error {
 
 func (h *Handler) UpdateStatus(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
+	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+		return err
+	}
 	statusID := c.Param("statusId")
 
 	var req createStatusRequest
@@ -349,6 +369,9 @@ func (h *Handler) UpdateStatus(c *echo.Context) error {
 
 func (h *Handler) DeleteStatus(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
+	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+		return err
+	}
 	statusID := c.Param("statusId")
 
 	if err := h.workspaceService.DeleteStatuses(statusID, workspaceID); err != nil {
@@ -363,6 +386,9 @@ func (h *Handler) DeleteStatus(c *echo.Context) error {
 
 func (h *Handler) UpdateCustomField(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
+	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+		return err
+	}
 	customFieldID := c.Param("customFieldId")
 
 	var req createCustomFieldRequest
@@ -375,11 +401,7 @@ func (h *Handler) UpdateCustomField(c *echo.Context) error {
 
 	options := models.Options{Options: []models.Option{}}
 	for _, option := range req.Options {
-		options.Options = append(options.Options, models.Option{
-			ID:    utils.NewOptionID(),
-			Value: option.Value,
-			Color: option.Color,
-		})
+		options.Options = append(options.Options, optionFromRequest(option))
 	}
 
 	customField := &models.CustomField{
@@ -403,6 +425,9 @@ func (h *Handler) UpdateCustomField(c *echo.Context) error {
 
 func (h *Handler) DeleteCustomField(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
+	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+		return err
+	}
 	customFieldID := c.Param("customFieldId")
 
 	if err := h.workspaceService.DeleteCustomFields(customFieldID, workspaceID); err != nil {
@@ -473,4 +498,25 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, updatedConfig)
+}
+
+func (h *Handler) requireOwnedWorkspace(c *echo.Context, workspaceID string) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	if workspaceID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid workspace id")
+	}
+	if _, err := h.workspaceService.GetWorkspaceById(userID, workspaceID); err != nil {
+		return workspaceError(err)
+	}
+	return nil
+}
+
+func workspaceError(err error) error {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return echo.NewHTTPError(http.StatusNotFound, "workspace not found")
+	}
+	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 }

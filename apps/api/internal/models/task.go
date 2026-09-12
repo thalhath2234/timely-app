@@ -62,6 +62,28 @@ type Task struct {
 
 	Duration int `gorm:"default:0" json:"duration"` // total time to finish this task
 
+	// Kind is task (schedulable work), reminder (timed ping), or inbox
+	// (unprocessed capture). Duration 0 is no longer enough on its own:
+	// inbox items also have duration 0 but must not appear as calendar pings.
+	Kind string `gorm:"type:text;not null;default:task" json:"kind"`
+
+	ParentTaskID *string `json:"parentTaskId"`
+
+	Checklist Checklist `gorm:"type:jsonb;not null;default:'[]'" json:"checklist"`
+
+	// ActualMinutes is focused time, independent of estimated Duration.
+	ActualMinutes int `gorm:"not null;default:0" json:"actualMinutes"`
+	FocusStartedAt *string `gorm:"type:timestamptz" json:"focusStartedAt"`
+	// TodayFocusOn is a calendar day the user picked as a Today focus item.
+	TodayFocusOn *string `gorm:"type:date" json:"todayFocusOn"`
+
+	MinChunkMinutes       int               `gorm:"not null;default:15" json:"minChunkMinutes"`
+	PreferredChunkMinutes *int              `json:"preferredChunkMinutes"`
+	Contiguous            bool              `gorm:"not null;default:false" json:"contiguous"`
+	EarliestStartAt       *string           `gorm:"type:timestamptz" json:"earliestStartAt"`
+	PreferredWindows      PreferredWindows  `gorm:"type:jsonb;not null;default:'[]'" json:"preferredWindows"`
+	ScheduleLocked        bool              `gorm:"not null;default:false" json:"scheduleLocked"`
+
 	Deadline    *string `gorm:"type:date" json:"deadline"`
 	StartDate   *string `gorm:"type:date" json:"startDate"`
 	ScheduledOn *string `gorm:"type:timestamptz" json:"scheduledOn"`
@@ -75,7 +97,7 @@ type Task struct {
 	ProjectID     *string `json:"projectId"`
 	StatusID      *string `json:"statusId"`
 	PriorityLevel *string `json:"priorityLevel"`
-	WorkspaceID   *string `json:"workspaceId"`
+	WorkspaceID   *string `json:"workspaceId"` // nil for inbox items and standalone reminders
 	ScheduleID    *string `json:"scheduleId"`
 	StageID       *string `json:"stageId"`
 
@@ -96,6 +118,17 @@ type Task struct {
 
 	// Self References
 	BlockedBy *Task `gorm:"foreignKey:BlockedByID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"blockedBy,omitempty"`
+
+	Parent   *Task  `gorm:"foreignKey:ParentTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"parent,omitempty"`
+	Subtasks []Task `gorm:"foreignKey:ParentTaskID" json:"subtasks,omitempty"`
+
+	// Progress is computed on read from subtasks + checklist items.
+	OpenSubtaskCount int `gorm:"-" json:"openSubtaskCount"`
+	SubtaskCount     int `gorm:"-" json:"subtaskCount"`
+	ChecklistDone    int `gorm:"-" json:"checklistDone"`
+	ChecklistTotal   int `gorm:"-" json:"checklistTotal"`
+	ProgressDone     int `gorm:"-" json:"progressDone"`
+	ProgressTotal    int `gorm:"-" json:"progressTotal"`
 
 	CustomFieldValues []*CustomFieldValue `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"customFieldValues,omitempty"`
 
@@ -128,9 +161,50 @@ func (t *Task) BeforeUpdate(tx *gorm.DB) error {
 	return nil
 }
 
+func (t *Task) AfterFind(tx *gorm.DB) error {
+	normalizeDatePtr(t.TodayFocusOn)
+	normalizeDatePtr(t.Deadline)
+	normalizeDatePtr(t.StartDate)
+	return nil
+}
+
 // IsRecurring reports whether the task is a series rather than a one-off.
 func (t *Task) IsRecurring() bool {
 	return t.Recurrence != nil && t.Recurrence.RRule != ""
+}
+
+// IsInbox is an unprocessed capture. It is not a calendar ping and the
+// engine must not auto-schedule it until it is clarified into a task.
+func (t *Task) IsInbox() bool {
+	return t.Kind == KindInbox
+}
+
+// IsReminder is a timed ping with no work estimate. It can be one-off or
+// repeating; it shows on the calendar at that time but does not reserve a block.
+// Inbox items also have duration 0, so kind is the source of truth.
+func (t *Task) IsReminder() bool {
+	if t.Kind == KindInbox {
+		return false
+	}
+	if t.Kind == KindReminder {
+		return true
+	}
+	if t.Kind == KindTask {
+		return false
+	}
+	return t.Duration <= 0
+}
+
+func (t *Task) IsSubtask() bool {
+	return t.ParentTaskID != nil && *t.ParentTaskID != ""
+}
+
+func (t *Task) IsFocusing() bool {
+	return t.FocusStartedAt != nil && *t.FocusStartedAt != ""
+}
+
+func (t *Task) IsSchedulableWork() bool {
+	return t.Kind == KindTask && t.Duration > 0 && !t.IsCompleted()
 }
 
 // IsCompleted reports whether the (one-off) task has been finished.
@@ -142,5 +216,18 @@ func (t *Task) IsCompleted() bool {
 // Time chunks were removed; a task is placed as one duration-sized block
 // (the engine still splits across working-hour gaps).
 func (t *Task) ChunkMinutes() int {
+	if t.PreferredChunkMinutes != nil && *t.PreferredChunkMinutes > 0 {
+		return *t.PreferredChunkMinutes
+	}
+	if t.Contiguous {
+		return t.Duration
+	}
 	return t.Duration
+}
+
+func (t *Task) MinChunk() int {
+	if t.MinChunkMinutes < 15 {
+		return 15
+	}
+	return t.MinChunkMinutes
 }

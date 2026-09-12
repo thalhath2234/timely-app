@@ -45,8 +45,11 @@ func (r *projectRepository) CreateProject(project *models.Project, customFieldVa
 	}
 
 	if project.PriorityLevel == nil || *project.PriorityLevel == "" {
-		priorityLevel := "Low"
+		priorityLevel := models.PriorityLow
 		project.PriorityLevel = &priorityLevel
+	} else {
+		normalized := models.NormalizePriority(*project.PriorityLevel)
+		project.PriorityLevel = &normalized
 	}
 
 	tx := r.db.Begin()
@@ -128,6 +131,8 @@ func (r *projectRepository) GetProjectByIdForUser(userID string, projectID strin
 		Where("projects.id = ?", projectID).
 		Where("workspaces.user_id = ?", userID).
 		Preload("Stages").
+		Preload("Stages.Tasks").
+		Preload("Tasks", "stage_id IS NULL").
 		Preload("Workspace").
 		Preload("CustomFieldValues.CustomField").
 		First(&project).Error
@@ -261,6 +266,7 @@ func (r *projectRepository) enrichCustomFieldValuesForProject(project *models.Pr
 	for _, cfv := range project.CustomFieldValues {
 		if cfv.CustomField != nil {
 			cfv.Name = cfv.CustomField.Name
+			cfv.EnrichDerived()
 
 			if len(cfv.OptionsValue) > 0 && len(cfv.CustomField.Options.Options) > 0 {
 				optMap := make(map[string]models.Option, len(cfv.CustomField.Options.Options))

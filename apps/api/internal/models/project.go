@@ -49,3 +49,9 @@ func (p *Project) BeforeUpdate(tx *gorm.DB) error {
 	p.UpdatedAt = utils.GetCurrentTime()
 	return nil
 }
+
+func (p *Project) AfterFind(tx *gorm.DB) error {
+	normalizeDatePtr(p.Deadline)
+	normalizeDatePtr(p.StartDate)
+	return nil
+}

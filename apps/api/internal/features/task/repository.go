@@ -40,7 +40,13 @@ func (r *taskRepository) DB() *gorm.DB {
 }
 
 func (r *taskRepository) CreateTask(task *models.Task, customFieldValues []*models.CustomFieldValue) (*models.Task, error) {
-	if task.StatusID == nil {
+	if task.Kind == "" {
+		task.Kind = models.KindTask
+	}
+	if task.Checklist == nil {
+		task.Checklist = models.Checklist{}
+	}
+	if task.StatusID == nil && task.WorkspaceID != nil {
 		var status models.Status
 
 		err := r.db.
@@ -55,8 +61,11 @@ func (r *taskRepository) CreateTask(task *models.Task, customFieldValues []*mode
 	}
 
 	if task.PriorityLevel == nil || *task.PriorityLevel == "" {
-		priorityLevel := "Low"
+		priorityLevel := models.PriorityLow
 		task.PriorityLevel = &priorityLevel
+	} else {
+		normalized := models.NormalizePriority(*task.PriorityLevel)
+		task.PriorityLevel = &normalized
 	}
 
 	tx := r.db.Begin()
@@ -194,6 +203,7 @@ func (r *taskRepository) enrichCustomFieldValuesForTask(task *models.Task) {
 	for _, cfv := range task.CustomFieldValues {
 		if cfv.CustomField != nil {
 			cfv.Name = cfv.CustomField.Name
+			cfv.EnrichDerived()
 
 			if len(cfv.OptionsValue) > 0 && len(cfv.CustomField.Options.Options) > 0 {
 				optMap := make(map[string]models.Option, len(cfv.CustomField.Options.Options))
@@ -250,6 +260,9 @@ func (r *taskRepository) withTaskRelations() *gorm.DB {
 		Preload("Recurrence.Exceptions").
 		Preload("Blocks", func(db *gorm.DB) *gorm.DB {
 			return db.Order("scheduled_blocks.start_at ASC")
+		}).
+		Preload("Subtasks", func(db *gorm.DB) *gorm.DB {
+			return db.Order("created_at ASC")
 		})
 }
 

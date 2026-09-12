@@ -16,6 +16,7 @@ type CustomFieldValue struct {
 	OptionsValue  CustomFieldValueInputs `gorm:"type:jsonb;" json:"-"`
 	Type          string                 `json:"type; not null"`
 	StringValue   *string                `gorm:"type:text" json:"stringValue,omitempty"`
+	BoolValue     *bool                  `gorm:"-" json:"boolValue,omitempty"`
 
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
@@ -85,4 +86,17 @@ func (o *CustomFieldValueInputs) Scan(value any) error {
 	}
 
 	return json.Unmarshal(bytes, o)
+}
+
+func (c *CustomFieldValue) EnrichDerived() {
+	if c == nil {
+		return
+	}
+	isBool := c.Type == string(CustomFieldTypeBoolean) ||
+		(c.CustomField != nil && c.CustomField.Type == CustomFieldTypeBoolean)
+	if !isBool || c.StringValue == nil {
+		return
+	}
+	v := *c.StringValue == "true" || *c.StringValue == "1"
+	c.BoolValue = &v
 }

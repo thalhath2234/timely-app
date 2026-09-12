@@ -193,6 +193,9 @@ func (s *sheetService) Update(userID string, sheetID string, update SheetUpdate)
 		if err := validateGrid(columns, rows); err != nil {
 			return nil, err
 		}
+		if update.Rows != nil {
+			models.NormalizeSheetCells(columns, rows)
+		}
 
 		if update.Columns != nil {
 			updates["columns"] = columns
@@ -320,11 +323,15 @@ func (s *sheetService) UpdateCells(userID, sheetID, rowID string, cells map[stri
 		if rows[i].Cells == nil {
 			rows[i].Cells = map[string]string{}
 		}
+		types := map[string]string{}
+		for _, column := range current.Columns {
+			types[column.ID] = column.Type
+		}
 		for colID, value := range cells {
 			if !cols[colID] {
 				return nil, errors.New("unknown column id: " + colID)
 			}
-			rows[i].Cells[colID] = value
+			rows[i].Cells[colID] = models.NormalizeTypedCell(types[colID], value)
 		}
 	}
 	if !found {
@@ -360,14 +367,15 @@ func (s *sheetService) AddColumn(userID, sheetID, name, colType string) (*models
 	if name == "" {
 		name = "Column"
 	}
-	if colType == "" {
-		colType = "text"
+	normalizedType, err := models.NormalizeSheetColumnType(colType)
+	if err != nil {
+		return nil, err
 	}
 	column := models.SheetColumn{
 		ID:    utils.PrefixedUUID("col"),
 		Name:  name,
 		Width: 160,
-		Type:  colType,
+		Type:  normalizedType,
 	}
 	columns := append(models.SheetColumns{}, current.Columns...)
 	columns = append(columns, column)
@@ -397,7 +405,11 @@ func (s *sheetService) UpdateColumn(userID, sheetID, columnID, name, colType str
 			columns[i].Name = name
 		}
 		if colType != "" {
-			columns[i].Type = colType
+			normalizedType, err := models.NormalizeSheetColumnType(colType)
+			if err != nil {
+				return nil, err
+			}
+			columns[i].Type = normalizedType
 		}
 		if width != nil && *width > 0 {
 			columns[i].Width = *width

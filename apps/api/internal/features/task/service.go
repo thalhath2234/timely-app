@@ -33,11 +33,21 @@ type TaskUpdate struct {
 	StartDate       *string
 	ScheduledOn     *string
 	CompletedAt     *string
+	WorkspaceID     *string
 	ProjectID       *string
 	StatusID        *string
 	PriorityLevel   *string
 	StageID         *string
 	BlockedByID     *string
+	Kind            *string
+	ParentTaskID    *string
+	TodayFocusOn    *string
+	MinChunkMinutes       *int
+	PreferredChunkMinutes *int
+	Contiguous            *bool
+	EarliestStartAt       *string
+	PreferredWindows      *models.PreferredWindows
+	ScheduleLocked        *bool
 	// LabelIDs nil = leave unchanged; non-nil (including empty) replaces the set.
 	LabelIDs *models.LabelInputs
 	// CustomFieldValues nil = leave unchanged; non-nil replaces the value of
@@ -80,6 +90,15 @@ type TaskService interface {
 	Delete(userID, taskID string) error
 	BulkUpdate(userID string, ids []string, update TaskUpdate) ([]models.Task, error)
 	GetForUser(userID, taskID string) (*models.Task, error)
+	Duplicate(userID, taskID string) (*models.Task, error)
+	CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string) error
+	AddChecklistItem(userID, taskID, title string) (*models.Task, error)
+	UpdateChecklistItem(userID, taskID, itemID string, title *string, completed *bool) (*models.Task, error)
+	DeleteChecklistItem(userID, taskID, itemID string) (*models.Task, error)
+	ReplaceChecklist(userID, taskID string, items models.Checklist) (*models.Task, error)
+	StartFocus(userID, taskID string) (*models.Task, error)
+	StopFocus(userID, taskID string) (*models.Task, error)
+	SetTodayFocus(userID, taskID string, date *string) (*models.Task, error)
 	WithActor(name string) TaskService
 }
 
@@ -101,11 +120,24 @@ type TaskFilter struct {
 	Sort          string
 	Limit         int
 	Offset        int
+	// Reminders is nil (default): hide duration-0 pings from the task list.
+	// true: only reminders. false: same as default.
+	Reminders *bool
+	// Kind filters by task | reminder | inbox. Inbox is also accepted via Inbox=true.
+	Kind string
+	Inbox *bool
+	ParentID string
+	IncludeSubtasks bool
+}
+
+type workspaceOwner interface {
+	GetWorkspaceById(userID string, workspaceID string) (*models.Workspace, error)
 }
 
 type taskService struct {
 	taskRepo    TaskRepository
 	projectRepo project.ProjectRepository
+	workspaces  workspaceOwner
 	recurrence  *recurrence.Store
 	blocks      *blocks.Store
 	indexer     embed.Indexer
@@ -115,6 +147,7 @@ type taskService struct {
 func NewTaskService(
 	taskRepo TaskRepository,
 	projectRepo project.ProjectRepository,
+	workspaces workspaceOwner,
 	recurrenceStore *recurrence.Store,
 	blockStore *blocks.Store,
 	indexer embed.Indexer,
@@ -122,6 +155,7 @@ func NewTaskService(
 	return &taskService{
 		taskRepo:    taskRepo,
 		projectRepo: projectRepo,
+		workspaces:  workspaces,
 		recurrence:  recurrenceStore,
 		blocks:      blockStore,
 		indexer:     indexer,
@@ -136,6 +170,36 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 		if _, err := recurrence.Parse(rec.RRule); err != nil {
 			return nil, err
 		}
+	}
+
+	userID := deref(task.UserID)
+	if err := s.prepareParent(userID, task); err != nil {
+		return nil, err
+	}
+	hasRecurrence := rec != nil && rec.RRule != ""
+	task.Kind = models.ResolveCreateKind(task.Kind, task.Duration, task.ScheduledOn, hasRecurrence, task.ParentTaskID)
+	if task.Kind == models.KindTask && task.Duration <= 0 {
+		return nil, errors.New("work tasks need a duration greater than 0")
+	}
+	if task.Kind == models.KindTask && (task.WorkspaceID == nil || *task.WorkspaceID == "") {
+		return nil, errors.New("workspaceId is required")
+	}
+	if task.Kind == models.KindInbox {
+		task.Duration = 0
+		task.ScheduledOn = nil
+		rec = nil
+	}
+	if task.Kind == models.KindReminder {
+		task.Duration = 0
+	}
+	if task.Checklist == nil {
+		task.Checklist = models.Checklist{}
+	}
+	if err := s.assertTaskScope(userID, task.WorkspaceID, task.ProjectID, task.BlockedByID); err != nil {
+		return nil, err
+	}
+	if err := normalizeTaskPriority(task.PriorityLevel); err != nil {
+		return nil, err
 	}
 
 	// The first block is written after the row exists; keep the column empty
@@ -179,7 +243,7 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 		return nil, err
 	}
 
-	userID := deref(task.UserID)
+	userID = deref(task.UserID)
 	switch {
 	case rec != nil && rec.RRule != "":
 		if err := s.applyRecurrence(userID, task, rec); err != nil {
@@ -231,14 +295,20 @@ func (s *taskService) applyRecurrence(userID string, task *models.Task, rec *mod
 }
 
 // placeSingleBlock is the compatibility path for clients that still send
-// scheduledOn: the task gets exactly one manual block of `duration` minutes.
+// scheduledOn. Work tasks get one manual block of `duration` minutes.
+// Reminders (duration 0) only store the ping time — they do not reserve a block.
 func (s *taskService) placeSingleBlock(userID string, task *models.Task, scheduledOn string, duration int) error {
 	start, err := recurrence.ParseTime(scheduledOn)
 	if err != nil {
 		return errors.New("invalid scheduledOn")
 	}
 	if duration <= 0 {
-		duration = 30
+		if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
+			return err
+		}
+		return s.taskRepo.DB().Model(&models.Task{}).
+			Where("id = ?", task.ID).
+			Update("scheduled_on", start).Error
 	}
 	return s.blocks.ReplaceForTask(task.ID, userID, "", []models.ScheduledBlock{{
 		StartAt: start,
@@ -304,11 +374,37 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		}
 		updates["description_rich"] = rich
 	}
-	if update.Duration != nil {
-		if *update.Duration < 0 {
-			return nil, errors.New("duration cannot be negative")
+	if update.MinChunkMinutes != nil {
+		if *update.MinChunkMinutes < 15 {
+			return nil, errors.New("minChunkMinutes must be at least 15")
 		}
-		updates["duration"] = *update.Duration
+		updates["min_chunk_minutes"] = *update.MinChunkMinutes
+	}
+	if update.PreferredChunkMinutes != nil {
+		if *update.PreferredChunkMinutes < 0 {
+			return nil, errors.New("preferredChunkMinutes cannot be negative")
+		}
+		if *update.PreferredChunkMinutes == 0 {
+			updates["preferred_chunk_minutes"] = nil
+		} else {
+			updates["preferred_chunk_minutes"] = *update.PreferredChunkMinutes
+		}
+	}
+	if update.Contiguous != nil {
+		updates["contiguous"] = *update.Contiguous
+	}
+	if update.ScheduleLocked != nil {
+		updates["schedule_locked"] = *update.ScheduleLocked
+	}
+	if update.PreferredWindows != nil {
+		updates["preferred_windows"] = *update.PreferredWindows
+	}
+	if update.EarliestStartAt != nil {
+		if strings.TrimSpace(*update.EarliestStartAt) == "" {
+			updates["earliest_start_at"] = nil
+		} else {
+			updates["earliest_start_at"] = *update.EarliestStartAt
+		}
 	}
 
 	nullableColumns := map[string]*string{
@@ -316,10 +412,18 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		"start_date":     update.StartDate,
 		"scheduled_on":   update.ScheduledOn,
 		"completed_at":   update.CompletedAt,
+		"workspace_id":   update.WorkspaceID,
 		"project_id":     update.ProjectID,
 		"status_id":      update.StatusID,
 		"priority_level": update.PriorityLevel,
-		"stage_id":       update.StageID,
+		"stage_id":        update.StageID,
+		"today_focus_on":  update.TodayFocusOn,
+	}
+	if err := normalizeTaskPriority(update.PriorityLevel); err != nil {
+		return nil, err
+	}
+	if err := s.assertTaskScope(userID, update.WorkspaceID, update.ProjectID, nil); err != nil {
+		return nil, err
 	}
 	for column, value := range nullableColumns {
 		if value == nil {
@@ -352,7 +456,7 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		}
 	}
 
-	if len(updates) == 0 && update.LabelIDs == nil && update.CustomFieldValues == nil && !update.RecurrenceSet {
+	if len(updates) == 0 && update.LabelIDs == nil && update.CustomFieldValues == nil && !update.RecurrenceSet && update.Kind == nil && update.ParentTaskID == nil {
 		return s.taskRepo.GetTaskByIdForUser(userID, taskID)
 	}
 
@@ -364,11 +468,23 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 	if err := s.syncCompletionWithStatus(before, updates); err != nil {
 		return nil, err
 	}
+	if err := s.applyKindUpdate(userID, before, update, updates); err != nil {
+		return nil, err
+	}
+	if err := s.applyParentUpdate(userID, before, update, updates); err != nil {
+		return nil, err
+	}
+
+	workspaceID := before.WorkspaceID
+	if update.WorkspaceID != nil && *update.WorkspaceID != "" {
+		id := *update.WorkspaceID
+		workspaceID = &id
+	}
 
 	if update.LabelIDs != nil {
 		labelInputs := models.LabelInputs{}
 		if len(*update.LabelIDs) > 0 {
-			if before.WorkspaceID == nil {
+			if workspaceID == nil {
 				return nil, errors.New("task has no workspace for labels")
 			}
 
@@ -385,7 +501,7 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 			}
 
 			if len(labelIDs) > 0 {
-				labels, err := s.taskRepo.GetLabelsByIds(*before.WorkspaceID, labelIDs)
+				labels, err := s.taskRepo.GetLabelsByIds(*workspaceID, labelIDs)
 				if err != nil {
 					return nil, err
 				}
@@ -405,7 +521,9 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 	}
 
 	if update.CustomFieldValues != nil {
-		values, err := s.prepareCustomFieldValues(before, *update.CustomFieldValues)
+		scoped := *before
+		scoped.WorkspaceID = workspaceID
+		values, err := s.prepareCustomFieldValues(&scoped, *update.CustomFieldValues)
 		if err != nil {
 			return nil, err
 		}
@@ -493,9 +611,34 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 
 	switch {
 	case update.ScheduledOn != nil && *update.ScheduledOn == "":
-		return s.blocks.DeleteForTask(task.ID, "")
+		if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
+			return err
+		}
+		if task.IsReminder() {
+			return s.taskRepo.DB().Model(&models.Task{}).
+				Where("id = ?", task.ID).
+				Update("scheduled_on", nil).Error
+		}
+		return nil
 	case update.ScheduledOn != nil:
 		return s.placeSingleBlock(userID, task, *update.ScheduledOn, task.Duration)
+	case update.Duration != nil && task.IsReminder():
+		var keep *time.Time
+		if len(task.Blocks) > 0 {
+			start := task.Blocks[0].StartAt
+			keep = &start
+		}
+		if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
+			return err
+		}
+		if keep != nil {
+			return s.taskRepo.DB().Model(&models.Task{}).
+				Where("id = ?", task.ID).
+				Update("scheduled_on", *keep).Error
+		}
+		return nil
+	case update.Duration != nil && task.Duration > 0 && len(task.Blocks) == 0 && task.ScheduledOn != nil && *task.ScheduledOn != "":
+		return s.placeSingleBlock(userID, task, *task.ScheduledOn, task.Duration)
 	case update.Duration != nil && len(task.Blocks) == 1 && task.Duration > 0:
 		block := task.Blocks[0]
 		return s.blocks.ReplaceForTask(task.ID, userID, "", []models.ScheduledBlock{{
@@ -550,11 +693,11 @@ func (s *taskService) EditOccurrence(userID, taskID string, action OccurrenceAct
 			return nil, errors.New("invalid newStart")
 		}
 		duration := task.Duration
-		if duration <= 0 {
-			duration = 30
+		newEnd := newStart
+		if duration > 0 {
+			newEnd = newStart.Add(time.Duration(duration) * time.Minute)
 		}
-		newEnd := newStart.Add(time.Duration(duration) * time.Minute)
-		if action.NewEnd != nil {
+		if action.NewEnd != nil && duration > 0 {
 			parsed, err := recurrence.ParseTime(*action.NewEnd)
 			if err != nil {
 				return nil, errors.New("invalid newEnd")
@@ -894,7 +1037,17 @@ func (s *taskService) GetForUser(userID, taskID string) (*models.Task, error) {
 	if userID == "" || taskID == "" {
 		return nil, errors.New("invalid request")
 	}
-	return s.taskRepo.GetTaskByIdForUser(userID, taskID)
+	task, err := s.taskRepo.GetTaskByIdForUser(userID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	all, err := s.taskRepo.GetAllTaskByUser(userID)
+	if err == nil {
+		annotateProgressOne(task, all)
+	} else {
+		annotateProgressOne(task, nil)
+	}
+	return task, nil
 }
 
 func (s *taskService) List(userID string, filter TaskFilter) ([]models.Task, error) {
@@ -905,6 +1058,7 @@ func (s *taskService) List(userID string, filter TaskFilter) ([]models.Task, err
 	if err != nil {
 		return nil, err
 	}
+	annotateProgress(tasks)
 	return applyTaskFilter(tasks, filter), nil
 }
 
@@ -951,7 +1105,6 @@ func (s *taskService) BulkUpdate(userID string, ids []string, update TaskUpdate)
 }
 
 func applyTaskFilter(tasks []models.Task, filter TaskFilter) []models.Task {
-	today := utils.GetCurrentTime()
 	wantedWorkspaces := setOf(filter.WorkspaceIDs)
 	wantedProjects := setOf(filter.ProjectIDs)
 	wantedStatuses := setOf(filter.StatusIDs)
@@ -961,6 +1114,16 @@ func applyTaskFilter(tasks []models.Task, filter TaskFilter) []models.Task {
 	var filtered []models.Task
 	for i := range tasks {
 		t := tasks[i]
+		if !matchTaskKind(t, filter) {
+			continue
+		}
+		if filter.ParentID != "" {
+			if deref(t.ParentTaskID) != filter.ParentID {
+				continue
+			}
+		} else if !filter.IncludeSubtasks && t.IsSubtask() {
+			continue
+		}
 		if len(wantedWorkspaces) > 0 && (t.WorkspaceID == nil || !wantedWorkspaces[*t.WorkspaceID]) {
 			continue
 		}
@@ -985,7 +1148,7 @@ func applyTaskFilter(tasks []models.Task, filter TaskFilter) []models.Task {
 			}
 		}
 		if filter.Overdue != nil && *filter.Overdue {
-			if t.IsCompleted() || t.Deadline == nil || *t.Deadline == "" || *t.Deadline >= today {
+			if !IsOverdue(t, time.Now()) {
 				continue
 			}
 		}
@@ -1072,16 +1235,46 @@ func deadlineSortKey(t models.Task) string {
 }
 
 func priorityRank(value string) int {
-	switch strings.ToLower(value) {
-	case "urgent":
-		return 0
-	case "high":
-		return 1
-	case "medium":
-		return 2
-	case "low":
-		return 3
-	default:
-		return 4
+	return models.PriorityRank(value)
+}
+
+func normalizeTaskPriority(value *string) error {
+	if value == nil || *value == "" {
+		return nil
 	}
+	normalized := models.NormalizePriority(*value)
+	if !models.ValidatePriority(normalized) || normalized == "" {
+		return errors.New("invalid priority")
+	}
+	*value = normalized
+	return nil
+}
+
+func (s *taskService) assertTaskScope(userID string, workspaceID, projectID, blockedByID *string) error {
+	if userID == "" {
+		return errors.New("user not authenticated")
+	}
+	if workspaceID != nil && *workspaceID != "" {
+		if s.workspaces == nil {
+			return errors.New("workspace lookup unavailable")
+		}
+		if _, err := s.workspaces.GetWorkspaceById(userID, *workspaceID); err != nil {
+			return gorm.ErrRecordNotFound
+		}
+	}
+	if projectID != nil && *projectID != "" {
+		project, err := s.projectRepo.GetProjectByIdForUser(userID, *projectID)
+		if err != nil {
+			return gorm.ErrRecordNotFound
+		}
+		if workspaceID != nil && *workspaceID != "" && project.WorkspaceID != nil && *project.WorkspaceID != *workspaceID {
+			return errors.New("project does not belong to workspace")
+		}
+	}
+	if blockedByID != nil && *blockedByID != "" {
+		if _, err := s.taskRepo.GetTaskByIdForUser(userID, *blockedByID); err != nil {
+			return errors.New("blocking task not found")
+		}
+	}
+	return nil
 }

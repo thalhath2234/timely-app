@@ -3,6 +3,7 @@ package schedule
 import (
 	"errors"
 	"net/http"
+	"time"
 	"timely-api/internal/models"
 
 	"github.com/labstack/echo/v5"
@@ -92,6 +93,111 @@ func (h *Handler) Apply(c *echo.Context) error {
 		return scheduleError(err)
 	}
 	return c.JSON(http.StatusOK, plan)
+}
+
+func (h *Handler) Undo(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	plan, err := h.service.Undo(uid)
+	if err != nil {
+		return scheduleError(err)
+	}
+	return c.JSON(http.StatusOK, plan)
+}
+
+func (h *Handler) GetSettings(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	settings, err := h.service.GetSettings(uid)
+	if err != nil {
+		return scheduleError(err)
+	}
+	return c.JSON(http.StatusOK, settings)
+}
+
+func (h *Handler) UpdateSettings(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	var settings models.ScheduleSettings
+	if err := c.Bind(&settings); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
+	}
+	updated, err := h.service.UpdateSettings(uid, settings)
+	if err != nil {
+		return scheduleError(err)
+	}
+	return c.JSON(http.StatusOK, updated)
+}
+
+func (h *Handler) Capacity(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	from := now
+	to := now.AddDate(0, 0, 7)
+	if raw := c.QueryParam("from"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "from must be RFC3339")
+		}
+		from = parsed
+	}
+	if raw := c.QueryParam("to"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "to must be RFC3339")
+		}
+		to = parsed
+	}
+	days, err := h.service.Capacity(uid, from, to, c.QueryParam("timezone"))
+	if err != nil {
+		return scheduleError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"days": days})
+}
+
+type lockRequest struct {
+	Locked *bool `json:"locked"`
+}
+
+func (h *Handler) PinTask(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	var req lockRequest
+	if err := c.Bind(&req); err != nil || req.Locked == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "locked is required")
+	}
+	task, err := h.service.PinTask(uid, c.Param("id"), *req.Locked)
+	if err != nil {
+		return scheduleError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"task": task})
+}
+
+func (h *Handler) PinBlock(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	var req lockRequest
+	if err := c.Bind(&req); err != nil || req.Locked == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "locked is required")
+	}
+	block, err := h.service.PinBlock(uid, c.Param("id"), *req.Locked)
+	if err != nil {
+		return scheduleError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"block": block})
 }
 
 func (h *Handler) readPlan(c *echo.Context) (string, PlanRequest, error) {

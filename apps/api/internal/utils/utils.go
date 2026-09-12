@@ -98,6 +98,10 @@ func NewBlockID() string {
 	return PrefixedUUID("blk")
 }
 
+func NewChecklistItemID() string {
+	return PrefixedUUID("chk")
+}
+
 // NewApiKeyID generates an API key row ID with key_ prefix
 func NewApiKeyID() string {
 	return PrefixedUUID("key")
@@ -106,6 +110,26 @@ func NewApiKeyID() string {
 // NewEmbeddingID generates an embedding row ID with emb_ prefix
 func NewEmbeddingID() string {
 	return PrefixedUUID("emb")
+}
+
+func NewSessionID() string {
+	return PrefixedUUID("ses")
+}
+
+func NewScheduleRevisionID() string {
+	return PrefixedUUID("srv")
+}
+
+func NewJobID() string {
+	return PrefixedUUID("job")
+}
+
+func NewNotificationID() string {
+	return PrefixedUUID("ntf")
+}
+
+func NewPushDeviceID() string {
+	return PrefixedUUID("dev")
 }
 
 // DefaultTaskViews returns the four built-in task views every new user starts with.

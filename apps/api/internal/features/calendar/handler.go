@@ -21,6 +21,7 @@ type Response struct {
 
 type Service interface {
 	Range(userID string, from, to time.Time) (*Response, error)
+	Today(userID, date, timezone string) (*TodayResponse, error)
 }
 
 type service struct {

@@ -30,8 +30,14 @@ var (
 )
 
 // Indexer stores and queries OpenRouter embeddings in pgvector.
+type IndexQueue interface {
+	EnqueueIndex(userID, kind, entityID, title, body string) error
+}
+
 type Indexer interface {
 	Enabled() bool
+	SetQueue(IndexQueue)
+	IndexDocument(ctx context.Context, doc Document) error
 	IndexTask(*models.Task)
 	IndexProject(*models.Project)
 	IndexDoc(*models.Document)
@@ -64,6 +70,7 @@ type indexer struct {
 	http   *http.Client
 	apiKey string
 	model  string
+	queue  IndexQueue
 }
 
 func New(db *gorm.DB) Indexer {
@@ -82,6 +89,17 @@ func New(db *gorm.DB) Indexer {
 
 func (i *indexer) Enabled() bool {
 	return i != nil && i.apiKey != ""
+}
+
+func (i *indexer) SetQueue(queue IndexQueue) {
+	i.queue = queue
+}
+
+func (i *indexer) IndexDocument(ctx context.Context, doc Document) error {
+	if !i.Enabled() {
+		return nil
+	}
+	return i.upsert(ctx, doc)
 }
 
 func (i *indexer) IndexTask(task *models.Task) {
@@ -157,12 +175,24 @@ func (i *indexer) upsertAsync(doc Document) {
 	if !i.Enabled() {
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := i.upsert(ctx, doc); err != nil {
-			log.Printf("embed upsert %s/%s: %v", doc.Kind, doc.EntityID, err)
+	if i.queue != nil {
+		if err := i.queue.EnqueueIndex(doc.UserID, doc.Kind, doc.EntityID, doc.Title, doc.Body); err != nil {
+			log.Printf("embed enqueue %s/%s: %v", doc.Kind, doc.EntityID, err)
 		}
+		return
+	}
+	go func() {
+		var lastErr error
+		for attempt := 0; attempt < 4; attempt++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			lastErr = i.upsert(ctx, doc)
+			cancel()
+			if lastErr == nil {
+				return
+			}
+			time.Sleep(time.Duration(1<<attempt) * time.Second)
+		}
+		log.Printf("embed upsert %s/%s failed after retries: %v", doc.Kind, doc.EntityID, lastErr)
 	}()
 }
 

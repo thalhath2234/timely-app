@@ -31,6 +31,15 @@ Before running the application, ensure you have the following installed on your 
    - Windows: Install via Chocolatey (`choco install make`) or Git Bash.
    - macOS/Linux: Pre-installed or via package manager.
 
+## Account recovery
+
+Timely does not send email. To reset a forgotten password on a self-hosted
+install, run:
+
+```bash
+go run ./scripts/reset_password.go -email user@example.com -password 'new-password'
+```
+
 4. **Air** (Optional, for hot reloading)
    - Install CLI:
      ```bash

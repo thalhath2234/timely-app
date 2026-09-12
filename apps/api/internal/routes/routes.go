@@ -8,6 +8,7 @@ import (
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/notify"
 	"timely-api/internal/features/project"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
@@ -32,7 +33,9 @@ type Handlers struct {
 	Schedule  *schedule.Handler
 	ApiKey    *apikey.Handler
 	Search    *search.Handler
+	Notify    *notify.Handler
 	MCP       http.Handler
+	Sessions  middleware.SessionGuard
 }
 
 func SetupRoutes(e *echo.Echo, h Handlers) {
@@ -45,7 +48,7 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 
 	// Protected routes group
 	protected := e.Group("")
-	protected.Use(middleware.JWTMiddleware())
+	protected.Use(middleware.JWTMiddleware(h.Sessions))
 
 	setupAuthRoutes(protected, h.Auth)
 	setupTaskRoutes(protected, h.Task)
@@ -58,6 +61,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	setupScheduleRoutes(protected, h.Schedule)
 	setupApiKeyRoutes(protected, h.ApiKey)
 	setupSearchRoutes(protected, h.Search)
+	if h.Notify != nil {
+		setupNotifyRoutes(protected, h.Notify)
+	}
 }
 
 // setupPublicRoutes defines all public endpoints
@@ -71,12 +77,15 @@ func setupPublicRoutes(e *echo.Echo, authHandler *auth.Handler) {
 	e.POST("/register", authHandler.Register)
 	e.POST("/login", authHandler.Login)
 	e.POST("/logout", authHandler.Logout)
+	e.POST("/auth/refresh", authHandler.Refresh)
 }
 
 // setupAuthRoutes defines all protected auth endpoints
 func setupAuthRoutes(g *echo.Group, authHandler *auth.Handler) {
 	g.GET("/me", authHandler.Me)
 	g.PUT("/me", authHandler.UpdateMe)
+	g.GET("/sessions", authHandler.ListSessions)
+	g.DELETE("/sessions/:id", authHandler.RevokeSession)
 }
 
 // setupTaskRoutes defines all protected task endpoints
@@ -93,6 +102,15 @@ func setupTaskRoutes(g *echo.Group, taskHandler *task.Handler) {
 	// Recurring tasks: edit one occurrence, or split the series from a date
 	g.PUT("/tasks/:id/occurrences", taskHandler.EditOccurrence)
 	g.POST("/tasks/:id/recurrence/split", taskHandler.Split)
+
+	g.POST("/tasks/:id/duplicate", taskHandler.Duplicate)
+	g.POST("/tasks/:id/checklist", taskHandler.AddChecklistItem)
+	g.PUT("/tasks/:id/checklist", taskHandler.ReplaceChecklist)
+	g.PATCH("/tasks/:id/checklist/:itemId", taskHandler.UpdateChecklistItem)
+	g.DELETE("/tasks/:id/checklist/:itemId", taskHandler.DeleteChecklistItem)
+	g.POST("/tasks/:id/focus/start", taskHandler.StartFocus)
+	g.POST("/tasks/:id/focus/stop", taskHandler.StopFocus)
+	g.PUT("/tasks/:id/today-focus", taskHandler.SetTodayFocus)
 }
 
 // setupEventRoutes defines all protected calendar event endpoints
@@ -109,6 +127,7 @@ func setupEventRoutes(g *echo.Group, eventHandler *event.Handler) {
 // setupCalendarRoutes serves the unified range payload the calendar renders
 func setupCalendarRoutes(g *echo.Group, calendarHandler *calendar.Handler) {
 	g.GET("/calendar", calendarHandler.Range)
+	g.GET("/today", calendarHandler.Today)
 }
 
 // setupScheduleRoutes covers availability, manual blocks and the engine
@@ -119,6 +138,12 @@ func setupScheduleRoutes(g *echo.Group, scheduleHandler *schedule.Handler) {
 	g.POST("/schedule/preview", scheduleHandler.Preview)
 	g.POST("/schedule/apply", scheduleHandler.Apply)
 	g.POST("/schedule/reschedule", scheduleHandler.Apply)
+	g.POST("/schedule/undo", scheduleHandler.Undo)
+	g.GET("/schedule/settings", scheduleHandler.GetSettings)
+	g.PUT("/schedule/settings", scheduleHandler.UpdateSettings)
+	g.GET("/schedule/capacity", scheduleHandler.Capacity)
+	g.PUT("/tasks/:id/schedule-lock", scheduleHandler.PinTask)
+	g.PUT("/blocks/:id/lock", scheduleHandler.PinBlock)
 
 	g.POST("/tasks/:id/blocks", scheduleHandler.AddBlock)
 	g.DELETE("/tasks/:id/blocks", scheduleHandler.ClearBlocks)
@@ -137,6 +162,7 @@ func setupProjectRoutes(g *echo.Group, projectHandler *project.Handler) {
 	g.PUT("/projects/:id/stages/:stageId", projectHandler.UpdateStage)
 	g.DELETE("/projects/:id/stages/:stageId", projectHandler.DeleteStage)
 	g.PUT("/projects/:id/stages/reorder", projectHandler.ReorderStages)
+	g.POST("/projects/:id/duplicate", projectHandler.Duplicate)
 }
 
 // setupWorkspaceRoutes defines all protected workspace endpoints
@@ -202,4 +228,20 @@ func setupSearchRoutes(g *echo.Group, searchHandler *search.Handler) {
 	}
 	g.GET("/search", searchHandler.Search)
 	g.POST("/search/reindex", searchHandler.Reindex)
+}
+
+func setupNotifyRoutes(g *echo.Group, h *notify.Handler) {
+	g.GET("/notifications", h.List)
+	g.GET("/notifications/unread-count", h.UnreadCount)
+	g.GET("/notifications/settings", h.GetSettings)
+	g.PUT("/notifications/settings", h.UpdateSettings)
+	g.POST("/notifications/read-all", h.MarkAllRead)
+	g.POST("/notifications/:id/read", h.MarkRead)
+	g.POST("/notifications/:id/snooze", h.Snooze)
+	g.POST("/notifications/:id/reschedule", h.Reschedule)
+	g.PUT("/devices/push", h.RegisterDevice)
+	g.DELETE("/devices/push", h.UnregisterDevice)
+	g.GET("/jobs", h.ListJobs)
+	g.GET("/jobs/health", h.JobHealth)
+	g.POST("/jobs/:id/retry", h.RetryJob)
 }

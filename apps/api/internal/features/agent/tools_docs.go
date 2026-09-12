@@ -28,9 +28,13 @@ func (s *Server) listDocs(ctx context.Context, req *mcp.CallToolRequest, in list
 	filter := doc.DocumentFilter{
 		WorkspaceID: in.WorkspaceID,
 		ProjectID:   in.ProjectID,
-		Archived:    in.Archived,
 		Favorite:    in.Favorite,
 		Text:        in.Text,
+	}
+	if in.Archived != nil {
+		filter.Archived = in.Archived
+	} else {
+		filter.Archived = boolPtr(false)
 	}
 	if in.ParentID == "root" {
 		empty := ""
@@ -160,15 +164,76 @@ func (s *Server) appendToDoc(ctx context.Context, req *mcp.CallToolRequest, in a
 	return reply("appended to "+d.Title, docPayload(d))
 }
 
-func (s *Server) deleteDoc(ctx context.Context, req *mcp.CallToolRequest, in docIDIn) (*mcp.CallToolResult, any, error) {
+type archiveDocIn struct {
+	DocID    string `json:"docId"`
+	Archived *bool  `json:"archived,omitempty" jsonschema:"default true; false unarchives"`
+}
+
+func (s *Server) archiveDoc(ctx context.Context, req *mcp.CallToolRequest, in archiveDocIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
+		return fail(err)
+	}
+	archived := true
+	if in.Archived != nil {
+		archived = *in.Archived
+	}
+	d, err := s.Docs.Update(uid, in.DocID, doc.DocumentUpdate{Archived: &archived})
+	if err != nil {
+		return fail(err)
+	}
+	verb := "archived"
+	if !archived {
+		verb = "unarchived"
+	}
+	return reply(verb+" "+d.Title, docPayload(d))
+}
+
+type deleteDocIn struct {
+	DocID   string `json:"docId"`
+	Confirm bool   `json:"confirm"`
+}
+
+func (s *Server) deleteDoc(ctx context.Context, req *mcp.CallToolRequest, in deleteDocIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	docs, err := s.Docs.List(uid, doc.DocumentFilter{})
+	if err != nil {
+		return fail(err)
+	}
+	descendants := countDocDescendants(docs, in.DocID)
+	action := "delete this document"
+	if descendants > 0 {
+		action = fmt.Sprintf("delete this document (%d subpages are not deleted automatically)", descendants)
+	}
+	if err := confirmOrFail(in.Confirm, action); err != nil {
 		return fail(err)
 	}
 	if err := s.Docs.Delete(uid, in.DocID); err != nil {
 		return fail(err)
 	}
-	return reply("document deleted", map[string]string{"id": in.DocID})
+	return reply("document deleted", map[string]any{"id": in.DocID, "descendantCount": descendants})
+}
+
+func countDocDescendants(docs []models.Document, rootID string) int {
+	children := map[string][]string{}
+	for _, d := range docs {
+		if d.ParentID != nil && *d.ParentID != "" {
+			children[*d.ParentID] = append(children[*d.ParentID], d.ID)
+		}
+	}
+	count := 0
+	var walk func(id string)
+	walk = func(id string) {
+		for _, child := range children[id] {
+			count++
+			walk(child)
+		}
+	}
+	walk(rootID)
+	return count
 }
 
 type listSheetsIn struct {
@@ -184,13 +249,18 @@ func (s *Server) listSheets(ctx context.Context, req *mcp.CallToolRequest, in li
 	if err != nil {
 		return fail(err)
 	}
-	sheets, err := s.Sheets.List(uid, sheet.SheetFilter{
+	filter := sheet.SheetFilter{
 		WorkspaceID: in.WorkspaceID,
 		ProjectID:   in.ProjectID,
-		Archived:    in.Archived,
 		Favorite:    in.Favorite,
 		Text:        in.Text,
-	})
+	}
+	if in.Archived != nil {
+		filter.Archived = in.Archived
+	} else {
+		filter.Archived = boolPtr(false)
+	}
+	sheets, err := s.Sheets.List(uid, filter)
 	if err != nil {
 		return fail(err)
 	}
@@ -279,10 +349,35 @@ func (s *Server) updateSheet(ctx context.Context, req *mcp.CallToolRequest, in u
 	return reply("updated "+sh.Title, sheetPayload(sh))
 }
 
+type archiveSheetIn struct {
+	SheetID  string `json:"sheetId"`
+	Archived *bool  `json:"archived,omitempty" jsonschema:"default true; false unarchives"`
+}
+
+func (s *Server) archiveSheet(ctx context.Context, req *mcp.CallToolRequest, in archiveSheetIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	archived := true
+	if in.Archived != nil {
+		archived = *in.Archived
+	}
+	sh, err := s.Sheets.Update(uid, in.SheetID, sheet.SheetUpdate{Archived: &archived})
+	if err != nil {
+		return fail(err)
+	}
+	verb := "archived"
+	if !archived {
+		verb = "unarchived"
+	}
+	return reply(verb+" "+sh.Title, sheetPayload(sh))
+}
+
 type addColIn struct {
 	SheetID string `json:"sheetId"`
 	Name    string `json:"name"`
-	Type    string `json:"type,omitempty"`
+	Type    string `json:"type,omitempty" jsonschema:"text, number, date, or boolean"`
 }
 
 func (s *Server) addSheetColumn(ctx context.Context, req *mcp.CallToolRequest, in addColIn) (*mcp.CallToolResult, any, error) {
@@ -301,7 +396,7 @@ type updateColIn struct {
 	SheetID  string `json:"sheetId"`
 	ColumnID string `json:"columnId"`
 	Name     string `json:"name,omitempty"`
-	Type     string `json:"type,omitempty"`
+	Type     string `json:"type,omitempty" jsonschema:"text, number, date, or boolean"`
 	Width    *int   `json:"width,omitempty"`
 }
 

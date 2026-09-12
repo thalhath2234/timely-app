@@ -52,7 +52,7 @@ func (r *userRepository) CreateUser(user *models.User) error {
 
 func (r *userRepository) GetUserByEmail(email string) (*models.User, error) {
 	var user models.User
-	err := r.db.Where("email = ?", email).First(&user).Error
+	err := r.db.Where("LOWER(email) = ?", NormalizeEmail(email)).First(&user).Error
 	if err != nil {
 		return nil, err
 	}

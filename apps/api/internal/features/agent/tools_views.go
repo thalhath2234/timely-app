@@ -34,33 +34,46 @@ func (s *Server) listTaskViews(ctx context.Context, req *mcp.CallToolRequest, _ 
 }
 
 type createViewIn struct {
-	Name                 string              `json:"name"`
-	DataMode             string              `json:"dataMode,omitempty"`
-	RenderMode           string              `json:"renderMode,omitempty"`
-	GroupFields          []string            `json:"groupFields,omitempty"`
-	GroupSortDirection   string              `json:"groupSortDirection,omitempty"`
-	GroupValueOrders     map[string][]string `json:"groupValueOrders,omitempty"`
-	SortBy               string              `json:"sortBy,omitempty"`
-	SortDirection        string              `json:"sortDirection,omitempty"`
-	SelectedWorkspaceIds []string            `json:"selectedWorkspaceIds,omitempty"`
-	SelectedStatusIds    []string            `json:"selectedStatusIds,omitempty"`
-	ColumnOrder          []string            `json:"columnOrder,omitempty"`
+	Name                   string              `json:"name"`
+	DataMode               string              `json:"dataMode,omitempty"`
+	RenderMode             string              `json:"renderMode,omitempty"`
+	GroupFields            []string            `json:"groupFields,omitempty"`
+	GroupSortDirection     string              `json:"groupSortDirection,omitempty"`
+	GroupValueOrders       map[string][]string `json:"groupValueOrders,omitempty"`
+	SortBy                 string              `json:"sortBy,omitempty"`
+	SortDirection          string              `json:"sortDirection,omitempty"`
+	SelectedWorkspaceIds   []string            `json:"selectedWorkspaceIds,omitempty"`
+	SelectedStatusIds      []string            `json:"selectedStatusIds,omitempty"`
+	SelectedProjectIds     []string            `json:"selectedProjectIds,omitempty"`
+	SelectedPriorityLevels []string            `json:"selectedPriorityLevels,omitempty"`
+	SelectedLabelIds       []string            `json:"selectedLabelIds,omitempty"`
+	SelectedStageIds       []string            `json:"selectedStageIds,omitempty"`
+	ShowCompleted          *bool               `json:"showCompleted,omitempty"`
+	OnlyOverdue            *bool               `json:"onlyOverdue,omitempty"`
+	OnlyScheduled          *bool               `json:"onlyScheduled,omitempty"`
+	OnlyRecurring          *bool               `json:"onlyRecurring,omitempty"`
+	ShowReminders          *bool               `json:"showReminders,omitempty"`
+	ColumnOrder            []string            `json:"columnOrder,omitempty"`
 }
 
 func viewFromInput(in createViewIn, existing *models.TaskViewConfig) models.TaskViewConfig {
 	view := models.TaskViewConfig{
-		ID:                   viewID(),
-		Name:                 in.Name,
-		DataMode:             models.DataModeTask,
-		RenderMode:           models.RenderModeList,
-		GroupFields:          in.GroupFields,
-		GroupSortDirection:   models.SortDirectionAsc,
-		GroupValueOrders:     in.GroupValueOrders,
-		SortBy:               models.SortByDeadline,
-		SortDirection:        models.SortDirectionAsc,
-		SelectedWorkspaceIds: in.SelectedWorkspaceIds,
-		SelectedStatusIds:    in.SelectedStatusIds,
-		ColumnOrder:          in.ColumnOrder,
+		ID:                     viewID(),
+		Name:                   in.Name,
+		DataMode:               models.DataModeTask,
+		RenderMode:             models.RenderModeList,
+		GroupFields:            in.GroupFields,
+		GroupSortDirection:     models.SortDirectionAsc,
+		GroupValueOrders:       in.GroupValueOrders,
+		SortBy:                 models.SortByDeadline,
+		SortDirection:          models.SortDirectionAsc,
+		SelectedWorkspaceIds:   in.SelectedWorkspaceIds,
+		SelectedStatusIds:      in.SelectedStatusIds,
+		SelectedProjectIds:     in.SelectedProjectIds,
+		SelectedPriorityLevels: in.SelectedPriorityLevels,
+		SelectedLabelIds:       in.SelectedLabelIds,
+		SelectedStageIds:       in.SelectedStageIds,
+		ColumnOrder:            in.ColumnOrder,
 	}
 	if existing != nil {
 		view = *existing
@@ -78,6 +91,18 @@ func viewFromInput(in createViewIn, existing *models.TaskViewConfig) models.Task
 		}
 		if in.SelectedStatusIds != nil {
 			view.SelectedStatusIds = in.SelectedStatusIds
+		}
+		if in.SelectedProjectIds != nil {
+			view.SelectedProjectIds = in.SelectedProjectIds
+		}
+		if in.SelectedPriorityLevels != nil {
+			view.SelectedPriorityLevels = in.SelectedPriorityLevels
+		}
+		if in.SelectedLabelIds != nil {
+			view.SelectedLabelIds = in.SelectedLabelIds
+		}
+		if in.SelectedStageIds != nil {
+			view.SelectedStageIds = in.SelectedStageIds
 		}
 		if in.ColumnOrder != nil {
 			view.ColumnOrder = in.ColumnOrder
@@ -98,6 +123,21 @@ func viewFromInput(in createViewIn, existing *models.TaskViewConfig) models.Task
 	if in.SortDirection != "" {
 		view.SortDirection = models.SortDirection(in.SortDirection)
 	}
+	if in.ShowCompleted != nil {
+		view.ShowCompleted = in.ShowCompleted
+	}
+	if in.OnlyOverdue != nil {
+		view.OnlyOverdue = *in.OnlyOverdue
+	}
+	if in.OnlyScheduled != nil {
+		view.OnlyScheduled = *in.OnlyScheduled
+	}
+	if in.OnlyRecurring != nil {
+		view.OnlyRecurring = *in.OnlyRecurring
+	}
+	if in.ShowReminders != nil {
+		view.ShowReminders = *in.ShowReminders
+	}
 	if view.GroupFields == nil {
 		view.GroupFields = []string{}
 	}
@@ -109,6 +149,18 @@ func viewFromInput(in createViewIn, existing *models.TaskViewConfig) models.Task
 	}
 	if view.SelectedStatusIds == nil {
 		view.SelectedStatusIds = []string{}
+	}
+	if view.SelectedProjectIds == nil {
+		view.SelectedProjectIds = []string{}
+	}
+	if view.SelectedPriorityLevels == nil {
+		view.SelectedPriorityLevels = []string{}
+	}
+	if view.SelectedLabelIds == nil {
+		view.SelectedLabelIds = []string{}
+	}
+	if view.SelectedStageIds == nil {
+		view.SelectedStageIds = []string{}
 	}
 	if view.ColumnOrder == nil {
 		view.ColumnOrder = []string{}
@@ -252,7 +304,7 @@ func (s *Server) updateProfile(ctx context.Context, req *mcp.CallToolRequest, in
 	if err != nil {
 		return fail(err)
 	}
-	updated, _, err := s.Auth.UpdateProfile(uid, in.Name, user.Email, "", "")
+	updated, _, err := s.Auth.UpdateProfile(uid, in.Name, user.Email, "", "", "")
 	if err != nil {
 		return fail(err)
 	}

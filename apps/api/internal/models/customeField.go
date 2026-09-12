@@ -54,6 +54,7 @@ const (
 	CustomFieldTypeNumber      CustomFieldType = "number"
 	CustomFieldTypeURL         CustomFieldType = "url"
 	CustomFieldTypeDate        CustomFieldType = "date"
+	CustomFieldTypeBoolean     CustomFieldType = "boolean"
 )
 
 type Option struct {
@@ -77,7 +78,8 @@ func (t CustomFieldType) IsValid() bool {
 		CustomFieldTypeSelect,
 		CustomFieldTypeNumber,
 		CustomFieldTypeURL,
-		CustomFieldTypeDate:
+		CustomFieldTypeDate,
+		CustomFieldTypeBoolean:
 		return true
 	default:
 		return false

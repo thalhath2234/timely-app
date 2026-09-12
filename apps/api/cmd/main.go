@@ -19,12 +19,15 @@ import (
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/notify"
 	"timely-api/internal/features/project"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
 	"timely-api/internal/features/task"
 	"timely-api/internal/features/workspace"
+	"timely-api/internal/jobs"
+	"timely-api/internal/middleware"
 	"timely-api/internal/realtime"
 	"timely-api/internal/recurrence"
 	"timely-api/internal/routes"
@@ -55,11 +58,15 @@ func main() {
 	recurrenceStore := recurrence.NewStore(db)
 	blockStore := blocks.NewStore(db)
 
-	authService := auth.NewAuthService(userRepo, workspaceRepo)
+	sessionRepo := auth.NewSessionRepository(db)
+	authService := auth.NewAuthService(userRepo, workspaceRepo, sessionRepo)
 	apiKeyService := apikey.NewService(db)
 	indexer := embed.New(db)
-	taskService := task.NewTaskService(taskRepo, projectRepo, recurrenceStore, blockStore, indexer)
-	projectService := project.NewProjectService(projectRepo, indexer)
+	jobQueue := jobs.NewQueue(db)
+	indexer.SetQueue(jobQueue)
+	taskService := task.NewTaskService(taskRepo, projectRepo, workspaceRepo, recurrenceStore, blockStore, indexer)
+	projectService := project.NewProjectService(projectRepo, workspaceRepo, indexer)
+	projectService.SetTaskCopier(taskService)
 	workspaceService := workspace.NewWorkspaceService(workspaceRepo)
 	live := realtime.NewHub()
 	documentService := doc.NewDocumentService(documentRepo, indexer, live)
@@ -68,6 +75,9 @@ func main() {
 	calendarService := calendar.NewService(taskRepo, eventRepo)
 	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, blockStore)
 	searchService := search.NewService(db, indexer)
+	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, indexer)
+	jobWorker := jobs.NewWorker(jobQueue)
+	notifyService.Register(jobWorker)
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -79,6 +89,8 @@ func main() {
 		Docs:       documentService,
 		Sheets:     sheetService,
 		Search:     searchService,
+		Notify:     notifyService,
+		Jobs:       jobQueue,
 	})
 
 	handlers := routes.Handlers{
@@ -93,19 +105,23 @@ func main() {
 		Schedule:  schedule.NewHandler(scheduleService),
 		ApiKey:    apikey.NewHandler(apiKeyService),
 		Search:    search.NewHandler(searchService),
+		Notify:    notify.NewHandler(notifyService, jobQueue),
 		MCP:       agent.Handler(mcpServer, apiKeyService.Verifier()),
+		Sessions:  authService,
 	}
 
 	// Create Echo instance
 	e := echo.New()
 
-	// Logger & Recover Middlewares
-	e.Use(echoMiddleware.RequestLogger())
+	e.Use(middleware.RequestID())
+	e.Use(middleware.StructuredLogger())
 	e.Use(echoMiddleware.Recover())
 	e.Use(echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{
 		AllowOrigins: []string{
 			"http://localhost:4001",
 			"http://127.0.0.1:4001",
+			"https://11a5-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
+			"https://7b74-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
 		},
 		AllowCredentials: true,
 		AllowHeaders: []string{
@@ -129,6 +145,8 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	go jobWorker.Run(ctx)
 
 	sc := echo.StartConfig{
 		Address:         ":8080",

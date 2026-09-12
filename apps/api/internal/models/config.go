@@ -61,18 +61,28 @@ const (
 
 // TaskViewConfig represents a single saved view configuration.
 type TaskViewConfig struct {
-	ID                   string              `json:"id"`
-	Name                 string              `json:"name"`
-	DataMode             DataMode            `json:"dataMode"`
-	RenderMode           RenderMode          `json:"renderMode"`
-	GroupFields          []string            `json:"groupFields"`
-	GroupSortDirection   SortDirection       `json:"groupSortDirection"`
-	GroupValueOrders     map[string][]string `json:"groupValueOrders"`
-	SortBy               SortByField         `json:"sortBy"`
-	SortDirection        SortDirection       `json:"sortDirection"`
-	SelectedWorkspaceIds []string            `json:"selectedWorkspaceIds"`
-	SelectedStatusIds    []string            `json:"selectedStatusIds"`
-	ColumnOrder          []string            `json:"columnOrder"`
+	ID                     string              `json:"id"`
+	Name                   string              `json:"name"`
+	DataMode               DataMode            `json:"dataMode"`
+	RenderMode             RenderMode          `json:"renderMode"`
+	GroupFields            []string            `json:"groupFields"`
+	GroupSortDirection     SortDirection       `json:"groupSortDirection"`
+	GroupValueOrders       map[string][]string `json:"groupValueOrders"`
+	SortBy                 SortByField         `json:"sortBy"`
+	SortDirection          SortDirection       `json:"sortDirection"`
+	SelectedWorkspaceIds   []string            `json:"selectedWorkspaceIds"`
+	SelectedStatusIds      []string            `json:"selectedStatusIds"`
+	SelectedProjectIds     []string            `json:"selectedProjectIds,omitempty"`
+	SelectedPriorityLevels []string            `json:"selectedPriorityLevels,omitempty"`
+	SelectedLabelIds       []string            `json:"selectedLabelIds,omitempty"`
+	SelectedStageIds       []string            `json:"selectedStageIds,omitempty"`
+	// ShowCompleted is tri-state: nil means show completed (the UI default).
+	ShowCompleted *bool    `json:"showCompleted,omitempty"`
+	OnlyOverdue   bool     `json:"onlyOverdue,omitempty"`
+	OnlyScheduled bool     `json:"onlyScheduled,omitempty"`
+	OnlyRecurring bool     `json:"onlyRecurring,omitempty"`
+	ShowReminders bool     `json:"showReminders,omitempty"`
+	ColumnOrder   []string `json:"columnOrder"`
 }
 
 func (tv TaskViewConfig) Validate(customFieldIDs map[string]bool) error {
@@ -209,7 +219,9 @@ type Config struct {
 	IsOnBoardingCompleted bool          `gorm:"default:false" json:"isOnBoardingCompleted"`
 	TaskViews             TaskViews     `gorm:"type:jsonb;not null;default:'[]'" json:"taskViews"`
 	ActiveTaskViewId      string        `gorm:"type:text;not null;default:''" json:"activeTaskViewId"`
-	WorkingHours          WorkingHours  `gorm:"type:jsonb;not null;default:'{}'" json:"workingHours"`
+	WorkingHours          WorkingHours          `gorm:"type:jsonb;not null;default:'{}'" json:"workingHours"`
+	ScheduleSettings      ScheduleSettings      `gorm:"type:jsonb;not null;default:'{}'" json:"scheduleSettings"`
+	NotificationSettings  NotificationSettings  `gorm:"type:jsonb;not null;default:'{}'" json:"notificationSettings"`
 	Version               int           `gorm:"not null;default:0" json:"-"`
 	CustomFields          []CustomField `gorm:"-" json:"customFields,omitempty"`
 	CreatedAt             string        `json:"createdAt"`

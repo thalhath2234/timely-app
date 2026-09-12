@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"timely-api/internal/features/project"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
@@ -13,14 +14,8 @@ import (
 )
 
 func (s *Server) projectFor(uid, projectID string) (*models.Project, error) {
-	p, err := s.Projects.GetProjectById(projectID)
+	p, err := s.Projects.GetProjectById(uid, projectID)
 	if err != nil {
-		return nil, err
-	}
-	if p.WorkspaceID == nil || *p.WorkspaceID == "" {
-		return nil, errors.New("project not found")
-	}
-	if _, err := s.Workspaces.GetWorkspaceById(uid, *p.WorkspaceID); err != nil {
 		return nil, errors.New("project not found")
 	}
 	return p, nil
@@ -57,7 +52,15 @@ func (s *Server) listProjects(ctx context.Context, req *mcp.CallToolRequest, in 
 		}
 		out = append(out, p)
 	}
-	return reply(fmt.Sprintf("%d projects", len(out)), map[string]any{"projects": out})
+	tasks, err := s.Tasks.List(uid, task.TaskFilter{Limit: 2000})
+	if err != nil {
+		return fail(err)
+	}
+	summaries := make([]map[string]any, 0, len(out))
+	for _, p := range out {
+		summaries = append(summaries, projectSummary(p, tasks))
+	}
+	return reply(fmt.Sprintf("%d projects", len(out)), map[string]any{"projects": out, "summaries": summaries})
 }
 
 type projectIDIn struct {
@@ -77,34 +80,31 @@ func (s *Server) getProject(ctx context.Context, req *mcp.CallToolRequest, in pr
 	if err != nil {
 		return fail(err)
 	}
-	open, done := 0, 0
-	for _, t := range tasks {
-		if t.IsCompleted() {
-			done++
-		} else {
-			open++
-		}
-	}
+	summary := projectSummary(*p, tasks)
 	payload := map[string]any{
 		"project":   p,
 		"markdown":  richtext.ToMarkdown(p.DescriptionRich),
-		"taskCount": len(tasks),
-		"openTasks": open,
-		"doneTasks": done,
+		"taskCount": summary["total"],
+		"openTasks": summary["open"],
+		"doneTasks": summary["completed"],
+		"progress":  summary["progress"],
+		"scheduled": summary["scheduled"],
+		"board":     projectBoard(p, tasks),
 	}
-	return reply(fmt.Sprintf("%s — %d open / %d done", p.Title, open, done), payload)
+	return reply(fmt.Sprintf("%s — %d open / %d done", p.Title, summary["open"], summary["completed"]), payload)
 }
 
 type createProjectIn struct {
-	Title          string `json:"title"`
-	WorkspaceID    string `json:"workspaceId"`
-	Description    string `json:"description,omitempty" jsonschema:"markdown"`
-	StatusID       string `json:"statusId,omitempty"`
-	Deadline       string `json:"deadline,omitempty"`
-	StartDate      string `json:"startDate,omitempty"`
-	PriorityLevel  string `json:"priorityLevel,omitempty"`
-	Color          string `json:"color,omitempty"`
-	DoesHaveStages bool   `json:"doesHaveStages,omitempty"`
+	Title          string      `json:"title"`
+	WorkspaceID    string      `json:"workspaceId"`
+	Description    string      `json:"description,omitempty" jsonschema:"markdown"`
+	StatusID       string      `json:"statusId,omitempty"`
+	Deadline       string      `json:"deadline,omitempty"`
+	StartDate      string      `json:"startDate,omitempty"`
+	PriorityLevel  string      `json:"priorityLevel,omitempty"`
+	Color          string      `json:"color,omitempty"`
+	DoesHaveStages bool        `json:"doesHaveStages,omitempty"`
+	CustomFields   []cfValueIn `json:"customFields,omitempty"`
 }
 
 func (s *Server) createProject(ctx context.Context, req *mcp.CallToolRequest, in createProjectIn) (*mcp.CallToolResult, any, error) {
@@ -130,7 +130,7 @@ func (s *Server) createProject(ctx context.Context, req *mcp.CallToolRequest, in
 		p.DescriptionRich = rich
 		p.Description = plain
 	}
-	created, err := s.Projects.Create(p, nil)
+	created, err := s.Projects.Create(uid, p, cfValues(in.CustomFields))
 	if err != nil {
 		return fail(err)
 	}
@@ -188,6 +188,19 @@ func (s *Server) completeProject(ctx context.Context, req *mcp.CallToolRequest, 
 		return fail(err)
 	}
 	return reply("completed "+p.Title, p)
+}
+
+func (s *Server) reopenProject(ctx context.Context, req *mcp.CallToolRequest, in projectIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	empty := ""
+	p, err := s.Projects.Update(uid, in.ProjectID, project.ProjectUpdate{CompletedAt: &empty})
+	if err != nil {
+		return fail(err)
+	}
+	return reply("reopened "+p.Title, p)
 }
 
 type deleteProjectIn struct {
@@ -275,4 +288,115 @@ func (s *Server) reorderStages(ctx context.Context, req *mcp.CallToolRequest, in
 		return fail(err)
 	}
 	return reply(fmt.Sprintf("reordered %d stages", len(stages)), map[string]any{"stages": stages})
+}
+
+func projectSummary(p models.Project, tasks []models.Task) map[string]any {
+	open, done, scheduled := 0, 0, 0
+	nextDeadline := deref(p.Deadline)
+	for _, t := range tasks {
+		if deref(t.ProjectID) != p.ID || t.IsReminder() || t.IsInbox() || t.IsSubtask() {
+			continue
+		}
+		if t.IsCompleted() {
+			done++
+			continue
+		}
+		open++
+		if deref(t.ScheduledOn) != "" || len(t.Blocks) > 0 {
+			scheduled++
+		}
+		if d := deref(t.Deadline); d != "" && (nextDeadline == "" || d < nextDeadline) {
+			nextDeadline = d
+		}
+	}
+	total := open + done
+	progress := 0
+	if total > 0 {
+		progress = (done * 100) / total
+	}
+	stageNames := make([]string, 0, len(p.Stages))
+	for _, stage := range sortedProjectStages(p.Stages) {
+		stageNames = append(stageNames, stage.Name)
+	}
+	return map[string]any{
+		"id":             p.ID,
+		"title":          p.Title,
+		"workspaceId":    deref(p.WorkspaceID),
+		"statusId":       deref(p.StatusID),
+		"priorityLevel":  deref(p.PriorityLevel),
+		"deadline":       deref(p.Deadline),
+		"startDate":      deref(p.StartDate),
+		"completed":      p.CompletedAt != nil && *p.CompletedAt != "",
+		"doesHaveStages": p.DoesHaveStages,
+		"stages":         stageNames,
+		"open":           open,
+		"completedCount": done,
+		"total":          total,
+		"scheduled":      scheduled,
+		"progress":       progress,
+		"nextDeadline":   nextDeadline,
+	}
+}
+
+func projectBoard(p *models.Project, tasks []models.Task) []map[string]any {
+	type column struct {
+		id, name string
+		items    []map[string]any
+	}
+	known := map[string]int{}
+	cols := []column{{id: "", name: "Unstaged"}}
+	if p != nil {
+		for _, stage := range sortedProjectStages(p.Stages) {
+			known[stage.ID] = len(cols)
+			cols = append(cols, column{id: stage.ID, name: stage.Name})
+		}
+	}
+	for _, t := range tasks {
+		if t.IsReminder() || t.IsInbox() || t.IsSubtask() {
+			continue
+		}
+		idx := 0
+		if id := deref(t.StageID); id != "" {
+			if found, ok := known[id]; ok {
+				idx = found
+			}
+		}
+		cols[idx].items = append(cols[idx].items, map[string]any{
+			"id":            t.ID,
+			"name":          t.Name,
+			"statusId":      deref(t.StatusID),
+			"priorityLevel": deref(t.PriorityLevel),
+			"deadline":      deref(t.Deadline),
+			"completed":     t.IsCompleted(),
+		})
+	}
+	out := make([]map[string]any, 0, len(cols))
+	for _, col := range cols {
+		if col.items == nil {
+			col.items = []map[string]any{}
+		}
+		out = append(out, map[string]any{
+			"stageId": col.id,
+			"name":    col.name,
+			"count":   len(col.items),
+			"tasks":   col.items,
+		})
+	}
+	return out
+}
+
+func sortedProjectStages(stages []*models.Stage) []*models.Stage {
+	out := make([]*models.Stage, 0, len(stages))
+	for _, stage := range stages {
+		if stage != nil {
+			out = append(out, stage)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Order != out[j].Order {
+			return out[i].Order < out[j].Order
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
 }

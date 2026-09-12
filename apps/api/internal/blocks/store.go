@@ -124,6 +124,28 @@ func (s *Store) DeleteForTask(taskID, source string) error {
 	return s.ReplaceForTask(taskID, "", source, nil)
 }
 
+// DeleteEngineBlocksInRange clears replaceable engine blocks overlapping
+// [from, to). Locked blocks and anything that starts before freezeUntil stay.
+func (s *Store) DeleteEngineBlocksInRange(tx *gorm.DB, taskIDs []string, from, to, freezeUntil time.Time) error {
+	if len(taskIDs) == 0 {
+		return nil
+	}
+	query := tx.Where("task_id IN ? AND source = ? AND locked = ? AND start_at < ? AND end_at > ?",
+		taskIDs, models.BlockSourceEngine, false, to, from)
+	if !freezeUntil.IsZero() {
+		query = query.Where("start_at >= ?", freezeUntil)
+	}
+	if err := query.Delete(&models.ScheduledBlock{}).Error; err != nil {
+		return err
+	}
+	for _, id := range taskIDs {
+		if err := syncScheduledOn(tx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // DeleteEngineBlocksForTasks clears engine-owned blocks for many tasks so a
 // reschedule starts from a clean slate. Manual blocks are never touched here.
 func (s *Store) DeleteEngineBlocksForTasks(tx *gorm.DB, taskIDs []string) error {
@@ -174,10 +196,13 @@ func (s *Store) DB() *gorm.DB {
 // syncScheduledOn mirrors the earliest block start onto the task so list views
 // and sorting keep working without knowing about blocks.
 func syncScheduledOn(tx *gorm.DB, taskID string) error {
+	// Reminders (duration 0) keep scheduled_on as the ping time and have no
+	// blocks. Recurring series keep scheduled_on as the rule's dtstart.
 	return tx.Exec(`
 		UPDATE tasks
 		SET scheduled_on = (SELECT MIN(start_at) FROM scheduled_blocks WHERE task_id = ?)
 		WHERE id = ?
+		  AND duration > 0
 		  AND NOT EXISTS (
 		    SELECT 1 FROM recurrence_rules WHERE owner_type = 'task' AND owner_id = ?
 		  )`,

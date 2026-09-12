@@ -226,7 +226,7 @@ type optionIn struct {
 type createCFIn struct {
 	WorkspaceID string     `json:"workspaceId"`
 	Name        string     `json:"name"`
-	Type        string     `json:"type" jsonschema:"text, select, multi_select, number, url, or date"`
+	Type        string     `json:"type" jsonschema:"text, select, multi_select, number, url, date, or boolean"`
 	Options     []optionIn `json:"options,omitempty"`
 }
 

@@ -6,6 +6,8 @@ import (
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
+
+	"gorm.io/gorm"
 )
 
 const (
@@ -30,29 +32,57 @@ type ProjectUpdate struct {
 }
 
 type ProjectService interface {
-	Create(project *models.Project, customFieldValues []*models.CustomFieldValue) (*models.Project, error)
+	Create(userID string, project *models.Project, customFieldValues []*models.CustomFieldValue) (*models.Project, error)
 	GetAllProjectByUser(userID string) ([]models.Project, error)
-	GetProjectById(projectId string) (*models.Project, error)
+	GetProjectById(userID, projectId string) (*models.Project, error)
 	Update(userID string, projectID string, update ProjectUpdate) (*models.Project, error)
 	Delete(userID, projectID string) error
+	Duplicate(userID, projectID string) (*models.Project, error)
+	SetTaskCopier(tasks TaskCopier)
 	CreateStage(userID, projectID, name string) (*models.Stage, error)
 	UpdateStage(userID, projectID, stageID, name string) (*models.Stage, error)
 	DeleteStage(userID, projectID, stageID string) error
 	ReorderStages(userID, projectID string, ids []string) ([]models.Stage, error)
 }
 
+type workspaceOwner interface {
+	GetWorkspaceById(userID string, workspaceID string) (*models.Workspace, error)
+}
+
+type TaskCopier interface {
+	CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string) error
+}
+
 type projectService struct {
-	repo    ProjectRepository
-	indexer embed.Indexer
+	repo       ProjectRepository
+	workspaces workspaceOwner
+	indexer    embed.Indexer
+	tasks      TaskCopier
 }
 
-func NewProjectService(repo ProjectRepository, indexer embed.Indexer) ProjectService {
-	return &projectService{repo: repo, indexer: indexer}
+func NewProjectService(repo ProjectRepository, workspaces workspaceOwner, indexer embed.Indexer) ProjectService {
+	return &projectService{repo: repo, workspaces: workspaces, indexer: indexer}
 }
 
-func (s *projectService) Create(project *models.Project, customFieldValues []*models.CustomFieldValue) (*models.Project, error) {
+func (s *projectService) SetTaskCopier(tasks TaskCopier) {
+	s.tasks = tasks
+}
+
+func (s *projectService) Create(userID string, project *models.Project, customFieldValues []*models.CustomFieldValue) (*models.Project, error) {
 	if project.Title == "" {
 		return nil, errors.New("project title cannot be empty")
+	}
+	if userID == "" {
+		return nil, errors.New("user not authenticated")
+	}
+	if project.WorkspaceID == nil || *project.WorkspaceID == "" {
+		return nil, errors.New("workspaceId is required")
+	}
+	if _, err := s.workspaces.GetWorkspaceById(userID, *project.WorkspaceID); err != nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if err := normalizeProjectPriority(project.PriorityLevel); err != nil {
+		return nil, err
 	}
 
 	for _, cfv := range customFieldValues {
@@ -69,6 +99,46 @@ func (s *projectService) Create(project *models.Project, customFieldValues []*mo
 	return project, nil
 }
 
+func (s *projectService) Duplicate(userID, projectID string) (*models.Project, error) {
+	src, err := s.repo.GetProjectByIdForUser(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	clone := &models.Project{
+		Title:           "Copy of " + src.Title,
+		Description:     src.Description,
+		DescriptionRich: src.DescriptionRich,
+		StatusID:        src.StatusID,
+		Deadline:        src.Deadline,
+		StartDate:       src.StartDate,
+		PriorityLevel:   src.PriorityLevel,
+		Color:           src.Color,
+		DoesHaveStages:  src.DoesHaveStages,
+		WorkspaceID:     src.WorkspaceID,
+	}
+	created, err := s.Create(userID, clone, nil)
+	if err != nil {
+		return nil, err
+	}
+	stageMap := map[string]string{}
+	for _, stage := range src.Stages {
+		if stage == nil {
+			continue
+		}
+		copied, err := s.CreateStage(userID, created.ID, stage.Name)
+		if err != nil {
+			return nil, err
+		}
+		stageMap[stage.ID] = copied.ID
+	}
+	if s.tasks != nil {
+		if err := s.tasks.CopyProjectTasks(userID, src.ID, created.ID, stageMap); err != nil {
+			return nil, err
+		}
+	}
+	return s.GetProjectById(userID, created.ID)
+}
+
 func (s *projectService) GetAllProjectByUser(userID string) ([]models.Project, error) {
 	if userID == "" {
 		return nil, errors.New("invalid user id")
@@ -82,14 +152,11 @@ func (s *projectService) GetAllProjectByUser(userID string) ([]models.Project, e
 	return projects, nil
 }
 
-func (s *projectService) GetProjectById(projectId string) (*models.Project, error) {
-
-	project, err := s.repo.GetProjectById(projectId)
-	if err != nil {
-		return nil, err
+func (s *projectService) GetProjectById(userID, projectId string) (*models.Project, error) {
+	if userID == "" || projectId == "" {
+		return nil, gorm.ErrRecordNotFound
 	}
-
-	return project, nil
+	return s.repo.GetProjectByIdForUser(userID, projectId)
 }
 
 func (s *projectService) Update(userID string, projectID string, update ProjectUpdate) (*models.Project, error) {
@@ -137,6 +204,11 @@ func (s *projectService) Update(userID string, projectID string, update ProjectU
 		"completed_at":   update.CompletedAt,
 		"priority_level": update.PriorityLevel,
 		"color":          update.Color,
+	}
+	if update.PriorityLevel != nil && *update.PriorityLevel != "" {
+		if err := normalizeProjectPriority(update.PriorityLevel); err != nil {
+			return nil, err
+		}
 	}
 	for column, value := range nullableColumns {
 		if value == nil {
@@ -234,7 +306,7 @@ func (s *projectService) ReorderStages(userID, projectID string, ids []string) (
 	if err := s.repo.ReorderStages(projectID, ids); err != nil {
 		return nil, err
 	}
-	project, err := s.repo.GetProjectById(projectID)
+	project, err := s.repo.GetProjectByIdForUser(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,4 +323,16 @@ func (s *projectService) indexProject(project *models.Project) {
 	if s.indexer != nil {
 		s.indexer.IndexProject(project)
 	}
+}
+
+func normalizeProjectPriority(value *string) error {
+	if value == nil || *value == "" {
+		return nil
+	}
+	normalized := models.NormalizePriority(*value)
+	if !models.ValidatePriority(normalized) || normalized == "" {
+		return errors.New("invalid priority")
+	}
+	*value = normalized
+	return nil
 }
