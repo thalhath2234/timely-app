@@ -7,7 +7,8 @@ import EmptyState from "../../../components/ui/EmptyState";
 import TaskCard from "../../../components/tasks/TaskCard";
 import TaskFilterBar, { type TaskFilter } from "../../../components/tasks/TaskFilterBar";
 import { useSaveTask, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
-import { addDays, isOverdue, isSameDay, PRIORITY_ORDER, startOfDay } from "../../../lib/format";
+import { addDays, isSameDay, PRIORITY_ORDER, startOfDay } from "../../../lib/format";
+import { isTaskOverdue } from "../../../lib/overdue";
 import type { Task } from "../../../lib/types";
 import { colors } from "../../../lib/theme";
 
@@ -22,7 +23,7 @@ function matchesFilter(task: Task, filter: TaskFilter) {
     case "today":
       return Boolean(deadline && isSameDay(deadline, today));
     case "overdue":
-      return isOverdue(task.deadline, task.completedAt);
+      return isTaskOverdue(task);
     case "upcoming":
       return Boolean(deadline && startOfDay(deadline) > startOfDay(today) && deadline <= addDays(startOfDay(today), 14));
     case "nodate":

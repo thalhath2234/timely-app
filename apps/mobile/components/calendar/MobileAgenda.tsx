@@ -9,25 +9,30 @@ import { colors } from "../../lib/theme";
 export default function MobileAgenda({
   items,
   from,
+  overdue = [],
   onOpen,
 }: {
   items: CalendarItem[];
   from: Date;
+  overdue?: CalendarItem[];
   onOpen: (item: CalendarItem) => void;
 }) {
+  const today = startOfDay(new Date());
   const sorted = [...items]
     .filter((item) => !isReminderItem(item))
     .sort((a, b) => a.start.localeCompare(b.start));
+  const overdueIds = new Set(overdue.map((item) => item.taskId ?? item.id));
   const groups = new Map<string, { date: Date; items: CalendarItem[] }>();
   for (const item of sorted) {
     const d = startOfDay(new Date(item.start));
     if (d < startOfDay(from)) continue;
+    if (d < today && overdueIds.has(item.taskId ?? item.id)) continue;
     const key = dayKey(d);
     if (!groups.has(key)) groups.set(key, { date: d, items: [] });
     groups.get(key)!.items.push(item);
   }
 
-  if (groups.size === 0) {
+  if (groups.size === 0 && overdue.length === 0) {
     return (
       <EmptyState
         icon={CalendarDays}
@@ -37,9 +42,21 @@ export default function MobileAgenda({
     );
   }
 
-  const today = new Date();
   return (
     <View style={{ paddingHorizontal: 12 }}>
+      {overdue.length > 0 ? (
+        <View>
+          <View style={styles.head}>
+            <Text style={[styles.day, { color: colors.destructive }]}>Overdue</Text>
+            <Text style={styles.meta}>{overdue.length}</Text>
+          </View>
+          <View style={{ gap: 8 }}>
+            {overdue.map((item) => (
+              <CalendarItemRow key={item.id} item={item} onOpen={onOpen} overdue />
+            ))}
+          </View>
+        </View>
+      ) : null}
       {[...groups.values()].map((group) => (
         <View key={group.date.toISOString()}>
           <View style={styles.head}>

@@ -10,9 +10,10 @@ import MobileDay from "../../../components/calendar/MobileDay";
 import MobileMonth from "../../../components/calendar/MobileMonth";
 import CalendarItemSheet from "../../../components/calendar/CalendarItemSheet";
 import AutoScheduleSheet from "../../../components/calendar/AutoScheduleSheet";
-import { useCalendarQuery, useEditTaskOccurrence, useMoveBlock, useMoveEventTimes, useSaveTask } from "../../../lib/hooks";
+import { useCalendarQuery, useEditTaskOccurrence, useMoveBlock, useMoveEventTimes, useSaveTask, useTasksQuery } from "../../../lib/hooks";
 import { isReminderItem } from "../../../components/calendar/CalendarItemRow";
 import { mergeCalendarItems } from "../../../lib/calendarMerge";
+import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
 import { addDays, dayKey, formatMonthYear, isSameDay, startOfDay } from "../../../lib/format";
 import type { CalendarItem } from "../../../lib/types";
 import { colors } from "../../../lib/theme";
@@ -35,6 +36,11 @@ export default function CalendarScreen() {
 
   const query = useCalendarQuery(from, to);
   const items = mergeCalendarItems(query.data?.items ?? []);
+  const tasks = useTasksQuery().data ?? [];
+  const overdue = useMemo(
+    () => overdueAgendaTasks(tasks).map(taskToCalendarItem),
+    [tasks],
+  );
   const save = useSaveTask();
   const moveBlk = useMoveBlock();
   const moveEvt = useMoveEventTimes();
@@ -138,7 +144,7 @@ export default function CalendarScreen() {
       <View style={{ flex: 1, minHeight: 0 }}>
         {view === "agenda" ? (
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-            <MobileAgenda items={items} from={selected} onOpen={setOpen} />
+            <MobileAgenda items={items} from={selected} overdue={overdue} onOpen={setOpen} />
           </ScrollView>
         ) : null}
         {view === "day" ? <MobileDay date={selected} items={dayItems} onOpen={setOpen} /> : null}

@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
-import { formatTime, formatTimeRange } from "../../lib/format";
+import { formatRelativeDay, formatTime, formatTimeRange } from "../../lib/format";
 import { colors } from "../../lib/theme";
 
 export function itemColor(item: CalendarItem) {
@@ -23,13 +23,22 @@ export function isReminderItem(item: CalendarItem) {
 export default function CalendarItemRow({
   item,
   onOpen,
+  overdue,
 }: {
   item: CalendarItem;
   onOpen: (item: CalendarItem) => void;
+  overdue?: boolean;
 }) {
   const done = Boolean(item.completedAt);
   const recurring = item.kind.endsWith("Occurrence") || Boolean(item.seriesId);
   const Icon = isTaskItem(item) ? ListTodo : CalendarClock;
+  const when = item.allDay
+    ? overdue
+      ? `Due ${formatRelativeDay(new Date(item.start))}`
+      : "All day"
+    : isReminderItem(item)
+      ? `${formatTime(item.start)} · Reminder`
+      : `${formatTimeRange(item.start, item.end)}${overdue ? ` · ${formatRelativeDay(new Date(item.start))}` : ""}`;
 
   return (
     <Pressable onPress={() => onOpen(item)} style={styles.row}>
@@ -39,14 +48,8 @@ export default function CalendarItemRow({
           {item.title}
         </Text>
         <View style={styles.meta}>
-          <Icon size={12} color={colors.mutedForeground} />
-          <Text style={styles.metaText}>
-            {item.allDay
-              ? "All day"
-              : isReminderItem(item)
-                ? `${formatTime(item.start)} · Reminder`
-                : formatTimeRange(item.start, item.end)}
-          </Text>
+          <Icon size={12} color={overdue ? colors.destructive : colors.mutedForeground} />
+          <Text style={[styles.metaText, overdue && { color: colors.destructive }]}>{when}</Text>
           {recurring ? <Repeat size={12} color={colors.mutedForeground} /> : null}
         </View>
       </View>
