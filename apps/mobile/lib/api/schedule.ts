@@ -1,4 +1,13 @@
-import type { CalendarRange, ScheduledBlock, SchedulePlan, Task, TodayResponse, WorkingHours } from "../types";
+import type {
+  CalendarRange,
+  DayCapacity,
+  ScheduledBlock,
+  SchedulePlan,
+  ScheduleSettings,
+  Task,
+  TodayResponse,
+  WorkingHours,
+} from "../types";
 import { deviceTimezone } from "../format";
 import { api, unwrap } from "./client";
 
@@ -38,6 +47,44 @@ export function applySchedule(data: PlanRequest = {}) {
     method: "POST",
     body: { ...data, timezone: deviceTimezone() },
   });
+}
+
+export function undoSchedule() {
+  return api<SchedulePlan>("/schedule/undo", { method: "POST" });
+}
+
+export function getScheduleSettings() {
+  return api<ScheduleSettings>("/schedule/settings");
+}
+
+export function updateScheduleSettings(data: Partial<ScheduleSettings>) {
+  return api<ScheduleSettings>("/schedule/settings", { method: "PUT", body: data });
+}
+
+export async function getCapacity(from: Date, to: Date) {
+  const params = new URLSearchParams({
+    from: from.toISOString(),
+    to: to.toISOString(),
+    timezone: deviceTimezone(),
+  });
+  const body = await api<{ days?: DayCapacity[] } | DayCapacity[]>(`/schedule/capacity?${params}`);
+  return Array.isArray(body) ? body : body.days ?? [];
+}
+
+export async function pinTask(taskId: string, locked: boolean) {
+  const res = await api<Task | { task: Task }>(`/tasks/${taskId}/schedule-lock`, {
+    method: "PUT",
+    body: { locked },
+  });
+  return unwrap(res, "task");
+}
+
+export async function pinBlock(blockId: string, locked: boolean) {
+  const res = await api<ScheduledBlock | { block: ScheduledBlock }>(`/blocks/${blockId}/lock`, {
+    method: "PUT",
+    body: { locked },
+  });
+  return unwrap(res, "block");
 }
 
 export type AddBlockPayload = {

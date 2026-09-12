@@ -30,6 +30,12 @@ export type UpdateTaskPayload = {
   kind?: "task" | "reminder" | "inbox";
   parentTaskId?: string | null;
   todayFocusOn?: string | null;
+  minChunkMinutes?: number;
+  preferredChunkMinutes?: number | null;
+  contiguous?: boolean;
+  earliestStartAt?: string | null;
+  preferredWindows?: { days?: string[]; start: string; end: string }[];
+  scheduleLocked?: boolean;
   deadline?: string | null;
   startDate?: string | null;
   scheduledOn?: string | null;

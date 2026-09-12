@@ -8,7 +8,7 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import TaskMetaEditor from "../../../components/ui/TaskMetaEditor";
 import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
-import { Dot, Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Dot, Chip, Field, PrimaryButton } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
 import { toCustomFieldDrafts } from "../../../lib/customFields";
 import type { CustomFieldValueInput } from "../../../lib/types";
@@ -20,6 +20,9 @@ import {
   useDeleteChecklistItem,
   useDeleteTask,
   useDuplicateTask,
+  useApplySchedule,
+  usePinBlock,
+  usePinTask,
   useProjectsQuery,
   useSaveTask,
   useSetTodayFocus,
@@ -37,7 +40,7 @@ import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent } from "../../../lib/richText";
 import { colors } from "../../../lib/theme";
 
-type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | null;
+type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | "earliest" | null;
 
 function applyClock(day: Date, clock: Date) {
   const next = new Date(day);
@@ -57,6 +60,9 @@ export default function TaskDetailScreen() {
   const save = useSaveTask();
   const remove = useDeleteTask();
   const addBlock = useAddBlock();
+  const pinTask = usePinTask();
+  const pinBlock = usePinBlock();
+  const applySchedule = useApplySchedule();
   const activity = useTaskActivityQuery(id);
   const comment = useAddComment();
   const [picker, setPicker] = useState<Picker>(null);
@@ -270,10 +276,96 @@ export default function TaskDetailScreen() {
               <View key={block.id} style={styles.block}>
                 <Text style={styles.blockText}>
                   {formatRelativeDay(new Date(block.start))} · {formatTimeRange(block.start, block.end)}
+                  {block.locked || block.source === "manual" ? " · pinned" : ""}
                 </Text>
+                {block.source === "engine" && !block.locked ? (
+                  <Pressable
+                    onPress={() => pinBlock.mutate({ blockId: block.id, locked: true })}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.rowAction}>Pin this time</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ))}
             <PrimaryButton label="+ Add time" onPress={() => setPicker("schedule")} />
+            {!isInbox ? (
+              <>
+                <PrimaryButton
+                  label={applySchedule.isPending ? "Scheduling…" : "Auto-schedule this task"}
+                  disabled={applySchedule.isPending}
+                  onPress={() => applySchedule.mutate({ taskIds: [task.id] })}
+                />
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  <Chip
+                    label={task.scheduleLocked ? "Pinned" : "Pin task"}
+                    active={Boolean(task.scheduleLocked)}
+                    onPress={() => pinTask.mutate({ taskId: task.id, locked: !task.scheduleLocked })}
+                  />
+                  <Chip
+                    label="One sitting"
+                    active={Boolean(task.contiguous)}
+                    onPress={() => persist({ contiguous: !task.contiguous })}
+                  />
+                </View>
+                <Text style={styles.activity}>Min chunk</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {[15, 30, 45, 60].map((minutes) => (
+                    <Chip
+                      key={minutes}
+                      label={`${minutes}m`}
+                      active={(task.minChunkMinutes ?? 15) === minutes}
+                      onPress={() => persist({ minChunkMinutes: minutes })}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.activity}>Preferred chunk</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  <Chip
+                    label="Any"
+                    active={task.preferredChunkMinutes == null}
+                    onPress={() => persist({ preferredChunkMinutes: null })}
+                  />
+                  {[30, 60, 90].map((minutes) => (
+                    <Chip
+                      key={minutes}
+                      label={`${minutes}m`}
+                      active={task.preferredChunkMinutes === minutes}
+                      onPress={() => persist({ preferredChunkMinutes: minutes })}
+                    />
+                  ))}
+                </View>
+                <Pressable onPress={() => setPicker("earliest")} style={styles.block}>
+                  <Text style={styles.blockText}>
+                    {task.earliestStartAt
+                      ? `Earliest · ${formatRelativeDay(new Date(task.earliestStartAt))} ${formatTime(task.earliestStartAt)}`
+                      : "Earliest start · any time"}
+                  </Text>
+                </Pressable>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Field
+                      value={task.preferredWindows?.[0]?.start ?? ""}
+                      onChangeText={(start) => {
+                        const end = task.preferredWindows?.[0]?.end ?? "";
+                        persist({ preferredWindows: start && end ? [{ start, end }] : start ? [{ start, end: start }] : [] });
+                      }}
+                      placeholder="Prefer from (09:00)"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Field
+                      value={task.preferredWindows?.[0]?.end ?? ""}
+                      onChangeText={(end) => {
+                        const start = task.preferredWindows?.[0]?.start ?? "";
+                        persist({ preferredWindows: start && end ? [{ start, end }] : [] });
+                      }}
+                      placeholder="Prefer to (12:00)"
+                    />
+                  </View>
+                </View>
+              </>
+            ) : null}
           </>
         )}
         <Text style={styles.section}>Focus</Text>
@@ -517,12 +609,14 @@ export default function TaskDetailScreen() {
         ))}
       </BottomSheet>
       <DateTimeSheet
-        open={picker === "due" || picker === "start" || picker === "schedule"}
+        open={picker === "due" || picker === "start" || picker === "schedule" || picker === "earliest"}
         value={
           picker === "due" && task.deadline
             ? new Date(task.deadline)
             : picker === "start" && task.startDate
               ? new Date(task.startDate)
+              : picker === "earliest" && task.earliestStartAt
+                ? new Date(task.earliestStartAt)
               : picker === "schedule" && (task.scheduledOn || task.recurrence?.dtstart)
                 ? new Date(task.scheduledOn ?? task.recurrence!.dtstart)
                 : new Date()
@@ -530,11 +624,23 @@ export default function TaskDetailScreen() {
         mode={
           picker === "due" || picker === "start"
             ? "date"
-            : isReminder || Boolean(task.recurrence)
-              ? "time"
-              : "datetime"
+            : picker === "earliest"
+              ? "datetime"
+              : isReminder || Boolean(task.recurrence)
+                ? "time"
+                : "datetime"
         }
-        title={picker === "due" ? "Deadline" : picker === "start" ? "Start date" : isReminder || task.recurrence ? "Time" : "Schedule"}
+        title={
+          picker === "due"
+            ? "Deadline"
+            : picker === "start"
+              ? "Start date"
+              : picker === "earliest"
+                ? "Earliest start"
+                : isReminder || task.recurrence
+                  ? "Time"
+                  : "Schedule"
+        }
         onClose={() => setPicker(null)}
         onChange={(next) => {
           if (picker === "due") persist({ deadline: next ? toDateInputValue(next) : null });
@@ -551,6 +657,7 @@ export default function TaskDetailScreen() {
                 : {}),
             });
           }
+          if (picker === "earliest") persist({ earliestStartAt: next ? next.toISOString() : null });
           if (picker === "schedule" && next) {
             if (isReminder || task.recurrence) {
               const day = task.scheduledOn

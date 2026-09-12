@@ -2,8 +2,14 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import { Field, PrimaryButton } from "../../../components/ui/primitives";
-import { useSaveWorkingHours, useWorkingHoursQuery } from "../../../lib/hooks";
+import { Chip, Field, PrimaryButton } from "../../../components/ui/primitives";
+import {
+  useSaveScheduleSettings,
+  useSaveWorkingHours,
+  useScheduleSettingsQuery,
+  useWorkspacesQuery,
+  useWorkingHoursQuery,
+} from "../../../lib/hooks";
 import { deviceTimezone } from "../../../lib/format";
 import type { WeekdayKey, WorkingHours, WorkingWindow } from "../../../lib/types";
 import { colors } from "../../../lib/theme";
@@ -58,7 +64,7 @@ export default function ScheduleSettings() {
 
   return (
     <Screen>
-      <MobileHeader title="Working hours" back large={false} />
+      <MobileHeader title="Schedule" back large={false} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         {hoursQ.isError ? (
           <Text style={styles.error}>Could not load working hours.</Text>
@@ -109,8 +115,96 @@ export default function ScheduleSettings() {
             });
           }}
         />
+        <EngineSettings />
       </ScrollView>
     </Screen>
+  );
+}
+
+function EngineSettings() {
+  const settingsQ = useScheduleSettingsQuery();
+  const save = useSaveScheduleSettings();
+  const spaces = useWorkspacesQuery().data ?? [];
+  const [breakMinutes, setBreakMinutes] = useState("5");
+  const [freezeHours, setFreezeHours] = useState("0");
+  const [excluded, setExcluded] = useState<string[]>([]);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!settingsQ.data) return;
+    setBreakMinutes(String(settingsQ.data.breakMinutes ?? 5));
+    setFreezeHours(String(settingsQ.data.freezeHours ?? 0));
+    setExcluded(settingsQ.data.excludedWorkspaceIds ?? []);
+  }, [settingsQ.data]);
+
+  function toggle(id: string) {
+    setExcluded((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  }
+
+  return (
+    <View style={{ gap: 12, marginTop: 20 }}>
+      <Text style={styles.heading}>Engine</Text>
+      <Text style={styles.hint}>
+        Buffer sits between placed blocks. Freeze keeps the next hours from being rewritten.
+      </Text>
+      {settingsQ.isError ? <Text style={styles.error}>Could not load engine settings.</Text> : null}
+      <Field
+        value={breakMinutes}
+        onChangeText={setBreakMinutes}
+        placeholder="Buffer minutes (1–60)"
+        keyboardType="number-pad"
+      />
+      <Field
+        value={freezeHours}
+        onChangeText={setFreezeHours}
+        placeholder="Freeze next hours (0–168)"
+        keyboardType="number-pad"
+      />
+      {spaces.length > 0 ? (
+        <View style={{ gap: 8 }}>
+          <Text style={styles.hint}>Exclude workspaces</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {spaces.map((space) => (
+              <Chip
+                key={space.id}
+                label={space.name}
+                active={excluded.includes(space.id)}
+                onPress={() => toggle(space.id)}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+      {message ? <Text style={styles.msg}>{message}</Text> : null}
+      <PrimaryButton
+        label={save.isPending ? "Saving…" : "Save engine settings"}
+        disabled={save.isPending}
+        onPress={() => {
+          setMessage("");
+          const breakValue = Number(breakMinutes);
+          const freezeValue = Number(freezeHours);
+          if (!Number.isFinite(breakValue) || breakValue < 1 || breakValue > 60) {
+            setMessage("Buffer must be 1–60 minutes");
+            return;
+          }
+          if (!Number.isFinite(freezeValue) || freezeValue < 0 || freezeValue > 168) {
+            setMessage("Freeze must be 0–168 hours");
+            return;
+          }
+          save.mutate(
+            {
+              breakMinutes: Math.round(breakValue),
+              freezeHours: Math.round(freezeValue),
+              excludedWorkspaceIds: excluded,
+            },
+            {
+              onSuccess: () => setMessage("Engine settings saved"),
+              onError: (err) => setMessage(err instanceof Error ? err.message : "Save failed"),
+            },
+          );
+        }}
+      />
+    </View>
   );
 }
 
@@ -132,6 +226,8 @@ const styles = StyleSheet.create({
   off: { color: colors.mutedForeground },
   link: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   remove: { color: colors.destructive, fontSize: 12 },
+  heading: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
+  hint: { color: colors.mutedForeground, fontSize: 13 },
   msg: { color: colors.mutedForeground, fontSize: 13 },
   error: { color: colors.destructive, fontSize: 13 },
 });

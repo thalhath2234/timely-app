@@ -59,6 +59,7 @@ export default function SettingsTab() {
         <SectionLabel>Planning</SectionLabel>
         <Row icon={Sun} title="Today" meta="Focus, schedule, and end of day" onPress={() => router.push("/(app)/today")} />
         <Row icon={Inbox} title="Inbox" meta="Capture now, organize later" onPress={() => router.push("/(app)/inbox")} />
+        <Row icon={Bell} title="Notifications" meta="Reminders, digests, and snooze" onPress={() => router.push("/(app)/notifications")} />
         <SectionLabel>Workspace</SectionLabel>
         <Row
           icon={FolderKanban}
@@ -73,7 +74,7 @@ export default function SettingsTab() {
           onPress={() => router.push("/(app)/settings/workspaces")}
         />
         <SectionLabel>Tools</SectionLabel>
-        <Row icon={Bell} title="Notifications" meta="Pings when a reminder is due" onPress={() => router.push("/(app)/settings/notifications")} />
+        <Row icon={Bell} title="Notification settings" meta="Push, quiet hours, and failed jobs" onPress={() => router.push("/(app)/settings/notifications")} />
         <Row icon={Brain} title="Report" meta="Weekly summary and focus time" onPress={() => router.push("/(app)/report")} />
         <Row icon={Clock} title="Working hours" meta="When the scheduler can place tasks" onPress={() => router.push("/(app)/settings/schedule")} />
         <Row icon={KeyRound} title="API keys" meta="Connect scripts and automations" onPress={() => router.push("/(app)/settings/api-keys")} />

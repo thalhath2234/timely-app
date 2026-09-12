@@ -11,8 +11,8 @@ export default function SettingsIndex() {
   const { logout } = useAuth();
   const rows = [
     { href: "/(app)/settings/account", title: "Account", meta: "Name, email, password", Icon: UserRound },
-    { href: "/(app)/settings/notifications", title: "Notifications", meta: "Reminder pings on this device", Icon: Bell },
-    { href: "/(app)/settings/schedule", title: "Working hours", meta: "Timezone and availability", Icon: Clock },
+    { href: "/(app)/settings/notifications", title: "Notifications", meta: "Push, quiet hours, and digests", Icon: Bell },
+    { href: "/(app)/settings/schedule", title: "Schedule", meta: "Hours, freeze, and engine", Icon: Clock },
     { href: "/(app)/settings/workspaces", title: "Workspaces", meta: "Statuses, labels, custom fields", Icon: Tag },
     { href: "/(app)/settings/api-keys", title: "API keys", meta: "Automations and MCP", Icon: KeyRound },
   ] as const;

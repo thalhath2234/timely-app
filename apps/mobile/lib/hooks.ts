@@ -11,18 +11,35 @@ import {
   addTaskBlock,
   applySchedule,
   getCalendarRange,
+  getScheduleSettings,
   getToday,
   getWorkingHours,
   moveBlock,
+  pinBlock,
+  pinTask,
   previewSchedule,
+  undoSchedule,
+  updateScheduleSettings,
   updateWorkingHours,
 } from "./api/schedule";
 import { useScheduleActivity } from "./scheduleActivity";
 import { createEvent, deleteEvent, editEventOccurrence, getEvent, splitEventSeries, updateEvent } from "./api/events";
 import { searchItems } from "./api/search";
 import { listApiKeys, createApiKey, revokeApiKey } from "./api/apiKeys";
+import {
+  getJobHealth,
+  getNotificationSettings,
+  listFailedJobs,
+  listNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  retryJob,
+  snoozeNotification,
+  unreadNotificationCount,
+  updateNotificationSettings,
+} from "./api/notifications";
 import type { UpdateTaskPayload } from "./api/tasks";
-import type { MentionEntityType, Sheet } from "./types";
+import type { MentionEntityType, NotificationSettings, Sheet } from "./types";
 
 export type MentionItem = {
   id: string;
@@ -50,12 +67,18 @@ export const keys = {
   config: ["config"] as const,
   calendar: (from: string, to: string) => ["calendar", from, to] as const,
   hours: ["working-hours"] as const,
+  scheduleSettings: ["schedule-settings"] as const,
   activity: (id: string) => ["task-activity", id] as const,
   search: (q: string) => ["search", q] as const,
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
   inbox: ["tasks", "inbox"] as const,
   today: ["today"] as const,
+  notifications: ["notifications"] as const,
+  unreadNotifications: ["notifications", "unread-count"] as const,
+  notificationSettings: ["notification-settings"] as const,
+  failedJobs: ["jobs", "failed"] as const,
+  jobHealth: ["jobs", "health"] as const,
 };
 
 export function useMeQuery() {
@@ -241,6 +264,7 @@ export function useInvalidateAll() {
       client.invalidateQueries({ queryKey: keys.workspaces }),
       client.invalidateQueries({ queryKey: keys.inbox }),
       client.invalidateQueries({ queryKey: keys.today }),
+      client.invalidateQueries({ queryKey: keys.scheduleSettings }),
     ]);
 }
 
@@ -631,6 +655,41 @@ export function useApplySchedule() {
   return useMutation({ mutationFn: applySchedule, onSuccess: invalidate });
 }
 
+export function useUndoSchedule() {
+  const invalidate = useInvalidateAll();
+  return useMutation({ mutationFn: undoSchedule, onSuccess: invalidate });
+}
+
+export function useScheduleSettingsQuery() {
+  return useQuery({ queryKey: keys.scheduleSettings, queryFn: getScheduleSettings });
+}
+
+export function useSaveScheduleSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: updateScheduleSettings,
+    onSuccess: (settings) => {
+      client.setQueryData(keys.scheduleSettings, settings);
+    },
+  });
+}
+
+export function usePinTask() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ taskId, locked }: { taskId: string; locked: boolean }) => pinTask(taskId, locked),
+    onSuccess: invalidate,
+  });
+}
+
+export function usePinBlock() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ blockId, locked }: { blockId: string; locked: boolean }) => pinBlock(blockId, locked),
+    onSuccess: invalidate,
+  });
+}
+
 export function useSaveWorkingHours() {
   const client = useQueryClient();
   return useMutation({
@@ -721,4 +780,86 @@ export function useSetTodayFocus() {
 export function useDuplicateProject() {
   const invalidate = useInvalidateAll();
   return useMutation({ mutationFn: duplicateProject, onSuccess: invalidate });
+}
+
+export function useNotificationsQuery(unread = false) {
+  return useQuery({
+    queryKey: [...keys.notifications, unread] as const,
+    queryFn: () => listNotifications(unread),
+  });
+}
+
+export function useUnreadNotificationCount() {
+  return useQuery({
+    queryKey: keys.unreadNotifications,
+    queryFn: unreadNotificationCount,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useMarkNotificationRead() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: markNotificationRead,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.notifications });
+      client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: markAllNotificationsRead,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.notifications });
+      client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
+export function useSnoozeNotification() {
+  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, minutes, until }: { id: string; minutes?: number; until?: string }) =>
+      snoozeNotification(id, { minutes, until }),
+    onSuccess: () => {
+      invalidate();
+      client.invalidateQueries({ queryKey: keys.notifications });
+      client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
+export function useNotificationSettingsQuery() {
+  return useQuery({ queryKey: keys.notificationSettings, queryFn: getNotificationSettings });
+}
+
+export function useSaveNotificationSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<NotificationSettings>) => updateNotificationSettings(data),
+    onSuccess: (settings) => client.setQueryData(keys.notificationSettings, settings),
+  });
+}
+
+export function useFailedJobsQuery() {
+  return useQuery({ queryKey: keys.failedJobs, queryFn: listFailedJobs });
+}
+
+export function useJobHealthQuery() {
+  return useQuery({ queryKey: keys.jobHealth, queryFn: getJobHealth });
+}
+
+export function useRetryJob() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: retryJob,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.failedJobs });
+      client.invalidateQueries({ queryKey: keys.jobHealth });
+    },
+  });
 }

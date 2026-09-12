@@ -1,10 +1,12 @@
 import { useEffect, useMemo } from "react";
 import { useRouter } from "expo-router";
 import { useCalendarQuery } from "../lib/hooks";
+import { markNotificationRead } from "../lib/api/notifications";
 import {
   addReminderResponseListener,
   cancelReminderNotifications,
   notificationsSupported,
+  registerServerPush,
   reminderHorizonDays,
   requestNotificationPermission,
   syncReminderNotifications,
@@ -22,7 +24,10 @@ export default function ReminderNotifications() {
 
   useEffect(() => {
     if (!notificationsSupported()) return;
-    void requestNotificationPermission();
+    void (async () => {
+      const granted = await requestNotificationPermission();
+      if (granted) await registerServerPush();
+    })();
   }, []);
 
   useEffect(() => {
@@ -31,9 +36,14 @@ export default function ReminderNotifications() {
   }, [calendar.data?.items]);
 
   useEffect(() => {
-    return addReminderResponseListener((taskId) => {
-      router.push(`/(app)/tasks/${taskId}`);
-    });
+    return addReminderResponseListener(
+      (taskId) => {
+        router.push(`/(app)/tasks/${taskId}`);
+      },
+      (notificationId) => {
+        void markNotificationRead(notificationId).catch(() => undefined);
+      },
+    );
   }, [router]);
 
   useEffect(() => {
