@@ -1,0 +1,46 @@
+appId: app.timely.desktop
+productName: Timely
+executableName: Timely
+copyright: Copyright © Timely
+
+directories:
+  output: release
+  buildResources: electron/resources
+
+files:
+  - dist-electron/**/*
+  - package.json
+
+extraResources:
+  - from: .electron-next
+    to: next-server
+
+extraMetadata:
+  name: timely-desktop
+  main: dist-electron/main.js
+
+asar: true
+npmRebuild: false
+nodeGypRebuild: false
+
+linux:
+  target:
+    - dir
+    - AppImage
+  category: Office
+  desktop:
+    StartupWMClass: Timely
+  artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+
+mac:
+  target:
+    - dmg
+    - dir
+  category: public.app-category.productivity
+  artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+
+win:
+  target:
+    - nsis
+    - dir
+  artifactName: "${productName}-${version}-${os}-${arch}.${ext}"

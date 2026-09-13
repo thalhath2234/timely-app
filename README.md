@@ -1,12 +1,12 @@
 # Timely
 
-Personal time/task management: a Go API, a Next.js web app, and an Expo mobile app in one pnpm + Make monorepo.
+Personal time/task management: a Go API, a Next.js web app (also wrapped in Electron), and an Expo mobile app in one pnpm + Make monorepo.
 
 ```
 timely/
 ├── apps/
 │   ├── api/        Go 1.25 · Echo v5 · GORM · goose migrations · Postgres (pgvector)   :8080
-│   ├── web/        Next.js 16 · React 19 · Tailwind 4                                  :4001
+│   ├── web/        Next.js 16 · React 19 · Tailwind 4 · Electron desktop shell          :4001
 │   └── mobile/     Expo SDK 57 · expo-router · React Native 0.86
 ├── scripts/        Repo-level shell helpers (build-apk.sh)
 ├── .agents/ .cursor/   Agent skills (memory-capped Android build)
@@ -28,6 +28,7 @@ timely/
 ```bash
 make setup            # pnpm install, go mod download, install air + goose, create .env files from examples
 make dev              # API (:8080, live reload) + web (:4001) together
+make dev-desktop      # API + web + Electron window
 make dev-mobile       # Expo/Metro dev server
 ```
 
@@ -37,8 +38,10 @@ Edit `apps/api/.env` (DB credentials, JWT secret), `apps/web/.env`, and `apps/mo
 
 | Command                                 | What it does                                                   |
 | --------------------------------------- | -------------------------------------------------------------- |
-| `make dev-api` / `dev-web` / `dev-mobile` | Run a single app                                             |
+| `make dev-api` / `dev-web` / `dev-mobile` / `dev-desktop` | Run a single app, or the Electron desktop shell |
 | `make build`                            | Build the API binary and the web app                           |
+| `make build-desktop`                    | Unpacked Electron app for this OS                              |
+| `make dist-desktop`                     | Electron installer (AppImage / dmg / nsis)                     |
 | `make build-apk [API_URL=https://…]`    | Android release APK, detached under a 12 GB memory cap         |
 | `make apk-status`                       | Status/log of the detached APK build                           |
 | `make check`                            | `lint` + `typecheck` + `test` across apps                      |

@@ -2,11 +2,11 @@
 
 Three apps, one repo. Run everything from the repo root via `make` (see `make help`).
 
-| Path          | What                          | Stack                                   | Dev port |
+| Path | What | Stack | Dev port |
 | ------------- | ----------------------------- | --------------------------------------- | -------- |
-| `apps/api`    | REST + MCP backend            | Go 1.25, Echo v5, GORM, goose, Postgres | 8080     |
-| `apps/web`    | Desktop web app               | Next.js 16, React 19, Tailwind 4        | 4001     |
-| `apps/mobile` | Android/iOS app               | Expo SDK 57, expo-router, RN 0.86       | Metro    |
+| `apps/api` | REST + MCP backend | Go 1.25, Echo v5, GORM, goose, Postgres | 8080 |
+| `apps/web` | Desktop web app + Electron shell | Next.js 16, React 19, Tailwind 4, Electron 44 | 4001 |
+| `apps/mobile` | Android/iOS app | Expo SDK 57, expo-router, RN 0.86 | Metro |
 
 ## Rules that apply everywhere
 
@@ -21,6 +21,6 @@ Three apps, one repo. Run everything from the repo root via `make` (see `make he
 
 Each app has its own `AGENTS.md` with framework caveats — read it before editing that app:
 
-- `apps/web/AGENTS.md` — this Next.js version has breaking changes vs. training data; read `node_modules/next/dist/docs/`.
+- `apps/web/AGENTS.md` — this Next.js version has breaking changes vs. training data; read `node_modules/next/dist/docs/`. Electron lives in `apps/web/electron` and is started with `make dev-desktop`.
 - `apps/mobile/AGENTS.md` — Expo has changed; read the versioned docs for SDK 57.
 - `apps/api/setup.md` and `apps/api/MIGRATIONS.md` — API setup and migration workflow.

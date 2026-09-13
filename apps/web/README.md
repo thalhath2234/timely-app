@@ -1,15 +1,28 @@
 # Timely Web (Next.js)
 
-Desktop web client for the Go API in [`apps/api`](../api). Part of the `timely` monorepo — see the root [README](../../README.md) for setup.
+Desktop web client for the Go API in [`apps/api`](../api). Part of the `timely` monorepo — see the root [README](../../README.md) for setup. The same Next.js app is also the renderer for the Electron desktop shell in [`electron/`](electron/).
 
 ## Run
 
 ```bash
-make dev-web        # from the repo root → http://localhost:4001
-make dev            # API + web together
+make dev-web          # from the repo root → http://localhost:4001
+make dev              # API + web together
+make dev-desktop      # API + web + Electron window
 ```
 
-Or directly: `pnpm --filter @timely/web dev`.
+Or directly: `pnpm --filter @timely/web dev` (browser) and `pnpm --filter @timely/web electron:dev` (Next.js + Electron, no API).
+
+## Electron
+
+The main process (`electron/main.ts`) loads the Next.js app over HTTP so server components, session cookies, and `/api-proxy` rewrites keep working.
+
+| Command | What it does |
+| --- | --- |
+| `make dev-desktop` | API + Next.js on :4001 + Electron |
+| `make build-desktop` | Unpacked app in `apps/web/release/<platform>-unpacked` |
+| `make dist-desktop` | Installer for this OS (AppImage / dmg / nsis) |
+
+A packaged build embeds a Next.js standalone server. It still talks to the Go API (`API_ORIGIN`, default `http://127.0.0.1:8080`). Put `JWT_SECRET` and `API_ORIGIN` in `apps/web/.env` for development, or in the app user-data `.env` / `ELECTRON_RENDERER_URL` to point at an already-running web server.
 
 ## Configuration
 

@@ -2,12 +2,21 @@
   "name": "@timely/web",
   "version": "0.1.0",
   "private": true,
+  "description": "Private personal planning, scheduling, and notes.",
+  "author": "Timely",
+  "productName": "Timely",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "next dev -p 4001",
     "build": "next build",
     "start": "next start -p 4001",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p electron/tsconfig.json",
+    "electron:compile": "node electron/build.mjs",
+    "electron:dev": "node electron/dev.mjs",
+    "electron:open": "node electron/wait-and-launch.mjs",
+    "electron:pack": "node electron/pack.mjs --dir",
+    "electron:dist": "node electron/pack.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -39,6 +48,9 @@
     "@types/node": "^20",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19",
+    "electron": "^44.1.1",
+    "electron-builder": "^26.16.0",
+    "esbuild": "^0.25.9",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
     "tailwindcss": "^4",
@@ -49,6 +61,10 @@
     "unrs-resolver"
   ],
   "trustedDependencies": [
+    "electron",
+    "electron-builder",
+    "electron-winstaller",
+    "esbuild",
     "sharp",
     "unrs-resolver"
   ]

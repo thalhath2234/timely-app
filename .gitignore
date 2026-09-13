@@ -16,7 +16,7 @@ yarn-error.log*
 *.pem
 .idea/
 
-# ---- apps/web (Next.js) ----
+# ---- apps/web (Next.js + Electron) ----
 apps/web/.next/
 apps/web/out/
 apps/web/build/
@@ -26,6 +26,9 @@ apps/web/.vercel
 apps/web/astra-evidence/
 apps/web/report-shots/
 apps/web/tmp/
+apps/web/dist-electron/
+apps/web/release/
+apps/web/.electron-next/
 
 # ---- apps/api (Go) ----
 apps/api/bin/
