@@ -240,6 +240,22 @@ func (h *Handler) RevokeSession(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"message": "session revoked"})
 }
 
+func (h *Handler) RevokeOtherSessions(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
+	}
+	current := sessionIDFromContext(c)
+	n, err := h.authService.RevokeOtherSessions(userID, current)
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return echo.NewHTTPError(http.StatusNotFound, "session not found")
+		}
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]int64{"revoked": n})
+}
+
 func (h *Handler) setAuthCookies(c *echo.Context, tokens *SessionTokens) {
 	if tokens == nil {
 		return

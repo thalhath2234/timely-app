@@ -717,7 +717,7 @@ export function TaskOptionsBar({
           checked={onlyDated}
           onChange={(event) => setOnlyDated(event.target.checked)}
         />
-        Has date
+        Dated only
       </label>
       {!isProjectScope ? (
         <div className="w-40">

@@ -9,6 +9,7 @@ type WeekViewProps = {
   events: CalendarEvent[];
   onSelectEvent: (event: CalendarEvent) => void;
   onSelectSlot?: (day: Date, hour: number) => void;
+  onDropTask?: (day: Date, hour: number, taskId: string) => void;
 };
 
 export default function WeekView({
@@ -16,6 +17,7 @@ export default function WeekView({
   events,
   onSelectEvent,
   onSelectSlot,
+  onDropTask,
 }: WeekViewProps) {
   const days = useMemo(() => weekDays(selectedDate), [selectedDate]);
 
@@ -25,6 +27,7 @@ export default function WeekView({
       events={events}
       onSelectEvent={onSelectEvent}
       onSelectSlot={onSelectSlot}
+      onDropTask={onDropTask}
     />
   );
 }

@@ -111,6 +111,17 @@ func (f *fakeSessions) Revoke(id string, revokedAt string) error {
 	return nil
 }
 
+func (f *fakeSessions) RevokeOthers(userID, keepID, revokedAt string) (int64, error) {
+	var n int64
+	for _, session := range f.byID {
+		if session.UserID == userID && session.ID != keepID && session.RevokedAt == nil {
+			session.RevokedAt = &revokedAt
+			n++
+		}
+	}
+	return n, nil
+}
+
 type fakeWorkspaceRepo struct{}
 
 func (fakeWorkspaceRepo) GetConfig(userID string) (*models.Config, error) {
@@ -165,5 +176,31 @@ func TestSessionRevocation(t *testing.T) {
 	}
 	if svc.SessionIsActive(tokens.SessionID) {
 		t.Fatal("revoked session should be inactive")
+	}
+}
+
+func TestRevokeOtherSessionsKeepsCurrent(t *testing.T) {
+	t.Setenv("JWT_SECRET", "test-secret-test-secret-test-secret")
+	svc := NewAuthService(&fakeUserRepo{}, fakeWorkspaceRepo{}, &fakeSessions{})
+	user, phone, err := svc.Register("Ada", "ada@example.com", "password123", "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, laptop, err := svc.Login("ada@example.com", "password123", "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := svc.RevokeOtherSessions(user.ID, laptop.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("revoked=%d", n)
+	}
+	if svc.SessionIsActive(phone.SessionID) {
+		t.Fatal("other session should be revoked")
+	}
+	if !svc.SessionIsActive(laptop.SessionID) {
+		t.Fatal("current session should stay active")
 	}
 }

@@ -36,6 +36,7 @@ type AuthService interface {
 	LogoutRefresh(refreshToken string) error
 	ListSessions(userID string) ([]models.UserSession, error)
 	RevokeSession(userID, sessionID string) error
+	RevokeOtherSessions(userID, currentSessionID string) (int64, error)
 	SessionIsActive(sessionID string) bool
 	ReissueAccess(userID, sessionID string) (string, error)
 	IssueToken(user *models.User) (string, error)
@@ -239,6 +240,17 @@ func (s *authService) RevokeSession(userID, sessionID string) error {
 		return gorm.ErrRecordNotFound
 	}
 	return s.LogoutSession(sessionID)
+}
+
+func (s *authService) RevokeOtherSessions(userID, currentSessionID string) (int64, error) {
+	if currentSessionID == "" {
+		return 0, errors.New("current session required")
+	}
+	session, err := s.sessions.GetByID(currentSessionID)
+	if err != nil || session.UserID != userID {
+		return 0, gorm.ErrRecordNotFound
+	}
+	return s.sessions.RevokeOthers(userID, currentSessionID, time.Now().UTC().Format(time.RFC3339))
 }
 
 func (s *authService) SessionIsActive(sessionID string) bool {

@@ -1,7 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, type DragEvent } from "react";
 import type { Task, TaskListDataMode } from "@/app/_types/types";
+import { toDateInputValue } from "@/app/utils/calendar";
+import { useUpdateTask } from "@/app/utils/hooks/tasks";
+import { dragHasTask, readTaskDragId, setTaskDragData } from "@/app/utils/taskDrag";
 import { taskTimelineSpan } from "@/app/utils/taskDates";
 
 type GanttViewProps = {
@@ -37,7 +40,17 @@ function projectSpan(row: Task): { start: Date; end: Date } | null {
   return { start: resolvedStart, end: resolvedEnd < resolvedStart ? resolvedStart : resolvedEnd };
 }
 
+function dateAtClientX(clientX: number, target: HTMLElement, min: Date, totalDurationMs: number) {
+  const rect = target.getBoundingClientRect();
+  const width = Math.max(rect.width, 1);
+  const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / width));
+  return new Date(min.getTime() + ratio * totalDurationMs);
+}
+
 export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProps) {
+  const updateTask = useUpdateTask();
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
   const timelineRows = useMemo(() => {
     const dated: { row: Task; start: Date; end: Date }[] = [];
     const undated: Task[] = [];
@@ -55,7 +68,9 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
     });
 
     if (dated.length === 0) {
-      return { entries: [], undated, min: new Date(), max: new Date() };
+      const today = new Date();
+      const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+      return { entries: [], undated, min: today, max: tomorrow };
     }
 
     const min = new Date(Math.min(...dated.map((entry) => entry.start.getTime())));
@@ -71,6 +86,39 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
     timelineRows.max.getTime() - timelineRows.min.getTime(),
   );
 
+  const placeOnTimeline = (taskId: string, at: Date) => {
+    if (dataMode !== "task") return;
+    const task = rows.find((row) => row.id === taskId);
+    if (!task) return;
+    const start = toDateInputValue(at);
+    const end = new Date(at);
+    if ((task.duration ?? 0) > 0) {
+      end.setMinutes(end.getMinutes() + task.duration);
+    } else {
+      end.setDate(end.getDate() + 1);
+    }
+    void updateTask.mutateAsync({
+      id: taskId,
+      startDate: start,
+      deadline: toDateInputValue(end),
+    });
+  };
+
+  const onTimelineDragOver = (event: DragEvent<HTMLElement>) => {
+    if (dataMode !== "task" || !dragHasTask(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const onTimelineDrop = (event: DragEvent<HTMLElement>) => {
+    if (dataMode !== "task") return;
+    event.preventDefault();
+    const id = readTaskDragId(event) || draggingId || "";
+    setDraggingId(null);
+    if (!id) return;
+    placeOnTimeline(id, dateAtClientX(event.clientX, event.currentTarget, timelineRows.min, totalDurationMs));
+  };
+
   if (timelineRows.entries.length === 0 && timelineRows.undated.length === 0) {
     return <div className="p-4 text-sm text-muted-foreground">No items found for Gantt view.</div>;
   }
@@ -80,10 +128,14 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
       <div className="min-w-245 rounded-lg border border-border bg-card">
         <div className="grid grid-cols-[320px_1fr] border-b border-border bg-muted/40">
           <div className="px-3 py-2 text-xs text-muted-foreground uppercase tracking-wide">{dataMode}</div>
-          <div className="px-3 py-2 text-xs text-muted-foreground uppercase tracking-wide">
+          <div
+            className="px-3 py-2 text-xs text-muted-foreground uppercase tracking-wide"
+            onDragOver={onTimelineDragOver}
+            onDrop={onTimelineDrop}
+          >
             {timelineRows.entries.length > 0
               ? `${formatDateLabel(timelineRows.min.toISOString())} - ${formatDateLabel(timelineRows.max.toISOString())}`
-              : "No dated items"}
+              : "Drop a task here to set dates"}
           </div>
         </div>
 
@@ -114,7 +166,14 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
                 </div>
               </div>
 
-              <div className="px-3 py-3">
+              <div
+                className="px-3 py-3"
+                onDragOver={onTimelineDragOver}
+                onDrop={(event) => {
+                  event.stopPropagation();
+                  onTimelineDrop(event);
+                }}
+              >
                 <div className="relative h-8 rounded-md border border-border bg-muted">
                   <div
                     className="absolute top-1/2 h-4 -translate-y-1/2 rounded-md bg-primary"
@@ -136,16 +195,22 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
         {timelineRows.undated.length > 0 && (
           <div className="border-t border-border bg-muted/20">
             <div className="px-3 py-2 text-xs text-muted-foreground">
-              {timelineRows.undated.length} without dates — add a deadline, start date, or schedule them to place them
-              on the timeline.
+              {timelineRows.undated.length} without dates — drag onto the timeline to set a start
+              and deadline, or open a row to edit dates.
             </div>
             <ul className="divide-y divide-border">
               {timelineRows.undated.map((row) => (
                 <li key={row.id}>
                   <button
                     type="button"
+                    draggable={dataMode === "task"}
+                    onDragStart={(event) => {
+                      setDraggingId(row.id);
+                      setTaskDragData(event, row.id);
+                    }}
+                    onDragEnd={() => setDraggingId(null)}
                     onClick={() => onSelectRow(row)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/40"
+                    className="flex w-full cursor-grab items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/40 active:cursor-grabbing"
                   >
                     <span className="truncate text-foreground">{row.name}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">

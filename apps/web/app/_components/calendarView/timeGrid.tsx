@@ -14,6 +14,7 @@ import {
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
+import { dragHasTask, readTaskDragId } from "@/app/utils/taskDrag";
 
 type TimeGridProps = {
   days: Date[];
@@ -21,6 +22,8 @@ type TimeGridProps = {
   onSelectEvent: (event: CalendarEvent) => void;
   /** Clicking an empty hour opens the schedule dialog for that slot. */
   onSelectSlot?: (day: Date, hour: number) => void;
+  /** Drop a waiting-rail task onto an hour to pin it there. */
+  onDropTask?: (day: Date, hour: number, taskId: string) => void;
 };
 
 const MIN_BLOCK_HEIGHT = 20;
@@ -51,6 +54,7 @@ export default function TimeGrid({
   events,
   onSelectEvent,
   onSelectSlot,
+  onDropTask,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(() => new Date());
@@ -141,6 +145,17 @@ export default function TimeGrid({
                     type="button"
                     aria-label={`Schedule at ${formatHour(hour)} on ${day.toLocaleDateString()}`}
                     onClick={() => onSelectSlot?.(day, hour)}
+                    onDragOver={(event) => {
+                      if (!onDropTask || !dragHasTask(event)) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "copy";
+                    }}
+                    onDrop={(event) => {
+                      if (!onDropTask) return;
+                      event.preventDefault();
+                      const taskId = readTaskDragId(event);
+                      if (taskId) onDropTask(day, hour, taskId);
+                    }}
                     className="block w-full bg-transparent transition-colors hover:bg-accent/30"
                     style={{ height: HOUR_HEIGHT }}
                   />

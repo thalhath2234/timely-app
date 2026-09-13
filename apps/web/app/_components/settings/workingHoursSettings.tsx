@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { TimeField } from "@/app/_components/_ui/datePicker";
+import TimezoneSelect from "@/app/_components/_ui/timezoneSelect";
 import type { WeekdayKey, WorkingHours, WorkingWindow } from "@/app/_types/types";
 import { browserTimezone } from "@/app/utils/api/schedule";
 import {
@@ -59,18 +60,6 @@ function WorkingHoursForm({ initial }: { initial: WorkingHours }) {
   });
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const timezones = useMemo(() => {
-    try {
-      const list = (
-        Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
-      ).supportedValuesOf?.("timeZone");
-      if (list && list.length) return list;
-    } catch {
-      // Older runtimes: fall through to a short list.
-    }
-    return Array.from(new Set([browserTimezone(), "UTC", timezone]));
-  }, [timezone]);
 
   const weeklyMinutes = useMemo(
     () =>
@@ -171,18 +160,7 @@ function WorkingHoursForm({ initial }: { initial: WorkingHours }) {
 
       <label className="flex max-w-sm flex-col gap-1">
         <span className="text-xs text-muted-foreground">Timezone</span>
-        <select
-          value={timezone}
-          onChange={(event) => setTimezone(event.target.value)}
-          className={fieldClass}
-        >
-          {!timezones.includes(timezone) && <option value={timezone}>{timezone}</option>}
-          {timezones.map((zone) => (
-            <option key={zone} value={zone}>
-              {zone}
-            </option>
-          ))}
-        </select>
+        <TimezoneSelect value={timezone} onChange={setTimezone} />
       </label>
 
       <div className="flex flex-col divide-y divide-border rounded-lg border border-border">

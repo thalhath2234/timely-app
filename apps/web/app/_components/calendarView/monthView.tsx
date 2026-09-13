@@ -9,6 +9,7 @@ import {
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
+import { dragHasTask, readTaskDragId } from "@/app/utils/taskDrag";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MAX_CHIPS_PER_DAY = 3;
@@ -20,6 +21,7 @@ type MonthViewProps = {
   onOpenDay: (day: Date) => void;
   /** Empty-cell click schedules a task at 9:00 that day. */
   onSelectSlot?: (day: Date, hour: number) => void;
+  onDropTask?: (day: Date, hour: number, taskId: string) => void;
 };
 
 export default function MonthView({
@@ -28,6 +30,7 @@ export default function MonthView({
   onSelectEvent,
   onOpenDay,
   onSelectSlot,
+  onDropTask,
 }: MonthViewProps) {
   const { days, rows } = useMemo(() => monthGrid(selectedDate), [selectedDate]);
   const today = new Date();
@@ -60,6 +63,17 @@ export default function MonthView({
               role="button"
               tabIndex={0}
               onClick={() => onSelectSlot?.(day, 9)}
+              onDragOver={(event) => {
+                if (!onDropTask || !dragHasTask(event)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "copy";
+              }}
+              onDrop={(event) => {
+                if (!onDropTask) return;
+                event.preventDefault();
+                const taskId = readTaskDragId(event);
+                if (taskId) onDropTask(day, 9, taskId);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();

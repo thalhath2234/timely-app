@@ -6,7 +6,8 @@ import { useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tasks";
 import { isCompletedStatus } from "@/app/utils/status";
 import { showUndoToast } from "@/app/_store/toastStore";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatTaskDatePoint, taskDateSourceLabel, taskNextDate } from "@/app/utils/taskDates";
+import { isTaskOverdue, latestTaskSchedule } from "@/app/utils/overdue";
+import { formatTaskDatePoint, nextTaskSlot, taskDateSourceLabel, taskNextDate } from "@/app/utils/taskDates";
 
 function formatDateLabel(value?: string | null) {
   if (!value) return "No date";
@@ -15,13 +16,29 @@ function formatDateLabel(value?: string | null) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function formatTimeOfDay(date: Date) {
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 /** Cards say when the work happens: deadline first, otherwise the next
- * reserved block, so scheduled tasks never read as "No date". */
-function cardDateLabel(item: Task, dataMode: "task" | "project") {
-  if (dataMode === "project") return `Deadline: ${formatDateLabel(item.deadline)}`;
+ * reserved block, so scheduled tasks never read as "No date". Overdue cards
+ * use the Report's red treatment and include time of day when a block exists. */
+function cardDateMeta(item: Task, dataMode: "task" | "project"): { text: string; overdue: boolean } {
+  if (dataMode === "project") {
+    return { text: `Deadline: ${formatDateLabel(item.deadline)}`, overdue: false };
+  }
+  const overdue = isTaskOverdue(item);
   const point = taskNextDate(item);
-  if (!point) return "No date";
-  return `${taskDateSourceLabel(point.source)}: ${formatTaskDatePoint(point)}`;
+  if (!point) return { text: "No date", overdue: false };
+  if (!overdue) {
+    return { text: `${taskDateSourceLabel(point.source)}: ${formatTaskDatePoint(point)}`, overdue: false };
+  }
+  const slot = nextTaskSlot(item) ?? latestTaskSchedule(item);
+  if (slot) {
+    const day = slot.end.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return { text: `Overdue: ${day} ${formatTimeOfDay(slot.end)}`, overdue: true };
+  }
+  return { text: `Overdue: ${formatTaskDatePoint(point)}`, overdue: true };
 }
 
 function statusPatch(status: Status, completedAt: string | null) {
@@ -176,7 +193,9 @@ export default function KanbanView({
               <span className="text-xs text-muted-foreground">{column.items.length}</span>
             </header>
             <div className="max-h-[calc(100vh-270px)] min-h-24 space-y-2 overflow-auto p-2">
-              {column.items.map((item) => (
+              {column.items.map((item) => {
+                const dateMeta = cardDateMeta(item, dataMode);
+                return (
                 <article
                   key={item.id}
                   draggable={dataMode === "task"}
@@ -196,11 +215,12 @@ export default function KanbanView({
                   <div className="mt-1 text-xs text-muted-foreground">
                     {dataMode === "project" ? "Project" : "Task"} · {item.workspace?.name || "No workspace"}
                   </div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    {cardDateLabel(item, dataMode)}
+                  <div className={dateMeta.overdue ? "mt-2 text-xs text-destructive" : "mt-2 text-xs text-muted-foreground"}>
+                    {dateMeta.text}
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </div>
           </section>
         ))}

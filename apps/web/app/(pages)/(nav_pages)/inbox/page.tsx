@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import Link from "next/link";
 import { Inbox } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
@@ -13,6 +13,8 @@ export default function InboxPage() {
   const inbox = useInboxTasks();
   const capture = useCreateTask();
   const [title, setTitle] = useState("");
+  const [capturedFlash, setCapturedFlash] = useState(false);
+  const captureRef = useRef<HTMLInputElement>(null);
   const openTask = useEntityDetailStore((state) => state.openTask);
   const items = (inbox.data ?? []) as Task[];
 
@@ -20,7 +22,12 @@ export default function InboxPage() {
     event.preventDefault();
     const name = title.trim();
     if (!name) return;
-    void capture.mutateAsync({ name, kind: "inbox" }).then(() => setTitle(""));
+    void capture.mutateAsync({ name, kind: "inbox" }).then(() => {
+      setTitle("");
+      setCapturedFlash(true);
+      captureRef.current?.focus();
+      window.setTimeout(() => setCapturedFlash(false), 1400);
+    });
   };
 
   return (
@@ -32,6 +39,7 @@ export default function InboxPage() {
         </p>
         <form onSubmit={onCapture} className="mt-3 flex gap-2">
           <input
+            ref={captureRef}
             data-inbox-capture
             aria-label="Capture to inbox"
             value={title}
@@ -47,6 +55,11 @@ export default function InboxPage() {
             Capture
           </button>
         </form>
+        {capturedFlash ? (
+          <p className="mt-2 text-sm text-success" role="status">
+            Captured
+          </p>
+        ) : null}
         {capture.isError ? (
           <p className="mt-2 text-sm text-destructive">
             {capture.error instanceof Error ? capture.error.message : "Could not capture."}

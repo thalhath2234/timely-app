@@ -90,6 +90,7 @@ func setupAuthRoutes(g *echo.Group, authHandler *auth.Handler) {
 	g.GET("/me", authHandler.Me)
 	g.PUT("/me", authHandler.UpdateMe)
 	g.GET("/sessions", authHandler.ListSessions)
+	g.DELETE("/sessions/others", authHandler.RevokeOtherSessions)
 	g.DELETE("/sessions/:id", authHandler.RevokeSession)
 }
 
