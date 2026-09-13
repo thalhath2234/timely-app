@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Archive, FileText, MoreHorizontal, Smile, Star, Trash2 } from "lucide-react-native";
+import { Archive, Download, FileText, MoreHorizontal, Smile, Star, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
@@ -15,6 +15,7 @@ import { isRichContentEmpty } from "../../../lib/richText";
 import type { UpdateDocPayload } from "../../../lib/api/docs";
 import type { DocContent } from "../../../lib/types";
 import { colors } from "../../../lib/theme";
+import { shareExport } from "../../../lib/api/portability";
 
 const ICON_CHOICES = ["📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯", "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠"];
 
@@ -174,6 +175,12 @@ function DocEditor({ docId }: { docId: string }) {
       />
 
       <BottomSheet open={menu === "more"} onClose={() => setMenu(null)} title="Doc">
+        <SheetOption onSelect={() => { setMenu(null); void shareExport(`/docs/${doc.id}/export?format=markdown`, `${doc.title || "untitled"}.md`, "text/markdown"); }} leading={<Download size={18} color={colors.mutedForeground} />}>
+          Export Markdown
+        </SheetOption>
+        <SheetOption onSelect={() => { setMenu(null); void shareExport(`/docs/${doc.id}/export?format=pdf`, `${doc.title || "untitled"}.pdf`, "application/pdf"); }} leading={<Download size={18} color={colors.mutedForeground} />}>
+          Export PDF
+        </SheetOption>
         <SheetOption onSelect={() => setMenu("icon")} leading={<Smile size={18} color={colors.mutedForeground} />}>
           Change icon
         </SheetOption>

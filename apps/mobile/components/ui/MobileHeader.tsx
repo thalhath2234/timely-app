@@ -17,6 +17,7 @@ export function HeaderIconButton({
 }) {
   return (
     <Pressable
+      accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
       style={[styles.iconBtn, active && { backgroundColor: colors.accent }]}
@@ -47,6 +48,7 @@ export default function MobileHeader({
       <View style={styles.row}>
         {back ? (
           <Pressable
+            accessibilityRole="button"
             onPress={() => (typeof back === "string" ? router.replace(back as never) : router.back())}
             style={styles.iconBtn}
             accessibilityLabel="Back"

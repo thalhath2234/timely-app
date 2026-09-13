@@ -1,6 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { Bell, Clock, KeyRound, Tag, UserRound } from "lucide-react-native";
+import { Bell, Clock, Database, KeyRound, Tag, UserRound } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { useAuth } from "../../../lib/auth/AuthProvider";
@@ -14,6 +14,7 @@ export default function SettingsIndex() {
     { href: "/(app)/settings/notifications", title: "Notifications", meta: "Push, quiet hours, and digests", Icon: Bell },
     { href: "/(app)/settings/schedule", title: "Schedule", meta: "Hours, freeze, and engine", Icon: Clock },
     { href: "/(app)/settings/workspaces", title: "Workspaces", meta: "Statuses, labels, custom fields", Icon: Tag },
+    { href: "/(app)/settings/data", title: "Data & backups", meta: "Export, restore, and encrypted backups", Icon: Database },
     { href: "/(app)/settings/api-keys", title: "API keys", meta: "Automations and MCP", Icon: KeyRound },
   ] as const;
 
@@ -22,7 +23,7 @@ export default function SettingsIndex() {
       <MobileHeader title="Settings" back />
       <ScrollView contentContainerStyle={{ padding: 12, gap: 8 }}>
         {rows.map((row) => (
-          <Pressable key={row.href} onPress={() => router.push(row.href as never)} style={styles.card}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`${row.title}. ${row.meta}`} key={row.href} onPress={() => router.push(row.href as never)} style={styles.card}>
             <View style={styles.icon}>
               <row.Icon size={18} color={colors.mutedForeground} />
             </View>

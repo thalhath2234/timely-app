@@ -80,6 +80,8 @@ export function Chip({
   const border = color ? (active ? `${color}88` : colors.border) : undefined;
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: Boolean(active) }}
       onPress={onPress}
       style={[
         styles.chip,
@@ -118,7 +120,7 @@ export function Select({
   const selected = options.find((option) => option.value === value);
   return (
     <View>
-      <Pressable onPress={() => setOpen((next) => !next)} style={styles.selectTrigger}>
+      <Pressable accessibilityRole="button" accessibilityLabel={selected?.label ?? placeholder} accessibilityState={{ expanded: open }} onPress={() => setOpen((next) => !next)} style={styles.selectTrigger}>
         {selected?.color ? <Dot color={selected.color} /> : null}
         <Text style={[styles.selectValue, !selected && { color: colors.mutedForeground }]} numberOfLines={1}>
           {selected?.label ?? placeholder}
@@ -131,6 +133,8 @@ export function Select({
             const on = option.value === value;
             return (
               <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
                 key={option.value || "__empty"}
                 onPress={() => {
                   onChange(option.value);
@@ -159,7 +163,7 @@ export function SectionLabel({ children }: { children: ReactNode }) {
 export function Card({ children, onPress }: { children: ReactNode; onPress?: () => void }) {
   if (onPress) {
     return (
-      <Pressable onPress={onPress} style={styles.card}>
+      <Pressable accessibilityRole="button" onPress={onPress} style={styles.card}>
         {children}
       </Pressable>
     );

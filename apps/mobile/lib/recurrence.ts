@@ -251,7 +251,7 @@ export function describeRRule(rrule: string | null | undefined, anchor: Date): s
     text += `, ${draft.end.count} time${draft.end.count === 1 ? "" : "s"}`;
   } else if (draft.end.type === "until") {
     const [y, m, d] = draft.end.date.split("-").map(Number);
-    text += ` until ${new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    text += ` until ${new Date(y, m - 1, d).toLocaleDateString(undefined, {
       month: "short",
       day: "numeric",
       year: "numeric",

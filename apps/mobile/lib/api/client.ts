@@ -8,6 +8,8 @@ import {
   emitSessionExpired,
   setSession,
 } from "../auth/session";
+import { enqueueMutation, getOfflineQueueUser, queuedMutationsForActiveUser, removeQueuedMutation } from "../offlineQueue";
+import { isOffline } from "../networkState";
 
 function bundledApiUrl() {
   const extra = Constants.expoConfig?.extra as { apiUrl?: string } | undefined;
@@ -45,6 +47,8 @@ type RequestOptions = {
   method?: string;
   body?: unknown;
   auth?: boolean;
+  headers?: Record<string, string>;
+  queueIfOffline?: boolean;
 };
 
 let refreshInFlight: Promise<boolean> | null = null;
@@ -79,8 +83,8 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
   if (!API_URL) {
     throw new ApiError("This install has no API URL. Rebuild the app with EXPO_PUBLIC_API_URL set.", 0);
   }
-  const { method = "GET", body, auth = true } = options;
-  const headers: Record<string, string> = {};
+  const { method = "GET", body, auth = true, queueIfOffline = false } = options;
+  const headers: Record<string, string> = { ...options.headers };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (API_URL.includes("ngrok")) {
     headers["ngrok-skip-browser-warning"] = "true";
@@ -91,11 +95,25 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  if (queueIfOffline && isOffline() && getOfflineQueueUser()) {
+    enqueueMutation(path, method, body);
+    return { queued: true } as T;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (error) {
+    if (queueIfOffline && getOfflineQueueUser()) {
+      enqueueMutation(path, method, body);
+      return { queued: true } as T;
+    }
+    throw error;
+  }
 
   if (response.status === 401 && auth && !retried && path !== "/auth/refresh") {
     const refreshed = await refreshAccessToken();
@@ -114,6 +132,23 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
   const text = await response.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
+}
+
+export async function flushOfflineQueue() {
+  if (isOffline() || !getOfflineQueueUser()) return;
+  for (const item of queuedMutationsForActiveUser()) {
+    try {
+      await api(item.path, { method: item.method, body: item.body, queueIfOffline: false });
+      removeQueuedMutation(item.id);
+    } catch (error) {
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        // The server definitively rejected this stale mutation; do not retry it forever.
+        removeQueuedMutation(item.id);
+        continue;
+      }
+      break;
+    }
+  }
 }
 
 export function unwrap<T>(payload: T | { [k: string]: T }, key: string): T {

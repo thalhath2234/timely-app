@@ -3,8 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { User } from "../types";
 import { completeOnboarding, getMe, login as loginApi, register as registerApi, logout as logoutApi, refreshSession } from "../api/auth";
 import { createWorkspace } from "../api/workspaces";
-import { ApiError } from "../api/client";
+import { ApiError, flushOfflineQueue } from "../api/client";
 import { clearToken, getRefreshToken, getToken, onSessionExpired, setSession } from "./session";
+import { setOfflineQueueUser } from "../offlineQueue";
 
 type AuthState = {
   ready: boolean;
@@ -32,6 +33,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function hydrate(token: string) {
     const user = await getMe();
+    setOfflineQueueUser(user.id);
+    void flushOfflineQueue().then(() => queryClient.invalidateQueries());
     queryClient.setQueryData(["me"], user);
     setState({ ready: true, token, user });
     return user;
@@ -42,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       const token = await getToken();
       if (!token) {
+        setOfflineQueueUser(null);
         if (!cancelled) setState({ ready: true, token: null, user: null });
         return;
       }
@@ -50,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
           await clearToken();
+          setOfflineQueueUser(null);
           if (!cancelled) setState({ ready: true, token: null, user: null });
           return;
         }
@@ -64,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     return onSessionExpired(() => {
       queryClient.clear();
+      setOfflineQueueUser(null);
       setState({ ready: true, token: null, user: null });
     });
   }, [queryClient]);
@@ -84,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout: async () => {
         await logoutApi();
         await clearToken();
+        setOfflineQueueUser(null);
         queryClient.clear();
         setState({ ready: true, token: null, user: null });
       },
@@ -91,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const token = await getToken();
           if (!token) {
+            setOfflineQueueUser(null);
             setState({ ready: true, token: null, user: null });
             return null;
           }
@@ -98,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           if (error instanceof ApiError && error.status === 401) {
             await clearToken();
+            setOfflineQueueUser(null);
             setState({ ready: true, token: null, user: null });
           }
           return null;

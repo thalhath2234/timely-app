@@ -72,7 +72,8 @@ export async function createTask(data: CreateTaskPayload) {
 }
 
 export async function updateTask(id: string, data: UpdateTaskPayload) {
-  const res = await api<Task | { task: Task }>(`/tasks/${id}`, { method: "PUT", body: data });
+  const safeOffline = Object.keys(data).every((key) => key === "completedAt" || key === "todayFocusOn" || key === "scheduleLocked");
+  const res = await api<Task | { task: Task }>(`/tasks/${id}`, { method: "PUT", body: data, queueIfOffline: safeOffline });
   return unwrap(res, "task");
 }
 
@@ -80,6 +81,7 @@ export async function bulkUpdateTasks(ids: string[], update: UpdateTaskPayload) 
   const res = await api<{ tasks: Task[] } | Task[]>("/tasks/bulk", {
     method: "PATCH",
     body: { ids, update },
+    queueIfOffline: Object.keys(update).every((key) => key === "completedAt"),
   });
   return Array.isArray(res) ? res : res.tasks;
 }
@@ -103,6 +105,7 @@ export async function editTaskOccurrence(
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/occurrences`, {
     method: "PUT",
     body: data,
+    queueIfOffline: data.action !== "move",
   });
   return unwrap(res, "task");
 }
@@ -139,6 +142,7 @@ export async function updateChecklistItem(
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/checklist/${itemId}`, {
     method: "PATCH",
     body: data,
+    queueIfOffline: Object.keys(data).every((key) => key === "completed"),
   });
   return unwrap(res, "task");
 }
@@ -164,6 +168,7 @@ export async function setTodayFocus(taskId: string, date: string | null) {
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/today-focus`, {
     method: "PUT",
     body: { date },
+    queueIfOffline: true,
   });
   return unwrap(res, "task");
 }
