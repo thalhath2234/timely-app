@@ -53,10 +53,12 @@ var StaticGroupFields = map[string]bool{
 }
 
 const (
-	MaxTaskViews   = 20
-	MaxGroupFields = 3
-	MaxViewNameLen = 100
-	MaxViewIDLen   = 100
+	MaxTaskViews         = 20
+	MaxProjectTaskViews  = 100
+	MaxGroupFields       = 3
+	MaxViewNameLen       = 100
+	MaxViewIDLen         = 100
+	MaxProjectViewKeyLen = 100
 )
 
 // TaskViewConfig represents a single saved view configuration.
@@ -77,12 +79,18 @@ type TaskViewConfig struct {
 	SelectedLabelIds       []string            `json:"selectedLabelIds,omitempty"`
 	SelectedStageIds       []string            `json:"selectedStageIds,omitempty"`
 	// ShowCompleted is tri-state: nil means show completed (the UI default).
-	ShowCompleted *bool    `json:"showCompleted,omitempty"`
-	OnlyOverdue   bool     `json:"onlyOverdue,omitempty"`
-	OnlyScheduled bool     `json:"onlyScheduled,omitempty"`
-	OnlyRecurring bool     `json:"onlyRecurring,omitempty"`
+	ShowCompleted *bool `json:"showCompleted,omitempty"`
+	OnlyOverdue   bool  `json:"onlyOverdue,omitempty"`
+	OnlyScheduled bool  `json:"onlyScheduled,omitempty"`
+	OnlyRecurring bool  `json:"onlyRecurring,omitempty"`
+	// OnlyDated keeps tasks that carry a deadline or reserved calendar time.
+	// Tri-state so a saved "false" survives a round trip; nil lets the client
+	// apply its default (true for the built-in My Deadlines view).
+	OnlyDated     *bool    `json:"onlyDated,omitempty"`
 	ShowReminders bool     `json:"showReminders,omitempty"`
 	ColumnOrder   []string `json:"columnOrder"`
+	// OptionsVisible is the project-hub filter chrome; nil means shown.
+	OptionsVisible *bool `json:"optionsVisible,omitempty"`
 }
 
 func (tv TaskViewConfig) Validate(customFieldIDs map[string]bool) error {
@@ -163,6 +171,58 @@ func (tv *TaskViews) Scan(src any) error {
 	return json.Unmarshal(b, tv)
 }
 
+// ProjectTaskViews is one saved layout per project id.
+type ProjectTaskViews map[string]TaskViewConfig
+
+func (tv ProjectTaskViews) Value() (driver.Value, error) {
+	if tv == nil {
+		return "{}", nil
+	}
+	b, err := json.Marshal(tv)
+	return string(b), err
+}
+
+func (tv *ProjectTaskViews) Scan(src any) error {
+	if src == nil {
+		*tv = ProjectTaskViews{}
+		return nil
+	}
+	var b []byte
+	switch v := src.(type) {
+	case string:
+		b = []byte(v)
+	case []byte:
+		b = v
+	default:
+		return errors.New("unsupported type for ProjectTaskViews scan")
+	}
+	if len(b) == 0 || string(b) == "null" {
+		*tv = ProjectTaskViews{}
+		return nil
+	}
+	return json.Unmarshal(b, tv)
+}
+
+func (tv ProjectTaskViews) Validate() error {
+	if len(tv) > MaxProjectTaskViews {
+		return errors.New("too many project task views (max 100)")
+	}
+	for projectID, view := range tv {
+		if projectID == "" {
+			return errors.New("project task view key cannot be empty")
+		}
+		if len(projectID) > MaxProjectViewKeyLen {
+			return errors.New("project task view key too long")
+		}
+		if err := view.Validate(nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func boolPtr(v bool) *bool { return &v }
+
 // DefaultTaskViews returns the four built-in views every new user starts with.
 func DefaultTaskViews() TaskViews {
 	empty := []string{}
@@ -186,7 +246,11 @@ func DefaultTaskViews() TaskViews {
 			SortBy: SortByDeadline, SortDirection: SortDirectionAsc,
 			SelectedWorkspaceIds: empty,
 			SelectedStatusIds:    empty,
-			ColumnOrder:          empty,
+			// The name promises a date filter: open work with a deadline or a
+			// reserved block, not the whole board in a different sort.
+			ShowCompleted: boolPtr(false),
+			OnlyDated:     boolPtr(true),
+			ColumnOrder:   empty,
 		},
 		{
 			ID: "view_overview", Name: "Overview",
@@ -214,18 +278,19 @@ func DefaultTaskViews() TaskViews {
 // ---- Config model ----
 
 type Config struct {
-	ID                    string        `gorm:"type:text;primaryKey" json:"id"`
-	UserID                string        `gorm:"type:text;not null" json:"userId"`
-	IsOnBoardingCompleted bool          `gorm:"default:false" json:"isOnBoardingCompleted"`
-	TaskViews             TaskViews     `gorm:"type:jsonb;not null;default:'[]'" json:"taskViews"`
-	ActiveTaskViewId      string        `gorm:"type:text;not null;default:''" json:"activeTaskViewId"`
-	WorkingHours          WorkingHours          `gorm:"type:jsonb;not null;default:'{}'" json:"workingHours"`
-	ScheduleSettings      ScheduleSettings      `gorm:"type:jsonb;not null;default:'{}'" json:"scheduleSettings"`
-	NotificationSettings  NotificationSettings  `gorm:"type:jsonb;not null;default:'{}'" json:"notificationSettings"`
-	Version               int           `gorm:"not null;default:0" json:"-"`
-	CustomFields          []CustomField `gorm:"-" json:"customFields,omitempty"`
-	CreatedAt             string        `json:"createdAt"`
-	UpdatedAt             string        `json:"updatedAt"`
+	ID                    string               `gorm:"type:text;primaryKey" json:"id"`
+	UserID                string               `gorm:"type:text;not null" json:"userId"`
+	IsOnBoardingCompleted bool                 `gorm:"default:false" json:"isOnBoardingCompleted"`
+	TaskViews             TaskViews            `gorm:"type:jsonb;not null;default:'[]'" json:"taskViews"`
+	ActiveTaskViewId      string               `gorm:"type:text;not null;default:''" json:"activeTaskViewId"`
+	ProjectTaskViews      ProjectTaskViews     `gorm:"type:jsonb;not null;default:'{}'" json:"projectTaskViews"`
+	WorkingHours          WorkingHours         `gorm:"type:jsonb;not null;default:'{}'" json:"workingHours"`
+	ScheduleSettings      ScheduleSettings     `gorm:"type:jsonb;not null;default:'{}'" json:"scheduleSettings"`
+	NotificationSettings  NotificationSettings `gorm:"type:jsonb;not null;default:'{}'" json:"notificationSettings"`
+	Version               int                  `gorm:"not null;default:0" json:"-"`
+	CustomFields          []CustomField        `gorm:"-" json:"customFields,omitempty"`
+	CreatedAt             string               `json:"createdAt"`
+	UpdatedAt             string               `json:"updatedAt"`
 }
 
 func (c *Config) BeforeCreate(tx *gorm.DB) error {

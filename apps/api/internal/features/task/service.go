@@ -163,8 +163,22 @@ func NewTaskService(
 }
 
 func (s *taskService) Create(task *models.Task, customFieldValues []*models.CustomFieldValue, rec *models.RecurrenceInput) (*models.Task, error) {
-	if task.Name == "" {
-		return nil, errors.New("task name cannot be empty")
+	name, err := normalizeName(task.Name)
+	if err != nil {
+		return nil, err
+	}
+	task.Name = name
+	if len(task.Description) > maxDescriptionLength {
+		task.Description = task.Description[:maxDescriptionLength]
+	}
+	if err := validateDuration(task.Duration); err != nil {
+		return nil, err
+	}
+	if err := validateDateRange(task.StartDate, task.Deadline); err != nil {
+		return nil, err
+	}
+	if err := validatePreferredWindows(task.PreferredWindows); err != nil {
+		return nil, err
 	}
 	if rec != nil && rec.RRule != "" {
 		if _, err := recurrence.Parse(rec.RRule); err != nil {
@@ -191,6 +205,9 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 	}
 	if task.Kind == models.KindReminder {
 		task.Duration = 0
+		if !reminderHasPing(task.ScheduledOn, hasRecurrence) {
+			return nil, errReminderNeedsPing
+		}
 	}
 	if task.Checklist == nil {
 		task.Checklist = models.Checklist{}
@@ -238,7 +255,7 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 		}
 	}
 
-	task, err := s.taskRepo.CreateTask(task, customFieldValues)
+	task, err = s.taskRepo.CreateTask(task, customFieldValues)
 	if err != nil {
 		return nil, err
 	}
@@ -351,14 +368,16 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 	updates := map[string]any{}
 
 	if update.Name != nil {
-		name := strings.TrimSpace(*update.Name)
-		if name == "" {
-			return nil, errors.New("task name cannot be empty")
-		}
-		if len(name) > maxNameLength {
-			name = name[:maxNameLength]
+		name, err := normalizeName(*update.Name)
+		if err != nil {
+			return nil, err
 		}
 		updates["name"] = name
+	}
+	if update.Duration != nil {
+		if err := validateDuration(*update.Duration); err != nil {
+			return nil, err
+		}
 	}
 	if update.Description != nil {
 		text := *update.Description
@@ -397,6 +416,9 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		updates["schedule_locked"] = *update.ScheduleLocked
 	}
 	if update.PreferredWindows != nil {
+		if err := validatePreferredWindows(*update.PreferredWindows); err != nil {
+			return nil, err
+		}
 		updates["preferred_windows"] = *update.PreferredWindows
 	}
 	if update.EarliestStartAt != nil {
@@ -446,6 +468,11 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 			if _, err := s.taskRepo.GetTaskByIdForUser(userID, *update.BlockedByID); err != nil {
 				return nil, errors.New("blocking task not found")
 			}
+			// Indirect loops (A waits on B, B waits on A) are as fatal as a
+			// self-reference: nothing in the ring can ever become ready.
+			if err := s.assertNoDependencyCycle(userID, taskID, *update.BlockedByID); err != nil {
+				return nil, err
+			}
 			updates["blocked_by_id"] = *update.BlockedByID
 		}
 	}
@@ -465,10 +492,29 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		return nil, err
 	}
 
+	// Date range is checked against the merged row so a lone deadline edit
+	// that lands before an existing start date is caught too.
+	if update.StartDate != nil || update.Deadline != nil {
+		startDate := before.StartDate
+		if update.StartDate != nil {
+			startDate = update.StartDate
+		}
+		deadline := before.Deadline
+		if update.Deadline != nil {
+			deadline = update.Deadline
+		}
+		if err := validateDateRange(startDate, deadline); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := s.syncCompletionWithStatus(before, updates); err != nil {
 		return nil, err
 	}
 	if err := s.applyKindUpdate(userID, before, update, updates); err != nil {
+		return nil, err
+	}
+	if err := assertReminderPing(before, update, updates); err != nil {
 		return nil, err
 	}
 	if err := s.applyParentUpdate(userID, before, update, updates); err != nil {

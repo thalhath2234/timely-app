@@ -237,15 +237,30 @@ func snapshotEngineBlocks(tx *gorm.DB, userID string, taskIDs []string, from, to
 	return out, err
 }
 
-func currentEngineBlocks(tasks []models.Task, from, to time.Time) map[string][]BlockOut {
+// currentEngineBlocks returns the engine blocks Apply is allowed to replace,
+// using exactly the predicate of Store.DeleteEngineBlocksInRange: candidate
+// tasks only, engine source, not locked, overlapping [from, to), and not
+// starting inside the freeze window. Preview "remove" rows are derived from
+// this map, so anything outside the predicate must not appear here or the
+// preview would describe deletions Apply never performs.
+func currentEngineBlocks(tasks []models.Task, candidates map[string]bool, from, to, freezeUntil time.Time) map[string][]BlockOut {
 	out := map[string][]BlockOut{}
 	for i := range tasks {
 		t := &tasks[i]
+		if t.IsCompleted() {
+			continue
+		}
+		if candidates != nil && !candidates[t.ID] {
+			continue
+		}
 		for _, block := range t.Blocks {
-			if block.Source != models.BlockSourceEngine {
+			if block.Source != models.BlockSourceEngine || block.Locked {
 				continue
 			}
 			if !block.StartAt.Before(to) || !block.EndAt.After(from) {
+				continue
+			}
+			if !freezeUntil.IsZero() && block.StartAt.Before(freezeUntil) {
 				continue
 			}
 			out[t.ID] = append(out[t.ID], BlockOut{
@@ -281,7 +296,7 @@ func sameBlocks(a, b []BlockOut) bool {
 	return true
 }
 
-func diffPlan(current map[string][]BlockOut, proposals []ProposalOut, skipped []Skipped) []PlanChange {
+func diffPlan(current map[string][]BlockOut, proposals []ProposalOut, skipped []Skipped, names map[string]string) []PlanChange {
 	seen := map[string]bool{}
 	var changes []PlanChange
 	for _, proposal := range proposals {
@@ -321,8 +336,12 @@ func diffPlan(current map[string][]BlockOut, proposals []ProposalOut, skipped []
 		if seen[id] || len(blocks) == 0 {
 			continue
 		}
+		name := names[id]
+		if name == "" {
+			name = "Untitled"
+		}
 		changes = append(changes, PlanChange{
-			Action: "remove", TaskID: id, Message: "Remove previous engine block",
+			Action: "remove", TaskID: id, TaskName: name, Message: "Remove previous engine block",
 			Before: &blocks[0],
 		})
 	}

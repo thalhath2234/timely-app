@@ -168,6 +168,7 @@ func setupProjectRoutes(g *echo.Group, projectHandler *project.Handler) {
 	g.DELETE("/projects/:id/stages/:stageId", projectHandler.DeleteStage)
 	g.PUT("/projects/:id/stages/reorder", projectHandler.ReorderStages)
 	g.POST("/projects/:id/duplicate", projectHandler.Duplicate)
+	g.GET("/projects/:id/activity", projectHandler.ListActivity)
 }
 
 // setupWorkspaceRoutes defines all protected workspace endpoints

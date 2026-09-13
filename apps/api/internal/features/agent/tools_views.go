@@ -52,6 +52,7 @@ type createViewIn struct {
 	OnlyOverdue            *bool               `json:"onlyOverdue,omitempty"`
 	OnlyScheduled          *bool               `json:"onlyScheduled,omitempty"`
 	OnlyRecurring          *bool               `json:"onlyRecurring,omitempty"`
+	OnlyDated              *bool               `json:"onlyDated,omitempty"`
 	ShowReminders          *bool               `json:"showReminders,omitempty"`
 	ColumnOrder            []string            `json:"columnOrder,omitempty"`
 }
@@ -134,6 +135,9 @@ func viewFromInput(in createViewIn, existing *models.TaskViewConfig) models.Task
 	}
 	if in.OnlyRecurring != nil {
 		view.OnlyRecurring = *in.OnlyRecurring
+	}
+	if in.OnlyDated != nil {
+		view.OnlyDated = in.OnlyDated
 	}
 	if in.ShowReminders != nil {
 		view.ShowReminders = *in.ShowReminders

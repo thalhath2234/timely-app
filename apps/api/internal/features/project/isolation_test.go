@@ -52,6 +52,9 @@ func (r *capturingRepo) UpdateStage(stage *models.Stage) (*models.Stage, error) 
 func (r *capturingRepo) DeleteStage(projectID, stageID string) error            { return nil }
 func (r *capturingRepo) ReorderStages(projectID string, ids []string) error     { return nil }
 func (r *capturingRepo) NextStageOrder(projectID string) (int, error)           { return 0, nil }
+func (r *capturingRepo) ListTaskActivity(userID, projectID string, limit int) ([]ProjectActivityEntry, error) {
+	return nil, nil
+}
 
 func TestCreateRejectsForeignWorkspace(t *testing.T) {
 	repo := &capturingRepo{}

@@ -207,9 +207,13 @@ func (r *workspaceRepository) UpdateConfig(config *models.Config) (*models.Confi
 		Where("user_id = ?", config.UserID).
 		Updates(updates)
 	if result.Error == nil {
-		if err := models.WriteJSONB(r.db, "configs", map[string]any{
+		jsonCols := map[string]any{
 			"task_views": config.TaskViews,
-		}, "user_id = ?", config.UserID); err != nil {
+		}
+		if config.ProjectTaskViews != nil {
+			jsonCols["project_task_views"] = config.ProjectTaskViews
+		}
+		if err := models.WriteJSONB(r.db, "configs", jsonCols, "user_id = ?", config.UserID); err != nil {
 			result.Error = err
 		}
 	}

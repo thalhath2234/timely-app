@@ -447,12 +447,25 @@ func (s *taskService) applyKindUpdate(userID string, before *models.Task, update
 			kind = models.KindTask
 		}
 	}
+	if update.Duration != nil {
+		updates["duration"] = duration
+	}
 	if kind == models.KindTask {
 		if duration <= 0 {
 			return errors.New("work tasks need a duration greater than 0")
 		}
 		if workspaceID == nil || strings.TrimSpace(*workspaceID) == "" {
 			return errors.New("workspaceId is required")
+		}
+		// Clarifying an inbox item (or converting a reminder) must land on the
+		// board as a normal task: give it the workspace default status when
+		// neither the row nor the update carries one.
+		if kind != before.Kind {
+			if _, statusTouched := updates["status_id"]; !statusTouched && (before.StatusID == nil || *before.StatusID == "") {
+				if statusID := s.defaultStatusID(*workspaceID); statusID != "" {
+					updates["status_id"] = statusID
+				}
+			}
 		}
 	}
 	if kind == models.KindInbox {
@@ -467,6 +480,27 @@ func (s *taskService) applyKindUpdate(userID string, before *models.Task, update
 	}
 	_ = userID
 	return nil
+}
+
+// defaultStatusID returns the workspace's default status, or "" when the
+// lookup is unavailable (unit tests construct the service without a repo).
+func (s *taskService) defaultStatusID(workspaceID string) string {
+	if s == nil || s.taskRepo == nil || workspaceID == "" {
+		return ""
+	}
+	statuses, err := s.taskRepo.GetWorkspaceStatuses(workspaceID)
+	if err != nil {
+		return ""
+	}
+	for i := range statuses {
+		if statuses[i].IsDefault {
+			return statuses[i].ID
+		}
+	}
+	if len(statuses) > 0 {
+		return statuses[0].ID
+	}
+	return ""
 }
 
 func (s *taskService) applyParentUpdate(userID string, before *models.Task, update TaskUpdate, updates map[string]any) error {

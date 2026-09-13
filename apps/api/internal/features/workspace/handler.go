@@ -470,9 +470,10 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 	}
 
 	var req struct {
-		IsOnBoardingCompleted bool             `json:"isOnboardingCompleted"`
-		TaskViews             models.TaskViews `json:"taskViews"`
-		ActiveTaskViewId      string           `json:"activeTaskViewId"`
+		IsOnBoardingCompleted bool                     `json:"isOnboardingCompleted"`
+		TaskViews             models.TaskViews         `json:"taskViews"`
+		ActiveTaskViewId      string                   `json:"activeTaskViewId"`
+		ProjectTaskViews      *models.ProjectTaskViews `json:"projectTaskViews"`
 	}
 
 	if err := c.Bind(&req); err != nil {
@@ -487,6 +488,9 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 		IsOnBoardingCompleted: req.IsOnBoardingCompleted,
 		TaskViews:             req.TaskViews,
 		ActiveTaskViewId:      req.ActiveTaskViewId,
+	}
+	if req.ProjectTaskViews != nil {
+		config.ProjectTaskViews = *req.ProjectTaskViews
 	}
 
 	updatedConfig, err := h.workspaceService.UpdateConfig(config)

@@ -46,15 +46,31 @@ func (s *Service) Register(worker *jobs.Worker) {
 	worker.SetSweep(s.Sweep)
 }
 
+// GetSettings returns the stored preferences with the *effective* timezone
+// filled in: an explicit notification timezone wins, otherwise the working
+// hours timezone, otherwise UTC. Digest and quiet-hour jobs use the same
+// resolution, so what the settings screen shows is what the scheduler uses.
 func (s *Service) GetSettings(userID string) (models.NotificationSettings, error) {
-	return s.repo.GetSettings(userID)
+	settings, err := s.repo.GetSettings(userID)
+	if err != nil {
+		return settings, err
+	}
+	settings.Timezone = settings.Location(s.repo.WorkingHoursTimezone(userID)).String()
+	return settings, nil
 }
 
 func (s *Service) UpdateSettings(userID string, settings models.NotificationSettings) (models.NotificationSettings, error) {
 	normalized := settings.Normalized()
+	if tz := strings.TrimSpace(normalized.Timezone); tz != "" {
+		if _, err := time.LoadLocation(tz); err != nil {
+			return models.NotificationSettings{}, fmt.Errorf("invalid timezone %q", tz)
+		}
+		normalized.Timezone = tz
+	}
 	if err := s.repo.UpdateSettings(userID, normalized); err != nil {
 		return models.NotificationSettings{}, err
 	}
+	normalized.Timezone = normalized.Location(s.repo.WorkingHoursTimezone(userID)).String()
 	return normalized, nil
 }
 
@@ -406,8 +422,10 @@ func digestCopy(kind string, today *calendar.TodayResponse) (string, string, str
 		}
 	}
 	if kind == "evening" {
+		// "Unfinished" is scoped to work that was on today's calendar and is
+		// still open — not the whole backlog, which Report counts separately.
 		return "Evening recap",
-			fmt.Sprintf("Done today: %d. Still open: %d. Overdue: %d.", len(today.CompletedToday), len(today.Unfinished), len(today.Overdue)),
+			fmt.Sprintf("Done today: %d. Unfinished from today's plan: %d. Overdue: %d.", len(today.CompletedToday), len(today.Unfinished), len(today.Overdue)),
 			models.NotifyDigest
 	}
 	return "Plan your day",

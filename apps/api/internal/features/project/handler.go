@@ -147,6 +147,25 @@ func (h *Handler) GetProjectById(c *echo.Context) error {
 	return c.JSON(http.StatusOK, project)
 }
 
+func (h *Handler) ListActivity(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	projectID := c.Param("id")
+	if projectID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid project id")
+	}
+	entries, err := h.projectService.ListActivity(userID, projectID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, "project not found")
+		}
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, entries)
+}
+
 func (h *Handler) Duplicate(c *echo.Context) error {
 	userID, ok := c.Get("userID").(string)
 	if !ok {

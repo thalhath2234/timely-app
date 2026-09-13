@@ -163,6 +163,8 @@ func DefaultTaskViews() []map[string]any {
 			"sortDirection":        "asc",
 			"selectedWorkspaceIds": empty,
 			"selectedStatusIds":    empty,
+			"showCompleted":        false,
+			"onlyDated":            true,
 			"columnOrder":          empty,
 		},
 		{

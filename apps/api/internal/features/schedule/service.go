@@ -3,6 +3,7 @@ package schedule
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 	"timely-api/internal/blocks"
 	"timely-api/internal/features/calendar"
@@ -48,6 +49,12 @@ type ProposalOut struct {
 	Reason          string     `json:"reason,omitempty"`
 	OccurrenceStart *time.Time `json:"occurrenceStart,omitempty"`
 	Change          string     `json:"change,omitempty"`
+	// Minutes accounting so a plan can never look complete while leaving
+	// work unbooked. Partial is true when ShortfallMinutes > 0.
+	RequiredMinutes  int  `json:"requiredMinutes"`
+	PlacedMinutes    int  `json:"placedMinutes"`
+	ShortfallMinutes int  `json:"shortfallMinutes"`
+	Partial          bool `json:"partial"`
 }
 
 type PlanChange struct {
@@ -420,6 +427,9 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	}
 	var busy []Interval
 	for _, item := range items {
+		if item.Task != nil && item.Task.IsCompleted() {
+			continue
+		}
 		if item.Kind == calendar.KindTaskOccurrence && item.Task != nil && item.Task.IsSchedulableWork() {
 			continue
 		}
@@ -475,17 +485,28 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	if response.Skipped == nil {
 		response.Skipped = []Skipped{}
 	}
-	current := currentEngineBlocks(tasks, from, to)
+	current := currentEngineBlocks(tasks, candidateSet, from, to, freezeUntil)
 	for _, proposal := range result.Proposals {
 		out := ProposalOut{
-			TaskID:          proposal.TaskID,
-			TaskName:        proposal.TaskName,
-			EndsAt:          proposal.EndsAt,
-			Deadline:        proposal.Deadline,
-			PastDeadline:    proposal.PastDeadline,
-			Reason:          proposal.Reason,
-			OccurrenceStart: proposal.OccurrenceStart,
-			Blocks:          make([]BlockOut, 0, len(proposal.Blocks)),
+			TaskID:           proposal.TaskID,
+			TaskName:         proposal.TaskName,
+			EndsAt:           proposal.EndsAt,
+			Deadline:         proposal.Deadline,
+			PastDeadline:     proposal.PastDeadline,
+			Reason:           proposal.Reason,
+			OccurrenceStart:  proposal.OccurrenceStart,
+			Blocks:           make([]BlockOut, 0, len(proposal.Blocks)),
+			RequiredMinutes:  proposal.RequiredMinutes,
+			PlacedMinutes:    proposal.PlacedMinutes,
+			ShortfallMinutes: proposal.ShortfallMinutes,
+			Partial:          proposal.ShortfallMinutes > 0,
+		}
+		if out.Partial {
+			response.Risks = append(response.Risks, PlanRisk{
+				Kind: "partial_placement", TaskID: proposal.TaskID, TaskName: proposal.TaskName,
+				Message: fmt.Sprintf("only %d of %d minutes placed; %d minutes still need a slot",
+					proposal.PlacedMinutes, proposal.RequiredMinutes, proposal.ShortfallMinutes),
+			})
 		}
 		for index, block := range proposal.Blocks {
 			out.Blocks = append(out.Blocks, BlockOut{
@@ -504,7 +525,19 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 			})
 		}
 	}
-	response.Changes = diffPlan(current, response.Proposals, skipped)
+	names := map[string]string{}
+	for i := range tasks {
+		names[tasks[i].ID] = tasks[i].Name
+	}
+	for _, item := range items {
+		if item.TaskID == "" || names[item.TaskID] != "" {
+			continue
+		}
+		if item.Title != "" {
+			names[item.TaskID] = item.Title
+		}
+	}
+	response.Changes = diffPlan(current, response.Proposals, skipped, names)
 	response.Capacity = dayCapacity(from, to, loc, hours, items, response.Proposals)
 	if result.FreeMinutes < result.PlannedMinutes {
 		response.Risks = append(response.Risks, PlanRisk{

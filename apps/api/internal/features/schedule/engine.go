@@ -80,6 +80,11 @@ type Proposal struct {
 	Reason          string     `json:"reason"`
 	OccurrenceStart *time.Time `json:"occurrenceStart,omitempty"`
 	CandidateID     string     `json:"-"`
+	// RequiredMinutes is the estimate; PlacedMinutes what the blocks cover.
+	// ShortfallMinutes > 0 marks a partial placement that must be surfaced.
+	RequiredMinutes  int `json:"requiredMinutes"`
+	PlacedMinutes    int `json:"placedMinutes"`
+	ShortfallMinutes int `json:"shortfallMinutes"`
 }
 
 type Skipped struct {
@@ -183,8 +188,8 @@ func Plan(input PlanInput) PlanResult {
 		if minChunk < 15 {
 			minChunk = 15
 		}
-		blocks, ok := place(slotFree, earliest, candidate.DurationMinutes, minChunk, candidate.ChunkMinutes, breakMinutes, candidate.Contiguous)
-		if !ok {
+		blocks, shortfall := place(slotFree, earliest, candidate.DurationMinutes, minChunk, candidate.ChunkMinutes, breakMinutes, candidate.Contiguous)
+		if len(blocks) == 0 {
 			reason := ReasonNoCapacity
 			if candidate.Contiguous {
 				reason = ReasonContiguous
@@ -194,10 +199,12 @@ func Plan(input PlanInput) PlanResult {
 			continue
 		}
 
+		placed := 0
 		for _, block := range blocks {
 			padded := Interval{Start: block.Start, End: block.End.Add(time.Duration(breakMinutes) * time.Minute)}
 			free = subtract(free, padded)
 			result.PlannedMinutes += block.Minutes()
+			placed += block.Minutes()
 		}
 
 		endsAt := blocks[len(blocks)-1].End
@@ -206,13 +213,16 @@ func Plan(input PlanInput) PlanResult {
 			ends[candidate.TaskID] = endsAt
 		}
 		proposal := Proposal{
-			TaskID:          taskID,
-			TaskName:        candidate.Name,
-			Blocks:          blocks,
-			EndsAt:          endsAt,
-			Reason:          joinReasons(candidate.Rank.Reasons),
-			OccurrenceStart: candidate.OccurrenceStart,
-			CandidateID:     candidate.ID,
+			TaskID:           taskID,
+			TaskName:         candidate.Name,
+			Blocks:           blocks,
+			EndsAt:           endsAt,
+			Reason:           joinReasons(candidate.Rank.Reasons),
+			OccurrenceStart:  candidate.OccurrenceStart,
+			CandidateID:      candidate.ID,
+			RequiredMinutes:  candidate.DurationMinutes,
+			PlacedMinutes:    placed,
+			ShortfallMinutes: shortfall,
 		}
 		if candidate.Deadline != nil {
 			deadlineEnd := endOfDay(*candidate.Deadline, loc)
@@ -273,9 +283,15 @@ func priorityRank(priority string) int {
 }
 
 // place fills `duration` minutes into the free intervals starting at or after
-// `earliest`. preferredChunk is a ceiling; minChunk is the smallest leftover
-// the engine will keep. Contiguous tasks must fit in a single interval.
-func place(free []Interval, earliest time.Time, duration, minChunk, preferredChunk, gap int, contiguous bool) ([]Interval, bool) {
+// `earliest`. preferredChunk is a ceiling; minChunk is the smallest block the
+// engine will write. Contiguous tasks must fit in a single interval.
+//
+// It returns the blocks it could reserve and the minutes still unplaced. A
+// shortfall of 0 means the estimate is fully covered; a positive shortfall
+// with blocks means a partial placement the caller must surface, never treat
+// as done. A leftover smaller than minChunk is rounded up to minChunk rather
+// than dropped, so the task is never silently under-booked.
+func place(free []Interval, earliest time.Time, duration, minChunk, preferredChunk, gap int, contiguous bool) ([]Interval, int) {
 	if minChunk < 15 {
 		minChunk = 15
 	}
@@ -286,7 +302,10 @@ func place(free []Interval, earliest time.Time, duration, minChunk, preferredChu
 		preferredChunk = minChunk
 	}
 	if contiguous {
-		return placeContiguous(free, earliest, duration)
+		if blocks, ok := placeContiguous(free, earliest, duration); ok {
+			return blocks, 0
+		}
+		return nil, duration
 	}
 
 	remaining := duration
@@ -302,14 +321,25 @@ func place(free []Interval, earliest time.Time, duration, minChunk, preferredChu
 			if remaining < size {
 				size = remaining
 			}
+			if size < minChunk {
+				// Never write a sliver: book a minimum chunk instead of
+				// pretending the last few minutes do not exist.
+				size = minChunk
+			}
 			end := cursor.Add(time.Duration(size) * time.Minute)
 			if end.After(interval.End) {
 				room := int(interval.End.Sub(cursor).Minutes())
 				if room >= minChunk && room < size && room*2 >= size {
-					blocks = append(blocks, Interval{Start: cursor, End: interval.End})
-					remaining -= room
-					if remaining < minChunk {
-						remaining = 0
+					take := room
+					// Never leave a sliver smaller than minChunk for later: shrink
+					// this chunk so exactly one minimum chunk carries over and the
+					// total lands on the estimate instead of overshooting it.
+					if left := remaining - room; left > 0 && left < minChunk {
+						take = remaining - minChunk
+					}
+					if take >= minChunk {
+						blocks = append(blocks, Interval{Start: cursor, End: cursor.Add(time.Duration(take) * time.Minute)})
+						remaining -= take
 					}
 				}
 				break
@@ -319,10 +349,13 @@ func place(free []Interval, earliest time.Time, duration, minChunk, preferredChu
 			cursor = end.Add(time.Duration(gap) * time.Minute)
 		}
 		if remaining <= 0 {
-			return blocks, true
+			return blocks, 0
 		}
 	}
-	return nil, false
+	if remaining < 0 {
+		remaining = 0
+	}
+	return blocks, remaining
 }
 
 func placeContiguous(free []Interval, earliest time.Time, duration int) ([]Interval, bool) {

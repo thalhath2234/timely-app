@@ -43,6 +43,7 @@ type ProjectService interface {
 	UpdateStage(userID, projectID, stageID, name string) (*models.Stage, error)
 	DeleteStage(userID, projectID, stageID string) error
 	ReorderStages(userID, projectID string, ids []string) ([]models.Stage, error)
+	ListActivity(userID, projectID string) ([]ProjectActivityEntry, error)
 }
 
 type workspaceOwner interface {
@@ -297,6 +298,29 @@ func (s *projectService) DeleteStage(userID, projectID, stageID string) error {
 		return err
 	}
 	return s.repo.DeleteStage(projectID, stageID)
+}
+
+// ListActivity is the project's change feed: every recorded task activity for
+// tasks in the project, newest first, plus a synthetic "created" entry so the
+// feed always has a start. Project-level field edits are not yet journaled.
+func (s *projectService) ListActivity(userID, projectID string) ([]ProjectActivityEntry, error) {
+	project, err := s.repo.GetProjectByIdForUser(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.repo.ListTaskActivity(userID, projectID, 200)
+	if err != nil {
+		return nil, err
+	}
+	entries = append(entries, ProjectActivityEntry{
+		ID:        "project-created:" + project.ID,
+		TaskID:    "",
+		TaskName:  project.Title,
+		Action:    "project_created",
+		Message:   "created this project",
+		CreatedAt: project.CreatedAt,
+	})
+	return entries, nil
 }
 
 func (s *projectService) ReorderStages(userID, projectID string, ids []string) ([]models.Stage, error) {

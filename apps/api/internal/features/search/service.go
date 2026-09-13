@@ -86,8 +86,15 @@ func (s *service) SemanticSearch(ctx context.Context, userID, query string, limi
 	if err != nil {
 		return nil, err
 	}
+	seen := map[string]bool{}
 	hits := make([]Hit, 0, len(raw))
 	for _, item := range raw {
+		key := item.Kind + ":" + item.EntityID
+		if item.EntityID == "" || seen[key] || seen[item.EntityID] {
+			continue
+		}
+		seen[key] = true
+		seen[item.EntityID] = true
 		hits = append(hits, Hit{
 			Kind:    item.Kind,
 			ID:      item.EntityID,

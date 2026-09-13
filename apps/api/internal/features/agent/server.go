@@ -197,7 +197,7 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_sheet", Description: "Delete a sheet."}, s.deleteSheet)
 
 	mcp.AddTool(server, &mcp.Tool{Name: "list_task_views", Description: "Saved task list/kanban/gantt views, including Phase 1 filters (project, priority, labels, stage, overdue, scheduled, recurring, reminders)."}, s.listTaskViews)
-	mcp.AddTool(server, &mcp.Tool{Name: "create_task_view", Description: "Create a saved view. Filters: selectedProjectIds, selectedPriorityLevels, selectedLabelIds, selectedStageIds, showCompleted, onlyOverdue, onlyScheduled, onlyRecurring, showReminders. renderMode: list, kanban, gantt."}, s.createTaskView)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_task_view", Description: "Create a saved view. Filters: selectedProjectIds, selectedPriorityLevels, selectedLabelIds, selectedStageIds, showCompleted, onlyOverdue, onlyScheduled, onlyRecurring, onlyDated (deadline or scheduled block), showReminders. renderMode: list, kanban, gantt."}, s.createTaskView)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_task_view", Description: "Update a saved view, including filters and renderMode."}, s.updateTaskView)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_task_view", Description: "Delete a saved view."}, s.deleteTaskView)
 	mcp.AddTool(server, &mcp.Tool{Name: "set_active_task_view", Description: "Select the active saved view."}, s.setActiveTaskView)

@@ -269,6 +269,9 @@ func (s *workspaceService) GetConfig(userID string) (*models.Config, error) {
 		config.TaskViews = models.DefaultTaskViews()
 		config.ActiveTaskViewId = "view_task_list"
 	}
+	if config.ProjectTaskViews == nil {
+		config.ProjectTaskViews = models.ProjectTaskViews{}
+	}
 
 	customFields, err := s.repo.GetAllCustomFields(userID)
 	if err != nil {
@@ -288,6 +291,11 @@ func (s *workspaceService) UpdateConfig(config *models.Config) (*models.Config, 
 
 	if err := validateTaskViews(config.TaskViews, config.ActiveTaskViewId); err != nil {
 		return nil, err
+	}
+	if config.ProjectTaskViews != nil {
+		if err := config.ProjectTaskViews.Validate(); err != nil {
+			return nil, err
+		}
 	}
 
 	updatedConfig, err := s.repo.UpdateConfig(config)

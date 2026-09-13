@@ -19,6 +19,43 @@ type ProjectRepository interface {
 	DeleteStage(projectID, stageID string) error
 	ReorderStages(projectID string, ids []string) error
 	NextStageOrder(projectID string) (int, error)
+	ListTaskActivity(userID, projectID string, limit int) ([]ProjectActivityEntry, error)
+}
+
+// ProjectActivityEntry is one recorded change on a task inside the project,
+// with the task name denormalised so the feed reads without extra lookups.
+type ProjectActivityEntry struct {
+	ID        string  `json:"id"`
+	TaskID    string  `json:"taskId"`
+	TaskName  string  `json:"taskName"`
+	ActorName string  `json:"actorName"`
+	Action    string  `json:"action"`
+	Field     *string `json:"field"`
+	OldValue  *string `json:"oldValue"`
+	NewValue  *string `json:"newValue"`
+	Message   string  `json:"message"`
+	CreatedAt string  `json:"createdAt"`
+}
+
+// ListTaskActivity returns the newest task activity rows for tasks that
+// currently belong to the project. Ownership is enforced through the task's
+// user_id so a foreign project id yields nothing.
+func (r *projectRepository) ListTaskActivity(userID, projectID string, limit int) ([]ProjectActivityEntry, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	var out []ProjectActivityEntry
+	err := r.db.Table("task_activities AS a").
+		Select("a.id, a.task_id, t.name AS task_name, a.actor_name, a.action, a.field, a.old_value, a.new_value, a.message, a.created_at").
+		Joins("JOIN tasks t ON t.id = a.task_id").
+		Where("t.project_id = ? AND t.user_id = ?", projectID, userID).
+		Order("a.created_at DESC").
+		Limit(limit).
+		Scan(&out).Error
+	if out == nil {
+		out = []ProjectActivityEntry{}
+	}
+	return out, err
 }
 
 type projectRepository struct {

@@ -45,3 +45,42 @@ func TestTaskViewConfigRoundTripFilters(t *testing.T) {
 		t.Fatalf("selectedProjectIds = %v", got.SelectedProjectIds)
 	}
 }
+
+func TestProjectTaskViewsRoundTrip(t *testing.T) {
+	shown := false
+	views := ProjectTaskViews{
+		"pr_1": {
+			ID:                   "pr_1",
+			Name:                 "Timely",
+			DataMode:             DataModeTask,
+			RenderMode:           RenderModeKanban,
+			GroupFields:          []string{"stage"},
+			GroupSortDirection:   SortDirectionAsc,
+			GroupValueOrders:     map[string][]string{"stage": {"R1", "R2"}},
+			SortBy:               SortByPriority,
+			SortDirection:        SortDirectionDesc,
+			SelectedWorkspaceIds: []string{},
+			SelectedStatusIds:    []string{"st_1"},
+			ColumnOrder:          []string{"name", "deadline"},
+			OptionsVisible:       &shown,
+		},
+	}
+	raw, err := json.Marshal(views)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got ProjectTaskViews
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	saved, ok := got["pr_1"]
+	if !ok || saved.RenderMode != RenderModeKanban || saved.SortBy != SortByPriority {
+		t.Fatalf("project view did not round-trip: %+v", got)
+	}
+	if saved.OptionsVisible == nil || *saved.OptionsVisible {
+		t.Fatalf("optionsVisible did not round-trip: %+v", saved)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
