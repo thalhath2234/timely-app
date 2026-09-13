@@ -132,6 +132,10 @@ func NewPushDeviceID() string {
 	return PrefixedUUID("dev")
 }
 
+func NewBackupID() string {
+	return PrefixedUUID("bkp")
+}
+
 // DefaultTaskViews returns the four built-in task views every new user starts with.
 func DefaultTaskViews() []map[string]any {
 	empty := []string{}

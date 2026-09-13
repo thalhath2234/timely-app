@@ -19,6 +19,7 @@ const (
 	JobIndexEntity  = "index_entity"
 	JobDailyDigest  = "daily_digest"
 	JobSendPush     = "send_push"
+	JobCreateBackup = "create_backup"
 
 	NotifyReminder = "reminder"
 	NotifyDigest   = "digest"
@@ -93,19 +94,19 @@ type Job struct {
 func (Job) TableName() string { return "jobs" }
 
 type Notification struct {
-	ID           string         `gorm:"type:text;primaryKey" json:"id"`
-	UserID       string         `gorm:"type:text;not null" json:"userId"`
-	Category     string         `gorm:"type:text;not null" json:"category"`
-	Title        string         `gorm:"type:text;not null" json:"title"`
-	Body         string         `gorm:"type:text;not null;default:''" json:"body"`
-	EntityType   *string        `json:"entityType,omitempty"`
-	EntityID     *string        `json:"entityId,omitempty"`
-	Data         JobPayload     `gorm:"type:jsonb;not null;default:'{}'" json:"data"`
-	DedupeKey    *string        `json:"dedupeKey,omitempty"`
-	ReadAt       *time.Time     `json:"readAt,omitempty"`
-	SnoozedUntil *time.Time     `json:"snoozedUntil,omitempty"`
-	DeliveredAt  *time.Time     `json:"deliveredAt,omitempty"`
-	CreatedAt    time.Time      `gorm:"type:timestamptz;not null" json:"createdAt"`
+	ID           string     `gorm:"type:text;primaryKey" json:"id"`
+	UserID       string     `gorm:"type:text;not null" json:"userId"`
+	Category     string     `gorm:"type:text;not null" json:"category"`
+	Title        string     `gorm:"type:text;not null" json:"title"`
+	Body         string     `gorm:"type:text;not null;default:''" json:"body"`
+	EntityType   *string    `json:"entityType,omitempty"`
+	EntityID     *string    `json:"entityId,omitempty"`
+	Data         JobPayload `gorm:"type:jsonb;not null;default:'{}'" json:"data"`
+	DedupeKey    *string    `json:"dedupeKey,omitempty"`
+	ReadAt       *time.Time `json:"readAt,omitempty"`
+	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
+	DeliveredAt  *time.Time `json:"deliveredAt,omitempty"`
+	CreatedAt    time.Time  `gorm:"type:timestamptz;not null" json:"createdAt"`
 }
 
 func (Notification) TableName() string { return "notifications" }
@@ -123,15 +124,15 @@ type PushDevice struct {
 func (PushDevice) TableName() string { return "push_devices" }
 
 type NotificationSettings struct {
-	Reminders        bool   `json:"reminders"`
-	DigestMorning    bool   `json:"digestMorning"`
-	DigestEvening    bool   `json:"digestEvening"`
-	Planning         bool   `json:"planning"`
-	QuietHoursStart  string `json:"quietHoursStart"`
-	QuietHoursEnd    string `json:"quietHoursEnd"`
-	Timezone         string `json:"timezone"`
-	MorningDigestAt  string `json:"morningDigestAt"`
-	EveningDigestAt  string `json:"eveningDigestAt"`
+	Reminders       bool   `json:"reminders"`
+	DigestMorning   bool   `json:"digestMorning"`
+	DigestEvening   bool   `json:"digestEvening"`
+	Planning        bool   `json:"planning"`
+	QuietHoursStart string `json:"quietHoursStart"`
+	QuietHoursEnd   string `json:"quietHoursEnd"`
+	Timezone        string `json:"timezone"`
+	MorningDigestAt string `json:"morningDigestAt"`
+	EveningDigestAt string `json:"eveningDigestAt"`
 }
 
 func (s NotificationSettings) Value() (driver.Value, error) {

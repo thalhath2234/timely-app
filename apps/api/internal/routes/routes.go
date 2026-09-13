@@ -9,6 +9,7 @@ import (
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/notify"
+	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
@@ -34,6 +35,7 @@ type Handlers struct {
 	ApiKey    *apikey.Handler
 	Search    *search.Handler
 	Notify    *notify.Handler
+	Portable  *portability.Handler
 	MCP       http.Handler
 	Sessions  middleware.SessionGuard
 }
@@ -63,6 +65,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	setupSearchRoutes(protected, h.Search)
 	if h.Notify != nil {
 		setupNotifyRoutes(protected, h.Notify)
+	}
+	if h.Portable != nil {
+		setupPortabilityRoutes(protected, h.Portable)
 	}
 }
 
@@ -244,4 +249,18 @@ func setupNotifyRoutes(g *echo.Group, h *notify.Handler) {
 	g.GET("/jobs", h.ListJobs)
 	g.GET("/jobs/health", h.JobHealth)
 	g.POST("/jobs/:id/retry", h.RetryJob)
+}
+
+func setupPortabilityRoutes(g *echo.Group, h *portability.Handler) {
+	g.GET("/export/full", h.ExportFull)
+	g.GET("/export/tasks.csv", h.ExportTasks)
+	g.GET("/export/calendar.ics", h.ExportCalendar)
+	g.POST("/restore", h.Restore)
+	g.GET("/docs/:id/export", h.ExportDocument)
+	g.GET("/backups/settings", h.GetSettings)
+	g.PUT("/backups/settings", h.UpdateSettings)
+	g.POST("/backups", h.CreateBackup)
+	g.GET("/backups", h.ListBackups)
+	g.GET("/backups/:id", h.DownloadBackup)
+	g.DELETE("/backups/:id", h.DeleteBackup)
 }

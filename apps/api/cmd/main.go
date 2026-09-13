@@ -20,6 +20,7 @@ import (
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/notify"
+	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
@@ -76,8 +77,16 @@ func main() {
 	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, blockStore)
 	searchService := search.NewService(db, indexer)
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, indexer)
+	portabilityService := portability.NewService(db, jobQueue)
 	jobWorker := jobs.NewWorker(jobQueue)
 	notifyService.Register(jobWorker)
+	portabilityService.Register(jobWorker)
+	jobWorker.SetSweep(func(ctx context.Context) error {
+		if err := notifyService.Sweep(ctx); err != nil {
+			return err
+		}
+		return portabilityService.Sweep(ctx)
+	})
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -106,6 +115,7 @@ func main() {
 		ApiKey:    apikey.NewHandler(apiKeyService),
 		Search:    search.NewHandler(searchService),
 		Notify:    notify.NewHandler(notifyService, jobQueue),
+		Portable:  portability.NewHandler(portabilityService),
 		MCP:       agent.Handler(mcpServer, apiKeyService.Verifier()),
 		Sessions:  authService,
 	}
@@ -131,6 +141,7 @@ func main() {
 			echo.HeaderAuthorization,
 			"Cache-Control",
 			"Last-Event-ID",
+			"X-Timely-Restore",
 			"ngrok-skip-browser-warning",
 		},
 	}))
