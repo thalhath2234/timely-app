@@ -7,7 +7,7 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import { Field, PrimaryButton } from "../../../components/ui/primitives";
 import { keys, useWorkspacesQuery } from "../../../lib/hooks";
 import { createWorkspace } from "../../../lib/api/workspaces";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function WorkspacesSettings() {
   const router = useRouter();
@@ -50,7 +50,7 @@ export default function WorkspacesSettings() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   card: {
     borderRadius: 12,
     borderWidth: 1,
@@ -60,4 +60,4 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 4 },
-});
+}));

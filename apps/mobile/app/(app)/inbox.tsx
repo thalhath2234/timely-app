@@ -7,7 +7,7 @@ import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
 import { Field, PrimaryButton } from "../../components/ui/primitives";
 import { useCreateTask, useInboxQuery } from "../../lib/hooks";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function InboxScreen() {
   const router = useRouter();
@@ -55,7 +55,7 @@ export default function InboxScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   body: { padding: 16, gap: 10, paddingBottom: 40 },
   hint: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   error: { color: colors.destructive, fontSize: 13 },
@@ -70,4 +70,4 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.foreground, fontSize: 15, flex: 1 },
   meta: { color: colors.mutedForeground, fontSize: 12 },
-});
+}));

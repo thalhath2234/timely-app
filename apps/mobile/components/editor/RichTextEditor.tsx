@@ -36,7 +36,7 @@ import {
 } from "lucide-react-native";
 import type { DocContent, MentionEntityType } from "../../lib/types";
 import { useMentionItems, useSearchQuery } from "../../lib/hooks";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { buildEditorHtml } from "./editorHtml";
 
 type Picker = { kind: "slash" | "mention"; query: string; from: number; to: number } | null;
@@ -123,11 +123,14 @@ export default function RichTextEditor({
   onChange,
   onFocusChange,
   placeholder = "Start writing. Type '/' for blocks, '@' to mention…",
+  syncKey = 0,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
   onFocusChange?: (focused: boolean) => void;
   placeholder?: string;
+  /** Increment when remote content should replace the local draft. */
+  syncKey?: number;
 }) {
   const webRef = useRef<WebView>(null);
   const insets = useSafeAreaInsets();
@@ -178,7 +181,7 @@ export default function RichTextEditor({
   }, [ready, barHeight, run]);
 
   const applyRemoteIfIdle = useCallback(() => {
-    if (!ready || focusedRef.current) return;
+    if (!ready) return;
     const serialized = JSON.stringify(contentRef.current);
     if (serialized === appliedRef.current) return;
     appliedRef.current = serialized;
@@ -188,7 +191,7 @@ export default function RichTextEditor({
 
   useEffect(() => {
     applyRemoteIfIdle();
-  }, [applyRemoteIfIdle, content]);
+  }, [applyRemoteIfIdle, syncKey]);
 
   function onMessage(event: WebViewMessageEvent) {
     try {
@@ -212,7 +215,6 @@ export default function RichTextEditor({
       if (msg.type === "blur") {
         focusedRef.current = false;
         onFocusChangeRef.current?.(false);
-        applyRemoteIfIdle();
       }
       if (msg.type === "slash" || msg.type === "mention") {
         setPicker({ kind: msg.type, query: msg.query ?? "", from: msg.from ?? 0, to: msg.to ?? 0 });
@@ -322,8 +324,7 @@ export default function RichTextEditor({
                       key={`${hit.entityType}-${hit.id}`}
                       onPress={() => {
                         run("mention", {
-                          from: picker.from,
-                          to: picker.to,
+                          ...(picker.from >= 0 ? { from: picker.from, to: picker.to } : {}),
                           attrs: {
                             id: hit.id,
                             label: hit.label,
@@ -364,7 +365,14 @@ export default function RichTextEditor({
         ) : null}
         <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.barWrap}>
           {FORMAT_TOOLS.map((btn) => (
-            <Pressable key={btn.label} accessibilityLabel={btn.label} onPress={() => run(btn.cmd)} style={styles.tool}>
+            <Pressable
+              key={btn.label}
+              accessibilityLabel={btn.label}
+              onPress={() => {
+                run(btn.cmd);
+              }}
+              style={styles.tool}
+            >
               <btn.Icon size={18} color={colors.foreground} />
             </Pressable>
           ))}
@@ -374,7 +382,7 @@ export default function RichTextEditor({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   wrap: { flex: 1, minHeight: 280 },
   webWrap: { flex: 1, minHeight: 160 },
   overlay: { ...StyleSheet.absoluteFill, justifyContent: "center", padding: 24 },
@@ -455,4 +463,4 @@ const styles = StyleSheet.create({
   },
   kind: { color: colors.mutedForeground, fontSize: 10, fontWeight: "600", letterSpacing: 0.6 },
   empty: { color: colors.mutedForeground, padding: 12, fontSize: 14 },
-});
+}));

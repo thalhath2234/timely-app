@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Dimensions, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { addDays, dayKey, isSameDay, startOfDay } from "../../lib/format";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function DateStrip({
   selected,
@@ -79,7 +79,7 @@ export default function DateStrip({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   week: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -94,4 +94,4 @@ const styles = StyleSheet.create({
   onText: { color: colors.primaryForeground },
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.mutedForeground },
   dotSpacer: { width: 5, height: 5 },
-});
+}));

@@ -7,7 +7,7 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import { Field, PrimaryButton, SectionLabel, Select } from "../../../components/ui/primitives";
 import { useCreateProject, useProjectsQuery, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { Project, Task } from "../../../lib/types";
 
 function statsFor(project: Project, tasks: Task[]) {
@@ -111,7 +111,7 @@ export default function ProjectsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   card: {
     borderRadius: 16,
     borderWidth: 1,
@@ -124,4 +124,4 @@ const styles = StyleSheet.create({
   meta: { color: colors.mutedForeground, fontSize: 12 },
   bar: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden" },
   fill: { height: "100%", backgroundColor: colors.primary },
-});
+}));

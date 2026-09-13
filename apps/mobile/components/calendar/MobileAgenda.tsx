@@ -4,7 +4,7 @@ import type { CalendarItem } from "../../lib/types";
 import { dayKey, formatRelativeDay, isSameDay, startOfDay } from "../../lib/format";
 import CalendarItemRow, { isReminderItem } from "./CalendarItemRow";
 import EmptyState from "../ui/EmptyState";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function MobileAgenda({
   items,
@@ -78,8 +78,8 @@ export default function MobileAgenda({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   head: { flexDirection: "row", alignItems: "baseline", gap: 8, paddingTop: 16, paddingBottom: 8, paddingHorizontal: 4 },
   day: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 12 },
-});
+}));

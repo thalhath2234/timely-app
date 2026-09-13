@@ -14,7 +14,7 @@ import { normalizeSheet, routeParam, SHEET_ICON_CHOICES } from "../../../lib/she
 import { timeAgo } from "../../../lib/format";
 import type { UpdateSheetPayload } from "../../../lib/api/sheets";
 import type { Sheet, SheetColumn, SheetRow } from "../../../lib/types";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 type GridState = { columns: SheetColumn[]; rows: SheetRow[] };
 
@@ -231,7 +231,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   actions: { flexDirection: "row", alignItems: "center" },
   metaBlock: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
@@ -309,4 +309,4 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   deleteText: { color: "#fff", fontSize: 15, fontWeight: "600" },
-});
+}));

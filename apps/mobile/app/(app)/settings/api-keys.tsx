@@ -5,7 +5,7 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import { Field, PrimaryButton } from "../../../components/ui/primitives";
 import { useApiKeysQuery, useCreateApiKey, useRevokeApiKey } from "../../../lib/hooks";
 import { timeAgo } from "../../../lib/format";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function ApiKeysSettings() {
   const keysQ = useApiKeysQuery();
@@ -60,7 +60,7 @@ export default function ApiKeysSettings() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   hint: { color: colors.mutedForeground, fontSize: 13 },
   secret: { borderRadius: 12, backgroundColor: colors.accent, padding: 12 },
   secretText: { color: colors.accentForeground, fontFamily: "monospace" },
@@ -76,4 +76,4 @@ const styles = StyleSheet.create({
   title: { color: colors.foreground, fontWeight: "500" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   revoke: { color: colors.destructive, fontWeight: "600" },
-});
+}));

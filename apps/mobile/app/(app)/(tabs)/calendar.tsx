@@ -17,7 +17,7 @@ import { mergeCalendarItems } from "../../../lib/calendarMerge";
 import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
 import { addDays, dayKey, formatMonthYear, isSameDay, startOfDay } from "../../../lib/format";
 import type { CalendarItem } from "../../../lib/types";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 type CalView = "day" | "agenda" | "month";
 
@@ -165,7 +165,7 @@ export default function CalendarScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   today: {
     height: 32,
     borderRadius: 16,
@@ -175,4 +175,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   todayText: { color: colors.foreground, fontSize: 13, fontWeight: "500" },
-});
+}));

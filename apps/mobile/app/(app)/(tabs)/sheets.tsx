@@ -9,7 +9,7 @@ import EmptyState from "../../../components/ui/EmptyState";
 import { useSheetsQuery, useWorkspacesQuery } from "../../../lib/hooks";
 import { sheetHref } from "../../../lib/sheet";
 import { timeAgo } from "../../../lib/format";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function SheetsScreen() {
   const router = useRouter();
@@ -113,7 +113,7 @@ function SheetCard({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   section: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase", marginTop: 8 },
   card: {
     flexDirection: "row",
@@ -129,4 +129,4 @@ const styles = StyleSheet.create({
   icon: { fontSize: 20, width: 28, textAlign: "center", color: colors.foreground },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
-});
+}));

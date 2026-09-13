@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { Eraser, Minus, Plus, Trash2 } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { columnIndexToLetter, createSheetEvaluator } from "../../lib/sheetFormula";
 import {
   emptySheetRow,
@@ -410,7 +410,7 @@ export default function SheetGrid({ columns, rows, onChange }: SheetGridProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   root: { flex: 1, minHeight: 280 },
   toolbar: {
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -523,4 +523,4 @@ const styles = StyleSheet.create({
   numText: { textAlign: "right", fontVariant: ["tabular-nums"] },
   boolText: { textAlign: "center", fontSize: 16 },
   cellInput: { color: colors.foreground, fontSize: 13, padding: 0 },
-});
+}));

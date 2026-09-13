@@ -18,7 +18,7 @@ import {
   type RecurrencePreset,
 } from "../../lib/recurrence";
 import { formatShortDate } from "../../lib/format";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 const PRESETS: RecurrencePreset[] = ["none", "daily", "weekly", "weekdays", "monthly", "yearly", "custom"];
 const FREQS: { value: RecurrenceFreq; label: string }[] = [
@@ -274,7 +274,7 @@ function MonthDayGrid({ value, onChange }: { value: number[]; onChange: (days: n
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   root: { gap: 8 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   row: { gap: 8 },
@@ -301,4 +301,4 @@ const styles = StyleSheet.create({
   stepText: { color: colors.foreground, fontSize: 18, fontWeight: "600" },
   stepValue: { color: colors.foreground, fontSize: 16, fontWeight: "600", minWidth: 24, textAlign: "center" },
   summary: { color: colors.mutedForeground, fontSize: 11, lineHeight: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 8 },
-});
+}));

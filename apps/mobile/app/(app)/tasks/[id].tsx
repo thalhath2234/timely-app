@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Bell, CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
+import { CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import TaskMetaEditor from "../../../components/ui/TaskMetaEditor";
 import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
+import SegmentedControl from "../../../components/ui/SegmentedControl";
 import { Dot, Chip, Field, PrimaryButton } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
 import { toCustomFieldDrafts } from "../../../lib/customFields";
@@ -38,7 +39,7 @@ import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTim
 import { normalizePriority } from "../../../lib/priority";
 import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent } from "../../../lib/richText";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | "earliest" | null;
 
@@ -157,7 +158,46 @@ export default function TaskDetailScreen() {
       />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
         <Field value={task.name} onChangeText={(name) => persist({ name })} autoCapitalize="sentences" />
+        <View style={{ gap: 8 }}>
+          <SegmentedControl
+            options={[
+              { label: "Work", value: "task" },
+              { label: "Reminder", value: "reminder" },
+            ]}
+            value={isInbox ? null : isReminder ? "reminder" : "task"}
+            onChange={(next) => {
+              if (next === "reminder") {
+                persist({
+                  kind: "reminder",
+                  duration: 0,
+                  scheduledOn: task.scheduledOn || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+                });
+                return;
+              }
+              persist({
+                kind: "task",
+                duration: Math.max(30, task.duration || 0) || 30,
+                workspaceId: task.workspaceId || metaWorkspaceId || spaces[0]?.id,
+              });
+            }}
+          />
+          <Text style={styles.activity}>
+            {isInbox
+              ? "Assign a workspace to put this on the board, or choose Reminder for a ping."
+              : isReminder
+                ? "Pings at a chosen time. Does not reserve a work block."
+                : "Estimated minutes of work the scheduler can place."}
+          </Text>
+        </View>
         <View style={styles.card}>
+          {!isReminder ? (
+          <Row
+            icon={<FolderKanban size={16} color={colors.mutedForeground} />}
+            label="Workspace"
+            value={workspace?.name ?? "Select workspace"}
+            onPress={() => setPicker("workspace")}
+          />
+          ) : null}
           {!isReminder ? (
           <Row
             icon={<CircleDot size={16} color={task.status?.color || colors.mutedForeground} />}
@@ -170,7 +210,7 @@ export default function TaskDetailScreen() {
           <Row icon={<Flag size={16} color={colors.mutedForeground} />} label="Priority" value={task.priorityLevel ? PRIORITY_META[task.priorityLevel]?.label ?? task.priorityLevel : "None"} onPress={() => setPicker("priority")} />
           {!isReminder ? (
             <>
-              <Row icon={<FolderKanban size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
+              <Row icon={<ListTodo size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
               {stages.length > 0 ? (
                 <Row
                   icon={<ListTodo size={16} color={colors.mutedForeground} />}
@@ -189,28 +229,14 @@ export default function TaskDetailScreen() {
             onPress={() => setPicker("workspace")}
           />
           ) : null}
+          {!isReminder && !isInbox ? (
           <Row
             icon={<Clock size={16} color={colors.mutedForeground} />}
             label="Duration"
-            value={isReminder ? "Reminder" : formatDuration(task.duration) ?? `${task.duration}m`}
+            value={formatDuration(task.duration) ?? `${task.duration}m`}
             onPress={() => setPicker("duration")}
-            action={
-              isReminder ? (
-                <Pressable onPress={() => persist({ duration: 30 })} hitSlop={8}>
-                  <Text style={styles.rowAction}>Add duration</Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  onPress={() => persist({ duration: 0 })}
-                  hitSlop={8}
-                  style={styles.reminderChip}
-                >
-                  <Bell size={12} color={colors.accentForeground} />
-                  <Text style={styles.reminderChipText}>Reminder</Text>
-                </Pressable>
-              )
-            }
           />
+          ) : null}
           <Row
             icon={<CalendarDays size={16} color={colors.mutedForeground} />}
             label="Start date"
@@ -250,13 +276,15 @@ export default function TaskDetailScreen() {
             persist({ customFieldValues: next });
           }}
         />
-        <Text style={styles.section}>Schedule</Text>
+        <Text style={styles.section}>{isReminder ? "Reminder" : "Schedule"}</Text>
         {isReminder || task.recurrence ? (
           <>
             <Pressable onPress={() => setPicker("schedule")} style={styles.block}>
               <Text style={styles.blockText}>
                 {task.scheduledOn || task.recurrence?.dtstart
-                  ? `Time · ${formatTime(task.scheduledOn ?? task.recurrence!.dtstart)}`
+                  ? isReminder && !task.recurrence
+                    ? `Notify · ${formatRelativeDay(new Date(task.scheduledOn!))} · ${formatTime(task.scheduledOn!)}`
+                    : `Time · ${formatTime(task.scheduledOn ?? task.recurrence!.dtstart)}`
                   : "Pick a time"}
               </Text>
             </Pressable>
@@ -266,8 +294,8 @@ export default function TaskDetailScreen() {
                   ? "Each repeat pings at this time and does not reserve a work block."
                   : "Each occurrence starts at this time; auto-schedule will not give the block to other tasks."
                 : task.scheduledOn
-                  ? `Pings at ${formatTime(task.scheduledOn)}. Use start date for the day.`
-                  : "Pick a time to show this reminder on the calendar. Use start date for the day."}
+                  ? `Pings at ${formatRelativeDay(new Date(task.scheduledOn))} · ${formatTime(task.scheduledOn)}. Does not reserve a work block.`
+                  : "Pick a date and time to ping. This does not reserve a work block."}
             </Text>
           </>
         ) : (
@@ -397,31 +425,6 @@ export default function TaskDetailScreen() {
         {(task.actualMinutes ?? 0) > 0 ? (
           <Text style={styles.activity}>{task.actualMinutes}m actually focused</Text>
         ) : null}
-        {isInbox ? (
-          <>
-            <Text style={styles.section}>Clarify inbox item</Text>
-            <PrimaryButton
-              label="Make a 30m task"
-              onPress={() =>
-                persist({
-                  kind: "task",
-                  duration: 30,
-                  workspaceId: metaWorkspaceId || spaces[0]?.id,
-                })
-              }
-            />
-            <PrimaryButton
-              label="Make a reminder in 1 hour"
-              onPress={() =>
-                persist({
-                  kind: "reminder",
-                  duration: 0,
-                  scheduledOn: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-                })
-              }
-            />
-          </>
-        ) : null}
         <Text style={styles.section}>Checklist</Text>
         {(task.checklist ?? []).map((item) => (
           <Pressable
@@ -550,10 +553,14 @@ export default function TaskDetailScreen() {
         {spaces.map((space) => (
           <SheetOption
             key={space.id}
-            selected={space.id === metaWorkspaceId}
+            selected={space.id === (task.workspaceId || metaWorkspaceId)}
             onSelect={() => {
               setMetaWorkspaceId(space.id);
-              persist({ workspaceId: space.id });
+              persist(
+                isInbox
+                  ? { workspaceId: space.id, kind: "task", duration: Math.max(30, task.duration || 0) || 30 }
+                  : { workspaceId: space.id },
+              );
               setPicker(null);
             }}
           >
@@ -566,7 +573,24 @@ export default function TaskDetailScreen() {
           No project
         </SheetOption>
         {scopedProjects.map((p) => (
-          <SheetOption key={p.id} selected={p.id === task.projectId} onSelect={() => { persist({ projectId: p.id, stageId: null }); setPicker(null); }}>
+          <SheetOption
+            key={p.id}
+            selected={p.id === task.projectId}
+            onSelect={() => {
+              persist(
+                isInbox
+                  ? {
+                      projectId: p.id,
+                      stageId: null,
+                      kind: "task",
+                      duration: Math.max(30, task.duration || 0) || 30,
+                      workspaceId: p.workspaceId || metaWorkspaceId || spaces[0]?.id,
+                    }
+                  : { projectId: p.id, stageId: null },
+              );
+              setPicker(null);
+            }}
+          >
             {p.title}
           </SheetOption>
         ))}
@@ -586,21 +610,12 @@ export default function TaskDetailScreen() {
         ))}
       </BottomSheet>
       <BottomSheet open={picker === "duration"} onClose={() => setPicker(null)} title="Duration">
-        <SheetOption
-          selected={task.duration <= 0}
-          onSelect={() => {
-            persist({ duration: 0 });
-            setPicker(null);
-          }}
-        >
-          Reminder
-        </SheetOption>
         {[15, 30, 45, 60, 90, 120].map((minutes) => (
           <SheetOption
             key={minutes}
             selected={task.duration === minutes}
             onSelect={() => {
-              persist({ duration: minutes });
+              persist({ kind: "task", duration: minutes });
               setPicker(null);
             }}
           >
@@ -626,6 +641,8 @@ export default function TaskDetailScreen() {
             ? "date"
             : picker === "earliest"
               ? "datetime"
+              : picker === "schedule" && isReminder && !task.recurrence
+                ? "datetime"
               : isReminder || Boolean(task.recurrence)
                 ? "time"
                 : "datetime"
@@ -637,9 +654,11 @@ export default function TaskDetailScreen() {
               ? "Start date"
               : picker === "earliest"
                 ? "Earliest start"
-                : isReminder || task.recurrence
-                  ? "Time"
-                  : "Schedule"
+                : isReminder
+                  ? "Notify at"
+                  : task.recurrence
+                    ? "Time"
+                    : "Schedule"
         }
         onClose={() => setPicker(null)}
         onChange={(next) => {
@@ -649,17 +668,15 @@ export default function TaskDetailScreen() {
               persist({ startDate: null });
               return;
             }
-            const timeOnly = isReminder && !task.recurrence;
             persist({
               startDate: toDateInputValue(next),
-              ...(timeOnly && task.scheduledOn
-                ? { scheduledOn: applyClock(next, new Date(task.scheduledOn)).toISOString() }
-                : {}),
             });
           }
           if (picker === "earliest") persist({ earliestStartAt: next ? next.toISOString() : null });
           if (picker === "schedule" && next) {
-            if (isReminder || task.recurrence) {
+            if (isReminder && !task.recurrence) {
+              persist({ scheduledOn: next.toISOString() });
+            } else if (isReminder || task.recurrence) {
               const day = task.scheduledOn
                 ? new Date(task.scheduledOn)
                 : task.startDate
@@ -704,7 +721,7 @@ function Row({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   complete: {
     flexDirection: "row",
     alignItems: "center",
@@ -737,4 +754,4 @@ const styles = StyleSheet.create({
   activity: { color: colors.mutedForeground, fontSize: 13 },
   delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
   deleteText: { color: colors.destructive, fontWeight: "600" },
-});
+}));

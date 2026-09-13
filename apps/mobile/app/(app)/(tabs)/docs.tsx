@@ -1,15 +1,17 @@
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { FileText, Sheet as SheetIcon, Star } from "lucide-react-native";
+import { FileText, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
+import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
-import MobileHeader from "../../../components/ui/MobileHeader";
+import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
 import EmptyState from "../../../components/ui/EmptyState";
-import { useDocsQuery, useSheetsQuery, useWorkspacesQuery } from "../../../lib/hooks";
+import { useCreateDoc, useDocsQuery, useSheetsQuery, useWorkspacesQuery } from "../../../lib/hooks";
+import { fromMarkdown } from "../../../lib/markdown";
 import { sheetHref } from "../../../lib/sheet";
 import { timeAgo } from "../../../lib/format";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 type Kind = "docs" | "sheets";
 
@@ -19,6 +21,7 @@ export default function FilesScreen() {
   const [showArchived, setShowArchived] = useState(false);
   const docsQ = useDocsQuery();
   const sheetsQ = useSheetsQuery();
+  const createDoc = useCreateDoc();
   const spaces = useWorkspacesQuery().data ?? [];
   const docs = useMemo(
     () =>
@@ -39,11 +42,42 @@ export default function FilesScreen() {
   const favoriteSheets = sheets.filter((s) => s.isFavorite);
   const restSheets = sheets.filter((s) => !s.isFavorite);
 
+  async function importMarkdown() {
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["text/markdown", "text/plain", "text/*"],
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled || !picked.assets?.[0]) return;
+      const asset = picked.assets[0];
+      const response = await fetch(asset.uri);
+      const source = await response.text();
+      const parsed = fromMarkdown(source);
+      const title = (asset.name || "Imported note").replace(/\.(md|markdown|txt)$/i, "").trim() || "Imported note";
+      const doc = await createDoc.mutateAsync({
+        title,
+        content: parsed.content,
+        plainText: parsed.plainText,
+        workspaceId: spaces[0]?.id,
+      });
+      router.push(`/(app)/docs/${doc.id}`);
+    } catch (error) {
+      Alert.alert("Could not import", error instanceof Error ? error.message : "Pick a .md file and try again.");
+    }
+  }
+
   return (
     <Screen>
       <MobileHeader
         title="Files"
         subtitle={kind === "docs" ? `${docs.length} pages` : `${sheets.length} tables`}
+        actions={
+          kind === "docs" ? (
+            <HeaderIconButton label="Import Markdown" onPress={() => void importMarkdown()}>
+              <Upload size={20} color={colors.foreground} />
+            </HeaderIconButton>
+          ) : null
+        }
       >
         <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
           <SegmentedControl
@@ -140,7 +174,7 @@ export default function FilesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   section: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase", marginTop: 8 },
   card: {
     flexDirection: "row",
@@ -156,4 +190,4 @@ const styles = StyleSheet.create({
   icon: { fontSize: 20, width: 28, textAlign: "center", color: colors.foreground },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
-});
+}));

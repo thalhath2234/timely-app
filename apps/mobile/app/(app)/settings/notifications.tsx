@@ -19,7 +19,7 @@ import {
 } from "../../../lib/hooks";
 import { deviceTimezone } from "../../../lib/format";
 import type { NotificationSettings } from "../../../lib/types";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function NotificationSettingsScreen() {
   const [granted, setGranted] = useState(false);
@@ -148,7 +148,7 @@ export default function NotificationSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   card: {
     flexDirection: "row",
     alignItems: "center",
@@ -182,4 +182,4 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: colors.card,
   },
-});
+}));

@@ -5,7 +5,7 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import { Field, PrimaryButton } from "../../../components/ui/primitives";
 import { useAuth } from "../../../lib/auth/AuthProvider";
 import { updateMe } from "../../../lib/api/auth";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function AccountSettings() {
   const { user, refresh } = useAuth();
@@ -52,7 +52,7 @@ export default function AccountSettings() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   wrap: { padding: 16, gap: 12 },
   msg: { color: colors.mutedForeground, fontSize: 13 },
-});
+}));

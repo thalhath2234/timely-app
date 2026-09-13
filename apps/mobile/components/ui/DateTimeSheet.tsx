@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react-native";
 import BottomSheet from "./BottomSheet";
 import { formatMonthYear, isSameDay, startOfDay } from "../../lib/format";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
@@ -263,7 +263,7 @@ export default function DateTimeSheet({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   nav: {
     width: 36,
@@ -319,4 +319,4 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   ghost: { paddingHorizontal: 8, paddingVertical: 12 },
   ghostText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "600" },
-});
+}));

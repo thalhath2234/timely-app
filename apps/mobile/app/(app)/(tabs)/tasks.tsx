@@ -15,7 +15,7 @@ import { isTaskOverdue } from "../../../lib/overdue";
 import { showUndoToast } from "../../../lib/toast";
 import type { Task } from "../../../lib/types";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 function matchesFilter(task: Task, filter: TaskFilter) {
   if (filter === "reminders") return (task.duration ?? 0) <= 0;
@@ -326,7 +326,7 @@ export default function TasksScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   head: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 16, paddingBottom: 8, paddingHorizontal: 4 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   group: { color: colors.foreground, fontSize: 13, fontWeight: "600", flex: 1 },
@@ -342,4 +342,4 @@ const styles = StyleSheet.create({
   },
   bulkCount: { flex: 1, color: colors.foreground, fontWeight: "600" },
   bulkAction: { color: colors.primary, fontWeight: "600" },
-});
+}));

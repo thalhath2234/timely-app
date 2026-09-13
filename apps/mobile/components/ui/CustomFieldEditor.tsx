@@ -5,7 +5,7 @@ import DateTimeSheet from "./DateTimeSheet";
 import { findCustomFieldDraft, withCustomFieldDraft } from "../../lib/customFields";
 import { formatShortDate } from "../../lib/format";
 import type { CustomField, CustomFieldValueInput } from "../../lib/types";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function CustomFieldEditor({
   fields,
@@ -132,7 +132,7 @@ export default function CustomFieldEditor({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   root: { gap: 10 },
   block: { gap: 6 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -151,4 +151,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-});
+}));

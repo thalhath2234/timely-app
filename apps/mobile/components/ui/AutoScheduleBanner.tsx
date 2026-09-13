@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Sparkles, X } from "lucide-react-native";
 import { useScheduleActivity } from "../../lib/scheduleActivity";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function AutoScheduleBanner() {
   const { status, message, dismiss } = useScheduleActivity();
@@ -30,7 +30,7 @@ export default function AutoScheduleBanner() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   banner: {
     position: "absolute",
     left: 12,
@@ -57,4 +57,4 @@ const styles = StyleSheet.create({
     borderColor: colors.mutedForeground,
     borderTopColor: colors.primary,
   },
-});
+}));

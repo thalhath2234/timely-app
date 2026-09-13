@@ -3,7 +3,7 @@ import type { CalendarItem } from "../../lib/types";
 import { HOURS, formatHour } from "../../lib/types";
 import { isSameDay, startOfDay } from "../../lib/format";
 import { itemColor } from "./CalendarItemRow";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 const HOUR_PX = 56;
 
@@ -107,7 +107,7 @@ export default function MobileDay({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   allDay: { paddingHorizontal: 12, paddingVertical: 8, gap: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   allDayItem: { height: 32, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8 },
   allDayText: { color: colors.foreground, fontSize: 13, fontWeight: "500" },
@@ -119,4 +119,4 @@ const styles = StyleSheet.create({
   blockTitle: { color: colors.foreground, fontSize: 13, fontWeight: "500" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   now: { position: "absolute", left: 0, right: 0, height: 2, backgroundColor: colors.destructive },
-});
+}));

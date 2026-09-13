@@ -6,7 +6,7 @@ import { CalendarDays, Database, Download, FileSpreadsheet, RefreshCw, Trash2, U
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { Card, Chip, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { createBackup, deleteBackup, getBackupSettings, listBackups, restoreBackupJSON, shareExport, updateBackupSettings, type BackupSettings } from "../../../lib/api/portability";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -86,7 +86,7 @@ function ExportRow({ Icon, label, onPress, busy }: { Icon: typeof Database; labe
   return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={busy} onPress={onPress} style={styles.export}><Icon size={18} color={colors.primary} /><Text style={styles.title}>{busy ? "Preparing…" : label}</Text><RefreshCw size={15} color={colors.mutedForeground} /></Pressable>;
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   content: { padding: 14, paddingBottom: 40, gap: 9 },
   export: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.card, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10 },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -99,4 +99,4 @@ const styles = StyleSheet.create({
   icon: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
   restore: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 14, backgroundColor: colors.card },
   success: { color: colors.success, fontSize: 13, textAlign: "center", marginTop: 8 },
-});
+}));

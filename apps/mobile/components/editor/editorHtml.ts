@@ -26,9 +26,15 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
     .tiptap h3 { font-size: 18px; line-height: 1.35; font-weight: 600; margin: 0.6em 0 0.3em; }
     .tiptap ul, .tiptap ol { padding-left: 1.3em; margin: 0 0 0.75em; }
     .tiptap blockquote { border-left: 3px solid #8b7cf7; margin: 0 0 0.75em; padding: 0 0 0 12px; color: #d4cff5; }
-    .tiptap pre { background: #25262e; border: 1px solid rgba(255,255,255,0.09); border-radius: 10px; padding: 12px; overflow-x: auto; }
-    .tiptap code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+    .tiptap pre { position: relative; background: #1e1e1e; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 36px 12px 12px; overflow-x: auto; color: #d4d4d4; }
+    .tiptap code { font-family: ui-monospace, "Cascadia Code", "Fira Code", Menlo, monospace; font-size: 13.5px; }
     .tiptap p code { background: #2c2d36; color: #d4cff5; padding: 0.1em 0.35em; border-radius: 4px; }
+    .code-copy { position: absolute; top: 8px; right: 8px; background: #2d2d2d; color: #ccc; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; font-size: 11px; font-weight: 600; padding: 4px 8px; }
+    .tok-keyword { color: #569cd6; }
+    .tok-string { color: #ce9178; }
+    .tok-comment { color: #6a9955; }
+    .tok-number { color: #b5cea8; }
+    .tok-type { color: #4ec9b0; }
     .tiptap hr { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 16px 0; }
     .tiptap mark { background: #3a3558; color: #d4cff5; }
     .tiptap a { color: #8b7cf7; }
@@ -124,6 +130,34 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
       },
     });
 
+    function capitalizeTyped(view, from, to, text) {
+      if (!/^[a-z]$/.test(text)) return false;
+      const before = view.state.doc.textBetween(Math.max(0, from - 8), from, "\\n", "\\n");
+      if (before && !/[.!?]\s+$/.test(before) && !/[\\n\\r]$/.test(before)) return false;
+      view.dispatch(view.state.tr.insertText(text.toUpperCase(), from, to));
+      return true;
+    }
+
+    function enhanceCodeBlocks() {
+      document.querySelectorAll("pre").forEach((pre) => {
+        if (pre.querySelector(".code-copy")) return;
+        pre.style.position = "relative";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "code-copy";
+        btn.textContent = "Copy";
+        btn.addEventListener("mousedown", (event) => event.preventDefault());
+        btn.addEventListener("click", () => {
+          const text = pre.innerText.replace(/\\n?Copy\\n?$/, "").replace(/Copied$/, "").trim();
+          navigator.clipboard.writeText(pre.querySelector("code") ? pre.querySelector("code").innerText : pre.innerText).then(() => {
+            btn.textContent = "Copied";
+            setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+          }).catch(() => undefined);
+        });
+        pre.appendChild(btn);
+      });
+    }
+
     function send(payload) {
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(payload));
     }
@@ -192,11 +226,15 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
         ExtraShortcuts,
       ],
       content: ${embed(initial)},
-      editorProps: { attributes: { class: "tiptap" } },
-      onCreate() { send({ type: "ready" }); reportSelection(); },
+      editorProps: {
+        attributes: { class: "tiptap", autocapitalize: "sentences", spellcheck: "true" },
+        handleTextInput(view, from, to, text) { return capitalizeTyped(view, from, to, text); },
+      },
+      onCreate() { send({ type: "ready" }); reportSelection(); enhanceCodeBlocks(); },
       onUpdate({ editor }) {
         send({ type: "change", content: editor.getJSON(), plainText: editor.getText() });
         reportSelection();
+        enhanceCodeBlocks();
       },
       onSelectionUpdate() { reportSelection(); },
       onFocus() { send({ type: "focus" }); },
@@ -220,7 +258,7 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
           return;
         }
         const chain = editor.chain().focus();
-        const range = payload && payload.from != null ? { from: payload.from, to: payload.to } : null;
+        const range = payload && payload.from != null && payload.from >= 0 ? { from: payload.from, to: payload.to } : null;
         if (range && !TABLE_CMDS[name]) chain.deleteRange(range);
         switch (name) {
           case "paragraph": chain.setParagraph(); break;
@@ -257,6 +295,10 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
             break;
         }
         chain.run();
+        if (name === "mentionChar") {
+          const { from } = editor.state.selection;
+          send({ type: "mention", query: "", from: Math.max(0, from - 1), to: from });
+        }
         requestAnimationFrame(scrollCaret);
       },
     };

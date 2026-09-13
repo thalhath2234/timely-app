@@ -13,7 +13,7 @@ import { buildRecurrenceInput, type RecurrenceDraft } from "../../lib/recurrence
 import { sheetHref } from "../../lib/sheet";
 import { formatDuration, formatShortDate, formatTime, toDateInputValue } from "../../lib/format";
 import type { CustomFieldValueInput } from "../../lib/types";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 type Kind = "inbox" | "task" | "reminder" | "event" | "doc" | "sheet";
 const KINDS: { value: Kind; label: string; Icon: typeof ListTodo }[] = [
@@ -91,8 +91,8 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
   const stages = [...(selectedProject?.stages ?? [])].sort((a, b) => a.order - b.order);
   const pending = createTask.isPending || createEvent.isPending || createDoc.isPending || createSheet.isPending;
 
-  const isReminder = kind === "reminder" || duration <= 0;
-  const taskTimeOnly = isReminder || Boolean(taskRecurrence);
+  const isReminder = kind === "reminder";
+  const taskTimeOnly = Boolean(taskRecurrence);
   const taskAnchor = useMemo(() => scheduledOn ?? nextRoundHour(), [scheduledOn]);
   const eventMinutes = Math.max(15, eventDuration || 60);
 
@@ -170,6 +170,7 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
       await createTask.mutateAsync({
         name,
         description: description.trim() || "",
+        kind: isReminder ? "reminder" : "task",
         workspaceId: isReminder && !wantsMeta ? undefined : activeWorkspaceId,
         projectId: isReminder ? undefined : projectId || undefined,
         stageId: isReminder ? undefined : stageId || undefined,
@@ -177,7 +178,9 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
         priorityLevel: priority,
         startDate: startDate ? toDateInputValue(startDate) : undefined,
         deadline: deadline ? toDateInputValue(deadline) : undefined,
-        scheduledOn: !recurrence && scheduledOn ? scheduledOn.toISOString() : undefined,
+        scheduledOn: !recurrence
+          ? (scheduledOn ?? (isReminder ? nextRoundHour() : null))?.toISOString()
+          : undefined,
         duration: isReminder ? 0 : duration,
         labelIds: labelIds.length ? labelIds.map((id) => ({ id })) : undefined,
         customFieldValues: filledFields.length ? filledFields : undefined,
@@ -354,16 +357,16 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
             </View>
 
             {isReminder ? (
-              <Pressable onPress={addDuration} style={styles.meta}>
-                <Text style={styles.metaLabel}>Duration</Text>
-                <Text style={styles.metaValue}>Reminder</Text>
-                <Text style={styles.metaAction}>Add duration</Text>
+              <Pressable onPress={() => setPicking("schedule")} style={styles.meta}>
+                <Text style={styles.metaLabel}>Notify at</Text>
+                <Text style={styles.metaValue}>
+                  {scheduledOn ? formatDateValue(scheduledOn, true) : "Pick a time"}
+                </Text>
               </Pressable>
             ) : (
               <>
                 <SectionLabel>Duration</SectionLabel>
                 <View style={styles.row}>
-                  <Chip label="Reminder" active={false} onPress={turnIntoReminder} />
                   {DURATION_PRESETS.filter((minutes) => minutes > 0).map((minutes) => (
                     <Chip
                       key={minutes}
@@ -377,6 +380,8 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
               </>
             )}
 
+            {!isReminder ? (
+              <>
             <Pressable onPress={() => setPicking("startDate")} style={styles.meta}>
               <Text style={styles.metaLabel}>Start date</Text>
               <Text style={styles.metaValue}>{formatDateValue(startDate)}</Text>
@@ -395,6 +400,8 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
                   : formatDateValue(scheduledOn, true)}
               </Text>
             </Pressable>
+              </>
+            ) : null}
 
             <RecurrenceEditor
               value={taskRecurrence}
@@ -408,7 +415,7 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
               {isReminder
                 ? taskRecurrence
                   ? "Each repeat pings at this time. No work block is reserved."
-                  : "Pings at this time. Use start date if you want a specific day."
+                  : "Pings at this date and time. Does not reserve a work block."
                 : taskRecurrence
                   ? "Each occurrence starts at this time. Auto-schedule keeps that block for this task."
                   : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}
@@ -554,7 +561,7 @@ function Stepper({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   fields: { gap: 14 },
   kinds: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
   kind: {
@@ -600,4 +607,4 @@ const styles = StyleSheet.create({
   },
   stepText: { color: colors.foreground, fontSize: 18, fontWeight: "600" },
   stepValue: { color: colors.foreground, fontSize: 14, fontWeight: "600", minWidth: 48 },
-});
+}));

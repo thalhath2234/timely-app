@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function SegmentedControl<T extends string>({
   options,
@@ -7,13 +7,13 @@ export default function SegmentedControl<T extends string>({
   onChange,
 }: {
   options: { label: string; value: T }[];
-  value: T;
+  value: T | null;
   onChange: (v: T) => void;
 }) {
   return (
     <View style={styles.wrap}>
       {options.map((opt) => {
-        const on = opt.value === value;
+        const on = value !== null && opt.value === value;
         return (
           <Pressable key={opt.value} onPress={() => onChange(opt.value)} style={[styles.item, on && styles.on]}>
             <Text style={[styles.text, on && styles.onText]}>{opt.label}</Text>
@@ -24,7 +24,7 @@ export default function SegmentedControl<T extends string>({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   wrap: {
     flexDirection: "row",
     backgroundColor: colors.muted,
@@ -35,4 +35,4 @@ const styles = StyleSheet.create({
   on: { backgroundColor: colors.card },
   text: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   onText: { color: colors.foreground },
-});
+}));

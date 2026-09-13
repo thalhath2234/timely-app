@@ -19,7 +19,7 @@ import {
 } from "../../../lib/hooks";
 import { addDays, formatShortDate, formatTime, startOfDay } from "../../../lib/format";
 import { buildRecurrenceInput, rruleToDraft, type RecurrenceDraft } from "../../../lib/recurrence";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -215,7 +215,7 @@ export default function EventDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   meta: {
     minHeight: 48,
     borderRadius: 12,
@@ -231,4 +231,4 @@ const styles = StyleSheet.create({
   value: { color: colors.foreground, fontSize: 14 },
   delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
   deleteText: { color: colors.destructive, fontWeight: "600" },
-});
+}));

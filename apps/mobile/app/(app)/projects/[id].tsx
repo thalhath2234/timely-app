@@ -6,6 +6,7 @@ import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import { Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
 import {
   useCreateStage,
@@ -23,7 +24,8 @@ import {
 } from "../../../lib/hooks";
 import { PRIORITIES } from "../../../lib/priority";
 import { showUndoToast } from "../../../lib/toast";
-import { colors } from "../../../lib/theme";
+import { formatShortDate, toDateInputValue } from "../../../lib/format";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { Stage, Task } from "../../../lib/types";
 
 export default function ProjectDetailScreen() {
@@ -43,7 +45,7 @@ export default function ProjectDetailScreen() {
   const reorder = useReorderStages();
   const saveTask = useSaveTask();
   const [stageName, setStageName] = useState("");
-  const [picker, setPicker] = useState<"status" | "priority" | null>(null);
+  const [picker, setPicker] = useState<"status" | "priority" | "start" | "deadline" | null>(null);
   const [editingStage, setEditingStage] = useState<Stage | null>(null);
   const [stageDraft, setStageDraft] = useState("");
   const [movingTask, setMovingTask] = useState<Task | null>(null);
@@ -145,16 +147,14 @@ export default function ProjectDetailScreen() {
           <Text style={styles.value}>{project.priorityLevel || "None"}</Text>
         </Pressable>
         <SectionLabel>Schedule</SectionLabel>
-        <Field
-          value={project.startDate ?? ""}
-          onChangeText={(startDate) => persist({ startDate })}
-          placeholder="Start YYYY-MM-DD"
-        />
-        <Field
-          value={project.deadline ?? ""}
-          onChangeText={(deadline) => persist({ deadline })}
-          placeholder="Due YYYY-MM-DD"
-        />
+        <Pressable onPress={() => setPicker("start")} style={styles.card}>
+          <Text style={styles.label}>Start</Text>
+          <Text style={styles.value}>{project.startDate ? formatShortDate(project.startDate) : "Pick a date"}</Text>
+        </Pressable>
+        <Pressable onPress={() => setPicker("deadline")} style={styles.card}>
+          <Text style={styles.label}>Deadline</Text>
+          <Text style={styles.value}>{project.deadline ? formatShortDate(project.deadline) : "Pick a date"}</Text>
+        </Pressable>
         <Pressable
           onPress={() => router.push({ pathname: "/(app)/(tabs)/tasks", params: { projectId: project.id } })}
           style={styles.card}
@@ -327,11 +327,29 @@ export default function ProjectDetailScreen() {
           </SheetOption>
         ))}
       </BottomSheet>
+      <DateTimeSheet
+        open={picker === "start" || picker === "deadline"}
+        value={
+          picker === "deadline" && project.deadline
+            ? new Date(project.deadline)
+            : picker === "start" && project.startDate
+              ? new Date(project.startDate)
+              : new Date()
+        }
+        mode="date"
+        title={picker === "deadline" ? "Deadline" : "Start"}
+        onClose={() => setPicker(null)}
+        onChange={(next) => {
+          const value = next ? toDateInputValue(next) : "";
+          if (picker === "start") persist({ startDate: value });
+          if (picker === "deadline") persist({ deadline: value });
+        }}
+      />
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   done: {
     flexDirection: "row",
     alignItems: "center",
@@ -368,4 +386,4 @@ const styles = StyleSheet.create({
   },
   delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 20 },
   deleteText: { color: colors.destructive, fontWeight: "600" },
-});
+}));

@@ -4,7 +4,6 @@ import { useCalendarQuery } from "../lib/hooks";
 import { markNotificationRead } from "../lib/api/notifications";
 import {
   addReminderResponseListener,
-  cancelReminderNotifications,
   notificationsSupported,
   registerServerPush,
   reminderHorizonDays,
@@ -24,15 +23,16 @@ export default function ReminderNotifications() {
 
   useEffect(() => {
     if (!notificationsSupported()) return;
+    let cancelled = false;
     void (async () => {
       const granted = await requestNotificationPermission();
-      if (granted) await registerServerPush();
+      if (!granted || cancelled) return;
+      await registerServerPush();
+      if (calendar.data?.items) await syncReminderNotifications(calendar.data.items);
     })();
-  }, []);
-
-  useEffect(() => {
-    if (!calendar.data?.items) return;
-    void syncReminderNotifications(calendar.data.items);
+    return () => {
+      cancelled = true;
+    };
   }, [calendar.data?.items]);
 
   useEffect(() => {
@@ -45,12 +45,6 @@ export default function ReminderNotifications() {
       },
     );
   }, [router]);
-
-  useEffect(() => {
-    return () => {
-      void cancelReminderNotifications();
-    };
-  }, []);
 
   return null;
 }

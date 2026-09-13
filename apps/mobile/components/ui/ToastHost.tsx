@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useToastStore } from "../../lib/toast";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function ToastHost() {
   const message = useToastStore((state) => state.message);
@@ -27,7 +27,7 @@ export default function ToastHost() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   wrap: { position: "absolute", left: 12, right: 12, bottom: 96 },
   card: {
     flexDirection: "row",
@@ -42,4 +42,4 @@ const styles = StyleSheet.create({
   },
   message: { flex: 1, color: colors.foreground, fontSize: 14 },
   action: { color: colors.primary, fontWeight: "700" },
-});
+}));

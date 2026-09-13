@@ -4,7 +4,7 @@ import { Bell, Clock, Database, KeyRound, Tag, UserRound } from "lucide-react-na
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { useAuth } from "../../../lib/auth/AuthProvider";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function SettingsIndex() {
   const router = useRouter();
@@ -41,7 +41,7 @@ export default function SettingsIndex() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   card: {
     flexDirection: "row",
     alignItems: "center",
@@ -58,4 +58,4 @@ const styles = StyleSheet.create({
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   logout: { alignItems: "center", paddingVertical: 20 },
   logoutText: { color: colors.destructive, fontWeight: "600" },
-});
+}));

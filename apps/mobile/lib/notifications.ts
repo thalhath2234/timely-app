@@ -1,4 +1,4 @@
-import { NativeModules, Platform } from "react-native";
+import { PermissionsAndroid, Platform } from "react-native";
 import Constants from "expo-constants";
 import type { CalendarItem } from "./types";
 import { registerPushDevice } from "./api/notifications";
@@ -24,12 +24,7 @@ function easProjectId() {
 
 function notifications(): NotificationsModule | null {
   if (loaded !== undefined) return loaded;
-  if (!NativeModules.ExpoPushTokenManager) {
-    loaded = null;
-    return null;
-  }
   try {
-    // Native module is only in a rebuild after expo-notifications was added.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require("expo-notifications") as NotificationsModule;
     mod.setNotificationHandler({
@@ -66,6 +61,18 @@ export function notificationsSupported() {
   return (Platform.OS === "ios" || Platform.OS === "android") && notifications() !== null;
 }
 
+async function requestAndroidPostNotifications() {
+  if (Platform.OS !== "android") return true;
+  const version = typeof Platform.Version === "number" ? Platform.Version : Number(Platform.Version);
+  if (!Number.isFinite(version) || version < 33) return true;
+  try {
+    const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+    return result === PermissionsAndroid.RESULTS.GRANTED;
+  } catch {
+    return false;
+  }
+}
+
 export async function ensureReminderChannel() {
   const N = notifications();
   if (!N || Platform.OS !== "android") return;
@@ -91,6 +98,7 @@ export async function getNotificationPermission() {
 export async function requestNotificationPermission() {
   const N = notifications();
   if (!N) return false;
+  await requestAndroidPostNotifications();
   await ensureReminderChannel();
   const current = await N.getPermissionsAsync();
   if (current.granted || current.ios?.status === N.IosAuthorizationStatus.PROVISIONAL) {
@@ -128,7 +136,6 @@ export async function registerServerPush() {
     if (!token?.data) return false;
     await registerPushDevice(token.data, Platform.OS === "ios" ? "ios" : "android");
     serverPush = true;
-    await cancelReminderNotifications();
     return true;
   } catch {
     serverPush = false;
@@ -139,10 +146,6 @@ export async function registerServerPush() {
 export async function syncReminderNotifications(items: CalendarItem[]) {
   const N = notifications();
   if (!N) return 0;
-  if (serverPush) {
-    await cancelReminderNotifications();
-    return 0;
-  }
   const allowed = await getNotificationPermission();
   if (!allowed.granted) {
     await cancelReminderNotifications();
@@ -161,22 +164,41 @@ export async function syncReminderNotifications(items: CalendarItem[]) {
   await cancelReminderNotifications();
 
   await Promise.all(
-    upcoming.map(({ item, at }) =>
-      N.scheduleNotificationAsync({
-        identifier: reminderKey(item),
-        content: {
-          title: item.title || "Reminder",
-          body: "Reminder",
-          sound: "default",
-          data: { taskId: item.taskId ?? "", kind: "reminder" },
-        },
-        trigger: {
-          type: N.SchedulableTriggerInputTypes.DATE,
-          date: new Date(at),
-          channelId: CHANNEL,
-        },
-      }),
-    ),
+    upcoming.map(async ({ item, at }) => {
+      const content = {
+        title: item.title || "Reminder",
+        body: "Reminder",
+        sound: "default" as const,
+        data: { taskId: item.taskId ?? "", kind: "reminder" },
+      };
+      try {
+        await N.scheduleNotificationAsync({
+          identifier: reminderKey(item),
+          content,
+          trigger: {
+            type: N.SchedulableTriggerInputTypes.DATE,
+            date: new Date(at),
+            channelId: CHANNEL,
+          },
+        });
+      } catch {
+        try {
+          const seconds = Math.max(1, Math.round((at - Date.now()) / 1000));
+          await N.scheduleNotificationAsync({
+            identifier: reminderKey(item),
+            content,
+            trigger: {
+              type: N.SchedulableTriggerInputTypes.TIME_INTERVAL,
+              seconds,
+              repeats: false,
+              channelId: CHANNEL,
+            },
+          });
+        } catch {
+          // Skip reminders the OS will not accept (exact-alarm denied, etc).
+        }
+      }
+    }),
   );
 
   return upcoming.length;

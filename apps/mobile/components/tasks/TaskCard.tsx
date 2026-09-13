@@ -3,7 +3,7 @@ import { useRouter } from "expo-router";
 import { CalendarDays, Check, Flag } from "lucide-react-native";
 import type { Task } from "../../lib/types";
 import { formatDueDate, isOverdue, PRIORITY_META } from "../../lib/format";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { Dot } from "../ui/primitives";
 
 export default function TaskCard({
@@ -71,7 +71,7 @@ export default function TaskCard({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   card: {
     flexDirection: "row",
     alignItems: "stretch",
@@ -98,4 +98,4 @@ const styles = StyleSheet.create({
   meta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   metaText: { color: colors.mutedForeground, fontSize: 12 },
-});
+}));

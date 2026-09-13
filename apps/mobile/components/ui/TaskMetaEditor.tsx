@@ -14,7 +14,7 @@ import { createCustomField, createLabel } from "../../lib/api/workspaces";
 import { emptyCustomFieldDrafts, withCustomFieldDraft } from "../../lib/customFields";
 import { keys } from "../../lib/hooks";
 import type { CustomField, CustomFieldType, CustomFieldValueInput, Workspace } from "../../lib/types";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 function entityId(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
@@ -176,9 +176,9 @@ export default function TaskMetaEditor({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   root: { gap: 10 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   hint: { color: colors.mutedForeground, fontSize: 13 },
   error: { color: colors.destructive, fontSize: 12 },
-});
+}));

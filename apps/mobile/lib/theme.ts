@@ -1,4 +1,9 @@
-import { Appearance } from "react-native";
+import { Appearance, StyleSheet } from "react-native";
+import * as SecureStore from "expo-secure-store";
+
+export type ThemeMode = "light" | "dark";
+
+const THEME_PREFERENCE_KEY = "timely.theme.preference";
 
 const darkColors = {
   background: "#1a1b22",
@@ -42,9 +47,59 @@ const lightColors = {
   ring: "#6657d9",
 } as const;
 
-// Components consume this shared token map. The native bundle selects the
-// system palette at startup; no screen carries hard-coded theme colors.
-export const colors = Appearance.getColorScheme() === "light" ? lightColors : darkColors;
+export type ThemeColors = Record<keyof typeof darkColors, string>;
+
+let activeTheme: ThemeMode = Appearance.getColorScheme() === "light" ? "light" : "dark";
+
+function paletteFor(mode: ThemeMode): ThemeColors {
+  return mode === "light" ? lightColors : darkColors;
+}
+
+// Direct color reads (icons and inline styles) always resolve from the active
+// palette instead of capturing the device theme at module evaluation time.
+export const colors = new Proxy({} as ThemeColors, {
+  get: (_target, key: keyof ThemeColors) => paletteFor(activeTheme)[key],
+});
+
+// StyleSheets are evaluated lazily and cached once per palette. This avoids
+// stale module-level styles when a saved theme is restored during bootstrap.
+export function createThemedStyleSheet<T extends StyleSheet.NamedStyles<T> | StyleSheet.NamedStyles<unknown>>(
+  factory: (theme: ThemeColors) => T & StyleSheet.NamedStyles<unknown>,
+): T {
+  const cache: Partial<Record<ThemeMode, T>> = {};
+  return new Proxy({} as T, {
+    get: (_target, key: string | symbol) => {
+      const themed = cache[activeTheme] ?? (cache[activeTheme] = StyleSheet.create(factory(paletteFor(activeTheme))));
+      return themed[key as keyof T];
+    },
+  });
+}
+
+function applyTheme(mode: ThemeMode) {
+  activeTheme = mode;
+  Appearance.setColorScheme(mode);
+}
+
+export function getThemeMode() {
+  return activeTheme;
+}
+
+export async function initializeTheme(): Promise<ThemeMode> {
+  let saved: string | null = null;
+  try {
+    saved = await SecureStore.getItemAsync(THEME_PREFERENCE_KEY);
+  } catch {
+    // Keep the device appearance when secure storage is unavailable.
+  }
+  const mode: ThemeMode = saved === "light" || saved === "dark" ? saved : activeTheme;
+  applyTheme(mode);
+  return mode;
+}
+
+export async function setThemePreference(mode: ThemeMode) {
+  await SecureStore.setItemAsync(THEME_PREFERENCE_KEY, mode);
+  applyTheme(mode);
+}
 
 export const spacing = {
   headerTitle: 22,

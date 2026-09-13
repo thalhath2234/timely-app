@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
 import { formatRelativeDay, formatTime, formatTimeRange } from "../../lib/format";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export function itemColor(item: CalendarItem) {
   return item.color ?? item.task?.project?.color ?? colors.primary;
@@ -58,7 +58,7 @@ export default function CalendarItemRow({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   row: {
     minHeight: 56,
     borderRadius: 12,
@@ -77,4 +77,4 @@ const styles = StyleSheet.create({
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },
   metaText: { color: colors.mutedForeground, fontSize: 12 },
-});
+}));

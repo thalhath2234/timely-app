@@ -6,8 +6,9 @@ import * as SplashScreen from "expo-splash-screen";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "../lib/auth/AuthProvider";
-import { colors } from "../lib/theme";
+import { colors, initializeTheme } from "../lib/theme";
 import ConnectivityBanner from "../components/ConnectivityBanner";
+import { requestNotificationPermission } from "../lib/notifications";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -21,12 +22,30 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   useEffect(() => {
-    setReady(true);
-    SplashScreen.hideAsync().catch(() => undefined);
-    void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    let mounted = true;
+    void Promise.all([
+      initializeTheme(),
+      AccessibilityInfo.isReduceMotionEnabled(),
+    ]).then(([, motionReduced]) => {
+      if (!mounted) return;
+      setReduceMotion(motionReduced);
+      setReady(true);
+      SplashScreen.hideAsync().catch(() => undefined);
+    });
     const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
-    return () => subscription.remove();
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const timer = setTimeout(() => {
+      requestNotificationPermission().catch(() => false);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [ready]);
 
   if (!ready) return null;
 

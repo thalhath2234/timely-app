@@ -4,7 +4,7 @@ import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
 import { useDocsQuery, useProjectsQuery, useSheetsQuery, useTasksQuery, useWorkspacesQuery } from "../../lib/hooks";
 import { buildReportData, formatReportDate } from "../../lib/report";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function ReportScreen() {
   const router = useRouter();
@@ -63,7 +63,7 @@ export default function ReportScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   stat: {
     width: "48%",
@@ -88,4 +88,4 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   title: { color: colors.foreground, fontSize: 14, fontWeight: "500", flex: 1 },
-});
+}));

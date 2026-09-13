@@ -7,7 +7,7 @@ import EmptyState from "../../components/ui/EmptyState";
 import { PrimaryButton, SectionLabel } from "../../components/ui/primitives";
 import { useSetTodayFocus, useStartFocus, useStopFocus, useTodayQuery } from "../../lib/hooks";
 import { addCalendarDays, formatTime } from "../../lib/format";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 import type { Task } from "../../lib/types";
 
 function Row({ task, extra, onPress }: { task: Task; extra?: string; onPress: () => void }) {
@@ -111,7 +111,7 @@ export default function TodayScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   body: { padding: 16, gap: 10, paddingBottom: 48 },
   lede: { color: colors.mutedForeground, fontSize: 13 },
   focusCard: {
@@ -135,4 +135,4 @@ const styles = StyleSheet.create({
   meta: { color: colors.mutedForeground, fontSize: 12 },
   chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 },
   chipText: { color: colors.foreground, fontSize: 12 },
-});
+}));

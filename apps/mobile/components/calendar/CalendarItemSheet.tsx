@@ -8,7 +8,7 @@ import DateTimeSheet from "../ui/DateTimeSheet";
 import { PrimaryButton } from "../ui/primitives";
 import { itemColor, isReminderItem, isTaskItem } from "./CalendarItemRow";
 import { useEditEventOccurrence, useEditTaskOccurrence } from "../../lib/hooks";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { useState } from "react";
 
 export default function CalendarItemSheet({
@@ -116,10 +116,10 @@ export default function CalendarItemSheet({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   meta: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 },
   swatch: { width: 10, height: 10, borderRadius: 5 },
   when: { color: colors.mutedForeground, fontSize: 13 },
   row: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 },
   rowText: { color: colors.foreground, fontSize: 15 },
-});
+}));

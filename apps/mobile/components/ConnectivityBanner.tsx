@@ -5,7 +5,7 @@ import { onlineManager, useQueryClient } from "@tanstack/react-query";
 import { flushOfflineQueue } from "../lib/api/client";
 import { queuedMutationCount, subscribeQueuedMutations } from "../lib/offlineQueue";
 import { setOffline } from "../lib/networkState";
-import { colors } from "../lib/theme";
+import { colors, createThemedStyleSheet } from "../lib/theme";
 
 export default function ConnectivityBanner() {
   const queryClient = useQueryClient();
@@ -48,9 +48,9 @@ export default function ConnectivityBanner() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   banner: { paddingHorizontal: 12, paddingVertical: 7, alignItems: "center" },
   offline: { backgroundColor: colors.warning },
   syncing: { backgroundColor: colors.primary },
   text: { color: "#171717", fontSize: 12, fontWeight: "600", textAlign: "center" },
-});
+}));

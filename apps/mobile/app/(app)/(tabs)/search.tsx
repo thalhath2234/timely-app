@@ -9,7 +9,7 @@ import EmptyState from "../../../components/ui/EmptyState";
 import { useSearchQuery } from "../../../lib/hooks";
 import type { SearchKind } from "../../../lib/api/search";
 import { sheetHref } from "../../../lib/sheet";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 function hrefFor(kind: SearchKind, id: string) {
   if (kind === "task") return `/(app)/tasks/${id}`;
@@ -73,7 +73,7 @@ export default function SearchTab() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   card: {
     borderRadius: 12,
     borderWidth: 1,
@@ -85,4 +85,4 @@ const styles = StyleSheet.create({
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500", marginTop: 4 },
   snip: { color: colors.mutedForeground, fontSize: 12, marginTop: 4 },
   status: { color: colors.mutedForeground, fontSize: 14, padding: 16, textAlign: "center" },
-});
+}));

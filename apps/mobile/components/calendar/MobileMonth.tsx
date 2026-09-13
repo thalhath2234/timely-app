@@ -14,7 +14,7 @@ import type { CalendarItem } from "../../lib/types";
 import { addDays, addMonths, dayKey, isSameDay, startOfDay } from "../../lib/format";
 import CalendarItemRow, { itemColor } from "./CalendarItemRow";
 import EmptyState from "../ui/EmptyState";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -195,7 +195,7 @@ export default function MobileMonth({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   root: { flex: 1 },
   pagerWrap: { overflow: "hidden" },
   pager: { flexGrow: 0, flexShrink: 0 },
@@ -213,4 +213,4 @@ const styles = StyleSheet.create({
   dayHead: { flexDirection: "row", alignItems: "baseline", gap: 8, paddingTop: 10, paddingBottom: 4, paddingHorizontal: 4 },
   dayTitle: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   dayMeta: { color: colors.mutedForeground, fontSize: 12 },
-});
+}));

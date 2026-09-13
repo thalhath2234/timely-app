@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { X } from "lucide-react-native";
 import { Field, PrimaryButton, Select } from "./primitives";
 import type { CustomFieldType } from "../../lib/types";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export const FIELD_PALETTE = ["#8b7cf7", "#ef6b5c", "#e8b54a", "#4caf7a", "#5aa7ff", "#f472b6"];
 
@@ -163,7 +163,7 @@ export function LabelComposer({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   root: { gap: 10 },
   colors: { flexDirection: "row", gap: 8 },
   swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2 },
@@ -172,4 +172,4 @@ const styles = StyleSheet.create({
   optionRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   optionDot: { width: 22, height: 22, borderRadius: 11 },
   addOption: { color: colors.mutedForeground, fontSize: 13, fontWeight: "600" },
-});
+}));

@@ -4,7 +4,7 @@ import { Link, Redirect, useRouter } from "expo-router";
 import Screen from "../components/ui/Screen";
 import { Field, PrimaryButton } from "../components/ui/primitives";
 import { isOnboarded, useAuth } from "../lib/auth/AuthProvider";
-import { colors } from "../lib/theme";
+import { colors, createThemedStyleSheet } from "../lib/theme";
 
 export default function LoginScreen() {
   const { token, user, login } = useAuth();
@@ -64,10 +64,10 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   wrap: { flex: 1, justifyContent: "center", gap: 12 },
   title: { color: colors.foreground, fontSize: 28, fontWeight: "600" },
   sub: { color: colors.mutedForeground, fontSize: 14, marginBottom: 8 },
   error: { color: colors.destructive, fontSize: 13 },
   link: { color: colors.primary, textAlign: "center", marginTop: 8 },
-});
+}));

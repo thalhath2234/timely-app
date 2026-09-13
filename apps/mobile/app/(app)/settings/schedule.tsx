@@ -12,7 +12,7 @@ import {
 } from "../../../lib/hooks";
 import { deviceTimezone } from "../../../lib/format";
 import type { WeekdayKey, WorkingHours, WorkingWindow } from "../../../lib/types";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 const DAYS: { key: WeekdayKey; label: string }[] = [
   { key: "mon", label: "Mon" },
@@ -208,7 +208,7 @@ function EngineSettings() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   block: { gap: 8 },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
   windowRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 66 },
@@ -230,4 +230,4 @@ const styles = StyleSheet.create({
   hint: { color: colors.mutedForeground, fontSize: 13 },
   msg: { color: colors.mutedForeground, fontSize: 13 },
   error: { color: colors.destructive, fontSize: 13 },
-});
+}));

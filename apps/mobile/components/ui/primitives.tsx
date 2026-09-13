@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Check, ChevronDown } from "lucide-react-native";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export function PrimaryButton({
   label,
@@ -175,7 +175,7 @@ export function Dot({ color }: { color?: string | null }) {
   return <View style={[styles.dot, { backgroundColor: color || colors.mutedForeground }]} />;
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   primary: {
     height: 48,
     borderRadius: 12,
@@ -256,4 +256,4 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   dot: { width: 10, height: 10, borderRadius: 5 },
-});
+}));

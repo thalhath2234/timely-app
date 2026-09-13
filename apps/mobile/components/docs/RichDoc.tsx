@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import { Linking, ScrollView, StyleSheet, Text, View, type TextStyle } from "react-native";
 import type { DocContent } from "../../lib/types";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 type Mark = { type?: string; attrs?: Record<string, unknown> };
 type Node = {
@@ -158,7 +158,7 @@ function plain(node?: Node): string {
   return (node.content ?? []).map(plain).join("");
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   wrap: { gap: 10 },
   placeholder: { color: colors.mutedForeground, fontSize: 16, lineHeight: 24 },
   p: { color: colors.foreground, fontSize: 16, lineHeight: 24 },
@@ -210,4 +210,4 @@ const styles = StyleSheet.create({
   },
   link: { color: colors.primary, textDecorationLine: "underline" },
   mention: { color: colors.primary, fontWeight: "600" },
-});
+}));

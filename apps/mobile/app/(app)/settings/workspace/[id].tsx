@@ -27,7 +27,7 @@ import {
 } from "../../../../lib/api/workspaces";
 import { createProject } from "../../../../lib/api/projects";
 import type { CustomField, CustomFieldType } from "../../../../lib/types";
-import { colors } from "../../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../../lib/theme";
 
 export default function WorkspaceEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -259,7 +259,7 @@ export default function WorkspaceEditor() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   row: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   item: { flex: 1, color: colors.foreground },
@@ -275,4 +275,4 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
   },
-});
+}));

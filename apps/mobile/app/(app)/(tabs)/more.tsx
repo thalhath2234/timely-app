@@ -1,12 +1,13 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Brain, Clock, FolderKanban, Inbox, KeyRound, Sun, Tag } from "lucide-react-native";
+import { Bell, Brain, Clock, Database, FolderKanban, Inbox, KeyRound, Moon, Sun, Tag } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { SectionLabel } from "../../../components/ui/primitives";
 import { useAuth } from "../../../lib/auth/AuthProvider";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet, getThemeMode, setThemePreference, type ThemeMode } from "../../../lib/theme";
 
 function Row({
   icon: Icon,
@@ -20,7 +21,12 @@ function Row({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.card}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${meta}`}
+      onPress={onPress}
+      style={styles.card}
+    >
       <View style={styles.icon}>
         <Icon size={18} color={colors.mutedForeground} />
       </View>
@@ -36,12 +42,28 @@ export default function SettingsTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getThemeMode);
+  const [themeChanging, setThemeChanging] = useState(false);
   const initials = (user?.name ?? user?.email ?? "T")
     .split(" ")
     .map((p) => p[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  const changeTheme = async (nextTheme: ThemeMode) => {
+    if (nextTheme === themeMode || themeChanging) return;
+    setThemeMode(nextTheme);
+    setThemeChanging(true);
+    try {
+      await setThemePreference(nextTheme);
+      setThemeChanging(false);
+    } catch {
+      setThemeMode(getThemeMode());
+      setThemeChanging(false);
+      Alert.alert("Theme not changed", "Timely could not save your appearance preference.");
+    }
+  };
 
   return (
     <Screen>
@@ -56,6 +78,27 @@ export default function SettingsTab() {
             <Text style={styles.meta}>{user?.email}</Text>
           </View>
         </Pressable>
+        <SectionLabel>Appearance</SectionLabel>
+        <View accessibilityLabel="Theme" style={styles.appearanceCard}>
+          <Text style={styles.appearanceTitle}>Theme</Text>
+          <Text style={styles.appearanceMeta}>Choose how Timely looks on this device.</Text>
+          <View style={styles.themeOptions}>
+            <ThemeOption
+              icon={Sun}
+              label="Light"
+              selected={themeMode === "light"}
+              disabled={themeChanging}
+              onPress={() => void changeTheme("light")}
+            />
+            <ThemeOption
+              icon={Moon}
+              label="Dark"
+              selected={themeMode === "dark"}
+              disabled={themeChanging}
+              onPress={() => void changeTheme("dark")}
+            />
+          </View>
+        </View>
         <SectionLabel>Planning</SectionLabel>
         <Row icon={Sun} title="Today" meta="Focus, schedule, and end of day" onPress={() => router.push("/(app)/today")} />
         <Row icon={Inbox} title="Inbox" meta="Capture now, organize later" onPress={() => router.push("/(app)/inbox")} />
@@ -77,6 +120,7 @@ export default function SettingsTab() {
         <Row icon={Bell} title="Notification settings" meta="Push, quiet hours, and failed jobs" onPress={() => router.push("/(app)/settings/notifications")} />
         <Row icon={Brain} title="Report" meta="Weekly summary and focus time" onPress={() => router.push("/(app)/report")} />
         <Row icon={Clock} title="Working hours" meta="When the scheduler can place tasks" onPress={() => router.push("/(app)/settings/schedule")} />
+        <Row icon={Database} title="Data & backups" meta="Export, restore, and encrypted backups" onPress={() => router.push("/(app)/settings/data")} />
         <Row icon={KeyRound} title="API keys" meta="Connect scripts and automations" onPress={() => router.push("/(app)/settings/api-keys")} />
         <Pressable onPress={() => void logout()} style={styles.logout}>
           <Text style={styles.logoutText}>Sign out</Text>
@@ -86,7 +130,35 @@ export default function SettingsTab() {
   );
 }
 
-const styles = StyleSheet.create({
+function ThemeOption({
+  icon: Icon,
+  label,
+  selected,
+  disabled,
+  onPress,
+}: {
+  icon: typeof Sun;
+  label: string;
+  selected: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label} theme`}
+      accessibilityState={{ selected, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.themeOption, selected && styles.themeOptionSelected]}
+    >
+      <Icon size={18} color={selected ? colors.primaryForeground : colors.mutedForeground} />
+      <Text style={[styles.themeOptionText, selected && styles.themeOptionTextSelected]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const styles = createThemedStyleSheet((colors) => ({
   profile: {
     flexDirection: "row",
     alignItems: "center",
@@ -107,6 +179,32 @@ const styles = StyleSheet.create({
   },
   initials: { color: colors.primaryForeground, fontWeight: "700" },
   name: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  appearanceCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    padding: 14,
+    marginBottom: 8,
+  },
+  appearanceTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  appearanceMeta: { color: colors.mutedForeground, fontSize: 12, marginTop: 3 },
+  themeOptions: { flexDirection: "row", gap: 8, marginTop: 14 },
+  themeOption: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.muted,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  themeOptionSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
+  themeOptionText: { color: colors.mutedForeground, fontSize: 14, fontWeight: "600" },
+  themeOptionTextSelected: { color: colors.primaryForeground },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   card: {
@@ -131,4 +229,4 @@ const styles = StyleSheet.create({
   },
   logout: { alignItems: "center", paddingVertical: 20 },
   logoutText: { color: colors.destructive, fontWeight: "600" },
-});
+}));

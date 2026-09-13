@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Archive, Download, FileText, MoreHorizontal, Smile, Star, Trash2 } from "lucide-react-native";
+import { Archive, Download, FileText, MoreHorizontal, Smile, Star, Trash2, Upload } from "lucide-react-native";
+import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
@@ -10,11 +11,11 @@ import RichTextEditor from "../../../components/editor/RichTextEditor";
 import { useDeleteDoc, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../../lib/autosave";
 import { showUndoToast } from "../../../lib/toast";
-import { resolveDocContent } from "../../../lib/markdown";
+import { fromMarkdown, resolveDocContent } from "../../../lib/markdown";
 import { isRichContentEmpty } from "../../../lib/richText";
 import type { UpdateDocPayload } from "../../../lib/api/docs";
 import type { DocContent } from "../../../lib/types";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { shareExport } from "../../../lib/api/portability";
 
 const ICON_CHOICES = ["📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯", "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠"];
@@ -63,6 +64,7 @@ function DocEditor({ docId }: { docId: string }) {
 
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteContent, setRemoteContent] = useState<DocContent | null>(null);
+  const [editorSync, setEditorSync] = useState(0);
   const lastSavedAtRef = useRef<string | null>(doc?.updatedAt ?? null);
   const editorFocusedRef = useRef(false);
 
@@ -99,6 +101,7 @@ function DocEditor({ docId }: { docId: string }) {
     setFavorite(Boolean(doc.isFavorite));
     setWordCount(countWords(doc.plainText));
     setRemoteContent(resolveDocContent(doc.content, doc.plainText));
+    setEditorSync((value) => value + 1);
   }, [remoteEpoch, doc?.title, doc?.icon, doc?.isFavorite, doc?.plainText, doc?.content]);
 
   if (!doc) return null;
@@ -172,14 +175,37 @@ function DocEditor({ docId }: { docId: string }) {
           setWordCount(countWords(plainText));
           schedule({ content, plainText });
         }}
+        syncKey={editorSync}
       />
 
       <BottomSheet open={menu === "more"} onClose={() => setMenu(null)} title="Doc">
         <SheetOption onSelect={() => { setMenu(null); void shareExport(`/docs/${doc.id}/export?format=markdown`, `${doc.title || "untitled"}.md`, "text/markdown"); }} leading={<Download size={18} color={colors.mutedForeground} />}>
           Export Markdown
         </SheetOption>
-        <SheetOption onSelect={() => { setMenu(null); void shareExport(`/docs/${doc.id}/export?format=pdf`, `${doc.title || "untitled"}.pdf`, "application/pdf"); }} leading={<Download size={18} color={colors.mutedForeground} />}>
-          Export PDF
+        <SheetOption
+          onSelect={() => {
+            setMenu(null);
+            void (async () => {
+              try {
+                const picked = await DocumentPicker.getDocumentAsync({
+                  type: ["text/markdown", "text/plain", "text/*"],
+                  copyToCacheDirectory: true,
+                });
+                if (picked.canceled || !picked.assets?.[0]) return;
+                const source = await (await fetch(picked.assets[0].uri)).text();
+                const parsed = fromMarkdown(source);
+                setWordCount(countWords(parsed.plainText));
+                setRemoteContent(parsed.content);
+                setEditorSync((value) => value + 1);
+                schedule({ content: parsed.content, plainText: parsed.plainText });
+              } catch (error) {
+                Alert.alert("Could not import", error instanceof Error ? error.message : "Try a .md file.");
+              }
+            })();
+          }}
+          leading={<Upload size={18} color={colors.mutedForeground} />}
+        >
+          Import Markdown
         </SheetOption>
         <SheetOption onSelect={() => setMenu("icon")} leading={<Smile size={18} color={colors.mutedForeground} />}>
           Change icon
@@ -285,7 +311,7 @@ function DocEditor({ docId }: { docId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   head: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 20, paddingTop: 16 },
   iconBtn: {
     width: 44,
@@ -313,4 +339,4 @@ const styles = StyleSheet.create({
   warn: { color: colors.mutedForeground, fontSize: 14, paddingHorizontal: 4, paddingBottom: 12 },
   delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
   deleteText: { color: colors.destructive, fontWeight: "600" },
-});
+}));

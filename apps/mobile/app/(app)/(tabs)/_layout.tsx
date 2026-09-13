@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Calendar, FileText, ListTodo, Plus, Search, Settings } from "lucide-react-native";
 import QuickAddSheet from "../../../components/ui/QuickAddSheet";
 import AutoScheduleBanner from "../../../components/ui/AutoScheduleBanner";
-import { colors } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function TabLayout() {
   const [addOpen, setAddOpen] = useState(false);
@@ -70,7 +70,7 @@ export default function TabLayout() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   fab: {
     position: "absolute",
     right: 16,
@@ -86,4 +86,4 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
   },
-});
+}));

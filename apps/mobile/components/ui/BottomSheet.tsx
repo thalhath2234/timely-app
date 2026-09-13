@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function BottomSheet({
   open,
@@ -88,7 +88,7 @@ export function SheetOption({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   root: { flex: 1, justifyContent: "flex-end" },
   backdrop: { backgroundColor: "rgba(10,10,14,0.6)" },
   sheet: {
@@ -122,4 +122,4 @@ const styles = StyleSheet.create({
   optionOn: { backgroundColor: colors.accent },
   optionText: { flex: 1, color: colors.foreground, fontSize: 15 },
   selected: { color: colors.accentForeground, fontSize: 12, fontWeight: "500" },
-});
+}));

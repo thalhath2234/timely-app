@@ -11,7 +11,7 @@ import {
   useSnoozeNotification,
 } from "../../lib/hooks";
 import type { AppNotification } from "../../lib/types";
-import { colors } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 function taskIdOf(item: AppNotification) {
   const fromData = item.data?.taskId;
@@ -95,7 +95,7 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyleSheet((colors) => ({
   body: { padding: 16, gap: 10, paddingBottom: 40 },
   markAll: { alignSelf: "flex-end", paddingVertical: 4 },
   markAllText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
@@ -120,4 +120,4 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   chipText: { color: colors.foreground, fontSize: 12 },
-});
+}));
