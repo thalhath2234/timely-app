@@ -4,6 +4,8 @@ Welcome to **Timely API**, a Go-based backend REST API built with [Echo v5](http
 
 This guide will walk you through setting up your local development environment from scratch.
 
+> This app lives at `apps/api` in the `timely` monorepo. Run `make` commands from the repo root; run `go` commands from this directory.
+
 ---
 
 ## 📋 Prerequisites
@@ -37,7 +39,7 @@ Timely does not send email. To reset a forgotten password on a self-hosted
 install, run:
 
 ```bash
-go run ./scripts/reset_password.go -email user@example.com -password 'new-password'
+make reset-password EMAIL=user@example.com PASSWORD='new-password'   # from the repo root
 ```
 
 4. **Air** (Optional, for hot reloading)
@@ -51,14 +53,14 @@ go run ./scripts/reset_password.go -email user@example.com -password 'new-passwo
 ## ⚙️ Environment Configuration
 
 1. **Copy Environment Template**
-   Duplicate [env.example](file:///c:/Dev/timely-api/env.example) to create your local `.env` file:
+   Duplicate [.env.example](.env.example) to create your local `.env` file:
 
    ```bash
-   cp env.example .env
+   cp .env.example .env
    ```
 
 2. **Configure Variables**
-   Open [.env](file:///c:/Dev/timely-api/.env) and update parameters if necessary:
+   Open `.env` and update parameters if necessary:
 
    ```ini
    # Database Configuration
@@ -110,7 +112,7 @@ make install-goose
   make migrate-seed
   ```
 
-For comprehensive details on managing schema migrations, refer to [MIGRATIONS.md](file:///c:/Dev/timely-api/MIGRATIONS.md).
+For comprehensive details on managing schema migrations, refer to [MIGRATIONS.md](MIGRATIONS.md).
 
 ---
 
@@ -136,14 +138,14 @@ air
 
 ## 🧪 Testing & API Collections
 
-- **API Documentation & Collections**: You can import [api-collections.json](file:///c:/Dev/timely-api/api-collections.json) into Postman, Insomnia, or Bruno to test API endpoints (Auth, Workspaces, Projects, Tasks).
-- **CORS Support**: Default CORS allows requests from `http://localhost:3000`.
+- **API Documentation & Collections**: You can import [api-collections.json](api-collections.json) into Postman, Insomnia, or Bruno to test API endpoints (Auth, Workspaces, Projects, Tasks).
+- **CORS Support**: Default CORS allows requests from `http://localhost:4001` (the web app).
 
 ---
 
 ## 🛠️ Helpful Makefile Commands
 
-Run `make help` to view all available commands:
+All `make` targets live in the monorepo root `Makefile` and are run from the repo root. Run `make help` to view all available commands:
 
 | Command | Description |
 | :--- | :--- |

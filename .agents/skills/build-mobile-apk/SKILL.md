@@ -1,14 +1,17 @@
 ---
 name: build-mobile-apk
 description: >-
-  Builds the timely-mobile Android APK under systemd-run with a 12GB memory
-  cap. Use whenever the user asks to build the mobile app, APK, Android
-  release, Expo local production build, or to bake in a new API/ngrok URL.
+  Builds the Timely mobile (apps/mobile) Android APK under systemd-run with a
+  12GB memory cap. Use whenever the user asks to build the mobile app, APK,
+  Android release, Expo local production build, or to bake in a new API/ngrok
+  URL.
 ---
 
 # Build mobile APK (memory-capped)
 
 Unbounded Gradle/Expo Android builds have OOM'd this machine. Never run them in the agent shell.
+
+The mobile app lives at `apps/mobile` in the `timely` monorepo (`/home/thalhath/Dev/timely`).
 
 ## Hard rules
 
@@ -17,17 +20,19 @@ Unbounded Gradle/Expo Android builds have OOM'd this machine. Never run them in 
 3. **Always** stop existing `GradleDaemon` processes first (`./gradlew --stop`) so a new daemon starts **inside** the cgroup. A daemon outside the cap bypasses it.
 4. Use **JDK 17** at `/home/thalhath/.local/jdk-17`. System Java 26 breaks Android `jlink`.
 5. Build **arm64-v8a only** (`-PreactNativeArchitectures=arm64-v8a --max-workers=2`).
-6. Bake the API URL with **no trailing slash** into `.env` (`EXPO_PUBLIC_API_URL`) and `lib/api/bundledUrl.ts` before building.
+6. Bake the API URL with **no trailing slash** into `apps/mobile/.env` (`EXPO_PUBLIC_API_URL`) and `apps/mobile/lib/api/bundledUrl.ts` before building.
 
 ## Build
 
-Run the skill script; do not hand-roll Gradle:
+From the repo root, use the Makefile (preferred) or the wrapper script; do not hand-roll Gradle:
 
 ```bash
-~/.cursor/skills/build-mobile-apk/scripts/build-apk.sh [API_URL]
+make build-apk [API_URL=https://...]     # detached build + waits on the log
+scripts/build-apk.sh --no-wait [API_URL] # launch only
 ```
 
-If `API_URL` is omitted, the script uses `EXPO_PUBLIC_API_URL` from `timely-mobile/.env`.
+Both call this skill's `scripts/build-apk.sh`. If `API_URL` is omitted, `EXPO_PUBLIC_API_URL` from `apps/mobile/.env` is used.
+The script finds the app relative to the repo; set `TIMELY_MOBILE_DIR` to override.
 
 Logs: `/tmp/timely-apk-build.log`  
 Unit: `timely-apk-build.service`  
@@ -36,7 +41,7 @@ APK on success: `/home/thalhath/timely-release-arm64.apk`
 ## After launch
 
 ```bash
-systemctl --user status timely-apk-build.service
+make apk-status
 systemctl --user show timely-apk-build.service -p MemoryMax -p MemoryCurrent
 tail -n 40 /tmp/timely-apk-build.log
 ```
@@ -48,7 +53,7 @@ Do not poll the build in a tight loop. Confirm the unit is active and `MemoryMax
 After `systemctl --user is-active` is `inactive` and the log ends with `EXIT=0`:
 
 ```bash
-node /home/thalhath/Dev/timely-mobile/scripts/check-bundle-url.js
+node apps/mobile/scripts/check-bundle-url.js
 ls -lh /home/thalhath/timely-release-arm64.apk
 ```
 

@@ -1,25 +1,23 @@
+# Build from the monorepo root:  docker build -f apps/web/Dockerfile .
 FROM node:22-alpine AS builder
 
-WORKDIR /app
-
+WORKDIR /repo
 RUN corepack enable
 
+# Install only what @timely/web needs, using the root lockfile.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/
+RUN pnpm install --frozen-lockfile --filter @timely/web
 
-RUN pnpm install --frozen-lockfile
-
-COPY . .
-
-RUN pnpm run build
+COPY apps/web apps/web
+RUN pnpm --filter @timely/web build
 
 FROM node:22-alpine
 
-WORKDIR /app
-
+WORKDIR /repo
 RUN corepack enable
 
-COPY --from=builder /app .
+COPY --from=builder /repo .
 
-EXPOSE 3000
-
-CMD ["pnpm", "start"]
+EXPOSE 4001
+CMD ["pnpm", "--filter", "@timely/web", "start"]

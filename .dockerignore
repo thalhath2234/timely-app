@@ -1,0 +1,15 @@
+**/node_modules
+**/.next
+**/.expo
+**/.git
+**/.env
+**/.env.*
+!**/.env.example
+apps/mobile/android
+apps/mobile/ios
+apps/api/tmp
+apps/api/bin
+apps/api/data
+apps/web/tmp
+apps/web/astra-evidence
+apps/web/report-shots

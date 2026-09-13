@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR=/home/thalhath/Dev/timely-mobile
+# Locate the mobile app. Works from the in-repo copy (<repo>/.agents/skills/...)
+# and from the global copy (~/.cursor/skills/...). Override with TIMELY_MOBILE_DIR.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [[ -n "${TIMELY_MOBILE_DIR:-}" ]]; then
+  APP_DIR="$TIMELY_MOBILE_DIR"
+elif [[ -f "$SCRIPT_DIR/../../../../apps/mobile/app.json" ]]; then
+  APP_DIR=$(cd "$SCRIPT_DIR/../../../../apps/mobile" && pwd)
+else
+  APP_DIR=/home/thalhath/Dev/timely/apps/mobile
+fi
+if [[ ! -f "$APP_DIR/app.json" ]]; then
+  echo "mobile app not found at $APP_DIR (set TIMELY_MOBILE_DIR)" >&2
+  exit 1
+fi
+
 ANDROID_DIR="$APP_DIR/android"
 JAVA_HOME=/home/thalhath/.local/jdk-17
 ANDROID_HOME=/home/thalhath/.local/android-sdk
@@ -19,6 +33,11 @@ if [[ -z "$API_URL" ]]; then
   exit 1
 fi
 
+if [[ ! -x "$ANDROID_DIR/gradlew" ]]; then
+  echo "no native project at $ANDROID_DIR — run 'npx expo prebuild --platform android' in $APP_DIR first" >&2
+  exit 1
+fi
+
 mkdir -p "$APP_DIR/lib/api"
 cat > "$APP_DIR/.env" <<EOF
 # Local API fallback (emulator): http://10.0.2.2:8080
@@ -31,16 +50,13 @@ printf 'export const BUNDLED_API_URL = "%s";\n' "$API_URL" > "$APP_DIR/lib/api/b
 export JAVA_HOME ANDROID_HOME
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export PATH="$JAVA_HOME/bin:$PATH"
-if [[ -x "$ANDROID_DIR/gradlew" ]]; then
-  (cd "$ANDROID_DIR" && ./gradlew --stop) || true
-fi
+(cd "$ANDROID_DIR" && ./gradlew --stop) || true
 pkill -f 'org.gradle.launcher.daemon.bootstrap.GradleDaemon' || true
 
 systemctl --user stop "$UNIT.service" 2>/dev/null || true
 systemctl --user reset-failed "$UNIT.service" 2>/dev/null || true
 : > "$LOG"
 
-UNIT_PATH="$PATH"
 systemd-run --user \
   --unit="$UNIT" \
   --collect \
@@ -59,8 +75,8 @@ systemd-run --user \
   /bin/bash -lc "exec >>$LOG 2>&1; echo API_URL=$API_URL; echo JAVA=\$(java -version 2>&1 | head -n1); ./gradlew app:assembleRelease -PreactNativeArchitectures=arm64-v8a --max-workers=2; status=\$?; if [ \$status -eq 0 ]; then cp -f app/build/outputs/apk/release/app-release.apk $APK_OUT; echo COPIED_APK=$APK_OUT; fi; echo EXIT=\$status; exit \$status"
 
 echo "started $UNIT.service"
+echo "app=$APP_DIR"
 echo "api=$API_URL"
 echo "log=$LOG"
 echo "apk=$APK_OUT"
 systemctl --user show "$UNIT.service" -p MemoryMax -p ActiveState -p SubState --no-pager
-echo "PATH_FOR_UNIT=$UNIT_PATH" >/dev/null

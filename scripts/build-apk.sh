@@ -2,14 +2,16 @@
 # Launch a memory-capped Timely Android APK build via the build-mobile-apk skill.
 #
 # Usage:
-#   ./build-apk.sh [API_URL]
-#   ./build-apk.sh --no-wait [API_URL]
+#   scripts/build-apk.sh [API_URL]
+#   scripts/build-apk.sh --no-wait [API_URL]
+#   make build-apk [API_URL=...]
 #
-# If API_URL is omitted, EXPO_PUBLIC_API_URL from .env is used.
+# If API_URL is omitted, EXPO_PUBLIC_API_URL from apps/mobile/.env is used.
 # The Gradle build runs under systemd-run (12G cap), not in this shell.
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+MOBILE_DIR="$REPO_ROOT/apps/mobile"
 WAIT=1
 API_URL=""
 
@@ -17,7 +19,7 @@ for arg in "$@"; do
   case "$arg" in
     --no-wait|-n) WAIT=0 ;;
     --help|-h)
-      sed -n '2,11p' "$0"
+      sed -n '2,10p' "$0"
       exit 0
       ;;
     -*)
@@ -31,9 +33,8 @@ done
 
 SKILL_SCRIPT=""
 for candidate in \
-  "$HOME/.cursor/skills/build-mobile-apk/scripts/build-apk.sh" \
-  "$SCRIPT_DIR/.agents/skills/build-mobile-apk/scripts/build-apk.sh" \
-  "$SCRIPT_DIR/.cursor/skills/build-mobile-apk/scripts/build-apk.sh"
+  "$REPO_ROOT/.agents/skills/build-mobile-apk/scripts/build-apk.sh" \
+  "$HOME/.cursor/skills/build-mobile-apk/scripts/build-apk.sh"
 do
   if [[ -x "$candidate" ]]; then
     SKILL_SCRIPT="$candidate"
@@ -46,6 +47,7 @@ if [[ -z "$SKILL_SCRIPT" ]]; then
   exit 1
 fi
 
+export TIMELY_MOBILE_DIR="$MOBILE_DIR"
 if [[ -n "$API_URL" ]]; then
   "$SKILL_SCRIPT" "$API_URL"
 else
@@ -58,7 +60,7 @@ APK_OUT=/home/thalhath/timely-release-arm64.apk
 
 echo
 echo "Watch with:"
-echo "  systemctl --user status $UNIT"
+echo "  make apk-status"
 echo "  tail -f $LOG"
 echo "APK on success: $APK_OUT"
 
@@ -103,8 +105,8 @@ echo
 if grep -q '^EXIT=0$' "$LOG" 2>/dev/null && [[ -f "$APK_OUT" ]]; then
   echo "Build succeeded: $APK_OUT"
   ls -lh "$APK_OUT"
-  if [[ -f "$SCRIPT_DIR/scripts/check-bundle-url.js" ]]; then
-    node "$SCRIPT_DIR/scripts/check-bundle-url.js"
+  if [[ -f "$MOBILE_DIR/scripts/check-bundle-url.js" ]]; then
+    node "$MOBILE_DIR/scripts/check-bundle-url.js"
   fi
   exit 0
 fi

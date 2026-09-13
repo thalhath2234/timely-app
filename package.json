@@ -1,0 +1,19 @@
+{
+  "name": "timely",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.15.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "make dev",
+    "dev:api": "make dev-api",
+    "dev:web": "make dev-web",
+    "dev:mobile": "make dev-mobile",
+    "build": "make build",
+    "lint": "make lint",
+    "typecheck": "make typecheck",
+    "test": "make test"
+  }
+}

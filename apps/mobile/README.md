@@ -1,10 +1,12 @@
 # Timely Android (Expo)
 
-Native client for [timely-api](../timely-api). Keep the Go API running on `:8080` while developing.
+Native client for the Go API in [`apps/api`](../api). Keep the API running on `:8080` (`make dev-api` from the repo root) while developing.
+
+Part of the `timely` monorepo: install dependencies with `pnpm install` from the repo root, and use `make dev-mobile` / `make build-apk` (see the root [README](../../README.md)).
 
 ## API URL
 
-Set `EXPO_PUBLIC_API_URL` in `.env`. Current tunnel:
+Set `EXPO_PUBLIC_API_URL` in `.env` (this directory). Current tunnel:
 
 ```
 EXPO_PUBLIC_API_URL=https://4ee3-2405-1204-c198-100-7d39-2a83-390d-65b3.ngrok-free.app
@@ -23,8 +25,11 @@ The app stores the JWT in SecureStore and sends `Authorization: Bearer <token>`.
 ## Run
 
 ```bash
-npx expo start --android
+make dev-mobile              # from the repo root, or:
+pnpm --filter @timely/mobile start --android
 ```
+
+Release APK (memory-capped, detached): `make build-apk [API_URL=https://...]` from the repo root.
 
 On the Android emulator, Expo Go should open `exp://127.0.0.1:<port>` with `adb reverse tcp:<port> tcp:<port>` so the device can reach Metro. If Expo Go is already installed, you can also run:
 

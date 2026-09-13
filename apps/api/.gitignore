@@ -1,6 +1,0 @@
-.env*
-.cursor/
-./tmp
-.tmp
-tmp/
-data/backups/

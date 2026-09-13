@@ -29,7 +29,7 @@ We moved away from GORM's `AutoMigrate` to Goose because:
 2. Copy `.env.example` to `.env` and configure your database credentials:
 
 ```bash
-cp env.example .env
+cp .env.example .env
 ```
 
 3. Install Goose CLI (optional, but recommended):
