@@ -1,7 +1,10 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
+.env*
+
 # dependencies
 node_modules/
+pnpm-lock.yaml
 
 # Expo
 .expo/
@@ -42,3 +45,4 @@ yarn-error.*
 
 # local emulator verification artifacts
 .verify*
+.env
