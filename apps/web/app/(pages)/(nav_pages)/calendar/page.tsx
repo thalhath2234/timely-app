@@ -1,8 +1,10 @@
 "use client";
 
 import { CalendarPlus, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
+const subscribeNoop = () => () => {};
 
 import MonthView from "@/app/_components/calendarView/monthView";
 import WeekView from "@/app/_components/calendarView/weekView";
@@ -14,11 +16,12 @@ import ScheduleDialog, {
   type ScheduleSlot,
 } from "@/app/_components/calendarView/scheduleDialog";
 import AutoScheduleDialog from "@/app/_components/calendarView/autoScheduleDialog";
-import EntityDetailPanel from "@/app/_components/_ui/tasks/entityDetailPanel";
+import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 
 import { CALENDAR_VIEWS, CalendarView, Task } from "@/app/_types/types";
 import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
+import LoadError from "@/app/_components/_ui/loadError";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useCalendarRange } from "@/app/utils/hooks/calendar";
 import {
@@ -50,16 +53,13 @@ function CalendarContent() {
     () => viewRange(selectedDate, activeView),
     [selectedDate, activeView],
   );
-  const {
-    data: calendar,
-    isLoading,
-    status,
-  } = useCalendarRange(range.from, range.to);
+  const calendarQuery = useCalendarRange(range.from, range.to);
+  const { data: calendar, isLoading, status } = calendarQuery;
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [scheduleSlot, setScheduleSlot] = useState<ScheduleSlot | null>(null);
   const [autoOpen, setAutoOpen] = useState(false);
-  const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const openTask = useEntityDetailStore((state) => state.openTask);
 
   const typedTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
   const events = useMemo(
@@ -118,11 +118,14 @@ function CalendarContent() {
     setScheduleSlot({ at: slotAt(day, hour), durationMinutes: 30 });
   };
 
-  const [clock, setClock] = useState<Date | null>(null);
-  useEffect(() => {
-    setClock(new Date());
-  }, []);
-  const isToday = clock != null && isSameDay(selectedDate, clock);
+  // Server render has no "today"; the client snapshot fills it in after
+  // hydration without a setState-in-effect round trip.
+  const todayStamp = useSyncExternalStore(
+    subscribeNoop,
+    () => new Date().toDateString(),
+    () => null,
+  );
+  const isToday = todayStamp != null && isSameDay(selectedDate, new Date(todayStamp));
 
   return (
     <main className="flex h-full flex-col gap-4 overflow-hidden bg-background p-4">
@@ -254,9 +257,12 @@ function CalendarContent() {
       )}
 
       {status === "error" && (
-        <div className="flex flex-1 items-center justify-center rounded-xl border border-border bg-card text-sm text-destructive">
-          Could not load the calendar.
-        </div>
+        <LoadError
+          what="this calendar range"
+          error={calendarQuery.error}
+          onRetry={() => calendarQuery.refetch()}
+          retrying={calendarQuery.isFetching}
+        />
       )}
 
       {!isLoading && status !== "error" && (
@@ -313,7 +319,7 @@ function CalendarContent() {
         onClose={() => setSelectedEvent(null)}
         onOpenTask={(taskId) => {
           setSelectedEvent(null);
-          setDetailTaskId(taskId);
+          openTask(taskId);
         }}
       />
 
@@ -332,13 +338,6 @@ function CalendarContent() {
         }}
       />
 
-      {detailTaskId && (
-        <EntityDetailPanel
-          kind="task"
-          id={detailTaskId}
-          onClose={() => setDetailTaskId(null)}
-        />
-      )}
     </main>
   );
 }

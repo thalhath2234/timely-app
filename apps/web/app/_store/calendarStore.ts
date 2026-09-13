@@ -18,7 +18,7 @@ export const useCalendarStore = create<CalendarState>((set) => ({
   activeView: "month",
   setActiveView: (view) => set({ activeView: view }),
   currentDate: new Date(),
-  setCurrentDate: (date) => set({ currentDate: new Date() }),
+  setCurrentDate: (date) => set({ currentDate: date }),
   selectedDate: new Date(),
   setSelectedDate: (date, direction = 0) => set({ selectedDate: date, direction: direction }),
 }));

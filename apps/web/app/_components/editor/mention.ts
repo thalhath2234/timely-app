@@ -56,6 +56,7 @@ export const Mention = TiptapNode.create<MentionOptions>({
       suggestion: {
         char: "@",
         allowSpaces: false,
+        allowedPrefixes: null,
         pluginKey: MentionPluginKey,
         command: ({ editor, range, props }) => {
           editor

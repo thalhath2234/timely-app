@@ -234,6 +234,7 @@ const SlashMenuList = forwardRef<SlashMenuHandle, SlashMenuProps>(
       <div
         ref={listRef}
         onMouseDown={(event) => event.preventDefault()}
+        onPointerDown={(event) => event.preventDefault()}
         className="w-75 max-h-82 overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl"
       >
         {items.map((item, index) => {
@@ -246,6 +247,7 @@ const SlashMenuList = forwardRef<SlashMenuHandle, SlashMenuProps>(
               type="button"
               data-selected={isSelected}
               onMouseEnter={() => setSelectedIndex(index)}
+              onPointerDown={(event) => event.preventDefault()}
               onClick={() => command(item)}
               className={`flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors ${
                 isSelected ? "bg-accent text-accent-foreground" : ""

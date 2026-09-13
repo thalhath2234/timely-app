@@ -1,21 +1,20 @@
 # Timely — Current Feature Inventory
 
-Snapshot of what the application **already does**, across desktop web, mobile web (`/m`), the native Expo app, the Go API, and Hermes/MCP. Use this to decide what to build next. Nothing here is a proposal; gaps are called out separately at the end.
+Snapshot of what the application **already does**, across desktop web, the native Expo app, the Go API, and Hermes/MCP. Use this to decide what to build next. Nothing here is a proposal; gaps are called out separately at the end.
 
-Last inventoried from the three repos: `timely`, `timely-api`, `timely-mobile`.
+Last inventoried **13 Sep 2026** from `timely`, `timely-api`, and `timely-mobile`. The former mobile-web shell (`/m`) was removed; phones use the native app. Old `/m` bookmarks redirect to `/calendar`.
 
 ---
 
 ## Product at a glance
 
-Timely is a **single-user personal productivity system**: calendar + tasks + auto-schedule + notes + spreadsheets + search, with an AI agent (Hermes) that can operate the same data over MCP. There is no team, sharing, email, or calendar sync.
+Timely is a **multi-account, single-user personal productivity system**. Multiple people may register, but every account is private and independent. There is no team, sharing, email, or two-way calendar sync.
 
 | Surface | What it is |
 | --- | --- |
-| **Desktop web** | Full product: sidebar, saved task views, week calendar, auto-schedule, settings, reports, rich editors |
-| **Mobile web** (`/m`) | Phone-shell prototype of calendar/tasks/docs/sheets; settings/report open desktop routes; demo fallback if API is slow |
-| **Native app** | Expo Android/iOS client with tabs, server push (local reminder fallback), search tab, working hours and API keys |
-| **API** | Email/password JWT, CRUD for everything, calendar engine, semantic search, SSE for docs, Postgres job queue |
+| **Desktop web** | Full product: sidebar, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors |
+| **Native app** | Expo Android/iOS: tabs, Inbox/Today, local reminder notifications (permission on first launch), search, working hours, API keys, export |
+| **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue |
 | **Hermes / MCP** | 121 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can through Phase 4 |
 
 Ownership is always “this user owns this row.” No members, roles, invites, or resource ACLs.
@@ -26,22 +25,22 @@ Ownership is always “this user owns this row.” No members, roles, invites, o
 
 **What exists**
 
-- Email + password **register** and **login**.
-- Password hashed with bcrypt. Session is a JWT (HS256) returned in JSON **and** stored as an HttpOnly `session` cookie (24h, configurable). Native stores the same JWT in SecureStore and sends `Authorization: Bearer`.
+- Email + password **register** and **login**. Signup sends **name** and lands on **onboarding**.
+- Password hashed with bcrypt. Short-lived access JWT (cookie `session` on web; SecureStore on native) plus a **refresh token**. Native refreshes via `POST /auth/refresh`.
 - **Logout** clears cookie/token.
 - **Profile:** name, email, change password (needs current password).
-- **Onboarding flag** on user config. First-run flow: create a workspace, then mark onboarding complete and land on Calendar.
-- Landing page at `/` with Sign In / Register, “Get Started Free”, “Sign In Demo”, and marketing cards (calendar, task boards, reports). Demo credentials are shown on login (`user@example.com` / `password123`).
+- **Device sessions:** Settings → Account lists sessions and can **log out a device** (`GET /sessions`, `DELETE /sessions/:id`).
+- **Onboarding:** create a workspace, mark complete, land on Calendar. Unauthenticated private routes redirect to login; unfinished onboarding redirects to `/onboarding`.
+- Landing `/` with Sign In / Register / Get Started. **No “Sign In Demo”.** Seed credentials (`user@example.com` / `password123`) appear on login **only in development**.
+- Password recovery is a **local administration command** (`timely-api/scripts/reset_password.go`), not email.
+
+**Protected routes (web proxy)**
+
+`/calendar`, `/today`, `/inbox`, `/tasks`, `/projects`, `/report`, `/settings`, `/docs`, `/sheets`, `/notifications`, plus `/onboarding` when logged out. Requests to `/m` or `/m/*` redirect to `/calendar`.
 
 **What does not exist**
 
-- OAuth, Google, SSO, magic links, refresh tokens, 2FA, biometrics, password reset email, session list, multi-device management.
-
-**Quirks useful for planning**
-
-- Signup UI collects a name but does not send it to `/register`.
-- Web signup currently goes to `/calendar` and can skip the onboarding check.
-- Desktop middleware protects calendar/tasks/report/settings/onboarding; docs, sheets, and `/m/*` are not in that list.
+- OAuth, Google, SSO, magic links, 2FA, biometrics, password-reset email.
 
 ---
 
@@ -70,9 +69,8 @@ A user can have **multiple personal workspaces**. Everything work-related hangs 
 
 **Custom fields** (per workspace; apply to tasks; projects also store values)
 
-- Types: **text, number, date, url, select, multi_select**, and **boolean** in the type system.
+- Types: **text, number, date, url, select, multi_select, boolean (Yes / No)**. Settings and Add Task both expose boolean.
 - Select / multi-select have colored options.
-- Settings dropdown currently omits boolean even though the control exists elsewhere.
 - Can be created inline from Add Task.
 - Can be used as **task-list group-by** and **columns**.
 
@@ -82,31 +80,44 @@ A user can have **multiple personal workspaces**. Everything work-related hangs 
 
 ## 3. Projects
 
-Projects are containers for work inside a workspace. There is **no dedicated Projects page**; they show up as rows on Tasks, in pickers, search, reports, and mentions.
+Projects are containers for work inside a workspace. There is a dedicated **Projects hub**.
+
+### Desktop `/projects`
+
+- Card list: workspace, status, priority, description, progress bar, open/done counts, start and deadline.
+- Create from the page or the sidebar + menu.
+
+### Desktop `/projects/[id]`
+
+- Tabs: **Overview**, **Tasks**, **Stages**, **Activity**.
+- Overview: title, description, status, priority, **shared date picker** for start and deadline (same control as the rest of the app, not a native `<input type="date">`).
+- Stages: create, rename, delete, reorder; unstaged vs staged task lists.
+- Duplicate and mark complete from the header.
+
+### Native
+
+- Projects list under More, with create.
+- Project detail: title, description, status, priority, start/deadline via date sheets, stages, open-tasks link.
 
 ### Fields
 
 Title, rich description, workspace, status, priority, start date, deadline, completedAt, color (hex), `doesHaveStages` flag, custom field values, timestamps.
 
-### Stages (partial)
+### Stages
 
-- API + MCP: create / rename / delete / reorder stages on a project.
-- Tasks have `stageId`. Desktop list can group by stage.
-- Desktop project form has a stages **toggle**.
-- **No UI** to define the stage catalog or assign a stage on a task. Native can add a project from workspace settings but has **no project editor**.
+- API + MCP + **UI**: create / rename / delete / reorder.
+- Tasks have `stageId`. Desktop list can group by stage. Task create/detail can pick a stage when the project has one.
 
 ### Actions
 
-- Create (desktop Add modal; native from workspace settings).
-- Complete (set `completedAt`) via API/MCP.
-- Delete cascades tasks.
+- Create, complete, delete (cascades tasks), duplicate.
 - Shown on Tasks as synthetic `project-` rows when data mode is Projects.
 
 ---
 
 ## 4. Tasks (core work items)
 
-Work tasks require `duration > 0` and a workspace. Duration is minutes of work the scheduler can place. Title-only capture is `kind=inbox` and is **not** auto-scheduled until clarified. Reminders are `kind=reminder` (timed pings). Subtasks nest one level (`parentTaskId`); schedulable children replace the parent in the engine. Checklist items are lightweight completion text on the parent. `actualMinutes` is focused time, separate from estimated `duration`.
+Work tasks require `duration > 0`, `kind=task`, and a workspace. Duration is minutes of work the scheduler can place. Title-only capture is `kind=inbox` and is **not** auto-scheduled until clarified. Reminders are `kind=reminder` (timed pings). Subtasks nest one level (`parentTaskId`); schedulable children replace the parent in the engine. Checklist items are lightweight completion text on the parent. `actualMinutes` is focused time, separate from estimated `duration`.
 
 ### Fields
 
@@ -114,19 +125,19 @@ Work tasks require `duration > 0` and a workspace. Duration is minutes of work t
 | --- | --- |
 | Name | Required, 2–100 chars on create |
 | Description | TipTap rich text on desktop; native is closer to plain notes |
-| Duration | Minutes; `> 0` = schedulable work |
-| Start date, deadline | Date pickers |
-| Scheduled on | Reminder ping time, or mirror of earliest block |
+| Duration | Minutes; `> 0` = schedulable work. Hidden for reminders |
+| Start date, deadline | Shared date picker |
+| Scheduled on | Reminder **Notify at** ping, or mirror of earliest block |
 | Completed at | Toggle complete / reopen |
 | Workspace, project, status | Required on work tasks; inbox items and standalone reminders may omit workspace until clarified |
-| Priority | Low, Medium, High, Urgent; **Critical** exists on desktop detail only. Native Quick Add uses lowercase low/medium/high/urgent |
+| Priority | **Low, Medium, High, Urgent**. Legacy `Critical` normalizes to Urgent |
 | Labels | Multi |
-| Custom fields | Per workspace |
+| Custom fields | Per workspace, including boolean |
 | Blocked by | This task waits on another. Dependents (“blocking”) are a read-only list |
 | Stage | Project board; Hermes `move_task_to_stage` |
 | Recurrence | RFC 5545 series |
 | Blocks | Manual or engine time chunks on the calendar |
-| Kind | `task`, `reminder`, or `inbox` |
+| Kind | `task`, `reminder`, or `inbox` — kind is the source of truth |
 | Parent | One-level subtask (`parentTaskId`) |
 | Checklist | `{id, title, completedAt, order}` items; not scheduled |
 | Actual minutes | Focused time from start/stop focus |
@@ -146,48 +157,59 @@ Each view stores:
 - **Sort:** name, deadline, startDate, createdAt, priority, status, project × asc/desc
 - **Column order** (drag headers): built-ins + custom fields
 
-List columns include: Task, Description, Duration, Start, Deadline, Scheduled On, Completed, Created, Updated, Project, Workspace, Blocked By, Priority, Stage ID, Schedule ID, Status, Labels, custom fields.
-
-Reminders (`kind=reminder`, typically duration 0) and inbox items are **hidden from the main board** unless the view’s `showReminders` filter is on. Inbox has its own `/inbox` page.
+Reminders and inbox items are **hidden from the main board** unless the view’s `showReminders` filter is on. Inbox has its own `/inbox` page.
 
 **Kanban:** columns = workspace statuses (+ “No status”). Drag a card to change status. Cards open detail.
 
-**Gantt:** bars from start→deadline (with fallbacks). Click opens detail. **No drag-resize.**
+**Gantt:** bars from start→deadline (with fallbacks). Click opens detail. **No drag-resize.** Saved view “My Deadlines” currently switches layout; it does not yet encode “has a deadline or next block.”
 
-Deep links: `?taskId=`, `?projectId=` (native search can pass `projectId`, but the tasks screen does not consume it yet).
+Deep links: `?taskId=`, `?projectId=`.
 
 ### Detail, activity, comments (desktop + native)
 
 - Autosave title/properties; description often needs explicit save on desktop.
+- **Work | Reminder** type toggle on create and detail (not Inbox).
 - Complete toggle, delete, Escape closes the panel.
-- **Activity feed:** created / updated / commented, with field diffs (name, description, duration, dates, schedule, complete, priority, status, project, stage, blockedBy, labels, custom fields, occurrences). Actor is the user or `"Hermes"` for MCP.
-- Comments via `Ctrl/Cmd+Enter`.
+- **Activity feed:** created / updated / commented, with field diffs. Actor is the user or `"Hermes"` for MCP.
+- Comments via `Ctrl/Cmd+Enter`. **No comment delete** in the UI.
 - Native has activity + comments; notes are not the full rich editor.
 
 **Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks`, and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete).
 
 **No nested subtasks beyond one level.** Completing a parent does not auto-complete children; `openSubtaskCount` is shown on the parent.
 
+### Inbox and Today
+
+- **Inbox** (`/inbox`, native Inbox): title-only capture (`kind=inbox`). Review later to assign workspace, duration, and schedule.
+- **Today** (`/today`, native Today): focusing task, today’s calendar items, reminders, inbox count, Today-focus list, start/stop focus.
+
 ### Filters on API (also used by agent)
 
 workspace(s), project(s), status(es), label(s), priority, stage, completed, overdue, dueBefore/After, scheduled, recurring, reminders, kind, inbox, parentId, includeSubtasks, text `q`, sort, limit/offset (default 200).
 
-### Mobile web / native task UX
+### Native task UX
 
-Filters: All, Today, Overdue, Upcoming (14 days), No date, Done; workspace chips; search by name; grouped by project; card complete checkbox; dedicated detail screen.
+Filters: All, Today, Overdue, Upcoming (14 days), No date, Done; workspace chips; search by name; grouped by project; card complete checkbox; dedicated detail screen with Work/Reminder.
 
 ---
 
-## 5. Reminders (duration = 0)
+## 5. Reminders (`kind=reminder`)
 
-A reminder is a **timed ping**, not a work block.
+A reminder is a **first-class timed ping**, not a work block and not a duration-0 work task.
 
-- Workspace / project / status / labels / custom fields / blocked-by are hidden or optional.
-- Can convert reminder ↔ duration on desktop/native detail.
+- Create and detail use a **Work | Reminder** control. Reminder sets `kind=reminder`, `duration=0`, and requires **Notify at** (next round hour if unset). A reminder without a ping time is invalid.
+- Workspace / project / status / labels / custom fields / blocked-by / duration / engine chunks are hidden on a reminder.
+- Recurring reminders are allowed (time of day + repeat rule).
 - Calendar draws them as short chips; they **do not occupy busy time** for auto-schedule.
-- Recurring reminders are allowed.
-- Native Quick Add has Reminder as a first-class kind.
-- **Awareness:** due reminders are claimed by a Postgres job (`send_reminder`) even when the UI is closed. Native registers an Expo push token when possible; local OS schedules remain only as a fallback and are cancelled once server push is registered so they do not duplicate. Desktop and native have an in-app notification center (read/unread, snooze 15m/1h/tomorrow). Snooze updates the underlying reminder (`scheduledOn` or a moved occurrence) and enqueues the next ping. Settings control category prefs, quiet hours (in-app still writes; push is delayed), and morning/evening digests.
+- Native Quick Add has Reminder as its own kind (alongside Inbox, Task, Event, Doc, Sheet).
+
+**Awareness**
+
+- Due reminders are claimed by a Postgres job (`send_reminder`) even when the UI is closed.
+- Desktop and native have an in-app notification center (read/unread, snooze 15m / 1h / tomorrow). Snooze updates `scheduledOn` or a moved occurrence and enqueues the next ping.
+- Settings control category prefs, quiet hours (in-app still writes; push is delayed), digest times, and timezone.
+- **Native local OS schedules are the device ping.** Permission is requested after the first interactive frame (Android 13+ `POST_NOTIFICATIONS`). Local schedules keep running even if Expo push token registration succeeds. Horizon 60 days, max 60 scheduled, Android channel `reminders`.
+- Exact-alarm access on Android 14+ may still need a system Settings grant; that deep-link is not in the UI yet.
 
 ---
 
@@ -201,7 +223,7 @@ RFC 5545 RRULE with `dtstart` + IANA timezone. Occurrences are **expanded on rea
 
 **Occurrence actions:** this / this+future (split series) / all. Complete, uncomplete, skip, restore, move.
 
-Auto-schedule **skips** recurring tasks (they are not placed as work blocks).
+Auto-schedule places recurring **work** as blocks tagged with `occurrenceStart`. Recurring **reminders** stay on their ping rule and are not placed as work.
 
 ---
 
@@ -237,9 +259,9 @@ Create from Add modal, schedule-dialog “New event” tab, native Quick Add. Ed
 
 Tabs: **Schedule an existing unscheduled task** (search) | **New event**. Duration override; recurrence for events.
 
-### Mobile web / native calendar
+### Native calendar
 
-Day / Agenda / Month (**no Week**). Horizontal date strip with busy dots. Item sheet: type badge, complete, reschedule (block / reminder time / one-off event), skip/restore occurrence. Native also has auto-schedule from the header.
+Day / Agenda / Month (**no Week**). Horizontal date strip with busy dots. Item sheet: type badge, complete, reschedule (block / reminder time / one-off event), skip/restore occurrence. Auto-schedule from the header.
 
 ---
 
@@ -257,7 +279,7 @@ This is one of the product’s distinctive features.
 
 ### Engine controls
 
-- Configurable buffer between blocks (`breakMinutes`, default 5, range 1–60). Not a hidden gap.
+- Configurable buffer between blocks (`breakMinutes`, default 5, range 1–60).
 - Freeze window (`freezeHours`, 0–168): near-term engine blocks are kept; 0 leaves every hour movable.
 - Per-workspace include/exclude (`excludedWorkspaceIds`).
 - Per-task: min/preferred chunk, contiguous vs splittable, earliest start, preferred time windows, `scheduleLocked`.
@@ -265,13 +287,14 @@ This is one of the product’s distinctive features.
 
 ### Engine behavior
 
-- Places incomplete work (including recurring **work** occurrences inside the horizon) into **free working hours minus busy time** (events + existing blocks). Inbox items, reminders, and parents with schedulable subtasks are skipped.
-- Recurring work is scheduled as blocks on the parent task with `occurrenceStart`; it does not create extra task rows. One occurrence failing to fit does not change later ones. Skip/move/complete exceptions are respected. Reminders still expand as pings and do not occupy busy time.
+- Places incomplete **work** into **free working hours minus busy time** (events + existing **incomplete** blocks). Completed tasks are not candidates, do not appear in the change list, and do not consume free capacity. Inbox items, reminders, and parents with schedulable subtasks are skipped.
+- Recurring work is scheduled as blocks on the parent task with `occurrenceStart`. One occurrence failing to fit does not change later ones. Skip/move/complete exceptions are respected.
 - Shared ranking with `what_next`: deadline slack, duration, priority, Today focus, dependency readiness, partial progress. Scores are ordering hints, never presented as certainty.
 - Blockers are hoisted. Earliest fit respects min/preferred chunk, contiguous single-slot, preferred-window intersection, and freeze.
 - Horizon default **14 days**, max **90**.
 - Skip reasons include: `no_capacity`, `blocked`, `manual`, `no_duration`, `reminder`, `recurring` (repeating **reminders**), `completed`, `inbox`, `parent_has_subtasks`, `locked`, `frozen`, `workspace_excluded`, `contiguous_no_fit`, `before_earliest`. Each skip has a plain-language `message`.
 - Optional include-manual. Deadline-risk and capacity flags (`overCapacity`, `atRisk`) appear before apply.
+- Preview change rows use **task titles**, never raw `tsk_…` ids.
 
 ### Preview vs apply
 
@@ -288,9 +311,8 @@ This is one of the product’s distinctive features.
 
 ### UI
 
-- Desktop: auto-schedule dialog (changes, skip messages, capacity, risks, undo) + floating toast (running / done / error). Settings → Schedule has hours + engine controls.
+- Desktop: auto-schedule dialog (changes, skip messages, capacity, risks, undo) + floating toast. Settings → Schedule has hours + engine controls.
 - Native: sparkles header → sheet (preview/apply/undo/capacity/skip messages) + activity banner. Settings → Schedule has hours + engine. Task detail has pin/chunk/contiguous/earliest/windows.
-- Mobile web: toast can appear; no full planner UI.
 
 ---
 
@@ -303,7 +325,7 @@ A task is overdue when it is incomplete, not a reminder, and:
 
 Recurring: deadline only; missed occurrences are handled separately.
 
-Shown in: Agenda Overdue section, Report, mobile “Overdue” filter, agent `get_agenda` / `what_next`.
+Shown in: Agenda Overdue section, Report, native “Overdue” filter, agent `get_agenda` / `what_next`.
 
 ---
 
@@ -315,26 +337,32 @@ Nested notes (parentId + order), Notion-like.
 
 ### Desktop
 
-- Home: recently edited (12), empty state, New doc.
-- Tree sidebar: expand/collapse, auto-expand ancestors, add subpage, local search, favorites, delete with descendant count.
-- Full editor.
+- Home: recently edited (12), **Import .md**, New doc.
+- Tree sidebar: expand/collapse, auto-expand ancestors, add subpage, local search, favorites, **show archived**, import Markdown, delete with descendant count.
+- Full editor. **Archive / unarchive** from the doc header.
 
 ### Editor
 
 - Slash `/`: Text, H1–H3, bullets, numbered, to-do list, quote, code block, 3×3 table, divider, link, mention.
 - Markdown-ish: `.`+space → bullet; `-`+space → divider.
 - Marks: bold, italic, strike, inline code, highlight.
-- `@` mentions: doc, sheet, task, project (client navigation).
+- `@` mentions: doc, sheet, task, project (no required leading space). Native also has a **Mention** toolbar button.
 - Tables: resizable, merge/split, delete-table toolbar.
+- **Code blocks:** language picker, **Copy**, VS Code Dark+ token colors.
+- **Auto-capitalization** after `. ? !` and at the start of a new line (`autocapitalize="sentences"` plus an editor plugin).
 - Link popover, word count, floating/fixed toolbar.
-- Autosave. **SSE watch** (`/docs/:id/watch`) last-write-wins; skip remote while focused/unsaved. Poll fallback on native.
+- Autosave. Incoming remote content applies only when the source document actually changed (remote watch or Markdown import). Tapping empty space after a save does **not** restore the initially loaded JSON.
+- **SSE watch** (`/docs/:id/watch`) last-write-wins; skip remote while focused/unsaved. Poll fallback on native.
 - Agent speaks **markdown** (create/update/append/get as markdown).
 
-**Mobile web / native:** flat list with favorites section; editor without tree. Native Files tab is Docs | Sheets.
+### Import / export
 
-**Archive:** API flag + lists hide archived items. **No Archive button in UI.** Delete only.
+- **Import Markdown** (`.md` / `.markdown` / plain text) on docs home, sidebar, open-doc header, native Files tab, and native doc menu. A markdown parser turns headings, lists, tasks, quotes, fences, tables, and links into the same TipTap block model.
+- **Export Markdown** from the open doc. **PDF download is not in the UI** (the API can still render a simple text PDF).
 
-**Not implemented:** sharing, permissions, version history, comments on docs, attachments/images, publish/export.
+**Native:** flat list with favorites; editor without tree. Files tab is Docs | Sheets. Editor is a WebView with the same schema, code Copy, auto-cap, and mentions.
+
+**Not implemented:** sharing, permissions, version history, comments on docs, attachments/images, publish.
 
 ---
 
@@ -350,6 +378,7 @@ Default new sheet: columns A–D + empty rows.
 
 - Formula bar; Enter/F2 to edit; type-to-edit; arrows/Tab; Delete/Backspace clear; column resize (72–640px); rename headers; add/delete rows and columns; min 1 row/column; autosave.
 - Desktop and native expose column types: text / number / date / boolean. MCP `add_sheet_column` / `update_sheet_column` / `update_sheet_cells` use the same types; cells are coerced server-side.
+- **Archive / unarchive** and **show archived** on the list, same pattern as docs.
 
 ### Formulas (client-side)
 
@@ -360,17 +389,13 @@ Default new sheet: columns A–D + empty rows.
 
 No saved sheet views, filters, sorts, or charts. HTTP is whole-sheet CRUD; row/column helpers are MCP-first.
 
-Archive: same as docs — filtered, no UI action.
-
 ---
 
 ## 12. Search
 
-**Desktop:** command palette, sidebar Search or **Ctrl/Cmd+K**. Semantic `/search?mode=semantic`, fallback to keyword if 503. Hits: task, project, doc, sheet, event → deep links (events → calendar).
+**Desktop:** command palette, sidebar Search or **Ctrl/Cmd+K**. Semantic `/search?mode=semantic`, fallback to keyword if 503. Hits: task, project, doc, sheet, event → deep links (events → calendar). Duplicate hits are collapsed by `kind:id`.
 
-**Native:** dedicated Search tab, 250ms debounce, same semantic+fallback.
-
-**Mobile web:** local task-name search only; sidebar search on docs/sheets lists.
+**Native:** dedicated Search tab, 250ms debounce, same semantic+fallback and dedupe.
 
 **Backend**
 
@@ -381,7 +406,7 @@ Archive: same as docs — filtered, no UI action.
 
 ## 13. Reports
 
-Client-computed snapshot (not a separate analytics API). Desktop `/report`; native has a thinner screen under Settings; mobile web links out to desktop.
+Client-computed snapshot (not a separate analytics API). Desktop `/report`; native has a thinner screen under Settings.
 
 Computed from live tasks/projects/docs/sheets:
 
@@ -389,7 +414,7 @@ Computed from live tasks/projects/docs/sheets:
 - Open tasks, Overdue, Projects, Docs & sheets
 - Overdue list (≤10)
 - Open by priority bars
-- Due in next 14 days (≤10)
+- Due in next 14 days (≤10) — currently deadline-based; next engine block is not counted yet
 - Projects with open work (≤8) and by-workspace counts
 - Mentions graph from `@` links in rich text (≤16) — native computes this but barely shows it
 - Recent activity (≤12)
@@ -402,15 +427,22 @@ Empty states per section. No date-range picker, no export, no stored historical 
 
 ### Account
 
-Name, email, current password, new password, Save.
+Name, email, current password, new password, Save. **Devices** list with log-out-this-device.
 
 ### Schedule
 
-Working hours as above. Used only by auto-schedule (and reminder timezone context).
+Working hours, freeze, break minutes, excluded workspaces. Used by auto-schedule (and reminder timezone context).
 
 ### Workspaces
 
-Picker → Name / Statuses / Labels / Custom fields.
+Picker → Name / Statuses / Labels / Custom fields (including Yes/No).
+
+### Data & appearance
+
+- Full JSON backup, tasks CSV, calendar ICS.
+- Restore (replace-mode, transactional).
+- Encrypted server backups: create, list, download, delete; schedule + retention.
+- Theme: system / light / dark on desktop; light / dark on native.
 
 ### Integrations (desktop) / API keys (native)
 
@@ -423,9 +455,9 @@ Picker → Name / Statuses / Labels / Custom fields.
 
 ### Notifications
 
-Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread and reminder snooze. Settings → Notifications: category prefs, quiet hours, digest times, failed-job retry. Native also registers Expo push and keeps local schedules only if registration fails.
+Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread and reminder snooze. Settings → Notifications: category prefs, quiet hours, digest times, failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
 
-**No** theme toggle, language, privacy, billing, or connected-account screens.
+**No** language picker, privacy, billing, or connected-account screens.
 
 ---
 
@@ -441,11 +473,11 @@ Activity from the agent is attributed to `"Hermes"`.
 - `search` / `semantic_search` / `reindex_search`
 - `get_agenda` — items + overdue + unscheduled for a day/week
 - `get_free_time` — working-hour gaps
-- `what_next` — ranks open work with the same scoring policy as the engine (deadline slack, duration, priority, Today focus, dependency, partial progress). Returns `reasons[]`; scores are ordering hints, not certainty. Inbox and reminders are excluded.
+- `what_next` — ranks open work with the same scoring policy as the engine. Returns `reasons[]`; scores are ordering hints, not certainty. Inbox and reminders are excluded.
 
 ### Then full CRUD
 
-Workspaces, statuses, labels, custom fields (including boolean), projects, stages, tasks (including bulk, labels, custom fields, dependency, comments, activity, recurrence, occurrences, split, kanban status, project-stage moves, schedule lock/chunks), events, calendar, working hours, schedule settings, capacity, auto-schedule preview/apply/undo, pins, manual blocks, docs (markdown, append, archive), sheets (column types, typed cells, archive), saved task views (including Phase 1 filters), profile (name only).
+Workspaces, statuses, labels, custom fields (including boolean), projects, stages, tasks (including bulk, labels, custom fields, dependency, comments, activity, recurrence, occurrences, split, kanban status, project-stage moves, schedule lock/chunks), events, calendar, working hours, schedule settings, capacity, auto-schedule preview/apply/undo, pins, manual blocks, docs (markdown, append, archive), sheets (column types, typed cells, archive), saved task views, profile (name only), notifications, jobs.
 
 Destructive deletes of a workspace, project, or document require `confirm=true`. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
 
@@ -477,11 +509,9 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 
 **Desktop sidebar:** + menu (Task, Event, Workspace, Project, Doc, Sheet), Search, Today, Inbox, Calendar, Tasks, Projects, Docs, Sheets, Report, Notifications, Settings, Logout. `g` then `y`/`i`/`n` jumps to Today/Inbox/Notifications.
 
-**Add Item modal:** per-type forms, property sidebar, rich description for task/project, recurrence for task/event, labels/custom fields with inline create, reminder mode (duration 0), events all-day/duration/workspace.
+**Add Item modal:** per-type forms. Tasks open with a **Work | Reminder** toggle first. Reminder uses Notify at (date and time). Work uses duration, workspace, project, stage, labels, custom fields. Rich description for task/project. Recurrence for task/event. Labels/custom fields with inline create. Events all-day/duration/workspace.
 
-**Native FAB** on Calendar/Tasks/Files: Task, Reminder, Event, Doc, Sheet. Workspace/Project created in settings instead.
-
-**Mobile web FAB:** Task, Event, Doc, Sheet. Can invent local demo tasks if API fails.
+**Native FAB** on Calendar/Tasks/Files: Inbox, Task, Reminder, Event, Doc, Sheet. Workspace/Project also from settings. Reminder create uses Notify at.
 
 ### Keyboard (desktop)
 
@@ -497,35 +527,36 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 
 | Area | Current behavior |
 | --- | --- |
-| Theme | Desktop supports system/light/dark; native selects light/dark from the OS at startup through shared color tokens. |
-| Language | English copy with locale-aware date/time formatting; no translation catalog yet. |
+| Theme | Desktop system/light/dark; native light/dark from Settings (persisted). Shared color tokens |
+| Language | English copy with locale-aware date/time formatting; no translation catalog yet |
 | Timezones | Browser TZ + editable working-hours IANA zone; tzdata embedded in API |
 | Mentions | `@` links between docs, sheets, tasks, projects |
 | Colors | Status/label/project/event colors; calendar legend |
 | Realtime | Docs SSE only, in-process hub (won’t fan out across multiple API instances) |
-| Offline | Desktop/native show an explicit offline + stale-data banner. Native persists and replays safe idempotent task completion, checklist, Today-focus, and recurrence actions per account. Doc/sheet editing remains online-only pending conflict semantics. Mobile web shows real loading/error states and never substitutes demo records. |
+| Offline | Desktop/native show an explicit offline + stale-data banner. Native persists and replays safe idempotent task completion, checklist, Today-focus, and recurrence actions per account. Doc/sheet editing remains online-only |
 | PWA | None |
-| Attachments / files / camera | None. Content is JSON/markdown/text |
+| Attachments / files / camera | None except Markdown file import for docs. Content is JSON/markdown/text |
 | Email / SMTP | None. Push is Expo HTTP; no mailer |
-| Background jobs | Postgres `jobs` table with `FOR UPDATE SKIP LOCKED`, retries/backoff, dedupe keys, `/jobs` health + retry. Worker runs in the API process. Kinds: `send_reminder`, `index_entity`, `daily_digest`, `send_push`, `create_backup`. Scheduled backups use AES-256-GCM encryption and retention. |
-| External calendars | None (no Google Calendar, ICS, Slack, GitHub) |
-| Collaboration | Single user. “Secure Cookie Sessions” is auth, not multiplayer |
-| IDs | Typed prefixes (workspace, status, etc.) |
+| Background jobs | Postgres `jobs` table with `FOR UPDATE SKIP LOCKED`, retries/backoff, dedupe keys, `/jobs` health + retry. Worker runs in the API process. Kinds: `send_reminder`, `index_entity`, `daily_digest`, `send_push`, `create_backup`. Scheduled backups use AES-256-GCM encryption and retention |
+| External calendars | None (no Google Calendar, ICS import two-way, Slack, GitHub). ICS **export** exists |
+| Collaboration | Single user per account. Multiple independent accounts may exist on one install |
+| IDs | Typed prefixes (`tsk_`, `pr_`, `doc_`, …) |
 | CORS | Allowlist includes localhost:4001 and hardcoded ngrok origins |
 
 ---
 
 ## 18. Native-only extras
 
-- JWT in SecureStore
-- Expo push token registration + local reminder fallback (horizon 60 days, max 60 scheduled, Android channel `reminders`)
+- JWT + refresh token in SecureStore
+- Notification permission on first launch; Android `POST_NOTIFICATIONS`, reminder channel, exact-alarm permissions declared
+- Local reminder schedules (horizon 60 days, max 60) plus optional Expo push registration — locals are **not** cancelled when push registers
 - In-app notification center and snooze
 - Dedicated Search tab
-- Combined Files tab (Docs | Sheets)
+- Combined Files tab (Docs | Sheets) with Markdown import
 - Hidden sheets route (duplicate of Files → Sheets)
 - Android cleartext HTTP for LAN API; API URL baked into production APK (`updates.enabled: false`, so URL changes need a rebuild)
 - Deep link scheme `timelymobile` exists; no custom handlers beyond router paths
-- Portrait, system light/dark, splash, tablet flag on iOS
+- Portrait, light/dark theme picker, splash, tablet flag on iOS
 
 Export uses the native share sheet; network state, stale data, and queued safe mutations are persisted and visible. No widgets, camera, biometrics, or offline doc/sheet database.
 
@@ -539,36 +570,27 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | --- | --- |
 | `/` | Landing |
 | `/login` | Email/password login |
-| `/signup` | Register |
+| `/signup` | Register (sends name) |
 | `/onboarding` | Create first workspace |
 
 ### Desktop app
 
 | Route | What it does |
 | --- | --- |
+| `/today` | Focus, today’s plan, reminders, inbox |
+| `/inbox` | Title-only capture |
 | `/calendar` | Day / Week / Month / Agenda |
 | `/tasks` | Saved views, List / Kanban / Gantt |
-| `/docs` | Docs home |
+| `/projects` | Project hub |
+| `/projects/[id]` | Overview, tasks, stages, activity |
+| `/docs` | Docs home + Markdown import |
 | `/docs/[id]` | Doc editor |
 | `/sheets` | Sheets home |
 | `/sheets/[id]` | Spreadsheet |
 | `/report` | Productivity snapshot |
 | `/notifications` | In-app notification center |
-| `/settings` | Account, Schedule, Notifications, Workspaces, Data & Appearance, Integrations (`?tab=`) |
-
-### Mobile web
-
-| Route | What it does |
-| --- | --- |
-| `/m` | Redirects to `/m/calendar` |
-| `/m/calendar` | Day / Agenda / Month |
-| `/m/tasks` | Card list + filters |
-| `/m/tasks/[id]` | Task detail |
-| `/m/docs` | Flat list |
-| `/m/docs/[id]` | Editor |
-| `/m/sheets` | Flat list |
-| `/m/sheets/[id]` | Grid |
-| `/m/more` | Profile, workspaces, links to desktop Report/Settings |
+| `/settings` | Account (incl. devices), Schedule, Notifications, Workspaces, Data & appearance, Integrations (`?tab=`) |
+| `/m`, `/m/*` | Redirect to `/calendar` (legacy mobile-web bookmarks) |
 
 ### Native app
 
@@ -580,8 +602,12 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/(app)/(tabs)/search` | Global search |
 | `/(app)/(tabs)/docs` | Files (Docs \| Sheets) |
 | `/(app)/(tabs)/more` | Settings tab |
-| `/(app)/tasks/[id]` | Task / reminder detail |
+| `/(app)/today` | Today |
+| `/(app)/inbox` | Inbox capture |
+| `/(app)/tasks/[id]` | Task / reminder detail (Work \| Reminder) |
 | `/(app)/events/[id]` | Event detail |
+| `/(app)/projects` | Project list |
+| `/(app)/projects/[id]` | Project detail + stages |
 | `/(app)/docs/[id]` | Doc editor |
 | `/(app)/sheets/[id]` | Sheet editor |
 | `/(app)/report` | Report |
@@ -598,30 +624,33 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | Method | Path | Capability |
 | --- | --- | --- |
 | GET | `/` | Health/hello |
-| POST | `/register` | Sign up |
+| POST | `/register` | Sign up (name, email, password) |
 | POST | `/login` | Sign in |
 | POST | `/logout` | Clear session cookie |
+| POST | `/auth/refresh` | Rotate access + refresh tokens |
 | ANY | `/mcp` | MCP agent (Bearer API key; not JWT middleware) |
 
 ### Authenticated (JWT / session cookie)
 
 **Me:** `GET/PUT /me`
 
-**Tasks:** CRUD, bulk patch, activity, comments, occurrence edit, recurrence split
+**Sessions:** `GET /sessions`, `DELETE /sessions/:id`
+
+**Tasks:** CRUD, bulk patch, activity, comments, occurrence edit, recurrence split, inbox, focus, checklist, today-focus
 
 **Events:** CRUD, occurrence edit, recurrence split
 
-**Calendar / schedule:** `GET /calendar`, working hours get/put, schedule preview/apply/reschedule, task blocks CRUD
+**Calendar / schedule:** `GET /calendar`, working hours get/put, schedule preview/apply/reschedule/undo, task blocks CRUD
 
-**Projects:** CRUD, stages CRUD + reorder
+**Projects:** CRUD, stages CRUD + reorder, duplicate
 
 **Workspaces:** CRUD, labels, statuses, custom fields, `GET/PUT /config`
 
-**Docs / sheets:** CRUD; `GET /docs/:id/watch` (SSE)
+**Docs / sheets:** CRUD; archive flag; `GET /docs/:id/watch` (SSE); doc export `?format=markdown` (PDF still accepted by the exporter, unused in UI)
 
-**API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications CRUD-ish (list, read, snooze); `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
+**API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications list/read/snooze; `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
 
-**Portability:** full versioned JSON export + replace-mode transactional restore; task CSV; calendar ICS; individual document Markdown/PDF; encrypted server backup create/list/download/delete; backup schedule + retention settings
+**Portability:** full versioned JSON export + replace-mode transactional restore; task CSV; calendar ICS; document Markdown; encrypted server backup create/list/download/delete; backup schedule + retention settings
 
 ---
 
@@ -629,89 +658,98 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 These are already in the backend — useful if choosing “build UI” vs “build new capability”:
 
-- Project **stages** CRUD + reorder
-- Bulk task patch
-- Archive docs/sheets (`archivedAt`)
-- Sheet column types + granular row/cell APIs
-- Boolean custom fields
-- Task `blockingId` on create is **accepted and ignored**
-- Legacy `schedules` / `scheduleId` still on the task model
+- Sheet granular row/cell APIs (grid UI is whole-sheet)
+- Legacy `scheduleId` still on the task JSON (unused by the engine)
 - Semantic reindex endpoint
 - Agent markdown append-to-doc
 - `what_next` / `get_free_time` / `get_agenda` (agent-only intelligence)
+- Document PDF bytes (no download button)
 - Split recurring series (hooks exist; native task UI is thinner than events)
 
 ---
 
 ## 22. Explicit gaps (not built)
 
-Grouped so you can pick from real holes, not imagined ones.
+Grouped so you can pick from real holes, not imagined ones. See also `NextPhase.md` §14 (R8).
 
 ### People and access
 
 - Team workspaces, invites, roles, sharing, guest links
-- OAuth / SSO / password reset / 2FA / biometrics
+- OAuth / SSO / password-reset **email** / 2FA / biometrics
 - Per-doc or per-sheet permissions
 
 ### Work model
 
+- Saved views that encode intent (My Deadlines = has deadline **or** next block)
+- Kanban/Gantt/report using next scheduled block when dates are empty
+- Inbox **Make task** still needs to write duration, default status, and stay off the board until clarified
+- Stop auto-applying the engine on every task/subtask create
+- Comment delete; richer project activity (not only recently updated tasks)
+- Gantt drag-resize
 - Full task/project template manager (duplicate is the current entry point)
-- Kanban drag-to-status, Gantt drag-resize (Kanban drag exists; Gantt resize does not)
 
 ### Calendar
 
 - Week view on mobile
-- Google / Outlook / ICS sync
+- Google / Outlook / ICS two-way sync
 - Time-zone per event, travel time, conference links
 - Drag-drop on native calendar
 
 ### Knowledge
 
-- Doc/sheet sharing, comments, version history, images/files (individual docs export as Markdown/PDF)
+- Doc/sheet sharing, comments, version history, images/files
 - Databases/views on sheets (filters, sorts, linked records)
 
 ### Awareness
 
 - Email notifications (intentionally no SMTP)
 - In-app Hermes chat (today MCP-only)
+- Android 14+ exact-alarm Settings deep-link if the OS denied it
+- Digest open-count matching Report; persist notification timezone from working hours
 
 ### Platform
 
 - Translation catalogs and runtime language selection
 - Offline doc/sheet editing, a full offline database, and PWA
 - Billing
-- Attachments
+- Attachments (beyond `.md` import)
 - Multi-instance realtime for docs (SSE hub is in-process)
+- Humanized device session names
 
 ---
 
 ## 23. Surface matrix
 
-| Capability | Desktop | Mobile web | Native | MCP |
-| --- | --- | --- | --- | --- |
-| Auth / onboarding | Yes | Uses desktop auth | Yes | Profile name |
-| Calendar D/W/M/Agenda | D W M A | D M A | D M A | Range + agenda |
-| Auto-schedule | Full preview/apply/undo | Toast | Preview/apply/undo | Full |
-| Manual blocks | Full | Reschedule | Reschedule + pin/chunk | Full |
-| Task list/kanban/gantt + saved views | Yes | Card list | Card list | Views CRUD + filters |
-| Task comments/activity | Yes | No feed | Yes | Yes |
-| Inbox / Today / focus | Yes | Capture | Yes | Yes |
-| Subtasks / checklists | Yes | Via detail | Yes | Yes |
-| Reminders | Yes + center | Yes | Yes + push/fallback | Yes + snooze |
-| Notification center / prefs | Yes | Via desktop | Yes | Yes |
-| Working hours / engine | Multi-window + freeze | Via desktop | Hours + freeze | Yes |
-| Recurrence | Yes | Limited | Yes | Yes |
-| Projects | Hub + stages | Via tasks | List + detail | Full + stages + board |
-| Docs tree + editor | Yes | Flat + editor | Flat + editor | Markdown + archive |
-| Sheets + formulas | Yes | Yes | Yes + types | Granular + archive |
-| Report | Full | Link | Thinner | No |
-| Global search | Cmd+K | Task only | Tab | Keyword + semantic |
-| API keys / Hermes | Yes | Via desktop | Yes | Auth itself |
-| Export / backup / restore | Full | Via desktop | Full + share sheet | No |
-| Workspace taxonomy | Yes | Read-only More | Yes | Yes |
+| Capability | Desktop | Native | MCP |
+| --- | --- | --- | --- |
+| Auth / onboarding / refresh | Yes | Yes | Profile name |
+| Device sessions | Yes | Via refresh token | No |
+| Calendar D/W/M/Agenda | D W M A | D M A | Range + agenda |
+| Auto-schedule (skip completed) | Full preview/apply/undo | Preview/apply/undo | Full |
+| Manual blocks | Full | Reschedule + pin/chunk | Full |
+| Task list/kanban/gantt + saved views | Yes | Card list | Views CRUD + filters |
+| Task comments/activity | Yes | Yes | Yes |
+| Inbox / Today / focus | Yes | Yes | Yes |
+| Subtasks / checklists | Yes | Yes | Yes |
+| Reminders as a type | Work \| Reminder + Notify at | Kind + segmented control + local push | Yes + snooze |
+| Notification center / prefs | Yes | Yes + OS permission | Yes |
+| Working hours / engine | Multi-window + freeze | Hours + freeze | Yes |
+| Recurrence | Yes | Yes | Yes |
+| Projects hub + stages | Yes | List + detail | Full + stages + board |
+| Docs tree + editor | Yes | Flat + editor | Markdown + archive |
+| Markdown import / MD export | Yes | Yes | Markdown in/out |
+| Code Copy + IDE colors | Yes | Yes | — |
+| Sheets + formulas | Yes | Yes + types | Granular + archive |
+| Archive docs/sheets | Yes | Yes | Yes |
+| Report | Full | Thinner | No |
+| Global search | Cmd+K | Tab | Keyword + semantic |
+| API keys / Hermes | Yes | Yes | Auth itself |
+| Export / backup / restore | Full | Full + share sheet | No |
+| Workspace taxonomy | Yes | Yes | Yes |
+| Theme | System/light/dark | Light/dark | No |
 
 ---
 
 ## Summary
 
-The current product is a **personal, system-themed, English** workspace where you capture work and reminders, put them on a calendar (manually or with the engine), write nested docs, keep small spreadsheets, export and protect your data, search by text or meaning, glance at a live report, and optionally let Hermes drive the same objects through MCP. Desktop and native make connectivity state explicit; native safely queues a small set of idempotent actions while offline.
+The current product is a **personal, multi-account, English** workspace where you capture inbox items, turn work and reminders into distinct types, put work on a calendar (manually or with an explainable engine that ignores completed tasks), run projects with stages, write nested docs (including Markdown import and IDE-like code blocks), keep small spreadsheets, export and protect your data, search by text or meaning, glance at a live report, and optionally let Hermes drive the same objects through MCP. Desktop and native make connectivity state explicit; native asks for notification permission on launch and schedules reminder pings on the device.

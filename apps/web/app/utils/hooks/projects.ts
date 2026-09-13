@@ -6,6 +6,7 @@ import {
   deleteStage,
   duplicateProject,
   getProject,
+  getProjectActivity,
   getProjects,
   reorderStages,
   updateProject,
@@ -42,6 +43,17 @@ export function useProject(id: string | undefined) {
     queryKey: projectKey(id ?? ""),
     queryFn: () => getProject(id!),
     enabled: Boolean(id),
+  });
+}
+
+export const projectActivityKey = (id: string) => ["projects", id, "activity"] as const;
+
+export function useProjectActivity(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: projectActivityKey(id ?? ""),
+    queryFn: () => getProjectActivity(id!),
+    enabled: enabled && Boolean(id),
+    staleTime: 15_000,
   });
 }
 

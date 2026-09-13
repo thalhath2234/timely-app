@@ -16,6 +16,13 @@ async function readError(response: Response, fallback: string) {
   }
 }
 
+/** Page size used when walking the task list. The API defaults to 200 and
+ * silently truncates, so the loader keeps asking for the next offset until a
+ * short page comes back. */
+const TASK_PAGE_SIZE = 500;
+/** Hard stop so a misbehaving server can never make the loader spin forever. */
+const TASK_PAGE_LIMIT = 100;
+
 export async function getTasks(query: {
   kind?: string;
   inbox?: boolean;
@@ -29,14 +36,28 @@ export async function getTasks(query: {
   if (query.parentId) params.set("parentId", query.parentId);
   if (query.includeSubtasks) params.set("includeSubtasks", "true");
   if (query.reminders) params.set("reminders", "true");
-  const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await apiFetch(`/tasks${suffix}`, {});
+  params.set("limit", String(TASK_PAGE_SIZE));
 
-  if (!response.ok) {
-    throw new Error("Failed to fetch tasks");
+  const all: Task[] = [];
+  const seen = new Set<string>();
+  for (let page = 0; page < TASK_PAGE_LIMIT; page += 1) {
+    params.set("offset", String(page * TASK_PAGE_SIZE));
+    const response = await apiFetch(`/tasks?${params.toString()}`, {});
+    if (!response.ok) {
+      throw new Error(await readError(response, "Failed to fetch tasks"));
+    }
+    const batch = (await response.json()) as Task[] | null;
+    const items = Array.isArray(batch) ? batch : [];
+    for (const task of items) {
+      // Dedupe defensively: a create between two page requests can shift
+      // offsets and repeat the boundary record.
+      if (seen.has(task.id)) continue;
+      seen.add(task.id);
+      all.push(task);
+    }
+    if (items.length < TASK_PAGE_SIZE) break;
   }
-
-  return response.json();
+  return all;
 }
 
 export async function getTask(id: string): Promise<Task> {

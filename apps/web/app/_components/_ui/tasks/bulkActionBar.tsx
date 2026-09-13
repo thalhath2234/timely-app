@@ -1,12 +1,58 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Label, Project, Workspace } from "@/app/_types/types";
+import { useQueryClient } from "@tanstack/react-query";
+import type { Label, Project, Task, Workspace } from "@/app/_types/types";
 import type { UpdateTaskPayload } from "@/app/utils/api/tasks";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
-import { useBulkUpdateTasks, useDeleteTask } from "@/app/utils/hooks/tasks";
-import { showUndoToast } from "@/app/_store/toastStore";
+import { tasksKey, useBulkUpdateTasks, useDeleteTask, useUpdateTask } from "@/app/utils/hooks/tasks";
+import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import Select from "@/app/_components/_ui/select";
+
+type UndoableField = keyof Pick<
+  UpdateTaskPayload,
+  "completedAt" | "statusId" | "priorityLevel" | "projectId" | "labelIds" | "deadline"
+>;
+
+/**
+ * Snapshot the fields a bulk update is about to touch, per task, so Undo can
+ * restore each task's own previous value instead of blanking the whole
+ * selection. Nullable string fields use "" to mean "clear" on the way back.
+ */
+function snapshotBefore(tasks: Task[], fields: UndoableField[]): Map<string, UpdateTaskPayload> {
+  const out = new Map<string, UpdateTaskPayload>();
+  for (const task of tasks) {
+    const previous: UpdateTaskPayload = {};
+    for (const field of fields) {
+      switch (field) {
+        case "completedAt":
+          previous.completedAt = task.completedAt ?? "";
+          break;
+        case "statusId":
+          previous.statusId = task.status?.id ?? task.statusId ?? "";
+          break;
+        case "priorityLevel":
+          previous.priorityLevel = task.priorityLevel ?? "";
+          break;
+        case "projectId":
+          previous.projectId = task.project?.id ?? task.projectId ?? "";
+          break;
+        case "deadline":
+          previous.deadline = task.deadline ?? "";
+          break;
+        case "labelIds": {
+          const ids = new Set<string>();
+          for (const label of task.labels ?? []) ids.add(label.id);
+          for (const ref of task.labelIds ?? []) ids.add(ref.id);
+          previous.labelIds = [...ids].map((id) => ({ id }));
+          break;
+        }
+      }
+    }
+    out.set(task.id, previous);
+  }
+  return out;
+}
 
 export default function BulkActionBar({
   ids,
@@ -19,7 +65,9 @@ export default function BulkActionBar({
   projects: Project[];
   onClear: () => void;
 }) {
+  const queryClient = useQueryClient();
   const bulk = useBulkUpdateTasks();
+  const single = useUpdateTask();
   const remove = useDeleteTask();
   const [busy, setBusy] = useState(false);
 
@@ -32,12 +80,37 @@ export default function BulkActionBar({
     [workspaces],
   );
 
-  const apply = async (update: UpdateTaskPayload, undo: UpdateTaskPayload, message: string) => {
+  const apply = async (update: UpdateTaskPayload, fields: UndoableField[], message: string) => {
     setBusy(true);
     try {
+      const cached = (queryClient.getQueryData<Task[]>(tasksKey) ?? []).filter((task) =>
+        ids.includes(task.id),
+      );
+      const before = snapshotBefore(cached, fields);
+      const missing = ids.filter((id) => !before.has(id));
+
       await bulk.mutateAsync({ ids, update });
+
       showUndoToast(message, () => {
-        void bulk.mutateAsync({ ids, update: undo });
+        // Restore each task to what *it* had; a mixed selection must not end
+        // up uniform (or blank) after Undo.
+        void Promise.all(
+          [...before.entries()].map(([id, previous]) => single.mutateAsync({ id, ...previous })),
+        )
+          .then(() => {
+            if (missing.length > 0) {
+              useToastStore
+                .getState()
+                .show(
+                  `Restored ${before.size} task${before.size === 1 ? "" : "s"}; ${missing.length} had no cached previous value`,
+                );
+            }
+          })
+          .catch((err: unknown) => {
+            useToastStore
+              .getState()
+              .show(err instanceof Error ? `Undo failed: ${err.message}` : "Undo failed");
+          });
       });
       onClear();
     } finally {
@@ -56,7 +129,7 @@ export default function BulkActionBar({
         onClick={() =>
           void apply(
             { completedAt: new Date().toISOString() },
-            { completedAt: "" },
+            ["completedAt", "statusId"],
             "Marked complete",
           )
         }
@@ -67,7 +140,7 @@ export default function BulkActionBar({
       <button
         type="button"
         disabled={busy}
-        onClick={() => void apply({ completedAt: "" }, { completedAt: new Date().toISOString() }, "Reopened")}
+        onClick={() => void apply({ completedAt: "" }, ["completedAt", "statusId"], "Reopened")}
         className="rounded-md bg-secondary px-2 py-1 text-xs"
       >
         Reopen
@@ -78,7 +151,7 @@ export default function BulkActionBar({
           value=""
           placeholder="Status"
           onChange={(statusId) =>
-            void apply({ statusId }, { statusId: "" }, "Status updated")
+            void apply({ statusId }, ["statusId", "completedAt"], "Status updated")
           }
           options={statuses.map((status) => ({
             value: status.id,
@@ -93,7 +166,7 @@ export default function BulkActionBar({
           value=""
           placeholder="Priority"
           onChange={(priorityLevel) =>
-            void apply({ priorityLevel }, { priorityLevel: "" }, "Priority updated")
+            void apply({ priorityLevel }, ["priorityLevel"], "Priority updated")
           }
           options={PRIORITY_OPTIONS}
         />
@@ -104,7 +177,7 @@ export default function BulkActionBar({
           value=""
           placeholder="Project"
           onChange={(projectId) =>
-            void apply({ projectId }, { projectId: "" }, "Project updated")
+            void apply({ projectId }, ["projectId"], "Project updated")
           }
           options={[
             { value: "", label: "No project" },
@@ -120,7 +193,7 @@ export default function BulkActionBar({
           onChange={(labelId) => {
             const label = labels.find((item: Label) => item.id === labelId);
             if (!label) return;
-            void apply({ labelIds: [{ id: labelId }] }, { labelIds: [] }, `Labeled ${label.name}`);
+            void apply({ labelIds: [{ id: labelId }] }, ["labelIds"], `Labeled ${label.name}`);
           }}
           options={labels.map((label) => ({
             value: label.id,
@@ -131,10 +204,12 @@ export default function BulkActionBar({
       </div>
       <input
         type="date"
+        aria-label="Set deadline for selected tasks"
+        title="Set deadline"
         disabled={busy}
         onChange={(event) => {
           if (!event.target.value) return;
-          void apply({ deadline: event.target.value }, { deadline: "" }, "Deadline set");
+          void apply({ deadline: event.target.value }, ["deadline"], "Deadline set");
           event.target.value = "";
         }}
         className="rounded-md border border-border bg-background px-2 py-1 text-xs"

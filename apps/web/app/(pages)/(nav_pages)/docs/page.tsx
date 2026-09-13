@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, Plus } from "lucide-react";
+import { FileText, Plus, Upload } from "lucide-react";
 import { useCreateDoc, useDocs } from "@/app/utils/hooks/docs";
+import { readMarkdownFile } from "@/app/utils/importMarkdown";
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value);
@@ -29,6 +30,16 @@ export default function DocsPage() {
     router.push(`/docs/${doc.id}`);
   };
 
+  const handleImport = async (file: File) => {
+    const imported = await readMarkdownFile(file);
+    const doc = await createDoc.mutateAsync({
+      title: imported.title,
+      content: imported.content,
+      plainText: imported.plainText,
+    });
+    router.push(`/docs/${doc.id}`);
+  };
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="flex min-h-full flex-col px-6 py-5">
@@ -47,15 +58,31 @@ export default function DocsPage() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={createDoc.isPending}
-            className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-          >
-            <Plus className="size-4" />
-            {createDoc.isPending ? "Creating..." : "New doc"}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-secondary px-4 py-2 font-medium text-secondary-foreground transition-colors hover:bg-accent">
+              <Upload className="size-4" />
+              Import .md
+              <input
+                type="file"
+                accept=".md,.markdown,text/markdown,text/plain"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void handleImport(file);
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={createDoc.isPending}
+              className="flex cursor-pointer items-center gap-2 rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            >
+              <Plus className="size-4" />
+              {createDoc.isPending ? "Creating..." : "New doc"}
+            </button>
+          </div>
         </div>
 
         <h2 className="mt-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

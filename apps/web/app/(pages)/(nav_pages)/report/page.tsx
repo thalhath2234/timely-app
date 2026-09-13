@@ -24,7 +24,10 @@ import {
   buildReportData,
   formatRelative,
   formatReportDate,
+  type DeadlineItem,
 } from "@/app/utils/report";
+import { taskDateSourceLabel } from "@/app/utils/taskDates";
+import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 
 const KIND_ICON = {
   doc: FileText,
@@ -43,18 +46,34 @@ const PRIORITY_TINT: Record<string, string> = {
 };
 
 export default function ReportPage() {
-  const { data: tasks, isLoading: tasksLoading } = useTasks();
-  const { data: projects, isLoading: projectsLoading } = useProjects();
-  const { data: docs, isLoading: docsLoading } = useDocs();
-  const { data: sheets, isLoading: sheetsLoading } = useSheets();
-  const { data: workspaces, isLoading: workspacesLoading } = useWorkspaces();
+  const tasksQuery = useTasks();
+  const projectsQuery = useProjects();
+  const docsQuery = useDocs();
+  const sheetsQuery = useSheets();
+  const workspacesQuery = useWorkspaces();
+  const { data: tasks } = tasksQuery;
+  const { data: projects } = projectsQuery;
+  const { data: docs } = docsQuery;
+  const { data: sheets } = sheetsQuery;
+  const { data: workspaces } = workspacesQuery;
 
   const isLoading =
-    tasksLoading ||
-    projectsLoading ||
-    docsLoading ||
-    sheetsLoading ||
-    workspacesLoading;
+    tasksQuery.isLoading ||
+    projectsQuery.isLoading ||
+    docsQuery.isLoading ||
+    sheetsQuery.isLoading ||
+    workspacesQuery.isLoading;
+
+  // Each source is reported separately so a failed feed never silently
+  // renders as "0 open / 0 overdue".
+  const failures = [
+    { what: "tasks", query: tasksQuery },
+    { what: "projects", query: projectsQuery },
+    { what: "docs", query: docsQuery },
+    { what: "sheets", query: sheetsQuery },
+    { what: "workspaces", query: workspacesQuery },
+  ].filter((entry) => entry.query.isError);
+  const tasksUnavailable = tasksQuery.isError && !tasks;
 
   const report = useMemo(
     () =>
@@ -72,6 +91,19 @@ export default function ReportPage() {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         Building report...
+      </div>
+    );
+  }
+
+  if (tasksUnavailable) {
+    return (
+      <div className="flex h-full flex-col p-8">
+        <LoadError
+          what="tasks for the report"
+          error={tasksQuery.error}
+          onRetry={() => tasksQuery.refetch()}
+          retrying={tasksQuery.isFetching}
+        />
       </div>
     );
   }
@@ -102,6 +134,20 @@ export default function ReportPage() {
           </div>
         </div>
 
+        {failures.length > 0 && (
+          <div className="mt-6 flex flex-col gap-2">
+            {failures.map(({ what, query }) => (
+              <LoadErrorBanner
+                key={what}
+                what={what}
+                error={query.error}
+                onRetry={() => query.refetch()}
+                retrying={query.isFetching}
+              />
+            ))}
+          </div>
+        )}
+
         <section className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {report.stats.map((stat) => (
             <div
@@ -127,7 +173,7 @@ export default function ReportPage() {
               subtitle={
                 report.overdue.length === 0
                   ? "Nothing past due"
-                  : `${report.overdue.length} open past deadline`
+                  : `${report.overdue.length} open past their deadline or last scheduled block`
               }
             />
 
@@ -180,12 +226,12 @@ export default function ReportPage() {
           <section className="rounded-xl border border-border bg-card p-4">
             <SectionHeader
               icon={CalendarClock}
-              title="Due in the next 14 days"
-              subtitle={`${report.upcoming.length} upcoming`}
+              title="Due or planned in the next 14 days"
+              subtitle={`${report.upcoming.length} upcoming · deadlines and next scheduled blocks`}
             />
 
             {report.upcoming.length === 0 ? (
-              <EmptyState text="No deadlines in the next two weeks." />
+              <EmptyState text="No deadlines or scheduled work in the next two weeks." />
             ) : (
               <ul className="mt-3 divide-y divide-border">
                 {report.upcoming.map((item) => (
@@ -381,16 +427,15 @@ function DeadlineRow({
   item,
   tone,
 }: {
-  item: {
-    id: string;
-    name: string;
-    deadline: string;
-    priorityLevel: string | null;
-    projectTitle?: string | null;
-    href: string;
-  };
+  item: DeadlineItem;
   tone: "danger" | "neutral";
 }) {
+  const sourceHint =
+    item.source === "deadline"
+      ? null
+      : item.overdue
+        ? "last block ended"
+        : `${taskDateSourceLabel(item.source).toLowerCase()}`;
   return (
     <li>
       <Link
@@ -404,6 +449,7 @@ function DeadlineRow({
           <span className="block truncate text-xs text-muted-foreground">
             {item.projectTitle ?? "No project"}
             {item.priorityLevel ? ` · ${item.priorityLevel}` : ""}
+            {sourceHint ? ` · ${sourceHint}` : ""}
           </span>
         </span>
         <span

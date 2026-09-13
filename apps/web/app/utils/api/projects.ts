@@ -27,6 +27,31 @@ export async function getProjects(): Promise<Project[]> {
   return response.json();
 }
 
+export interface ProjectActivityEntry {
+  id: string;
+  /** Empty for the synthetic project-level entries. */
+  taskId: string;
+  taskName: string;
+  actorName: string;
+  action: string;
+  field: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  message: string;
+  createdAt: string;
+}
+
+/** Newest-first task changes inside the project plus the project's creation. */
+export async function getProjectActivity(id: string): Promise<ProjectActivityEntry[]> {
+  const response = await apiFetch(`/projects/${id}/activity`, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to load project activity"));
+  }
+  return response.json();
+}
+
 export async function getProject(id: string): Promise<Project> {
   const response = await apiFetch(`/projects/${id}`, {
     credentials: "include",

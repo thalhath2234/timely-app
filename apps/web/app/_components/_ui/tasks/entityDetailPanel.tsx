@@ -23,6 +23,7 @@ import CustomFieldControl, {
 import DatePicker from "@/app/_components/_ui/datePicker";
 import LabelPicker from "@/app/_components/_ui/labelPicker";
 import TaskScheduleSection from "@/app/_components/_ui/tasks/taskScheduleSection";
+import TaskTypeToggle from "@/app/_components/_ui/tasks/taskTypeToggle";
 import {
   EntityModalShell,
   ModalMain,
@@ -47,9 +48,11 @@ import {
   Task,
   TaskActivity,
   TaskCustomFieldValue,
+  TaskKind,
   Workspace,
 } from "@/app/_types/types";
 import { UpdateTaskPayload } from "@/app/utils/api/tasks";
+import { openTasksEntity } from "@/app/utils/entityDetail";
 import { useProjects, useUpdateProject } from "@/app/utils/hooks/projects";
 import {
   patchTaskInCache,
@@ -64,13 +67,16 @@ import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import {
   applyClockToDate,
   dateFromDateInput,
+  nextRoundHour,
   toDateInputValue,
   toTimeInputValue,
 } from "@/app/utils/calendar";
 import { useAutosave } from "@/app/utils/hooks/useAutosave";
 import { toRichContent } from "@/app/utils/richText";
 import { stagesForProject } from "@/app/utils/stages";
+import { isReminderTask } from "@/app/utils/taskFilters";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
+import ConfirmDialog from "@/app/_components/_ui/confirmDialog";
 import { showUndoToast } from "@/app/_store/toastStore";
 import TaskExecution from "@/app/_components/_ui/tasks/taskExecution";
 
@@ -100,6 +106,9 @@ interface DetailPatch {
   deadline?: string;
   scheduledOn?: string;
   duration?: number;
+  kind?: TaskKind;
+  workspaceId?: string;
+  projectId?: string;
   completedAt?: string;
   blockedById?: string;
   stageId?: string;
@@ -128,6 +137,7 @@ interface DetailView {
   deadline: string | null;
   scheduledOn?: string | null;
   duration?: number | null;
+  taskKind?: TaskKind;
   recurrence?: RecurrenceRule | null;
   blocks?: ScheduledBlock[];
   scheduleLocked?: boolean;
@@ -272,6 +282,7 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     deadline: task.deadline,
     scheduledOn: task.scheduledOn,
     duration: task.duration,
+    taskKind: task.kind,
     recurrence: task.recurrence ?? null,
     blocks: task.blocks ?? [],
     scheduleLocked: task.scheduleLocked,
@@ -290,10 +301,9 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     completedAt: task.completedAt,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
-    facts:
-      task.kind === "inbox"
-        ? [{ label: "Inbox", value: "Unprocessed" }]
-        : (task.duration ?? 0) <= 0
+    facts: task.kind === "inbox"
+      ? [{ label: "Inbox", value: "Unprocessed" }]
+      : isReminderTask(task)
         ? []
         : [
             { label: "Project", value: task.project?.title || "-" },
@@ -310,7 +320,6 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
       onDelete={
         view.kind === "task"
           ? async () => {
-              if (!window.confirm("Delete this task?")) return;
               await deleteTask.mutateAsync(task.id);
               onClose();
             }
@@ -339,6 +348,9 @@ function ProjectDetail({
       delete next.duration;
       delete next.labelIds;
       delete next.customFieldValues;
+      delete next.kind;
+      delete next.workspaceId;
+      delete next.projectId;
       return updateProject.mutateAsync({ id: project.id, ...next });
     },
     [project.id, updateProject],
@@ -402,7 +414,12 @@ function ProjectTaskLink({ task }: { task: Task }) {
   return (
     <button
       type="button"
-      onClick={() => router.push(`/tasks?taskId=${task.id}`, { scroll: false })}
+      onClick={() =>
+        openTasksEntity(
+          { kind: "task", id: task.id },
+          { navigate: (href) => router.push(href, { scroll: false }) },
+        )
+      }
       className="flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
     >
       <ListTodo className="size-3.5 shrink-0 text-muted-foreground" />
@@ -429,7 +446,6 @@ function DetailBody({
   onDelete?: () => Promise<void> | void;
   children?: React.ReactNode;
 }) {
-  const router = useRouter();
   const { data: workspaces } = useWorkspaces();
   const { data: tasks } = useTasks();
   const [title, setTitle] = useState(view.title);
@@ -443,7 +459,22 @@ function DetailBody({
 
   const { schedule, flush, status } = useAutosave<DetailPatch>(save);
   const { data: projects } = useProjects();
-  const stageOptions = stagesForProject((projects ?? []) as Project[], view.projectId);
+  const typedWorkspaces = useMemo(
+    () => (workspaces ?? []) as Workspace[],
+    [workspaces],
+  );
+  const typedProjects = useMemo(
+    () => (projects ?? []) as Project[],
+    [projects],
+  );
+  const stageOptions = stagesForProject(typedProjects, view.projectId);
+  const projectsInWorkspace = useMemo(
+    () =>
+      typedProjects.filter(
+        (project) => !view.workspaceId || project.workspaceId === view.workspaceId,
+      ),
+    [typedProjects, view.workspaceId],
+  );
 
   // Adopt the saved label set whenever it changes, so a save landing (or an
   // edit from elsewhere) is reflected without an extra render pass.
@@ -558,11 +589,78 @@ function DetailBody({
     }
   };
 
-  const isReminder = view.kind === "task" && (view.duration ?? 0) <= 0 && !view.facts.some((fact) => fact.label === "Inbox");
+  const isInbox = view.taskKind === "inbox" || view.facts.some((fact) => fact.label === "Inbox");
+  const isReminder =
+    view.kind === "task" &&
+    !isInbox &&
+    (view.taskKind === "reminder" ||
+      (!view.taskKind && (view.duration ?? 0) <= 0));
   const workspaceName =
-    view.facts.find((fact) => fact.label === "Workspace")?.value ?? "-";
+    typedWorkspaces.find((space) => space.id === view.workspaceId)?.name ??
+    view.facts.find((fact) => fact.label === "Workspace")?.value ??
+    "-";
   const projectName =
-    view.facts.find((fact) => fact.label === "Project")?.value ?? "-";
+    typedProjects.find((project) => project.id === view.projectId)?.title ??
+    view.facts.find((fact) => fact.label === "Project")?.value ??
+    "-";
+
+  const defaultWorkspaceId = view.workspaceId || typedWorkspaces[0]?.id || "";
+
+  const commit = (patch: DetailPatch) => {
+    schedule(patch);
+    void flush();
+  };
+
+  const convertInboxToTask = (patch: DetailPatch = {}): DetailPatch | null => {
+    const workspaceId = patch.workspaceId || defaultWorkspaceId;
+    if (!workspaceId) return null;
+    return {
+      ...patch,
+      kind: "task",
+      duration: Math.max(30, view.duration ?? 0) || 30,
+      workspaceId,
+    };
+  };
+
+  const onWorkspaceChange = (workspaceId: string) => {
+    const projectStillValid = typedProjects.some(
+      (project) => project.id === view.projectId && project.workspaceId === workspaceId,
+    );
+    const patch: DetailPatch = {
+      workspaceId,
+      ...(projectStillValid ? {} : { projectId: "", stageId: "" }),
+    };
+    if (isInbox) {
+      const converted = convertInboxToTask(patch);
+      if (!converted) return;
+      commit(converted);
+      showUndoToast(`“${view.title}” is now a task`);
+      return;
+    }
+    commit(patch);
+  };
+
+  const onProjectChange = (projectId: string) => {
+    const project = typedProjects.find((item) => item.id === projectId);
+    const patch: DetailPatch = {
+      projectId,
+      stageId: "",
+      ...(project && project.workspaceId !== view.workspaceId
+        ? { workspaceId: project.workspaceId }
+        : {}),
+    };
+    if (isInbox && projectId) {
+      const converted = convertInboxToTask({
+        ...patch,
+        workspaceId: patch.workspaceId || project?.workspaceId || defaultWorkspaceId,
+      });
+      if (!converted) return;
+      commit(converted);
+      showUndoToast(`“${view.title}” is now a task`);
+      return;
+    }
+    commit(patch);
+  };
 
   return (
     <PanelShell
@@ -572,6 +670,14 @@ function DetailBody({
       onToggleComplete={toggleComplete}
       onClose={onClose}
       onDelete={onDelete}
+      deleteTitle={`Delete “${title.trim() || "Untitled"}”?`}
+      deleteDescription={
+        isInbox
+          ? "This capture will be removed from Inbox."
+          : isReminder
+            ? "This reminder will be removed."
+            : "This task will be removed permanently."
+      }
     >
       <ModalMain>
         <input
@@ -588,8 +694,10 @@ function DetailBody({
         <div className="mt-4 flex h-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border">
           <div className="flex min-h-0 flex-1 flex-col px-3 pt-2">
             <RichTextEditor
+              key={view.id}
               variant="compact"
               toolbar="fixed"
+              syncKey={view.id}
               content={toRichContent(view.descriptionRich, view.description)}
               placeholder="Description"
               onChange={(draft) => {
@@ -631,30 +739,90 @@ function DetailBody({
       </ModalMain>
 
       <ModalSidebar>
-        {!isReminder ? (
-        <div className="mb-4 space-y-1 text-sm">
-          <PropertyRow icon={FolderKanban} label="Workspace">
-            <span className="truncate text-foreground">{workspaceName}</span>
-          </PropertyRow>
-          <PropertyRow icon={ListTodo} label="Project">
-            {view.projectId ? (
-              <button
-                type="button"
-                onClick={() => router.push(`/projects/${view.projectId}`)}
-                className="truncate text-left text-foreground underline-offset-2 hover:underline"
-              >
-                {projectName}
-              </button>
-            ) : (
-              <span className="truncate text-foreground">{projectName}</span>
-            )}
-          </PropertyRow>
-        </div>
-        ) : null}
-
         <div className="flex flex-col gap-1">
+          {view.kind === "task" ? (
+            <div className="px-1 py-1.5">
+              <TaskTypeToggle
+                value={isInbox ? null : isReminder ? "reminder" : "task"}
+                onChange={(next) => {
+                  if (next === "reminder") {
+                    commit({
+                      kind: "reminder",
+                      duration: 0,
+                      scheduledOn: view.scheduledOn || nextRoundHour().toISOString(),
+                    });
+                    if (isInbox) showUndoToast(`“${view.title}” is now a reminder`);
+                    return;
+                  }
+                  if (isInbox) {
+                    const converted = convertInboxToTask(
+                      view.projectId ? { projectId: view.projectId } : {},
+                    );
+                    if (!converted) return;
+                    commit(converted);
+                    showUndoToast(`“${view.title}” is now a task`);
+                    return;
+                  }
+                  commit({
+                    kind: "task",
+                    duration: Math.max(30, view.duration ?? 0) || 30,
+                  });
+                }}
+              />
+              <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                {isInbox
+                  ? "Assign a workspace to put this on the board, or choose Reminder for a ping."
+                  : isReminder
+                    ? "Pings at a chosen time. Does not reserve a work block."
+                    : "Estimated minutes of work the scheduler can place."}
+              </p>
+            </div>
+          ) : null}
+
           {!isReminder ? (
           <>
+          {view.kind === "task" ? (
+            <>
+              <PropertyRow icon={FolderKanban} label="Workspace">
+                <Select
+                  size="sm"
+                  value={view.workspaceId ?? ""}
+                  onChange={onWorkspaceChange}
+                  placeholder="Select workspace"
+                  className="border-0 bg-transparent px-0 shadow-none"
+                  options={typedWorkspaces.map((space) => ({
+                    value: space.id,
+                    label: space.name,
+                  }))}
+                />
+              </PropertyRow>
+              <PropertyRow icon={ListTodo} label="Project">
+                <Select
+                  size="sm"
+                  value={view.projectId ?? ""}
+                  onChange={onProjectChange}
+                  placeholder="No project"
+                  className="border-0 bg-transparent px-0 shadow-none"
+                  options={[
+                    { value: "", label: "No project" },
+                    ...projectsInWorkspace.map((project) => ({
+                      value: project.id,
+                      label: project.title,
+                    })),
+                  ]}
+                />
+              </PropertyRow>
+            </>
+          ) : (
+            <>
+              <PropertyRow icon={FolderKanban} label="Workspace">
+                <span className="truncate text-foreground">{workspaceName}</span>
+              </PropertyRow>
+              <PropertyRow icon={ListTodo} label="Project">
+                <span className="truncate text-foreground">{projectName}</span>
+              </PropertyRow>
+            </>
+          )}
           <PropertyRow icon={Circle} label="Status">
             <Select
               size="sm"
@@ -721,56 +889,24 @@ function DetailBody({
             />
           </PropertyRow>
 
-          {view.kind === "task" && (
+          {view.kind === "task" && !isInbox && !isReminder ? (
             <PropertyRow icon={Clock} label="Duration">
-              {(view.duration ?? 0) <= 0 ? (
-                <>
-                  <span className="min-w-0 flex-1 text-sm text-foreground">
-                    Reminder
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      schedule({ duration: 30 });
-                      void flush();
-                    }}
-                    className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    Add duration
-                  </button>
-                </>
-              ) : (
-                <>
-                  <input
-                    type="number"
-                    min={0}
-                    step={15}
-                    key={`duration-${view.id}-${view.duration ?? 0}`}
-                    defaultValue={view.duration ?? 0}
-                    onChange={(event) =>
-                      schedule({
-                        duration: Number(event.target.value) || 0,
-                      })
-                    }
-                    className="w-full bg-transparent text-sm text-foreground outline-none"
-                  />
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    min
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      schedule({ duration: 0 });
-                      void flush();
-                    }}
-                    className="shrink-0 rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
-                  >
-                    Reminder
-                  </button>
-                </>
-              )}
+              <input
+                type="number"
+                min={15}
+                step={15}
+                key={`duration-${view.id}-${view.duration ?? 0}`}
+                defaultValue={view.duration ?? 30}
+                onChange={(event) =>
+                  schedule({
+                    duration: Math.max(15, Number(event.target.value) || 30),
+                  })
+                }
+                className="w-full bg-transparent text-sm text-foreground outline-none"
+              />
+              <span className="shrink-0 text-xs text-muted-foreground">min</span>
             </PropertyRow>
-          )}
+          ) : null}
 
           <PropertyRow icon={CalendarDays} label="Start date">
             <DatePicker
@@ -806,6 +942,7 @@ function DetailBody({
 
           {view.kind === "task" && (
             <>
+              {!isInbox ? (
               <TaskScheduleSection
                 taskId={view.id}
                 duration={view.duration ?? 0}
@@ -830,6 +967,7 @@ function DetailBody({
                   void flush();
                 }}
               />
+              ) : null}
 
               {!isReminder ? (
               <div className="pt-2">
@@ -1006,6 +1144,8 @@ function PanelShell({
   completed = false,
   onToggleComplete,
   onDelete,
+  deleteTitle = "Delete this task?",
+  deleteDescription = "This cannot be undone.",
 }: {
   children: React.ReactNode;
   onClose: () => void;
@@ -1014,8 +1154,25 @@ function PanelShell({
   completed?: boolean;
   onToggleComplete?: () => void;
   onDelete?: () => Promise<void> | void;
+  deleteTitle?: string;
+  deleteDescription?: string;
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    if (!onDelete || deleting) return;
+    setDeleting(true);
+    try {
+      await onDelete();
+    } finally {
+      setDeleting(false);
+      setConfirmingDelete(false);
+    }
+  };
+
   return (
+    <>
     <EntityModalShell
       icon={kind === "project" ? FolderKanban : ListTodo}
       label={kind}
@@ -1042,7 +1199,7 @@ function PanelShell({
           {onDelete && (
             <button
               type="button"
-              onClick={() => void onDelete()}
+              onClick={() => setConfirmingDelete(true)}
               className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
             >
               <Trash2 className="size-4" />
@@ -1054,5 +1211,17 @@ function PanelShell({
     >
       {children}
     </EntityModalShell>
+    {confirmingDelete ? (
+      <ConfirmDialog
+        title={deleteTitle}
+        description={deleteDescription}
+        pending={deleting}
+        onCancel={() => {
+          if (!deleting) setConfirmingDelete(false);
+        }}
+        onConfirm={() => void confirmDelete()}
+      />
+    ) : null}
+    </>
   );
 }

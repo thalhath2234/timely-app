@@ -205,7 +205,7 @@ function WorkingHoursForm({ initial }: { initial: WorkingHours }) {
                 )}
                 {windows.map((window, index) => (
                   <div key={index} className="flex items-center gap-2">
-                    <div className="w-[6.5 rem] shrink-0">
+                    <div className="w-28 shrink-0">
                       <TimeField
                         value={window.start}
                         onChange={(start) => setWindow(day.key, index, { start })}
@@ -213,7 +213,7 @@ function WorkingHoursForm({ initial }: { initial: WorkingHours }) {
                       />
                     </div>
                     <span className="text-xs text-muted-foreground">to</span>
-                    <div className="w-[6.5 rem] shrink-0">
+                    <div className="w-28 shrink-0">
                       <TimeField
                         value={window.end}
                         onChange={(end) => setWindow(day.key, index, { end })}

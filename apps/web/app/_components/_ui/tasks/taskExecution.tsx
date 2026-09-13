@@ -2,10 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Check, Circle, Copy, Inbox, ListTodo, Play, Square, Star } from "lucide-react";
-import type { Task, Workspace } from "@/app/_types/types";
+import { Check, Circle, Copy, ListTodo, Play, Square, Star } from "lucide-react";
+import type { Task } from "@/app/_types/types";
 import { dateOnly, localDateStamp } from "@/app/utils/calendar";
-import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import {
   useAddChecklistItem,
   useCreateTask,
@@ -15,7 +14,6 @@ import {
   useStartFocus,
   useStopFocus,
   useToggleChecklistItem,
-  useUpdateTask,
 } from "@/app/utils/hooks/tasks";
 import { showUndoToast } from "@/app/_store/toastStore";
 
@@ -37,7 +35,6 @@ export default function TaskExecution({
   task: Task;
   compact?: boolean;
 }) {
-  const workspaces = (useWorkspaces().data ?? []) as Workspace[];
   const addItem = useAddChecklistItem(task.id);
   const toggleItem = useToggleChecklistItem(task.id);
   const removeItem = useDeleteChecklistItem(task.id);
@@ -46,11 +43,8 @@ export default function TaskExecution({
   const startFocus = useStartFocus();
   const stopFocus = useStopFocus();
   const setFocus = useSetTodayFocus();
-  const updateTask = useUpdateTask();
   const [checkTitle, setCheckTitle] = useState("");
   const [subtaskTitle, setSubtaskTitle] = useState("");
-  const [clarifyWorkspace, setClarifyWorkspace] = useState(workspaces[0]?.id ?? "");
-  const [clarifyDuration, setClarifyDuration] = useState(30);
 
   const focusing = Boolean(task.focusStartedAt);
   const onToday = dateOnly(task.todayFocusOn) === todayStamp();
@@ -59,7 +53,6 @@ export default function TaskExecution({
     [task.checklist],
   );
   const subtasks = task.subtasks ?? [];
-  const isInbox = task.kind === "inbox";
 
   return (
     <div className="mt-6 space-y-5">
@@ -106,63 +99,6 @@ export default function TaskExecution({
           <span className="text-xs text-muted-foreground">{task.actualMinutes}m focused</span>
         ) : null}
       </div>
-
-      {isInbox ? (
-        <section className="rounded-lg border border-dashed border-border p-3">
-          <p className="mb-2 flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <Inbox className="size-3.5" /> Clarify inbox item
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <select
-              value={clarifyWorkspace}
-              onChange={(event) => setClarifyWorkspace(event.target.value)}
-              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
-            >
-              {workspaces.map((space) => (
-                <option key={space.id} value={space.id}>
-                  {space.name}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={15}
-              step={15}
-              value={clarifyDuration}
-              onChange={(event) => setClarifyDuration(Number(event.target.value) || 30)}
-              className="w-24 rounded-md border border-border bg-background px-2 py-1 text-sm"
-            />
-            <button
-              type="button"
-              className="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
-              onClick={() =>
-                void updateTask.mutateAsync({
-                  id: task.id,
-                  kind: "task",
-                  workspaceId: clarifyWorkspace,
-                  duration: clarifyDuration,
-                })
-              }
-            >
-              Make task
-            </button>
-            <button
-              type="button"
-              className="rounded-md border border-border px-2.5 py-1 text-xs"
-              onClick={() =>
-                void updateTask.mutateAsync({
-                  id: task.id,
-                  kind: "reminder",
-                  scheduledOn: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-                  duration: 0,
-                })
-              }
-            >
-              Make reminder
-            </button>
-          </div>
-        </section>
-      ) : null}
 
       {!compact ? (
         <>

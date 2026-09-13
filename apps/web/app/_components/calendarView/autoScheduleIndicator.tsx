@@ -7,7 +7,8 @@ import { AlertTriangle, Check, Sparkles, X } from "lucide-react";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { cn } from "@/app/utils/cn";
 
-/** Floating status so creating a task or event shows auto-schedule at work. */
+/** Floating status shown while an explicit Auto-schedule apply runs and after
+ * it lands, so the outcome is visible even once the dialog is closed. */
 export default function AutoScheduleIndicator({
   className,
 }: {

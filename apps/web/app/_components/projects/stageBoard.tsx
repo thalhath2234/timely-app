@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { Stage, Task } from "@/app/_types/types";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
+import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { showUndoToast } from "@/app/_store/toastStore";
 import { sortedStages } from "@/app/utils/stages";
 
@@ -16,7 +16,7 @@ export default function StageBoard({
   stages?: Stage[] | null;
   tasks: Task[];
 }) {
-  const router = useRouter();
+  const openTask = useEntityDetailStore((state) => state.openTask);
   const updateTask = useUpdateTask();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const columns = useMemo(() => {
@@ -80,7 +80,7 @@ export default function StageBoard({
                   key={task.id}
                   draggable
                   onDragStart={() => setDraggingId(task.id)}
-                  onClick={() => router.push(`/tasks?taskId=${encodeURIComponent(task.id)}`)}
+                  onClick={() => openTask(task.id)}
                   className="cursor-pointer rounded-lg border border-border bg-card p-3 text-sm shadow-xs hover:border-primary/40"
                 >
                   <div className="font-medium text-foreground">{task.name}</div>

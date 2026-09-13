@@ -12,7 +12,7 @@ const protectedPrefixes = [
   "/settings",
   "/docs",
   "/sheets",
-  "/m",
+  "/notifications",
 ];
 const publicExact = new Set(["/login", "/signup", "/"]);
 
@@ -26,6 +26,10 @@ export default async function proxy(req: NextRequest) {
   const hasRefresh = Boolean(req.cookies.get("refresh")?.value);
   const authenticated = Boolean(access) || hasRefresh;
   const onboarded = Boolean(access?.is_on_boarding_completed);
+
+  if (path === "/m" || path.startsWith("/m/")) {
+    return NextResponse.redirect(new URL("/calendar", req.url));
+  }
 
   if (isProtectedPath(path) && !authenticated) {
     return NextResponse.redirect(new URL("/login", req.url));

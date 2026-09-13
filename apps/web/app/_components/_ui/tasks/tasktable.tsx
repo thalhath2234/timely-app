@@ -418,8 +418,8 @@ export default function TasksTable({
   onSelectedIdsChange,
 }: TasksTableProps) {
   const { data: tasks, isLoading, status } = useTasks();
-  const typedTasks = (tasks ?? []) as Task[];
-  const customFields = config.customFields ?? [];
+  const typedTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
+  const customFields = useMemo(() => config.customFields ?? [], [config.customFields]);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [columnDrag, setColumnDrag] = useState<ColumnDragState | null>(null);
   const tableWrapRef = useRef<HTMLDivElement>(null);

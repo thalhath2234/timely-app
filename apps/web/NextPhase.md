@@ -26,7 +26,7 @@ Every feature and correction in this roadmap must affect both the **desktop web 
 - Backend models, validation, permissions, and API behavior must be shared by both clients.
 - Native mobile must provide the same essential capability, even when its interaction design is adapted for a smaller touch screen.
 - Mobile acceptance tests must be included alongside desktop and API tests.
-- Mobile web (`/m`) is a secondary surface and may use a deliberately smaller feature set, but it must never show fake data or violate account isolation.
+- There is no mobile-web product. The former `/m` shell was removed; phones use the native Expo app. Legacy `/m` URLs redirect to `/calendar`.
 
 ---
 
@@ -66,8 +66,8 @@ Do not start with new content modules, collaboration, advanced spreadsheet featu
 ### 3.2 Fix authentication and onboarding gaps
 
 - Send the entered name during signup and persist it.
-- Make onboarding behavior identical on desktop, mobile web, and native.
-- Protect docs, sheets, all `/m/*` routes, and every other private route consistently.
+- Make onboarding behavior identical on desktop and native.
+- Protect docs, sheets, and every other private route consistently.
 - Prevent the calendar from flashing before an onboarding redirect.
 - Decide on session renewal for multi-device use. Short-lived access tokens plus revocable device sessions are preferred over an unrenewable 24-hour token.
 - Add a “log out this device” action. A full team-style administration screen is unnecessary.
@@ -338,6 +338,7 @@ This is especially important for a personal system where each user relies on Tim
 | **R5 — Scheduler v2** | Scheduling controls, explainable preview, revisions/undo, recurring work, capacity | Strengthens the product’s main differentiator |
 | **R6 — Awareness** | Durable jobs, push, notification center, snooze, digest | Makes the product useful while closed |
 | **R7 — Durable Personal Data** | Export, backup/restore, offline baseline, accessibility, theming/i18n foundation | Protects long-term daily use |
+| **R8 — Daily-use polish** | Reminder type, native push permission, docs markdown import, completed-task scheduling, saved-view intent, digest/timezone honesty | Makes the shipped modules match what people actually try to do |
 
 Each release should be independently usable and should ship across the API, desktop web app, and native Android/iOS app with migration, UI, and regression tests. Avoid developing all phases in parallel.
 
@@ -368,9 +369,8 @@ This prevents the UI, API handlers, and Hermes tools from behaving differently.
 
 ### Client strategy
 
-- Treat desktop web and native as the supported product surfaces.
+- Treat desktop web and native as the supported product surfaces. Mobile web (`/m`) was removed.
 - Implement every roadmap capability on both desktop and native mobile. Platform-specific layouts are expected, but omitting the native implementation is not considered completion.
-- Decide whether mobile web provides real value beyond responsive desktop/native. If retained, remove prototype behavior and define its supported feature subset.
 - Share domain types, validation, API client behavior, and formula tests where practical, without forcing UI code sharing.
 
 ---
@@ -404,7 +404,7 @@ Start with these items in order:
 4. Add automated cross-account isolation tests for every user-owned resource and MCP operation.
 5. Confirm that signup remains available after logout and give every new account its own onboarding state.
 6. Fix signup name and onboarding redirects across clients.
-7. Remove production demo login and mobile fake-data fallback.
+7. Remove production demo login (already limited to development). The mobile-web fake-data fallback was deleted with `/m`.
 8. Canonicalize priority, boolean custom fields, dependency input, and working-hour representation.
 9. Audit/remove legacy `scheduleId` safely.
 10. Build the Projects list/detail routes.
@@ -442,3 +442,49 @@ No team-engagement or collaboration metrics are needed.
 Build **R1 through R5** before expanding the product horizontally. Those releases will turn the current collection of capable features into a coherent personal operating system. The most important new capabilities are Inbox capture, subtasks/checklists, a strong Today/focus experience, and an explainable scheduler with revisions and undo. Durable jobs should then support notifications and reliable indexing. In-app Hermes and external calendar synchronization remain explicitly deferred for a later roadmap.
 
 The central rule for future decisions should be: **does this help each user privately capture, decide, schedule, execute, or review their own work more reliably?** If not, it should not displace the core roadmap.
+
+---
+
+## 14. R8 — Daily-use polish (from live testing)
+
+R1–R7 already shipped most of the original modules. The remaining work is to make those modules mean what their labels say, and to keep desktop + native in lockstep. This slice is the next implementation backlog after the current reminder/docs/schedule fixes.
+
+### 14.1 Still incomplete from Report.md
+
+- Saved views that encode intent: **My Deadlines** should filter to tasks with a deadline or a next scheduled block, not just switch to Gantt.
+- Kanban cards and Gantt bars should show **next scheduled block** when `deadline` / `startDate` are empty.
+- Report “due in 14 days” should count deadline **or** next engine block.
+- Evening digest open-count must match Report, and notification timezone must persist from working hours.
+- Inbox **Make task** must write duration, default status, and stay off the main board until clarified.
+- Do not auto-apply the engine on every task/subtask create; wait for explicit Auto-schedule.
+- Remove or implement Tasks **Create Dashboard** and the ⋯ header button.
+- Humanize device session names; hide demo credentials outside development.
+- Comment delete; real project activity (not only recently updated tasks).
+
+### 14.2 Shipped in this polish pass
+
+- Reminders are a first-class type (Work / Reminder), not a duration-0 shortcut. Create and detail require a ping time (`Notify at`). A reminder without a ping time is invalid.
+- Native notification permission is requested after the first interactive frame (not during splash, which blocked the system dialog). Local reminder schedules fire even when Expo push registration fails, and they are not cancelled on layout remount.
+- Docs import `.md` files with the same block model as the editor. PDF download is removed; Markdown export stays. Code blocks use IDE colors plus Copy. Mentions have a toolbar button on mobile. Empty-area taps after save no longer restore the initially loaded document.
+- Auto-schedule ignores completed work: no change rows, no raw ids, and completed blocks do not consume free capacity.
+- Project overview dates use the shared picker at the same size as Status / Priority.
+- Mobile web (`/m`) was removed. Phones use the native Expo app; old `/m` URLs redirect to `/calendar`.
+
+### 14.3 New product needs still open
+
+- Native reminder toasts while the app is in the foreground should deep-link even if the OS banners are quieted.
+- Exact-alarm access on Android 14+ may still need a Settings deep-link if the user denied the special app permission.
+
+### 14.4 Explicitly still deferred
+
+- In-app Hermes chat and external calendar sync (Google/Outlook/ICS two-way)
+- Doc version history, comments, and images
+- Advanced spreadsheet databases, charts, and Gantt drag-resize
+- Password-reset email (local admin recovery remains the path unless SMTP is accepted)
+
+### Exit criteria for R8
+
+- A reminder created from Add, Inbox, or native detail produces a calendar ping and a device notification.
+- Auto-schedule preview never lists completed tasks or raw `tsk_` ids.
+- Importing a Markdown file round-trips headings, lists, code, and tables on desktop and native.
+- Tapping empty space in a saved mobile doc does not revert the editor to the previously loaded version.

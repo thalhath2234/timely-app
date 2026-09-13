@@ -90,13 +90,19 @@ export function useDocWatch(
     lastSavedAtRef: MutableRefObject<string | null>;
     hasLocalEdits: () => boolean;
     isEditorFocused?: () => boolean;
-    onRemote?: () => void;
+    /** Fires after the cache holds the remote copy; `document` is present when
+     * the event carried the full doc, absent when only a refetch was queued. */
+    onRemote?: (document?: Doc) => void;
     onDeleted?: () => void;
   },
 ) {
   const queryClient = useQueryClient();
   const optionsRef = useRef(options);
-  optionsRef.current = options;
+  // Refs must not be written during render; sync the latest callbacks in a
+  // passive effect so the SSE handler always calls the current closure.
+  useEffect(() => {
+    optionsRef.current = options;
+  });
 
   useEffect(() => {
     if (!id || options.enabled === false) return;
@@ -124,7 +130,7 @@ export function useDocWatch(
         return;
       }
       if (event.updatedAt) current.lastSavedAtRef.current = event.updatedAt;
-      current.onRemote?.();
+      current.onRemote?.(event.document as Doc | undefined);
     });
   }, [id, options.enabled, queryClient]);
 }

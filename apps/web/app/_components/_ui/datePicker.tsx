@@ -21,6 +21,7 @@ type DatePickerProps = {
   className?: string;
   disabled?: boolean;
   clearable?: boolean;
+  size?: "sm" | "md";
   "aria-label"?: string;
 };
 
@@ -29,7 +30,7 @@ type PanelPos = { top: number; left: number };
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 const triggerClass =
-  "flex w-full items-center gap-2 rounded-lg border border-border bg-input/30 px-2 py-1.5 text-left text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60";
+  "flex w-full items-center gap-2 rounded-lg border border-border bg-input/30 text-left text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60";
 
 function parseLocalDate(value: string): Date | null {
   if (!value) return null;
@@ -233,6 +234,7 @@ export default function DatePicker({
   className,
   disabled,
   clearable = true,
+  size = "md",
   "aria-label": ariaLabel,
 }: DatePickerProps) {
   const panelId = useId();
@@ -392,7 +394,11 @@ export default function DatePicker({
         aria-controls={panelId}
         aria-label={ariaLabel}
         onClick={() => (open ? setOpen(false) : openPanel())}
-        className={cn(triggerClass, className)}
+        className={cn(
+          triggerClass,
+          size === "sm" ? "px-2 py-1 text-xs" : "px-2 py-1.5 text-sm",
+          className,
+        )}
       >
         <TriggerIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span
@@ -582,11 +588,13 @@ export function DateField({
   onChange,
   className,
   clearable,
+  size,
 }: {
   value?: string | null;
   onChange: (value: string) => void;
   className?: string;
   clearable?: boolean;
+  size?: "sm" | "md";
 }) {
   return (
     <DatePicker
@@ -595,6 +603,7 @@ export function DateField({
       onChange={onChange}
       className={className}
       clearable={clearable}
+      size={size}
     />
   );
 }

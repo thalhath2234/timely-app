@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { Bell } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
-import EntityDetailPanel from "@/app/_components/_ui/tasks/entityDetailPanel";
+import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import {
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
@@ -31,7 +30,7 @@ export default function NotificationsPage() {
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const snooze = useSnoozeNotification();
-  const [openId, setOpenId] = useState<string | null>(null);
+  const openTask = useEntityDetailStore((state) => state.openTask);
   const items = list.data ?? [];
 
   return (
@@ -77,7 +76,7 @@ export default function NotificationsPage() {
                       className="min-w-0 flex-1 text-left"
                       onClick={() => {
                         if (unread) void markRead.mutateAsync(item.id);
-                        if (taskId) setOpenId(taskId);
+                        if (taskId) openTask(taskId);
                       }}
                     >
                       <p className="truncate text-sm font-medium">{item.title}</p>
@@ -134,9 +133,6 @@ export default function NotificationsPage() {
           </ul>
         )}
       </div>
-      {openId ? (
-        <EntityDetailPanel kind="task" id={openId} onClose={() => setOpenId(null)} />
-      ) : null}
     </div>
   );
 }

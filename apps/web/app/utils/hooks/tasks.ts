@@ -22,7 +22,6 @@ import {
   type SplitTaskSeriesPayload,
   type TaskOccurrencePayload,
 } from "@/app/utils/api/tasks";
-import { useAutoScheduleAfterChange } from "@/app/utils/hooks/autoSchedule";
 import { Label, Task, TaskActivity } from "@/app/_types/types";
 
 export const tasksKey = ["tasks"] as const;
@@ -50,13 +49,17 @@ export function useTask(id: string | undefined) {
 
 export function useCreateTask() {
   const queryClient = useQueryClient();
-  const autoSchedule = useAutoScheduleAfterChange();
   return useMutation({
     mutationFn: (data: CreateTaskPayload) => createTask(data),
+    // Creating work never re-plans the calendar on its own: the user reviews
+    // and accepts a plan through the explicit Auto-schedule dialog.
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: tasksKey });
-      await queryClient.invalidateQueries({ queryKey: inboxKey });
-      void autoSchedule();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: tasksKey }),
+        queryClient.invalidateQueries({ queryKey: inboxKey }),
+        queryClient.invalidateQueries({ queryKey: todayKey }),
+        queryClient.invalidateQueries({ queryKey: ["calendar"] }),
+      ]);
     },
   });
 }
@@ -103,18 +106,39 @@ export function useUpdateTask() {
       updateTask(id, payload),
     // Autosave fires often, so the cache is patched in place rather than
     // refetching every task on each keystroke batch.
-    onSuccess: (task) => {
-      queryClient.setQueryData<Task[]>(tasksKey, (tasks) =>
-        tasks?.map((item) =>
-          item.id === task.id ? mergeTaskUpdate(item, task) : item,
-        ),
-      );
+    onSuccess: (task, variables) => {
+      queryClient.setQueryData<Task[]>(tasksKey, (tasks) => {
+        if (!tasks) return tasks;
+        const present = tasks.some((item) => item.id === task.id);
+        // An inbox item that just became work is not in the board cache yet;
+        // add it so the user sees it land without a refetch.
+        if (!present && task.kind !== "inbox") return [...tasks, task];
+        return tasks.map((item) => (item.id === task.id ? mergeTaskUpdate(item, task) : item));
+      });
       queryClient.setQueryData<Task>(taskKey(task.id), (current) =>
         current ? mergeTaskUpdate(current, task) : task,
       );
+      // Clarified items leave the Inbox immediately; the list must not wait
+      // for a background refetch to drop the processed row.
+      queryClient.setQueryData<Task[]>(inboxKey, (items) => {
+        if (!items) return items;
+        if (task.kind === "inbox") {
+          return items.map((item) => (item.id === task.id ? mergeTaskUpdate(item, task) : item));
+        }
+        return items.filter((item) => item.id !== task.id);
+      });
       queryClient.invalidateQueries({ queryKey: taskActivityKey(task.id) });
       // Schedule, duration and recurrence edits all change calendar time.
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
+      if (
+        variables.kind !== undefined ||
+        variables.completedAt !== undefined ||
+        variables.todayFocusOn !== undefined ||
+        variables.scheduledOn !== undefined
+      ) {
+        queryClient.invalidateQueries({ queryKey: todayKey });
+        queryClient.invalidateQueries({ queryKey: inboxKey });
+      }
     },
   });
 }
@@ -164,7 +188,6 @@ export function useTaskActivity(taskId: string, enabled = true) {
 
 export function useBulkUpdateTasks() {
   const queryClient = useQueryClient();
-  const autoSchedule = useAutoScheduleAfterChange();
   return useMutation({
     mutationFn: ({ ids, update }: { ids: string[]; update: UpdateTaskPayload }) =>
       bulkUpdateTasks(ids, update),
@@ -177,8 +200,13 @@ export function useBulkUpdateTasks() {
           return next ? mergeTaskUpdate(item, next) : item;
         });
       });
+      for (const task of tasks) {
+        queryClient.setQueryData<Task>(taskKey(task.id), (current) =>
+          current ? mergeTaskUpdate(current, task) : current,
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
-      void autoSchedule();
+      queryClient.invalidateQueries({ queryKey: todayKey });
     },
   });
 }
@@ -192,7 +220,13 @@ export function useDeleteTask() {
       queryClient.setQueryData<Task[]>(tasksKey, (tasks) =>
         tasks?.filter((item) => item.id !== id),
       );
+      queryClient.setQueryData<Task[]>(inboxKey, (items) =>
+        items?.filter((item) => item.id !== id),
+      );
+      queryClient.removeQueries({ queryKey: taskKey(id) });
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
+      queryClient.invalidateQueries({ queryKey: todayKey });
+      queryClient.invalidateQueries({ queryKey: inboxKey });
     },
   });
 }

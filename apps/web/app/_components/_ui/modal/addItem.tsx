@@ -29,6 +29,7 @@ import { createProject } from "@/app/utils/api/projects";
 import { useCreateTask } from "@/app/utils/hooks/tasks";
 import { useCreateEvent } from "@/app/utils/hooks/calendar";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
+import TaskTypeToggle from "@/app/_components/_ui/tasks/taskTypeToggle";
 import CustomFieldControl, {
   customFieldIcon,
   emptyCustomFieldDrafts,
@@ -200,6 +201,7 @@ export default function AddItemModal() {
   const [taskRecurrence, setTaskRecurrence] = useState<RecurrenceDraft | null>(
     null,
   );
+  const [taskKind, setTaskKind] = useState<"task" | "reminder">("task");
 
   // Event fields. Events are simple enough that plain state beats a resolver.
   const [eventTitle, setEventTitle] = useState("");
@@ -292,9 +294,8 @@ export default function AddItemModal() {
   const taskStartDate = watchTask("startDate") ?? "";
   const taskDeadline = watchTask("deadline") ?? "";
   const taskScheduledOn = watchTask("scheduledOn") ?? "";
-  const taskDuration = Number(watchTask("duration") ?? 0);
-  const taskIsReminder = taskDuration <= 0;
-  const taskTimeOnly = taskIsReminder || Boolean(taskRecurrence);
+  const taskIsReminder = taskKind === "reminder";
+  const taskTimeOnly = Boolean(taskRecurrence);
   const taskLabelIds = watchTask("labelIds") ?? [];
   const selectedPageWorkspaceId = watchPage("workspaceId");
 
@@ -414,6 +415,7 @@ export default function AddItemModal() {
   };
 
   const makeTaskReminder = () => {
+    setTaskKind("reminder");
     setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
     if (!taskScheduledOn) {
       setTaskClock(toTimeInputValue(nextRoundHour()));
@@ -426,9 +428,14 @@ export default function AddItemModal() {
       taskDescription.plainText.trim().length > 0;
     const recurrence = buildRecurrenceInput(taskRecurrence, taskRecurrenceAnchor);
 
-    const isReminder =
-      (Number(data.duration) || 0) <= 0 && Boolean(data.scheduledOn || recurrence);
-    const isInbox = (Number(data.duration) || 0) <= 0 && !isReminder;
+    const isReminder = taskKind === "reminder";
+    const pingAt =
+      !recurrence && (data.scheduledOn || isReminder)
+        ? fromDatetimeLocalValue(
+            data.scheduledOn || toDatetimeLocalValue(nextRoundHour()),
+          )
+        : undefined;
+    const isInbox = !isReminder && (Number(data.duration) || 0) <= 0;
     createTaskMutation.mutate(
       {
       name: data.name,
@@ -441,11 +448,8 @@ export default function AddItemModal() {
       priorityLevel: data.priorityLevel || undefined,
       startDate: data.startDate || undefined,
       deadline: data.deadline || undefined,
-      scheduledOn:
-        !recurrence && data.scheduledOn
-          ? fromDatetimeLocalValue(data.scheduledOn)
-          : undefined,
-      duration: data.duration ? Number(data.duration) : 0,
+      scheduledOn: pingAt,
+      duration: isReminder ? 0 : data.duration ? Number(data.duration) : 0,
       kind: isInbox ? "inbox" : isReminder ? "reminder" : "task",
       labelIds: isReminder || isInbox
         ? undefined
@@ -510,6 +514,7 @@ export default function AddItemModal() {
     resetProject();
     resetTask();
     resetPage();
+    setTaskKind("task");
     setProjectDescription(EMPTY_DESCRIPTION);
     setTaskDescription(EMPTY_DESCRIPTION);
     setTaskRecurrence(null);
@@ -984,6 +989,27 @@ export default function AddItemModal() {
 
           <ModalSidebar>
             <div className="flex flex-col gap-1">
+              <div className="px-1 py-1.5">
+                <TaskTypeToggle
+                  value={taskIsReminder ? "reminder" : "task"}
+                  onChange={(next) => {
+                    if (next === "reminder") {
+                      makeTaskReminder();
+                      return;
+                    }
+                    setTaskKind("task");
+                    setValueTask("duration", 30, {
+                      shouldValidate: true,
+                      shouldDirty: true,
+                    });
+                  }}
+                />
+                <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                  {taskIsReminder
+                    ? "Pings at a chosen time. Does not reserve a work block."
+                    : "Estimated minutes of work the scheduler can place."}
+                </p>
+              </div>
               {!taskIsReminder ? (
                 <>
               <PropertyRow icon={FolderKanban} label="Workspace">
@@ -1091,30 +1117,11 @@ export default function AddItemModal() {
                 />
               </PropertyRow>
 
+              {!taskIsReminder ? (
               <PropertyRow icon={Clock} label="Duration">
-                {taskIsReminder ? (
-                  <>
-                    <span className="min-w-0 flex-1 text-sm text-foreground">
-                      Reminder
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setValueTask("duration", 30, {
-                          shouldValidate: true,
-                          shouldDirty: true,
-                        })
-                      }
-                      className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    >
-                      Add duration
-                    </button>
-                  </>
-                ) : (
-                  <>
                     <input
                       type="number"
-                      min={0}
+                      min={15}
                       step={15}
                       {...registerTask("duration")}
                       className="w-full bg-transparent text-sm text-foreground outline-none"
@@ -1122,17 +1129,10 @@ export default function AddItemModal() {
                     <span className="shrink-0 text-xs text-muted-foreground">
                       min
                     </span>
-                    <button
-                      type="button"
-                      onClick={makeTaskReminder}
-                      className="shrink-0 rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
-                    >
-                      Reminder
-                    </button>
-                  </>
-                )}
               </PropertyRow>
+              ) : null}
 
+              {!taskIsReminder ? (
               <PropertyRow icon={CalendarDays} label="Start date">
                 <DatePicker
                   mode="date"
@@ -1157,7 +1157,9 @@ export default function AddItemModal() {
                   }}
                 />
               </PropertyRow>
+              ) : null}
 
+              {!taskIsReminder ? (
               <PropertyRow icon={CalendarDays} label="Deadline">
                 <DatePicker
                   mode="date"
@@ -1170,23 +1172,25 @@ export default function AddItemModal() {
                   }
                 />
               </PropertyRow>
+              ) : null}
 
               <PropertyRow
                 icon={Clock}
-                label={taskTimeOnly ? "Time" : "Schedule"}
+                label={taskIsReminder ? (taskTimeOnly ? "Time" : "Notify at") : taskTimeOnly ? "Time" : "Schedule"}
               >
                 {taskTimeOnly ? (
                   <TimeField
                     className="min-w-0 flex-1"
                     value={toTimeInputValue(taskScheduledOn)}
-                    clearable
-                    aria-label="Time"
+                    clearable={!taskIsReminder}
+                    aria-label={taskIsReminder ? "Notify at" : "Time"}
                     onChange={setTaskClock}
                   />
                 ) : (
                   <DatePicker
                     mode="datetime"
                     value={taskScheduledOn}
+                    placeholder={taskIsReminder ? "Pick when to ping" : undefined}
                     onChange={(scheduledOn) =>
                       setValueTask("scheduledOn", scheduledOn, {
                         shouldValidate: true,
@@ -1215,7 +1219,7 @@ export default function AddItemModal() {
               {taskIsReminder
                 ? taskRecurrence
                   ? "Each repeat pings at this time. No work block is reserved."
-                  : "Pings at this time. Use start date if you want a specific day."
+                  : "Pings at this date and time. Does not reserve a work block."
                 : taskRecurrence
                   ? "Each occurrence starts at this time. Auto-schedule keeps that block for this task."
                   : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}

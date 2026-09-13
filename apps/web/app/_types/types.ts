@@ -478,6 +478,12 @@ export interface ScheduleProposal {
   pastDeadline: boolean;
   reason?: string;
   change?: string;
+  /** Estimate vs. what the proposed blocks actually cover. */
+  requiredMinutes?: number;
+  placedMinutes?: number;
+  shortfallMinutes?: number;
+  /** True when the blocks do not cover the whole estimate. */
+  partial?: boolean;
 }
 
 export interface ScheduleSkipped {
@@ -629,6 +635,8 @@ export interface Config {
   customFields?: CustomField[];
   taskViews?: TaskViewConfig[];
   activeTaskViewId?: string;
+  /** One saved task-list layout per project id. */
+  projectTaskViews?: Record<string, TaskViewConfig>;
   workingHours?: WorkingHours;
   createdAt?: string;
   updatedAt?: string;
@@ -687,8 +695,13 @@ export interface TaskViewConfig {
   onlyOverdue?: boolean;
   onlyScheduled?: boolean;
   onlyRecurring?: boolean;
+  /** Only tasks with a deadline or reserved calendar time. Undefined falls
+   * back to `true` for the built-in "My Deadlines" view. */
+  onlyDated?: boolean;
   /** When true, the view shows duration-0 reminders instead of work tasks. */
   showReminders?: boolean;
   /** Built-in ids plus `cf:{customFieldId}`. Empty means the default order. */
   columnOrder: string[];
+  /** Project-hub filter chrome. Undefined means shown. */
+  optionsVisible?: boolean;
 }

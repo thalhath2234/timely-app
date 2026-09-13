@@ -3,15 +3,24 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Check, Copy, FolderKanban, ListTodo, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Copy, FolderKanban, Trash2 } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
+import { DateField } from "@/app/_components/_ui/datePicker";
 import Select from "@/app/_components/_ui/select";
 import StageBoard from "@/app/_components/projects/stageBoard";
 import StageCatalog from "@/app/_components/projects/stageCatalog";
+import ProjectTaskList from "@/app/_components/_ui/tasks/projectTaskList";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
 import { formatShortDate, projectStats, tasksForProject } from "@/app/utils/projectStats";
-import { useDeleteProject, useDuplicateProject, useProject, useUpdateProject } from "@/app/utils/hooks/projects";
+import {
+  useDeleteProject,
+  useDuplicateProject,
+  useProject,
+  useProjectActivity,
+  useUpdateProject,
+} from "@/app/utils/hooks/projects";
+import LoadError from "@/app/_components/_ui/loadError";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
@@ -167,7 +176,7 @@ function ProjectHub({ project }: { project: Project }) {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className={`flex-1 ${tab === "tasks" ? "min-h-0 overflow-hidden" : "overflow-y-auto p-5"}`}>
         {tab === "overview" ? (
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="space-y-4">
@@ -208,18 +217,16 @@ function ProjectHub({ project }: { project: Project }) {
                 options={[{ value: "", label: "No priority" }, ...PRIORITY_OPTIONS]}
               />
               <label className="block text-xs text-muted-foreground">Start</label>
-              <input
-                type="date"
-                defaultValue={project.startDate ?? ""}
-                onChange={(event) => schedule({ startDate: event.target.value })}
-                className="w-full rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm"
+              <DateField
+                size="sm"
+                value={project.startDate}
+                onChange={(startDate) => schedule({ startDate })}
               />
               <label className="block text-xs text-muted-foreground">Deadline</label>
-              <input
-                type="date"
-                defaultValue={project.deadline ?? ""}
-                onChange={(event) => schedule({ deadline: event.target.value })}
-                className="w-full rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm"
+              <DateField
+                size="sm"
+                value={project.deadline}
+                onChange={(deadline) => schedule({ deadline })}
               />
               <p className="text-xs text-muted-foreground">
                 Workspace: {workspace?.name || "—"}
@@ -230,26 +237,7 @@ function ProjectHub({ project }: { project: Project }) {
         ) : null}
 
         {tab === "tasks" ? (
-          <div className="space-y-2">
-            {projectTasks.length === 0 ? (
-              <EmptyState
-                icon={ListTodo}
-                title="No tasks in this project"
-                description="Create a task and assign it here from the + menu."
-              />
-            ) : (
-              projectTasks.map((task) => (
-                <Link
-                  key={task.id}
-                  href={`/tasks?taskId=${encodeURIComponent(task.id)}`}
-                  className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent/40"
-                >
-                  <span className="min-w-0 flex-1 truncate">{task.name}</span>
-                  <span className="text-xs text-muted-foreground">{task.status?.name || ""}</span>
-                </Link>
-              ))
-            )}
-          </div>
+          <ProjectTaskList project={project} workspace={workspace} />
         ) : null}
 
         {tab === "stages" ? (
@@ -266,13 +254,112 @@ function ProjectHub({ project }: { project: Project }) {
         ) : null}
 
         {tab === "activity" ? (
+          <ProjectActivityFeed project={project} recent={recent} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function formatActivityStamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * The project's change history: who changed what on which task, newest
+ * first. Project-level field edits are not journaled yet, so the header says
+ * so instead of implying completeness; the "recently updated" list stays as a
+ * secondary section for quick navigation.
+ */
+function ProjectActivityFeed({ project, recent }: { project: Project; recent: Task[] }) {
+  const activity = useProjectActivity(project.id);
+  const entries = activity.data ?? [];
+
+  return (
+    <div className="space-y-6">
+      <section>
+        <div className="mb-2 flex items-baseline justify-between gap-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Task changes in this project
+          </h3>
+          <span className="text-xs text-muted-foreground">
+            Created {formatShortDate(project.createdAt)}
+            {project.updatedAt && project.updatedAt !== project.createdAt
+              ? ` · project fields last edited ${formatShortDate(project.updatedAt)}`
+              : ""}
+          </span>
+        </div>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Status, priority, stage, schedule, comment and completion changes on every task here.
+          Edits to the project&apos;s own title, dates and description are not recorded yet.
+        </p>
+        {activity.isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading activity…</p>
+        ) : activity.isError ? (
+          <LoadError
+            what="project activity"
+            error={activity.error}
+            onRetry={() => activity.refetch()}
+            retrying={activity.isFetching}
+          />
+        ) : entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No recorded changes yet.</p>
+        ) : (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {entries.map((entry) => {
+              const isProjectLevel = !entry.taskId;
+              const row = (
+                <>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-foreground">
+                      {entry.actorName ? <span className="font-medium">{entry.actorName} </span> : null}
+                      {entry.message || entry.action}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {isProjectLevel ? "Project" : entry.taskName || "Task"}
+                      {entry.field ? ` · ${entry.field}` : ""}
+                      {entry.oldValue && entry.newValue
+                        ? ` · ${entry.oldValue} → ${entry.newValue}`
+                        : ""}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {formatActivityStamp(entry.createdAt)}
+                  </span>
+                </>
+              );
+              return (
+                <li key={entry.id}>
+                  {isProjectLevel ? (
+                    <div className="flex items-center gap-3 px-3 py-2">{row}</div>
+                  ) : (
+                    <Link
+                      href={`/tasks?taskId=${encodeURIComponent(entry.taskId)}`}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-accent/40"
+                    >
+                      {row}
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {recent.length > 0 ? (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Recently updated tasks
+          </h3>
           <ul className="space-y-2">
-            <li className="text-sm text-muted-foreground">
-              Created {formatShortDate(project.createdAt)}
-              {project.updatedAt && project.updatedAt !== project.createdAt
-                ? ` · Updated ${formatShortDate(project.updatedAt)}`
-                : ""}
-            </li>
             {recent.map((task) => (
               <li key={task.id}>
                 <Link
@@ -280,15 +367,13 @@ function ProjectHub({ project }: { project: Project }) {
                   className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent/40"
                 >
                   <span className="truncate">{task.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatShortDate(task.updatedAt)}
-                  </span>
+                  <span className="text-xs text-muted-foreground">{formatShortDate(task.updatedAt)}</span>
                 </Link>
               </li>
             ))}
           </ul>
-        ) : null}
-      </div>
+        </section>
+      ) : null}
     </div>
   );
 }

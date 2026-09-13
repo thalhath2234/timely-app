@@ -1,5 +1,6 @@
-import type { Task } from "@/app/_types/types";
+import type { Task, TaskViewConfig } from "@/app/_types/types";
 import { isTaskOverdue } from "@/app/utils/overdue";
+import { taskHasDate } from "@/app/utils/taskDates";
 
 export type TaskListFilters = {
   workspaceIds: string[];
@@ -12,6 +13,8 @@ export type TaskListFilters = {
   onlyOverdue: boolean;
   onlyScheduled: boolean;
   onlyRecurring: boolean;
+  /** Only tasks with a deadline or reserved time; the "My Deadlines" predicate. */
+  onlyDated: boolean;
   showReminders: boolean;
 };
 
@@ -26,8 +29,25 @@ export const DEFAULT_TASK_FILTERS: TaskListFilters = {
   onlyOverdue: false,
   onlyScheduled: false,
   onlyRecurring: false,
+  onlyDated: false,
   showReminders: false,
 };
+
+/** Built-in view whose name promises a date filter. Older saved configs
+ * predate the flag, so the id doubles as the default until the user changes it. */
+export const MY_DEADLINES_VIEW_ID = "view_my_deadlines";
+
+export function resolveViewOnlyDated(view: Pick<TaskViewConfig, "id" | "onlyDated">): boolean {
+  if (typeof view.onlyDated === "boolean") return view.onlyDated;
+  return view.id === MY_DEADLINES_VIEW_ID;
+}
+
+export function resolveViewShowCompleted(
+  view: Pick<TaskViewConfig, "id" | "showCompleted">,
+): boolean {
+  if (typeof view.showCompleted === "boolean") return view.showCompleted;
+  return view.id !== MY_DEADLINES_VIEW_ID;
+}
 
 function hasAny(values: string[]) {
   return values.length > 0;
@@ -65,6 +85,7 @@ export function filterTasks(tasks: Task[], filters: TaskListFilters): Task[] {
       return false;
     }
     if (filters.onlyRecurring && !task.recurrence) return false;
+    if (filters.onlyDated && !taskHasDate(task)) return false;
 
     if (hasAny(filters.workspaceIds)) {
       const workspaceId = task.workspace?.id || task.workspaceId;

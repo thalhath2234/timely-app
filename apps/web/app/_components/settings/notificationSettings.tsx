@@ -114,7 +114,18 @@ function NotificationSettingsForm({ initial }: { initial: NotificationSettings }
           className={fieldClass}
           value={draft.timezone}
           onChange={(event) => setDraft({ ...draft, timezone: event.target.value })}
+          placeholder="e.g. Asia/Tokyo"
+          list="notification-timezones"
         />
+        <datalist id="notification-timezones">
+          {[browserTimezone(), "UTC"].filter(Boolean).map((zone) => (
+            <option key={zone} value={zone} />
+          ))}
+        </datalist>
+        <span className="text-xs text-muted-foreground">
+          Digest times and quiet hours are read in this zone. It follows your working-hours
+          timezone unless you set a different one here.
+        </span>
       </label>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
       {message && !error ? <p className="text-xs text-success">{message}</p> : null}

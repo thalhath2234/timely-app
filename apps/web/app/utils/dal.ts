@@ -29,7 +29,7 @@ export const getCurrentUser = cache(async () => {
             name: 'Test User',
             email: 'user@example.com',
         };
-    } catch (error) {
+    } catch {
         console.error('Failed to fetch authenticated user profile');
         return null;
     }

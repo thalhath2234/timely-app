@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Editor } from "@tiptap/react";
-import { ChevronRight, Archive, Download, Smile, Star, Trash2 } from "lucide-react";
+import { ChevronRight, Archive, Download, Smile, Star, Trash2, Upload } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import { Doc } from "@/app/_types/types";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  docKey,
   useDeleteDoc,
   useDoc,
   useDocWatch,
@@ -16,10 +18,11 @@ import {
   useUpdateDoc,
 } from "@/app/utils/hooks/docs";
 import { useAutosave } from "@/app/utils/hooks/useAutosave";
-import { isRichContentEmpty, toRichContent } from "@/app/utils/richText";
+import { resolveDocContent } from "@/app/utils/markdown";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import { showUndoToast } from "@/app/_store/toastStore";
 import { downloadPortable } from "@/app/utils/api/portability";
+import { readMarkdownFile } from "@/app/utils/importMarkdown";
 
 const ICON_CHOICES = [
   "📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯",
@@ -91,6 +94,7 @@ function countDescendantsFromList(docs: Doc[], id: string): number {
 
 function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const updateDoc = useUpdateDoc();
   const deleteDoc = useDeleteDoc();
 
@@ -102,13 +106,9 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [remoteContent, setRemoteContent] = useState<Doc["content"] | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const lastSavedAtRef = useRef<string | null>(doc.updatedAt);
-  const seedContent = useMemo(
-    () =>
-      isRichContentEmpty(doc.content)
-        ? toRichContent(null, doc.plainText)
-        : doc.content,
-    [doc.id],
-  );
+  // The editor is seeded once per document; later remote updates arrive via
+  // `remoteContent`, so this deliberately does not track content changes.
+  const [seedContent] = useState(() => resolveDocContent(doc.content, doc.plainText));
 
   const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateDocPayload>(
     async (patch) => {
@@ -122,20 +122,17 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     lastSavedAtRef,
     hasLocalEdits: hasUnsavedChanges,
     isEditorFocused: () => Boolean(editorRef.current?.isFocused),
-    onRemote: () => setRemoteEpoch((epoch) => epoch + 1),
+    // Apply the remote copy straight from the event so local title, word
+    // count and editor content move together in one handler, no effect hop.
+    onRemote: (remote) => {
+      const next = remote ?? queryClient.getQueryData<Doc>(docKey(doc.id)) ?? doc;
+      setTitle(next.title);
+      setWordCount(countWords(next.plainText));
+      setRemoteContent(resolveDocContent(next.content, next.plainText));
+      setRemoteEpoch((epoch) => epoch + 1);
+    },
     onDeleted: () => router.push("/docs"),
   });
-
-  useEffect(() => {
-    if (remoteEpoch === 0) return;
-    setTitle(doc.title);
-    setWordCount(countWords(doc.plainText));
-    setRemoteContent(
-      isRichContentEmpty(doc.content)
-        ? toRichContent(null, doc.plainText)
-        : doc.content,
-    );
-  }, [remoteEpoch, doc.title, doc.plainText, doc.content]);
 
   const descendantCount = countDescendantsFromList(allDocs, doc.id);
   const breadcrumb = useMemo(
@@ -189,20 +186,35 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
 
         <button
           type="button"
+          title="Import Markdown"
+          aria-label="Import a Markdown file"
+          onClick={() => {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = ".md,.markdown,text/markdown,text/plain";
+            input.onchange = async () => {
+              const file = input.files?.[0];
+              if (!file) return;
+              const imported = await readMarkdownFile(file);
+              editorRef.current?.commands.setContent(imported.content as Parameters<Editor["commands"]["setContent"]>[0]);
+              setWordCount(countWords(imported.plainText));
+              schedule({ content: imported.content, plainText: imported.plainText });
+              void flush();
+            };
+            input.click();
+          }}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
+        >
+          <Upload className="size-4" />
+        </button>
+        <button
+          type="button"
           title="Download Markdown"
           aria-label="Download document as Markdown"
           onClick={() => void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`)}
           className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
         >
           <Download className="size-4" />
-        </button>
-        <button
-          type="button"
-          title="Download PDF"
-          onClick={() => void downloadPortable(`/docs/${doc.id}/export?format=pdf`, `${doc.title}.pdf`)}
-          className="shrink-0 rounded-md px-1.5 py-1 text-[10px] font-semibold transition-colors hover:bg-accent"
-        >
-          PDF
         </button>
 
         <button
@@ -338,6 +350,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
 
           <RichTextEditor
             content={remoteContent ?? seedContent}
+            syncKey={remoteEpoch}
             onReady={handleEditorReady}
             onChange={handleEditorChange}
           />

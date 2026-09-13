@@ -6,12 +6,22 @@ import { useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tasks";
 import { isCompletedStatus } from "@/app/utils/status";
 import { showUndoToast } from "@/app/_store/toastStore";
 import { useQueryClient } from "@tanstack/react-query";
+import { formatTaskDatePoint, taskDateSourceLabel, taskNextDate } from "@/app/utils/taskDates";
 
 function formatDateLabel(value?: string | null) {
   if (!value) return "No date";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "No date";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** Cards say when the work happens: deadline first, otherwise the next
+ * reserved block, so scheduled tasks never read as "No date". */
+function cardDateLabel(item: Task, dataMode: "task" | "project") {
+  if (dataMode === "project") return `Deadline: ${formatDateLabel(item.deadline)}`;
+  const point = taskNextDate(item);
+  if (!point) return "No date";
+  return `${taskDateSourceLabel(point.source)}: ${formatTaskDatePoint(point)}`;
 }
 
 function statusPatch(status: Status, completedAt: string | null) {
@@ -187,7 +197,7 @@ export default function KanbanView({
                     {dataMode === "project" ? "Project" : "Task"} · {item.workspace?.name || "No workspace"}
                   </div>
                   <div className="mt-2 text-xs text-muted-foreground">
-                    Deadline: {formatDateLabel(item.deadline)}
+                    {cardDateLabel(item, dataMode)}
                   </div>
                 </article>
               ))}

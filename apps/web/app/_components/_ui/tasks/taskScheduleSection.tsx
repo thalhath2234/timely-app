@@ -156,7 +156,7 @@ export default function TaskScheduleSection({
 
   return (
     <div className="mt-4 border-t border-border pt-3">
-      <SidebarSectionTitle>Schedule</SidebarSectionTitle>
+      <SidebarSectionTitle>{reminder ? "Reminder" : "Schedule"}</SidebarSectionTitle>
 
       <RecurrenceEditor
         label="Repeat"
@@ -193,22 +193,17 @@ export default function TaskScheduleSection({
         </>
       ) : reminder ? (
         <>
-          <div className="mt-2 flex items-center gap-2 px-1">
-            <Clock className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="w-20 shrink-0 text-xs text-muted-foreground">
-              Time
-            </span>
-            <TimeField
-              className="min-w-0 flex-1"
-              value={toTimeInputValue(scheduledOn)}
-              clearable
-              onChange={setClock}
+          <div className="mt-2 px-1">
+            <DateTimeField
+              value={scheduledOn}
+              clearable={false}
+              onChange={(iso) => onScheduledOnChange?.(iso)}
             />
           </div>
           <p className="px-1 pt-1 text-xs text-muted-foreground">
             {scheduledOn
-              ? `Pings at ${formatTime(new Date(scheduledOn))}. Use start date for the day.`
-              : "Pick a time to show this reminder on the calendar. Use start date for the day."}
+              ? `Pings at ${formatDateTime(new Date(scheduledOn))}. Does not reserve a work block.`
+              : "Pick a date and time to ping. This does not reserve a work block."}
           </p>
         </>
       ) : (
@@ -348,7 +343,7 @@ export default function TaskScheduleSection({
       )}
 
       {!reminder && !completed && (
-        <div className="mt-3 flex flex-col gap-2 rounded-lg border border-border px-2 py-2">
+        <div className="mt-3 flex min-w-0 flex-col gap-2 overflow-hidden rounded-lg border border-border px-2 py-2">
               <p className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 Engine
               </p>
@@ -442,37 +437,41 @@ export default function TaskScheduleSection({
                   }
                 />
               </div>
-              <div className="flex items-center gap-2 px-1">
-                <span className="w-20 shrink-0 text-xs text-muted-foreground">Prefer</span>
-                <div className="w-[6.5 rem] shrink-0">
-                  <TimeField
-                    value={preferred?.start ?? ""}
-                    clearable
-                    onChange={(start) => {
-                      const end = preferred?.end || "";
-                      const windows =
-                        start && end ? [{ start, end }] : start ? [{ start, end: start }] : [];
-                      void run(
-                        () => updateTask.mutateAsync({ id: taskId, preferredWindows: windows }),
-                        "Could not update preferred window.",
-                      );
-                    }}
-                  />
-                </div>
-                <span className="text-xs text-muted-foreground">to</span>
-                <div className="w-[6.5 rem] shrink-0">
-                  <TimeField
-                    value={preferred?.end ?? ""}
-                    clearable
-                    onChange={(end) => {
-                      const start = preferred?.start || "";
-                      const windows = start && end ? [{ start, end }] : [];
-                      void run(
-                        () => updateTask.mutateAsync({ id: taskId, preferredWindows: windows }),
-                        "Could not update preferred window.",
-                      );
-                    }}
-                  />
+              <div className="flex min-w-0 flex-col gap-1 px-1">
+                <span className="text-xs text-muted-foreground">Prefer</span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <TimeField
+                      value={preferred?.start ?? ""}
+                      clearable
+                      aria-label="Preferred start"
+                      onChange={(start) => {
+                        const end = preferred?.end || "";
+                        const windows =
+                          start && end ? [{ start, end }] : start ? [{ start, end: start }] : [];
+                        void run(
+                          () => updateTask.mutateAsync({ id: taskId, preferredWindows: windows }),
+                          "Could not update preferred window.",
+                        );
+                      }}
+                    />
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground">to</span>
+                  <div className="min-w-0 flex-1">
+                    <TimeField
+                      value={preferred?.end ?? ""}
+                      clearable
+                      aria-label="Preferred end"
+                      onChange={(end) => {
+                        const start = preferred?.start || "";
+                        const windows = start && end ? [{ start, end }] : [];
+                        void run(
+                          () => updateTask.mutateAsync({ id: taskId, preferredWindows: windows }),
+                          "Could not update preferred window.",
+                        );
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
         </div>

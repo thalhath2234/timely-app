@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Sheet as SheetIcon } from "lucide-react";
 import { useCreateSheet, useSheets } from "@/app/utils/hooks/sheets";
+import { QueryFailure } from "@/app/_components/_ui/loadError";
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value);
@@ -19,7 +20,8 @@ function formatUpdatedAt(value: string) {
 
 export default function SheetsPage() {
   const router = useRouter();
-  const { data: sheets, isLoading } = useSheets();
+  const sheetsQuery = useSheets();
+  const { data: sheets, isLoading } = sheetsQuery;
   const createSheet = useCreateSheet();
 
   const recentSheets = (sheets ?? []).filter((sheet) => !sheet.archivedAt).slice(0, 12);
@@ -71,7 +73,18 @@ export default function SheetsPage() {
           <p className="mt-3 text-sm text-muted-foreground">Loading sheets...</p>
         )}
 
-        {!isLoading && recentSheets.length === 0 && (
+        {sheetsQuery.isError && (
+          <QueryFailure
+            what="sheets"
+            hasData={Boolean(sheets)}
+            error={sheetsQuery.error}
+            onRetry={() => sheetsQuery.refetch()}
+            retrying={sheetsQuery.isFetching}
+            className="mt-3"
+          />
+        )}
+
+        {!isLoading && !(sheetsQuery.isError && !sheets) && recentSheets.length === 0 && (
           <div className="mt-3 flex flex-1 items-center justify-center rounded-xl border border-dashed border-border px-6 py-10">
             <p className="text-sm text-muted-foreground">
               Nothing here yet. Create a sheet to get started.

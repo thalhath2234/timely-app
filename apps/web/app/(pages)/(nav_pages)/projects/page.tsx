@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FolderKanban, Plus } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
+import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
@@ -56,8 +57,10 @@ function ProjectCard({ project, tasks }: { project: Project; tasks: Task[] }) {
 }
 
 export default function ProjectsPage() {
-  const { data: projects, isLoading, isError } = useProjects();
-  const { data: tasks } = useTasks();
+  const projectsQuery = useProjects();
+  const { data: projects, isLoading, isError } = projectsQuery;
+  const tasksQuery = useTasks();
+  const { data: tasks } = tasksQuery;
   const { data: workspaces } = useWorkspaces();
   const setAddNewMode = useSidebarStore((state) => state.setAddNewMode);
   const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
@@ -92,14 +95,25 @@ export default function ProjectsPage() {
           </button>
         </div>
 
+        {tasksQuery.isError && (
+          <LoadErrorBanner
+            what="tasks (project progress may be incomplete)"
+            error={tasksQuery.error}
+            onRetry={() => tasksQuery.refetch()}
+            retrying={tasksQuery.isFetching}
+            className="mt-4"
+          />
+        )}
+
         {isLoading ? (
           <p className="mt-6 text-sm text-muted-foreground">Loading projects…</p>
         ) : isError ? (
-          <div className="mt-6">
-            <EmptyState
-              icon={FolderKanban}
-              title="Couldn't load projects"
-              description="Check your connection and try again."
+          <div className="mt-6 flex flex-1 flex-col">
+            <LoadError
+              what="projects"
+              error={projectsQuery.error}
+              onRetry={() => projectsQuery.refetch()}
+              retrying={projectsQuery.isFetching}
             />
           </div>
         ) : list.length === 0 ? (

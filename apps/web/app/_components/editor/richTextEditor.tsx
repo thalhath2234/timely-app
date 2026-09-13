@@ -7,9 +7,11 @@ import {
   EditorContent,
   Extensions,
   JSONContent,
+  ReactNodeViewRenderer,
   useEditor,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import CodeBlock from "@tiptap/extension-code-block";
 import { Placeholder } from "@tiptap/extensions";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -25,6 +27,7 @@ import {
   CheckSquare,
   Code,
   Code2,
+  AtSign,
   Columns2,
   ExternalLink,
   Heading,
@@ -45,12 +48,16 @@ import {
 } from "lucide-react";
 import { DocContent } from "@/app/_types/types";
 import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
+import { openTasksEntityHref } from "@/app/utils/entityDetail";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { dismissSuggestionAndQuery } from "./dismissSuggestion";
 import { Mention, MentionPluginKey } from "./mention";
 import { createMentionRenderer, filterMentionItems } from "./mentionMenu";
 import { SlashCommand, SlashCommandPluginKey } from "./slashCommand";
 import { DotBulletShortcut } from "./dotBullet";
+import { AutoCapitalize } from "./autoCapitalize";
+import { CodeHighlight } from "./codeHighlight";
+import CodeBlockView from "./codeBlockView";
 import {
   OPEN_LINK_EDITOR_EVENT,
   createSlashItems,
@@ -79,6 +86,8 @@ export interface RichTextEditorProps {
   enableSlashCommands?: boolean;
   enableMentions?: boolean;
   autoFocus?: boolean;
+  /** When this changes, the editor reloads `content`. Local drafts are otherwise kept. */
+  syncKey?: number | string;
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -117,6 +126,18 @@ const BLANK_DOCUMENT: JSONContent = {
 };
 
 /** Tiptap rejects a document without a node type, which stored blanks can be. */
+/** Mutable holder for the mention list so the TipTap suggestion plugin (which
+ * lives outside React) can read the latest items without rebuilding. */
+function createMentionBox(initial: ReturnType<typeof useMentionItems>) {
+  let items = initial;
+  return {
+    get: () => items,
+    set: (next: ReturnType<typeof useMentionItems>) => {
+      items = next;
+    },
+  };
+}
+
 function toEditorContent(content: DocContent | null | undefined): JSONContent {
   return content && typeof content.type === "string"
     ? (content as JSONContent)
@@ -133,6 +154,7 @@ export default function RichTextEditor({
   enableSlashCommands = true,
   enableMentions = true,
   autoFocus = false,
+  syncKey = 0,
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -149,9 +171,10 @@ export default function RichTextEditor({
   const editorRef = useRef<Editor | null>(null);
 
   // The suggestion plugin lives outside React, so it reads the latest list
-  // through a ref rather than being rebuilt whenever the data refreshes.
+  // through a stable mutable box (kept current in an effect) rather than being
+  // rebuilt whenever the data refreshes.
   const mentionItems = useMentionItems();
-  const mentionItemsRef = useRef(mentionItems);
+  const [mentionBox] = useState(() => createMentionBox(mentionItems));
 
   const openLinkEditor = useCallback(() => {
     const editor = editorRef.current;
@@ -177,6 +200,7 @@ export default function RichTextEditor({
     const list: Extensions = [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
+        codeBlock: false,
         link: {
           openOnClick: false,
           autolink: true,
@@ -186,8 +210,14 @@ export default function RichTextEditor({
             rel: "noopener noreferrer nofollow",
           },
         },
-        codeBlock: { HTMLAttributes: { class: "doc-code-block" } },
       }),
+      CodeBlock.extend({
+        addNodeView() {
+          return ReactNodeViewRenderer(CodeBlockView);
+        },
+      }).configure({ HTMLAttributes: { class: "doc-code-block" } }),
+      CodeHighlight,
+      AutoCapitalize,
       Placeholder.configure({
         includeChildren: true,
         showOnlyCurrent: false,
@@ -244,7 +274,7 @@ export default function RichTextEditor({
           suggestion: {
             pluginKey: MentionPluginKey,
             items: ({ query }: { query: string }) =>
-              filterMentionItems(mentionItemsRef.current, query),
+              filterMentionItems(mentionBox.get(), query),
             render: createMentionRenderer,
           },
         }),
@@ -252,8 +282,8 @@ export default function RichTextEditor({
     }
 
     return list;
-    // The mention list is read through a ref, so it must not rebuild here.
-  }, [enableMentions, enableSlashCommands, placeholder, variant]);
+    // The mention list is read through the stable box, so it must not rebuild here.
+  }, [enableMentions, enableSlashCommands, placeholder, variant, mentionBox]);
 
   const editor = useEditor({
     // The editor is rendered inside a client page, and Tiptap requires this
@@ -267,6 +297,8 @@ export default function RichTextEditor({
         class: `doc-editor-content focus:outline-none ${
           variant === "compact" ? "doc-editor-compact" : ""
         } ${toolbar === "fixed" ? "doc-editor-description" : ""}`,
+        autocapitalize: "sentences",
+        spellcheck: "true",
       },
       handleKeyDown: (view, event) => {
         if (
@@ -292,36 +324,28 @@ export default function RichTextEditor({
 
   useEffect(() => {
     onChangeRef.current = onChange;
-    mentionItemsRef.current = mentionItems;
+    mentionBox.set(mentionItems);
   });
 
-  // Apply incoming content from another client only when it actually changed.
-  // Do not listen to blur unconditionally: clicking the slash/mention menu
-  // blurs the editor, and resetting to the last saved `content` would wipe
-  // the `/query` and abort the insert (RangeError: position out of range).
+  // Reload from props only when the parent says the source document changed
+  // (remote watch, markdown import). Applying on blur/unfocus would restore
+  // the initially loaded JSON and look like a reset after a successful save.
   const incomingContent = toEditorContent(content);
   const incomingContentKey = JSON.stringify(incomingContent);
+  const appliedSyncKey = useRef<number | string | undefined>(undefined);
 
   useEffect(() => {
     if (!editor) return;
-    if (JSON.stringify(editor.getJSON()) === incomingContentKey) return;
-
-    const next = JSON.parse(incomingContentKey) as JSONContent;
-    if (!editor.isFocused) {
-      editor.commands.setContent(next, { emitUpdate: false });
+    if (appliedSyncKey.current === undefined) {
+      appliedSyncKey.current = syncKey;
       return;
     }
-
-    const applyOnBlur = () => {
-      editor.off("blur", applyOnBlur);
-      if (JSON.stringify(editor.getJSON()) === incomingContentKey) return;
-      editor.commands.setContent(next, { emitUpdate: false });
-    };
-    editor.on("blur", applyOnBlur);
-    return () => {
-      editor.off("blur", applyOnBlur);
-    };
-  }, [editor, incomingContentKey]);
+    if (appliedSyncKey.current === syncKey) return;
+    appliedSyncKey.current = syncKey;
+    editor.commands.setContent(JSON.parse(incomingContentKey) as JSONContent, {
+      emitUpdate: false,
+    });
+  }, [editor, incomingContentKey, syncKey]);
 
   useEffect(() => {
     editorRef.current = editor ?? null;
@@ -344,6 +368,9 @@ export default function RichTextEditor({
       if (!href || href === "#") return;
 
       event.preventDefault();
+      if (openTasksEntityHref(href, (next) => router.push(next, { scroll: false }))) {
+        return;
+      }
       router.push(href);
     };
 
@@ -598,6 +625,12 @@ export default function RichTextEditor({
       icon: Code2,
       isActive: editor.isActive("codeBlock"),
       run: () => editor.chain().focus().toggleCodeBlock().run(),
+    },
+    {
+      label: "Mention",
+      icon: AtSign,
+      isActive: false,
+      run: () => editor.chain().focus().insertContent("@").run(),
     },
   ];
 

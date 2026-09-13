@@ -43,5 +43,13 @@ export async function searchItems(
   }
 
   const data = await response.json();
-  return Array.isArray(data) ? data : data?.hits ?? [];
+  const hits: SearchHit[] = Array.isArray(data) ? data : data?.hits ?? [];
+  const seen = new Set<string>();
+  return hits.filter((hit) => {
+    const key = `${hit.kind}:${hit.id}`;
+    if (!hit.id || seen.has(key) || seen.has(hit.id)) return false;
+    seen.add(key);
+    seen.add(hit.id);
+    return true;
+  });
 }

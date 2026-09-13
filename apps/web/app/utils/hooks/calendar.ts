@@ -29,7 +29,6 @@ import {
   type AddBlockPayload,
   type PlanRequest,
 } from "@/app/utils/api/schedule";
-import { useAutoScheduleAfterChange } from "@/app/utils/hooks/autoSchedule";
 import { tasksKey, todayKey } from "@/app/utils/hooks/tasks";
 
 export const calendarKey = ["calendar"] as const;
@@ -71,14 +70,9 @@ export function useEvents() {
 
 export function useCreateEvent() {
   const invalidate = useInvalidateCalendar();
-  const autoSchedule = useAutoScheduleAfterChange();
-  return useMutation({
-    mutationFn: createEvent,
-    onSuccess: async () => {
-      await invalidate();
-      void autoSchedule();
-    },
-  });
+  // A new event changes busy time, but re-planning is left to the explicit
+  // Auto-schedule action so the user can review what moves.
+  return useMutation({ mutationFn: createEvent, onSuccess: invalidate });
 }
 
 export function useUpdateEvent() {

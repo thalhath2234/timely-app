@@ -6,6 +6,7 @@ import * as motion from "motion/react-client";
 import { AlertTriangle, Sparkles, X } from "lucide-react";
 import { formatDateTime, formatDuration, formatTime, isSameDay } from "@/app/utils/calendar";
 import { useApplySchedule, usePreviewSchedule, useUndoSchedule } from "@/app/utils/hooks/calendar";
+import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { cn } from "@/app/utils/cn";
 
 type AutoScheduleDialogProps = {
@@ -14,6 +15,12 @@ type AutoScheduleDialogProps = {
   /** Working-hours editor lives in Settings; the dialog only links to it. */
   onOpenSettings?: () => void;
 };
+
+function scheduleItemLabel(name?: string | null) {
+  const title = name?.trim();
+  if (title && !/^tsk_/i.test(title)) return title;
+  return "Untitled";
+}
 
 const SKIP_REASONS: Record<string, string> = {
   no_capacity: "No free time before the end of the window",
@@ -67,14 +74,19 @@ function AutoSchedulePanel({
   const undo = useUndoSchedule();
   const [includeManual, setIncludeManual] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [applied, setApplied] = useState(false);
 
   const { mutate: runPreview } = preview;
   useEffect(() => {
-    setApplied(false);
     runPreview({ includeManual });
   }, [includeManual, runPreview]);
 
-  const [applied, setApplied] = useState(false);
+  const toggleIncludeManual = (checked: boolean) => {
+    // A new preview scope invalidates the "applied" state of the old one.
+    setApplied(false);
+    setIncludeManual(checked);
+  };
+
   const plan = (applied && apply.data) || preview.data;
   const proposals = plan?.proposals ?? [];
   const skipped = (plan?.skipped ?? []).filter(
@@ -84,15 +96,21 @@ function AutoSchedulePanel({
   const risks = plan?.risks ?? [];
   const capacity = plan?.capacity ?? [];
   const lateCount = proposals.filter((item) => item.pastDeadline).length;
+  const partialCount = proposals.filter((item) => item.partial).length;
   const canUndo = Boolean(plan?.canUndo);
 
   const confirm = async () => {
     setError(null);
+    const activity = useScheduleActivityStore.getState();
+    activity.start();
     try {
-      await apply.mutateAsync({ includeManual });
+      const result = await apply.mutateAsync({ includeManual });
+      activity.finish(result);
       setApplied(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not apply schedule.");
+      const message = err instanceof Error ? err.message : "Could not apply schedule.";
+      activity.fail(message);
+      setError(message);
     }
   };
 
@@ -152,7 +170,7 @@ function AutoSchedulePanel({
           <input
             type="checkbox"
             checked={includeManual}
-            onChange={(event) => setIncludeManual(event.target.checked)}
+            onChange={(event) => toggleIncludeManual(event.target.checked)}
             className="size-3.5 accent-primary"
           />
           Also move blocks I placed by hand
@@ -248,7 +266,7 @@ function AutoSchedulePanel({
                       className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-xs"
                     >
                       <span className="min-w-0 flex-1 truncate">
-                        {change.taskName || change.taskId}
+                        {scheduleItemLabel(change.taskName)}
                       </span>
                       <span className="shrink-0 text-muted-foreground">{change.message}</span>
                     </li>
@@ -268,21 +286,32 @@ function AutoSchedulePanel({
                     key={`${proposal.taskId}-${proposal.blocks[0]?.occurrenceStart ?? ""}`}
                     className={cn(
                       "rounded-lg border px-3 py-2",
-                      proposal.pastDeadline
+                      proposal.pastDeadline || proposal.partial
                         ? "border-destructive/40 bg-destructive/5"
                         : "border-border bg-card",
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {proposal.taskName}
+                        {scheduleItemLabel(proposal.taskName)}
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                         {proposal.blocks.length > 1
                           ? `${proposal.blocks.length} blocks`
                           : "1 block"}
+                        {typeof proposal.placedMinutes === "number" &&
+                        typeof proposal.requiredMinutes === "number"
+                          ? ` · ${formatDuration(proposal.placedMinutes)} of ${formatDuration(proposal.requiredMinutes)}`
+                          : ""}
                       </span>
                     </div>
+                    {proposal.partial && (
+                      <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
+                        <AlertTriangle className="size-3" />
+                        Partially placed — {formatDuration(proposal.shortfallMinutes ?? 0)} still
+                        need a slot
+                      </p>
+                    )}
                     <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
                       {proposal.blocks.map((block) => {
                         const start = new Date(block.start);
@@ -325,7 +354,7 @@ function AutoSchedulePanel({
                       key={item.taskId}
                       className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-xs"
                     >
-                      <span className="min-w-0 flex-1 truncate">{item.taskName}</span>
+                      <span className="min-w-0 flex-1 truncate">{scheduleItemLabel(item.taskName)}</span>
                       <span className="shrink-0 text-muted-foreground">
                         {item.message || SKIP_REASONS[item.reason] || item.reason}
                       </span>
@@ -340,9 +369,14 @@ function AutoSchedulePanel({
         {error && <p className="text-xs text-destructive">{error}</p>}
 
         <div className="flex items-center justify-end gap-2">
-          {lateCount > 0 && (
+          {(lateCount > 0 || partialCount > 0) && (
             <span className="mr-auto text-xs text-destructive">
-              {lateCount} task{lateCount === 1 ? "" : "s"} past deadline
+              {[
+                lateCount > 0 ? `${lateCount} past deadline` : null,
+                partialCount > 0 ? `${partialCount} partially placed` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </span>
           )}
           <button

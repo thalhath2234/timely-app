@@ -9,6 +9,14 @@ import {
   Workspace,
 } from "@/app/_types/types";
 import { extractMentions } from "@/app/utils/richText";
+import { isTaskOverdue } from "@/app/utils/overdue";
+import { isInboxTask, isReminderTask } from "@/app/utils/taskFilters";
+import {
+  nextTaskSlot,
+  taskDeadlineDate,
+  taskUpcomingDate,
+  type TaskDateSource,
+} from "@/app/utils/taskDates";
 
 export interface ReportStat {
   label: string;
@@ -32,7 +40,10 @@ export interface NamedCount {
 export interface DeadlineItem {
   id: string;
   name: string;
+  /** ISO string of the date that put the task in this list. */
   deadline: string;
+  /** Whether `deadline` is the task's real deadline or its next block. */
+  source: TaskDateSource;
   priorityLevel: string | null;
   projectTitle?: string | null;
   overdue: boolean;
@@ -110,9 +121,14 @@ export function buildReportData(input: {
   sheets: Sheet[];
   workspaces: Workspace[];
 }): ReportData {
-  const { tasks, projects, docs, sheets, workspaces } = input;
+  const { projects, docs, sheets, workspaces } = input;
   const today = startOfToday();
   const horizon = addDays(today, 14);
+
+  // The report is about work. Inbox captures are not yet tasks and reminders
+  // are pings, so neither counts toward open / overdue / upcoming; this keeps
+  // the numbers in line with the Tasks board and the evening recap.
+  const tasks = input.tasks.filter((task) => !isInboxTask(task) && !isReminderTask(task));
 
   const openTasks = tasks.filter((task) => !isCompleted(task));
   const completedTasks = tasks.filter(isCompleted);
@@ -123,26 +139,43 @@ export function buildReportData(input: {
 
   const overdue: DeadlineItem[] = [];
   const upcoming: DeadlineItem[] = [];
+  const now = new Date();
 
   for (const task of openTasks) {
-    const deadline = parseDate(task.deadline);
-    if (!deadline) continue;
+    // Same overdue rule as Calendar / Today: a past deadline, or every
+    // reserved block already ended before today.
+    if (isTaskOverdue(task, now)) {
+      const deadline = taskDeadlineDate(task);
+      const slot = deadline ? null : nextTaskSlot(task, now);
+      const when = deadline ?? slot?.end ?? now;
+      overdue.push({
+        id: task.id,
+        name: task.name,
+        deadline: when.toISOString(),
+        source: deadline ? "deadline" : slot?.blockId ? "block" : "scheduledOn",
+        priorityLevel: task.priorityLevel,
+        projectTitle: task.project?.title,
+        overdue: true,
+        href: mentionHref("task", task.id),
+      });
+      continue;
+    }
 
-    const item: DeadlineItem = {
+    // Upcoming counts a deadline *or* the next reserved block inside the
+    // horizon, so scheduled-only work shows up as planned.
+    const point = taskUpcomingDate(task, now);
+    if (!point) continue;
+    if (point.date < today || point.date > horizon) continue;
+    upcoming.push({
       id: task.id,
       name: task.name,
-      deadline: task.deadline as string,
+      deadline: point.date.toISOString(),
+      source: point.source,
       priorityLevel: task.priorityLevel,
       projectTitle: task.project?.title,
-      overdue: deadline < today,
+      overdue: false,
       href: mentionHref("task", task.id),
-    };
-
-    if (item.overdue) {
-      overdue.push(item);
-    } else if (deadline <= horizon) {
-      upcoming.push(item);
-    }
+    });
   }
 
   overdue.sort(
@@ -259,7 +292,7 @@ export function buildReportData(input: {
       sheet.descriptionRich ?? undefined,
     );
   }
-  for (const task of tasks) {
+  for (const task of input.tasks) {
     pushMentions(
       "task",
       task.id,
@@ -277,7 +310,7 @@ export function buildReportData(input: {
   }
 
   const recent: ActivityItem[] = [
-    ...tasks.map((task) => ({
+    ...input.tasks.map((task) => ({
       id: task.id,
       kind: "task" as const,
       label: task.name,
@@ -367,8 +400,11 @@ export function formatRelative(value: string) {
   const date = parseDate(value);
   if (!date) return "";
 
-  const diffMs = date.getTime() - Date.now();
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  // Compare calendar days, not elapsed hours: a block at 09:00 tomorrow is
+  // "tomorrow" even when it is only ten hours away.
+  const today = startOfToday();
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
   if (diffDays === 0) return "today";
   if (diffDays === 1) return "tomorrow";

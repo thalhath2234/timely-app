@@ -22,6 +22,34 @@ export function toRichContent(
   };
 }
 
+export function richToPlain(content: DocContent | null | undefined): string {
+  if (!content) return "";
+  const lines: string[] = [];
+
+  const walk = (node: { type?: string; text?: string; content?: unknown[]; attrs?: { label?: string } } | undefined) => {
+    if (!node) return;
+    if (node.type === "text" && node.text) {
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? "") + node.text;
+      return;
+    }
+    if (node.type === "mention") {
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? "") + `@${node.attrs?.label ?? "mention"}`;
+      return;
+    }
+    if (node.type === "paragraph" || node.type === "heading") {
+      lines.push("");
+    }
+    if (Array.isArray(node.content)) {
+      for (const child of node.content) {
+        walk(child as { type?: string; text?: string; content?: unknown[] });
+      }
+    }
+  };
+
+  walk(content);
+  return lines.join("\n").trim();
+}
+
 export function isRichContentEmpty(content: DocContent | null | undefined) {
   if (!content || typeof content.type !== "string") return true;
   const blocks = content.content;

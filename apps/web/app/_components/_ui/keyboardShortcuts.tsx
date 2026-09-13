@@ -2,9 +2,11 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
-import { useUpdateTask } from "@/app/utils/hooks/tasks";
+import { tasksKey, useUpdateTask } from "@/app/utils/hooks/tasks";
 import { showUndoToast } from "@/app/_store/toastStore";
+import type { Task } from "@/app/_types/types";
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -25,6 +27,7 @@ export default function KeyboardShortcuts() {
   const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
   const setSearchMode = useSidebarStore((state) => state.setSearchMode);
   const updateTask = useUpdateTask();
+  const queryClient = useQueryClient();
   const awaitingGo = useRef(false);
   const goTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -66,6 +69,17 @@ export default function KeyboardShortcuts() {
         return;
       }
 
+      if (key === "c" && pathname.startsWith("/inbox")) {
+        // On the Inbox, C means "capture": focus the quick-capture field the
+        // page documents instead of opening the full task modal.
+        const capture = document.querySelector<HTMLInputElement>("[data-inbox-capture]");
+        if (capture) {
+          event.preventDefault();
+          capture.focus();
+          return;
+        }
+      }
+
       if (key === "c" || key === "n") {
         event.preventDefault();
         setAddNewMode("task");
@@ -83,12 +97,22 @@ export default function KeyboardShortcuts() {
         const taskId = searchParams.get("taskId");
         if (!taskId || !pathname.startsWith("/tasks")) return;
         event.preventDefault();
-        const previous = "";
+        // Snapshot what the task had so Undo restores its own status rather
+        // than whatever the workspace default happens to be.
+        const cached = queryClient
+          .getQueryData<Task[]>(tasksKey)
+          ?.find((task) => task.id === taskId);
+        const previous: { completedAt: string; statusId?: string } = {
+          completedAt: cached?.completedAt ?? "",
+        };
+        if (cached?.status?.id || cached?.statusId) {
+          previous.statusId = cached.status?.id ?? cached.statusId ?? undefined;
+        }
         void updateTask
           .mutateAsync({ id: taskId, completedAt: new Date().toISOString() })
           .then(() => {
             showUndoToast("Task completed", () => {
-              void updateTask.mutateAsync({ id: taskId, completedAt: previous });
+              void updateTask.mutateAsync({ id: taskId, ...previous });
             });
           });
       }
@@ -114,6 +138,7 @@ export default function KeyboardShortcuts() {
     setIsAddItemModalOpen,
     setSearchMode,
     updateTask,
+    queryClient,
   ]);
 
   return null;

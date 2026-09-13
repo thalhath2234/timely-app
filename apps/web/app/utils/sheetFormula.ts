@@ -98,7 +98,7 @@ type Token =
   | { kind: "comma" }
   | { kind: "colon" };
 
-const OPERATORS = ["<>", "<=", ">=", "+", "-", "*", "/", "^", "&", "=", "<", ">"];
+const OPERATORS = ["<>", "<=", ">=", "+", "-", "*", "/", "^", "&", "=", "<", ">", "%"];
 
 function tokenize(input: string): Token[] | string {
   const tokens: Token[] = [];
@@ -527,7 +527,22 @@ function parseFormula(tokens: Token[], lookup: CellLookup): CellResult {
       return { type: "number", value: token.value === "-" ? -numeric : numeric };
     }
 
-    return parsePrimary();
+    return parsePostfix();
+  }
+
+  /** Postfix percent, spreadsheet style: `50%` is 0.5, `A1%%` is A1/10000.
+   * Binds tighter than `^` and looser than unary minus, matching Excel. */
+  function parsePostfix(): EvalValue {
+    let value = parsePrimary();
+    while (peek()?.kind === "operator" && (peek() as { value: string }).value === "%") {
+      next();
+      const operand = single(value);
+      if (isError(operand)) return operand;
+      const numeric = toNumber(operand);
+      if (typeof numeric !== "number") return numeric;
+      value = { type: "number", value: numeric / 100 };
+    }
+    return value;
   }
 
   function parsePrimary(): EvalValue {

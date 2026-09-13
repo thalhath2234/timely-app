@@ -10,9 +10,12 @@ import {
   Search,
   Star,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { Doc } from "@/app/_types/types";
 import { useCreateDoc, useDeleteDoc, useDocs } from "@/app/utils/hooks/docs";
+import { QueryFailure } from "@/app/_components/_ui/loadError";
+import { readMarkdownFile } from "@/app/utils/importMarkdown";
 
 interface DocNode extends Doc {
   children: DocNode[];
@@ -70,7 +73,8 @@ export default function DocList() {
   const params = useParams<{ id?: string }>();
   const activeId = params?.id;
 
-  const { data: docs, isLoading } = useDocs();
+  const docsQuery = useDocs();
+  const { data: docs, isLoading } = docsQuery;
   const createDoc = useCreateDoc();
   const deleteDoc = useDeleteDoc();
 
@@ -263,6 +267,29 @@ export default function DocList() {
       </div>
 
       <div className="px-3 pb-2">
+        <label className="mb-2 flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:border-ring hover:text-foreground">
+          <Upload className="size-3.5" />
+          Import Markdown
+          <input
+            type="file"
+            accept=".md,.markdown,text/markdown,text/plain"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              void readMarkdownFile(file).then((imported) =>
+                createDoc
+                  .mutateAsync({
+                    title: imported.title,
+                    content: imported.content,
+                    plainText: imported.plainText,
+                  })
+                  .then((doc) => router.push(`/docs/${doc.id}`)),
+              );
+            }}
+          />
+        </label>
         <div className="flex items-center gap-2 rounded-lg border border-border bg-input/30 px-2 py-1.5 transition focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
           <input
@@ -286,7 +313,20 @@ export default function DocList() {
           <p className="px-2 py-1.5 text-sm text-muted-foreground">Loading...</p>
         )}
 
-        {!isLoading && allDocs.length === 0 && (
+        {docsQuery.isError && (
+          <div className="px-2 py-1.5">
+            <QueryFailure
+              what="docs"
+              hasData={Boolean(docs)}
+              error={docsQuery.error}
+              onRetry={() => docsQuery.refetch()}
+              retrying={docsQuery.isFetching}
+              className="px-3 py-4"
+            />
+          </div>
+        )}
+
+        {!isLoading && !(docsQuery.isError && !docs) && allDocs.length === 0 && (
           <p className="px-2 py-1.5 text-sm text-muted-foreground">
             No docs yet. Create your first page.
           </p>

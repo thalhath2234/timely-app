@@ -475,6 +475,13 @@ export function dateFromDateInput(value?: string | null): Date {
 }
 
 /** Keep the calendar day, replace the clock. `hhmm` is `HH:mm`. */
+export function nextRoundHour(from = new Date()): Date {
+  const next = new Date(from);
+  next.setMinutes(0, 0, 0);
+  next.setHours(next.getHours() + 1);
+  return next;
+}
+
 export function applyClockToDate(day: Date, hhmm: string): Date {
   const [hours, minutes] = hhmm.split(":").map(Number);
   return new Date(

@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMe, useUpdateMe } from "@/app/utils/hooks/user";
 import { listSessions, revokeSession, type DeviceSession } from "@/app/utils/api/user";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
+import { formatLastUsed, humanizeDeviceLabel } from "@/app/utils/deviceLabel";
+import { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useRouter } from "next/navigation";
 
 export default function AccountSettings() {
@@ -173,26 +175,44 @@ function DeviceSessions() {
         </p>
       </div>
       {sessions.isError ? (
-        <p className="text-xs text-destructive">Could not load sessions.</p>
+        <LoadErrorBanner
+          what="devices"
+          error={sessions.error}
+          onRetry={() => sessions.refetch()}
+          retrying={sessions.isFetching}
+        />
       ) : null}
       <ul className="flex flex-col gap-2">
         {(sessions.data ?? []).map((session: DeviceSession) => (
           <li
             key={session.id}
-            className="flex items-start justify-between gap-3 rounded-lg border border-border px-3 py-2"
+            className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 ${
+              session.current ? "border-primary/50 bg-primary/5" : "border-border"
+            }`}
           >
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium">
-                {session.deviceLabel || "Unknown device"}
+              <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                <span className="truncate">{humanizeDeviceLabel(session.deviceLabel)}</span>
                 {session.current ? (
-                  <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    this device
+                  <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary-foreground">
+                    This device
                   </span>
                 ) : null}
               </p>
-              <p className="text-xs text-muted-foreground">
-                Last used {session.lastUsedAt}
+              <p className="text-xs text-muted-foreground" title={session.lastUsedAt}>
+                Last used {formatLastUsed(session.lastUsedAt)}
+                {session.createdAt ? ` · signed in ${formatLastUsed(session.createdAt)}` : ""}
               </p>
+              {session.deviceLabel ? (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground">
+                    Technical details
+                  </summary>
+                  <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+                    {session.deviceLabel}
+                  </p>
+                </details>
+              ) : null}
             </div>
             {!session.revokedAt ? (
               <button
