@@ -9,7 +9,7 @@ export default function ToastHost() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[80] flex w-80 flex-col gap-2">
+    <div role="status" aria-live="polite" aria-atomic="false" className="pointer-events-none fixed bottom-4 right-4 z-[80] flex w-80 flex-col gap-2">
       {toasts.map((toast) => (
         <div
           key={toast.id}

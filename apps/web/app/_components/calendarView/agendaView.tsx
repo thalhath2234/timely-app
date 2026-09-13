@@ -26,7 +26,7 @@ function relativeDay(day: Date, today: Date) {
   if (isSameDay(day, today)) return "Today";
   if (isSameDay(day, addDays(today, 1))) return "Tomorrow";
   if (isSameDay(day, addDays(today, -1))) return "Yesterday";
-  return day.toLocaleDateString("en-US", {
+  return day.toLocaleDateString(undefined, {
     weekday: "long",
     month: "short",
     day: "numeric",

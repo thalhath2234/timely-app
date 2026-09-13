@@ -98,7 +98,7 @@ export default function TimeGrid({
                 isToday ? "font-semibold text-primary" : "text-muted-foreground",
               )}
             >
-              {day.toLocaleDateString("en-US", {
+              {day.toLocaleDateString(undefined, {
                 weekday: "short",
                 day: "numeric",
               })}

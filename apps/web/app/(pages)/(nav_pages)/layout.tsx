@@ -24,7 +24,7 @@ export default async function DashboardLayout({
         <div className="w-16 items-center justify-center h-full bg-sidebar text-sidebar-foreground">
           <Sidebar />
         </div>
-        <div className="flex-1 m-1 rounded-lg bg-card text-card-foreground border border-border shadow-sm overflow-hidden">
+        <div id="main-content" className="flex-1 m-1 rounded-lg bg-card text-card-foreground border border-border shadow-sm overflow-hidden">
           {children}
         </div>
       </div>

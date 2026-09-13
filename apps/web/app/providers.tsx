@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { useState } from 'react';
+import ClientRuntime from './_components/_layout/clientRuntime';
 
 export default function Providers({ children }: { children: React.ReactNode }) {
     // Creating the query client within a useState initializer ensures it is
@@ -20,7 +21,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
     return (
         <QueryClientProvider client={queryClient}>
-            {children}
+            <ClientRuntime>{children}</ClientRuntime>
         </QueryClientProvider>
     );
 }

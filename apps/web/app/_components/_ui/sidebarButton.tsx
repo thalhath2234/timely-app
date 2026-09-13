@@ -8,7 +8,7 @@ import { usePathname } from "next/navigation";
 import { useUnreadNotificationCount } from "../../utils/hooks/notifications";
 
 export default function SidebarButton({ item }: { item: SidebarProps }) {
-  const { activeItem, setActiveItem } = useSidebarStore();
+  const { setActiveItem } = useSidebarStore();
   const pathname = usePathname();
   const isActive = pathname.startsWith(item.href);
 
@@ -28,6 +28,8 @@ export default function SidebarButton({ item }: { item: SidebarProps }) {
     >
       <Link
         href={linkHref}
+        aria-label={item.name}
+        aria-current={isActive ? "page" : undefined}
         className={`relative p-2 w-full h-full flex items-center justify-center transition-colors ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground"} hover:text-sidebar-primary`}
       >
         <SidebarButtonIcon icon={item.icon} />

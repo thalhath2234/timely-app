@@ -26,9 +26,7 @@ const addNewOptions: { lable: string; value: AddNewModeOptions }[] = [
 
 export default function Sidebar() {
   const {
-    activeItem,
     setSearchMode,
-    isAddItemModalOpen,
     setIsAddItemModalOpen,
     setAddNewMode,
   } = useSidebarStore();
@@ -79,6 +77,10 @@ export default function Sidebar() {
         <div className="flex flex-col items-center justify-center gap-y-2">
           <div className="relative" ref={addMenuRef}>
             <button
+              type="button"
+              aria-label="Add item"
+              aria-expanded={showAddMenu}
+              aria-haspopup="menu"
               className="flex bg-sidebar-primary text-sidebar-primary-foreground rounded-lg p-2 border-none m-0 cursor-pointer transition-colors hover:bg-sidebar-primary/90"
               onClick={() => setShowAddMenu((prev) => !prev)}
             >
@@ -98,9 +100,12 @@ export default function Sidebar() {
                   exit={{ opacity: 0, scale: 0.95, y: -5 }}
                   transition={{ duration: 0.15 }}
                   className="absolute left-full ml-2 top-0 z-50 min-w-36 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg overflow-hidden"
+                  role="menu"
                 >
                   {addNewOptions.map((option) => (
                     <button
+                      type="button"
+                      role="menuitem"
                       key={option.value}
                       className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
                       onClick={() => {
@@ -117,6 +122,8 @@ export default function Sidebar() {
             </AnimatePresence>
           </div>
           <button
+            type="button"
+            aria-label="Search"
             className="flex bg-sidebar-primary text-sidebar-primary-foreground rounded-lg p-2 border-none m-0 cursor-pointer transition-colors hover:bg-sidebar-primary/90"
             onClick={() => setSearchMode(true)}
           >
@@ -155,6 +162,8 @@ export default function Sidebar() {
         })}
       </div>
       <button
+        type="button"
+        aria-label="Sign out"
         className="flex items-center justify-center text-sidebar-foreground hover:text-sidebar-primary transition-colors cursor-pointer"
         onClick={() => logoutMutation.mutate()}
       >

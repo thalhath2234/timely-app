@@ -28,7 +28,8 @@ function RowIcon({ icon: Icon, tone = "muted" }: { icon: LucideIcon; tone?: "mut
 export default function MorePage() {
   const { data: user, isDemo } = useMobileUser();
   const { data: workspaces } = useMobileWorkspaces();
-  const initials = (user.name ?? user.email)
+  const account = user ?? { name: "", email: "" };
+  const initials = (account.name || account.email || "T")
     .split(" ")
     .map((p) => p[0])
     .join("")
@@ -45,9 +46,9 @@ export default function MorePage() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-semibold text-card-foreground">
-              {user.name ?? "Your account"}
+              {account.name || "Your account"}
             </p>
-            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+            <p className="truncate text-xs text-muted-foreground">{account.email}</p>
           </div>
         </div>
 

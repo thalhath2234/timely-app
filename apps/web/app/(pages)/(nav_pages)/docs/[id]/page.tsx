@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Editor } from "@tiptap/react";
-import { ChevronRight, Archive, Smile, Star, Trash2 } from "lucide-react";
+import { ChevronRight, Archive, Download, Smile, Star, Trash2 } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import { Doc } from "@/app/_types/types";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
@@ -19,6 +19,7 @@ import { useAutosave } from "@/app/utils/hooks/useAutosave";
 import { isRichContentEmpty, toRichContent } from "@/app/utils/richText";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import { showUndoToast } from "@/app/_store/toastStore";
+import { downloadPortable } from "@/app/utils/api/portability";
 
 const ICON_CHOICES = [
   "📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯",
@@ -185,6 +186,24 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
         </nav>
 
         <SaveStatusBadge status={status} onRetry={() => void flush()} />
+
+        <button
+          type="button"
+          title="Download Markdown"
+          aria-label="Download document as Markdown"
+          onClick={() => void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`)}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
+        >
+          <Download className="size-4" />
+        </button>
+        <button
+          type="button"
+          title="Download PDF"
+          onClick={() => void downloadPortable(`/docs/${doc.id}/export?format=pdf`, `${doc.title}.pdf`)}
+          className="shrink-0 rounded-md px-1.5 py-1 text-[10px] font-semibold transition-colors hover:bg-accent"
+        >
+          PDF
+        </button>
 
         <button
           type="button"

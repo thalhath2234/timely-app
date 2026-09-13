@@ -497,17 +497,17 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 
 | Area | Current behavior |
 | --- | --- |
-| Theme | Hard-coded **dark** everywhere. No light/system toggle |
-| Language | English only (`lang="en"`, mostly `en-US` dates) |
+| Theme | Desktop supports system/light/dark; native selects light/dark from the OS at startup through shared color tokens. |
+| Language | English copy with locale-aware date/time formatting; no translation catalog yet. |
 | Timezones | Browser TZ + editable working-hours IANA zone; tzdata embedded in API |
 | Mentions | `@` links between docs, sheets, tasks, projects |
 | Colors | Status/label/project/event colors; calendar legend |
 | Realtime | Docs SSE only, in-process hub (won’t fan out across multiple API instances) |
-| Offline | None. Native is online + React Query (15s stale). Mobile web has in-memory **demo/sample** after ~1.2s API failure |
+| Offline | Desktop/native show an explicit offline + stale-data banner. Native persists and replays safe idempotent task completion, checklist, Today-focus, and recurrence actions per account. Doc/sheet editing remains online-only pending conflict semantics. Mobile web shows real loading/error states and never substitutes demo records. |
 | PWA | None |
 | Attachments / files / camera | None. Content is JSON/markdown/text |
 | Email / SMTP | None. Push is Expo HTTP; no mailer |
-| Background jobs | Postgres `jobs` table with `FOR UPDATE SKIP LOCKED`, retries/backoff, dedupe keys, `/jobs` health + retry. Worker runs in the API process. Kinds: `send_reminder`, `index_entity`, `daily_digest`, `send_push`. Backup scheduling is Phase 5. |
+| Background jobs | Postgres `jobs` table with `FOR UPDATE SKIP LOCKED`, retries/backoff, dedupe keys, `/jobs` health + retry. Worker runs in the API process. Kinds: `send_reminder`, `index_entity`, `daily_digest`, `send_push`, `create_backup`. Scheduled backups use AES-256-GCM encryption and retention. |
 | External calendars | None (no Google Calendar, ICS, Slack, GitHub) |
 | Collaboration | Single user. “Secure Cookie Sessions” is auth, not multiplayer |
 | IDs | Typed prefixes (workspace, status, etc.) |
@@ -525,9 +525,9 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 - Hidden sheets route (duplicate of Files → Sheets)
 - Android cleartext HTTP for LAN API; API URL baked into production APK (`updates.enabled: false`, so URL changes need a rebuild)
 - Deep link scheme `timelymobile` exists; no custom handlers beyond router paths
-- Portrait, dark, splash, tablet flag on iOS
+- Portrait, system light/dark, splash, tablet flag on iOS
 
-No widgets, share sheet, camera, biometrics, NetInfo banner, or persisted offline DB.
+Export uses the native share sheet; network state, stale data, and queued safe mutations are persisted and visible. No widgets, camera, biometrics, or offline doc/sheet database.
 
 ---
 
@@ -554,7 +554,7 @@ No widgets, share sheet, camera, biometrics, NetInfo banner, or persisted offlin
 | `/sheets/[id]` | Spreadsheet |
 | `/report` | Productivity snapshot |
 | `/notifications` | In-app notification center |
-| `/settings` | Account, Schedule, Notifications, Workspaces, Integrations (`?tab=`) |
+| `/settings` | Account, Schedule, Notifications, Workspaces, Data & Appearance, Integrations (`?tab=`) |
 
 ### Mobile web
 
@@ -586,6 +586,7 @@ No widgets, share sheet, camera, biometrics, NetInfo banner, or persisted offlin
 | `/(app)/sheets/[id]` | Sheet editor |
 | `/(app)/report` | Report |
 | `/(app)/settings/*` | Account, notifications, schedule, workspaces, API keys |
+| `/(app)/settings/data` | Portable exports, restore, encrypted backup scheduling and history |
 | `/(app)/notifications` | In-app notification center |
 
 ---
@@ -619,6 +620,8 @@ No widgets, share sheet, camera, biometrics, NetInfo banner, or persisted offlin
 **Docs / sheets:** CRUD; `GET /docs/:id/watch` (SSE)
 
 **API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications CRUD-ish (list, read, snooze); `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
+
+**Portability:** full versioned JSON export + replace-mode transactional restore; task CSV; calendar ICS; individual document Markdown/PDF; encrypted server backup create/list/download/delete; backup schedule + retention settings
 
 ---
 
@@ -664,7 +667,7 @@ Grouped so you can pick from real holes, not imagined ones.
 
 ### Knowledge
 
-- Doc/sheet sharing, comments, version history, export/PDF, images/files
+- Doc/sheet sharing, comments, version history, images/files (individual docs export as Markdown/PDF)
 - Databases/views on sheets (filters, sorts, linked records)
 
 ### Awareness
@@ -674,8 +677,8 @@ Grouped so you can pick from real holes, not imagined ones.
 
 ### Platform
 
-- Light theme, i18n
-- Offline / PWA
+- Translation catalogs and runtime language selection
+- Offline doc/sheet editing, a full offline database, and PWA
 - Billing
 - Attachments
 - Multi-instance realtime for docs (SSE hub is in-process)
@@ -704,10 +707,11 @@ Grouped so you can pick from real holes, not imagined ones.
 | Report | Full | Link | Thinner | No |
 | Global search | Cmd+K | Task only | Tab | Keyword + semantic |
 | API keys / Hermes | Yes | Via desktop | Yes | Auth itself |
+| Export / backup / restore | Full | Via desktop | Full + share sheet | No |
 | Workspace taxonomy | Yes | Read-only More | Yes | Yes |
 
 ---
 
 ## Summary
 
-The current product is a **personal, dark, English, online** workspace where you capture work and reminders, put them on a calendar (manually or with the engine), write nested docs, keep small spreadsheets, search by text or meaning, glance at a live report, and optionally let Hermes drive the same objects through MCP.
+The current product is a **personal, system-themed, English** workspace where you capture work and reminders, put them on a calendar (manually or with the engine), write nested docs, keep small spreadsheets, export and protect your data, search by text or meaning, glance at a live report, and optionally let Hermes drive the same objects through MCP. Desktop and native make connectivity state explicit; native safely queues a small set of idempotent actions while offline.

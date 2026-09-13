@@ -104,14 +104,14 @@ function formatDisplay(value: string, mode: DatePickerMode) {
   if (!date) return "";
 
   if (mode === "date") {
-    return date.toLocaleDateString("en-US", {
+    return date.toLocaleDateString(undefined, {
       month: "short",
       day: "numeric",
       year: "numeric",
     });
   }
 
-  return date.toLocaleString("en-US", {
+  return date.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -460,7 +460,7 @@ export default function DatePicker({
                     <ChevronLeft className="size-4" />
                   </button>
                   <p className="text-sm font-medium">
-                    {visibleMonth.toLocaleDateString("en-US", {
+                    {visibleMonth.toLocaleDateString(undefined, {
                       month: "long",
                       year: "numeric",
                     })}

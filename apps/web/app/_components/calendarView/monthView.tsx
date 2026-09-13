@@ -77,7 +77,7 @@ export default function MonthView({
                   event.stopPropagation();
                   onOpenDay(day);
                 }}
-                aria-label={`Open day view for ${day.toLocaleDateString("en-US", {
+                aria-label={`Open day view for ${day.toLocaleDateString(undefined, {
                   month: "long",
                   day: "numeric",
                 })}`}

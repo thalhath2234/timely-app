@@ -302,7 +302,7 @@ function AutoSchedulePanel({
                       <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
                         <AlertTriangle className="size-3" />
                         Finishes after the{" "}
-                        {new Date(proposal.deadline).toLocaleDateString("en-US", {
+                        {new Date(proposal.deadline).toLocaleDateString(undefined, {
                           month: "short",
                           day: "numeric",
                         })}{" "}
@@ -379,5 +379,5 @@ function AutoSchedulePanel({
 function formatCapacityDate(value: string): string {
   const date = new Date(value.includes("T") ? value : `${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }

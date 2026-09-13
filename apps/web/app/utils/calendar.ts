@@ -345,7 +345,7 @@ export function swatchColor(color?: string | null): string {
 }
 
 export function formatTime(date: Date): string {
-  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
 export function formatDuration(minutes: number): string {
@@ -372,7 +372,7 @@ export function eventLegend(
 }
 
 export function formatDateTime(date: Date): string {
-  return date.toLocaleString("en-US", {
+  return date.toLocaleString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -503,7 +503,7 @@ export function slotAt(day: Date, hour: number, minute = 0): Date {
 
 export function headerLabel(date: Date, view: CalendarView): string {
   if (view === "day") {
-    return date.toLocaleDateString("en-US", {
+    return date.toLocaleDateString(undefined, {
       weekday: "short",
       month: "long",
       day: "numeric",
@@ -511,19 +511,19 @@ export function headerLabel(date: Date, view: CalendarView): string {
   }
 
   if (view === "month") {
-    return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   }
 
   const start = view === "week" ? startOfWeek(date) : startOfDay(date);
   const end = addDays(start, 6);
-  const startLabel = start.toLocaleDateString("en-US", {
+  const startLabel = start.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
   const endLabel =
     start.getMonth() === end.getMonth()
       ? `${end.getDate()}, ${end.getFullYear()}`
-      : end.toLocaleDateString("en-US", {
+      : end.toLocaleDateString(undefined, {
           month: "short",
           day: "numeric",
           year: "numeric",

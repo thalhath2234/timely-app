@@ -205,7 +205,7 @@ function TaskDetails({ event }: { event: CalendarEvent }) {
     {
       label: "Deadline",
       value: task.deadline
-        ? new Date(task.deadline).toLocaleDateString("en-US", {
+        ? new Date(task.deadline).toLocaleDateString(undefined, {
             month: "short",
             day: "numeric",
             year: "numeric",
