@@ -1,0 +1,89 @@
+import { useState } from "react";
+import { Pressable, StyleSheet } from "react-native";
+import { Tabs, usePathname } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Calendar, FileText, ListTodo, Plus, Search, Settings } from "lucide-react-native";
+import QuickAddSheet from "../../../components/ui/QuickAddSheet";
+import AutoScheduleBanner from "../../../components/ui/AutoScheduleBanner";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
+
+export default function TabLayout() {
+  const [addOpen, setAddOpen] = useState(false);
+  const pathname = usePathname();
+  const insets = useSafeAreaInsets();
+  const hideFab = pathname.endsWith("/more") || pathname.endsWith("/search");
+  const bottomInset = Math.max(insets.bottom, 8);
+  const tabHeight = 56 + bottomInset;
+
+  return (
+    <>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: colors.background,
+            borderTopColor: colors.border,
+            height: tabHeight,
+            paddingBottom: bottomInset,
+            paddingTop: 8,
+          },
+          tabBarActiveTintColor: colors.foreground,
+          tabBarInactiveTintColor: colors.mutedForeground,
+          tabBarLabelStyle: { fontSize: 11, fontWeight: "500" },
+          sceneStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Tabs.Screen
+          name="calendar"
+          options={{ title: "Calendar", tabBarIcon: ({ color }) => <Calendar size={20} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="tasks"
+          options={{ title: "Tasks", tabBarIcon: ({ color }) => <ListTodo size={20} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="search"
+          options={{ title: "Search", tabBarIcon: ({ color }) => <Search size={20} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="docs"
+          options={{ title: "Files", tabBarIcon: ({ color }) => <FileText size={20} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="more"
+          options={{ title: "Settings", tabBarIcon: ({ color }) => <Settings size={20} color={color} /> }}
+        />
+        <Tabs.Screen name="sheets" options={{ href: null }} />
+      </Tabs>
+      {!hideFab ? (
+        <Pressable
+          accessibilityLabel="Add"
+          onPress={() => setAddOpen(true)}
+          style={[styles.fab, { bottom: tabHeight + 12 }]}
+        >
+          <Plus size={26} color={colors.primaryForeground} />
+        </Pressable>
+      ) : null}
+      <QuickAddSheet open={addOpen} onClose={() => setAddOpen(false)} />
+      <AutoScheduleBanner />
+    </>
+  );
+}
+
+const styles = createThemedStyleSheet((colors) => ({
+  fab: {
+    position: "absolute",
+    right: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 6,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+}));

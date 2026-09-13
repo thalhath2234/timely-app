@@ -1,0 +1,1 @@
+export const BUNDLED_API_URL = "https://de15-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app";
