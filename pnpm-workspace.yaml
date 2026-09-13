@@ -9,3 +9,7 @@ packages:
 allowBuilds:
   sharp: true
   unrs-resolver: false
+  electron: true
+  esbuild: true
+  electron-builder: true
+  electron-winstaller: true

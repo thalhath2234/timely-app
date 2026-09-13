@@ -10,6 +10,7 @@
     "dev": "make dev",
     "dev:api": "make dev-api",
     "dev:web": "make dev-web",
+    "dev:desktop": "make dev-desktop",
     "dev:mobile": "make dev-mobile",
     "build": "make build",
     "lint": "make lint",

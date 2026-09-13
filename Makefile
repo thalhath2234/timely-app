@@ -31,8 +31,8 @@ GOOSE_MIGRATIONS := goose -dir $(API)/migrations postgres $(GOOSE_DBSTRING)
 GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING)
 
 .PHONY: help setup install tools install-air install-goose \
-        dev dev-api dev-web dev-mobile \
-        build build-api build-web build-apk apk-status \
+        dev dev-api dev-web dev-mobile dev-desktop launch-electron \
+        build build-api build-web build-desktop dist-desktop build-apk apk-status \
         lint lint-api lint-web typecheck typecheck-web typecheck-mobile test test-api check \
         migrate-up migrate-down migrate-status migrate-create migrate-reset migrate-fix migrate-seed migrate-unseed \
         reset-password clean
@@ -76,6 +76,13 @@ dev-web: ## Run the Next.js dev server on :4001
 dev-mobile: ## Start the Expo dev server (Metro)
 	@pnpm --filter @timely/mobile start
 
+dev-desktop: ## Run API, Next.js, and the Electron desktop shell
+	@$(MAKE) -j3 --no-print-directory dev-api dev-web launch-electron
+
+launch-electron:
+	@pnpm --filter @timely/web electron:compile
+	@pnpm --filter @timely/web electron:open
+
 ##@ Build
 
 build: build-api build-web ## Build API binary and web app
@@ -86,6 +93,12 @@ build-api: ## Compile the API to apps/api/bin/timely-api
 
 build-web: ## Production build of the Next.js app
 	@pnpm --filter @timely/web build
+
+build-desktop: ## Package an unpacked Electron app for this OS (release/<platform>-unpacked)
+	@pnpm --filter @timely/web electron:pack
+
+dist-desktop: ## Build a distributable Electron installer for this OS (AppImage / dmg / nsis)
+	@pnpm --filter @timely/web electron:dist
 
 build-apk: ## Build the Android release APK (memory-capped, detached). Usage: make build-apk [API_URL=https://...]
 	@scripts/build-apk.sh $(API_URL)
@@ -157,5 +170,5 @@ reset-password: ## Reset a user's password. Usage: make reset-password EMAIL=a@b
 	@cd $(API) && go run ./scripts/reset_password.go -email "$(EMAIL)" -password "$(PASSWORD)"
 
 clean: ## Remove build outputs (keeps node_modules and the native android/ project)
-	@rm -rf $(API)/tmp $(API)/bin/timely-api $(WEB)/.next $(WEB)/out $(WEB)/tmp $(MOBILE)/.expo $(MOBILE)/dist
+	@rm -rf $(API)/tmp $(API)/bin/timely-api $(WEB)/.next $(WEB)/out $(WEB)/tmp $(WEB)/dist-electron $(WEB)/release $(WEB)/.electron-next $(MOBILE)/.expo $(MOBILE)/dist
 	@echo "$(GREEN)✓ cleaned$(RESET)"
