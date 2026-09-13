@@ -1,0 +1,61 @@
+#:schema https://json.schemastore.org/any.json
+
+env_files = []
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main.exe ./cmd"
+  # The .exe suffix is required on Windows and harmless on Linux/macOS.
+  # Any runtime flags for the server go here as extra array elements.
+  entrypoint = ["./tmp/main.exe"]
+  delay = 1000
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "migrations", ".git", ".vscode"]
+  exclude_file = []
+  exclude_regex = ["_test.go"]
+  exclude_unchanged = false
+  follow_symlink = false
+  ignore_dangerous_root_dir = false
+  include_dir = []
+  include_ext = ["go", "tpl", "tmpl", "html", "sql"]
+  include_file = [".env"]
+  # Gives the old process time to release the port and the binary file lock.
+  kill_delay = "1s"
+  log = "build-errors.log"
+  poll = false
+  poll_interval = 0
+  post_cmd = []
+  pre_cmd = []
+  rerun = false
+  rerun_delay = 500
+  # Windows has no SIGINT for child processes, so air force-kills instead.
+  send_interrupt = false
+  stop_on_error = true
+
+
+[color]
+  app = ""
+  build = "yellow"
+  main = "magenta"
+  mode = ""
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  main_only = false
+  silent = false
+  time = false
+
+[misc]
+  clean_on_exit = true
+
+[proxy]
+  app_port = 0
+  app_start_timeout = 0
+  enabled = false
+  proxy_port = 0
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true
