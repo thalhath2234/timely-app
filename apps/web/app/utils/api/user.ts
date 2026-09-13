@@ -65,3 +65,11 @@ export async function revokeSession(id: string): Promise<void> {
     throw new Error("Failed to sign out that device");
   }
 }
+
+export async function revokeOtherSessions(): Promise<{ revoked: number }> {
+  const response = await apiFetch("/sessions/others", { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error("Failed to sign out other devices");
+  }
+  return response.json();
+}

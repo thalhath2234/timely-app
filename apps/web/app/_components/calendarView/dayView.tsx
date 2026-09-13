@@ -8,6 +8,7 @@ type DayViewProps = {
   events: CalendarEvent[];
   onSelectEvent: (event: CalendarEvent) => void;
   onSelectSlot?: (day: Date, hour: number) => void;
+  onDropTask?: (day: Date, hour: number, taskId: string) => void;
 };
 
 export default function DayView({
@@ -15,6 +16,7 @@ export default function DayView({
   events,
   onSelectEvent,
   onSelectSlot,
+  onDropTask,
 }: DayViewProps) {
   return (
     <TimeGrid
@@ -22,6 +24,7 @@ export default function DayView({
       events={events}
       onSelectEvent={onSelectEvent}
       onSelectSlot={onSelectSlot}
+      onDropTask={onDropTask}
     />
   );
 }

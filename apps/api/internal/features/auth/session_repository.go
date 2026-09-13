@@ -18,6 +18,7 @@ type SessionRepository interface {
 	Touch(id string, lastUsedAt string) error
 	Update(session *models.UserSession) error
 	Revoke(id string, revokedAt string) error
+	RevokeOthers(userID, keepID, revokedAt string) (int64, error)
 }
 
 type sessionRepository struct {
@@ -69,6 +70,13 @@ func (r *sessionRepository) Update(session *models.UserSession) error {
 
 func (r *sessionRepository) Revoke(id string, revokedAt string) error {
 	return r.db.Model(&models.UserSession{}).Where("id = ?", id).Update("revoked_at", revokedAt).Error
+}
+
+func (r *sessionRepository) RevokeOthers(userID, keepID, revokedAt string) (int64, error) {
+	res := r.db.Model(&models.UserSession{}).
+		Where("user_id = ? AND id <> ? AND revoked_at IS NULL", userID, keepID).
+		Update("revoked_at", revokedAt)
+	return res.RowsAffected, res.Error
 }
 
 func hashRefreshToken(token string) string {

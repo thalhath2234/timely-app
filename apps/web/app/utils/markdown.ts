@@ -438,51 +438,78 @@ function renderTable(rows: Node[]): string {
   return `${lines.join("\n")}\n\n`;
 }
 
+function linkHref(node: Node): string | null {
+  if (node.type !== "text") return null;
+  const link = (node.marks ?? []).find((mark) => mark.type === "link");
+  return link ? String(link.attrs?.href ?? "") : null;
+}
+
+function applyMarks(text: string, marks: Mark[] | undefined, skipLink: boolean): string {
+  let next = text;
+  for (const mark of [...(marks ?? [])].reverse()) {
+    if (skipLink && mark.type === "link") continue;
+    switch (mark.type) {
+      case "bold":
+        next = `**${next}**`;
+        break;
+      case "italic":
+        next = `*${next}*`;
+        break;
+      case "strike":
+        next = `~~${next}~~`;
+        break;
+      case "code":
+        next = `\`${next}\``;
+        break;
+      case "underline":
+        next = `<u>${next}</u>`;
+        break;
+      case "highlight":
+        next = `==${next}==`;
+        break;
+      case "link":
+        next = `[${next}](${String(mark.attrs?.href ?? "")})`;
+        break;
+    }
+  }
+  return next;
+}
+
 function renderInline(nodes: Node[]): string {
   let out = "";
-  for (const n of nodes) {
+  let i = 0;
+  while (i < nodes.length) {
+    const n = nodes[i];
     if (n.type === "mention") {
       const label = String(n.attrs?.label ?? "mention");
       const id = String(n.attrs?.id ?? "");
       const entity = String(n.attrs?.entityType ?? "task");
       out += `[@${label}](timely://${entity}/${id})`;
+      i += 1;
       continue;
     }
     if (n.type === "hardBreak") {
       out += "\n";
+      i += 1;
       continue;
     }
     if (n.type === "text") {
-      let text = n.text ?? "";
-      for (const mark of [...(n.marks ?? [])].reverse()) {
-        switch (mark.type) {
-          case "bold":
-            text = `**${text}**`;
-            break;
-          case "italic":
-            text = `*${text}*`;
-            break;
-          case "strike":
-            text = `~~${text}~~`;
-            break;
-          case "code":
-            text = `\`${text}\``;
-            break;
-          case "underline":
-            text = `<u>${text}</u>`;
-            break;
-          case "highlight":
-            text = `==${text}==`;
-            break;
-          case "link":
-            text = `[${text}](${String(mark.attrs?.href ?? "")})`;
-            break;
+      const href = linkHref(n);
+      if (href !== null) {
+        let inner = "";
+        while (i < nodes.length && nodes[i].type === "text" && linkHref(nodes[i]) === href) {
+          inner += applyMarks(nodes[i].text ?? "", nodes[i].marks, true);
+          i += 1;
         }
+        out += `[${inner}](${href})`;
+        continue;
       }
-      out += text;
+      out += applyMarks(n.text ?? "", n.marks, false);
+      i += 1;
       continue;
     }
     out += renderInline(asNodes(n.content));
+    i += 1;
   }
   return out;
 }

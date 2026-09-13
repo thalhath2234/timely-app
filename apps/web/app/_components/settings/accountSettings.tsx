@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMe, useUpdateMe } from "@/app/utils/hooks/user";
-import { listSessions, revokeSession, type DeviceSession } from "@/app/utils/api/user";
+import { listSessions, revokeOtherSessions, revokeSession, type DeviceSession } from "@/app/utils/api/user";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 import { formatLastUsed, humanizeDeviceLabel } from "@/app/utils/deviceLabel";
 import { LoadErrorBanner } from "@/app/_components/_ui/loadError";
@@ -165,6 +165,11 @@ function DeviceSessions() {
       }
     },
   });
+  const revokeOthers = useMutation({
+    mutationFn: revokeOtherSessions,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+  });
+  const otherActive = (sessions.data ?? []).filter((item) => !item.current && !item.revokedAt).length;
 
   return (
     <section className="mt-8 flex max-w-lg flex-col gap-3">
@@ -174,6 +179,21 @@ function DeviceSessions() {
           Sign out a device if you no longer use it.
         </p>
       </div>
+      {otherActive > 0 ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+          <p className="text-xs text-muted-foreground">
+            {otherActive} other {otherActive === 1 ? "session" : "sessions"} still signed in.
+          </p>
+          <button
+            type="button"
+            disabled={revokeOthers.isPending}
+            onClick={() => revokeOthers.mutate()}
+            className="shrink-0 text-xs text-destructive hover:underline disabled:opacity-60"
+          >
+            {revokeOthers.isPending ? "Signing out…" : "Sign out everywhere else"}
+          </button>
+        </div>
+      ) : null}
       {sessions.isError ? (
         <LoadErrorBanner
           what="devices"

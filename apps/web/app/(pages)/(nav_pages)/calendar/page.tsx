@@ -12,10 +12,10 @@ import DayView from "@/app/_components/calendarView/dayView";
 import AgendaView from "@/app/_components/calendarView/agendaView";
 import EventDialog from "@/app/_components/calendarView/eventDialog";
 import ScheduleDialog, {
-  isUnscheduled,
   type ScheduleSlot,
 } from "@/app/_components/calendarView/scheduleDialog";
 import AutoScheduleDialog from "@/app/_components/calendarView/autoScheduleDialog";
+import WaitingForSlotRail from "@/app/_components/calendarView/waitingForSlotRail";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 
 import { CALENDAR_VIEWS, CalendarView, Task } from "@/app/_types/types";
@@ -23,7 +23,7 @@ import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { useCalendarRange } from "@/app/utils/hooks/calendar";
+import { useAddTaskBlock, useCalendarRange } from "@/app/utils/hooks/calendar";
 import {
   eventLegend,
   headerLabel,
@@ -37,6 +37,7 @@ import {
 } from "@/app/utils/calendar";
 import { overdueAgendaTasks, taskToCalendarItem } from "@/app/utils/overdue";
 import { cn } from "@/app/utils/cn";
+import { rankUnscheduled } from "@/app/utils/scheduleRank";
 
 function CalendarContent() {
   const searchParams = useSearchParams();
@@ -59,7 +60,9 @@ function CalendarContent() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [scheduleSlot, setScheduleSlot] = useState<ScheduleSlot | null>(null);
   const [autoOpen, setAutoOpen] = useState(false);
+  const [scopedTaskIds, setScopedTaskIds] = useState<string[] | undefined>(undefined);
   const openTask = useEntityDetailStore((state) => state.openTask);
+  const addBlock = useAddTaskBlock();
 
   const typedTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
   const events = useMemo(
@@ -72,7 +75,7 @@ function CalendarContent() {
   );
   const legend = useMemo(() => eventLegend(events), [events]);
   const unscheduledCount = useMemo(
-    () => typedTasks.filter(isUnscheduled).length,
+    () => rankUnscheduled(typedTasks).length,
     [typedTasks],
   );
 
@@ -116,6 +119,22 @@ function CalendarContent() {
 
   const openScheduleSlot = (day: Date, hour: number) => {
     setScheduleSlot({ at: slotAt(day, hour), durationMinutes: 30 });
+  };
+
+  const openAutoSchedule = (taskIds?: string[]) => {
+    setScopedTaskIds(taskIds);
+    setAutoOpen(true);
+  };
+
+  const dropTaskOnSlot = (day: Date, hour: number, taskId: string) => {
+    const task = typedTasks.find((item) => item.id === taskId);
+    const minutes = Math.max(task?.duration || 0, 30);
+    void addBlock.mutateAsync({
+      taskId,
+      start: slotAt(day, hour).toISOString(),
+      durationMinutes: minutes,
+      replace: true,
+    });
   };
 
   // Server render has no "today"; the client snapshot fills it in after
@@ -177,7 +196,7 @@ function CalendarContent() {
         <div className="flex w-fit items-center gap-2">
           <button
             type="button"
-            onClick={() => setAutoOpen(true)}
+            onClick={() => openAutoSchedule()}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-input px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
           >
             <Sparkles
@@ -266,7 +285,8 @@ function CalendarContent() {
       )}
 
       {!isLoading && status !== "error" && (
-        <>
+        <div className="flex min-h-0 flex-1 gap-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden">
           {events.length === 0 && overdueEvents.length === 0 && (
             <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
               Nothing in this period. Click an empty slot to place a task or
@@ -281,6 +301,7 @@ function CalendarContent() {
               events={events}
               onSelectEvent={setSelectedEvent}
               onSelectSlot={openScheduleSlot}
+              onDropTask={dropTaskOnSlot}
             />
           )}
 
@@ -290,6 +311,7 @@ function CalendarContent() {
               events={events}
               onSelectEvent={setSelectedEvent}
               onSelectSlot={openScheduleSlot}
+              onDropTask={dropTaskOnSlot}
             />
           )}
 
@@ -300,6 +322,7 @@ function CalendarContent() {
               onSelectEvent={setSelectedEvent}
               onOpenDay={openDay}
               onSelectSlot={openScheduleSlot}
+              onDropTask={dropTaskOnSlot}
             />
           )}
 
@@ -311,7 +334,12 @@ function CalendarContent() {
               onSelectEvent={setSelectedEvent}
             />
           )}
-        </>
+          </div>
+          <WaitingForSlotRail
+            tasks={typedTasks}
+            onSchedule={(taskId) => openAutoSchedule([taskId])}
+          />
+        </div>
       )}
 
       <EventDialog
@@ -331,9 +359,14 @@ function CalendarContent() {
 
       <AutoScheduleDialog
         open={autoOpen}
-        onClose={() => setAutoOpen(false)}
+        taskIds={scopedTaskIds}
+        onClose={() => {
+          setAutoOpen(false);
+          setScopedTaskIds(undefined);
+        }}
         onOpenSettings={() => {
           setAutoOpen(false);
+          setScopedTaskIds(undefined);
           router.push("/settings?tab=schedule");
         }}
       />

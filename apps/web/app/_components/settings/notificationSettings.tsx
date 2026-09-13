@@ -9,11 +9,9 @@ import {
   useRetryJob,
   useUpdateNotificationSettings,
 } from "@/app/utils/hooks/notifications";
+import TimezoneSelect from "@/app/_components/_ui/timezoneSelect";
 import type { NotificationSettings } from "@/app/_types/types";
 import { browserTimezone } from "@/app/utils/api/schedule";
-
-const fieldClass =
-  "rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40";
 
 export default function NotificationSettingsPanel() {
   const { data: settings, isLoading, isError } = useNotificationSettings();
@@ -110,18 +108,10 @@ function NotificationSettingsForm({ initial }: { initial: NotificationSettings }
       </div>
       <label className="flex flex-col gap-1 text-sm">
         Timezone
-        <input
-          className={fieldClass}
+        <TimezoneSelect
           value={draft.timezone}
-          onChange={(event) => setDraft({ ...draft, timezone: event.target.value })}
-          placeholder="e.g. Asia/Tokyo"
-          list="notification-timezones"
+          onChange={(timezone) => setDraft({ ...draft, timezone })}
         />
-        <datalist id="notification-timezones">
-          {[browserTimezone(), "UTC"].filter(Boolean).map((zone) => (
-            <option key={zone} value={zone} />
-          ))}
-        </datalist>
         <span className="text-xs text-muted-foreground">
           Digest times and quiet hours are read in this zone. It follows your working-hours
           timezone unless you set a different one here.

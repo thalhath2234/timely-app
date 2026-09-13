@@ -18,6 +18,9 @@ import { buildRecurrenceInput, type RecurrenceDraft } from "@/app/utils/recurren
 import { useAddTaskBlock, useCreateEvent } from "@/app/utils/hooks/calendar";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
+import { isUnscheduled } from "@/app/utils/scheduleRank";
+
+export { isUnscheduled };
 
 export type ScheduleSlot = {
   at: Date;
@@ -37,16 +40,6 @@ type ScheduleDialogProps = {
 
 const fieldClass =
   "w-full rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40";
-
-/** Tasks that can still be placed by hand: open, one-off, not yet on the calendar. */
-export function isUnscheduled(task: Task) {
-  return (
-    !task.completedAt &&
-    !task.recurrence &&
-    (task.blocks?.length ?? 0) === 0 &&
-    !task.scheduledOn
-  );
-}
 
 export default function ScheduleDialog({
   slot,

@@ -476,14 +476,12 @@ func renderTable(rows []any) string {
 
 func renderInline(nodes []any) string {
 	var b strings.Builder
-	for _, raw := range nodes {
-		n, ok := raw.(map[string]any)
+	i := 0
+	for i < len(nodes) {
+		n, ok := asMap(nodes[i])
 		if !ok {
-			if m, ok := raw.(models.JSONMap); ok {
-				n = m
-			} else {
-				continue
-			}
+			i++
+			continue
 		}
 		kind, _ := n["type"].(string)
 		switch kind {
@@ -496,40 +494,97 @@ func renderInline(nodes []any) string {
 				entity = "task"
 			}
 			b.WriteString("[@" + label + "](timely://" + entity + "/" + id + ")")
+			i++
 		case "hardBreak":
 			b.WriteString("\n")
+			i++
 		case "text":
-			text, _ := n["text"].(string)
-			marks := asSlice(n["marks"])
-			for i := len(marks) - 1; i >= 0; i-- {
-				mark, _ := marks[i].(map[string]any)
-				switch mark["type"] {
-				case "bold":
-					text = "**" + text + "**"
-				case "italic":
-					text = "*" + text + "*"
-				case "strike":
-					text = "~~" + text + "~~"
-				case "code":
-					text = "`" + text + "`"
-				case "underline":
-					text = "<u>" + text + "</u>"
-				case "highlight":
-					text = "==" + text + "=="
-				case "link":
-					href := ""
-					if attrs, ok := mark["attrs"].(map[string]any); ok {
-						href, _ = attrs["href"].(string)
+			href, hasLink := textLinkHref(n)
+			if hasLink {
+				var inner strings.Builder
+				for i < len(nodes) {
+					next, ok := asMap(nodes[i])
+					if !ok {
+						break
 					}
-					text = "[" + text + "](" + href + ")"
+					if t, _ := next["type"].(string); t != "text" {
+						break
+					}
+					nextHref, nextHas := textLinkHref(next)
+					if !nextHas || nextHref != href {
+						break
+					}
+					inner.WriteString(applyTextMarks(next, true))
+					i++
 				}
+				b.WriteString("[" + inner.String() + "](" + href + ")")
+				continue
 			}
-			b.WriteString(text)
+			b.WriteString(applyTextMarks(n, false))
+			i++
 		default:
 			b.WriteString(renderInline(asSlice(n["content"])))
+			i++
 		}
 	}
 	return b.String()
+}
+
+func asMap(v any) (map[string]any, bool) {
+	if n, ok := v.(map[string]any); ok {
+		return n, true
+	}
+	if m, ok := v.(models.JSONMap); ok {
+		return m, true
+	}
+	return nil, false
+}
+
+func textLinkHref(n map[string]any) (string, bool) {
+	for _, raw := range asSlice(n["marks"]) {
+		mark, _ := raw.(map[string]any)
+		if mark["type"] != "link" {
+			continue
+		}
+		href := ""
+		if attrs, ok := mark["attrs"].(map[string]any); ok {
+			href, _ = attrs["href"].(string)
+		}
+		return href, true
+	}
+	return "", false
+}
+
+func applyTextMarks(n map[string]any, skipLink bool) string {
+	text, _ := n["text"].(string)
+	marks := asSlice(n["marks"])
+	for i := len(marks) - 1; i >= 0; i-- {
+		mark, _ := marks[i].(map[string]any)
+		switch mark["type"] {
+		case "link":
+			if skipLink {
+				continue
+			}
+			href := ""
+			if attrs, ok := mark["attrs"].(map[string]any); ok {
+				href, _ = attrs["href"].(string)
+			}
+			text = "[" + text + "](" + href + ")"
+		case "bold":
+			text = "**" + text + "**"
+		case "italic":
+			text = "*" + text + "*"
+		case "strike":
+			text = "~~" + text + "~~"
+		case "code":
+			text = "`" + text + "`"
+		case "underline":
+			text = "<u>" + text + "</u>"
+		case "highlight":
+			text = "==" + text + "=="
+		}
+	}
+	return text
 }
 
 func node(kind string, attrs map[string]any, content []any) map[string]any {

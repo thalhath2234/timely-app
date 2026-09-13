@@ -160,7 +160,7 @@ func main() {
 	go jobWorker.Run(ctx)
 
 	sc := echo.StartConfig{
-		Address:         ":8080",
+		Address:         ":" + port,
 		GracefulTimeout: 10 * time.Second,
 	}
 	if err := sc.Start(ctx, e); err != nil {

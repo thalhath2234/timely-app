@@ -1,25 +1,17 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
 import {
-  Config,
   Project,
   Task,
-  TaskRenderMode,
   TaskViewConfig,
   Workspace,
-  TaskListDataMode,
   TaskListGroupField,
-  TaskListGroupSortDirection,
-  TaskListSortBy,
-  TaskListSortDirection,
 } from "@/app/_types/types";
-import { useConfig, useUpdateTaskViewsConfig, useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { ApiError } from "@/app/utils/api/worksapce";
 import { Plus, Pencil, X } from "lucide-react";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import TasksTable from "@/app/_components/_ui/tasks/tasktable";
@@ -30,59 +22,12 @@ import BulkActionBar from "@/app/_components/_ui/tasks/bulkActionBar";
 import { TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToolbar";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useProjects } from "@/app/utils/hooks/projects";
-import {
-  filterTasks,
-  resolveViewOnlyDated,
-  resolveViewShowCompleted,
-} from "@/app/utils/taskFilters";
+import { filterTasks } from "@/app/utils/taskFilters";
 import { stageNameMap } from "@/app/utils/stages";
-
-type TaskViewMode = TaskRenderMode;
+import { useTaskViewsState } from "@/app/utils/hooks/taskViews";
 
 /** Project rows are synthesised from their tasks and carry a prefixed id. */
 const PROJECT_ROW_PREFIX = "project-";
-
-const areStringArraysEqual = (a: string[], b: string[]) =>
-  a.length === b.length && a.every((value, index) => value === b[index]);
-
-const areRecordsOfStringArraysEqual = (
-  a: Record<string, string[]>,
-  b: Record<string, string[]>
-) => {
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-
-  if (aKeys.length !== bKeys.length) return false;
-
-  return aKeys.every((key) => {
-    const aValues = a[key] ?? [];
-    const bValues = b[key] ?? [];
-    return areStringArraysEqual(aValues, bValues);
-  });
-};
-
-const NEW_VIEW_TEMPLATE: Omit<TaskViewConfig, "id" | "name"> = {
-  dataMode: "task",
-  renderMode: "list",
-  groupFields: ["workspace", "project", "stage"],
-  groupSortDirection: "asc",
-  groupValueOrders: {},
-  sortBy: "deadline",
-  sortDirection: "asc",
-  selectedWorkspaceIds: [],
-  selectedStatusIds: [],
-  selectedProjectIds: [],
-  selectedPriorityLevels: [],
-  selectedLabelIds: [],
-  selectedStageIds: [],
-  showCompleted: true,
-  onlyOverdue: false,
-  onlyScheduled: false,
-  onlyRecurring: false,
-  onlyDated: false,
-  showReminders: false,
-  columnOrder: [],
-};
 
 // useSearchParams needs a Suspense boundary for the page to prerender.
 export default function TasksPage() {
@@ -96,247 +41,18 @@ export default function TasksPage() {
 function Tasks() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
-  const configQuery = useConfig();
-  const { data: config, isLoading, status } = configQuery;
-  const { data: workspaces } = useWorkspaces();
-  const tasksQuery = useTasks();
-  const { data: tasks } = tasksQuery;
-  const { data: projects } = useProjects();
-  const [taskViews, setTaskViews] = useState<TaskViewConfig[]>([]);
-  const [activeTaskViewId, setActiveTaskViewId] = useState<string>("");
-  const [viewsReady, setViewsReady] = useState(false);
-  const [viewMode, setViewMode] = useState<TaskViewMode>("list");
-  const [groupFields, setGroupFields] = useState<TaskListGroupField[]>([
-    "workspace",
-    "project",
-    "stage",
-  ]);
-  const [groupSortDirection, setGroupSortDirection] =
-    useState<TaskListGroupSortDirection>("asc");
-  const [dataMode, setDataMode] = useState<TaskListDataMode>("task");
-  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
-  const [selectedStatusIds, setSelectedStatusIds] = useState<string[]>([]);
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
-  const [selectedPriorityLevels, setSelectedPriorityLevels] = useState<string[]>([]);
-  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
-  const [selectedStageIds, setSelectedStageIds] = useState<string[]>([]);
-  const [showCompleted, setShowCompleted] = useState(true);
-  const [onlyOverdue, setOnlyOverdue] = useState(false);
-  const [onlyScheduled, setOnlyScheduled] = useState(false);
-  const [onlyRecurring, setOnlyRecurring] = useState(false);
-  const [onlyDated, setOnlyDated] = useState(false);
-  const [showReminders, setShowReminders] = useState(false);
-  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
-  const [columnOrder, setColumnOrder] = useState<string[]>([]);
-  const [groupValueOrders, setGroupValueOrders] = useState<Record<string, string[]>>({});
-  const [sortBy, setSortBy] = useState<TaskListSortBy>("deadline");
-  const [sortDirection, setSortDirection] = useState<TaskListSortDirection>("asc");
-  const [syncError, setSyncError] = useState<string>("");
-  const [optionsVisible, setOptionsVisible] = useState(true);
-  const hydratingFromViewRef = useRef(false);
-
-  const typedConfig = config as Config | undefined;
-  const typedWorkspaces = useMemo(() => (workspaces ?? []) as Workspace[], [workspaces]);
-  const typedProjects = useMemo(() => (projects ?? []) as Project[], [projects]);
-  const allTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
-  const customFields = useMemo(
-    () => typedConfig?.customFields ?? [],
-    [typedConfig?.customFields]
-  );
-  const stageNames = useMemo(() => stageNameMap(typedProjects), [typedProjects]);
-
-  const saveViewsMutation = useUpdateTaskViewsConfig();
-  // `mutate` is referentially stable; the mutation object itself is not.
-  const { mutate: saveViews } = saveViewsMutation;
-
-  // The open row lives in the URL so an @mention can link straight to it.
-  const detailTaskId = searchParams.get("taskId");
-  const detailProjectId = searchParams.get("projectId");
-
-  const openRow = useCallback(
-    (row: Task) => {
-      const query = row.id.startsWith(PROJECT_ROW_PREFIX)
-        ? `projectId=${encodeURIComponent(row.id.slice(PROJECT_ROW_PREFIX.length))}`
-        : `taskId=${encodeURIComponent(row.id)}`;
-
-      router.push(`/tasks?${query}`, { scroll: false });
-    },
-    [router],
-  );
-
-  const closeDetail = useCallback(
-    () => router.push("/tasks", { scroll: false }),
-    [router],
-  );
-
-  // Saved views are server state mirrored into local, editable state and
-  // synced back with a debounce. Mirroring on config change is a deliberate
-  // "sync from external source" effect; see fablereport.md for the planned
-  // refactor to derive filter state from the active view instead.
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    const configViews = typedConfig?.taskViews ?? [];
-
-    const nextActiveId =
-      typedConfig?.activeTaskViewId &&
-      configViews.some((view) => view.id === typedConfig.activeTaskViewId)
-        ? typedConfig.activeTaskViewId
-        : configViews[0]?.id ?? "";
-
-    setTaskViews(configViews);
-    setActiveTaskViewId(nextActiveId);
-    setViewsReady(true);
-  }, [typedConfig?.id, typedConfig?.taskViews, typedConfig?.activeTaskViewId]);
-
-  const activeTaskView = useMemo(
-    () => taskViews.find((view) => view.id === activeTaskViewId),
-    [taskViews, activeTaskViewId]
-  );
-
-  useEffect(() => {
-    if (!activeTaskView) return;
-
-    hydratingFromViewRef.current = true;
-
-    setViewMode((previous) =>
-      previous === activeTaskView.renderMode ? previous : activeTaskView.renderMode
-    );
-    setGroupFields((previous) =>
-      areStringArraysEqual(previous, activeTaskView.groupFields)
-        ? previous
-        : activeTaskView.groupFields
-    );
-    setGroupSortDirection((previous) =>
-      previous === activeTaskView.groupSortDirection
-        ? previous
-        : activeTaskView.groupSortDirection
-    );
-    setDataMode((previous) =>
-      previous === activeTaskView.dataMode ? previous : activeTaskView.dataMode
-    );
-    setSelectedWorkspaceIds((previous) =>
-      areStringArraysEqual(previous, activeTaskView.selectedWorkspaceIds)
-        ? previous
-        : activeTaskView.selectedWorkspaceIds
-    );
-    setSelectedStatusIds((previous) => {
-      const next = activeTaskView.selectedStatusIds ?? [];
-      return areStringArraysEqual(previous, next) ? previous : next;
-    });
-    setSelectedProjectIds((previous) => {
-      const next = activeTaskView.selectedProjectIds ?? [];
-      return areStringArraysEqual(previous, next) ? previous : next;
-    });
-    setSelectedPriorityLevels((previous) => {
-      const next = activeTaskView.selectedPriorityLevels ?? [];
-      return areStringArraysEqual(previous, next) ? previous : next;
-    });
-    setSelectedLabelIds((previous) => {
-      const next = activeTaskView.selectedLabelIds ?? [];
-      return areStringArraysEqual(previous, next) ? previous : next;
-    });
-    setSelectedStageIds((previous) => {
-      const next = activeTaskView.selectedStageIds ?? [];
-      return areStringArraysEqual(previous, next) ? previous : next;
-    });
-    setShowCompleted(resolveViewShowCompleted(activeTaskView));
-    setOnlyOverdue(Boolean(activeTaskView.onlyOverdue));
-    setOnlyScheduled(Boolean(activeTaskView.onlyScheduled));
-    setOnlyRecurring(Boolean(activeTaskView.onlyRecurring));
-    setOnlyDated(resolveViewOnlyDated(activeTaskView));
-    setShowReminders(Boolean(activeTaskView.showReminders));
-    setColumnOrder((previous) => {
-      const next = activeTaskView.columnOrder ?? [];
-      return areStringArraysEqual(previous, next) ? previous : next;
-    });
-    setGroupValueOrders((previous) =>
-      areRecordsOfStringArraysEqual(previous, activeTaskView.groupValueOrders)
-        ? previous
-        : activeTaskView.groupValueOrders
-    );
-    setSortBy((previous) => (previous === activeTaskView.sortBy ? previous : activeTaskView.sortBy));
-    setSortDirection((previous) =>
-      previous === activeTaskView.sortDirection ? previous : activeTaskView.sortDirection
-    );
-
-    const hydrationTimer = setTimeout(() => {
-      hydratingFromViewRef.current = false;
-    }, 0);
-
-    return () => {
-      clearTimeout(hydrationTimer);
-      hydratingFromViewRef.current = false;
-    };
-  }, [activeTaskView]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-
-  useEffect(() => {
-    if (!viewsReady || !activeTaskViewId || hydratingFromViewRef.current) return;
-
-    setTaskViews((previous) => {
-      let changed = false;
-      const next = previous.map((view) => {
-        if (view.id !== activeTaskViewId) return view;
-
-        const updated: TaskViewConfig = {
-          ...view,
-          renderMode: viewMode,
-          groupFields,
-          groupSortDirection,
-          dataMode,
-          selectedWorkspaceIds,
-          selectedStatusIds,
-          selectedProjectIds,
-          selectedPriorityLevels,
-          selectedLabelIds,
-          selectedStageIds,
-          showCompleted,
-          onlyOverdue,
-          onlyScheduled,
-          onlyRecurring,
-          onlyDated,
-          showReminders,
-          columnOrder,
-          groupValueOrders,
-          sortBy,
-          sortDirection,
-        };
-
-        const isUnchanged =
-          updated.renderMode === view.renderMode &&
-          updated.groupSortDirection === view.groupSortDirection &&
-          updated.dataMode === view.dataMode &&
-          updated.sortBy === view.sortBy &&
-          updated.sortDirection === view.sortDirection &&
-          updated.showCompleted === resolveViewShowCompleted(view) &&
-          Boolean(updated.onlyOverdue) === Boolean(view.onlyOverdue) &&
-          Boolean(updated.onlyScheduled) === Boolean(view.onlyScheduled) &&
-          Boolean(updated.onlyRecurring) === Boolean(view.onlyRecurring) &&
-          Boolean(updated.onlyDated) === resolveViewOnlyDated(view) &&
-          Boolean(updated.showReminders) === Boolean(view.showReminders) &&
-          areStringArraysEqual(updated.groupFields, view.groupFields) &&
-          areStringArraysEqual(updated.selectedWorkspaceIds, view.selectedWorkspaceIds) &&
-          areStringArraysEqual(updated.selectedStatusIds, view.selectedStatusIds ?? []) &&
-          areStringArraysEqual(updated.selectedProjectIds ?? [], view.selectedProjectIds ?? []) &&
-          areStringArraysEqual(updated.selectedPriorityLevels ?? [], view.selectedPriorityLevels ?? []) &&
-          areStringArraysEqual(updated.selectedLabelIds ?? [], view.selectedLabelIds ?? []) &&
-          areStringArraysEqual(updated.selectedStageIds ?? [], view.selectedStageIds ?? []) &&
-          areStringArraysEqual(updated.columnOrder, view.columnOrder ?? []) &&
-          areRecordsOfStringArraysEqual(updated.groupValueOrders, view.groupValueOrders);
-
-        if (!isUnchanged) {
-          changed = true;
-          return updated;
-        }
-        return view;
-      });
-
-      return changed ? next : previous;
-    });
-  }, [
-    viewsReady,
+  const views = useTaskViewsState();
+  const {
+    configQuery,
+    typedConfig,
+    taskViews,
     activeTaskViewId,
+    setActiveTaskViewId,
+    patchActiveView,
+    addNewView,
+    deleteActiveView,
+    renameView,
+    syncError,
     viewMode,
     groupFields,
     groupSortDirection,
@@ -357,97 +73,43 @@ function Tasks() {
     groupValueOrders,
     sortBy,
     sortDirection,
-  ]);
+  } = views;
+  const { isLoading, status } = configQuery;
+  const { data: workspaces } = useWorkspaces();
+  const tasksQuery = useTasks();
+  const { data: tasks } = tasksQuery;
+  const { data: projects } = useProjects();
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [optionsVisible, setOptionsVisible] = useState(true);
 
-  useEffect(() => {
-    if (!viewsReady || taskViews.length === 0) return;
+  const typedWorkspaces = useMemo(() => (workspaces ?? []) as Workspace[], [workspaces]);
+  const typedProjects = useMemo(() => (projects ?? []) as Project[], [projects]);
+  const allTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
+  const customFields = useMemo(
+    () => typedConfig?.customFields ?? [],
+    [typedConfig?.customFields]
+  );
+  const stageNames = useMemo(() => stageNameMap(typedProjects), [typedProjects]);
 
-    const resolvedActiveTaskViewId =
-      activeTaskViewId && taskViews.some((view) => view.id === activeTaskViewId)
-        ? activeTaskViewId
-        : taskViews[0]?.id ?? "";
+  // The open row lives in the URL so an @mention can link straight to it.
+  const detailTaskId = searchParams.get("taskId");
+  const detailProjectId = searchParams.get("projectId");
 
-    if (!resolvedActiveTaskViewId) return;
+  const openRow = useCallback(
+    (row: Task) => {
+      const query = row.id.startsWith(PROJECT_ROW_PREFIX)
+        ? `projectId=${encodeURIComponent(row.id.slice(PROJECT_ROW_PREFIX.length))}`
+        : `taskId=${encodeURIComponent(row.id)}`;
 
-    const timer = setTimeout(() => {
-      setSyncError("");
-      queryClient.setQueryData(["config"], (old: Config | undefined) => {
-        if (!old) return old;
-        return {
-          ...old,
-          taskViews,
-          activeTaskViewId: resolvedActiveTaskViewId,
-        };
-      });
+      router.push(`/tasks?${query}`, { scroll: false });
+    },
+    [router],
+  );
 
-      saveViews(
-        {
-          taskViews,
-          activeTaskViewId: resolvedActiveTaskViewId,
-        },
-        {
-          onError: async (error) => {
-            if (error instanceof ApiError && error.status === 409) {
-              setSyncError("Config conflict: reloading latest config...");
-              await queryClient.invalidateQueries({ queryKey: ["config"] });
-              await queryClient.refetchQueries({ queryKey: ["config"], type: "active" });
-              return;
-            }
-
-            setSyncError("Failed to sync config changes. Please retry.");
-          },
-        }
-      );
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [viewsReady, taskViews, activeTaskViewId, queryClient, saveViews]);
-
-  const addNewView = () => {
-    const base = activeTaskView ?? taskViews[0];
-    const id = `view_${Date.now()}`;
-    const name = `New View ${taskViews.length + 1}`;
-
-    const nextView: TaskViewConfig = {
-      ...(base ?? NEW_VIEW_TEMPLATE),
-      id,
-      name,
-    };
-
-    setTaskViews((previous) => [...previous, nextView]);
-    setActiveTaskViewId(id);
-  };
-
-  const deleteActiveView = () => {
-    if (!activeTaskViewId || taskViews.length <= 1) return;
-
-    setTaskViews((previous) => {
-      const activeIndex = previous.findIndex((view) => view.id === activeTaskViewId);
-      const next = previous.filter((view) => view.id !== activeTaskViewId);
-
-      const fallbackIndex = activeIndex > 0 ? activeIndex - 1 : 0;
-      const fallbackId = next[fallbackIndex]?.id ?? next[0]?.id ?? "";
-      setActiveTaskViewId(fallbackId);
-
-      return next;
-    });
-  };
-
-  const renameView = (viewId: string, name: string) => {
-    const nextName = name.trim();
-    if (!nextName) return;
-
-    setTaskViews((previous) =>
-      previous.map((view) =>
-        view.id === viewId && view.name !== nextName
-          ? {
-              ...view,
-              name: nextName,
-            }
-          : view,
-      ),
-    );
-  };
+  const closeDetail = useCallback(
+    () => router.push("/tasks", { scroll: false }),
+    [router],
+  );
 
   const listFilters = useMemo(
     () => ({
@@ -635,53 +297,53 @@ function Tasks() {
         <>
           <TaskToolbar
             viewMode={viewMode}
-            setViewMode={setViewMode}
+            setViewMode={(renderMode) => patchActiveView({ renderMode })}
             groupFields={groupFields}
-            setGroupFields={setGroupFields}
+            setGroupFields={(next) => patchActiveView({ groupFields: next })}
             groupSortDirection={groupSortDirection}
-            setGroupSortDirection={setGroupSortDirection}
+            setGroupSortDirection={(next) => patchActiveView({ groupSortDirection: next })}
             dataMode={dataMode}
-            setDataMode={setDataMode}
+            setDataMode={(next) => patchActiveView({ dataMode: next })}
             groupValueOrders={groupValueOrders}
-            setGroupValueOrders={setGroupValueOrders}
+            setGroupValueOrders={(next) => patchActiveView({ groupValueOrders: next })}
             groupOptionsByField={groupOptionsByField}
             workspaces={typedWorkspaces}
             selectedWorkspaceIds={selectedWorkspaceIds}
-            setSelectedWorkspaceIds={setSelectedWorkspaceIds}
+            setSelectedWorkspaceIds={(next) => patchActiveView({ selectedWorkspaceIds: next })}
             selectedStatusIds={selectedStatusIds}
-            setSelectedStatusIds={setSelectedStatusIds}
+            setSelectedStatusIds={(next) => patchActiveView({ selectedStatusIds: next })}
             dataCount={dataCount}
             sortBy={sortBy}
-            setSortBy={setSortBy}
+            setSortBy={(next) => patchActiveView({ sortBy: next })}
             sortDirection={sortDirection}
-            setSortDirection={setSortDirection}
+            setSortDirection={(next) => patchActiveView({ sortDirection: next })}
             customFields={customFields}
             showReminders={showReminders}
-            setShowReminders={setShowReminders}
+            setShowReminders={(next) => patchActiveView({ showReminders: next })}
           />
 
           {optionsVisible && (
             <TaskOptionsBar
               showCompleted={showCompleted}
-              setShowCompleted={setShowCompleted}
+              setShowCompleted={(next) => patchActiveView({ showCompleted: next })}
               onlyOverdue={onlyOverdue}
-              setOnlyOverdue={setOnlyOverdue}
+              setOnlyOverdue={(next) => patchActiveView({ onlyOverdue: next })}
               onlyScheduled={onlyScheduled}
-              setOnlyScheduled={setOnlyScheduled}
+              setOnlyScheduled={(next) => patchActiveView({ onlyScheduled: next })}
               onlyRecurring={onlyRecurring}
-              setOnlyRecurring={setOnlyRecurring}
+              setOnlyRecurring={(next) => patchActiveView({ onlyRecurring: next })}
               onlyDated={onlyDated}
-              setOnlyDated={setOnlyDated}
+              setOnlyDated={(next) => patchActiveView({ onlyDated: next })}
               projects={typedProjects}
               workspaces={typedWorkspaces}
               selectedProjectIds={selectedProjectIds}
-              setSelectedProjectIds={setSelectedProjectIds}
+              setSelectedProjectIds={(next) => patchActiveView({ selectedProjectIds: next })}
               selectedPriorityLevels={selectedPriorityLevels}
-              setSelectedPriorityLevels={setSelectedPriorityLevels}
+              setSelectedPriorityLevels={(next) => patchActiveView({ selectedPriorityLevels: next })}
               selectedLabelIds={selectedLabelIds}
-              setSelectedLabelIds={setSelectedLabelIds}
+              setSelectedLabelIds={(next) => patchActiveView({ selectedLabelIds: next })}
               selectedStageIds={selectedStageIds}
-              setSelectedStageIds={setSelectedStageIds}
+              setSelectedStageIds={(next) => patchActiveView({ selectedStageIds: next })}
             />
           )}
 
@@ -721,7 +383,7 @@ function Tasks() {
                 sortBy={sortBy}
                 sortDirection={sortDirection}
                 columnOrder={columnOrder}
-                onColumnOrderChange={setColumnOrder}
+                onColumnOrderChange={(next) => patchActiveView({ columnOrder: next })}
                 onSelectRow={openRow}
                 filters={listFilters}
                 stageNames={stageNames}
