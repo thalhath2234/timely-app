@@ -621,6 +621,10 @@ export default function AddItemModal() {
           shouldValidate: true,
         });
       }
+      if (createTaskDraft?.kind === "reminder") {
+        setTaskKind("reminder");
+        setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
+      }
     }
   }, [
     isAddItemModalOpen,

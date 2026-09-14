@@ -9,6 +9,7 @@ export type CreateTaskDraft = {
   workspaceId?: string;
   projectId?: string;
   stageId?: string;
+  kind?: "task" | "reminder";
 };
 
 type SidebarState = {
