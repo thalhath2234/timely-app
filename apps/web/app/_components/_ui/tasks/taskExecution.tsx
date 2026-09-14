@@ -43,6 +43,7 @@ export default function TaskExecution({
   const [checkTitle, setCheckTitle] = useState("");
   const [composeSubtask, setComposeSubtask] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
 
   const focusing = Boolean(task.focusStartedAt);
   const onToday = dateOnly(task.todayFocusOn) === todayStamp();
@@ -207,7 +208,7 @@ export default function TaskExecution({
                 </span>
                 <button
                   type="button"
-                  className="text-[11px] text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"
+                  className="text-[11px] text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
                   onClick={() => void removeItem.mutateAsync(item.id)}
                 >
                   Remove
@@ -250,7 +251,11 @@ export default function TaskExecution({
             onSubmit={(event) => {
               event.preventDefault();
               const title = checkTitle.trim();
-              if (!title) return;
+              if (!title || submittingRef.current) return;
+              submittingRef.current = true;
+              const done = () => {
+                submittingRef.current = false;
+              };
               if (composeSubtask && !task.parentTaskId) {
                 void createSubtask
                   .mutateAsync({
@@ -262,10 +267,11 @@ export default function TaskExecution({
                   .then(() => {
                     setCheckTitle("");
                     setComposeSubtask(false);
-                  });
+                  })
+                  .finally(done);
                 return;
               }
-              void addItem.mutateAsync(title).then(() => setCheckTitle(""));
+              void addItem.mutateAsync(title).then(() => setCheckTitle("")).finally(done);
             }}
           >
             <Plus className="size-3.5 shrink-0" />

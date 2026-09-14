@@ -349,10 +349,16 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
         })
       }
       onCopyLink={() => {
-        void navigator.clipboard.writeText(
-          `${window.location.origin}/tasks?taskId=${encodeURIComponent(task.id)}`,
-        );
-        useToastStore.getState().show("Link copied");
+        void navigator.clipboard
+          .writeText(
+            `${window.location.origin}/tasks?taskId=${encodeURIComponent(task.id)}`,
+          )
+          .then(() => {
+            useToastStore.getState().show("Link copied");
+          })
+          .catch(() => {
+            useToastStore.getState().show("Could not copy link");
+          });
       }}
     >
       <TaskExecution task={task} />
@@ -1302,6 +1308,7 @@ function PanelShell({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (confirmingDelete) return;
       if (!(event.target instanceof HTMLElement)) return;
       const typing =
         event.target.tagName === "INPUT" ||
@@ -1322,7 +1329,7 @@ function PanelShell({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onSaveAndClose, onToggleComplete]);
+  }, [confirmingDelete, onSaveAndClose, onToggleComplete]);
 
   const crumbParts = [crumbs?.workspace, crumbs?.project, crumbs?.stage].filter(
     Boolean,
