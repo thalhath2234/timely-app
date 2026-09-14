@@ -51,6 +51,15 @@ import type { CalendarItem, Task } from "@/app/_types/types";
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
 
+function reportMutationError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : fallback;
+  useToastStore.getState().show(message);
+}
+
+function runMutation(action: Promise<unknown>, fallback: string) {
+  void action.catch((error: unknown) => reportMutationError(error, fallback));
+}
+
 function useNow(intervalMs: number) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -211,13 +220,7 @@ function StarPicker({
   }, [excludeIds, query, tasks.data]);
 
   const pick = (task: Task) => {
-    void setFocus
-      .mutateAsync({ taskId: task.id, date })
-      .then(onClose)
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "Could not star that task";
-        useToastStore.getState().show(message);
-      });
+    runMutation(setFocus.mutateAsync({ taskId: task.id, date }).then(onClose), "Could not star that task");
   };
 
   return (
@@ -619,21 +622,25 @@ export default function TodayDashboard() {
 
   const completeTask = (task: Task) => {
     const previous = task.completedAt ?? "";
-    void updateTask
-      .mutateAsync({ id: task.id, completedAt: new Date().toISOString() })
-      .then(() => {
+    runMutation(
+      updateTask.mutateAsync({ id: task.id, completedAt: new Date().toISOString() }).then(() => {
         showUndoToast(`Completed “${task.name}”`, () => {
-          void updateTask.mutateAsync({ id: task.id, completedAt: previous });
+          runMutation(
+            updateTask.mutateAsync({ id: task.id, completedAt: previous }),
+            "Could not undo complete",
+          );
         });
-      });
+      }),
+      "Could not complete task",
+    );
   };
 
   const stopAndComplete = (task: Task) => {
-    void stopFocus.mutateAsync(task.id).then(() => completeTask(task));
+    runMutation(stopFocus.mutateAsync(task.id).then(() => completeTask(task)), "Could not stop focus");
   };
 
   const unstar = (task: Task) => {
-    void setFocus.mutateAsync({ taskId: task.id, date: null });
+    runMutation(setFocus.mutateAsync({ taskId: task.id, date: null }), "Could not remove from today");
   };
 
   const mutating = stopFocus.isPending || updateTask.isPending || startFocus.isPending;
@@ -718,9 +725,22 @@ export default function TodayDashboard() {
       useToastStore.getState().show("Nothing left to shut down.");
       return;
     }
-    void Promise.all(tasks.map((task) => setFocus.mutateAsync({ taskId: task.id, date }))).then(() => {
-      showUndoToast(`Moved ${tasks.length} to tomorrow`, () => {
-        void Promise.all(tasks.map((task) => setFocus.mutateAsync({ taskId: task.id, date: data.date })));
+    void Promise.allSettled(tasks.map((task) => setFocus.mutateAsync({ taskId: task.id, date }))).then((results) => {
+      const moved = tasks.filter((_, index) => results[index]?.status === "fulfilled");
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") {
+        reportMutationError(failed.reason, "Could not move some tasks to tomorrow");
+      }
+      if (moved.length === 0) return;
+      showUndoToast(`Moved ${moved.length} to tomorrow`, () => {
+        void Promise.allSettled(
+          moved.map((task) => setFocus.mutateAsync({ taskId: task.id, date: data.date })),
+        ).then((undoResults) => {
+          const undoFailed = undoResults.find((result) => result.status === "rejected");
+          if (undoFailed?.status === "rejected") {
+            reportMutationError(undoFailed.reason, "Could not undo shutdown");
+          }
+        });
       });
     });
   };
@@ -844,8 +864,8 @@ export default function TodayDashboard() {
                           if (data.focusing?.id === task.id) stopAndComplete(task);
                           else completeTask(task);
                         }}
-                        onStart={() => void startFocus.mutateAsync(task.id)}
-                        onStop={() => void stopFocus.mutateAsync(task.id)}
+                        onStart={() => runMutation(startFocus.mutateAsync(task.id), "Could not start focus")}
+                        onStop={() => runMutation(stopFocus.mutateAsync(task.id), "Could not stop focus")}
                         onUnstar={() => unstar(task)}
                       />
                     ))

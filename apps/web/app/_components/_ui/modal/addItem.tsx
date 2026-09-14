@@ -624,6 +624,7 @@ export default function AddItemModal() {
       if (createTaskDraft?.kind === "reminder") {
         setTaskKind("reminder");
         setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
+        setCreateTaskDraft({ ...createTaskDraft, kind: undefined });
       }
     }
   }, [
@@ -632,6 +633,7 @@ export default function AddItemModal() {
     typedWorkspaces,
     selectedTaskWorkspaceId,
     setValueTask,
+    setCreateTaskDraft,
     createTaskDraft,
   ]);
 
