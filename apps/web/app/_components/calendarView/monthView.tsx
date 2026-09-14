@@ -6,6 +6,7 @@ import {
   eventStyle,
   isSameDay,
   monthGrid,
+  slotAt,
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
@@ -21,7 +22,7 @@ type MonthViewProps = {
   onOpenDay: (day: Date) => void;
   /** Empty-cell click schedules a task at 9:00 that day. */
   onSelectSlot?: (day: Date, hour: number) => void;
-  onDropTask?: (day: Date, hour: number, taskId: string) => void;
+  onDropTask?: (at: Date, taskId: string) => void;
 };
 
 export default function MonthView({
@@ -72,7 +73,7 @@ export default function MonthView({
                 if (!onDropTask) return;
                 event.preventDefault();
                 const taskId = readTaskDragId(event);
-                if (taskId) onDropTask(day, 9, taskId);
+                if (taskId) onDropTask(slotAt(day, 9), taskId);
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {

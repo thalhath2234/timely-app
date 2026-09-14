@@ -295,6 +295,7 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	var candidates []Candidate
 	var skipped []Skipped
 	candidateSet := map[string]bool{}
+	occCandidates := map[string]bool{}
 	var replaceManual []string
 
 	parentHasWork := map[string]bool{}
@@ -370,13 +371,14 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 				}
 				original := occ.OriginalStart
 				cand := s.makeCandidate(t, loc, todayStamp, from)
-				cand.ID = t.ID + "@" + original.UTC().Format(time.RFC3339)
+				cand.ID = occurrenceCandidateID(t.ID, original)
 				cand.TaskID = t.ID
 				cand.OccurrenceStart = &original
 				cand.EarliestStart = maxTimePtr(cand.EarliestStart, &occ.Start)
 				cand.Unscheduled = !hasOccurrenceBlock(t, original)
 				candidates = append(candidates, cand)
 				candidateSet[t.ID] = true
+				occCandidates[cand.ID] = true
 			}
 			continue
 		}
@@ -431,9 +433,14 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 			continue
 		}
 		if item.Kind == calendar.KindTaskOccurrence && item.Task != nil && item.Task.IsSchedulableWork() {
-			continue
-		}
-		if item.Kind == calendar.KindTask && candidateSet[item.TaskID] {
+			if item.OriginalStart != nil && occCandidates[occurrenceCandidateID(item.TaskID, *item.OriginalStart)] {
+				if item.Source == models.BlockSourceEngine || req.IncludeManual {
+					if freezeUntil.IsZero() || !item.Start.Before(freezeUntil) {
+						continue
+					}
+				}
+			}
+		} else if item.Kind == calendar.KindTask && candidateSet[item.TaskID] {
 			if item.Source == models.BlockSourceEngine || req.IncludeManual {
 				if freezeUntil.IsZero() || !item.Start.Before(freezeUntil) {
 					continue
@@ -632,13 +639,25 @@ func (s *service) AddBlock(userID, taskID string, input BlockInput) (*models.Tas
 		EndAt:   end,
 		Source:  models.BlockSourceManual,
 	}
+	keepID := ""
 	if input.Replace {
-		err = s.blocks.ReplaceForTask(taskID, userID, "", []models.ScheduledBlock{block})
+		next := []models.ScheduledBlock{block}
+		err = s.blocks.ReplaceForTask(taskID, userID, "", next)
+		if len(next) > 0 {
+			keepID = next[0].ID
+		}
 	} else {
 		block.ChunkIndex = len(t.Blocks)
-		_, err = s.blocks.Create(&block)
+		created, createErr := s.blocks.Create(&block)
+		err = createErr
+		if created != nil {
+			keepID = created.ID
+		}
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := s.displaceOverlapping(userID, start, end, keepID); err != nil {
 		return nil, err
 	}
 	return s.tasks.GetTaskByIdForUser(userID, taskID)
@@ -659,6 +678,9 @@ func (s *service) MoveBlock(userID, blockID string, startRaw string, endRaw *str
 		return nil, err
 	}
 	if err := s.blocks.Move(block, start, end); err != nil {
+		return nil, err
+	}
+	if err := s.displaceOverlapping(userID, start, end, block.ID); err != nil {
 		return nil, err
 	}
 	return block, nil
@@ -749,6 +771,30 @@ func derefString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func occurrenceCandidateID(taskID string, original time.Time) string {
+	return taskID + "@" + original.UTC().Format(time.RFC3339)
+}
+
+// displaceOverlapping drops other work blocks that cover [start, end) so the
+// block the user just placed can keep that slot. The schedule engine then
+// re-places those tasks in the next free time. keepBlockID is the pin.
+func (s *service) displaceOverlapping(userID string, start, end time.Time, keepBlockID string) error {
+	blocks, err := s.blocks.ListInRange(userID, start, end)
+	if err != nil {
+		return err
+	}
+	for i := range blocks {
+		block := &blocks[i]
+		if keepBlockID != "" && block.ID == keepBlockID {
+			continue
+		}
+		if err := s.blocks.Delete(block); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *service) FreeTime(userID string, from, to time.Time, timezone string) ([]Interval, error) {
