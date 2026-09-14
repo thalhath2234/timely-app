@@ -26,7 +26,7 @@ export default function TaskTypeToggle({
         className={cn(
           "inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
           value === "task"
-            ? "bg-background text-foreground shadow-sm"
+            ? "bg-primary text-primary-foreground shadow-sm"
             : "text-muted-foreground hover:text-foreground",
         )}
       >
@@ -41,7 +41,7 @@ export default function TaskTypeToggle({
         className={cn(
           "inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
           value === "reminder"
-            ? "bg-background text-foreground shadow-sm"
+            ? "bg-primary text-primary-foreground shadow-sm"
             : "text-muted-foreground hover:text-foreground",
         )}
       >

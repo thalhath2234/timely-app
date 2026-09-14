@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/app/utils/cn";
@@ -12,15 +12,23 @@ export const modalTitleClass =
 export function EntityModalShell({
   icon: Icon,
   label,
+  headerLeft,
   headerRight,
+  footer,
+  size = "md",
+  closeWithKbd = false,
   onClose,
   children,
 }: {
   icon: LucideIcon;
   label: string;
-  headerRight?: React.ReactNode;
+  headerLeft?: ReactNode;
+  headerRight?: ReactNode;
+  footer?: ReactNode;
+  size?: "md" | "xl";
+  closeWithKbd?: boolean;
   onClose: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -32,7 +40,7 @@ export function EntityModalShell({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-[6px] md:p-6"
       onPointerDown={(event) => {
         if (event.target !== event.currentTarget) return;
         // Slash/mention menus render on document.body above this overlay.
@@ -44,28 +52,43 @@ export function EntityModalShell({
       <div
         role="dialog"
         aria-modal="true"
-        className="flex h-[min(860px,calc(100vh-2rem))] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
+        className={cn(
+          "flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl shadow-black/40",
+          size === "xl"
+            ? "h-[min(942px,calc(100vh-2rem))] max-w-6xl"
+            : "h-[min(860px,calc(100vh-2rem))] max-w-5xl",
+        )}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-center gap-2 border-b border-border px-4 py-2.5">
-          <Icon className="size-4 text-muted-foreground" />
-          <span className="flex-1 text-sm capitalize text-muted-foreground">
-            {label}
-          </span>
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-5">
+          {headerLeft ?? (
+            <>
+              <Icon className="size-4 text-muted-foreground" />
+              <span className="flex-1 text-sm capitalize text-muted-foreground">
+                {label}
+              </span>
+            </>
+          )}
 
-          {headerRight}
+          <div className="ml-auto flex items-center gap-2">{headerRight}</div>
 
           <button
             type="button"
             onClick={onClose}
             title="Close"
-            className="flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
           >
-            <X className="size-4" />
+            <X className="size-3.5" />
+            {closeWithKbd ? (
+              <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+                ESC
+              </kbd>
+            ) : null}
           </button>
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">{children}</div>
+        {footer}
       </div>
     </div>
   );
@@ -79,7 +102,7 @@ export function ModalMain({
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5",
+        "flex min-h-0 flex-1 flex-col overflow-y-auto px-7 py-6",
         className,
       )}
       {...rest}
@@ -89,9 +112,9 @@ export function ModalMain({
   );
 }
 
-export function ModalSidebar({ children }: { children: React.ReactNode }) {
+export function ModalSidebar({ children }: { children: ReactNode }) {
   return (
-    <aside className="flex w-full shrink-0 flex-col overflow-y-auto border-t border-border bg-muted/15 px-4 py-4 lg:w-80 lg:border-l lg:border-t-0">
+    <aside className="flex w-full shrink-0 flex-col overflow-y-auto border-t border-border bg-muted/10 px-5 py-5 lg:w-[360px] lg:border-l lg:border-t-0">
       {children}
     </aside>
   );
@@ -104,25 +127,24 @@ export function PropertyRow({
 }: {
   icon: LucideIcon;
   label: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg px-1 py-1.5">
-      <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <span
-        title={label}
-        className="w-20 shrink-0 truncate text-xs text-muted-foreground"
-      >
-        {label}
+    <div className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 hover:bg-muted/40">
+      <span className="inline-flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        <Icon className="size-3.5 shrink-0" />
+        <span title={label} className="truncate">
+          {label}
+        </span>
       </span>
-      <div className="flex min-w-0 flex-1 items-center gap-1">{children}</div>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-1">{children}</div>
     </div>
   );
 }
 
-export function SidebarSectionTitle({ children }: { children: React.ReactNode }) {
+export function SidebarSectionTitle({ children }: { children: ReactNode }) {
   return (
-    <p className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">
+    <p className="mb-1.5 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
     </p>
   );

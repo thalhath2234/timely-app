@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,8 +9,12 @@ import {
   Check,
   Circle,
   Clock,
+  Cloud,
+  Copy,
   Flag,
   FolderKanban,
+  Layers,
+  Link2,
   ListTodo,
   Palette,
   Trash2,
@@ -31,7 +35,6 @@ import {
   ModalSidebar,
   PropertyRow,
   SidebarSectionTitle,
-  modalTitleClass,
 } from "@/app/_components/_ui/modal/entityModal";
 import Select from "@/app/_components/_ui/select";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
@@ -60,12 +63,14 @@ import {
   patchTaskInCache,
   useAddTaskComment,
   useDeleteTask,
+  useDuplicateTask,
   useTaskActivity,
   useTask,
   useTasks,
   useUpdateTask,
 } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useMe } from "@/app/utils/hooks/user";
 import {
   applyClockToDate,
   dateFromDateInput,
@@ -79,10 +84,18 @@ import { stagesForProject } from "@/app/utils/stages";
 import { isReminderTask } from "@/app/utils/taskFilters";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import ConfirmDialog from "@/app/_components/_ui/confirmDialog";
-import { showUndoToast } from "@/app/_store/toastStore";
+import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import TaskExecution from "@/app/_components/_ui/tasks/taskExecution";
 
 const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Urgent"];
+const DURATION_PRESETS = [
+  { minutes: 15, label: "15m" },
+  { minutes: 30, label: "30m" },
+  { minutes: 45, label: "45m" },
+  { minutes: 60, label: "1h" },
+  { minutes: 90, label: "90m" },
+  { minutes: 120, label: "2h" },
+];
 
 function isCompletedStatus(status: Status) {
   const name = status.name.trim().toLowerCase();
@@ -241,6 +254,7 @@ export default function EntityDetailPanel({
 function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
+  const duplicateTask = useDuplicateTask();
   const queryClient = useQueryClient();
   const { data: workspaces } = useWorkspaces();
 
@@ -329,6 +343,17 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
             }
           : undefined
       }
+      onDuplicate={() =>
+        void duplicateTask.mutateAsync(task.id).then((copy) => {
+          showUndoToast(`Duplicated “${copy.name}”`);
+        })
+      }
+      onCopyLink={() => {
+        void navigator.clipboard.writeText(
+          `${window.location.origin}/tasks?taskId=${encodeURIComponent(task.id)}`,
+        );
+        useToastStore.getState().show("Link copied");
+      }}
     >
       <TaskExecution task={task} />
     </DetailBody>
@@ -442,6 +467,8 @@ function DetailBody({
   onLabelsChange,
   onClose,
   onDelete,
+  onDuplicate,
+  onCopyLink,
   children,
 }: {
   view: DetailView;
@@ -449,9 +476,12 @@ function DetailBody({
   onLabelsChange?: (ids: string[]) => void;
   onClose: () => void;
   onDelete?: () => Promise<void> | void;
+  onDuplicate?: () => void;
+  onCopyLink?: () => void;
   children?: React.ReactNode;
 }) {
   const { data: workspaces } = useWorkspaces();
+  const { data: me } = useMe();
   const { data: tasks } = useTasks();
   const [title, setTitle] = useState(view.title);
   const [labelIds, setLabelIds] = useState(view.labelIds ?? []);
@@ -608,6 +638,13 @@ function DetailBody({
     typedProjects.find((project) => project.id === view.projectId)?.title ??
     view.facts.find((fact) => fact.label === "Project")?.value ??
     "-";
+  const stageName = stageOptions.find((stage) => stage.id === view.stageId)?.name;
+  const createdLabel = view.createdAt
+    ? `Created ${new Date(view.createdAt).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })}${me?.name ? ` by @${me.name}` : ""}`
+    : "";
 
   const defaultWorkspaceId = view.workspaceId || typedWorkspaces[0]?.id || "";
 
@@ -672,9 +709,23 @@ function DetailBody({
       kind={view.kind}
       completed={Boolean(view.completedAt)}
       saveStatus={<SaveStatusBadge status={status} onRetry={() => void flush()} />}
+      crumbs={{
+        workspace: workspaceName !== "-" ? workspaceName : view.kind === "project" ? title : "",
+        project: view.kind === "task" && projectName !== "-" ? projectName : "",
+        stage: stageName ?? "",
+      }}
       onToggleComplete={toggleComplete}
       onClose={onClose}
+      onSaveAndClose={() => {
+        void (async () => {
+          await saveDescription();
+          await flush();
+          onClose();
+        })();
+      }}
       onDelete={onDelete}
+      onDuplicate={onDuplicate}
+      onCopyLink={onCopyLink}
       deleteTitle={`Delete “${title.trim() || "Untitled"}”?`}
       deleteDescription={
         isInbox
@@ -685,6 +736,16 @@ function DetailBody({
       }
     >
       <ModalMain>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          {stageName ? (
+            <span className="rounded border border-primary/20 bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-primary">
+              {stageName}
+            </span>
+          ) : null}
+          {createdLabel ? (
+            <span className="text-xs text-muted-foreground">{createdLabel}</span>
+          ) : null}
+        </div>
         <input
           value={title}
           onChange={(event) => {
@@ -693,11 +754,11 @@ function DetailBody({
           }}
           onBlur={() => void flush()}
           placeholder="Untitled"
-          className={modalTitleClass}
+          className="w-full bg-transparent text-2xl font-bold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
         />
 
-        <div className="mt-4 flex h-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border">
-          <div className="flex min-h-0 flex-1 flex-col px-3 pt-2">
+        <div className="mt-4 flex min-h-52 shrink-0 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col">
             <RichTextEditor
               key={view.id}
               variant="compact"
@@ -711,26 +772,32 @@ function DetailBody({
               }}
             />
           </div>
-          <div className="flex shrink-0 justify-end border-t border-border px-3 py-2">
-            <button
-              type="button"
-              disabled={!descriptionDirty || descriptionSaving}
-              onClick={() => void saveDescription()}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {descriptionSaving ? "Saving..." : "Save"}
-            </button>
-          </div>
+          {descriptionDirty ? (
+            <div className="mt-2 flex shrink-0 justify-end">
+              <button
+                type="button"
+                disabled={descriptionSaving}
+                onClick={() => void saveDescription()}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {descriptionSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          ) : null}
         </div>
 
-        {children}
+        <div className="mt-5">{children}</div>
 
-        <section className="mt-8 border-t border-border pt-4">
-          <h3 className="text-sm font-medium text-foreground">Activity</h3>
+        <section className="mt-6 border-t border-border pt-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Activity &amp; Comments
+            </h3>
+          </div>
           {view.kind === "task" ? (
             <TaskActivityFeed taskId={view.id} />
           ) : (
-            <p className="mt-3 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Created {formatActivityTime(view.createdAt)}
               {view.updatedAt && view.updatedAt !== view.createdAt
                 ? ` · Updated ${formatActivityTime(view.updatedAt)}`
@@ -779,7 +846,7 @@ function DetailBody({
                   ? "Assign a workspace to put this on the board, or choose Reminder for a ping."
                   : isReminder
                     ? "Pings at a chosen time. Does not reserve a work block."
-                    : "Estimated minutes of work the scheduler can place."}
+                    : `Estimated focus capacity: ${view.duration ?? 30} minutes`}
               </p>
             </div>
           ) : null}
@@ -866,7 +933,7 @@ function DetailBody({
             />
           </PropertyRow>
           {view.kind === "task" && stageOptions.length > 0 ? (
-          <PropertyRow icon={FolderKanban} label="Stage">
+          <PropertyRow icon={Layers} label="Stage">
             <Select
               size="sm"
               value={view.stageId ?? ""}
@@ -905,6 +972,7 @@ function DetailBody({
           </PropertyRow>
 
           {view.kind === "task" && !isInbox && !isReminder ? (
+            <>
             <PropertyRow icon={Clock} label="Duration">
               <input
                 type="number"
@@ -917,15 +985,33 @@ function DetailBody({
                     duration: Math.max(15, Number(event.target.value) || 30),
                   })
                 }
-                className="w-full bg-transparent text-sm text-foreground outline-none"
+                className="w-16 bg-transparent text-right text-sm text-foreground outline-none"
               />
               <span className="shrink-0 text-xs text-muted-foreground">min</span>
             </PropertyRow>
+            <div className="flex flex-wrap gap-1 px-1.5 pb-1">
+              {DURATION_PRESETS.map((preset) => (
+                <button
+                  key={preset.minutes}
+                  type="button"
+                  onClick={() => schedule({ duration: preset.minutes })}
+                  className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                    (view.duration ?? 30) === preset.minutes
+                      ? "border-primary/40 bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:border-border hover:text-foreground"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            </>
           ) : null}
 
           <PropertyRow icon={CalendarDays} label="Start date">
             <DatePicker
               mode="date"
+              size="sm"
               value={toDateInputValue(view.startDate)}
               onChange={(startDate) => {
                 const timeOnly =
@@ -950,6 +1036,12 @@ function DetailBody({
           <PropertyRow icon={CalendarDays} label="Deadline">
             <DatePicker
               mode="date"
+              size="sm"
+              className={
+                view.deadline
+                  ? "border-destructive/30 bg-destructive/5 text-destructive"
+                  : undefined
+              }
               value={toDateInputValue(view.deadline)}
               onChange={(deadline) => schedule({ deadline })}
             />
@@ -986,7 +1078,9 @@ function DetailBody({
 
               {!isReminder ? (
               <div className="pt-2">
-                <p className="mb-1.5 text-xs text-muted-foreground">Labels</p>
+                <p className="mb-1.5 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Labels
+                </p>
                 <LabelPicker
                   labels={labelOptions}
                   selectedIds={labelIds}
@@ -1023,6 +1117,7 @@ function DetailBody({
 
               {!isReminder ? (
               <div className="mt-4 border-t border-border pt-3">
+                <SidebarSectionTitle>Dependencies</SidebarSectionTitle>
                 <PropertyRow icon={Ban} label="Blocked by">
                   <Select
                     size="sm"
@@ -1083,34 +1178,45 @@ function TaskActivityFeed({ taskId }: { taskId: string }) {
 
   return (
     <>
-      <div className="mt-3 rounded-lg border border-border bg-input/20 px-3 py-2">
-        <textarea
-          rows={2}
-          value={comment}
-          onChange={(event) => setComment(event.target.value)}
-          onKeyDown={onCommentKeyDown}
-          placeholder="Enter comment"
-          className="w-full resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-        />
-        <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-muted-foreground">
-          {addComment.isError && (
-            <span className="text-destructive">Could not post comment</span>
-          )}
-          <kbd className="rounded border border-border px-1">Ctrl</kbd>
-          <span>+</span>
-          <kbd className="rounded border border-border px-1">Enter</kbd>
-        </div>
-      </div>
-
       {isLoading ? (
-        <p className="mt-3 text-xs text-muted-foreground">Loading activity...</p>
+        <p className="text-xs text-muted-foreground">Loading activity...</p>
       ) : (
-        <ol className="mt-4 flex flex-col gap-3">
+        <ol className="mb-4 flex flex-col gap-3">
           {(entries ?? []).map((entry) => (
             <TaskActivityItem key={entry.id} entry={entry} />
           ))}
         </ol>
       )}
+
+      <div className="rounded-xl border border-border bg-muted/20 px-3 py-2.5">
+        <textarea
+          rows={2}
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+          onKeyDown={onCommentKeyDown}
+          placeholder="Add a comment..."
+          className="w-full resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+        />
+        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+          {addComment.isError ? (
+            <span className="text-destructive">Could not post comment</span>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-border bg-muted px-1">Ctrl</kbd>
+              <span>+</span>
+              <kbd className="rounded border border-border bg-muted px-1">Enter</kbd>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!comment.trim() || addComment.isPending}
+            className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-50"
+          >
+            {addComment.isPending ? "Sending..." : "Send"}
+          </button>
+        </div>
+      </div>
     </>
   );
 }
@@ -1154,21 +1260,29 @@ function TaskActivityItem({ entry }: { entry: TaskActivity }) {
 function PanelShell({
   children,
   onClose,
+  onSaveAndClose,
   saveStatus,
+  crumbs,
   kind = "task",
   completed = false,
   onToggleComplete,
   onDelete,
+  onDuplicate,
+  onCopyLink,
   deleteTitle = "Delete this task?",
   deleteDescription = "This cannot be undone.",
 }: {
   children: React.ReactNode;
   onClose: () => void;
+  onSaveAndClose?: () => void;
   saveStatus?: React.ReactNode;
+  crumbs?: { workspace?: string; project?: string; stage?: string };
   kind?: "task" | "project";
   completed?: boolean;
   onToggleComplete?: () => void;
   onDelete?: () => Promise<void> | void;
+  onDuplicate?: () => void;
+  onCopyLink?: () => void;
   deleteTitle?: string;
   deleteDescription?: string;
 }) {
@@ -1186,57 +1300,152 @@ function PanelShell({
     }
   };
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.target instanceof HTMLElement)) return;
+      const typing =
+        event.target.tagName === "INPUT" ||
+        event.target.tagName === "TEXTAREA" ||
+        event.target.tagName === "SELECT" ||
+        event.target.isContentEditable;
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        if (event.target instanceof HTMLTextAreaElement) return;
+        event.preventDefault();
+        onSaveAndClose?.();
+        return;
+      }
+      if (typing) return;
+      if (event.key.toLowerCase() === "c" && onToggleComplete) {
+        event.preventDefault();
+        onToggleComplete();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onSaveAndClose, onToggleComplete]);
+
+  const crumbParts = [crumbs?.workspace, crumbs?.project, crumbs?.stage].filter(
+    Boolean,
+  ) as string[];
+
+  const iconButtonClass =
+    "inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border border-border bg-muted/40 text-muted-foreground transition-colors hover:border-border hover:text-foreground";
+
   return (
     <>
-    <EntityModalShell
-      icon={kind === "project" ? FolderKanban : ListTodo}
-      label={kind}
-      onClose={onClose}
-      headerRight={
-        <>
-          {saveStatus}
+      <EntityModalShell
+        icon={kind === "project" ? FolderKanban : ListTodo}
+        label={kind}
+        size="xl"
+        closeWithKbd
+        onClose={onClose}
+        headerLeft={
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
+            {crumbParts.map((part, index) => (
+              <span key={`${part}-${index}`} className="inline-flex min-w-0 items-center gap-1.5">
+                {index > 0 ? <span className="text-muted-foreground/50">/</span> : null}
+                <span className="truncate font-medium text-foreground/80">{part}</span>
+              </span>
+            ))}
+          </div>
+        }
+        headerRight={
+          <>
+            {saveStatus}
 
-          {onToggleComplete && (
-            <button
-              type="button"
-              onClick={onToggleComplete}
-              className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                completed
-                  ? "bg-success/15 text-success hover:bg-success/25"
-                  : "bg-foreground text-background hover:opacity-90"
-              }`}
-            >
-              <Check className="size-4" />
-              {completed ? "Completed" : "Mark complete"}
-            </button>
-          )}
+            {onToggleComplete ? (
+              <button
+                type="button"
+                onClick={onToggleComplete}
+                className={`inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors ${
+                  completed
+                    ? "border-success/30 bg-success/15 text-success hover:bg-success/25"
+                    : "border-transparent bg-foreground text-background hover:opacity-90"
+                }`}
+              >
+                <Check className="size-3.5" />
+                {completed ? "Completed" : "Mark complete"}
+              </button>
+            ) : null}
 
-          {onDelete && (
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
-            >
-              <Trash2 className="size-4" />
-              Delete
-            </button>
-          )}
-        </>
-      }
-    >
-      {children}
-    </EntityModalShell>
-    {confirmingDelete ? (
-      <ConfirmDialog
-        title={deleteTitle}
-        description={deleteDescription}
-        pending={deleting}
-        onCancel={() => {
-          if (!deleting) setConfirmingDelete(false);
-        }}
-        onConfirm={() => void confirmDelete()}
-      />
-    ) : null}
+            {onDuplicate ? (
+              <button
+                type="button"
+                onClick={onDuplicate}
+                title="Duplicate"
+                className={iconButtonClass}
+              >
+                <Copy className="size-3.5" />
+              </button>
+            ) : null}
+
+            {onCopyLink ? (
+              <button
+                type="button"
+                onClick={onCopyLink}
+                title="Copy link"
+                className={iconButtonClass}
+              >
+                <Link2 className="size-3.5" />
+              </button>
+            ) : null}
+
+            {onDelete ? (
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                title="Delete"
+                className={`${iconButtonClass} hover:bg-destructive/10 hover:text-destructive`}
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            ) : null}
+          </>
+        }
+        footer={
+          <footer className="flex h-10 shrink-0 items-center justify-between border-t border-border bg-muted/20 px-5 text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-4">
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
+                  ⌘↵
+                </kbd>
+                Save &amp; Close
+              </span>
+              <span className="hidden items-center gap-1.5 sm:inline-flex">
+                <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
+                  Tab
+                </kbd>
+                Navigate
+              </span>
+              {onToggleComplete ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
+                    C
+                  </kbd>
+                  Mark Complete
+                </span>
+              ) : null}
+            </div>
+            <span className="inline-flex items-center gap-1.5">
+              <Cloud className="size-3.5" />
+              Synced with Cloud
+            </span>
+          </footer>
+        }
+      >
+        {children}
+      </EntityModalShell>
+      {confirmingDelete ? (
+        <ConfirmDialog
+          title={deleteTitle}
+          description={deleteDescription}
+          pending={deleting}
+          onCancel={() => {
+            if (!deleting) setConfirmingDelete(false);
+          }}
+          onConfirm={() => void confirmDelete()}
+        />
+      ) : null}
     </>
   );
 }

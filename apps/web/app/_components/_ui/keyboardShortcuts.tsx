@@ -35,6 +35,7 @@ export default function KeyboardShortcuts() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
+      if (document.querySelector('[role="dialog"]')) return;
 
       const key = event.key.toLowerCase();
 
