@@ -104,8 +104,14 @@ export function TaskToolbar({
   const isProjectScope = scope === "project";
 
   useEffect(() => {
+    const isInsideSelectPortal = (event: Event) =>
+      event.composedPath().some(
+        (node) => node instanceof Element && node.matches("[data-select-portal='true']"),
+      );
+
     const handleOutsideClick = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node;
+      if (isInsideSelectPortal(event)) return;
 
       if (groupPanelOpen && groupPanelRef.current && !groupPanelRef.current.contains(target)) {
         setGroupPanelOpen(false);
@@ -313,11 +319,6 @@ export function TaskToolbar({
                   <div
                     key={`group-field-${index}`}
                     className="flex items-center gap-2"
-                    draggable
-                    onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = "move";
-                      setDragGroupIndex(index);
-                    }}
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={(event) => {
                       event.preventDefault();
@@ -326,9 +327,16 @@ export function TaskToolbar({
                       }
                       setDragGroupIndex(null);
                     }}
-                    onDragEnd={() => setDragGroupIndex(null)}
                   >
-                    <span className="cursor-grab text-muted-foreground active:cursor-grabbing">
+                    <span
+                      className="cursor-grab text-muted-foreground active:cursor-grabbing"
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        setDragGroupIndex(index);
+                      }}
+                      onDragEnd={() => setDragGroupIndex(null)}
+                    >
                       <GripVertical size={14} />
                     </span>
 
@@ -340,6 +348,7 @@ export function TaskToolbar({
                         options={availableGroups.map((option) => ({
                           value: option,
                           label: groupLabel(option),
+                          disabled: option !== value && currentGroups.includes(option),
                         }))}
                       />
                     </div>

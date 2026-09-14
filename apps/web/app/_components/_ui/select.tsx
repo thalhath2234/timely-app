@@ -161,6 +161,7 @@ export default function Select({
         aria-expanded={open}
         aria-controls={listId}
         aria-label={ariaLabel}
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={() => (open ? setOpen(false) : openMenu())}
         className={cn(
           triggerBase,
@@ -196,6 +197,7 @@ export default function Select({
             ref={panelRef}
             id={listId}
             role="listbox"
+            data-select-portal="true"
             aria-label={ariaLabel ?? placeholder}
             className="fixed z-[100] max-h-60 overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl ring-1 ring-foreground/10"
             style={{
@@ -204,6 +206,9 @@ export default function Select({
               width: Math.max(pos.width, 160),
               transform: pos.openUp ? "translateY(-100%)" : undefined,
             }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onTouchStart={(event) => event.stopPropagation()}
           >
             {options.length === 0 ? (
               <p className="px-2 py-1.5 text-sm text-muted-foreground">
