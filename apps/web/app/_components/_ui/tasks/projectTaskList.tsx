@@ -1,19 +1,19 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Eye, EyeOff } from "lucide-react";
 import type { Project, Task, Workspace } from "@/app/_types/types";
 import BulkActionBar from "@/app/_components/_ui/tasks/bulkActionBar";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import GanttView from "@/app/_components/_ui/tasks/ganttView";
 import KanbanView from "@/app/_components/_ui/tasks/kanbanView";
-import { TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToolbar";
+import { TaskListStatusBar, TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToolbar";
 import TasksTable from "@/app/_components/_ui/tasks/tasktable";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { usePersistedProjectTaskView } from "@/app/utils/hooks/projectTaskView";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { filterTasks } from "@/app/utils/taskFilters";
+import { filterTasks, DEFAULT_TASK_FILTERS } from "@/app/utils/taskFilters";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
 
 export default function ProjectTaskList({
@@ -125,6 +125,15 @@ export default function ProjectTaskList({
     () => filterTasks(allTasks, listFilters),
     [allTasks, listFilters],
   );
+  const scopedTotal = useMemo(
+    () =>
+      filterTasks(allTasks, {
+        ...DEFAULT_TASK_FILTERS,
+        projectIds: [project.id],
+        showReminders,
+      }).length,
+    [allTasks, project.id, showReminders],
+  );
 
   const getGroupLabel = useCallback(
     (task: Task, groupBy: typeof groupFields[number]): string => {
@@ -205,22 +214,26 @@ export default function ProjectTaskList({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-12 items-center justify-between border-b border-border px-4">
+      <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <button
           type="button"
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
           onClick={() => setOptionsVisible((previous) => !previous)}
           aria-pressed={!optionsVisible}
         >
+          {optionsVisible ? <EyeOff size={14} /> : <Eye size={14} />}
           {optionsVisible ? "Hide options" : "Show options"}
         </button>
         <button
           type="button"
           onClick={openCreate}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-colors hover:bg-primary/90"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
         >
           <Plus size={14} />
           New task
+          <kbd className="ml-0.5 hidden rounded bg-primary-foreground/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary-foreground/90 sm:inline">
+            C
+          </kbd>
         </button>
       </div>
 
@@ -331,6 +344,13 @@ export default function ProjectTaskList({
           <GanttView rows={dataRows} dataMode={dataMode} onSelectRow={openRow} />
         ) : null}
       </div>
+
+      <TaskListStatusBar
+        shown={dataRows.length}
+        total={scopedTotal}
+        synced={!syncError}
+        noun={showReminders ? "reminders" : "tasks"}
+      />
 
     </div>
   );

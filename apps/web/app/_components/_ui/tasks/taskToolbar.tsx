@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, GripVertical, X } from "lucide-react";
+import { ChevronDown, GripVertical, List, X } from "lucide-react";
 import Select from "@/app/_components/_ui/select";
 import type {
   CustomField,
@@ -263,20 +263,6 @@ export function TaskToolbar({
     setSelectedStatusIds(next.length === 0 || next.length === allIds.length ? [] : next);
   };
 
-  const workspaceButtonLabel =
-    selectedWorkspaceIds.length === 0
-      ? "Workspace: All"
-      : selectedWorkspaceIds.length === 1
-        ? `Workspace: ${workspaces.find((item) => item.id === selectedWorkspaceIds[0])?.name ?? "Selected"}`
-        : `Workspace: ${selectedWorkspaceIds.length} selected`;
-
-  const selectedStatusLabel =
-    selectedStatusIds.length === 0
-      ? "Status: All"
-      : selectedStatusIds.length === 1
-        ? `Status: ${statusOptions.find((status) => status.id === selectedStatusIds[0])?.name ?? "Selected"}`
-        : `Status: ${selectedStatusIds.length} selected`;
-
   const sortOptions = [
     { value: "name", label: "Name" },
     { value: "deadline", label: "Deadline" },
@@ -294,14 +280,17 @@ export function TaskToolbar({
   ];
 
   return (
-    <div className="flex h-12 items-center justify-between border-b border-border px-4">
-      <div className="flex items-center gap-2">
+    <div className="flex min-h-11 flex-wrap items-center justify-between gap-y-2 border-b border-border bg-muted/20 px-5 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="relative" ref={groupPanelRef}>
           <button
-            className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-xs text-primary transition-colors hover:bg-primary/20"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
             onClick={() => setGroupPanelOpen((prev) => !prev)}
           >
-            Group by: {currentGroups.length ? currentGroups.map(groupLabel).join(" > ") : "None"}
+            <span className="font-medium text-primary/80">Group by:</span>
+            <span className="font-semibold text-foreground">
+              {currentGroups.length ? currentGroups.map(groupLabel).join(" > ") : "None"}
+            </span>
             <ChevronDown size={14} />
           </button>
 
@@ -403,7 +392,7 @@ export function TaskToolbar({
 
         <div className="relative" ref={groupSortPanelRef}>
           <button
-            className="rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
             onClick={() => setGroupSortPanelOpen((prev) => !prev)}
           >
             Sort Groups
@@ -455,9 +444,9 @@ export function TaskToolbar({
           )}
         </div>
 
-        <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted p-1">
+        <div className="inline-flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
           <button
-            className={`min-w-16 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs transition ${
+            className={`inline-flex min-w-16 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition ${
               viewMode === "list"
                 ? "bg-background font-medium text-foreground shadow-xs"
                 : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -465,11 +454,12 @@ export function TaskToolbar({
             onClick={() => setViewMode("list")}
             aria-pressed={viewMode === "list"}
           >
+            <List size={12} className={viewMode === "list" ? "text-primary" : ""} />
             List
           </button>
 
           <button
-            className={`min-w-16 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs transition ${
+            className={`min-w-16 whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition ${
               viewMode === "kanban"
                 ? "bg-background font-medium text-foreground shadow-xs"
                 : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -481,7 +471,7 @@ export function TaskToolbar({
           </button>
 
           <button
-            className={`min-w-16 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs transition ${
+            className={`min-w-16 whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition ${
               viewMode === "gantt"
                 ? "bg-background font-medium text-foreground shadow-xs"
                 : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -493,33 +483,41 @@ export function TaskToolbar({
           </button>
         </div>
 
-        <label className="text-xs text-muted-foreground">Sort</label>
-
-        <div className="w-36">
-          <Select
-            size="sm"
-            value={sortBy}
-            onChange={(next) => setSortBy(next as TaskListSortBy)}
-            options={sortOptions}
-          />
+        <div className="inline-flex items-center gap-1.5">
+          <span className="text-muted-foreground">Sort</span>
+          <div className="w-32">
+            <Select
+              size="sm"
+              value={sortBy}
+              onChange={(next) => setSortBy(next as TaskListSortBy)}
+              options={sortOptions}
+              aria-label="Sort by"
+            />
+          </div>
+          <button
+            className="rounded-md border border-border bg-muted/40 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
+          >
+            {sortDirection === "asc" ? "Asc" : "Desc"}
+          </button>
         </div>
-
-        <button
-          className="rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
-        >
-          {sortDirection === "asc" ? "Asc" : "Desc"}
-        </button>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <div className="relative" ref={statusPanelRef}>
           <button
-            className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => setStatusPanelOpen((prev) => !prev)}
           >
-            {selectedStatusLabel}
-            <ChevronDown size={14} />
+            <span>Status:</span>
+            <span className="font-medium text-foreground">
+              {selectedStatusIds.length === 0
+                ? "All"
+                : selectedStatusIds.length === 1
+                  ? (statusOptions.find((status) => status.id === selectedStatusIds[0])?.name ?? "Selected")
+                  : `${selectedStatusIds.length} selected`}
+            </span>
+            <ChevronDown size={12} />
           </button>
 
           {statusPanelOpen && (
@@ -569,11 +567,18 @@ export function TaskToolbar({
         {!isProjectScope ? (
           <div className="relative" ref={workspacePanelRef}>
             <button
-              className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
               onClick={() => setWorkspacePanelOpen((prev) => !prev)}
             >
-              {workspaceButtonLabel}
-              <ChevronDown size={14} />
+              <span>Workspace:</span>
+              <span className="font-medium text-foreground">
+                {selectedWorkspaceIds.length === 0
+                  ? "All"
+                  : selectedWorkspaceIds.length === 1
+                    ? (workspaces.find((item) => item.id === selectedWorkspaceIds[0])?.name ?? "Selected")
+                    : `${selectedWorkspaceIds.length} selected`}
+              </span>
+              <ChevronDown size={12} />
             </button>
 
             {workspacePanelOpen && (
@@ -622,8 +627,8 @@ export function TaskToolbar({
           </div>
         ) : null}
 
-        <span className="text-xs text-muted-foreground">
-          {dataMode === "task" ? (showReminders ? "REMINDERS" : "TASKS") : "PROJECTS"}: {dataCount}
+        <span className="rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-primary">
+          {dataMode === "task" ? (showReminders ? "Reminders" : "Tasks") : "Projects"}: {dataCount}
         </span>
       </div>
     </div>
@@ -686,55 +691,62 @@ export function TaskOptionsBar({
   );
 
   return (
-    <div className="flex flex-wrap items-center gap-4 border-b border-border px-4 py-2 text-sm text-muted-foreground">
-      <label className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-4">
+      <label className="flex items-center gap-1.5">
         <input
           type="checkbox"
-          className="accent-primary"
+          className="size-3.5 rounded border-border accent-primary"
           checked={onlyOverdue}
           onChange={(event) => setOnlyOverdue(event.target.checked)}
         />
         Overdue
       </label>
-      <label className="flex items-center gap-2">
+      <label
+        className={`flex items-center gap-1.5 ${
+          showCompleted ? "font-medium text-success" : ""
+        }`}
+      >
         <input
           type="checkbox"
-          className="accent-primary"
+          className="size-3.5 rounded border-border accent-success"
           checked={showCompleted}
           onChange={(event) => setShowCompleted(event.target.checked)}
         />
         Show completed
       </label>
-      <label className="flex items-center gap-2">
+      <label className="flex items-center gap-1.5">
         <input
           type="checkbox"
-          className="accent-primary"
+          className="size-3.5 rounded border-border accent-primary"
           checked={onlyScheduled}
           onChange={(event) => setOnlyScheduled(event.target.checked)}
         />
         Scheduled
       </label>
-      <label className="flex items-center gap-2">
+      <label className="flex items-center gap-1.5">
         <input
           type="checkbox"
-          className="accent-primary"
+          className="size-3.5 rounded border-border accent-primary"
           checked={onlyRecurring}
           onChange={(event) => setOnlyRecurring(event.target.checked)}
         />
         Recurring
       </label>
       <label
-        className="flex items-center gap-2"
+        className="flex items-center gap-1.5"
         title="Only tasks with a deadline or reserved calendar time"
       >
         <input
           type="checkbox"
-          className="accent-primary"
+          className="size-3.5 rounded border-border accent-primary"
           checked={onlyDated}
           onChange={(event) => setOnlyDated(event.target.checked)}
         />
         Dated only
       </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
       {!isProjectScope ? (
         <div className="w-40">
           <Select
@@ -794,6 +806,50 @@ export function TaskOptionsBar({
           />
         </div>
       ) : null}
+      </div>
     </div>
+  );
+}
+
+export function TaskListStatusBar({
+  shown,
+  total,
+  synced = true,
+  noun = "tasks",
+}: {
+  shown: number;
+  total: number;
+  synced?: boolean;
+  noun?: string;
+}) {
+  return (
+    <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/20 px-5 py-2 text-[11px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`size-2 rounded-full ${synced ? "bg-success" : "bg-warning"}`} />
+          {synced ? "All local changes synced" : "View changes waiting to sync"}
+        </span>
+        <span className="text-border">·</span>
+        <span>
+          Showing {shown}
+          {total !== shown ? ` of ${total}` : ""} {noun}
+        </span>
+      </div>
+      <div className="hidden items-center gap-3 sm:flex">
+        <span className="inline-flex items-center gap-1.5">
+          <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px] text-foreground">
+            ⌘K
+          </kbd>
+          Quick search
+        </span>
+        <span className="text-border">·</span>
+        <span className="inline-flex items-center gap-1.5">
+          <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px] text-foreground">
+            C
+          </kbd>
+          New task
+        </span>
+      </div>
+    </footer>
   );
 }
