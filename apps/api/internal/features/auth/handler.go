@@ -203,13 +203,12 @@ func (h *Handler) ListSessions(c *echo.Context) error {
 		current = sid
 	}
 	type sessionView struct {
-		ID          string  `json:"id"`
-		DeviceLabel string  `json:"deviceLabel"`
-		CreatedAt   string  `json:"createdAt"`
-		LastUsedAt  string  `json:"lastUsedAt"`
-		ExpiresAt   string  `json:"expiresAt"`
-		RevokedAt   *string `json:"revokedAt,omitempty"`
-		Current     bool    `json:"current"`
+		ID          string `json:"id"`
+		DeviceLabel string `json:"deviceLabel"`
+		CreatedAt   string `json:"createdAt"`
+		LastUsedAt  string `json:"lastUsedAt"`
+		ExpiresAt   string `json:"expiresAt"`
+		Current     bool   `json:"current"`
 	}
 	out := make([]sessionView, 0, len(sessions))
 	for _, session := range sessions {
@@ -219,7 +218,6 @@ func (h *Handler) ListSessions(c *echo.Context) error {
 			CreatedAt:   session.CreatedAt,
 			LastUsedAt:  session.LastUsedAt,
 			ExpiresAt:   session.ExpiresAt,
-			RevokedAt:   session.RevokedAt,
 			Current:     session.ID == current,
 		})
 	}

@@ -17,8 +17,8 @@ type SessionRepository interface {
 	ListByUser(userID string) ([]models.UserSession, error)
 	Touch(id string, lastUsedAt string) error
 	Update(session *models.UserSession) error
-	Revoke(id string, revokedAt string) error
-	RevokeOthers(userID, keepID, revokedAt string) (int64, error)
+	Revoke(id string) error
+	RevokeOthers(userID, keepID string) (int64, error)
 }
 
 type sessionRepository struct {
@@ -50,6 +50,10 @@ func (r *sessionRepository) GetByRefreshHash(hash string) (*models.UserSession, 
 }
 
 func (r *sessionRepository) ListByUser(userID string) ([]models.UserSession, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := r.db.Where("user_id = ? AND expires_at <= ?", userID, now).Delete(&models.UserSession{}).Error; err != nil {
+		return nil, err
+	}
 	var sessions []models.UserSession
 	err := r.db.Where("user_id = ?", userID).Order("created_at DESC").Find(&sessions).Error
 	return sessions, err
@@ -68,14 +72,12 @@ func (r *sessionRepository) Update(session *models.UserSession) error {
 	}).Error
 }
 
-func (r *sessionRepository) Revoke(id string, revokedAt string) error {
-	return r.db.Model(&models.UserSession{}).Where("id = ?", id).Update("revoked_at", revokedAt).Error
+func (r *sessionRepository) Revoke(id string) error {
+	return r.db.Where("id = ?", id).Delete(&models.UserSession{}).Error
 }
 
-func (r *sessionRepository) RevokeOthers(userID, keepID, revokedAt string) (int64, error) {
-	res := r.db.Model(&models.UserSession{}).
-		Where("user_id = ? AND id <> ? AND revoked_at IS NULL", userID, keepID).
-		Update("revoked_at", revokedAt)
+func (r *sessionRepository) RevokeOthers(userID, keepID string) (int64, error) {
+	res := r.db.Where("user_id = ? AND id <> ?", userID, keepID).Delete(&models.UserSession{})
 	return res.RowsAffected, res.Error
 }
 
@@ -93,7 +95,7 @@ func newRefreshToken() (string, error) {
 }
 
 func sessionStillValid(session *models.UserSession, now time.Time) bool {
-	if session == nil || session.IsRevoked() {
+	if session == nil {
 		return false
 	}
 	expires, err := time.Parse(time.RFC3339, session.ExpiresAt)

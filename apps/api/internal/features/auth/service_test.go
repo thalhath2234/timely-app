@@ -102,20 +102,22 @@ func (f *fakeSessions) Update(session *models.UserSession) error {
 	return f.Create(session)
 }
 
-func (f *fakeSessions) Revoke(id string, revokedAt string) error {
+func (f *fakeSessions) Revoke(id string) error {
 	session, ok := f.byID[id]
 	if !ok {
 		return gorm.ErrRecordNotFound
 	}
-	session.RevokedAt = &revokedAt
+	delete(f.byRefresh, session.RefreshTokenHash)
+	delete(f.byID, id)
 	return nil
 }
 
-func (f *fakeSessions) RevokeOthers(userID, keepID, revokedAt string) (int64, error) {
+func (f *fakeSessions) RevokeOthers(userID, keepID string) (int64, error) {
 	var n int64
-	for _, session := range f.byID {
-		if session.UserID == userID && session.ID != keepID && session.RevokedAt == nil {
-			session.RevokedAt = &revokedAt
+	for id, session := range f.byID {
+		if session.UserID == userID && session.ID != keepID {
+			delete(f.byRefresh, session.RefreshTokenHash)
+			delete(f.byID, id)
 			n++
 		}
 	}

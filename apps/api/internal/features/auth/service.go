@@ -213,7 +213,7 @@ func (s *authService) LogoutSession(sessionID string) error {
 	if sessionID == "" {
 		return nil
 	}
-	return s.sessions.Revoke(sessionID, time.Now().UTC().Format(time.RFC3339))
+	return s.sessions.Revoke(sessionID)
 }
 
 func (s *authService) LogoutRefresh(refreshToken string) error {
@@ -250,7 +250,7 @@ func (s *authService) RevokeOtherSessions(userID, currentSessionID string) (int6
 	if err != nil || session.UserID != userID {
 		return 0, gorm.ErrRecordNotFound
 	}
-	return s.sessions.RevokeOthers(userID, currentSessionID, time.Now().UTC().Format(time.RFC3339))
+	return s.sessions.RevokeOthers(userID, currentSessionID)
 }
 
 func (s *authService) SessionIsActive(sessionID string) bool {

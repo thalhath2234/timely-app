@@ -169,7 +169,7 @@ function DeviceSessions() {
     mutationFn: revokeOtherSessions,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sessions"] }),
   });
-  const otherActive = (sessions.data ?? []).filter((item) => !item.current && !item.revokedAt).length;
+  const otherActive = (sessions.data ?? []).filter((item) => !item.current).length;
 
   return (
     <section className="mt-8 flex max-w-lg flex-col gap-3">
@@ -234,18 +234,14 @@ function DeviceSessions() {
                 </details>
               ) : null}
             </div>
-            {!session.revokedAt ? (
-              <button
-                type="button"
-                disabled={revoke.isPending}
-                onClick={() => revoke.mutate(session.id)}
-                className="shrink-0 text-xs text-destructive hover:underline disabled:opacity-60"
-              >
-                Log out
-              </button>
-            ) : (
-              <span className="text-xs text-muted-foreground">Revoked</span>
-            )}
+            <button
+              type="button"
+              disabled={revoke.isPending}
+              onClick={() => revoke.mutate(session.id)}
+              className="shrink-0 text-xs text-destructive hover:underline disabled:opacity-60"
+            >
+              Log out
+            </button>
           </li>
         ))}
       </ul>

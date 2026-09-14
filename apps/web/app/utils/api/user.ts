@@ -47,7 +47,6 @@ export type DeviceSession = {
   createdAt: string;
   lastUsedAt: string;
   expiresAt: string;
-  revokedAt?: string | null;
   current: boolean;
 };
 
