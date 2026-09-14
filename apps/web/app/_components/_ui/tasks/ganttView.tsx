@@ -3,6 +3,7 @@
 import { useMemo, useState, type DragEvent } from "react";
 import type { Task, TaskListDataMode } from "@/app/_types/types";
 import { toDateInputValue } from "@/app/utils/calendar";
+import { resolvedColor } from "@/app/utils/entityColor";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { dragHasTask, readTaskDragId, setTaskDragData } from "@/app/utils/taskDrag";
 import { taskTimelineSpan } from "@/app/utils/taskDates";
@@ -144,6 +145,10 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
           const endOffset = end.getTime() - timelineRows.min.getTime();
           const left = (startOffset / totalDurationMs) * 100;
           const width = Math.max(2, ((endOffset - startOffset) / totalDurationMs) * 100);
+          const barColor = resolvedColor(
+            row.project?.color || row.workspace?.color,
+            row.project?.id || row.workspace?.id,
+          );
 
           return (
             <div
@@ -160,8 +165,20 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
               className="grid cursor-pointer grid-cols-[320px_1fr] border-b border-border transition-colors last:border-b-0 hover:bg-muted/40"
             >
               <div className="px-3 py-3">
-                <div className="truncate text-sm text-foreground">{row.name}</div>
-                <div className="mt-1 truncate text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: barColor }}
+                  />
+                  <div className="truncate text-sm text-foreground">{row.name}</div>
+                </div>
+                <div className="mt-1 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                  {row.workspace?.color ? (
+                    <span
+                      className="size-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: row.workspace.color }}
+                    />
+                  ) : null}
                   {row.workspace?.name || "No workspace"}
                 </div>
               </div>
@@ -176,10 +193,11 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
               >
                 <div className="relative h-8 rounded-md border border-border bg-muted">
                   <div
-                    className="absolute top-1/2 h-4 -translate-y-1/2 rounded-md bg-primary"
+                    className="absolute top-1/2 h-4 -translate-y-1/2 rounded-md"
                     style={{
                       left: `${left}%`,
                       width: `${width}%`,
+                      backgroundColor: barColor,
                     }}
                   />
                 </div>

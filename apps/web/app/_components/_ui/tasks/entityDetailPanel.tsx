@@ -12,6 +12,7 @@ import {
   Flag,
   FolderKanban,
   ListTodo,
+  Palette,
   Trash2,
 } from "lucide-react";
 import CustomFieldControl, {
@@ -33,6 +34,7 @@ import {
   modalTitleClass,
 } from "@/app/_components/_ui/modal/entityModal";
 import Select from "@/app/_components/_ui/select";
+import ColorPicker from "@/app/_components/_ui/colorPicker";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import {
   CustomField,
@@ -112,6 +114,7 @@ interface DetailPatch {
   completedAt?: string;
   blockedById?: string;
   stageId?: string;
+  color?: string;
   labelIds?: { id: string }[];
   customFieldValues?: CustomFieldValueInput[];
   recurrence?: RecurrenceInput | null;
@@ -148,6 +151,7 @@ interface DetailView {
   preferredWindows?: PreferredWindow[];
   blockedById?: string | null;
   stageId?: string | null;
+  color?: string | null;
   labelIds?: string[];
   customFieldValues?: TaskCustomFieldValue[];
   completedAt: string | null;
@@ -379,6 +383,7 @@ function ProjectDetail({
     startDate: project.startDate ?? null,
     deadline: project.deadline ?? null,
     completedAt: project.completedAt ?? null,
+    color: project.color ?? null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     facts: [
@@ -793,6 +798,7 @@ function DetailBody({
                   options={typedWorkspaces.map((space) => ({
                     value: space.id,
                     label: space.name,
+                    color: space.color ?? undefined,
                   }))}
                 />
               </PropertyRow>
@@ -808,6 +814,7 @@ function DetailBody({
                     ...projectsInWorkspace.map((project) => ({
                       value: project.id,
                       label: project.title,
+                      color: project.color ?? undefined,
                     })),
                   ]}
                 />
@@ -820,6 +827,13 @@ function DetailBody({
               </PropertyRow>
               <PropertyRow icon={ListTodo} label="Project">
                 <span className="truncate text-foreground">{projectName}</span>
+              </PropertyRow>
+              <PropertyRow icon={Palette} label="Color">
+                <ColorPicker
+                  value={view.color || "#30A66D"}
+                  onChange={(color) => schedule({ color })}
+                  aria-label="Project color"
+                />
               </PropertyRow>
             </>
           )}
@@ -864,6 +878,7 @@ function DetailBody({
                 ...stageOptions.map((stage) => ({
                   value: stage.id,
                   label: stage.name,
+                  color: stage.color ?? undefined,
                 })),
               ]}
             />

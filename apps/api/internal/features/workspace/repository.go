@@ -102,6 +102,7 @@ func (r *workspaceRepository) UpdateWorkspace(workspace *models.Workspace) error
 		Where("id = ?", workspace.ID).
 		Updates(map[string]any{
 			"name":       workspace.Name,
+			"color":      workspace.Color,
 			"updated_at": workspace.UpdatedAt,
 		}).Error
 }

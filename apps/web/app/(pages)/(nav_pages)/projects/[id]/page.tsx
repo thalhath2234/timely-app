@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Check, Copy, FolderKanban, Trash2 } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import { DateField } from "@/app/_components/_ui/datePicker";
+import ColorPicker from "@/app/_components/_ui/colorPicker";
+import ColorChip from "@/app/_components/_ui/colorChip";
 import Select from "@/app/_components/_ui/select";
 import StageBoard from "@/app/_components/projects/stageBoard";
 import StageCatalog from "@/app/_components/projects/stageCatalog";
@@ -74,6 +76,7 @@ function ProjectHub({ project }: { project: Project }) {
     startDate?: string;
     deadline?: string;
     completedAt?: string;
+    color?: string;
   }>((patch) => updateProject.mutateAsync({ id: project.id, ...patch }));
 
   const workspace = ((workspaces ?? []) as Workspace[]).find(
@@ -106,6 +109,15 @@ function ProjectHub({ project }: { project: Project }) {
           <ArrowLeft className="size-4" />
           Projects
         </Link>
+        {workspace ? (
+          <span
+            className="hidden size-2 rounded-full sm:inline-block"
+            style={{
+              backgroundColor: project.color || workspace.color || "var(--primary)",
+            }}
+            title={workspace.name}
+          />
+        ) : null}
         <input
           value={title}
           onChange={(event) => {
@@ -115,6 +127,12 @@ function ProjectHub({ project }: { project: Project }) {
           onBlur={() => void flush()}
           className="min-w-0 flex-1 bg-transparent text-lg font-semibold outline-none"
         />
+        {project.doesHaveStages ? (
+          <span className="hidden items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success sm:inline-flex">
+            <span className="size-1.5 rounded-full bg-success" />
+            Active Release Cycle
+          </span>
+        ) : null}
         <SaveStatusBadge status={status} onRetry={() => void flush()} />
         <button
           type="button"
@@ -165,13 +183,23 @@ function ProjectHub({ project }: { project: Project }) {
             key={item.id}
             type="button"
             onClick={() => setTab(item.id)}
-            className={`border-b-2 px-3 py-2 text-sm ${
+            className={`inline-flex items-center border-b-2 px-3 py-2 text-sm ${
               tab === item.id
                 ? "border-foreground font-medium text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             {item.label}
+            {item.id === "tasks" ? (
+              <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
+                {projectTasks.length}
+              </span>
+            ) : null}
+            {item.id === "stages" && (project.stages?.length ?? 0) > 0 ? (
+              <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
+                {project.stages?.length}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -228,8 +256,19 @@ function ProjectHub({ project }: { project: Project }) {
                 value={project.deadline}
                 onChange={(deadline) => schedule({ deadline })}
               />
-              <p className="text-xs text-muted-foreground">
-                Workspace: {workspace?.name || "—"}
+              <label className="block text-xs text-muted-foreground">Color</label>
+              <ColorPicker
+                value={project.color || "#30A66D"}
+                onChange={(color) => schedule({ color })}
+                aria-label="Project color"
+              />
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                Workspace:{" "}
+                {workspace ? (
+                  <ColorChip color={workspace.color}>{workspace.name}</ColorChip>
+                ) : (
+                  "—"
+                )}
               </p>
               <p className="sr-only">{saveStatusLabel(status)}</p>
             </aside>
@@ -241,14 +280,21 @@ function ProjectHub({ project }: { project: Project }) {
         ) : null}
 
         {tab === "stages" ? (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <StageCatalog
               projectId={project.id}
+              workspaceId={project.workspaceId}
               stages={project.stages}
+              tasks={projectTasks}
               doesHaveStages={project.doesHaveStages}
             />
             {project.doesHaveStages ? (
-              <StageBoard projectId={project.id} stages={project.stages} tasks={projectTasks} />
+              <StageBoard
+                projectId={project.id}
+                workspaceId={project.workspaceId}
+                stages={project.stages}
+                tasks={projectTasks}
+              />
             ) : null}
           </div>
         ) : null}

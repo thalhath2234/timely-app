@@ -249,8 +249,14 @@ func (h *Handler) Delete(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"message": "project deleted"})
 }
 
-type stageRequest struct {
-	Name string `json:"name"`
+type createStageRequest struct {
+	Name  string  `json:"name"`
+	Color *string `json:"color"`
+}
+
+type updateStageRequest struct {
+	Name  *string `json:"name"`
+	Color *string `json:"color"`
 }
 
 func (h *Handler) CreateStage(c *echo.Context) error {
@@ -258,11 +264,15 @@ func (h *Handler) CreateStage(c *echo.Context) error {
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
 	}
-	var req stageRequest
+	var req createStageRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
 	}
-	stage, err := h.projectService.CreateStage(userID, c.Param("id"), req.Name)
+	color := ""
+	if req.Color != nil {
+		color = *req.Color
+	}
+	stage, err := h.projectService.CreateStage(userID, c.Param("id"), req.Name, color)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, "project not found")
@@ -277,11 +287,11 @@ func (h *Handler) UpdateStage(c *echo.Context) error {
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
 	}
-	var req stageRequest
+	var req updateStageRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
 	}
-	stage, err := h.projectService.UpdateStage(userID, c.Param("id"), c.Param("stageId"), req.Name)
+	stage, err := h.projectService.UpdateStage(userID, c.Param("id"), c.Param("stageId"), req.Name, req.Color)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, "not found")

@@ -23,7 +23,7 @@ import { TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToo
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { filterTasks } from "@/app/utils/taskFilters";
-import { stageNameMap } from "@/app/utils/stages";
+import { stageColorMap, stageNameMap } from "@/app/utils/stages";
 import { useTaskViewsState } from "@/app/utils/hooks/taskViews";
 
 /** Project rows are synthesised from their tasks and carry a prefixed id. */
@@ -90,6 +90,7 @@ function Tasks() {
     [typedConfig?.customFields]
   );
   const stageNames = useMemo(() => stageNameMap(typedProjects), [typedProjects]);
+  const stageColors = useMemo(() => stageColorMap(typedProjects), [typedProjects]);
 
   // The open row lives in the URL so an @mention can link straight to it.
   const detailTaskId = searchParams.get("taskId");
@@ -387,6 +388,7 @@ function Tasks() {
                 onSelectRow={openRow}
                 filters={listFilters}
                 stageNames={stageNames}
+                stageColors={stageColors}
                 selectedIds={selectedTaskIds}
                 onSelectedIdsChange={setSelectedTaskIds}
               />

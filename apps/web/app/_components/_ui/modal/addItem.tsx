@@ -88,9 +88,13 @@ const addWorkspaceSchema = z.object({
     .string()
     .min(2, "Workspace name must be at least 2 characters")
     .max(100, "Workspace name must be less than 100 characters"),
+  color: z
+    .string()
+    .regex(/^#([0-9a-fA-F]{6})$/, "Color must be a valid hex value")
+    .default("#6E56CF"),
 });
 
-type AddWorkspaceForm = z.infer<typeof addWorkspaceSchema>;
+type AddWorkspaceForm = z.input<typeof addWorkspaceSchema>;
 
 const customFieldValueSchema = z.object({
   id: z.string(),
@@ -184,8 +188,13 @@ const MODE_META: Record<string, { icon: LucideIcon; label: string; action: strin
   };
 
 export default function AddItemModal() {
-  const { isAddItemModalOpen, setIsAddItemModalOpen, addNewMode } =
-    useSidebarStore();
+  const {
+    isAddItemModalOpen,
+    setIsAddItemModalOpen,
+    addNewMode,
+    createTaskDraft,
+    setCreateTaskDraft,
+  } = useSidebarStore();
 
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -221,10 +230,15 @@ export default function AddItemModal() {
     register,
     handleSubmit,
     reset,
+    watch: watchWorkspace,
+    setValue: setWorkspaceValue,
     formState: { errors, isValid },
   } = useForm<AddWorkspaceForm>({
     resolver: zodResolver(addWorkspaceSchema),
     mode: "onChange",
+    defaultValues: {
+      color: "#6E56CF",
+    },
   });
 
   // Form for Project
@@ -281,6 +295,7 @@ export default function AddItemModal() {
   });
 
   const selectedWorkspaceId = watch("workspaceId");
+  const workspaceColor = watchWorkspace("color") ?? "#6E56CF";
   const projectStatusId = watch("statusId") ?? "";
   const projectPriorityLevel = watch("priorityLevel") ?? "Low";
   const projectStartDate = watch("startDate") ?? "";
@@ -341,6 +356,7 @@ export default function AddItemModal() {
         },
         body: JSON.stringify({
           name: data.name,
+          color: data.color,
         }),
       });
 
@@ -525,6 +541,7 @@ export default function AddItemModal() {
     setEventAllDay(false);
     setEventWorkspaceId("");
     setEventRecurrence(null);
+    setCreateTaskDraft(null);
     setIsAddItemModalOpen(false);
   };
 
@@ -581,11 +598,26 @@ export default function AddItemModal() {
       addNewMode === "task" &&
       typedWorkspaces.length > 0
     ) {
-      if (
-        !selectedTaskWorkspaceId ||
-        !typedWorkspaces.some((w) => w.id === selectedTaskWorkspaceId)
-      ) {
-        setValueTask("workspaceId", typedWorkspaces[0].id, {
+      const preferred = createTaskDraft?.workspaceId;
+      const nextWorkspace =
+        preferred && typedWorkspaces.some((w) => w.id === preferred)
+          ? preferred
+          : selectedTaskWorkspaceId &&
+              typedWorkspaces.some((w) => w.id === selectedTaskWorkspaceId)
+            ? selectedTaskWorkspaceId
+            : typedWorkspaces[0].id;
+      if (nextWorkspace !== selectedTaskWorkspaceId) {
+        setValueTask("workspaceId", nextWorkspace, {
+          shouldValidate: true,
+        });
+      }
+      if (createTaskDraft?.projectId) {
+        setValueTask("projectId", createTaskDraft.projectId, {
+          shouldValidate: true,
+        });
+      }
+      if (createTaskDraft?.stageId) {
+        setValueTask("stageId", createTaskDraft.stageId, {
           shouldValidate: true,
         });
       }
@@ -596,6 +628,7 @@ export default function AddItemModal() {
     typedWorkspaces,
     selectedTaskWorkspaceId,
     setValueTask,
+    createTaskDraft,
   ]);
 
   useEffect(() => {
@@ -734,6 +767,20 @@ export default function AddItemModal() {
               </p>
             )}
 
+            <div className="mt-4 flex items-center gap-2">
+              <ColorPicker
+                value={workspaceColor}
+                onChange={(color) =>
+                  setWorkspaceValue("color", color, {
+                    shouldValidate: true,
+                    shouldDirty: true,
+                  })
+                }
+                aria-label="Workspace color"
+              />
+              <span className="text-sm text-muted-foreground">Workspace color</span>
+            </div>
+
             <p className="mt-4 max-w-md text-sm text-muted-foreground">
               A workspace holds its own projects, tasks, statuses, labels and
               custom fields. You can add those from settings once it exists.
@@ -811,6 +858,7 @@ export default function AddItemModal() {
                   options={typedWorkspaces.map((workspace) => ({
                     value: workspace.id,
                     label: workspace.name,
+                    color: workspace.color ?? undefined,
                   }))}
                 />
               </PropertyRow>
@@ -1027,6 +1075,7 @@ export default function AddItemModal() {
                   options={typedWorkspaces.map((workspace) => ({
                     value: workspace.id,
                     label: workspace.name,
+                    color: workspace.color ?? undefined,
                   }))}
                 />
               </PropertyRow>
@@ -1049,6 +1098,7 @@ export default function AddItemModal() {
                     ...availableTaskProjects.map((project) => ({
                       value: project.id,
                       label: project.title,
+                      color: project.color ?? undefined,
                     })),
                   ]}
                 />
@@ -1072,6 +1122,7 @@ export default function AddItemModal() {
                     ...availableTaskStages.map((stage) => ({
                       value: stage.id,
                       label: stage.name,
+                      color: stage.color || undefined,
                     })),
                   ]}
                 />
@@ -1406,6 +1457,7 @@ export default function AddItemModal() {
                     ...typedWorkspaces.map((workspace) => ({
                       value: workspace.id,
                       label: workspace.name,
+                      color: workspace.color ?? undefined,
                     })),
                   ]}
                 />
@@ -1480,6 +1532,7 @@ export default function AddItemModal() {
                 options={typedWorkspaces.map((workspace) => ({
                   value: workspace.id,
                   label: workspace.name,
+                  color: workspace.color ?? undefined,
                 }))}
               />
             </PropertyRow>

@@ -39,7 +39,8 @@ func (s *Server) getWorkspace(ctx context.Context, req *mcp.CallToolRequest, in 
 }
 
 type createWorkspaceIn struct {
-	Name string `json:"name"`
+	Name  string `json:"name"`
+	Color string `json:"color,omitempty"`
 }
 
 func (s *Server) createWorkspace(ctx context.Context, req *mcp.CallToolRequest, in createWorkspaceIn) (*mcp.CallToolResult, any, error) {
@@ -47,7 +48,7 @@ func (s *Server) createWorkspace(ctx context.Context, req *mcp.CallToolRequest, 
 	if err != nil {
 		return fail(err)
 	}
-	ws, err := s.Workspaces.Create(&models.Workspace{Name: in.Name, UserID: &uid})
+	ws, err := s.Workspaces.Create(&models.Workspace{Name: in.Name, Color: in.Color, UserID: &uid})
 	if err != nil {
 		return fail(err)
 	}
@@ -59,8 +60,9 @@ func (s *Server) createWorkspace(ctx context.Context, req *mcp.CallToolRequest, 
 }
 
 type renameWorkspaceIn struct {
-	WorkspaceID string `json:"workspaceId"`
-	Name        string `json:"name"`
+	WorkspaceID string  `json:"workspaceId"`
+	Name        string  `json:"name"`
+	Color       *string `json:"color,omitempty"`
 }
 
 func (s *Server) renameWorkspace(ctx context.Context, req *mcp.CallToolRequest, in renameWorkspaceIn) (*mcp.CallToolResult, any, error) {
@@ -68,7 +70,7 @@ func (s *Server) renameWorkspace(ctx context.Context, req *mcp.CallToolRequest, 
 	if err != nil {
 		return fail(err)
 	}
-	ws, err := s.Workspaces.UpdateWorkspace(uid, in.WorkspaceID, in.Name)
+	ws, err := s.Workspaces.UpdateWorkspace(uid, in.WorkspaceID, in.Name, in.Color)
 	if err != nil {
 		return fail(err)
 	}

@@ -8,13 +8,20 @@ import { useProjects } from "@/app/utils/hooks/projects";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
+import { resolvedColor } from "@/app/utils/entityColor";
 import { formatShortDate, projectStats } from "@/app/utils/projectStats";
 import type { Project, Task } from "@/app/_types/types";
 
-function ProgressBar({ value }: { value: number }) {
+function ProgressBar({ value, color }: { value: number; color?: string | null }) {
   return (
     <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-      <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+      <div
+        className="h-full rounded-full"
+        style={{
+          width: `${Math.min(100, Math.max(0, value))}%`,
+          backgroundColor: color || "var(--primary)",
+        }}
+      />
     </div>
   );
 }
@@ -22,18 +29,28 @@ function ProgressBar({ value }: { value: number }) {
 function ProjectCard({ project, tasks }: { project: Project; tasks: Task[] }) {
   const stats = projectStats(project, tasks);
   const workspaceName = project.workspace?.name;
+  const color = resolvedColor(project.color, project.id);
 
   return (
     <Link
       href={`/projects/${project.id}`}
-      className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:border-ring hover:bg-accent/40"
+      className="flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4 transition-colors hover:border-ring hover:bg-accent/40"
+      style={{ borderLeftColor: color, borderLeftWidth: 3 }}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate font-medium text-foreground">{project.title || "Untitled project"}</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {workspaceName || "No workspace"}
-            {project.status?.name ? ` · ${project.status.name}` : ""}
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            {project.workspace?.color ? (
+              <span
+                className="size-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: project.workspace.color }}
+              />
+            ) : null}
+            <span className="truncate">
+              {workspaceName || "No workspace"}
+              {project.status?.name ? ` · ${project.status.name}` : ""}
+            </span>
           </p>
         </div>
         {project.priorityLevel ? (
@@ -45,7 +62,7 @@ function ProjectCard({ project, tasks }: { project: Project; tasks: Task[] }) {
       <p className="line-clamp-2 min-h-8 text-xs text-muted-foreground">
         {project.description?.trim() || "No description"}
       </p>
-      <ProgressBar value={stats.progress} />
+      <ProgressBar value={stats.progress} color={color} />
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
         <span>{stats.open} open</span>
         <span>{stats.completed}/{stats.total} done</span>

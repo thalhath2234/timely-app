@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import ColorChip from "@/app/_components/_ui/colorChip";
 import type { Status, Task, Workspace } from "@/app/_types/types";
+import { resolvedColor } from "@/app/utils/entityColor";
 import { useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tasks";
 import { isCompletedStatus } from "@/app/utils/status";
 import { showUndoToast } from "@/app/_store/toastStore";
@@ -212,8 +214,19 @@ export default function KanbanView({
                   className="cursor-pointer rounded-lg border border-border bg-card p-3 shadow-xs hover:border-primary/40"
                 >
                   <div className="line-clamp-2 text-sm font-medium text-foreground">{item.name}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {dataMode === "project" ? "Project" : "Task"} · {item.workspace?.name || "No workspace"}
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {item.workspace?.name ? (
+                      <ColorChip color={resolvedColor(item.workspace.color, item.workspace.id)}>
+                        {item.workspace.name}
+                      </ColorChip>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No workspace</span>
+                    )}
+                    {dataMode === "task" && item.project?.title ? (
+                      <ColorChip color={resolvedColor(item.project.color, item.project.id)}>
+                        {item.project.title}
+                      </ColorChip>
+                    ) : null}
                   </div>
                   <div className={dateMeta.overdue ? "mt-2 text-xs text-destructive" : "mt-2 text-xs text-muted-foreground"}>
                     {dateMeta.text}

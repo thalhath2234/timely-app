@@ -29,6 +29,7 @@ type ColorPickerProps = {
   onChange: (value: string) => void;
   className?: string;
   disabled?: boolean;
+  size?: "sm" | "md";
   "aria-label"?: string;
 };
 
@@ -50,6 +51,7 @@ export default function ColorPicker({
   onChange,
   className,
   disabled,
+  size = "md",
   "aria-label": ariaLabel,
 }: ColorPickerProps) {
   const panelId = useId();
@@ -159,12 +161,16 @@ export default function ColorPicker({
         aria-label={ariaLabel ?? "Choose color"}
         onClick={() => (open ? setOpen(false) : openPanel())}
         className={cn(
-          "inline-flex h-8 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-input/30 transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60",
+          "inline-flex shrink-0 items-center justify-center rounded-lg border border-border bg-input/30 transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60",
+          size === "sm" ? "size-7" : "h-8 w-10",
           className,
         )}
       >
         <span
-          className="size-5 rounded-md ring-1 ring-foreground/15"
+          className={cn(
+            "rounded-md ring-1 ring-foreground/15",
+            size === "sm" ? "size-4" : "size-5",
+          )}
           style={{ backgroundColor: current }}
         />
       </button>

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"errors"
+	"strings"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
 )
@@ -10,7 +11,7 @@ type WorkspaceService interface {
 	Create(workspace *models.Workspace) (*models.Workspace, error)
 	GetAllWorkspaceByUser(userID string) ([]models.Workspace, error)
 	GetWorkspaceById(userID string, workspaceID string) (*models.Workspace, error)
-	UpdateWorkspace(userID string, workspaceID string, name string) (*models.Workspace, error)
+	UpdateWorkspace(userID string, workspaceID string, name string, color *string) (*models.Workspace, error)
 	CreateLables(lable *models.Lable) (*models.Lable, error)
 	CreateStatuses(status *models.Status) (*models.Status, error)
 	CreateCustomFields(customField *models.CustomField) (*models.CustomField, error)
@@ -43,6 +44,15 @@ func (s *workspaceService) Create(workspace *models.Workspace) (*models.Workspac
 	}
 
 	workspace.ID = utils.NewWorkspaceID()
+	if strings.TrimSpace(workspace.Color) == "" {
+		index := 0
+		if count, err := s.repo.CountByUser(*workspace.UserID); err == nil {
+			index = int(count)
+		}
+		workspace.Color = utils.ColorForIndex(index)
+	} else {
+		workspace.Color = utils.NormalizeHexColor(workspace.Color, utils.ColorForIndex(0))
+	}
 	defaultStatuses := []models.Status{
 		{
 			ID:          utils.NewStatusID(),
@@ -122,15 +132,12 @@ func (s *workspaceService) GetWorkspaceById(userID string, workspaceID string) (
 	return workspace, nil
 }
 
-func (s *workspaceService) UpdateWorkspace(userID string, workspaceID string, name string) (*models.Workspace, error) {
+func (s *workspaceService) UpdateWorkspace(userID string, workspaceID string, name string, color *string) (*models.Workspace, error) {
 	if userID == "" {
 		return nil, errors.New("invalid user id")
 	}
 	if workspaceID == "" {
 		return nil, errors.New("invalid workspace id")
-	}
-	if name == "" {
-		return nil, errors.New("workspace name cannot be empty")
 	}
 
 	workspace, err := s.repo.GetWorkspaceById(userID, workspaceID)
@@ -138,7 +145,18 @@ func (s *workspaceService) UpdateWorkspace(userID string, workspaceID string, na
 		return nil, err
 	}
 
-	workspace.Name = name
+	nextName := strings.TrimSpace(name)
+	if nextName == "" {
+		nextName = workspace.Name
+	}
+	if nextName == "" {
+		return nil, errors.New("workspace name cannot be empty")
+	}
+
+	workspace.Name = nextName
+	if color != nil {
+		workspace.Color = utils.NormalizeHexColor(*color, workspace.Color)
+	}
 	workspace.UpdatedAt = utils.GetCurrentTime()
 	if err := s.repo.UpdateWorkspace(workspace); err != nil {
 		return nil, err

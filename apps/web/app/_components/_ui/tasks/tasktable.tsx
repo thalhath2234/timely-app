@@ -26,7 +26,10 @@ import {
 } from "@/app/_types/types";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
+import { resolvedColor } from "@/app/utils/entityColor";
+import { priorityColor } from "@/app/utils/priority";
 import { filterTasks, type TaskListFilters } from "@/app/utils/taskFilters";
+import ColorChip from "@/app/_components/_ui/colorChip";
 
 type TasksTableProps = {
   config: Config;
@@ -42,6 +45,7 @@ type TasksTableProps = {
   onSelectRow: (row: Task) => void;
   filters?: TaskListFilters;
   stageNames?: Record<string, string>;
+  stageColors?: Record<string, string>;
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
 };
@@ -178,28 +182,12 @@ function dropSlotLeft(
 type GroupNode = {
   key: string;
   label: string;
+  color: string | null;
   depth: number;
   count: number;
   children: GroupNode[];
   rows: Task[];
 };
-
-// Status/label colors come from the API as hex; fall back to theme tokens when unset.
-function swatchStyle(color?: string | null): CSSProperties {
-  if (!color) {
-    return {
-      backgroundColor: "var(--muted)",
-      color: "var(--muted-foreground)",
-      borderColor: "var(--border)",
-    };
-  }
-
-  return {
-    backgroundColor: `${color}1a`,
-    color,
-    borderColor: `${color}66`,
-  };
-}
 
 function formatDate(value?: string | null): string {
   if (!value) return "-";
@@ -240,18 +228,40 @@ function getCustomFieldDisplayValue(task: Task, fieldId: string): string {
   return "-";
 }
 
-function getGroupLabel(
+function getGroupMeta(
   task: Task,
   groupBy: TaskListGroupField,
   stageNames: Record<string, string> = {},
-): string {
-  if (groupBy === "workspace") return task.workspace?.name || "No workspace";
-  if (groupBy === "project") return task.project?.title || "No project";
-  if (groupBy === "status") return task.status?.name || "No status";
-  if (groupBy === "priority") return task.priorityLevel || "No priority";
-  if (groupBy === "stage") return (task.stageId && stageNames[task.stageId]) || "No stage";
-  if (groupBy.startsWith("cf:")) return getCustomFieldDisplayValue(task, groupBy.slice(3));
-  return "No group";
+  stageColors: Record<string, string> = {},
+): { label: string; color: string | null } {
+  if (groupBy === "workspace") {
+    return {
+      label: task.workspace?.name || "No workspace",
+      color: resolvedColor(task.workspace?.color, task.workspace?.id ?? task.workspaceId),
+    };
+  }
+  if (groupBy === "project") {
+    return {
+      label: task.project?.title || "No project",
+      color: resolvedColor(task.project?.color, task.project?.id ?? task.projectId),
+    };
+  }
+  if (groupBy === "status") {
+    return { label: task.status?.name || "No status", color: task.status?.color ?? null };
+  }
+  if (groupBy === "priority") {
+    return { label: task.priorityLevel || "No priority", color: priorityColor(task.priorityLevel) };
+  }
+  if (groupBy === "stage") {
+    return {
+      label: (task.stageId && stageNames[task.stageId]) || task.stage?.name || "No stage",
+      color: (task.stageId && stageColors[task.stageId]) || task.stage?.color || null,
+    };
+  }
+  if (groupBy.startsWith("cf:")) {
+    return { label: getCustomFieldDisplayValue(task, groupBy.slice(3)), color: null };
+  }
+  return { label: "No group", color: null };
 }
 
 function compareGroupLabel(
@@ -282,33 +292,39 @@ function buildNestedGroups(
   groupSortDirection: TaskListGroupSortDirection,
   groupValueOrders: Record<string, string[]>,
   stageNames: Record<string, string> = {},
+  stageColors: Record<string, string> = {},
   depth = 0,
   parentKey = ""
 ): GroupNode[] {
   if (depth >= groupFields.length) return [];
 
   const field = groupFields[depth];
-  const grouped = new Map<string, Task[]>();
+  const grouped = new Map<string, { color: string | null; rows: Task[] }>();
 
   rows.forEach((task) => {
-    const label = getGroupLabel(task, field, stageNames);
-    const existing = grouped.get(label) ?? [];
-    existing.push(task);
-    grouped.set(label, existing);
+    const meta = getGroupMeta(task, field, stageNames, stageColors);
+    const existing = grouped.get(meta.label);
+    if (existing) {
+      existing.rows.push(task);
+      if (!existing.color && meta.color) existing.color = meta.color;
+    } else {
+      grouped.set(meta.label, { color: meta.color, rows: [task] });
+    }
   });
 
   return Array.from(grouped.entries())
     .sort(([aLabel], [bLabel]) =>
       compareGroupLabel(aLabel, bLabel, groupSortDirection, groupValueOrders[field])
     )
-    .map(([label, groupRows]) => {
+    .map(([label, group]) => {
       const nodeKey = parentKey ? `${parentKey}::${label}` : label;
       const children = buildNestedGroups(
-        groupRows,
+        group.rows,
         groupFields,
         groupSortDirection,
         groupValueOrders,
         stageNames,
+        stageColors,
         depth + 1,
         nodeKey
       );
@@ -316,10 +332,11 @@ function buildNestedGroups(
       return {
         key: nodeKey,
         label,
+        color: group.color,
         depth,
-        count: groupRows.length,
+        count: group.rows.length,
         children,
-        rows: groupRows,
+        rows: group.rows,
       };
     });
 }
@@ -414,6 +431,7 @@ export default function TasksTable({
   onSelectRow,
   filters,
   stageNames = {},
+  stageColors = {},
   selectedIds = [],
   onSelectedIdsChange,
 }: TasksTableProps) {
@@ -454,8 +472,8 @@ export default function TasksTable({
   }, [filteredRows, sortBy, sortDirection]);
 
   const nestedGroups = useMemo(
-    () => buildNestedGroups(sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames),
-    [sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames]
+    () => buildNestedGroups(sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors),
+    [sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors]
   );
 
   const toggleGroup = (key: string) => {
@@ -832,13 +850,25 @@ export default function TasksTable({
       case "project":
         return (
           <td key={column.id} className={bodyCellClass(textCell, column.id)} style={columnMotionStyle(column.id)}>
-            {task.project?.title || "-"}
+            {task.project?.title ? (
+              <ColorChip color={resolvedColor(task.project.color, task.project.id)}>
+                {task.project.title}
+              </ColorChip>
+            ) : (
+              "-"
+            )}
           </td>
         );
       case "workspace":
         return (
           <td key={column.id} className={bodyCellClass(textCell, column.id)} style={columnMotionStyle(column.id)}>
-            {task.workspace?.name || "-"}
+            {task.workspace?.name ? (
+              <ColorChip color={resolvedColor(task.workspace.color, task.workspace.id)}>
+                {task.workspace.name}
+              </ColorChip>
+            ) : (
+              "-"
+            )}
           </td>
         );
       case "blockedBy":
@@ -857,7 +887,13 @@ export default function TasksTable({
             )}
             style={columnMotionStyle(column.id)}
           >
-            {task.priorityLevel || "-"}
+            {task.priorityLevel ? (
+              <ColorChip color={priorityColor(task.priorityLevel)} dot={false}>
+                {task.priorityLevel}
+              </ColorChip>
+            ) : (
+              "-"
+            )}
           </td>
         );
       case "stageId":
@@ -870,7 +906,19 @@ export default function TasksTable({
             )}
             style={columnMotionStyle(column.id)}
           >
-            {task.stageId ? stageNames[task.stageId] || task.stageId : "-"}
+            {task.stageId ? (
+              <ColorChip
+                color={
+                  stageColors[task.stageId] ||
+                  task.stage?.color ||
+                  resolvedColor(null, task.stageId)
+                }
+              >
+                {stageNames[task.stageId] || task.stage?.name || task.stageId}
+              </ColorChip>
+            ) : (
+              "-"
+            )}
           </td>
         );
       case "status":
@@ -880,12 +928,9 @@ export default function TasksTable({
             className={bodyCellClass("px-3 py-2 align-middle", column.id)}
             style={columnMotionStyle(column.id)}
           >
-            <span
-              className="inline-flex items-center rounded-4xl border px-2 py-0.5 text-xs font-normal"
-              style={swatchStyle(task.status?.color)}
-            >
+            <ColorChip color={task.status?.color} dot={false}>
               {task.status?.name || "-"}
-            </span>
+            </ColorChip>
           </td>
         );
       case "labels":
@@ -900,13 +945,9 @@ export default function TasksTable({
                 <span className="text-muted-foreground">-</span>
               )}
               {(task.labels ?? []).map((label) => (
-                <span
-                  key={label.id}
-                  className="inline-flex items-center rounded-4xl border px-2 py-0.5 text-xs font-normal"
-                  style={swatchStyle(label.color)}
-                >
+                <ColorChip key={label.id} color={label.color} dot={false}>
                   {label.name}
-                </span>
+                </ColorChip>
               ))}
             </div>
           </td>
@@ -1022,6 +1063,12 @@ export default function TasksTable({
                           onClick={() => toggleGroup(node.key)}
                         >
                           {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                          {node.color ? (
+                            <span
+                              className="size-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: node.color }}
+                            />
+                          ) : null}
                           <span>{node.label}</span>
                           <span className="text-muted-foreground tabular-nums">
                             ({node.count})

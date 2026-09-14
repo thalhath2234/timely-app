@@ -100,6 +100,7 @@ export interface Status extends BaseEntity {
 export interface Stage extends BaseEntity {
   name: string;
   order: number;
+  color?: string | null;
   projectId?: string | null;
 }
 
@@ -123,6 +124,7 @@ export interface Project extends BaseEntity {
 
 export interface Workspace extends BaseEntity {
   name: string;
+  color?: string | null;
   userId: string;
   status: Status[];
   customFields: CustomField[];
@@ -250,6 +252,7 @@ export interface Task {
   project?: Project | null;
   workspace?: Workspace | null;
   status?: Status | null;
+  stage?: Stage | null;
 
   customFieldValues?: TaskCustomFieldValue[];
   labelIds?: TaskLabelId[];

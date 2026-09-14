@@ -39,8 +39,8 @@ type ProjectService interface {
 	Delete(userID, projectID string) error
 	Duplicate(userID, projectID string) (*models.Project, error)
 	SetTaskCopier(tasks TaskCopier)
-	CreateStage(userID, projectID, name string) (*models.Stage, error)
-	UpdateStage(userID, projectID, stageID, name string) (*models.Stage, error)
+	CreateStage(userID, projectID, name string, color string) (*models.Stage, error)
+	UpdateStage(userID, projectID, stageID string, name, color *string) (*models.Stage, error)
 	DeleteStage(userID, projectID, stageID string) error
 	ReorderStages(userID, projectID string, ids []string) ([]models.Stage, error)
 	ListActivity(userID, projectID string) ([]ProjectActivityEntry, error)
@@ -126,7 +126,7 @@ func (s *projectService) Duplicate(userID, projectID string) (*models.Project, e
 		if stage == nil {
 			continue
 		}
-		copied, err := s.CreateStage(userID, created.ID, stage.Name)
+		copied, err := s.CreateStage(userID, created.ID, stage.Name, stage.Color)
 		if err != nil {
 			return nil, err
 		}
@@ -247,7 +247,7 @@ func (s *projectService) Delete(userID, projectID string) error {
 	return nil
 }
 
-func (s *projectService) CreateStage(userID, projectID, name string) (*models.Stage, error) {
+func (s *projectService) CreateStage(userID, projectID, name string, color string) (*models.Stage, error) {
 	if _, err := s.repo.GetProjectByIdForUser(userID, projectID); err != nil {
 		return nil, err
 	}
@@ -259,10 +259,12 @@ func (s *projectService) CreateStage(userID, projectID, name string) (*models.St
 	if err != nil {
 		return nil, err
 	}
+	resolved := utils.NormalizeHexColor(color, utils.ColorForIndex(order))
 	stage := &models.Stage{
 		ID:        utils.NewStageID(),
 		Name:      name,
 		Order:     order,
+		Color:     resolved,
 		ProjectID: &projectID,
 	}
 	created, err := s.repo.CreateStage(stage)
@@ -273,7 +275,7 @@ func (s *projectService) CreateStage(userID, projectID, name string) (*models.St
 	return created, nil
 }
 
-func (s *projectService) UpdateStage(userID, projectID, stageID, name string) (*models.Stage, error) {
+func (s *projectService) UpdateStage(userID, projectID, stageID string, name, color *string) (*models.Stage, error) {
 	if _, err := s.repo.GetProjectByIdForUser(userID, projectID); err != nil {
 		return nil, err
 	}
@@ -281,11 +283,19 @@ func (s *projectService) UpdateStage(userID, projectID, stageID, name string) (*
 	if err != nil {
 		return nil, err
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, errors.New("stage name cannot be empty")
+	if name == nil && color == nil {
+		return nil, errors.New("no stage fields to update")
 	}
-	stage.Name = name
+	if name != nil {
+		next := strings.TrimSpace(*name)
+		if next == "" {
+			return nil, errors.New("stage name cannot be empty")
+		}
+		stage.Name = next
+	}
+	if color != nil {
+		stage.Color = utils.NormalizeHexColor(*color, stage.Color)
+	}
 	stage.UpdatedAt = utils.GetCurrentTime()
 	return s.repo.UpdateStage(stage)
 }
