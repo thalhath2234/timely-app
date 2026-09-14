@@ -190,8 +190,20 @@ type GroupNode = {
   rows: Task[];
 };
 
-function isPlaceholderGroup(label: string) {
-  return /^no /i.test(label.trim()) || label.trim() === "-";
+function isPlaceholderGroup(label: string, field?: TaskListGroupField) {
+  const trimmed = label.trim();
+  if (trimmed === "-") return true;
+  if (field?.startsWith("cf:")) return false;
+
+  const sentinels: Partial<Record<TaskListGroupField, string>> = {
+    workspace: "No workspace",
+    project: "No project",
+    stage: "No stage",
+    status: "No status",
+    priority: "No priority",
+  };
+  if (field && sentinels[field]) return trimmed === sentinels[field];
+  return Object.values(sentinels).includes(trimmed);
 }
 
 function completedRowCount(rows: Task[]) {
@@ -1074,7 +1086,7 @@ export default function TasksTable({
                 const zIndex = 28 - node.depth;
                 const done = completedRowCount(node.rows);
                 const allDone = node.count > 0 && done === node.count;
-                const placeholder = isPlaceholderGroup(node.label);
+                const placeholder = isPlaceholderGroup(node.label, node.field);
                 const isRoot = node.depth === 0;
                 const showProgress = node.field === "project" && node.count > 0 && !placeholder;
 

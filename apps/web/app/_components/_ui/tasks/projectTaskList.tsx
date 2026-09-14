@@ -13,7 +13,7 @@ import LoadError from "@/app/_components/_ui/loadError";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { usePersistedProjectTaskView } from "@/app/utils/hooks/projectTaskView";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { filterTasks } from "@/app/utils/taskFilters";
+import { filterTasks, DEFAULT_TASK_FILTERS } from "@/app/utils/taskFilters";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
 
 export default function ProjectTaskList({
@@ -124,6 +124,15 @@ export default function ProjectTaskList({
   const dataRows = useMemo(
     () => filterTasks(allTasks, listFilters),
     [allTasks, listFilters],
+  );
+  const scopedTotal = useMemo(
+    () =>
+      filterTasks(allTasks, {
+        ...DEFAULT_TASK_FILTERS,
+        projectIds: [project.id],
+        showReminders,
+      }).length,
+    [allTasks, project.id, showReminders],
   );
 
   const getGroupLabel = useCallback(
@@ -338,7 +347,7 @@ export default function ProjectTaskList({
 
       <TaskListStatusBar
         shown={dataRows.length}
-        total={dataRows.length}
+        total={scopedTotal}
         synced={!syncError}
         noun={showReminders ? "reminders" : "tasks"}
       />

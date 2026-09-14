@@ -431,7 +431,7 @@ function Tasks() {
 
           <TaskListStatusBar
             shown={dataCount}
-            total={headerTaskCount}
+            total={showReminders || dataMode !== "task" ? dataCount : headerTaskCount}
             synced={!syncError}
             noun={showReminders ? "reminders" : dataMode === "project" ? "projects" : "tasks"}
           />
