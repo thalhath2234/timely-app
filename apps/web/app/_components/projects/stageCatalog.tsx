@@ -15,6 +15,7 @@ import {
 import { colorForIndex, progressStyle, resolvedColor } from "@/app/utils/entityColor";
 import { sortedStages, stageCode } from "@/app/utils/stages";
 
+/** Calculates completion counts and percentage for one project stage. */
 function stageProgress(tasks: Task[], stageId: string) {
   const items = tasks.filter((task) => task.stageId === stageId);
   const completed = items.filter((task) => task.completedAt).length;
@@ -26,6 +27,7 @@ function stageProgress(tasks: Task[], stageId: string) {
   };
 }
 
+/** Manages a project's ordered stages, colors, progress, and task shortcuts. */
 export default function StageCatalog({
   projectId,
   workspaceId,
@@ -68,6 +70,7 @@ export default function StageCatalog({
     void reorder.mutateAsync(next);
   };
 
+  /** Opens task creation with this project and optional stage preselected. */
   const addTask = (stageId?: string) => {
     setCreateTaskDraft({
       workspaceId,

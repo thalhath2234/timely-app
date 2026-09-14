@@ -100,6 +100,7 @@ func (s *projectService) Create(userID string, project *models.Project, customFi
 	return project, nil
 }
 
+// Duplicate copies an owned project, preserving its ordered stages and colors.
 func (s *projectService) Duplicate(userID, projectID string) (*models.Project, error) {
 	src, err := s.repo.GetProjectByIdForUser(userID, projectID)
 	if err != nil {
@@ -247,6 +248,7 @@ func (s *projectService) Delete(userID, projectID string) error {
 	return nil
 }
 
+// CreateStage validates ownership and creates the next ordered project stage.
 func (s *projectService) CreateStage(userID, projectID, name string, color string) (*models.Stage, error) {
 	if _, err := s.repo.GetProjectByIdForUser(userID, projectID); err != nil {
 		return nil, err
@@ -275,6 +277,7 @@ func (s *projectService) CreateStage(userID, projectID, name string, color strin
 	return created, nil
 }
 
+// UpdateStage validates ownership and updates the supplied stage fields.
 func (s *projectService) UpdateStage(userID, projectID, stageID string, name, color *string) (*models.Stage, error) {
 	if _, err := s.repo.GetProjectByIdForUser(userID, projectID); err != nil {
 		return nil, err

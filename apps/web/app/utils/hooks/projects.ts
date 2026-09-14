@@ -95,18 +95,22 @@ function invalidateProject(
   ]);
 }
 
+/** Creates stages and refreshes every cache that contains the project. */
 export function useCreateStage(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    /** Accepts either the legacy stage name or the full stage payload. */
     mutationFn: (data: { name: string; color?: string } | string) =>
       createStage(projectId, typeof data === "string" ? { name: data } : data),
     onSuccess: () => invalidateProject(queryClient, projectId),
   });
 }
 
+/** Updates stage fields and refreshes every cache that contains the project. */
 export function useUpdateStage(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
+    /** Applies a partial stage name or color update. */
     mutationFn: ({
       stageId,
       name,

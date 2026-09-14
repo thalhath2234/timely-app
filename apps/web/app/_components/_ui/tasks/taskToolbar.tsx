@@ -60,6 +60,7 @@ type TaskToolbarProps = {
   defaultGroupFields?: TaskListGroupField[];
 };
 
+/** Provides view selection, search, filtering, sorting, and grouping controls. */
 export function TaskToolbar({
   viewMode,
   setViewMode,
@@ -621,6 +622,7 @@ export function TaskToolbar({
   );
 }
 
+/** Displays active task-view options and a compact summary of the result set. */
 export function TaskOptionsBar({
   showCompleted,
   setShowCompleted,

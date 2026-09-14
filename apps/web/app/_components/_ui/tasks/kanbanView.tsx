@@ -55,6 +55,7 @@ function statusPatch(status: Status, completedAt: string | null) {
   };
 }
 
+/** Groups tasks or projects into draggable, color-coded Kanban columns. */
 export default function KanbanView({
   rows,
   dataMode,

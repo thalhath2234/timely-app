@@ -59,6 +59,7 @@ type createCustomFieldRequest struct {
 	Options []createOptionRequest  `json:"options,omitempty"`
 }
 
+// Create validates and creates a workspace for the authenticated user.
 func (h *Handler) Create(c *echo.Context) error {
 	var req createWorkspaceRequest
 
@@ -144,6 +145,7 @@ func (h *Handler) GetWorkspaceById(c *echo.Context) error {
 	return c.JSON(http.StatusOK, workspace)
 }
 
+// Update applies editable name and color fields to an owned workspace.
 func (h *Handler) Update(c *echo.Context) error {
 	userID, ok := c.Get("userID").(string)
 	if !ok {

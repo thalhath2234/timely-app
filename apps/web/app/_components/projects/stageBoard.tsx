@@ -13,6 +13,7 @@ import { isCompletedStatus } from "@/app/utils/status";
 import { priorityColor } from "@/app/utils/priority";
 import { sortedStages, stageCode } from "@/app/utils/stages";
 
+/** Displays project tasks in color-coded stage lanes with drag-and-drop updates. */
 export default function StageBoard({
   projectId,
   workspaceId,
@@ -72,6 +73,7 @@ export default function StageBoard({
     return columns.find((column) => column.id)?.id ?? "";
   }, [columns]);
 
+  /** Opens task creation with this project and optional stage preselected. */
   const addTask = (stageId?: string) => {
     setCreateTaskDraft({
       workspaceId,

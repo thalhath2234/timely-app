@@ -34,5 +34,6 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   addNewMode: "task",
   setAddNewMode: (item) => set({ addNewMode: item }),
   createTaskDraft: null,
+  /** Stores or clears the context used to prefill task creation. */
   setCreateTaskDraft: (draft) => set({ createTaskDraft: draft }),
 }));

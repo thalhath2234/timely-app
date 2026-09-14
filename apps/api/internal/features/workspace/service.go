@@ -34,6 +34,7 @@ func NewWorkspaceService(repo WorkspaceRepository) WorkspaceService {
 	return &workspaceService{repo: repo}
 }
 
+// Create validates a workspace and assigns a palette color when none is supplied.
 func (s *workspaceService) Create(workspace *models.Workspace) (*models.Workspace, error) {
 	if workspace.Name == "" {
 		return nil, errors.New("workspace name cannot be empty")
@@ -132,6 +133,7 @@ func (s *workspaceService) GetWorkspaceById(userID string, workspaceID string) (
 	return workspace, nil
 }
 
+// UpdateWorkspace validates ownership and persists a workspace's name and optional color.
 func (s *workspaceService) UpdateWorkspace(userID string, workspaceID string, name string, color *string) (*models.Workspace, error) {
 	if userID == "" {
 		return nil, errors.New("invalid user id")

@@ -18,11 +18,13 @@ export const ENTITY_COLORS = [
 
 export const UNSTAGED_COLOR = "#889096";
 
+/** Returns a palette color for any positive or negative index. */
 export function colorForIndex(index: number): string {
   const n = Math.abs(index);
   return ENTITY_COLORS[n % ENTITY_COLORS.length];
 }
 
+/** Produces a stable unsigned hash for deterministic color selection. */
 function hashId(id: string): number {
   let hash = 0;
   for (let i = 0; i < id.length; i += 1) {
@@ -31,11 +33,13 @@ function hashId(id: string): number {
   return hash;
 }
 
+/** Maps an entity identifier to a stable palette color. */
 export function stableColorForId(id?: string | null): string {
   if (!id) return UNSTAGED_COLOR;
   return colorForIndex(hashId(id));
 }
 
+/** Resolves a stored color or selects a deterministic palette fallback. */
 export function resolvedColor(
   color?: string | null,
   fallbackId?: string | null,
@@ -47,6 +51,7 @@ export function resolvedColor(
   return colorForIndex(fallbackIndex);
 }
 
+/** Builds accessible foreground, border, and background styles for a color chip. */
 export function chipStyle(color?: string | null): CSSProperties {
   if (!color) {
     return {
@@ -63,6 +68,7 @@ export function chipStyle(color?: string | null): CSSProperties {
   };
 }
 
+/** Builds border and background styles for a color-coded board lane. */
 export function laneStyle(color?: string | null): CSSProperties {
   if (!color) {
     return {
@@ -78,6 +84,7 @@ export function laneStyle(color?: string | null): CSSProperties {
   };
 }
 
+/** Returns the fill style for a color-coded progress indicator. */
 export function progressStyle(color?: string | null): CSSProperties {
   return {
     backgroundColor: color || "var(--primary)",

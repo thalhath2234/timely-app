@@ -58,6 +58,7 @@ export default function ProjectDetailPage() {
   return <ProjectHub key={project.id} project={project} />;
 }
 
+/** Renders a project's overview, editable settings, tasks, stages, and activity. */
 function ProjectHub({ project }: { project: Project }) {
   const router = useRouter();
   const updateProject = useUpdateProject();

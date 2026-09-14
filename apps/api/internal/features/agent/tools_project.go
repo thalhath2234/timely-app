@@ -228,6 +228,7 @@ type createStageIn struct {
 	Color     string `json:"color,omitempty"`
 }
 
+// createStage adds a named, optionally colored stage to a project owned by the caller.
 func (s *Server) createStage(ctx context.Context, req *mcp.CallToolRequest, in createStageIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
@@ -247,6 +248,7 @@ type updateStageIn struct {
 	Color     *string `json:"color,omitempty"`
 }
 
+// updateStage changes the supplied name or color fields on an owned project stage.
 func (s *Server) updateStage(ctx context.Context, req *mcp.CallToolRequest, in updateStageIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {

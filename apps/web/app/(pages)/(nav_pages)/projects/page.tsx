@@ -12,6 +12,7 @@ import { resolvedColor } from "@/app/utils/entityColor";
 import { formatShortDate, projectStats } from "@/app/utils/projectStats";
 import type { Project, Task } from "@/app/_types/types";
 
+/** Displays a bounded project completion percentage in the project's color. */
 function ProgressBar({ value, color }: { value: number; color?: string | null }) {
   return (
     <div className="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -26,6 +27,7 @@ function ProgressBar({ value, color }: { value: number; color?: string | null })
   );
 }
 
+/** Summarizes one project and its task progress for the projects grid. */
 function ProjectCard({ project, tasks }: { project: Project; tasks: Task[] }) {
   const stats = projectStats(project, tasks);
   const workspaceName = project.workspace?.name;

@@ -81,6 +81,7 @@ func Handler(mcpServer *mcp.Server, verifier mcpauth.TokenVerifier) http.Handler
 	})(stream)
 }
 
+// register exposes Timely's task, project, and workspace tools to the MCP server.
 func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "get_context", Description: "User, workspaces (statuses, labels, custom fields), projects with stages and open/done counts, working hours, saved views, and current time. Call this first."}, s.getContext)
 	mcp.AddTool(server, &mcp.Tool{Name: "search", Description: "Search tasks, projects, docs, sheets, and events by exact or substring text."}, s.search)

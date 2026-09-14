@@ -38,6 +38,7 @@ export default function TasksPage() {
   );
 }
 
+/** Coordinates task loading, filtering, grouping, and the selected board view. */
 function Tasks() {
   const router = useRouter();
   const searchParams = useSearchParams();

@@ -231,6 +231,7 @@ func (r *projectRepository) CreateStage(stage *models.Stage) (*models.Stage, err
 	return stage, nil
 }
 
+// UpdateStage persists the mutable fields of an existing stage.
 func (r *projectRepository) UpdateStage(stage *models.Stage) (*models.Stage, error) {
 	if err := r.db.Model(&models.Stage{}).
 		Where("id = ? AND project_id = ?", stage.ID, stage.ProjectID).

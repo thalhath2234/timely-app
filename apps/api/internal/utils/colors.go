@@ -18,6 +18,7 @@ var EntityColors = []string{
 	"#E5484D",
 }
 
+// ColorForIndex returns a palette color for any positive or negative index.
 func ColorForIndex(index int) string {
 	if len(EntityColors) == 0 {
 		return "#889096"
@@ -28,6 +29,7 @@ func ColorForIndex(index int) string {
 	return EntityColors[index%len(EntityColors)]
 }
 
+// NormalizeHexColor canonicalizes a six-digit hex color or returns fallback.
 func NormalizeHexColor(value, fallback string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

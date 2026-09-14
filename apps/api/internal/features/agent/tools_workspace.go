@@ -43,6 +43,7 @@ type createWorkspaceIn struct {
 	Color string `json:"color,omitempty"`
 }
 
+// createWorkspace creates a workspace with an optional color for the caller.
 func (s *Server) createWorkspace(ctx context.Context, req *mcp.CallToolRequest, in createWorkspaceIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
@@ -65,6 +66,7 @@ type renameWorkspaceIn struct {
 	Color       *string `json:"color,omitempty"`
 }
 
+// renameWorkspace updates the name and optional color of a workspace owned by the caller.
 func (s *Server) renameWorkspace(ctx context.Context, req *mcp.CallToolRequest, in renameWorkspaceIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {

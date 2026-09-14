@@ -335,6 +335,7 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
   );
 }
 
+/** Renders project metadata and controls inside the entity detail panel. */
 function ProjectDetail({
   project,
   onClose,
@@ -436,6 +437,7 @@ function ProjectTaskLink({ task }: { task: Task }) {
   );
 }
 
+/** Selects and renders the detail view for the active task or project. */
 function DetailBody({
   view,
   save,

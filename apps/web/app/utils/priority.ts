@@ -37,6 +37,7 @@ export const PRIORITY_OPTIONS = PRIORITIES.map((value) => ({
   label: value,
 }));
 
+/** Returns the semantic display color for a normalized task priority. */
 export function priorityColor(value?: string | null): string | null {
   switch (normalizePriority(value)) {
     case "Urgent":

@@ -16,6 +16,7 @@ import { useTasks } from "@/app/utils/hooks/tasks";
 import { filterTasks } from "@/app/utils/taskFilters";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
 
+/** Renders a project's tasks with stage-aware sorting and editing controls. */
 export default function ProjectTaskList({
   project,
   workspace,

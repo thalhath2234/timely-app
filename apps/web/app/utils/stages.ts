@@ -27,6 +27,7 @@ export function stageNameMap(projects: Project[] | undefined): Record<string, st
   return names;
 }
 
+/** Builds a lookup of stage IDs to stored or deterministic fallback colors. */
 export function stageColorMap(projects: Project[] | undefined): Record<string, string> {
   const colors: Record<string, string> = {};
   for (const project of projects ?? []) {
@@ -38,6 +39,7 @@ export function stageColorMap(projects: Project[] | undefined): Record<string, s
   return colors;
 }
 
+/** Derives a compact stage code from its name or ordered position. */
 export function stageCode(name: string, index: number): string {
   const leading = name.trim().match(/^([A-Za-z]?\d+)\b/);
   if (leading) return leading[1].toUpperCase();

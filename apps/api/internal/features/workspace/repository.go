@@ -97,6 +97,7 @@ func (r *workspaceRepository) GetWorkspaceById(userID string, workspaceID string
 	return &workspace, nil
 }
 
+// UpdateWorkspace persists the mutable fields of an existing workspace.
 func (r *workspaceRepository) UpdateWorkspace(workspace *models.Workspace) error {
 	return r.db.Model(&models.Workspace{}).
 		Where("id = ?", workspace.ID).

@@ -147,6 +147,7 @@ export async function deleteProject(id: string): Promise<void> {
   }
 }
 
+/** Creates a stage with an optional color in the selected project. */
 export async function createStage(
   projectId: string,
   data: { name: string; color?: string },
@@ -163,6 +164,7 @@ export async function createStage(
   return response.json();
 }
 
+/** Updates the supplied name or color fields on a project stage. */
 export async function updateStage(
   projectId: string,
   stageId: string,

@@ -259,6 +259,7 @@ type updateStageRequest struct {
 	Color *string `json:"color"`
 }
 
+// CreateStage validates and creates a stage for the requested project.
 func (h *Handler) CreateStage(c *echo.Context) error {
 	userID, ok := c.Get("userID").(string)
 	if !ok {
@@ -282,6 +283,7 @@ func (h *Handler) CreateStage(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, stage)
 }
 
+// UpdateStage applies the supplied name or color fields to a project stage.
 func (h *Handler) UpdateStage(c *echo.Context) error {
 	userID, ok := c.Get("userID").(string)
 	if !ok {

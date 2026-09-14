@@ -48,6 +48,7 @@ function dateAtClientX(clientX: number, target: HTMLElement, min: Date, totalDur
   return new Date(min.getTime() + ratio * totalDurationMs);
 }
 
+/** Displays task or project rows on an interactive time-scaled Gantt chart. */
 export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProps) {
   const updateTask = useUpdateTask();
   const [draggingId, setDraggingId] = useState<string | null>(null);

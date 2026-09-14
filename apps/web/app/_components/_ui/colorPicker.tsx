@@ -46,6 +46,7 @@ function normalizeHex(value: string): string | null {
   return null;
 }
 
+/** Lets users select a color from the entity palette or enter a custom hex value. */
 export default function ColorPicker({
   value,
   onChange,

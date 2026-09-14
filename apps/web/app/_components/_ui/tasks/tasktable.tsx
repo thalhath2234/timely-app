@@ -228,6 +228,7 @@ function getCustomFieldDisplayValue(task: Task, fieldId: string): string {
   return "-";
 }
 
+/** Resolves a task's display label and color for the requested grouping field. */
 function getGroupMeta(
   task: Task,
   groupBy: TaskListGroupField,
@@ -286,6 +287,7 @@ function compareGroupLabel(
   return direction === "asc" ? compared : compared * -1;
 }
 
+/** Recursively organizes task rows into sorted groups for the table. */
 function buildNestedGroups(
   rows: Task[],
   groupFields: TaskListGroupField[],
@@ -417,6 +419,7 @@ function buildProjectRows(tasks: Task[]): Task[] {
   });
 }
 
+/** Renders configurable task rows, nested groups, and bulk-selection controls. */
 export default function TasksTable({
   config,
   dataMode,
@@ -764,6 +767,7 @@ export default function TasksTable({
   const bodyCellClass = (base: string, columnId: string) =>
     cn(base, columnDrag && columnDrag.id !== columnId && "bg-background");
 
+  /** Renders one configured column value for a task row. */
   const renderColumnCell = (column: ListColumn, task: Task, indentDepth = 0): ReactNode => {
     if (column.id.startsWith("cf:")) {
       return (
@@ -1041,6 +1045,7 @@ export default function TasksTable({
 
           {groupFields.length > 0 &&
             nestedGroups.map((group) => {
+              /** Renders a grouped row and any nested child groups. */
               const renderNode = (node: GroupNode) => {
                 const isCollapsed = !!collapsedGroups[node.key];
                 const stickyTop = headerOffset + node.depth * 34;

@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/app/utils/cn";
 import { chipStyle } from "@/app/utils/entityColor";
 
+/** Renders a compact, color-coded label with an optional leading dot. */
 export default function ColorChip({
   color,
   children,

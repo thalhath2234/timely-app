@@ -44,6 +44,7 @@ export async function getConfig(): Promise<Config> {
   return response.json();
 }
 
+/** Creates a workspace with its initial name and optional color. */
 export async function createWorkspace(data: {
   name: string;
   color?: string;
@@ -68,6 +69,7 @@ export async function createWorkspace(data: {
   return payload.workspace ?? payload;
 }
 
+/** Persists editable workspace identity fields. */
 export async function updateWorkspace(data: {
   id: string;
   name: string;

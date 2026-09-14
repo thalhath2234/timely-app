@@ -187,6 +187,7 @@ const MODE_META: Record<string, { icon: LucideIcon; label: string; action: strin
     sheet: { icon: SheetIcon, label: "New sheet", action: "Create sheet" },
   };
 
+/** Presents the context-aware forms for creating tasks, projects, and workspaces. */
 export default function AddItemModal() {
   const {
     isAddItemModalOpen,
@@ -348,6 +349,7 @@ export default function AddItemModal() {
   const availableTaskStages = stagesForProject(typedProjects, taskProjectId);
 
   const createWorkspaceMutation = useMutation({
+    /** Creates a workspace and makes it the active workspace. */
     mutationFn: async (data: AddWorkspaceForm) => {
       const response = await apiFetch("/workspaces", {
         method: "POST",
@@ -525,6 +527,7 @@ export default function AddItemModal() {
     router.push(`/sheets/${sheet.id}`);
   };
 
+  /** Closes the modal and clears transient task-creation context. */
   const closeModal = () => {
     reset();
     resetProject();

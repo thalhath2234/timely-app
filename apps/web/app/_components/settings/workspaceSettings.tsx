@@ -30,6 +30,7 @@ const WORKSPACE_TABS: { id: WorkspaceTab; label: string }[] = [
   { id: "customFields", label: "Custom fields" },
 ];
 
+/** Lists workspace configuration editors for the active account. */
 export default function WorkspaceSettings() {
   const { data: workspaces, isLoading } = useWorkspaces();
   const typedWorkspaces = useMemo(
@@ -93,6 +94,7 @@ export default function WorkspaceSettings() {
   );
 }
 
+/** Provides workspace identity and workflow configuration controls. */
 function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
   const [tab, setTab] = useState<WorkspaceTab>("name");
   const [name, setName] = useState(workspace.name);
@@ -111,6 +113,7 @@ function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
   const updateCustomField = useUpdateCustomField();
   const deleteCustomField = useDeleteCustomField();
 
+  /** Persists the workspace's current name and color. */
   const onRename = async (event: FormEvent) => {
     event.preventDefault();
     setRenameMessage(null);
