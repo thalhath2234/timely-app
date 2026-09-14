@@ -98,7 +98,8 @@ function invalidateProject(
 export function useCreateStage(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => createStage(projectId, name),
+    mutationFn: (data: { name: string; color?: string } | string) =>
+      createStage(projectId, typeof data === "string" ? { name: data } : data),
     onSuccess: () => invalidateProject(queryClient, projectId),
   });
 }
@@ -106,8 +107,15 @@ export function useCreateStage(projectId: string) {
 export function useUpdateStage(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ stageId, name }: { stageId: string; name: string }) =>
-      updateStage(projectId, stageId, name),
+    mutationFn: ({
+      stageId,
+      name,
+      color,
+    }: {
+      stageId: string;
+      name?: string;
+      color?: string;
+    }) => updateStage(projectId, stageId, { name, color }),
     onSuccess: () => invalidateProject(queryClient, projectId),
   });
 }

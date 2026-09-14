@@ -5,6 +5,12 @@ import { SIDEBAR_ITEMS, AddNewModeOptions } from "../_types/types";
 
 export type SidebarItemName = typeof SIDEBAR_ITEMS[0]["name"];
 
+export type CreateTaskDraft = {
+  workspaceId?: string;
+  projectId?: string;
+  stageId?: string;
+};
+
 type SidebarState = {
   activeItem: SidebarItemName;
   setActiveItem: (item: SidebarItemName) => void;
@@ -14,6 +20,8 @@ type SidebarState = {
   setIsAddItemModalOpen: (mode: boolean) => void;
   addNewMode: AddNewModeOptions;
   setAddNewMode: (item: AddNewModeOptions) => void;
+  createTaskDraft: CreateTaskDraft | null;
+  setCreateTaskDraft: (draft: CreateTaskDraft | null) => void;
 };
 
 export const useSidebarStore = create<SidebarState>((set) => ({
@@ -25,4 +33,6 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   setIsAddItemModalOpen: (mode) => set({ isAddItemModalOpen: mode }),
   addNewMode: "task",
   setAddNewMode: (item) => set({ addNewMode: item }),
+  createTaskDraft: null,
+  setCreateTaskDraft: (draft) => set({ createTaskDraft: draft }),
 }));

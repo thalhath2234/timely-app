@@ -11,6 +11,7 @@ type Stage struct {
 
 	Name  string `gorm:"not null" json:"name"`
 	Order int    `json:"order"`
+	Color string `json:"color"`
 
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`

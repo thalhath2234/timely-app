@@ -21,7 +21,8 @@ func NewHandler(workspaceService WorkspaceService) *Handler {
 }
 
 type createWorkspaceRequest struct {
-	Name string `json:"name"`
+	Name  string  `json:"name"`
+	Color *string `json:"color"`
 }
 
 type createStatusRequest struct {
@@ -76,8 +77,13 @@ func (h *Handler) Create(c *echo.Context) error {
 		)
 	}
 
+	color := ""
+	if req.Color != nil {
+		color = *req.Color
+	}
 	workspace := &models.Workspace{
 		Name:   req.Name,
+		Color:  color,
 		UserID: &userID,
 	}
 
@@ -163,7 +169,7 @@ func (h *Handler) Update(c *echo.Context) error {
 		)
 	}
 
-	workspace, err := h.workspaceService.UpdateWorkspace(userID, workspaceID, req.Name)
+	workspace, err := h.workspaceService.UpdateWorkspace(userID, workspaceID, req.Name, req.Color)
 	if err != nil {
 		return workspaceError(err)
 	}

@@ -10,6 +10,7 @@ type Workspace struct {
 	ID string `gorm:"type:text;primaryKey" json:"id"`
 
 	Name   string  `gorm:"not null" json:"name"`
+	Color  string  `json:"color"`
 	UserID *string `json:"userId"`
 
 	CreatedAt string `json:"createdAt"`

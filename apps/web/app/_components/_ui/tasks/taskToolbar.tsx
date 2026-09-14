@@ -593,6 +593,12 @@ export function TaskToolbar({
                           onChange={() => toggleWorkspace(workspace.id)}
                           className="accent-primary"
                         />
+                        <span
+                          className="size-2 shrink-0 rounded-full"
+                          style={{
+                            backgroundColor: workspace.color || "var(--muted-foreground)",
+                          }}
+                        />
                         <span className="text-sm text-foreground">{workspace.name}</span>
                       </label>
                     );
@@ -666,6 +672,7 @@ export function TaskOptionsBar({
     (project.stages ?? []).map((stage) => ({
       id: stage.id,
       label: isProjectScope ? stage.name : `${project.title}: ${stage.name}`,
+      color: stage.color ?? undefined,
     })),
   );
 
@@ -728,7 +735,11 @@ export function TaskOptionsBar({
             onChange={(projectId) => setSelectedProjectIds(projectId ? [projectId] : [])}
             options={[
               { value: "", label: "All projects" },
-              ...projects.map((project) => ({ value: project.id, label: project.title })),
+              ...projects.map((project) => ({
+                value: project.id,
+                label: project.title,
+                color: project.color ?? undefined,
+              })),
             ]}
           />
         </div>
@@ -763,7 +774,14 @@ export function TaskOptionsBar({
             value={selectedStageIds[0] ?? ""}
             placeholder="Stage"
             onChange={(stageId) => setSelectedStageIds(stageId ? [stageId] : [])}
-            options={[{ value: "", label: "All stages" }, ...stages.map((stage) => ({ value: stage.id, label: stage.label }))]}
+            options={[
+              { value: "", label: "All stages" },
+              ...stages.map((stage) => ({
+                value: stage.id,
+                label: stage.label,
+                color: stage.color,
+              })),
+            ]}
           />
         </div>
       ) : null}

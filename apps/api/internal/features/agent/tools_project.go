@@ -225,6 +225,7 @@ func (s *Server) deleteProject(ctx context.Context, req *mcp.CallToolRequest, in
 type createStageIn struct {
 	ProjectID string `json:"projectId"`
 	Name      string `json:"name"`
+	Color     string `json:"color,omitempty"`
 }
 
 func (s *Server) createStage(ctx context.Context, req *mcp.CallToolRequest, in createStageIn) (*mcp.CallToolResult, any, error) {
@@ -232,7 +233,7 @@ func (s *Server) createStage(ctx context.Context, req *mcp.CallToolRequest, in c
 	if err != nil {
 		return fail(err)
 	}
-	stage, err := s.Projects.CreateStage(uid, in.ProjectID, in.Name)
+	stage, err := s.Projects.CreateStage(uid, in.ProjectID, in.Name, in.Color)
 	if err != nil {
 		return fail(err)
 	}
@@ -240,9 +241,10 @@ func (s *Server) createStage(ctx context.Context, req *mcp.CallToolRequest, in c
 }
 
 type updateStageIn struct {
-	ProjectID string `json:"projectId"`
-	StageID   string `json:"stageId"`
-	Name      string `json:"name"`
+	ProjectID string  `json:"projectId"`
+	StageID   string  `json:"stageId"`
+	Name      *string `json:"name,omitempty"`
+	Color     *string `json:"color,omitempty"`
 }
 
 func (s *Server) updateStage(ctx context.Context, req *mcp.CallToolRequest, in updateStageIn) (*mcp.CallToolResult, any, error) {
@@ -250,7 +252,7 @@ func (s *Server) updateStage(ctx context.Context, req *mcp.CallToolRequest, in u
 	if err != nil {
 		return fail(err)
 	}
-	stage, err := s.Projects.UpdateStage(uid, in.ProjectID, in.StageID, in.Name)
+	stage, err := s.Projects.UpdateStage(uid, in.ProjectID, in.StageID, in.Name, in.Color)
 	if err != nil {
 		return fail(err)
 	}

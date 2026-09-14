@@ -147,12 +147,15 @@ export async function deleteProject(id: string): Promise<void> {
   }
 }
 
-export async function createStage(projectId: string, name: string): Promise<Stage> {
+export async function createStage(
+  projectId: string,
+  data: { name: string; color?: string },
+): Promise<Stage> {
   const response = await apiFetch(`/projects/${projectId}/stages`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(data),
   });
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to create stage"));
@@ -163,13 +166,13 @@ export async function createStage(projectId: string, name: string): Promise<Stag
 export async function updateStage(
   projectId: string,
   stageId: string,
-  name: string,
+  data: { name?: string; color?: string },
 ): Promise<Stage> {
   const response = await apiFetch(`/projects/${projectId}/stages/${stageId}`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(data),
   });
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to update stage"));

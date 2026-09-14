@@ -237,6 +237,7 @@ func (r *projectRepository) UpdateStage(stage *models.Stage) (*models.Stage, err
 		Updates(map[string]any{
 			"name":       stage.Name,
 			"order":      stage.Order,
+			"color":      stage.Color,
 			"updated_at": stage.UpdatedAt,
 		}).Error; err != nil {
 		return nil, err

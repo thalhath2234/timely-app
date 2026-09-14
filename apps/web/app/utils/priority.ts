@@ -36,3 +36,18 @@ export const PRIORITY_OPTIONS = PRIORITIES.map((value) => ({
   value,
   label: value,
 }));
+
+export function priorityColor(value?: string | null): string | null {
+  switch (normalizePriority(value)) {
+    case "Urgent":
+      return "#E5484D";
+    case "High":
+      return "#F76808";
+    case "Medium":
+      return "#FFB224";
+    case "Low":
+      return "#889096";
+    default:
+      return null;
+  }
+}

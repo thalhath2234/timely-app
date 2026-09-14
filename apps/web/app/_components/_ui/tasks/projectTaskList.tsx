@@ -14,7 +14,7 @@ import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { usePersistedProjectTaskView } from "@/app/utils/hooks/projectTaskView";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { filterTasks } from "@/app/utils/taskFilters";
-import { stageNameMap } from "@/app/utils/stages";
+import { stageColorMap, stageNameMap } from "@/app/utils/stages";
 
 export default function ProjectTaskList({
   project,
@@ -89,6 +89,7 @@ export default function ProjectTaskList({
     [project.workspaceId],
   );
   const stageNames = useMemo(() => stageNameMap([project]), [project]);
+  const stageColors = useMemo(() => stageColorMap([project]), [project]);
 
   const listFilters = useMemo(
     () => ({
@@ -309,6 +310,7 @@ export default function ProjectTaskList({
             onSelectRow={openRow}
             filters={listFilters}
             stageNames={stageNames}
+            stageColors={stageColors}
             selectedIds={selectedTaskIds}
             onSelectedIdsChange={setSelectedTaskIds}
           />

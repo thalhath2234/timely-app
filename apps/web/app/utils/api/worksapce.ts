@@ -46,6 +46,7 @@ export async function getConfig(): Promise<Config> {
 
 export async function createWorkspace(data: {
   name: string;
+  color?: string;
 }): Promise<Workspace> {
   const response = await apiFetch("/workspaces", {
     method: "POST",
@@ -55,6 +56,7 @@ export async function createWorkspace(data: {
     },
     body: JSON.stringify({
       name: data.name,
+      color: data.color,
     }),
   });
 
@@ -69,6 +71,7 @@ export async function createWorkspace(data: {
 export async function updateWorkspace(data: {
   id: string;
   name: string;
+  color?: string;
 }): Promise<Workspace> {
   const response = await apiFetch(
     `/workspaces/${encodeURIComponent(data.id)}`,
@@ -78,7 +81,7 @@ export async function updateWorkspace(data: {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ name: data.name }),
+      body: JSON.stringify({ name: data.name, color: data.color }),
     },
   );
 

@@ -93,7 +93,7 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "list_workspaces", Description: "List workspaces with statuses, labels, and custom fields."}, s.listWorkspaces)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_workspace", Description: "Get one workspace."}, s.getWorkspace)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_workspace", Description: "Create a workspace with default statuses."}, s.createWorkspace)
-	mcp.AddTool(server, &mcp.Tool{Name: "rename_workspace", Description: "Rename a workspace."}, s.renameWorkspace)
+	mcp.AddTool(server, &mcp.Tool{Name: "rename_workspace", Description: "Rename or recolor a workspace."}, s.renameWorkspace)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_workspace", Description: "Delete a workspace. Fails if it is the last one. Requires confirm=true."}, s.deleteWorkspace)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_status", Description: "Add a status to a workspace."}, s.createStatus)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_status", Description: "Rename or recolor a status."}, s.updateStatus)
@@ -113,7 +113,7 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "reopen_project", Description: "Clear completedAt on a project."}, s.reopenProject)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_project", Description: "Delete a project and its tasks. Requires confirm=true."}, s.deleteProject)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_stage", Description: "Add a stage to a project."}, s.createStage)
-	mcp.AddTool(server, &mcp.Tool{Name: "update_stage", Description: "Rename a stage."}, s.updateStage)
+	mcp.AddTool(server, &mcp.Tool{Name: "update_stage", Description: "Rename or recolor a project stage."}, s.updateStage)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_stage", Description: "Delete a stage."}, s.deleteStage)
 	mcp.AddTool(server, &mcp.Tool{Name: "reorder_stages", Description: "Set stage order by id list."}, s.reorderStages)
 

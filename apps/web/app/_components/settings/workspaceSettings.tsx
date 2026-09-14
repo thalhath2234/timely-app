@@ -2,6 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import Select from "@/app/_components/_ui/select";
+import ColorPicker from "@/app/_components/_ui/colorPicker";
 import CustomFieldEditor from "@/app/_components/settings/customFieldEditor";
 import NamedColorEditor from "@/app/_components/settings/namedColorEditor";
 import { Workspace } from "@/app/_types/types";
@@ -80,6 +81,7 @@ export default function WorkspaceSettings() {
           options={typedWorkspaces.map((item) => ({
             value: item.id,
             label: item.name,
+            color: item.color ?? undefined,
           }))}
         />
       </label>
@@ -94,6 +96,7 @@ export default function WorkspaceSettings() {
 function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
   const [tab, setTab] = useState<WorkspaceTab>("name");
   const [name, setName] = useState(workspace.name);
+  const [color, setColor] = useState(workspace.color || "#6E56CF");
   const [renameMessage, setRenameMessage] = useState<string | null>(null);
   const [renameError, setRenameError] = useState<string | null>(null);
 
@@ -117,6 +120,7 @@ function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
       await updateWorkspace.mutateAsync({
         id: workspace.id,
         name: name.trim(),
+        color,
       });
       setRenameMessage("Workspace name saved.");
     } catch (err) {
@@ -157,11 +161,16 @@ function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
                 Workspace name
               </h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Rename this workspace. It won’t change tasks or projects inside
-                it.
+                Rename this workspace and pick a color so tasks from different
+                workspaces are easy to scan.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <ColorPicker
+                value={color}
+                onChange={setColor}
+                aria-label="Workspace color"
+              />
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
