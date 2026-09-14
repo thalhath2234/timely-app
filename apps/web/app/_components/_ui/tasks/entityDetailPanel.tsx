@@ -724,9 +724,13 @@ function DetailBody({
       onClose={onClose}
       onSaveAndClose={() => {
         void (async () => {
-          await saveDescription();
-          await flush();
-          onClose();
+          try {
+            await saveDescription();
+            const saved = await flush();
+            if (saved) onClose();
+          } catch {
+            // Keep the panel open so the save failure stays visible.
+          }
         })();
       }}
       onDelete={onDelete}

@@ -18,34 +18,46 @@ export function useAutosave<T extends object>(
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
   const flushRef = useRef<() => void>(() => {});
+  const inFlightPromiseRef = useRef<Promise<boolean> | null>(null);
   const [status, setStatus] = useState<SaveStatus>("idle");
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (): Promise<boolean> => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
 
-    const patch = pendingRef.current;
-    if (inFlightRef.current || !patch) return;
-
-    pendingRef.current = null;
-    inFlightRef.current = true;
-    setStatus("saving");
-
-    try {
-      await saveRef.current(patch);
-      inFlightRef.current = false;
-      setStatus(pendingRef.current ? "unsaved" : "saved");
-      if (pendingRef.current) {
-        timerRef.current = setTimeout(() => flushRef.current(), delay);
-      }
-    } catch {
-      pendingRef.current = { ...patch, ...(pendingRef.current ?? {}) };
-      inFlightRef.current = false;
-      setStatus("error");
+    if (inFlightPromiseRef.current) {
+      return inFlightPromiseRef.current;
     }
-  }, [delay]);
+
+    const work = (async (): Promise<boolean> => {
+      try {
+        while (pendingRef.current) {
+          const patch = pendingRef.current;
+          pendingRef.current = null;
+          inFlightRef.current = true;
+          setStatus("saving");
+          try {
+            await saveRef.current(patch);
+            inFlightRef.current = false;
+            setStatus(pendingRef.current ? "unsaved" : "saved");
+          } catch {
+            pendingRef.current = { ...patch, ...(pendingRef.current ?? {}) };
+            inFlightRef.current = false;
+            setStatus("error");
+            return false;
+          }
+        }
+        return true;
+      } finally {
+        inFlightPromiseRef.current = null;
+      }
+    })();
+
+    inFlightPromiseRef.current = work;
+    return work;
+  }, []);
 
   useEffect(() => {
     saveRef.current = save;
