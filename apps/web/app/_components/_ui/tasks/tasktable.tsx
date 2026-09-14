@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import {
   Config,
   CustomField,
@@ -182,12 +182,21 @@ function dropSlotLeft(
 type GroupNode = {
   key: string;
   label: string;
+  field: TaskListGroupField;
   color: string | null;
   depth: number;
   count: number;
   children: GroupNode[];
   rows: Task[];
 };
+
+function isPlaceholderGroup(label: string) {
+  return /^no /i.test(label.trim()) || label.trim() === "-";
+}
+
+function completedRowCount(rows: Task[]) {
+  return rows.filter((task) => Boolean(task.completedAt)).length;
+}
 
 function formatDate(value?: string | null): string {
   if (!value) return "-";
@@ -332,6 +341,7 @@ function buildNestedGroups(
       return {
         key: nodeKey,
         label,
+        field,
         color: group.color,
         depth,
         count: group.rows.length,
@@ -505,14 +515,15 @@ export default function TasksTable({
   const selectCell = (task: Task) =>
     canSelect ? (
       <td
-        className="w-10 px-2 align-middle"
+        className="w-10 px-4 text-center align-middle"
         onClick={(event) => event.stopPropagation()}
       >
         <input
           type="checkbox"
           checked={selectedIds.includes(task.id)}
           onChange={() => toggleRow(task.id)}
-          className="accent-primary"
+          className="size-3.5 rounded border-border accent-primary"
+          aria-label={`Select ${task.name}`}
         />
       </td>
     ) : null;
@@ -711,7 +722,7 @@ export default function TasksTable({
     };
   }, [columnDrag, stopColumnDrag]);
 
-  const headerOffset = 36;
+  const headerOffset = 40;
 
   if (isLoading) {
     return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
@@ -728,12 +739,12 @@ export default function TasksTable({
   }
 
   const headerCellClass =
-    "px-3 py-2 font-medium whitespace-nowrap bg-muted/60 text-muted-foreground align-middle";
-  const textCell = "px-3 py-2 text-foreground whitespace-nowrap align-middle";
-  const primaryTextCell = "px-3 py-2 font-medium text-foreground whitespace-nowrap align-middle";
-  const descriptionCell = "px-3 py-2 text-muted-foreground max-w-80 truncate align-middle";
-  const numericCell = "px-3 py-2 text-muted-foreground text-right tabular-nums whitespace-nowrap align-middle";
-  const dateCell = "px-3 py-2 text-muted-foreground text-center tabular-nums whitespace-nowrap align-middle";
+    "px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap bg-background/95 text-muted-foreground align-middle";
+  const textCell = "px-3 py-2.5 text-foreground whitespace-nowrap align-middle";
+  const primaryTextCell = "px-3 py-2.5 font-medium text-foreground whitespace-nowrap align-middle";
+  const descriptionCell = "px-3 py-2.5 text-muted-foreground max-w-80 truncate align-middle";
+  const numericCell = "px-3 py-2.5 text-muted-foreground text-right font-mono text-[11px] tabular-nums whitespace-nowrap align-middle";
+  const dateCell = "px-3 py-2.5 text-muted-foreground tabular-nums whitespace-nowrap align-middle";
 
   const alignHeader = (align: ColumnAlign) =>
     align === "center" ? "text-center" : align === "right" ? "text-right" : "";
@@ -778,19 +789,29 @@ export default function TasksTable({
     }
 
     switch (column.id) {
-      case "name":
+      case "name": {
+        const completed = Boolean(task.completedAt);
         return (
           <td
             key={column.id}
-            className={bodyCellClass(primaryTextCell, column.id)}
+            className={bodyCellClass(
+              cn(primaryTextCell, completed && "text-muted-foreground"),
+              column.id,
+            )}
             style={{
               paddingLeft: `${12 + indentDepth * 16}px`,
               ...columnMotionStyle(column.id),
             }}
           >
-            {task.name}
+            <span className="inline-flex min-w-0 items-center gap-2">
+              {completed ? (
+                <Check className="size-3.5 shrink-0 text-success" aria-hidden />
+              ) : null}
+              <span className="truncate">{task.name}</span>
+            </span>
           </td>
         );
+      }
       case "description":
         return (
           <td
@@ -882,13 +903,17 @@ export default function TasksTable({
           <td
             key={column.id}
             className={bodyCellClass(
-              "px-3 py-2 text-center text-muted-foreground whitespace-nowrap align-middle",
+              "px-3 py-2.5 text-muted-foreground whitespace-nowrap align-middle",
               column.id,
             )}
             style={columnMotionStyle(column.id)}
           >
             {task.priorityLevel ? (
-              <ColorChip color={priorityColor(task.priorityLevel)} dot={false}>
+              <ColorChip
+                color={priorityColor(task.priorityLevel)}
+                dot={false}
+                className="rounded px-2 py-0.5 text-[10px]"
+              >
                 {task.priorityLevel}
               </ColorChip>
             ) : (
@@ -901,7 +926,7 @@ export default function TasksTable({
           <td
             key={column.id}
             className={bodyCellClass(
-              "px-3 py-2 text-center text-muted-foreground tabular-nums whitespace-nowrap align-middle",
+              "px-3 py-2.5 text-muted-foreground whitespace-nowrap align-middle",
               column.id,
             )}
             style={columnMotionStyle(column.id)}
@@ -913,6 +938,7 @@ export default function TasksTable({
                   task.stage?.color ||
                   resolvedColor(null, task.stageId)
                 }
+                className="rounded px-1.5 py-0.5 text-[10px]"
               >
                 {stageNames[task.stageId] || task.stage?.name || task.stageId}
               </ColorChip>
@@ -925,10 +951,10 @@ export default function TasksTable({
         return (
           <td
             key={column.id}
-            className={bodyCellClass("px-3 py-2 align-middle", column.id)}
+            className={bodyCellClass("px-3 py-2.5 align-middle", column.id)}
             style={columnMotionStyle(column.id)}
           >
-            <ColorChip color={task.status?.color} dot={false}>
+            <ColorChip color={task.status?.color} dot={false} className="text-[11px]">
               {task.status?.name || "-"}
             </ColorChip>
           </td>
@@ -937,7 +963,7 @@ export default function TasksTable({
         return (
           <td
             key={column.id}
-            className={bodyCellClass("px-3 py-2 align-middle", column.id)}
+            className={bodyCellClass("px-3 py-2.5 align-middle", column.id)}
             style={columnMotionStyle(column.id)}
           >
             <div className="flex flex-wrap gap-1">
@@ -975,7 +1001,7 @@ export default function TasksTable({
         columnDrag && "select-none",
       )}
     >
-      <table className="w-max min-w-full border-collapse text-sm">
+      <table className="w-max min-w-full border-collapse text-xs">
         <colgroup>
           {canSelect ? <col className="w-10" /> : null}
           {columns.map((column) => (
@@ -983,16 +1009,17 @@ export default function TasksTable({
           ))}
         </colgroup>
         <thead className="sticky top-0 z-30">
-          <tr className="border-b border-border bg-muted/60 text-left">
+          <tr className="border-b border-border bg-background/95 text-left backdrop-blur-sm">
             {canSelect ? (
-              <th className="w-10 px-2">
+              <th className="w-10 px-4 text-center">
                 <input
                   type="checkbox"
                   checked={allSelected}
                   onChange={() =>
                     onSelectedIdsChange?.(allSelected ? [] : visibleIds)
                   }
-                  className="accent-primary"
+                  className="size-3.5 rounded border-border accent-primary"
+                  aria-label="Select all visible tasks"
                 />
               </th>
             ) : null}
@@ -1032,7 +1059,7 @@ export default function TasksTable({
               <tr
                 key={task.id}
                 onClick={() => onSelectRow(task)}
-                className="cursor-pointer border-b border-border transition-colors hover:bg-muted/40"
+                className="group cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/25"
               >
                 {selectCell(task)}
                 {renderTaskCells(task, 0)}
@@ -1043,37 +1070,117 @@ export default function TasksTable({
             nestedGroups.map((group) => {
               const renderNode = (node: GroupNode) => {
                 const isCollapsed = !!collapsedGroups[node.key];
-                const stickyTop = headerOffset + node.depth * 34;
+                const stickyTop = headerOffset + node.depth * 36;
                 const zIndex = 28 - node.depth;
+                const done = completedRowCount(node.rows);
+                const allDone = node.count > 0 && done === node.count;
+                const placeholder = isPlaceholderGroup(node.label);
+                const isRoot = node.depth === 0;
+                const showProgress = node.field === "project" && node.count > 0 && !placeholder;
 
                 return (
                   <Fragment key={node.key}>
-                    <tr className="border-b border-border">
+                    <tr
+                      className={cn(
+                        "border-b",
+                        allDone
+                          ? "border-success/20"
+                          : isRoot
+                            ? "border-primary/20"
+                            : "border-border/70",
+                      )}
+                    >
                       <td
                         colSpan={columns.length + (canSelect ? 1 : 0)}
-                        className="px-3 py-2 text-xs font-semibold text-foreground bg-muted sticky"
+                        className={cn(
+                          "sticky px-4 align-middle",
+                          isRoot ? "py-2.5" : node.depth === 1 ? "py-2" : "py-1.5",
+                          allDone
+                            ? "bg-success/5"
+                            : isRoot
+                              ? "bg-muted/70"
+                              : "bg-muted/40",
+                        )}
                         style={{
                           top: `${stickyTop}px`,
                           zIndex,
+                          paddingLeft: `${16 + node.depth * 18}px`,
                         }}
                       >
-                        <button
-                          className="flex items-center gap-2"
-                          style={{ paddingLeft: `${node.depth * 14}px` }}
-                          onClick={() => toggleGroup(node.key)}
-                        >
-                          {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                          {node.color ? (
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            className="flex min-w-0 items-center gap-2 text-left"
+                            onClick={() => toggleGroup(node.key)}
+                          >
+                            {isCollapsed ? (
+                              <ChevronRight
+                                size={isRoot ? 16 : 14}
+                                className={allDone ? "text-success" : "text-muted-foreground"}
+                              />
+                            ) : (
+                              <ChevronDown
+                                size={isRoot ? 16 : 14}
+                                className={allDone ? "text-success" : "text-muted-foreground"}
+                              />
+                            )}
                             <span
-                              className="size-2 shrink-0 rounded-full"
-                              style={{ backgroundColor: node.color }}
+                              className={cn(
+                                "shrink-0 rounded-full",
+                                isRoot || node.field === "project" ? "size-2" : "size-1.5",
+                                allDone && "shadow-[0_0_6px_color-mix(in_oklab,var(--success)_55%,transparent)]",
+                              )}
+                              style={{
+                                backgroundColor:
+                                  node.color ||
+                                  (allDone ? "var(--success)" : "var(--muted-foreground)"),
+                              }}
                             />
+                            <span
+                              className={cn(
+                                "truncate tracking-tight",
+                                isRoot ? "text-sm font-bold text-foreground" : "text-xs font-semibold",
+                                placeholder && "italic text-muted-foreground",
+                                allDone && !placeholder && "text-success",
+                              )}
+                            >
+                              {node.label}
+                            </span>
+                            <span
+                              className={cn(
+                                "shrink-0 tabular-nums",
+                                allDone ? "text-[11px] text-success/80" : "text-[11px] text-muted-foreground",
+                              )}
+                            >
+                              {allDone
+                                ? `(${node.count} completed)`
+                                : `(${node.count})`}
+                            </span>
+                            {isRoot ? (
+                              <span className="ml-3 h-px min-w-8 flex-1 bg-gradient-to-r from-primary/25 to-transparent" />
+                            ) : null}
+                          </button>
+
+                          {allDone ? (
+                            <span className="shrink-0 rounded-full border border-success/25 bg-success/10 px-2 py-0.5 font-mono text-[11px] text-success">
+                              100% DONE
+                            </span>
+                          ) : showProgress ? (
+                            <div className="flex shrink-0 items-center gap-3 text-[11px] text-muted-foreground">
+                              <span>
+                                {done}/{node.count} done
+                              </span>
+                              <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className="h-full rounded-full bg-success"
+                                  style={{
+                                    width: `${Math.round((done / node.count) * 100)}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
                           ) : null}
-                          <span>{node.label}</span>
-                          <span className="text-muted-foreground tabular-nums">
-                            ({node.count})
-                          </span>
-                        </button>
+                        </div>
                       </td>
                     </tr>
 
@@ -1084,7 +1191,7 @@ export default function TasksTable({
                             <tr
                               key={task.id}
                               onClick={() => onSelectRow(task)}
-                              className="cursor-pointer border-b border-border transition-colors hover:bg-muted/40"
+                              className="group cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/20"
                             >
                               {selectCell(task)}
                               {renderTaskCells(task, node.depth + 1)}

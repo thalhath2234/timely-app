@@ -12,14 +12,14 @@ import {
 } from "@/app/_types/types";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { Plus, Pencil, X } from "lucide-react";
+import { Plus, Pencil, X, Eye, EyeOff } from "lucide-react";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import TasksTable from "@/app/_components/_ui/tasks/tasktable";
 import EntityDetailPanel from "@/app/_components/_ui/tasks/entityDetailPanel";
 import KanbanView from "@/app/_components/_ui/tasks/kanbanView";
 import GanttView from "@/app/_components/_ui/tasks/ganttView";
 import BulkActionBar from "@/app/_components/_ui/tasks/bulkActionBar";
-import { TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToolbar";
+import { TaskListStatusBar, TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToolbar";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { filterTasks } from "@/app/utils/taskFilters";
@@ -228,6 +228,18 @@ function Tasks() {
 
   const filteredDataRows = dataRows;
   const dataCount = filteredDataRows.length;
+  const headerTaskCount = useMemo(
+    () => filterTasks(allTasks, { ...listFilters, showReminders: false }).length,
+    [allTasks, listFilters],
+  );
+  const headerProjectCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const task of filterTasks(allTasks, listFilters)) {
+      const projectId = task.project?.id || task.projectId;
+      if (projectId) ids.add(projectId);
+    }
+    return ids.size;
+  }, [allTasks, listFilters]);
 
   if (isLoading) {
     return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
@@ -248,7 +260,12 @@ function Tasks() {
 
   return (
     <div className="h-full flex flex-col">
-      <TaskHeader />
+      <TaskHeader
+        taskCount={headerTaskCount}
+        projectCount={headerProjectCount}
+        optionsVisible={optionsVisible}
+        onToggleOptions={() => setOptionsVisible((previous) => !previous)}
+      />
 
       <TaskNavigationBar
         views={taskViews}
@@ -257,8 +274,6 @@ function Tasks() {
         onAddView={addNewView}
         onDeleteView={deleteActiveView}
         onRenameView={renameView}
-        optionsVisible={optionsVisible}
-        onToggleOptions={() => setOptionsVisible((previous) => !previous)}
       />
 
       {taskViews.length === 0 && (
@@ -413,6 +428,13 @@ function Tasks() {
               />
             )}
           </div>
+
+          <TaskListStatusBar
+            shown={dataCount}
+            total={headerTaskCount}
+            synced={!syncError}
+            noun={showReminders ? "reminders" : dataMode === "project" ? "projects" : "tasks"}
+          />
         </>
       )}
 
@@ -435,7 +457,17 @@ function Tasks() {
   );
 }
 
-export function TaskHeader() {
+export function TaskHeader({
+  taskCount = 0,
+  projectCount = 0,
+  optionsVisible = true,
+  onToggleOptions,
+}: {
+  taskCount?: number;
+  projectCount?: number;
+  optionsVisible?: boolean;
+  onToggleOptions?: () => void;
+}) {
   const setAddNewMode = useSidebarStore((state) => state.setAddNewMode);
   const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
   const { data: workspaces } = useWorkspaces();
@@ -447,24 +479,45 @@ export function TaskHeader() {
   };
 
   return (
-    <div className="h-14 border-b border-border flex items-center justify-between px-4">
-      <div className="flex items-center gap-2">
-        <div className="size-5 rounded-md bg-primary" aria-hidden />
-        <h1 className="font-semibold tracking-tight text-foreground">
+    <div className="flex items-center justify-between border-b border-border px-5 py-4">
+      <div className="flex items-center gap-3">
+        <span
+          className="size-2.5 rounded-full bg-primary shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_65%,transparent)]"
+          aria-hidden
+        />
+        <h1 className="text-xl font-bold tracking-tight text-foreground">
           Projects &amp; Tasks
         </h1>
+        <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+          {taskCount} Task{taskCount === 1 ? "" : "s"} · {projectCount} Project
+          {projectCount === 1 ? "" : "s"}
+        </span>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
+        {onToggleOptions ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            onClick={onToggleOptions}
+            aria-pressed={!optionsVisible}
+          >
+            {optionsVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+            {optionsVisible ? "Hide options" : "Show options"}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={openCreate}
           disabled={!canCreate}
           title={canCreate ? "Create a task" : "Create a workspace first"}
-          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-60"
         >
           <Plus size={14} />
           New task
+          <kbd className="ml-0.5 hidden rounded bg-primary-foreground/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary-foreground/90 sm:inline">
+            C
+          </kbd>
         </button>
       </div>
     </div>
@@ -478,8 +531,6 @@ type TaskNavigationBarProps = {
   onAddView: () => void;
   onDeleteView: () => void;
   onRenameView: (viewId: string, name: string) => void;
-  optionsVisible: boolean;
-  onToggleOptions: () => void;
 };
 
 export function TaskNavigationBar({
@@ -489,8 +540,6 @@ export function TaskNavigationBar({
   onAddView,
   onDeleteView,
   onRenameView,
-  optionsVisible,
-  onToggleOptions,
 }: TaskNavigationBarProps) {
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -516,8 +565,8 @@ export function TaskNavigationBar({
   };
 
   return (
-    <div className="h-12 border-b border-border flex items-center justify-between px-4">
-      <div className="flex items-center gap-6 text-sm">
+    <div className="flex h-11 items-end border-b border-border px-5">
+      <div className="flex items-end gap-5 text-xs">
         {views.map((view) => {
           const isEditing = editingViewId === view.id;
           const isActive = view.id === activeTaskViewId;
@@ -550,59 +599,51 @@ export function TaskNavigationBar({
               key={view.id}
               className={
                 isActive
-                  ? "font-medium text-foreground border-b border-primary"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "flex items-center gap-1.5 border-b-2 border-primary pb-2.5 font-semibold text-primary"
+                  : "border-b-2 border-transparent pb-2.5 font-medium text-muted-foreground hover:text-foreground"
               }
               onClick={() => onSelectView(view.id)}
             >
               {view.name}
+              {isActive ? (
+                <span className="size-1.5 rounded-full bg-primary" aria-hidden />
+              ) : null}
             </button>
           );
         })}
 
-        <div className="flex gap-1">
+        <div className="flex gap-0.5 pb-2.5 text-muted-foreground">
           <button
             type="button"
-            className="p-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            className="rounded-md p-1 transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => (editingViewId ? applyRename() : startRenaming())}
             title={editingViewId ? "Save view name" : "Rename active view"}
             aria-label={editingViewId ? "Save view name" : "Rename active view"}
           >
-            <Pencil size={14} />
+            <Pencil size={12} />
           </button>
 
           <button
             type="button"
-            className="p-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            className="rounded-md p-1 transition-colors hover:bg-muted hover:text-foreground"
             onClick={onAddView}
             title="Add view"
             aria-label="Add view"
           >
-            <Plus size={14} />
+            <Plus size={12} />
           </button>
 
           <button
             type="button"
-            className="p-1 rounded-md bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
+            className="rounded-md p-1 transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
             onClick={onDeleteView}
             disabled={views.length <= 1}
             title={views.length <= 1 ? "At least one view is required" : "Delete active view"}
             aria-label="Delete active view"
           >
-            <X size={14} />
+            <X size={12} />
           </button>
         </div>
-      </div>
-
-      <div className="flex items-center gap-4">
-        <button
-          type="button"
-          className="text-sm text-muted-foreground hover:text-foreground"
-          onClick={onToggleOptions}
-          aria-pressed={!optionsVisible}
-        >
-          {optionsVisible ? "Hide options" : "Show options"}
-        </button>
       </div>
     </div>
   );
