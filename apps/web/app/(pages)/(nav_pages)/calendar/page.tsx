@@ -23,7 +23,7 @@ import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { useAddTaskBlock, useCalendarRange } from "@/app/utils/hooks/calendar";
+import { useAddTaskBlock, useCalendarRange, useCommitCalendarBlock, useApplySchedule } from "@/app/utils/hooks/calendar";
 import {
   eventLegend,
   headerLabel,
@@ -63,6 +63,8 @@ function CalendarContent() {
   const [scopedTaskIds, setScopedTaskIds] = useState<string[] | undefined>(undefined);
   const openTask = useEntityDetailStore((state) => state.openTask);
   const addBlock = useAddTaskBlock();
+  const commitBlock = useCommitCalendarBlock();
+  const applySchedule = useApplySchedule();
 
   const typedTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
   const events = useMemo(
@@ -126,16 +128,58 @@ function CalendarContent() {
     setAutoOpen(true);
   };
 
-  const dropTaskOnSlot = (day: Date, hour: number, taskId: string) => {
-    const task = typedTasks.find((item) => item.id === taskId);
-    const minutes = Math.max(task?.duration || 0, 30);
-    void addBlock.mutateAsync({
-      taskId,
-      start: slotAt(day, hour).toISOString(),
-      durationMinutes: minutes,
-      replace: true,
-    });
-  };
+  const rerunAroundPins = useCallback(async () => {
+    const activity = useScheduleActivityStore.getState();
+    activity.start();
+    try {
+      const plan = await applySchedule.mutateAsync({ includeManual: false });
+      activity.finish(plan);
+    } catch (err) {
+      activity.fail(
+        err instanceof Error ? err.message : "Could not update schedule.",
+      );
+    }
+  }, [applySchedule]);
+
+  const dropTaskOnSlot = useCallback(
+    (at: Date, taskId: string) => {
+      const task = typedTasks.find((item) => item.id === taskId);
+      const minutes = Math.max(task?.duration || 0, 30);
+      void (async () => {
+        try {
+          await addBlock.mutateAsync({
+            taskId,
+            start: at.toISOString(),
+            durationMinutes: minutes,
+            replace: true,
+          });
+          await rerunAroundPins();
+        } catch (err) {
+          useScheduleActivityStore.getState().fail(
+            err instanceof Error ? err.message : "Could not place task.",
+          );
+        }
+      })();
+    },
+    [addBlock, rerunAroundPins, typedTasks],
+  );
+
+  const moveCalendarBlock = useCallback(
+    (event: CalendarEvent, start: Date, end: Date) => {
+      if (!event.blockId) return;
+      void commitBlock.mutateAsync({
+        blockId: event.blockId,
+        extraBlockIds: event.blockIds ?? [],
+        start,
+        end,
+      }).catch((err) => {
+        useScheduleActivityStore.getState().fail(
+          err instanceof Error ? err.message : "Could not move block.",
+        );
+      });
+    },
+    [commitBlock],
+  );
 
   // Server render has no "today"; the client snapshot fills it in after
   // hydration without a setState-in-effect round trip.
@@ -302,6 +346,7 @@ function CalendarContent() {
               onSelectEvent={setSelectedEvent}
               onSelectSlot={openScheduleSlot}
               onDropTask={dropTaskOnSlot}
+              onMoveBlock={moveCalendarBlock}
             />
           )}
 
@@ -312,6 +357,7 @@ function CalendarContent() {
               onSelectEvent={setSelectedEvent}
               onSelectSlot={openScheduleSlot}
               onDropTask={dropTaskOnSlot}
+              onMoveBlock={moveCalendarBlock}
             />
           )}
 

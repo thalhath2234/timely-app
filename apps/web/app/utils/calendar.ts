@@ -10,6 +10,9 @@ import type {
 
 /** Pixel height of one hour row in the day/week time grid. */
 export const HOUR_HEIGHT = 56;
+/** Calendar drag/resize snaps to this clock increment. */
+export const SNAP_MINUTES = 15;
+export const MIN_BLOCK_MINUTES = 15;
 
 const MINUTES_PER_DAY = 24 * 60;
 const DEFAULT_EVENT_MINUTES = 30;
@@ -40,6 +43,8 @@ export type CalendarEvent = {
   event?: CalendarEventEntity;
   /** Task blocks */
   blockId?: string;
+  /** Adjacent chunks folded into this bar; first id is the one we move. */
+  blockIds: string[];
   source?: BlockSource;
   chunkIndex: number;
   chunkCount: number;
@@ -109,6 +114,7 @@ export function toCalendarEvents(items: CalendarItem[]): CalendarEvent[] {
       task,
       event: item.event,
       blockId: item.blockId,
+      blockIds: item.blockId ? [item.blockId] : [],
       source: item.source,
       chunkIndex: item.chunkIndex,
       chunkCount: item.chunkCount,
@@ -161,7 +167,7 @@ export function mergeAdjacentTaskBlocks(events: CalendarEvent[]): CalendarEvent[
       const next = sorted[i];
       const gap = next.start.getTime() - current.end.getTime();
       if (isSameDay(current.start, next.start) && gap <= ADJACENT_GAP_MS) {
-        current = spanEvent(current, next.end);
+        current = spanEvent(current, next);
       } else {
         merged.push(current);
         current = next;
@@ -173,7 +179,13 @@ export function mergeAdjacentTaskBlocks(events: CalendarEvent[]): CalendarEvent[
   return [...rest, ...merged].sort((a, b) => a.start.getTime() - b.start.getTime());
 }
 
-function spanEvent(event: CalendarEvent, end: Date): CalendarEvent {
+function blockIdList(event: CalendarEvent): string[] {
+  if (event.blockIds?.length) return event.blockIds;
+  return event.blockId ? [event.blockId] : [];
+}
+
+function spanEvent(event: CalendarEvent, next: CalendarEvent): CalendarEvent {
+  const end = next.end;
   const durationMinutes = Math.max(
     Math.round((end.getTime() - event.start.getTime()) / 60_000),
     0,
@@ -183,6 +195,7 @@ function spanEvent(event: CalendarEvent, end: Date): CalendarEvent {
     ?.split(" · ")
     .filter((part) => !/^Part \d+ of \d+$/.test(part))
     .join(" · ") || null;
+  const blockIds = [...new Set([...blockIdList(event), ...blockIdList(next)])];
 
   return {
     ...event,
@@ -192,6 +205,122 @@ function spanEvent(event: CalendarEvent, end: Date): CalendarEvent {
     chunkIndex: 0,
     chunkCount: 1,
     subtitle,
+    blockId: blockIds[0] ?? event.blockId,
+    blockIds,
+  };
+}
+
+/** Work blocks the user can drag or resize on the day/week grid. */
+export function isDraggableCalendarBlock(event: CalendarEvent): boolean {
+  return Boolean(event.blockId) && !event.reminder && !event.allDay && isTaskKind(event.kind);
+}
+
+function itemOccupiesTime(item: CalendarItem): boolean {
+  return Boolean(item.blockId) && !item.reminder && !item.allDay;
+}
+
+/**
+ * Instant calendar paint for a drag/resize: the moved pin stays where the
+ * user dropped it, and work that sat in that slot is hidden until the engine
+ * puts it in the next free block. Avoids a frame of overlapping columns.
+ */
+export function optimisticMoveCalendarItems(
+  items: CalendarItem[],
+  args: {
+    blockId: string;
+    extraBlockIds?: string[];
+    start: Date;
+    end: Date;
+  },
+): CalendarItem[] {
+  const keep = args.blockId;
+  const extras = new Set(
+    (args.extraBlockIds ?? []).filter((id) => id && id !== keep),
+  );
+  const startIso = args.start.toISOString();
+  const endIso = args.end.toISOString();
+  const startMs = args.start.getTime();
+  const endMs = args.end.getTime();
+  const next: CalendarItem[] = [];
+
+  for (const item of items) {
+    if (item.blockId && extras.has(item.blockId)) continue;
+    if (item.blockId === keep) {
+      next.push({ ...item, start: startIso, end: endIso, source: "manual" });
+      continue;
+    }
+    if (itemOccupiesTime(item)) {
+      const start = new Date(item.start).getTime();
+      const end = new Date(item.end).getTime();
+      if (start < endMs && end > startMs) continue;
+    }
+    next.push(item);
+  }
+
+  return next;
+}
+
+export function snapMinutes(value: number, increment = SNAP_MINUTES): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value / increment) * increment;
+}
+
+/** Local clock on `day`. 1440 minutes is midnight of the next day. */
+export function dateOnDayAtMinutes(day: Date, minutes: number): Date {
+  const clamped = Math.max(0, Math.min(MINUTES_PER_DAY, minutes));
+  if (clamped >= MINUTES_PER_DAY) return addDays(startOfDay(day), 1);
+  return new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    Math.floor(clamped / 60),
+    clamped % 60,
+    0,
+    0,
+  );
+}
+
+export type GridDragMode = "move" | "resize-start" | "resize-end";
+
+/** Snapped start/end for a live drag on one calendar day. */
+export function dragBlockInterval(args: {
+  mode: GridDragMode;
+  day: Date;
+  pointerMinutes: number;
+  grabOffsetMinutes: number;
+  originStartMinutes: number;
+  originEndMinutes: number;
+}): { start: Date; end: Date } {
+  const duration = Math.max(
+    MIN_BLOCK_MINUTES,
+    args.originEndMinutes - args.originStartMinutes,
+  );
+
+  if (args.mode === "move") {
+    let startMin = snapMinutes(args.pointerMinutes - args.grabOffsetMinutes);
+    startMin = Math.max(0, Math.min(MINUTES_PER_DAY - duration, startMin));
+    return {
+      start: dateOnDayAtMinutes(args.day, startMin),
+      end: dateOnDayAtMinutes(args.day, startMin + duration),
+    };
+  }
+
+  if (args.mode === "resize-start") {
+    const endMin = args.originEndMinutes;
+    let startMin = snapMinutes(args.pointerMinutes);
+    startMin = Math.max(0, Math.min(endMin - MIN_BLOCK_MINUTES, startMin));
+    return {
+      start: dateOnDayAtMinutes(args.day, startMin),
+      end: dateOnDayAtMinutes(args.day, endMin),
+    };
+  }
+
+  const startMin = args.originStartMinutes;
+  let endMin = snapMinutes(args.pointerMinutes);
+  endMin = Math.max(startMin + MIN_BLOCK_MINUTES, Math.min(MINUTES_PER_DAY, endMin));
+  return {
+    start: dateOnDayAtMinutes(args.day, startMin),
+    end: dateOnDayAtMinutes(args.day, endMin),
   };
 }
 
@@ -282,11 +411,25 @@ export type PositionedEvent = {
 };
 
 /**
- * Splits overlapping events into side-by-side columns. Events are grouped into
- * clusters of transitively overlapping blocks; every event in a cluster gets
- * the same column count so their widths line up.
+ * Splits overlapping work/events into side-by-side columns. Reminders overlay
+ * the grid and never take a lane from a task.
  */
 export function layoutDayEvents(events: CalendarEvent[]): PositionedEvent[] {
+  const reminders: CalendarEvent[] = [];
+  const occupying: CalendarEvent[] = [];
+  for (const event of events) {
+    if (event.reminder) reminders.push(event);
+    else occupying.push(event);
+  }
+
+  const positioned = packLanes(occupying);
+  for (const event of reminders) {
+    positioned.push({ event, lane: 0, lanes: 1 });
+  }
+  return positioned;
+}
+
+function packLanes(events: CalendarEvent[]): PositionedEvent[] {
   const sorted = [...events].sort(
     (a, b) => a.startHour - b.startHour || b.endHour - a.endHour,
   );

@@ -29,7 +29,10 @@ import {
   type AddBlockPayload,
   type PlanRequest,
 } from "@/app/utils/api/schedule";
+import { CalendarRange } from "@/app/_types/types";
+import { optimisticMoveCalendarItems } from "@/app/utils/calendar";
 import { tasksKey, todayKey } from "@/app/utils/hooks/tasks";
+import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 
 export const calendarKey = ["calendar"] as const;
 export const eventsKey = ["events"] as const;
@@ -204,6 +207,67 @@ export function useMoveBlock() {
       end?: string;
     }) => moveBlock(blockId, data),
     onSuccess: invalidate,
+  });
+}
+
+/** Pin the dragged block, then rebuild engine-owned blocks around it. */
+export function useCommitCalendarBlock() {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateCalendar();
+  return useMutation({
+    mutationFn: async ({
+      blockId,
+      extraBlockIds = [],
+      start,
+      end,
+    }: {
+      blockId: string;
+      extraBlockIds?: string[];
+      start: Date;
+      end: Date;
+    }) => {
+      await moveBlock(blockId, {
+        start: start.toISOString(),
+        end: end.toISOString(),
+      });
+      const extras = extraBlockIds.filter((id) => id && id !== blockId);
+      for (const id of extras) {
+        try {
+          await deleteBlock(id);
+        } catch {
+          // Already removed when the move displaced overlapping chunks.
+        }
+      }
+      const activity = useScheduleActivityStore.getState();
+      activity.start();
+      try {
+        const plan = await applySchedule({ includeManual: false });
+        activity.finish(plan);
+        return plan;
+      } catch (err) {
+        activity.fail(
+          err instanceof Error ? err.message : "Could not update schedule.",
+        );
+        throw err;
+      }
+    },
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: calendarKey });
+      const previous = queryClient.getQueriesData<CalendarRange>({
+        queryKey: calendarKey,
+      });
+      queryClient.setQueriesData<CalendarRange>({ queryKey: calendarKey }, (old) => {
+        if (!old?.items) return old;
+        return { ...old, items: optimisticMoveCalendarItems(old.items, vars) };
+      });
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      for (const [key, data] of ctx?.previous ?? []) {
+        queryClient.setQueryData(key, data);
+      }
+    },
+    onSettled: () => invalidate(),
   });
 }
 
