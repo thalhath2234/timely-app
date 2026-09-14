@@ -497,6 +497,7 @@ function DetailBody({
     content: DocContent;
     plainText: string;
   } | null>(null);
+  const descriptionSavePromiseRef = useRef<Promise<void> | null>(null);
 
   const { schedule, flush, status } = useAutosave<DetailPatch>(save);
   const { data: projects } = useProjects();
@@ -614,20 +615,28 @@ function DetailBody({
     }
   };
 
-  const saveDescription = async () => {
+  const saveDescription = () => {
+    if (descriptionSavePromiseRef.current) {
+      return descriptionSavePromiseRef.current;
+    }
     const draft = descriptionDraftRef.current;
-    if (!draft || descriptionSaving) return;
+    if (!draft) return Promise.resolve();
 
     setDescriptionSaving(true);
-    try {
-      await save({
-        descriptionRich: draft.content,
-        description: draft.plainText,
-      });
-      setDescriptionDirty(false);
-    } finally {
-      setDescriptionSaving(false);
-    }
+    const work = (async () => {
+      try {
+        await save({
+          descriptionRich: draft.content,
+          description: draft.plainText,
+        });
+        setDescriptionDirty(false);
+      } finally {
+        setDescriptionSaving(false);
+        descriptionSavePromiseRef.current = null;
+      }
+    })();
+    descriptionSavePromiseRef.current = work;
+    return work;
   };
 
   const isInbox = view.taskKind === "inbox" || view.facts.some((fact) => fact.label === "Inbox");

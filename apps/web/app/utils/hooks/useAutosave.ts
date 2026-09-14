@@ -31,6 +31,10 @@ export function useAutosave<T extends object>(
       return inFlightPromiseRef.current;
     }
 
+    if (!pendingRef.current) {
+      return true;
+    }
+
     const work = (async (): Promise<boolean> => {
       try {
         while (pendingRef.current) {
