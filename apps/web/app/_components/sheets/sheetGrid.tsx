@@ -1,36 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
-  BarChart3,
-  BetweenHorizontalEnd,
-  BetweenHorizontalStart,
-  BetweenVerticalEnd,
-  BetweenVerticalStart,
-  Bold,
-  Combine,
-  Filter,
-  Highlighter,
-  Italic,
-  Link2,
-  MessageSquare,
-  Minus,
-  Paintbrush,
-  Plus,
-  Printer,
-  Redo2,
-  Sigma,
-  Square,
-  Strikethrough,
-  Trash2,
-  Type,
-  Underline,
-  Undo2,
-  WrapText,
-} from "lucide-react";
+import AlignCenter from "lucide-react/dist/esm/icons/align-center.mjs";
+import AlignLeft from "lucide-react/dist/esm/icons/align-left.mjs";
+import AlignRight from "lucide-react/dist/esm/icons/align-right.mjs";
+import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3.mjs";
+import BetweenHorizontalEnd from "lucide-react/dist/esm/icons/between-horizontal-end.mjs";
+import BetweenHorizontalStart from "lucide-react/dist/esm/icons/between-horizontal-start.mjs";
+import BetweenVerticalEnd from "lucide-react/dist/esm/icons/between-vertical-end.mjs";
+import BetweenVerticalStart from "lucide-react/dist/esm/icons/between-vertical-start.mjs";
+import Bold from "lucide-react/dist/esm/icons/bold.mjs";
+import Combine from "lucide-react/dist/esm/icons/combine.mjs";
+import Filter from "lucide-react/dist/esm/icons/filter.mjs";
+import Highlighter from "lucide-react/dist/esm/icons/highlighter.mjs";
+import Italic from "lucide-react/dist/esm/icons/italic.mjs";
+import Link2 from "lucide-react/dist/esm/icons/link-2.mjs";
+import MessageSquare from "lucide-react/dist/esm/icons/message-square.mjs";
+import Minus from "lucide-react/dist/esm/icons/minus.mjs";
+import Paintbrush from "lucide-react/dist/esm/icons/paintbrush.mjs";
+import Plus from "lucide-react/dist/esm/icons/plus.mjs";
+import Printer from "lucide-react/dist/esm/icons/printer.mjs";
+import Redo2 from "lucide-react/dist/esm/icons/redo-2.mjs";
+import Sigma from "lucide-react/dist/esm/icons/sigma.mjs";
+import Square from "lucide-react/dist/esm/icons/square.mjs";
+import Strikethrough from "lucide-react/dist/esm/icons/strikethrough.mjs";
+import Trash2 from "lucide-react/dist/esm/icons/trash-2.mjs";
+import Type from "lucide-react/dist/esm/icons/type.mjs";
+import Underline from "lucide-react/dist/esm/icons/underline.mjs";
+import Undo2 from "lucide-react/dist/esm/icons/undo-2.mjs";
+import WrapText from "lucide-react/dist/esm/icons/wrap-text.mjs";
 import {
   SheetBorder,
   SheetCellFormat,
