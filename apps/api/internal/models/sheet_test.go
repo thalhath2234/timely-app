@@ -1,6 +1,10 @@
 package models
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestNormalizeTypedCell(t *testing.T) {
 	cases := []struct {
@@ -70,6 +74,59 @@ func TestCloneGridRemapsIDs(t *testing.T) {
 		t.Fatal("format did not follow remapped column")
 	}
 }
+
+func TestNormalizeCellFormats(t *testing.T) {
+	got := NormalizeCellFormats(map[string]SheetCellFormat{
+		"keep": {
+			Italic:     true,
+			TextColor:  "#F28",
+			FillColor:  "#174ea6",
+			Wrap:       true,
+			Decimals:   intPtr(4),
+			FontFamily: "serif",
+			Note:       "  hello  ",
+		},
+		"drop": {
+			Align: "diagonal",
+		},
+	})
+	kept, ok := got["keep"]
+	if !ok {
+		t.Fatal("expected keep format")
+	}
+	if !kept.Italic {
+		t.Fatal("italic")
+	}
+	if kept.TextColor != "#ff2288" {
+		t.Fatalf("text color: %q", kept.TextColor)
+	}
+	if kept.FillColor != "#174ea6" {
+		t.Fatalf("fill: %q", kept.FillColor)
+	}
+	if kept.Decimals == nil || *kept.Decimals != 4 {
+		t.Fatal("decimals")
+	}
+	if kept.FontFamily != "serif" || kept.Note != "hello" {
+		t.Fatalf("family/note: %#v", kept)
+	}
+	if _, exists := got["drop"]; exists {
+		t.Fatal("empty invalid format should be dropped")
+	}
+
+	emoji := strings.Repeat("🙂", 700)
+	truncated := NormalizeCellFormats(map[string]SheetCellFormat{
+		"note": {Note: emoji},
+	})
+	note := truncated["note"].Note
+	if !utf8.ValidString(note) {
+		t.Fatal("truncated note must stay valid UTF-8")
+	}
+	if len(note) > 2000 {
+		t.Fatalf("note too long: %d", len(note))
+	}
+}
+
+func intPtr(v int) *int { return &v }
 
 func TestNormalizeMerges(t *testing.T) {
 	got := NormalizeMerges(SheetMerges{

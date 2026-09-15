@@ -73,18 +73,26 @@ export function numericColumnType(type: SheetColumnType | undefined) {
   );
 }
 
-function formatNumber(value: number, format: SheetNumberFormat | undefined) {
+function formatNumber(
+  value: number,
+  format: SheetNumberFormat | undefined,
+  decimals?: number,
+) {
   if (!Number.isFinite(value)) return "#NUM!";
+  const digits =
+    decimals ?? (format === "currency" ? 2 : format === "percent" ? 2 : undefined);
+  const options =
+    digits == null
+      ? { maximumFractionDigits: 10 }
+      : { minimumFractionDigits: digits, maximumFractionDigits: digits };
   if (format === "currency") {
-    return value.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+    return value.toLocaleString(undefined, options);
   }
   if (format === "percent") {
-    return `${(value * 100).toLocaleString(undefined, {
-      maximumFractionDigits: 2,
-    })}%`;
+    return `${(value * 100).toLocaleString(undefined, options)}%`;
+  }
+  if (digits != null) {
+    return value.toLocaleString(undefined, options);
   }
   return formatCellResult({ type: "number", value });
 }
@@ -109,15 +117,33 @@ export function formatSheetDisplay(
   if (result.type === "empty") return "";
   if (result.type === "boolean") return result.value ? "TRUE" : "FALSE";
   if (result.type === "number") {
-    return formatNumber(result.value, resolveNumberFormat(type, cellFormat));
+    return formatNumber(
+      result.value,
+      resolveNumberFormat(type, cellFormat),
+      cellFormat?.decimals,
+    );
   }
   if (type === "percent" && result.type === "text" && !isFormulaValue(raw)) {
     const parsed = Number(result.value.replace(/,/g, ""));
-    if (Number.isFinite(parsed)) return formatNumber(parsed, undefined);
+    if (Number.isFinite(parsed)) return formatNumber(parsed, undefined, cellFormat?.decimals);
   }
   return formatCellResult(result);
 }
 
 export function statusChip(text: string) {
   return SHEET_STATUS_CHIPS[text.trim().toLowerCase()] ?? null;
+}
+
+export function cellFormatFontFamily(family: SheetCellFormat["fontFamily"] | undefined) {
+  if (family === "serif") return "Georgia, 'Times New Roman', serif";
+  if (family === "mono") return "ui-monospace, SFMono-Regular, Menlo, monospace";
+  return undefined;
+}
+
+export function cellTextDecoration(format: SheetCellFormat | undefined) {
+  const parts = [
+    format?.underline ? "underline" : "",
+    format?.strikethrough ? "line-through" : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" ") : undefined;
 }

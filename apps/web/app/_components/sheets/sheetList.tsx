@@ -3,13 +3,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Plus, Search, Sheet as SheetIcon, Star, Trash2 } from "lucide-react";
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  Search,
+  Sheet as SheetIcon,
+  Star,
+  Trash2,
+} from "lucide-react";
 import {
   useCreateSheet,
   useDeleteSheet,
   useSheets,
 } from "@/app/utils/hooks/sheets";
 import { sheetMetaLabel } from "@/app/utils/sheetWorkbook";
+import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
 
 export default function SheetList() {
   const router = useRouter();
@@ -24,6 +33,7 @@ export default function SheetList() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const { collapsed, toggle } = useCollapsedPanel("timely.sheetsListCollapsed");
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -65,15 +75,17 @@ export default function SheetList() {
     if (activeId === id) router.push("/sheets");
   };
 
-  return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-sidebar/40">
-      <div className="flex items-center justify-between border-b border-border/70 px-4 py-3.5">
-        <div className="flex items-center gap-2">
-          <span className="size-2 rounded-full bg-primary" />
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-foreground">
-            {showArchived ? "Archived" : "Sheets Workspace"}
-          </h2>
-        </div>
+  if (collapsed) {
+    return (
+      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-sidebar/40 py-3">
+        <button
+          type="button"
+          title="Expand sheets list"
+          onClick={toggle}
+          className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+        >
+          <PanelLeftOpen className="size-4" />
+        </button>
         <button
           type="button"
           title="New sheet"
@@ -83,6 +95,38 @@ export default function SheetList() {
         >
           <Plus className="size-4" />
         </button>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-sidebar/40">
+      <div className="flex items-center justify-between border-b border-border/70 px-4 py-3.5">
+        <div className="flex items-center gap-2">
+          <span className="size-2 rounded-full bg-primary" />
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-foreground">
+            {showArchived ? "Archived" : "Sheets Workspace"}
+          </h2>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            title="Collapse sheets list"
+            onClick={toggle}
+            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+          >
+            <PanelLeftClose className="size-4" />
+          </button>
+          <button
+            type="button"
+            title="New sheet"
+            onClick={handleCreate}
+            disabled={createSheet.isPending}
+            className="flex size-7 cursor-pointer items-center justify-center rounded-lg bg-primary/15 text-primary transition-colors hover:bg-primary hover:text-primary-foreground disabled:opacity-60"
+          >
+            <Plus className="size-4" />
+          </button>
+        </div>
       </div>
 
       <div className="px-3 py-3">

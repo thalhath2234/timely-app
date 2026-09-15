@@ -72,17 +72,51 @@ export function emptyFormats(
   return { ...(formats ?? {}) };
 }
 
+export function isEmptyCellFormat(format: SheetCellFormat): boolean {
+  return (
+    !format.bold &&
+    !format.italic &&
+    !format.underline &&
+    !format.strikethrough &&
+    !format.align &&
+    !format.verticalAlign &&
+    !format.wrap &&
+    !format.numberFormat &&
+    format.decimals == null &&
+    !format.textColor &&
+    !format.fillColor &&
+    !format.border &&
+    !format.link &&
+    !format.fontSize &&
+    !format.fontFamily &&
+    !format.note
+  );
+}
+
 export function setCellFormat(
   formats: Record<string, SheetCellFormat> | undefined,
   columnId: string,
   patch: Partial<SheetCellFormat>,
 ): Record<string, SheetCellFormat> | undefined {
   const next = emptyFormats(formats);
-  const merged = { ...(next[columnId] ?? {}), ...patch };
+  const merged: SheetCellFormat = { ...(next[columnId] ?? {}), ...patch };
   if (!merged.bold) delete merged.bold;
+  if (!merged.italic) delete merged.italic;
+  if (!merged.underline) delete merged.underline;
+  if (!merged.strikethrough) delete merged.strikethrough;
   if (!merged.align) delete merged.align;
+  if (!merged.verticalAlign) delete merged.verticalAlign;
+  if (!merged.wrap) delete merged.wrap;
   if (!merged.numberFormat) delete merged.numberFormat;
-  if (!merged.bold && !merged.align && !merged.numberFormat) {
+  if (merged.decimals == null) delete merged.decimals;
+  if (!merged.textColor) delete merged.textColor;
+  if (!merged.fillColor) delete merged.fillColor;
+  if (!merged.border) delete merged.border;
+  if (!merged.link) delete merged.link;
+  if (!merged.fontSize) delete merged.fontSize;
+  if (!merged.fontFamily) delete merged.fontFamily;
+  if (!merged.note) delete merged.note;
+  if (isEmptyCellFormat(merged)) {
     delete next[columnId];
   } else {
     next[columnId] = merged;
