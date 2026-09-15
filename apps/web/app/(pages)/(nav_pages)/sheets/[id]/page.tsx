@@ -230,6 +230,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
       <div className="mx-6 mb-3 rounded-lg border border-border bg-input/20 px-3 py-2">
         <RichTextEditor
           variant="compact"
+          toolbar="fixed"
           content={toRichContent(sheet.descriptionRich, sheet.description)}
           placeholder="Add a description. Type '@' to mention docs, tasks, or projects..."
           onChange={({ content, plainText }) =>

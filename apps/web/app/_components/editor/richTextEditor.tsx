@@ -40,6 +40,7 @@ import {
   List,
   ListOrdered,
   Minus,
+  Quote,
   Strikethrough,
   TableCellsMerge,
   TableCellsSplit,
@@ -81,7 +82,7 @@ export interface RichTextEditorProps {
   placeholder?: string;
   /** "page" is a full document body; "compact" is a description field. */
   variant?: "page" | "compact";
-  /** "fixed" pins formatting controls above the editor, like a task description. */
+  /** "fixed" pins formatting controls above the editor. "float" shows them on selection. */
   toolbar?: "float" | "fixed";
   enableSlashCommands?: boolean;
   enableMentions?: boolean;
@@ -150,7 +151,7 @@ export default function RichTextEditor({
   onReady,
   placeholder,
   variant = "page",
-  toolbar = "float",
+  toolbar = "fixed",
   enableSlashCommands = true,
   enableMentions = true,
   autoFocus = false,
@@ -296,7 +297,7 @@ export default function RichTextEditor({
       attributes: {
         class: `doc-editor-content focus:outline-none ${
           variant === "compact" ? "doc-editor-compact" : ""
-        } ${toolbar === "fixed" ? "doc-editor-description" : ""}`,
+        }`,
         autocapitalize: "sentences",
         spellcheck: "true",
       },
@@ -621,6 +622,12 @@ export default function RichTextEditor({
       run: () => editor.chain().focus().toggleTaskList().run(),
     },
     {
+      label: "Quote",
+      icon: Quote,
+      isActive: editor.isActive("blockquote"),
+      run: () => editor.chain().focus().toggleBlockquote().run(),
+    },
+    {
       label: "Code block",
       icon: Code2,
       isActive: editor.isActive("codeBlock"),
@@ -645,6 +652,7 @@ export default function RichTextEditor({
       "Heading 1",
       "Heading 2",
       "Bulleted list",
+      "Quote",
     ]);
     toolbarButtons = toolbarButtons.filter((button) =>
       floatingLabels.has(button.label),

@@ -239,6 +239,7 @@ body::-webkit-scrollbar-corner,
   font-size: 1rem;
   line-height: 1.75;
   min-height: 55vh;
+  overflow-wrap: break-word;
 }
 
 .doc-editor-content > * + * {
