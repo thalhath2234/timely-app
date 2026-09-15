@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"timely-api/internal/utils"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 )
@@ -425,12 +426,8 @@ func NormalizeCellFormats(formats map[string]SheetCellFormat) map[string]SheetCe
 			}
 			normalized.Decimals = &decimals
 		}
-		if len(normalized.Link) > 2048 {
-			normalized.Link = normalized.Link[:2048]
-		}
-		if len(normalized.Note) > 2000 {
-			normalized.Note = normalized.Note[:2000]
-		}
+		normalized.Link = truncateUTF8Bytes(normalized.Link, 2048)
+		normalized.Note = truncateUTF8Bytes(normalized.Note, 2000)
 		if cellFormatEmpty(normalized) {
 			continue
 		}
@@ -462,6 +459,17 @@ func normalizeHexColor(value string) string {
 		}
 	}
 	return strings.ToLower(trimmed)
+}
+
+func truncateUTF8Bytes(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	end := limit
+	for end > 0 && !utf8.RuneStart(value[end]) {
+		end--
+	}
+	return value[:end]
 }
 
 func cellFormatEmpty(format SheetCellFormat) bool {

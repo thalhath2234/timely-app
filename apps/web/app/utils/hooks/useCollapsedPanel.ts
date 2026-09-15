@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
+
+const COLLAPSED_EVENT = "timely-collapsed-panel";
 
 function readCollapsed(storageKey: string) {
   if (typeof window === "undefined") return false;
@@ -11,19 +13,26 @@ function readCollapsed(storageKey: string) {
   }
 }
 
+function subscribe(onStoreChange: () => void) {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(COLLAPSED_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(COLLAPSED_EVENT, onStoreChange);
+  };
+}
+
 export function useCollapsedPanel(storageKey: string) {
-  const [collapsed, setCollapsed] = useState(() => readCollapsed(storageKey));
+  const getSnapshot = useCallback(() => readCollapsed(storageKey), [storageKey]);
+  const collapsed = useSyncExternalStore(subscribe, getSnapshot, () => false);
 
   const toggle = () => {
-    setCollapsed((previous) => {
-      const next = !previous;
-      try {
-        window.localStorage.setItem(storageKey, next ? "1" : "0");
-      } catch {
-        // Ignore private-mode / blocked storage.
-      }
-      return next;
-    });
+    try {
+      window.localStorage.setItem(storageKey, collapsed ? "0" : "1");
+    } catch {
+      // Ignore private-mode / blocked storage.
+    }
+    window.dispatchEvent(new Event(COLLAPSED_EVENT));
   };
 
   return { collapsed, toggle };

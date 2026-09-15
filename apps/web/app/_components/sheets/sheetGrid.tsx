@@ -599,9 +599,13 @@ export default function SheetGrid({
     const handleMouseMove = (event: MouseEvent) => {
       const state = resizeStateRef.current;
       if (!state) return;
+      const scale = zoom / 100 || 1;
       const width = Math.min(
         MAX_COLUMN_WIDTH,
-        Math.max(MIN_COLUMN_WIDTH, state.startWidth + event.clientX - state.startX),
+        Math.max(
+          MIN_COLUMN_WIDTH,
+          state.startWidth + (event.clientX - state.startX) / scale,
+        ),
       );
       persist({
         columns: columns.map((column, index) =>
@@ -620,7 +624,7 @@ export default function SheetGrid({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [columns, persist]);
+  }, [columns, persist, zoom]);
 
   const gridTemplateColumns = `${ROW_HEADER_WIDTH}px ${columns
     .map((column) => `${column.width}px`)
@@ -668,17 +672,34 @@ export default function SheetGrid({
 
   const printSheet = () => {
     const markup = gridRef.current?.innerHTML ?? "";
-    const popup = window.open("", "_blank", "noopener,noreferrer");
-    if (!popup) return;
-    popup.document.write(
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+    const frameWindow = iframe.contentWindow;
+    const frameDocument = iframe.contentDocument;
+    if (!frameWindow || !frameDocument) {
+      iframe.remove();
+      return;
+    }
+    const cleanup = () => iframe.remove();
+    frameWindow.addEventListener("afterprint", cleanup);
+    frameDocument.open();
+    frameDocument.write(
       `<html><head><title>Sheet</title><style>
         body{font:12px sans-serif;background:#fff;color:#111;margin:16px}
         button{display:none}
       </style></head><body>${markup}</body></html>`,
     );
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    frameDocument.close();
+    frameWindow.focus();
+    frameWindow.print();
+    window.setTimeout(cleanup, 1000);
   };
 
   const chartValues = useMemo(() => {

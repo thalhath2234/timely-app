@@ -1,6 +1,10 @@
 package models
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestNormalizeTypedCell(t *testing.T) {
 	cases := []struct {
@@ -107,6 +111,18 @@ func TestNormalizeCellFormats(t *testing.T) {
 	}
 	if _, exists := got["drop"]; exists {
 		t.Fatal("empty invalid format should be dropped")
+	}
+
+	emoji := strings.Repeat("🙂", 700)
+	truncated := NormalizeCellFormats(map[string]SheetCellFormat{
+		"note": {Note: emoji},
+	})
+	note := truncated["note"].Note
+	if !utf8.ValidString(note) {
+		t.Fatal("truncated note must stay valid UTF-8")
+	}
+	if len(note) > 2000 {
+		t.Fatalf("note too long: %d", len(note))
 	}
 }
 
