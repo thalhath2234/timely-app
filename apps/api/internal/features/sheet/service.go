@@ -25,6 +25,8 @@ type SheetUpdate struct {
 	DescriptionRich *models.JSONMap
 	Columns         *models.SheetColumns
 	Rows            *models.SheetRows
+	Merges          *models.SheetMerges
+	Tabs            *models.SheetTabs
 	ProjectID       *string
 	IsFavorite      *bool
 	Archived        *bool
@@ -44,6 +46,7 @@ type SheetService interface {
 	List(userID string, filter SheetFilter) ([]models.Sheet, error)
 	GetByID(userID string, sheetID string) (*models.Sheet, error)
 	Update(userID string, sheetID string, update SheetUpdate) (*models.Sheet, error)
+	Duplicate(userID, sheetID string) (*models.Sheet, error)
 	Delete(userID string, sheetID string) error
 	AddRows(userID, sheetID string, count int) (*models.Sheet, error)
 	UpdateCells(userID, sheetID, rowID string, cells map[string]string) (*models.Sheet, error)
@@ -90,7 +93,7 @@ func (s *sheetService) Create(sheet *models.Sheet) (*models.Sheet, error) {
 		sheet.Rows = models.DefaultSheetRows(sheet.Columns, defaultRows)
 	}
 
-	if err := validateGrid(sheet.Columns, sheet.Rows); err != nil {
+	if err := prepareGrid(sheet.Title, &sheet.Columns, &sheet.Rows, &sheet.Merges, &sheet.Tabs); err != nil {
 		return nil, err
 	}
 
@@ -174,7 +177,7 @@ func (s *sheetService) Update(userID string, sheetID string, update SheetUpdate)
 		}
 	}
 
-	if update.Columns != nil || update.Rows != nil {
+	if update.Columns != nil || update.Rows != nil || update.Merges != nil || update.Tabs != nil {
 		current, err := s.repo.GetSheetByID(userID, sheetID)
 		if err != nil {
 			return nil, err
@@ -190,18 +193,37 @@ func (s *sheetService) Update(userID string, sheetID string, update SheetUpdate)
 			rows = *update.Rows
 		}
 
-		if err := validateGrid(columns, rows); err != nil {
-			return nil, err
-		}
-		if update.Rows != nil {
-			models.NormalizeSheetCells(columns, rows)
+		merges := current.Merges
+		if update.Merges != nil {
+			merges = *update.Merges
 		}
 
-		if update.Columns != nil {
+		tabs := current.Tabs
+		if update.Tabs != nil {
+			tabs = *update.Tabs
+		}
+
+		if len(tabs) > 0 && (update.Columns != nil || update.Rows != nil || update.Merges != nil) {
+			tabs[0].Columns = columns
+			tabs[0].Rows = rows
+			tabs[0].Merges = merges
+		}
+
+		if err := prepareGrid(current.Title, &columns, &rows, &merges, &tabs); err != nil {
+			return nil, err
+		}
+
+		if update.Columns != nil || update.Tabs != nil {
 			updates["columns"] = columns
 		}
-		if update.Rows != nil {
+		if update.Rows != nil || update.Tabs != nil {
 			updates["rows"] = rows
+		}
+		if update.Merges != nil || update.Tabs != nil {
+			updates["merges"] = merges
+		}
+		if update.Tabs != nil || (len(tabs) > 0 && (update.Columns != nil || update.Rows != nil || update.Merges != nil)) {
+			updates["tabs"] = tabs
 		}
 	}
 
@@ -215,6 +237,29 @@ func (s *sheetService) Update(userID string, sheetID string, update SheetUpdate)
 	}
 	s.indexSheet(sheet)
 	return sheet, nil
+}
+
+func (s *sheetService) Duplicate(userID, sheetID string) (*models.Sheet, error) {
+	src, err := s.GetByID(userID, sheetID)
+	if err != nil {
+		return nil, err
+	}
+
+	columns, rows, merges, tabs := models.CloneSheetContents(src)
+	clone := &models.Sheet{
+		Title:           "Copy of " + src.Title,
+		Icon:            src.Icon,
+		Description:     src.Description,
+		DescriptionRich: src.DescriptionRich,
+		Columns:         columns,
+		Rows:            rows,
+		Merges:          merges,
+		Tabs:            tabs,
+		WorkspaceID:     src.WorkspaceID,
+		ProjectID:       src.ProjectID,
+		UserID:          userID,
+	}
+	return s.Create(clone)
 }
 
 func (s *sheetService) Delete(userID string, sheetID string) error {
@@ -235,6 +280,58 @@ func (s *sheetService) Delete(userID string, sheetID string) error {
 	if s.indexer != nil {
 		s.indexer.Delete(userID, embed.KindSheet, sheetID)
 	}
+	return nil
+}
+
+const maxTabs = 20
+
+func prepareGrid(
+	title string,
+	columns *models.SheetColumns,
+	rows *models.SheetRows,
+	merges *models.SheetMerges,
+	tabs *models.SheetTabs,
+) error {
+	if len(*tabs) > maxTabs {
+		return errors.New("too many tabs")
+	}
+
+	if len(*tabs) == 0 {
+		return normalizePrimary(columns, rows, merges)
+	}
+
+	fallback := normalizeTitle(title)
+	seen := make(map[string]bool, len(*tabs))
+	for i := range *tabs {
+		tab, err := models.NormalizeSheetTab((*tabs)[i], fallback)
+		if err != nil {
+			return err
+		}
+		if seen[tab.ID] {
+			tab.ID = utils.PrefixedUUID("tab")
+		}
+		seen[tab.ID] = true
+		if err := validateGrid(tab.Columns, tab.Rows); err != nil {
+			return err
+		}
+		(*tabs)[i] = tab
+	}
+
+	*columns = (*tabs)[0].Columns
+	*rows = (*tabs)[0].Rows
+	*merges = (*tabs)[0].Merges
+	return nil
+}
+
+func normalizePrimary(columns *models.SheetColumns, rows *models.SheetRows, merges *models.SheetMerges) error {
+	if err := validateGrid(*columns, *rows); err != nil {
+		return err
+	}
+	if err := models.NormalizeSheetColumns(*columns); err != nil {
+		return err
+	}
+	models.NormalizeSheetCells(*columns, *rows)
+	*merges = models.NormalizeMerges(*merges, len(*columns), len(*rows))
 	return nil
 }
 

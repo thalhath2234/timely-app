@@ -216,6 +216,7 @@ func setupSheetRoutes(g *echo.Group, sheetHandler *sheet.Handler) {
 	g.POST("/sheets", sheetHandler.Create)
 	g.GET("/sheets", sheetHandler.GetAllSheetsByUser)
 	g.GET("/sheets/:id", sheetHandler.GetSheetById)
+	g.POST("/sheets/:id/duplicate", sheetHandler.Duplicate)
 	g.PUT("/sheets/:id", sheetHandler.Update)
 	g.DELETE("/sheets/:id", sheetHandler.Delete)
 }

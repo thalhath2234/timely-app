@@ -8,6 +8,9 @@ func TestNormalizeTypedCell(t *testing.T) {
 	}{
 		{"text", "hello", "hello"},
 		{"number", "1,234.5", "1234.5"},
+		{"currency", "50,000.00", "50000"},
+		{"percent", "115%", "1.15"},
+		{"formula", "1.5", "1.5"},
 		{"number", "nope", ""},
 		{"date", "2026-09-12", "2026-09-12"},
 		{"date", "2026-09-12T15:04:05Z", "2026-09-12"},
@@ -31,7 +34,51 @@ func TestNormalizeSheetColumnType(t *testing.T) {
 	if err != nil || got != SheetColumnTypeBoolean {
 		t.Fatalf("checkbox alias: got %q %v", got, err)
 	}
-	if _, err := NormalizeSheetColumnType("formula"); err == nil {
+	got, err = NormalizeSheetColumnType("fx")
+	if err != nil || got != SheetColumnTypeFormula {
+		t.Fatalf("formula alias: got %q %v", got, err)
+	}
+	got, err = NormalizeSheetColumnType("money")
+	if err != nil || got != SheetColumnTypeCurrency {
+		t.Fatalf("currency alias: got %q %v", got, err)
+	}
+	if _, err := NormalizeSheetColumnType("widget"); err == nil {
 		t.Fatal("expected unknown type to fail")
+	}
+}
+
+func TestCloneGridRemapsIDs(t *testing.T) {
+	columns := SheetColumns{{ID: "col_a", Name: "A", Width: 120, Type: "currency"}}
+	rows := SheetRows{{
+		ID:    "row_1",
+		Cells: map[string]string{"col_a": "10"},
+		Formats: map[string]SheetCellFormat{
+			"col_a": {Bold: true, NumberFormat: "currency"},
+		},
+	}}
+	nextCols, nextRows := CloneGrid(columns, rows)
+	if nextCols[0].ID == "col_a" {
+		t.Fatal("expected a new column id")
+	}
+	if nextRows[0].ID == "row_1" {
+		t.Fatal("expected a new row id")
+	}
+	if nextRows[0].Cells[nextCols[0].ID] != "10" {
+		t.Fatalf("cell did not follow remapped column: %#v", nextRows[0].Cells)
+	}
+	if !nextRows[0].Formats[nextCols[0].ID].Bold {
+		t.Fatal("format did not follow remapped column")
+	}
+}
+
+func TestNormalizeMerges(t *testing.T) {
+	got := NormalizeMerges(SheetMerges{
+		{StartCol: 0, StartRow: 0, ColSpan: 2, RowSpan: 1},
+		{StartCol: 0, StartRow: 0, ColSpan: 2, RowSpan: 1},
+		{StartCol: 9, StartRow: 0, ColSpan: 2, RowSpan: 1},
+		{StartCol: 0, StartRow: 0, ColSpan: 1, RowSpan: 1},
+	}, 4, 4)
+	if len(got) != 1 {
+		t.Fatalf("got %#v", got)
 	}
 }
