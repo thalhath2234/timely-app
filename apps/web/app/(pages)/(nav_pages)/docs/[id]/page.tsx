@@ -284,8 +284,8 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-10 pb-32 pt-10">
+      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-10 pt-10">
+        <div className="shrink-0">
           <div className="relative mb-1">
             <button
               type="button"
@@ -344,11 +344,14 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             className="w-full bg-transparent text-4xl font-bold text-foreground outline-none placeholder:text-muted-foreground/50"
           />
 
-          <p className="mb-6 mt-3 text-xs text-muted-foreground">
+          <p className="mb-4 mt-3 text-xs text-muted-foreground">
             {wordCount} {wordCount === 1 ? "word" : "words"}
           </p>
+        </div>
 
+        <div className="min-h-0 flex-1 pb-8">
           <RichTextEditor
+            toolbar="fixed"
             content={remoteContent ?? seedContent}
             syncKey={remoteEpoch}
             onReady={handleEditorReady}
