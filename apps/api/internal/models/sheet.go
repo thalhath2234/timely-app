@@ -22,52 +22,114 @@ type SheetColumn struct {
 type SheetColumns []SheetColumn
 
 func (c SheetColumns) Value() (driver.Value, error) {
-	if c == nil {
-		return "[]", nil
-	}
-	b, err := json.Marshal(c)
-	return string(b), err
+	return marshalJSONSlice([]SheetColumn(c))
 }
 
 func (c *SheetColumns) Scan(src any) error {
-	b, err := jsonBytes(src)
-	if err != nil {
+	var items []SheetColumn
+	if err := scanJSONSlice(src, &items); err != nil {
 		return err
 	}
-	if len(b) == 0 {
-		*c = SheetColumns{}
-		return nil
-	}
-	return json.Unmarshal(b, c)
+	*c = items
+	return nil
+}
+
+// SheetCellFormat stores optional display style for one cell, keyed by column id.
+type SheetCellFormat struct {
+	Bold         bool   `json:"bold,omitempty"`
+	Align        string `json:"align,omitempty"`
+	NumberFormat string `json:"numberFormat,omitempty"`
 }
 
 // SheetRow keys its cells by column id so that reordering or renaming a column
 // never rewrites row data.
 type SheetRow struct {
-	ID    string            `json:"id"`
-	Cells map[string]string `json:"cells"`
+	ID      string                     `json:"id"`
+	Cells   map[string]string          `json:"cells"`
+	Formats map[string]SheetCellFormat `json:"formats,omitempty"`
 }
 
 type SheetRows []SheetRow
 
 func (r SheetRows) Value() (driver.Value, error) {
-	if r == nil {
-		return "[]", nil
-	}
-	b, err := json.Marshal(r)
-	return string(b), err
+	return marshalJSONSlice([]SheetRow(r))
 }
 
 func (r *SheetRows) Scan(src any) error {
+	var items []SheetRow
+	if err := scanJSONSlice(src, &items); err != nil {
+		return err
+	}
+	*r = items
+	return nil
+}
+
+// SheetMerge describes a rectangular merged range in grid coordinates.
+type SheetMerge struct {
+	StartCol int `json:"startCol"`
+	StartRow int `json:"startRow"`
+	ColSpan  int `json:"colSpan"`
+	RowSpan  int `json:"rowSpan"`
+}
+
+type SheetMerges []SheetMerge
+
+func (m SheetMerges) Value() (driver.Value, error) {
+	return marshalJSONSlice([]SheetMerge(m))
+}
+
+func (m *SheetMerges) Scan(src any) error {
+	var items []SheetMerge
+	if err := scanJSONSlice(src, &items); err != nil {
+		return err
+	}
+	*m = items
+	return nil
+}
+
+// SheetTab is an extra worksheet inside a workbook. The first tab is also
+// mirrored onto Sheet.Columns / Rows / Merges so older clients keep working.
+type SheetTab struct {
+	ID      string       `json:"id"`
+	Name    string       `json:"name"`
+	Columns SheetColumns `json:"columns"`
+	Rows    SheetRows    `json:"rows"`
+	Merges  SheetMerges  `json:"merges,omitempty"`
+}
+
+type SheetTabs []SheetTab
+
+func (t SheetTabs) Value() (driver.Value, error) {
+	return marshalJSONSlice([]SheetTab(t))
+}
+
+func (t *SheetTabs) Scan(src any) error {
+	var items []SheetTab
+	if err := scanJSONSlice(src, &items); err != nil {
+		return err
+	}
+	*t = items
+	return nil
+}
+
+func marshalJSONSlice[T any](value []T) (driver.Value, error) {
+	if value == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal(value)
+	return string(b), err
+}
+
+func scanJSONSlice[T any](src any, dest *[]T) error {
 	b, err := jsonBytes(src)
 	if err != nil {
 		return err
 	}
 	if len(b) == 0 {
-		*r = SheetRows{}
+		*dest = []T{}
 		return nil
 	}
-	return json.Unmarshal(b, r)
+	return json.Unmarshal(b, dest)
 }
 
 func jsonBytes(src any) ([]byte, error) {
@@ -95,6 +157,8 @@ type Sheet struct {
 
 	Columns SheetColumns `gorm:"type:jsonb;not null;default:'[]'" json:"columns"`
 	Rows    SheetRows    `gorm:"type:jsonb;not null;default:'[]'" json:"rows"`
+	Merges  SheetMerges  `gorm:"type:jsonb;not null;default:'[]'" json:"merges"`
+	Tabs    SheetTabs    `gorm:"type:jsonb;not null;default:'[]'" json:"tabs"`
 
 	WorkspaceID string  `gorm:"type:text;not null" json:"workspaceId"`
 	ProjectID   *string `json:"projectId"`
@@ -153,10 +217,21 @@ func DefaultSheetRows(columns SheetColumns, count int) SheetRows {
 }
 
 const (
-	SheetColumnTypeText    = "text"
-	SheetColumnTypeNumber  = "number"
-	SheetColumnTypeDate    = "date"
-	SheetColumnTypeBoolean = "boolean"
+	SheetColumnTypeText     = "text"
+	SheetColumnTypeNumber   = "number"
+	SheetColumnTypeDate     = "date"
+	SheetColumnTypeBoolean  = "boolean"
+	SheetColumnTypeCurrency = "currency"
+	SheetColumnTypePercent  = "percent"
+	SheetColumnTypeFormula  = "formula"
+
+	SheetAlignLeft   = "left"
+	SheetAlignCenter = "center"
+	SheetAlignRight  = "right"
+
+	SheetNumberFormatNumber   = "number"
+	SheetNumberFormatCurrency = "currency"
+	SheetNumberFormatPercent  = "percent"
 )
 
 // NormalizeSheetColumnType returns a canonical column type. Empty becomes text.
@@ -164,15 +239,37 @@ func NormalizeSheetColumnType(colType string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(colType)) {
 	case "", SheetColumnTypeText:
 		return SheetColumnTypeText, nil
-	case SheetColumnTypeNumber:
+	case SheetColumnTypeNumber, "#":
 		return SheetColumnTypeNumber, nil
 	case SheetColumnTypeDate:
 		return SheetColumnTypeDate, nil
 	case SheetColumnTypeBoolean, "checkbox", "bool":
 		return SheetColumnTypeBoolean, nil
+	case SheetColumnTypeCurrency, "money":
+		return SheetColumnTypeCurrency, nil
+	case SheetColumnTypePercent, "%":
+		return SheetColumnTypePercent, nil
+	case SheetColumnTypeFormula, "fx", "computed":
+		return SheetColumnTypeFormula, nil
 	default:
-		return "", errors.New("column type must be text, number, date, or boolean")
+		return "", errors.New("column type must be text, number, date, boolean, currency, percent, or formula")
 	}
+}
+
+func normalizeNumberCell(value string) string {
+	trimmed := strings.TrimSpace(value)
+	hadPercent := strings.HasSuffix(trimmed, "%")
+	if hadPercent {
+		trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "%"))
+	}
+	n, err := strconv.ParseFloat(strings.ReplaceAll(trimmed, ",", ""), 64)
+	if err != nil {
+		return ""
+	}
+	if hadPercent {
+		n = n / 100
+	}
+	return strconv.FormatFloat(n, 'f', -1, 64)
 }
 
 // NormalizeTypedCell coerces a cell to the column type. Formulas (leading =)
@@ -187,12 +284,8 @@ func NormalizeTypedCell(colType, value string) string {
 		return value
 	}
 	switch kind {
-	case SheetColumnTypeNumber:
-		n, err := strconv.ParseFloat(strings.ReplaceAll(trimmed, ",", ""), 64)
-		if err != nil {
-			return ""
-		}
-		return strconv.FormatFloat(n, 'f', -1, 64)
+	case SheetColumnTypeNumber, SheetColumnTypeCurrency, SheetColumnTypePercent, SheetColumnTypeFormula:
+		return normalizeNumberCell(trimmed)
 	case SheetColumnTypeDate:
 		if len(trimmed) == 10 && trimmed[4] == '-' && trimmed[7] == '-' {
 			if _, err := time.Parse("2006-01-02", trimmed); err == nil {
@@ -239,5 +332,195 @@ func NormalizeSheetCells(columns SheetColumns, rows SheetRows) {
 		for colID, value := range rows[i].Cells {
 			rows[i].Cells[colID] = NormalizeTypedCell(types[colID], value)
 		}
+		rows[i].Formats = NormalizeCellFormats(rows[i].Formats)
 	}
+}
+
+func NormalizeCellFormats(formats map[string]SheetCellFormat) map[string]SheetCellFormat {
+	if len(formats) == 0 {
+		return nil
+	}
+	next := make(map[string]SheetCellFormat, len(formats))
+	for colID, format := range formats {
+		normalized := SheetCellFormat{
+			Bold:         format.Bold,
+			Align:        strings.ToLower(strings.TrimSpace(format.Align)),
+			NumberFormat: strings.ToLower(strings.TrimSpace(format.NumberFormat)),
+		}
+		switch normalized.Align {
+		case SheetAlignLeft, SheetAlignCenter, SheetAlignRight:
+		default:
+			normalized.Align = ""
+		}
+		switch normalized.NumberFormat {
+		case SheetNumberFormatNumber, SheetNumberFormatCurrency, SheetNumberFormatPercent:
+		default:
+			normalized.NumberFormat = ""
+		}
+		if !normalized.Bold && normalized.Align == "" && normalized.NumberFormat == "" {
+			continue
+		}
+		next[colID] = normalized
+	}
+	if len(next) == 0 {
+		return nil
+	}
+	return next
+}
+
+// NormalizeMerges drops out-of-bounds or overlapping ranges.
+func NormalizeMerges(merges SheetMerges, colCount, rowCount int) SheetMerges {
+	if len(merges) == 0 || colCount < 1 || rowCount < 1 {
+		return SheetMerges{}
+	}
+	occupied := make([][]bool, rowCount)
+	for i := range occupied {
+		occupied[i] = make([]bool, colCount)
+	}
+	out := make(SheetMerges, 0, len(merges))
+	for _, merge := range merges {
+		if merge.ColSpan < 1 {
+			merge.ColSpan = 1
+		}
+		if merge.RowSpan < 1 {
+			merge.RowSpan = 1
+		}
+		if merge.StartCol < 0 || merge.StartRow < 0 {
+			continue
+		}
+		if merge.ColSpan == 1 && merge.RowSpan == 1 {
+			continue
+		}
+		if merge.StartCol+merge.ColSpan > colCount || merge.StartRow+merge.RowSpan > rowCount {
+			continue
+		}
+		overlaps := false
+		for row := merge.StartRow; row < merge.StartRow+merge.RowSpan && !overlaps; row++ {
+			for col := merge.StartCol; col < merge.StartCol+merge.ColSpan; col++ {
+				if occupied[row][col] {
+					overlaps = true
+					break
+				}
+			}
+		}
+		if overlaps {
+			continue
+		}
+		for row := merge.StartRow; row < merge.StartRow+merge.RowSpan; row++ {
+			for col := merge.StartCol; col < merge.StartCol+merge.ColSpan; col++ {
+				occupied[row][col] = true
+			}
+		}
+		out = append(out, merge)
+	}
+	return out
+}
+
+func NormalizeSheetTab(tab SheetTab, fallbackName string) (SheetTab, error) {
+	if tab.ID == "" {
+		tab.ID = utils.PrefixedUUID("tab")
+	}
+	tab.Name = strings.TrimSpace(tab.Name)
+	if tab.Name == "" {
+		tab.Name = fallbackName
+	}
+	if len(tab.Name) > 80 {
+		tab.Name = tab.Name[:80]
+	}
+	if err := NormalizeSheetColumns(tab.Columns); err != nil {
+		return SheetTab{}, err
+	}
+	NormalizeSheetCells(tab.Columns, tab.Rows)
+	tab.Merges = NormalizeMerges(tab.Merges, len(tab.Columns), len(tab.Rows))
+	return tab, nil
+}
+
+func NormalizeSheetColumns(columns SheetColumns) error {
+	for i := range columns {
+		kind, err := NormalizeSheetColumnType(columns[i].Type)
+		if err != nil {
+			return err
+		}
+		columns[i].Type = kind
+		if columns[i].Width < 1 {
+			columns[i].Width = 160
+		}
+	}
+	return nil
+}
+
+func CloneGrid(columns SheetColumns, rows SheetRows) (SheetColumns, SheetRows) {
+	idMap := make(map[string]string, len(columns))
+	nextColumns := make(SheetColumns, len(columns))
+	for i, column := range columns {
+		nextID := utils.PrefixedUUID("col")
+		idMap[column.ID] = nextID
+		column.ID = nextID
+		nextColumns[i] = column
+	}
+
+	nextRows := make(SheetRows, len(rows))
+	for i, row := range rows {
+		cells := make(map[string]string, len(row.Cells))
+		for oldID, value := range row.Cells {
+			nextID, ok := idMap[oldID]
+			if !ok {
+				nextID = oldID
+			}
+			cells[nextID] = value
+		}
+		var formats map[string]SheetCellFormat
+		if len(row.Formats) > 0 {
+			formats = make(map[string]SheetCellFormat, len(row.Formats))
+			for oldID, format := range row.Formats {
+				nextID, ok := idMap[oldID]
+				if !ok {
+					nextID = oldID
+				}
+				formats[nextID] = format
+			}
+		}
+		nextRows[i] = SheetRow{
+			ID:      utils.PrefixedUUID("row"),
+			Cells:   cells,
+			Formats: formats,
+		}
+	}
+	return nextColumns, nextRows
+}
+
+func CloneMerges(merges SheetMerges) SheetMerges {
+	if len(merges) == 0 {
+		return SheetMerges{}
+	}
+	out := make(SheetMerges, len(merges))
+	copy(out, merges)
+	return out
+}
+
+func CloneTabs(tabs SheetTabs) SheetTabs {
+	if len(tabs) == 0 {
+		return SheetTabs{}
+	}
+	out := make(SheetTabs, len(tabs))
+	for i, tab := range tabs {
+		columns, rows := CloneGrid(tab.Columns, tab.Rows)
+		out[i] = SheetTab{
+			ID:      utils.PrefixedUUID("tab"),
+			Name:    tab.Name,
+			Columns: columns,
+			Rows:    rows,
+			Merges:  CloneMerges(tab.Merges),
+		}
+	}
+	return out
+}
+
+// CloneSheetContents copies grid data with new ids so a duplicate is independent.
+func CloneSheetContents(src *Sheet) (SheetColumns, SheetRows, SheetMerges, SheetTabs) {
+	if src == nil {
+		return nil, nil, nil, nil
+	}
+	columns, rows := CloneGrid(src.Columns, src.Rows)
+	return columns, rows, CloneMerges(src.Merges), CloneTabs(src.Tabs)
 }

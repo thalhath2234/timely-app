@@ -86,6 +86,41 @@ export function columnIndexToLetter(index: number): string {
   return result;
 }
 
+const A1_REF = /([A-Za-z]+)([0-9]+)/g;
+
+/** Shift relative A1 references when filling a formula down or across. */
+export function shiftFormula(value: string, deltaCol: number, deltaRow: number): string {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("=") || (deltaCol === 0 && deltaRow === 0)) return value;
+
+  let inString = false;
+  let output = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === '"') {
+      inString = !inString;
+      output += char;
+      continue;
+    }
+    if (inString) {
+      output += char;
+      continue;
+    }
+    A1_REF.lastIndex = 0;
+    const slice = value.slice(index);
+    const match = A1_REF.exec(slice);
+    if (match && match.index === 0) {
+      const nextCol = Math.max(0, columnLetterToIndex(match[1]) + deltaCol);
+      const nextRow = Math.max(1, Number(match[2]) + deltaRow);
+      output += `${columnIndexToLetter(nextCol)}${nextRow}`;
+      index += match[0].length - 1;
+      continue;
+    }
+    output += char;
+  }
+  return output;
+}
+
 // ---- Tokenizer ----
 
 type Token =

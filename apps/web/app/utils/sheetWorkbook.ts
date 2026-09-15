@@ -1,0 +1,92 @@
+import type { Sheet, SheetColumn, SheetRow, SheetTab } from "@/app/_types/types";
+import { newColumnId, newRowId, newTabId } from "@/app/utils/sheetColumns";
+import { columnIndexToLetter } from "@/app/utils/sheetFormula";
+
+export function emptySheetRow(columns: SheetColumn[]): SheetRow {
+  const cells: Record<string, string> = {};
+  columns.forEach((column) => {
+    cells[column.id] = "";
+  });
+  return { id: newRowId(), cells };
+}
+
+export function defaultTabGrid(): { columns: SheetColumn[]; rows: SheetRow[] } {
+  const columns: SheetColumn[] = ["A", "B", "C", "D"].map((name) => ({
+    id: newColumnId(),
+    name,
+    width: 160,
+    type: "text",
+  }));
+  const rows = Array.from({ length: 20 }, () => emptySheetRow(columns));
+  return { columns, rows };
+}
+
+export function tabsFromSheet(sheet: Sheet): SheetTab[] {
+  if (sheet.tabs && sheet.tabs.length > 0) {
+    return sheet.tabs.map((tab, index) => ({
+      ...tab,
+      id: tab.id || newTabId(),
+      name: tab.name?.trim() || (index === 0 ? sheet.title || "Sheet 1" : `Sheet ${index + 1}`),
+      merges: tab.merges ?? [],
+    }));
+  }
+  return [
+    {
+      id: newTabId(),
+      name: sheet.title || "Sheet 1",
+      columns: sheet.columns,
+      rows: sheet.rows,
+      merges: sheet.merges ?? [],
+    },
+  ];
+}
+
+export function workbookPayload(tabs: SheetTab[]) {
+  const primary = tabs[0];
+  return {
+    columns: primary?.columns ?? [],
+    rows: primary?.rows ?? [],
+    merges: primary?.merges ?? [],
+    tabs: tabs.length > 1 ? tabs : [],
+  };
+}
+
+export function addWorkbookTab(tabs: SheetTab[]): SheetTab[] {
+  const grid = defaultTabGrid();
+  return [
+    ...tabs,
+    {
+      id: newTabId(),
+      name: `Sheet ${tabs.length + 1}`,
+      columns: grid.columns.map((column, index) => ({
+        ...column,
+        name: column.name || columnIndexToLetter(index),
+      })),
+      rows: grid.rows,
+      merges: [],
+    },
+  ];
+}
+
+export function sheetMetaLabel(sheet: Pick<Sheet, "columns" | "rows" | "updatedAt">) {
+  return `${sheet.rows.length} rows · ${sheet.columns.length} cols · ${formatSheetDate(sheet.updatedAt)}`;
+}
+
+export function formatSheetDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startTarget = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((startToday.getTime() - startTarget.getTime()) / 86_400_000);
+  if (diffDays === 0) {
+    return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+}

@@ -98,22 +98,44 @@ func FlattenSheet(sheet *models.Sheet) string {
 		names[col.ID] = name
 	}
 
-	for _, row := range sheet.Rows {
-		var parts []string
-		for _, col := range sheet.Columns {
-			value := strings.TrimSpace(row.Cells[col.ID])
-			if value == "" {
+	appendRows := func(columns models.SheetColumns, rows models.SheetRows, names map[string]string) {
+		for _, row := range rows {
+			var parts []string
+			for _, col := range columns {
+				value := strings.TrimSpace(row.Cells[col.ID])
+				if value == "" {
+					continue
+				}
+				parts = append(parts, names[col.ID]+": "+value)
+			}
+			if len(parts) == 0 {
 				continue
 			}
-			parts = append(parts, names[col.ID]+": "+value)
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(strings.Join(parts, " · "))
 		}
-		if len(parts) == 0 {
+	}
+
+	appendRows(sheet.Columns, sheet.Rows, names)
+	for i, tab := range sheet.Tabs {
+		if i == 0 {
 			continue
 		}
-		if b.Len() > 0 {
-			b.WriteString("\n")
+		tabNames := make(map[string]string, len(tab.Columns))
+		for _, col := range tab.Columns {
+			name := strings.TrimSpace(col.Name)
+			if name == "" {
+				name = col.ID
+			}
+			tabNames[col.ID] = name
 		}
-		b.WriteString(strings.Join(parts, " · "))
+		if b.Len() > 0 && strings.TrimSpace(tab.Name) != "" {
+			b.WriteString("\n")
+			b.WriteString(tab.Name)
+		}
+		appendRows(tab.Columns, tab.Rows, tabNames)
 	}
 	return b.String()
 }

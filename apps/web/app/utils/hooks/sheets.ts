@@ -4,6 +4,7 @@ import {
   UpdateSheetPayload,
   createSheet,
   deleteSheet,
+  duplicateSheet,
   getSheet,
   getSheets,
   updateSheet,
@@ -62,6 +63,18 @@ export function useDeleteSheet() {
     mutationFn: (id: string) => deleteSheet(id),
     onSuccess: (_data, id) => {
       queryClient.removeQueries({ queryKey: sheetKey(id) });
+      queryClient.invalidateQueries({ queryKey: sheetsKey });
+    },
+  });
+}
+
+export function useDuplicateSheet() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => duplicateSheet(id),
+    onSuccess: (sheet) => {
+      queryClient.setQueryData(sheetKey(sheet.id), sheet);
       queryClient.invalidateQueries({ queryKey: sheetsKey });
     },
   });

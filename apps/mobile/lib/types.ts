@@ -545,7 +545,20 @@ export interface Doc {
   updatedAt: string;
 }
 
-export type SheetColumnType = "text" | "number" | "date" | "boolean";
+export type SheetColumnType =
+  | "text"
+  | "number"
+  | "date"
+  | "boolean"
+  | "currency"
+  | "percent"
+  | "formula";
+
+export interface SheetCellFormat {
+  bold?: boolean;
+  align?: "left" | "center" | "right";
+  numberFormat?: "number" | "currency" | "percent";
+}
 
 export interface SheetColumn {
   id: string;
@@ -557,6 +570,22 @@ export interface SheetColumn {
 export interface SheetRow {
   id: string;
   cells: Record<string, string>;
+  formats?: Record<string, SheetCellFormat>;
+}
+
+export interface SheetMerge {
+  startCol: number;
+  startRow: number;
+  colSpan: number;
+  rowSpan: number;
+}
+
+export interface SheetTab {
+  id: string;
+  name: string;
+  columns: SheetColumn[];
+  rows: SheetRow[];
+  merges?: SheetMerge[];
 }
 
 export interface Sheet {
@@ -567,6 +596,8 @@ export interface Sheet {
   descriptionRich?: DocContent | null;
   columns: SheetColumn[];
   rows: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
   workspaceId: string;
   projectId: string | null;
   userId: string;

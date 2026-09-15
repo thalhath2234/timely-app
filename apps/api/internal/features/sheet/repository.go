@@ -100,7 +100,7 @@ func (r *sheetRepository) UpdateSheet(userID string, sheetID string, updates map
 		return nil, err
 	}
 
-	jsonCols := takeJSONB(updates, "description_rich", "columns", "rows")
+	jsonCols := takeJSONB(updates, "description_rich", "columns", "rows", "merges", "tabs")
 
 	if len(updates) > 0 {
 		if err := r.db.Model(sheet).Updates(updates).Error; err != nil {

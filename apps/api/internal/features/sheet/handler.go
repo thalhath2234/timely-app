@@ -24,6 +24,8 @@ type createSheetRequest struct {
 	DescriptionRich models.JSONMap      `json:"descriptionRich"`
 	Columns         models.SheetColumns `json:"columns"`
 	Rows            models.SheetRows    `json:"rows"`
+	Merges          models.SheetMerges  `json:"merges"`
+	Tabs            models.SheetTabs    `json:"tabs"`
 	WorkspaceID     string              `json:"workspaceId"`
 	ProjectID       *string             `json:"projectId"`
 }
@@ -35,6 +37,8 @@ type updateSheetRequest struct {
 	DescriptionRich *models.JSONMap      `json:"descriptionRich"`
 	Columns         *models.SheetColumns `json:"columns"`
 	Rows            *models.SheetRows    `json:"rows"`
+	Merges          *models.SheetMerges  `json:"merges"`
+	Tabs            *models.SheetTabs    `json:"tabs"`
 	ProjectID       *string              `json:"projectId"`
 	IsFavorite      *bool                `json:"isFavorite"`
 	Archived        *bool                `json:"archived"`
@@ -58,6 +62,8 @@ func (h *Handler) Create(c *echo.Context) error {
 		DescriptionRich: req.DescriptionRich,
 		Columns:         req.Columns,
 		Rows:            req.Rows,
+		Merges:          req.Merges,
+		Tabs:            req.Tabs,
 		WorkspaceID:     req.WorkspaceID,
 		ProjectID:       req.ProjectID,
 		UserID:          userID,
@@ -106,6 +112,23 @@ func (h *Handler) GetSheetById(c *echo.Context) error {
 	return c.JSON(http.StatusOK, foundSheet)
 }
 
+func (h *Handler) Duplicate(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+
+	duplicated, err := h.sheetService.Duplicate(userID, c.Param("id"))
+	if err != nil {
+		return sheetError(err)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]any{
+		"message": "sheet duplicated",
+		"sheet":   duplicated,
+	})
+}
+
 func (h *Handler) Update(c *echo.Context) error {
 	userID, ok := c.Get("userID").(string)
 	if !ok {
@@ -124,6 +147,8 @@ func (h *Handler) Update(c *echo.Context) error {
 		DescriptionRich: req.DescriptionRich,
 		Columns:         req.Columns,
 		Rows:            req.Rows,
+		Merges:          req.Merges,
+		Tabs:            req.Tabs,
 		ProjectID:       req.ProjectID,
 		IsFavorite:      req.IsFavorite,
 		Archived:        req.Archived,

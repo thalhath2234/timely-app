@@ -377,7 +377,7 @@ func (s *Server) archiveSheet(ctx context.Context, req *mcp.CallToolRequest, in 
 type addColIn struct {
 	SheetID string `json:"sheetId"`
 	Name    string `json:"name"`
-	Type    string `json:"type,omitempty" jsonschema:"text, number, date, or boolean"`
+	Type    string `json:"type,omitempty" jsonschema:"text, number, date, boolean, currency, percent, or formula"`
 }
 
 func (s *Server) addSheetColumn(ctx context.Context, req *mcp.CallToolRequest, in addColIn) (*mcp.CallToolResult, any, error) {
@@ -396,7 +396,7 @@ type updateColIn struct {
 	SheetID  string `json:"sheetId"`
 	ColumnID string `json:"columnId"`
 	Name     string `json:"name,omitempty"`
-	Type     string `json:"type,omitempty" jsonschema:"text, number, date, or boolean"`
+	Type     string `json:"type,omitempty" jsonschema:"text, number, date, boolean, currency, percent, or formula"`
 	Width    *int   `json:"width,omitempty"`
 }
 

@@ -9,6 +9,9 @@ export const SHEET_ICON_CHOICES = [
 export const SHEET_COLUMN_TYPES: { value: SheetColumnType; label: string }[] = [
   { value: "text", label: "Text" },
   { value: "number", label: "Number" },
+  { value: "currency", label: "Currency" },
+  { value: "percent", label: "Percent" },
+  { value: "formula", label: "Formula" },
   { value: "date", label: "Date" },
   { value: "boolean", label: "Checkbox" },
 ];
@@ -53,7 +56,11 @@ export function normalizeRows(rows: SheetRow[] | null | undefined): SheetRow[] {
     for (const [key, value] of Object.entries(raw)) {
       cells[key] = cellText(value);
     }
-    return { id: row?.id || newSheetId("row") || `row_${index}`, cells };
+    return {
+      id: row?.id || newSheetId("row") || `row_${index}`,
+      cells,
+      formats: row?.formats,
+    };
   });
 }
 
@@ -64,6 +71,8 @@ export function normalizeSheet(sheet: Sheet): Sheet {
     description: sheet.description ?? "",
     columns: normalizeColumns(sheet.columns),
     rows: normalizeRows(sheet.rows),
+    merges: sheet.merges ?? [],
+    tabs: sheet.tabs ?? [],
   };
 }
 
@@ -80,9 +89,11 @@ export function isFormulaValue(value: string) {
 export function normalizeTypedCell(type: SheetColumnType | undefined, value: string): string {
   const trimmed = value.trim();
   if (!trimmed || isFormulaValue(trimmed) || !type || type === "text") return value;
-  if (type === "number") {
-    const parsed = Number(trimmed.replace(/,/g, ""));
-    return Number.isFinite(parsed) ? String(parsed) : "";
+  if (type === "number" || type === "currency" || type === "percent" || type === "formula") {
+    const hadPercent = trimmed.endsWith("%");
+    const parsed = Number(trimmed.replace(/%/g, "").replace(/,/g, "").trim());
+    if (!Number.isFinite(parsed)) return "";
+    return String(hadPercent ? parsed / 100 : parsed);
   }
   if (type === "date") {
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;

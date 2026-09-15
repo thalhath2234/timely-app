@@ -1,4 +1,4 @@
-import { DocContent, Sheet, SheetColumn, SheetRow } from "@/app/_types/types";
+import { DocContent, Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab } from "@/app/_types/types";
 import { apiFetch } from "./client";
 
 
@@ -9,6 +9,8 @@ export interface CreateSheetPayload {
   descriptionRich?: DocContent;
   columns?: SheetColumn[];
   rows?: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
   workspaceId?: string;
   projectId?: string | null;
 }
@@ -20,6 +22,8 @@ export interface UpdateSheetPayload {
   descriptionRich?: DocContent;
   columns?: SheetColumn[];
   rows?: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
   projectId?: string | null;
   isFavorite?: boolean;
   archived?: boolean;
@@ -102,4 +106,18 @@ export async function deleteSheet(id: string): Promise<void> {
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to delete sheet"));
   }
+}
+
+export async function duplicateSheet(id: string): Promise<Sheet> {
+  const response = await apiFetch(`/sheets/${id}/duplicate`, {
+    method: "POST",
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to duplicate sheet"));
+  }
+
+  const resData = await response.json();
+  return resData.sheet ?? resData;
 }
