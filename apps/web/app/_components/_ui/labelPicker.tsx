@@ -72,6 +72,7 @@ export default function LabelPicker({
               style={{ backgroundColor: label.color }}
             />
             {label.name}
+            {active ? <span className="ml-0.5 text-[11px] opacity-70">×</span> : null}
           </button>
         );
       })}

@@ -727,7 +727,7 @@ export default function RichTextEditor({
       {toolbar === "fixed" ? (
         <div className="flex h-full min-h-0 flex-col">
           <div
-            className="mb-2 flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border pb-2"
+            className="mb-3 flex shrink-0 flex-wrap items-center gap-0.5 rounded-lg border border-border bg-muted/20 p-1"
             onMouseDown={(event) => event.preventDefault()}
           >
             {toolbarButtons.map((button) => {

@@ -11,9 +11,20 @@ export default function SaveStatusBadge({
 }) {
   if (status === "idle") return null;
 
+  const saved = status === "saved";
+
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-      {saveStatusLabel(status)}
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <span
+        className={`size-1.5 rounded-full ${
+          status === "error"
+            ? "bg-destructive"
+            : status === "saving" || status === "unsaved"
+              ? "bg-warning"
+              : "bg-success"
+        } ${saved ? "animate-pulse" : ""}`}
+      />
+      {saved ? "Saved just now" : saveStatusLabel(status)}
       {status === "error" && onRetry ? (
         <button
           type="button"
