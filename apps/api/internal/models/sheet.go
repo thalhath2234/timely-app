@@ -36,9 +36,22 @@ func (c *SheetColumns) Scan(src any) error {
 
 // SheetCellFormat stores optional display style for one cell, keyed by column id.
 type SheetCellFormat struct {
-	Bold         bool   `json:"bold,omitempty"`
-	Align        string `json:"align,omitempty"`
-	NumberFormat string `json:"numberFormat,omitempty"`
+	Bold          bool   `json:"bold,omitempty"`
+	Italic        bool   `json:"italic,omitempty"`
+	Underline     bool   `json:"underline,omitempty"`
+	Strikethrough bool   `json:"strikethrough,omitempty"`
+	Align         string `json:"align,omitempty"`
+	VerticalAlign string `json:"verticalAlign,omitempty"`
+	Wrap          bool   `json:"wrap,omitempty"`
+	NumberFormat  string `json:"numberFormat,omitempty"`
+	Decimals      *int   `json:"decimals,omitempty"`
+	TextColor     string `json:"textColor,omitempty"`
+	FillColor     string `json:"fillColor,omitempty"`
+	Border        string `json:"border,omitempty"`
+	Link          string `json:"link,omitempty"`
+	FontSize      int    `json:"fontSize,omitempty"`
+	FontFamily    string `json:"fontFamily,omitempty"`
+	Note          string `json:"note,omitempty"`
 }
 
 // SheetRow keys its cells by column id so that reordering or renaming a column
@@ -229,9 +242,21 @@ const (
 	SheetAlignCenter = "center"
 	SheetAlignRight  = "right"
 
+	SheetVerticalAlignTop    = "top"
+	SheetVerticalAlignMiddle = "middle"
+	SheetVerticalAlignBottom = "bottom"
+
 	SheetNumberFormatNumber   = "number"
 	SheetNumberFormatCurrency = "currency"
 	SheetNumberFormatPercent  = "percent"
+
+	SheetBorderAll    = "all"
+	SheetBorderOuter  = "outer"
+	SheetBorderBottom = "bottom"
+
+	SheetFontFamilyDefault = "default"
+	SheetFontFamilySerif   = "serif"
+	SheetFontFamilyMono    = "mono"
 )
 
 // NormalizeSheetColumnType returns a canonical column type. Empty becomes text.
@@ -343,21 +368,70 @@ func NormalizeCellFormats(formats map[string]SheetCellFormat) map[string]SheetCe
 	next := make(map[string]SheetCellFormat, len(formats))
 	for colID, format := range formats {
 		normalized := SheetCellFormat{
-			Bold:         format.Bold,
-			Align:        strings.ToLower(strings.TrimSpace(format.Align)),
-			NumberFormat: strings.ToLower(strings.TrimSpace(format.NumberFormat)),
+			Bold:          format.Bold,
+			Italic:        format.Italic,
+			Underline:     format.Underline,
+			Strikethrough: format.Strikethrough,
+			Align:         strings.ToLower(strings.TrimSpace(format.Align)),
+			VerticalAlign: strings.ToLower(strings.TrimSpace(format.VerticalAlign)),
+			Wrap:          format.Wrap,
+			NumberFormat:  strings.ToLower(strings.TrimSpace(format.NumberFormat)),
+			TextColor:     normalizeHexColor(format.TextColor),
+			FillColor:     normalizeHexColor(format.FillColor),
+			Border:        strings.ToLower(strings.TrimSpace(format.Border)),
+			Link:          strings.TrimSpace(format.Link),
+			FontSize:      format.FontSize,
+			FontFamily:    strings.ToLower(strings.TrimSpace(format.FontFamily)),
+			Note:          strings.TrimSpace(format.Note),
 		}
 		switch normalized.Align {
 		case SheetAlignLeft, SheetAlignCenter, SheetAlignRight:
 		default:
 			normalized.Align = ""
 		}
+		switch normalized.VerticalAlign {
+		case SheetVerticalAlignTop, SheetVerticalAlignMiddle, SheetVerticalAlignBottom:
+		default:
+			normalized.VerticalAlign = ""
+		}
 		switch normalized.NumberFormat {
 		case SheetNumberFormatNumber, SheetNumberFormatCurrency, SheetNumberFormatPercent:
 		default:
 			normalized.NumberFormat = ""
 		}
-		if !normalized.Bold && normalized.Align == "" && normalized.NumberFormat == "" {
+		switch normalized.Border {
+		case SheetBorderAll, SheetBorderOuter, SheetBorderBottom:
+		default:
+			normalized.Border = ""
+		}
+		switch normalized.FontFamily {
+		case SheetFontFamilyDefault, SheetFontFamilySerif, SheetFontFamilyMono:
+			if normalized.FontFamily == SheetFontFamilyDefault {
+				normalized.FontFamily = ""
+			}
+		default:
+			normalized.FontFamily = ""
+		}
+		if normalized.FontSize < 8 || normalized.FontSize > 36 {
+			normalized.FontSize = 0
+		}
+		if format.Decimals != nil {
+			decimals := *format.Decimals
+			if decimals < 0 {
+				decimals = 0
+			}
+			if decimals > 8 {
+				decimals = 8
+			}
+			normalized.Decimals = &decimals
+		}
+		if len(normalized.Link) > 2048 {
+			normalized.Link = normalized.Link[:2048]
+		}
+		if len(normalized.Note) > 2000 {
+			normalized.Note = normalized.Note[:2000]
+		}
+		if cellFormatEmpty(normalized) {
 			continue
 		}
 		next[colID] = normalized
@@ -366,6 +440,47 @@ func NormalizeCellFormats(formats map[string]SheetCellFormat) map[string]SheetCe
 		return nil
 	}
 	return next
+}
+
+func normalizeHexColor(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) == 4 && trimmed[0] == '#' {
+		expanded := make([]byte, 7)
+		expanded[0] = '#'
+		expanded[1], expanded[2] = trimmed[1], trimmed[1]
+		expanded[3], expanded[4] = trimmed[2], trimmed[2]
+		expanded[5], expanded[6] = trimmed[3], trimmed[3]
+		trimmed = string(expanded)
+	}
+	if len(trimmed) != 7 || trimmed[0] != '#' {
+		return ""
+	}
+	for i := 1; i < 7; i++ {
+		c := trimmed[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return ""
+		}
+	}
+	return strings.ToLower(trimmed)
+}
+
+func cellFormatEmpty(format SheetCellFormat) bool {
+	return !format.Bold &&
+		!format.Italic &&
+		!format.Underline &&
+		!format.Strikethrough &&
+		format.Align == "" &&
+		format.VerticalAlign == "" &&
+		!format.Wrap &&
+		format.NumberFormat == "" &&
+		format.Decimals == nil &&
+		format.TextColor == "" &&
+		format.FillColor == "" &&
+		format.Border == "" &&
+		format.Link == "" &&
+		format.FontSize == 0 &&
+		format.FontFamily == "" &&
+		format.Note == ""
 }
 
 // NormalizeMerges drops out-of-bounds or overlapping ranges.

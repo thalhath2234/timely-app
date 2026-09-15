@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ChevronRight,
   FileText,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Star,
@@ -16,6 +18,7 @@ import { Doc } from "@/app/_types/types";
 import { useCreateDoc, useDeleteDoc, useDocs } from "@/app/utils/hooks/docs";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
+import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
 
 interface DocNode extends Doc {
   children: DocNode[];
@@ -83,6 +86,7 @@ export default function DocList() {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const { collapsed, toggle } = useCollapsedPanel("timely.docsListCollapsed");
 
   const allDocs = useMemo(
     () =>
@@ -249,12 +253,17 @@ export default function DocList() {
     );
   };
 
-  return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar/40">
-      <div className="flex items-center justify-between px-3 py-3">
-        <h2 className="text-sm font-semibold text-foreground">
-          {showArchived ? "Archived" : "Docs"}
-        </h2>
+  if (collapsed) {
+    return (
+      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-sidebar/40 py-3">
+        <button
+          type="button"
+          title="Expand docs list"
+          onClick={toggle}
+          className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+        >
+          <PanelLeftOpen className="size-4" />
+        </button>
         <button
           type="button"
           title="New doc"
@@ -264,6 +273,35 @@ export default function DocList() {
         >
           <Plus className="size-4" />
         </button>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar/40">
+      <div className="flex items-center justify-between px-3 py-3">
+        <h2 className="text-sm font-semibold text-foreground">
+          {showArchived ? "Archived" : "Docs"}
+        </h2>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            title="Collapse docs list"
+            onClick={toggle}
+            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+          >
+            <PanelLeftClose className="size-4" />
+          </button>
+          <button
+            type="button"
+            title="New doc"
+            onClick={() => handleCreate()}
+            disabled={createDoc.isPending}
+            className="flex size-7 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+          >
+            <Plus className="size-4" />
+          </button>
+        </div>
       </div>
 
       <div className="px-3 pb-2">

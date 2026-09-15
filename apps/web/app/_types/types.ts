@@ -590,12 +590,28 @@ export type SheetColumnType =
   | "formula";
 
 export type SheetAlign = "left" | "center" | "right";
+export type SheetVerticalAlign = "top" | "middle" | "bottom";
 export type SheetNumberFormat = "number" | "currency" | "percent";
+export type SheetBorder = "all" | "outer" | "bottom";
+export type SheetFontFamily = "default" | "serif" | "mono";
 
 export interface SheetCellFormat {
   bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
   align?: SheetAlign;
+  verticalAlign?: SheetVerticalAlign;
+  wrap?: boolean;
   numberFormat?: SheetNumberFormat;
+  decimals?: number;
+  textColor?: string;
+  fillColor?: string;
+  border?: SheetBorder;
+  link?: string;
+  fontSize?: number;
+  fontFamily?: SheetFontFamily;
+  note?: string;
 }
 
 export interface SheetColumn {

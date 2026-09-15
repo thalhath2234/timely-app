@@ -556,8 +556,21 @@ export type SheetColumnType =
 
 export interface SheetCellFormat {
   bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
   align?: "left" | "center" | "right";
+  verticalAlign?: "top" | "middle" | "bottom";
+  wrap?: boolean;
   numberFormat?: "number" | "currency" | "percent";
+  decimals?: number;
+  textColor?: string;
+  fillColor?: string;
+  border?: "all" | "outer" | "bottom";
+  link?: string;
+  fontSize?: number;
+  fontFamily?: "default" | "serif" | "mono";
+  note?: string;
 }
 
 export interface SheetColumn {

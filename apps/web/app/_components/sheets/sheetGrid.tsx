@@ -2,24 +2,41 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlignCenter,
   AlignLeft,
+  AlignRight,
+  BarChart3,
   BetweenHorizontalEnd,
   BetweenHorizontalStart,
   BetweenVerticalEnd,
   BetweenVerticalStart,
   Bold,
-  Columns3,
   Combine,
-  Eraser,
   Filter,
+  Highlighter,
+  Italic,
+  Link2,
+  MessageSquare,
   Minus,
+  Paintbrush,
   Plus,
+  Printer,
+  Redo2,
+  Sigma,
+  Square,
+  Strikethrough,
   Trash2,
+  Type,
+  Underline,
+  Undo2,
+  WrapText,
 } from "lucide-react";
 import {
+  SheetBorder,
   SheetCellFormat,
   SheetColumn,
   SheetColumnType,
+  SheetFontFamily,
   SheetMerge,
   SheetNumberFormat,
   SheetRow,
@@ -36,12 +53,14 @@ import {
   newRowId,
   normalizeTypedCell,
   setCellFormat,
+  isEmptyCellFormat,
   SHEET_COLUMN_TYPES,
   toggleNumberFormat,
 } from "@/app/utils/sheetColumns";
 import {
   columnTypeBadge,
-  cycleAlign,
+  cellFormatFontFamily,
+  cellTextDecoration,
   defaultAlign,
   formatSheetDisplay,
   statusChip,
@@ -67,6 +86,26 @@ const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 640;
 const ROW_HEADER_WIDTH = 52;
 const ROW_HEIGHT = 32;
+const ZOOM_OPTIONS = [50, 75, 90, 100, 125, 150, 200];
+const FONT_SIZES = [10, 11, 12, 14, 18, 24];
+const TEXT_COLORS = ["#e8eaed", "#f28b82", "#fdd663", "#81c995", "#8ab4f8", "#c58af9", "#ff8bcb"];
+const FILL_COLORS = ["#202124", "#5f2120", "#614a19", "#137333", "#174ea6", "#7627bb", "#3c4043"];
+const FORMULA_INSERTS: { label: string; template: (range: string) => string }[] = [
+  { label: "SUM", template: (range) => `=SUM(${range})` },
+  { label: "AVERAGE", template: (range) => `=AVERAGE(${range})` },
+  { label: "MIN", template: (range) => `=MIN(${range})` },
+  { label: "MAX", template: (range) => `=MAX(${range})` },
+  { label: "COUNT", template: (range) => `=COUNT(${range})` },
+  { label: "COUNTA", template: (range) => `=COUNTA(${range})` },
+  { label: "PRODUCT", template: (range) => `=PRODUCT(${range})` },
+  { label: "IF", template: (range) => `=IF(${range}>0,"yes","no")` },
+];
+
+type GridSnapshot = {
+  columns: SheetColumn[];
+  rows: SheetRow[];
+  merges: SheetMerge[];
+};
 
 export interface SheetTabItem {
   id: string;
@@ -109,7 +148,7 @@ export default function SheetGrid({
   columns,
   rows,
   merges = [],
-  onChange,
+  onChange: persist,
   tabs,
   activeTabId,
   onSelectTab,
@@ -130,6 +169,14 @@ export default function SheetGrid({
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(100);
+  const [paintFormat, setPaintFormat] = useState<SheetCellFormat | null>(null);
+  const [chartOpen, setChartOpen] = useState(false);
+  const [history, setHistory] = useState<{ past: GridSnapshot[]; future: GridSnapshot[] }>({
+    past: [],
+    future: [],
+  });
 
   const selected = range.focus;
   const gridRef = useRef<HTMLDivElement>(null);
@@ -147,6 +194,38 @@ export default function SheetGrid({
     () => createSheetEvaluator(columns, rows),
     [columns, rows],
   );
+
+  const commit = (next: {
+    columns?: SheetColumn[];
+    rows?: SheetRow[];
+    merges?: SheetMerge[];
+  }) => {
+    setHistory((current) => ({
+      past: [...current.past.slice(-79), { columns, rows, merges }],
+      future: [],
+    }));
+    persist(next);
+  };
+
+  const undo = () => {
+    const prev = history.past[history.past.length - 1];
+    if (!prev) return;
+    setHistory({
+      past: history.past.slice(0, -1),
+      future: [...history.future, { columns, rows, merges }],
+    });
+    persist(prev);
+  };
+
+  const redo = () => {
+    const next = history.future[history.future.length - 1];
+    if (!next) return;
+    setHistory({
+      past: [...history.past, { columns, rows, merges }],
+      future: history.future.slice(0, -1),
+    });
+    persist(next);
+  };
 
   const rawAt = (address: CellAddress) => {
     const column = columns[address.col];
@@ -192,7 +271,7 @@ export default function SheetGrid({
       ? value
       : normalizeTypedCell(column.type, value);
 
-    onChange({
+    commit({
       rows: rows.map((row, index) =>
         index === address.row
           ? { ...row, cells: { ...row.cells, [column.id]: nextValue } }
@@ -215,7 +294,7 @@ export default function SheetGrid({
       if (!column || !row) return;
       nextRows[address.row] = mutator(row, address, column);
     });
-    onChange({ rows: nextRows });
+    commit({ rows: nextRows });
   };
 
   const applyFormat = (patch: Partial<SheetCellFormat>) => {
@@ -226,7 +305,7 @@ export default function SheetGrid({
   };
 
   const setColumnType = (index: number, type: SheetColumnType) => {
-    onChange({
+    commit({
       columns: columns.map((column, columnIndex) =>
         columnIndex === index ? { ...column, type } : column,
       ),
@@ -251,7 +330,7 @@ export default function SheetGrid({
     const nextColumns = [...columns];
     nextColumns.splice(atIndex, 0, column);
 
-    onChange({
+    commit({
       columns: nextColumns,
       rows: rows.map((row) => ({
         ...row,
@@ -270,7 +349,7 @@ export default function SheetGrid({
   const deleteColumn = (index: number) => {
     if (columns.length <= 1) return;
     const removed = columns[index];
-    onChange({
+    commit({
       columns: columns.filter((_, columnIndex) => columnIndex !== index),
       rows: rows.map((row) => {
         const cells = { ...row.cells };
@@ -296,7 +375,7 @@ export default function SheetGrid({
     for (let index = 0; index < count; index += 1) {
       nextRows.splice(atIndex + index, 0, emptyRow(columns));
     }
-    onChange({
+    commit({
       rows: nextRows,
       merges: merges.map((merge) =>
         merge.startRow >= atIndex
@@ -310,7 +389,7 @@ export default function SheetGrid({
 
   const deleteRow = (index: number) => {
     if (rows.length <= 1) return;
-    onChange({
+    commit({
       rows: rows.filter((_, rowIndex) => rowIndex !== index),
       merges: merges
         .filter((merge) => merge.startRow + merge.rowSpan - 1 < index || merge.startRow > index)
@@ -325,7 +404,7 @@ export default function SheetGrid({
   };
 
   const renameColumn = (index: number, name: string) => {
-    onChange({
+    commit({
       columns: columns.map((column, columnIndex) =>
         columnIndex === index
           ? { ...column, name: name.trim() || columnIndexToLetter(index) }
@@ -348,7 +427,7 @@ export default function SheetGrid({
         : a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
       return direction === "asc" ? compared : -compared;
     });
-    onChange({ rows: sorted, merges: [] });
+    commit({ rows: sorted, merges: [] });
     setFilterOpen(false);
   };
 
@@ -403,7 +482,7 @@ export default function SheetGrid({
       }
     }
 
-    onChange({
+    commit({
       rows: nextRows.map((row) => ({
         ...row,
         formats: Object.keys(row.formats).length ? row.formats : undefined,
@@ -477,12 +556,33 @@ export default function SheetGrid({
           ...row,
           cells: { ...row.cells, [column.id]: "" },
         }));
+      case "z":
+      case "Z":
+        if (event.metaKey || event.ctrlKey) {
+          event.preventDefault();
+          return event.shiftKey ? redo() : undo();
+        }
+        break;
+      case "y":
+      case "Y":
+        if (event.metaKey || event.ctrlKey) {
+          event.preventDefault();
+          return redo();
+        }
+        break;
       case "b":
       case "B":
+      case "i":
+      case "I":
+      case "u":
+      case "U":
         if (event.metaKey || event.ctrlKey) {
           event.preventDefault();
           const current = formatAt(rows[selected.row], columns[selected.col]?.id);
-          return applyFormat({ bold: !current?.bold });
+          const key = event.key.toLowerCase();
+          if (key === "b") return applyFormat({ bold: !current?.bold });
+          if (key === "i") return applyFormat({ italic: !current?.italic });
+          return applyFormat({ underline: !current?.underline });
         }
         break;
       default:
@@ -503,7 +603,7 @@ export default function SheetGrid({
         MAX_COLUMN_WIDTH,
         Math.max(MIN_COLUMN_WIDTH, state.startWidth + event.clientX - state.startX),
       );
-      onChange({
+      persist({
         columns: columns.map((column, index) =>
           index === state.index ? { ...column, width } : column,
         ),
@@ -520,7 +620,7 @@ export default function SheetGrid({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [columns, onChange]);
+  }, [columns, persist]);
 
   const gridTemplateColumns = `${ROW_HEADER_WIDTH}px ${columns
     .map((column) => `${column.width}px`)
@@ -540,61 +640,7 @@ export default function SheetGrid({
 
   const selectedMerge = mergeFromRange(range);
   const canMerge = selectedMerge.colSpan > 1 || selectedMerge.rowSpan > 1;
-
-  const toolbarGroups = [
-    [
-      {
-        label: "Add column before",
-        icon: BetweenVerticalStart,
-        disabled: false,
-        run: () => addColumn(selected.col),
-      },
-      {
-        label: "Add column after",
-        icon: BetweenVerticalEnd,
-        disabled: false,
-        run: () => addColumn(selected.col + 1),
-      },
-      {
-        label: "Delete column",
-        icon: Minus,
-        disabled: columns.length <= 1,
-        run: () => deleteColumn(selected.col),
-      },
-    ],
-    [
-      {
-        label: "Add row before",
-        icon: BetweenHorizontalStart,
-        disabled: false,
-        run: () => addRows(1, selected.row),
-      },
-      {
-        label: "Add row after",
-        icon: BetweenHorizontalEnd,
-        disabled: false,
-        run: () => addRows(1, selected.row + 1),
-      },
-      {
-        label: "Delete row",
-        icon: Minus,
-        disabled: rows.length <= 1,
-        run: () => deleteRow(selected.row),
-      },
-    ],
-    [
-      {
-        label: "Clear cell",
-        icon: Eraser,
-        disabled: false,
-        run: () =>
-          patchCells((row, _address, column) => ({
-            ...row,
-            cells: { ...row.cells, [column.id]: "" },
-          })),
-      },
-    ],
-  ];
+  const mergeActive = Boolean(findMerge(merges, selected));
 
   const applyNumberFormat = (format: SheetNumberFormat) => {
     applyFormat({
@@ -602,42 +648,428 @@ export default function SheetGrid({
     });
   };
 
+  const bumpDecimals = (delta: number) => {
+    const current =
+      selectedFormat?.decimals ??
+      (selectedFormat?.numberFormat === "currency" ||
+      selectedFormat?.numberFormat === "percent"
+        ? 2
+        : 0);
+    applyFormat({
+      numberFormat: selectedFormat?.numberFormat ?? "number",
+      decimals: Math.max(0, Math.min(8, current + delta)),
+    });
+  };
+
+  const insertFormula = (template: (rangeLabel: string) => string) => {
+    startEditing(selected, template(selectedAddress), "formulaBar");
+    setOpenMenu(null);
+  };
+
+  const printSheet = () => {
+    const markup = gridRef.current?.innerHTML ?? "";
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    if (!popup) return;
+    popup.document.write(
+      `<html><head><title>Sheet</title><style>
+        body{font:12px sans-serif;background:#fff;color:#111;margin:16px}
+        button{display:none}
+      </style></head><body>${markup}</body></html>`,
+    );
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  };
+
+  const chartValues = useMemo(() => {
+    const values: { label: string; value: number }[] = [];
+    visitRange(range, (address) => {
+      const result = evaluator.valueAt(address.col, address.row);
+      if (result.type === "number") {
+        values.push({
+          label: `${columnIndexToLetter(address.col)}${address.row + 1}`,
+          value: result.value,
+        });
+      }
+    });
+    return values;
+  }, [evaluator, range]);
+
+  const chartMax = Math.max(1, ...chartValues.map((item) => Math.abs(item.value)));
   const bounds = normalizedRange(range);
+  const toolClass = (active = false) =>
+    `flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-35 ${
+      active ? "bg-accent text-foreground" : "text-muted-foreground"
+    }`;
+
+  const toggleMenu = (name: string) =>
+    setOpenMenu((current) => (current === name ? null : name));
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-popover px-2 py-1">
-        {toolbarGroups.map((group, groupIndex) => (
-          <div key={groupIndex} className="flex items-center gap-0.5">
-            {groupIndex > 0 && <span className="mx-0.5 h-5 w-px bg-border" />}
-            {group.map((button) => {
-              const Icon = button.icon;
-              return (
+        <button type="button" title="Undo (⌘Z)" disabled={history.past.length === 0} onClick={undo} className={toolClass()}>
+          <Undo2 className="size-4" />
+        </button>
+        <button type="button" title="Redo (⌘Y)" disabled={history.future.length === 0} onClick={redo} className={toolClass()}>
+          <Redo2 className="size-4" />
+        </button>
+        <button type="button" title="Print" onClick={printSheet} className={toolClass()}>
+          <Printer className="size-4" />
+        </button>
+        <button
+          type="button"
+          title="Paint format"
+          onClick={() => setPaintFormat(paintFormat ? null : { ...(selectedFormat ?? {}) })}
+          className={toolClass(Boolean(paintFormat))}
+        >
+          <Paintbrush className="size-4" />
+        </button>
+        <span className="mx-0.5 h-5 w-px bg-border" />
+        <div className="relative">
+          <button type="button" title="Zoom" onClick={() => toggleMenu("zoom")} className={`${toolClass(openMenu === "zoom")} w-auto px-1.5 font-mono text-[11px]`}>
+            {zoom}%
+          </button>
+          {openMenu === "zoom" && (
+            <div className="absolute left-0 top-8 z-40 w-24 rounded-md border border-border bg-popover p-1 shadow-lg">
+              {ZOOM_OPTIONS.map((option) => (
                 <button
-                  key={button.label}
+                  key={option}
                   type="button"
-                  title={button.label}
-                  disabled={button.disabled}
-                  onClick={button.run}
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-35"
+                  onClick={() => {
+                    setZoom(option);
+                    setOpenMenu(null);
+                  }}
+                  className={`block w-full rounded px-2 py-1 text-left text-xs ${
+                    zoom === option ? "bg-accent" : "hover:bg-accent"
+                  }`}
                 >
-                  <Icon className="size-4" />
+                  {option}%
                 </button>
-              );
-            })}
-          </div>
-        ))}
+              ))}
+            </div>
+          )}
+        </div>
+        <span className="mx-0.5 h-5 w-px bg-border" />
+        <button type="button" title="Format as currency" onClick={() => applyNumberFormat("currency")} className={toolClass(selectedFormat?.numberFormat === "currency")}>
+          <span className="font-mono text-xs">$</span>
+        </button>
+        <button type="button" title="Format as percent" onClick={() => applyNumberFormat("percent")} className={toolClass(selectedFormat?.numberFormat === "percent")}>
+          <span className="font-mono text-xs">%</span>
+        </button>
+        <button type="button" title="Decrease decimal places" onClick={() => bumpDecimals(-1)} className={toolClass()}>
+          <span className="font-mono text-[10px]">.0</span>
+        </button>
+        <button type="button" title="Increase decimal places" onClick={() => bumpDecimals(1)} className={toolClass()}>
+          <span className="font-mono text-[10px]">.00</span>
+        </button>
+        <div className="relative">
+          <button type="button" title="Number format" onClick={() => toggleMenu("number")} className={`${toolClass(openMenu === "number")} w-auto px-1.5 font-mono text-[11px]`}>
+            123
+          </button>
+          {openMenu === "number" && (
+            <div className="absolute left-0 top-8 z-40 w-36 rounded-md border border-border bg-popover p-1 shadow-lg">
+              {(["number", "currency", "percent"] as SheetNumberFormat[]).map((format) => (
+                <button
+                  key={format}
+                  type="button"
+                  onClick={() => {
+                    applyNumberFormat(format);
+                    setOpenMenu(null);
+                  }}
+                  className="block w-full rounded px-2 py-1 text-left text-xs capitalize hover:bg-accent"
+                >
+                  {format}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className="mx-0.5 h-5 w-px bg-border" />
+        <div className="relative">
+          <button type="button" title="Font" onClick={() => toggleMenu("font")} className={`${toolClass(openMenu === "font")} w-auto px-1.5 text-[11px]`}>
+            {selectedFormat?.fontFamily === "serif" ? "Serif" : selectedFormat?.fontFamily === "mono" ? "Mono" : "Default"}
+          </button>
+          {openMenu === "font" && (
+            <div className="absolute left-0 top-8 z-40 w-28 rounded-md border border-border bg-popover p-1 shadow-lg">
+              {(["default", "serif", "mono"] as SheetFontFamily[]).map((family) => (
+                <button
+                  key={family}
+                  type="button"
+                  onClick={() => {
+                    applyFormat({ fontFamily: family === "default" ? undefined : family });
+                    setOpenMenu(null);
+                  }}
+                  className="block w-full rounded px-2 py-1 text-left text-xs capitalize hover:bg-accent"
+                >
+                  {family}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button type="button" title="Font size" onClick={() => toggleMenu("size")} className={`${toolClass(openMenu === "size")} w-auto px-1.5 font-mono text-[11px]`}>
+            {selectedFormat?.fontSize ?? 13}
+          </button>
+          {openMenu === "size" && (
+            <div className="absolute left-0 top-8 z-40 w-16 rounded-md border border-border bg-popover p-1 shadow-lg">
+              {FONT_SIZES.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => {
+                    applyFormat({ fontSize: size });
+                    setOpenMenu(null);
+                  }}
+                  className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button type="button" title="Bold (⌘B)" onClick={() => applyFormat({ bold: !selectedFormat?.bold })} className={toolClass(Boolean(selectedFormat?.bold))}>
+          <Bold className="size-3.5" />
+        </button>
+        <button type="button" title="Italic (⌘I)" onClick={() => applyFormat({ italic: !selectedFormat?.italic })} className={toolClass(Boolean(selectedFormat?.italic))}>
+          <Italic className="size-3.5" />
+        </button>
+        <button type="button" title="Underline (⌘U)" onClick={() => applyFormat({ underline: !selectedFormat?.underline })} className={toolClass(Boolean(selectedFormat?.underline))}>
+          <Underline className="size-3.5" />
+        </button>
+        <button type="button" title="Strikethrough" onClick={() => applyFormat({ strikethrough: !selectedFormat?.strikethrough })} className={toolClass(Boolean(selectedFormat?.strikethrough))}>
+          <Strikethrough className="size-3.5" />
+        </button>
+        <div className="relative">
+          <button type="button" title="Text color" onClick={() => toggleMenu("textColor")} className={toolClass(openMenu === "textColor")}>
+            <Type className="size-3.5" style={{ color: selectedFormat?.textColor }} />
+          </button>
+          {openMenu === "textColor" && (
+            <div className="absolute left-0 top-8 z-40 flex gap-1 rounded-md border border-border bg-popover p-2 shadow-lg">
+              <button type="button" title="Default" onClick={() => { applyFormat({ textColor: undefined }); setOpenMenu(null); }} className="size-5 rounded border border-border" />
+              {TEXT_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  title={color}
+                  onClick={() => { applyFormat({ textColor: color }); setOpenMenu(null); }}
+                  className="size-5 rounded border border-border"
+                  style={{ background: color }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button type="button" title="Fill color" onClick={() => toggleMenu("fill")} className={toolClass(openMenu === "fill")}>
+            <Highlighter className="size-3.5" />
+          </button>
+          {openMenu === "fill" && (
+            <div className="absolute left-0 top-8 z-40 flex gap-1 rounded-md border border-border bg-popover p-2 shadow-lg">
+              <button type="button" title="No fill" onClick={() => { applyFormat({ fillColor: undefined }); setOpenMenu(null); }} className="size-5 rounded border border-border" />
+              {FILL_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  title={color}
+                  onClick={() => { applyFormat({ fillColor: color }); setOpenMenu(null); }}
+                  className="size-5 rounded border border-border"
+                  style={{ background: color }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button type="button" title="Borders" onClick={() => toggleMenu("border")} className={toolClass(Boolean(selectedFormat?.border) || openMenu === "border")}>
+            <Square className="size-3.5" />
+          </button>
+          {openMenu === "border" && (
+            <div className="absolute left-0 top-8 z-40 w-28 rounded-md border border-border bg-popover p-1 shadow-lg">
+              {([
+                ["all", "All borders"],
+                ["outer", "Outer"],
+                ["bottom", "Bottom"],
+              ] as [SheetBorder, string][]).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    applyFormat({ border: selectedFormat?.border === value ? undefined : value });
+                    setOpenMenu(null);
+                  }}
+                  className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          title={canMerge || mergeActive ? "Merge cells" : "Select more than one cell to merge"}
+          disabled={!canMerge && !mergeActive}
+          onClick={() => commit({ merges: toggleMerge(merges, range) })}
+          className={toolClass(mergeActive)}
+        >
+          <Combine className="size-3.5" />
+        </button>
+        <span className="mx-0.5 h-5 w-px bg-border" />
+        <button type="button" title="Align left" onClick={() => applyFormat({ align: "left" })} className={toolClass(selectedFormat?.align === "left")}>
+          <AlignLeft className="size-3.5" />
+        </button>
+        <button type="button" title="Align center" onClick={() => applyFormat({ align: "center" })} className={toolClass(selectedFormat?.align === "center")}>
+          <AlignCenter className="size-3.5" />
+        </button>
+        <button type="button" title="Align right" onClick={() => applyFormat({ align: "right" })} className={toolClass(selectedFormat?.align === "right")}>
+          <AlignRight className="size-3.5" />
+        </button>
+        <button type="button" title="Wrap text" onClick={() => applyFormat({ wrap: !selectedFormat?.wrap })} className={toolClass(Boolean(selectedFormat?.wrap))}>
+          <WrapText className="size-3.5" />
+        </button>
+        <span className="mx-0.5 h-5 w-px bg-border" />
+        <div className="relative">
+          <button type="button" title="Insert link" onClick={() => toggleMenu("link")} className={toolClass(Boolean(selectedFormat?.link) || openMenu === "link")}>
+            <Link2 className="size-3.5" />
+          </button>
+          {openMenu === "link" && (
+            <div className="absolute left-0 top-8 z-40 w-56 rounded-md border border-border bg-popover p-2 shadow-lg">
+              <input
+                autoFocus
+                defaultValue={selectedFormat?.link ?? ""}
+                placeholder="https://"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    applyFormat({ link: event.currentTarget.value.trim() || undefined });
+                    setOpenMenu(null);
+                  }
+                }}
+                className="w-full rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none"
+              />
+              <div className="mt-2 flex justify-end gap-1">
+                <button type="button" onClick={() => { applyFormat({ link: undefined }); setOpenMenu(null); }} className="rounded px-2 py-1 text-[11px] hover:bg-accent">
+                  Remove
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button type="button" title="Note" onClick={() => toggleMenu("note")} className={toolClass(Boolean(selectedFormat?.note) || openMenu === "note")}>
+            <MessageSquare className="size-3.5" />
+          </button>
+          {openMenu === "note" && (
+            <div className="absolute left-0 top-8 z-40 w-56 rounded-md border border-border bg-popover p-2 shadow-lg">
+              <textarea
+                autoFocus
+                defaultValue={selectedFormat?.note ?? ""}
+                placeholder="Cell note"
+                rows={3}
+                onBlur={(event) => applyFormat({ note: event.currentTarget.value.trim() || undefined })}
+                className="w-full rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none"
+              />
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button type="button" title="Chart selected numbers" onClick={() => { setChartOpen((open) => !open); setOpenMenu(null); }} className={toolClass(chartOpen)}>
+            <BarChart3 className="size-3.5" />
+          </button>
+          {chartOpen && (
+            <div className="absolute right-0 top-8 z-40 w-64 rounded-md border border-border bg-popover p-3 shadow-xl">
+              <p className="mb-2 text-[11px] font-medium text-foreground">Selected values</p>
+              {chartValues.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">Select numeric cells to chart.</p>
+              ) : (
+                <div className="flex h-24 items-end gap-1">
+                  {chartValues.slice(0, 12).map((item) => (
+                    <div key={item.label} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                      <div
+                        className="w-full rounded-t bg-primary"
+                        style={{ height: `${Math.max(8, (Math.abs(item.value) / chartMax) * 80)}px` }}
+                        title={`${item.label}: ${item.value}`}
+                      />
+                      <span className="truncate font-mono text-[9px] text-muted-foreground">{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button type="button" title="Filter & sort" onClick={() => { setFilterOpen((open) => !open); setOpenMenu(null); }} className={toolClass(filterOpen || Boolean(filterQuery))}>
+            <Filter className="size-3.5" />
+          </button>
+          {filterOpen && (
+            <div className="absolute right-0 top-8 z-40 w-56 rounded-lg border border-border bg-popover p-2 shadow-xl">
+              <input
+                autoFocus
+                value={filterQuery}
+                onChange={(event) => setFilterQuery(event.target.value)}
+                placeholder="Filter rows..."
+                className="w-full rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none focus:border-ring"
+              />
+              <div className="mt-2 flex gap-1">
+                <button type="button" onClick={() => sortByColumn(selected.col, "asc")} className="flex-1 rounded-md bg-secondary px-2 py-1 text-[11px] hover:bg-accent">
+                  Sort A → Z
+                </button>
+                <button type="button" onClick={() => sortByColumn(selected.col, "desc")} className="flex-1 rounded-md bg-secondary px-2 py-1 text-[11px] hover:bg-accent">
+                  Sort Z → A
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button type="button" title="Functions" onClick={() => toggleMenu("fx")} className={toolClass(openMenu === "fx")}>
+            <Sigma className="size-3.5" />
+          </button>
+          {openMenu === "fx" && (
+            <div className="absolute right-0 top-8 z-40 w-36 rounded-md border border-border bg-popover p-1 shadow-lg">
+              {FORMULA_INSERTS.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => insertFormula(item.template)}
+                  className="block w-full rounded px-2 py-1 text-left font-mono text-xs hover:bg-accent"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className="mx-0.5 h-5 w-px bg-border" />
+        <button type="button" title="Add column before" onClick={() => addColumn(selected.col)} className={toolClass()}>
+          <BetweenVerticalStart className="size-3.5" />
+        </button>
+        <button type="button" title="Add column after" onClick={() => addColumn(selected.col + 1)} className={toolClass()}>
+          <BetweenVerticalEnd className="size-3.5" />
+        </button>
+        <button type="button" title="Delete column" disabled={columns.length <= 1} onClick={() => deleteColumn(selected.col)} className={toolClass()}>
+          <Minus className="size-3.5" />
+        </button>
+        <button type="button" title="Add row before" onClick={() => addRows(1, selected.row)} className={toolClass()}>
+          <BetweenHorizontalStart className="size-3.5" />
+        </button>
+        <button type="button" title="Add row after" onClick={() => addRows(1, selected.row + 1)} className={toolClass()}>
+          <BetweenHorizontalEnd className="size-3.5" />
+        </button>
+        <button type="button" title="Delete row" disabled={rows.length <= 1} onClick={() => deleteRow(selected.row)} className={toolClass()}>
+          <Minus className="size-3.5" />
+        </button>
       </div>
 
       <div className="flex items-center gap-2 border-b border-border bg-popover/60 px-3 py-1.5">
         <span className="w-16 shrink-0 rounded-md border border-border bg-muted px-2 py-1 text-center font-mono text-xs font-semibold text-primary">
           {selectedAddress}
         </span>
-
         <div className="flex min-w-0 flex-1 items-center rounded-md border border-border bg-input/30 px-2 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
-          <span className="mr-2 shrink-0 font-mono text-xs italic text-muted-foreground">
-            fx
-          </span>
+          <span className="mr-2 shrink-0 font-mono text-xs italic text-muted-foreground">fx</span>
           <span className="mr-2 h-3.5 w-px bg-border" />
           <input
             value={editing ? draft : selectedRaw}
@@ -662,115 +1094,6 @@ export default function SheetGrid({
             className="min-w-0 flex-1 bg-transparent py-1 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground"
           />
         </div>
-
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            title="Bold (⌘B)"
-            onClick={() => applyFormat({ bold: !selectedFormat?.bold })}
-            className={`flex size-7 cursor-pointer items-center justify-center rounded-md text-xs font-bold transition-colors hover:bg-accent ${
-              selectedFormat?.bold ? "bg-accent text-foreground" : "text-muted-foreground"
-            }`}
-          >
-            <Bold className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            title="Align"
-            onClick={() =>
-              applyFormat({
-                align: cycleAlign(
-                  selectedFormat?.align ?? defaultAlign(columns[selected.col]?.type),
-                ),
-              })
-            }
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <AlignLeft className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            title="Format Currency"
-            onClick={() => applyNumberFormat("currency")}
-            className={`flex size-7 cursor-pointer items-center justify-center rounded-md font-mono text-xs transition-colors hover:bg-accent ${
-              selectedFormat?.numberFormat === "currency" ||
-              columns[selected.col]?.type === "currency"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground"
-            }`}
-          >
-            $
-          </button>
-          <button
-            type="button"
-            title="Format Percent"
-            onClick={() => applyNumberFormat("percent")}
-            className={`flex size-7 cursor-pointer items-center justify-center rounded-md font-mono text-xs transition-colors hover:bg-accent ${
-              selectedFormat?.numberFormat === "percent"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground"
-            }`}
-          >
-            %
-          </button>
-          <span className="mx-0.5 h-4 w-px bg-border" />
-          <button
-            type="button"
-            title="Insert Column Right"
-            onClick={() => addColumn(selected.col + 1)}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <Columns3 className="size-3.5" />
-          </button>
-          <div className="relative">
-            <button
-              type="button"
-              title="Filter & Sort"
-              onClick={() => setFilterOpen((open) => !open)}
-              className={`flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent ${
-                filterOpen || filterQuery ? "bg-accent text-foreground" : "text-muted-foreground"
-              }`}
-            >
-              <Filter className="size-3.5" />
-            </button>
-            {filterOpen && (
-              <div className="absolute right-0 top-8 z-40 w-56 rounded-lg border border-border bg-popover p-2 shadow-xl">
-                <input
-                  autoFocus
-                  value={filterQuery}
-                  onChange={(event) => setFilterQuery(event.target.value)}
-                  placeholder="Filter rows..."
-                  className="w-full rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none focus:border-ring"
-                />
-                <div className="mt-2 flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => sortByColumn(selected.col, "asc")}
-                    className="flex-1 rounded-md bg-secondary px-2 py-1 text-[11px] text-secondary-foreground hover:bg-accent"
-                  >
-                    Sort A → Z
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => sortByColumn(selected.col, "desc")}
-                    className="flex-1 rounded-md bg-secondary px-2 py-1 text-[11px] text-secondary-foreground hover:bg-accent"
-                  >
-                    Sort Z → A
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            title={canMerge ? "Merge Cells" : "Select more than one cell to merge"}
-            disabled={!canMerge}
-            onClick={() => onChange({ merges: toggleMerge(merges, range) })}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
-          >
-            <Combine className="size-3.5" />
-          </button>
-        </div>
       </div>
 
       <div
@@ -778,6 +1101,7 @@ export default function SheetGrid({
         tabIndex={0}
         onKeyDown={handleGridKeyDown}
         className="min-h-0 flex-1 overflow-auto outline-none"
+        style={{ zoom: zoom / 100 }}
       >
         <div className="inline-block min-w-full">
           <div
@@ -931,6 +1255,25 @@ export default function SheetGrid({
                     key={column.id}
                     onMouseDown={(event) => {
                       if (isEditing) return;
+                      if (paintFormat) {
+                        event.preventDefault();
+                        const copied = { ...paintFormat };
+                        commit({
+                          rows: rows.map((row, index) => {
+                            if (index !== rowIndex) return row;
+                            const formats = { ...(row.formats ?? {}) };
+                            if (isEmptyCellFormat(copied)) delete formats[column.id];
+                            else formats[column.id] = copied;
+                            return {
+                              ...row,
+                              formats: Object.keys(formats).length ? formats : undefined,
+                            };
+                          }),
+                        });
+                        setPaintFormat(null);
+                        setSelection(address);
+                        return;
+                      }
                       if (event.shiftKey) {
                         setSelection(address, true);
                       } else {
@@ -961,16 +1304,34 @@ export default function SheetGrid({
                       }
                     }}
                     className={`relative min-w-0 border-b border-r border-border px-2 text-sm ${
-                      inRange ? "bg-primary/10" : ""
+                      inRange && !format?.fillColor ? "bg-primary/10" : ""
                     } ${isSelected ? "z-10 ring-2 ring-inset ring-ring" : ""} ${
                       result.type === "error" ? "text-destructive" : ""
-                    } ${evaluator.isFormula(colIndex, rowIndex) && result.type === "number" ? "text-primary" : ""}`}
+                    } ${evaluator.isFormula(colIndex, rowIndex) && result.type === "number" && !format?.textColor ? "text-primary" : ""} ${
+                      format?.border === "all" ? "ring-1 ring-inset ring-foreground/50" : ""
+                    } ${format?.border === "bottom" ? "border-b-foreground/70" : ""} ${
+                      format?.border === "outer" ? "outline outline-1 outline-foreground/40" : ""
+                    }`}
                     style={{
-                      height: merge && isMergeOrigin(merge, address)
+                      height: format?.wrap
+                        ? "auto"
+                        : merge && isMergeOrigin(merge, address)
+                          ? ROW_HEIGHT * merge.rowSpan
+                          : ROW_HEIGHT,
+                      minHeight: merge && isMergeOrigin(merge, address)
                         ? ROW_HEIGHT * merge.rowSpan
                         : ROW_HEIGHT,
                       textAlign: align,
                       fontWeight: format?.bold ? 700 : undefined,
+                      fontStyle: format?.italic ? "italic" : undefined,
+                      textDecoration: cellTextDecoration(format),
+                      color: format?.textColor,
+                      backgroundColor: format?.fillColor,
+                      fontSize: format?.fontSize ? `${format.fontSize}px` : undefined,
+                      fontFamily: cellFormatFontFamily(format?.fontFamily),
+                      whiteSpace: format?.wrap ? "pre-wrap" : undefined,
+                      overflowWrap: format?.wrap ? "anywhere" : undefined,
+                      verticalAlign: format?.verticalAlign,
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
@@ -1002,9 +1363,27 @@ export default function SheetGrid({
                       >
                         {chip.label}
                       </span>
+                    ) : format?.link ? (
+                      <a
+                        href={format.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                        className="block truncate leading-8 text-primary underline"
+                      >
+                        {display || format.link}
+                      </a>
                     ) : (
-                      <span className="block truncate leading-8">{display}</span>
+                      <span className={`block leading-8 ${format?.wrap ? "whitespace-pre-wrap" : "truncate"}`}>
+                        {display}
+                      </span>
                     )}
+                    {format?.note ? (
+                      <span
+                        title={format.note}
+                        className="absolute right-0 top-0 size-0 border-l-4 border-t-4 border-l-transparent border-t-warning"
+                      />
+                    ) : null}
                     {isFillCorner && !isEditing ? (
                       <span
                         onMouseDown={(event) => {
