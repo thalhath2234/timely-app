@@ -41,6 +41,18 @@ export function rangeAddressLabel(range: CellRange) {
   return `${start}:${colLetter(maxCol)}${maxRow + 1}`;
 }
 
+/** Cell below/right of a range so SUM does not overwrite (and cycle) its inputs. */
+export function formulaOutputAddress(
+  range: CellRange,
+  colCount: number,
+  rowCount: number,
+): CellAddress {
+  const { minCol, maxCol, minRow, maxRow } = normalizedRange(range);
+  if (maxRow + 1 < rowCount) return { col: minCol, row: maxRow + 1 };
+  if (maxCol + 1 < colCount) return { col: maxCol + 1, row: minRow };
+  return { col: minCol, row: maxRow };
+}
+
 function colLetter(index: number) {
   let result = "";
   let current = index + 1;
@@ -115,6 +127,130 @@ export function coveredByMerge(merges: SheetMerge[], address: CellAddress) {
   return Boolean(merge && !isMergeOrigin(merge, address));
 }
 
+export function rangesOverlap(a: CellRange, b: CellRange) {
+  const left = normalizedRange(a);
+  const right = normalizedRange(b);
+  return !(
+    left.maxCol < right.minCol ||
+    right.maxCol < left.minCol ||
+    left.maxRow < right.minRow ||
+    right.maxRow < left.minRow
+  );
+}
+
+export function unmergeRange(merges: SheetMerge[], range: CellRange): SheetMerge[] {
+  return merges.filter((merge) => !rangesOverlap(rangeFromMerge(merge), range));
+}
+
+export function addMerge(merges: SheetMerge[], range: CellRange): SheetMerge[] {
+  const next = mergeFromRange(range);
+  if (next.colSpan === 1 && next.rowSpan === 1) return merges;
+  return [...unmergeRange(merges, range), next];
+}
+
+export function mergeAll(merges: SheetMerge[], range: CellRange): SheetMerge[] {
+  return addMerge(merges, range);
+}
+
+export function mergeHorizontally(merges: SheetMerge[], range: CellRange): SheetMerge[] {
+  const { minCol, maxCol, minRow, maxRow } = normalizedRange(range);
+  if (maxCol === minCol) return merges;
+  let next = unmergeRange(merges, range);
+  for (let row = minRow; row <= maxRow; row += 1) {
+    next = addMerge(next, {
+      anchor: { col: minCol, row },
+      focus: { col: maxCol, row },
+    });
+  }
+  return next;
+}
+
+export function mergeVertically(merges: SheetMerge[], range: CellRange): SheetMerge[] {
+  const { minCol, maxCol, minRow, maxRow } = normalizedRange(range);
+  if (maxRow === minRow) return merges;
+  let next = unmergeRange(merges, range);
+  for (let col = minCol; col <= maxCol; col += 1) {
+    next = addMerge(next, {
+      anchor: { col, row: minRow },
+      focus: { col, row: maxRow },
+    });
+  }
+  return next;
+}
+
+export function hasMergeInRange(merges: SheetMerge[], range: CellRange) {
+  return merges.some((merge) => rangesOverlap(rangeFromMerge(merge), range));
+}
+
+/** Nearby numeric block for SUM/AVERAGE, matching Sheets (row above, then column above, then left). */
+export function guessAggregateRange(
+  origin: CellAddress,
+  colCount: number,
+  rowCount: number,
+  isNumeric: (address: CellAddress) => boolean,
+): CellRange | null {
+  const expandHorizontal = (row: number, aroundCol: number): CellRange | null => {
+    let seed = -1;
+    if (aroundCol >= 0 && aroundCol < colCount && isNumeric({ col: aroundCol, row })) {
+      seed = aroundCol;
+    } else {
+      for (let col = aroundCol - 1; col >= 0; col -= 1) {
+        if (isNumeric({ col, row })) {
+          seed = col;
+          break;
+        }
+      }
+      if (seed < 0) {
+        for (let col = aroundCol + 1; col < colCount; col += 1) {
+          if (isNumeric({ col, row })) {
+            seed = col;
+            break;
+          }
+        }
+      }
+    }
+    if (seed < 0) return null;
+    let minCol = seed;
+    let maxCol = seed;
+    while (minCol > 0 && isNumeric({ col: minCol - 1, row })) minCol -= 1;
+    while (maxCol < colCount - 1 && isNumeric({ col: maxCol + 1, row })) maxCol += 1;
+    return { anchor: { col: minCol, row }, focus: { col: maxCol, row } };
+  };
+
+  const expandVertical = (col: number, aroundRow: number): CellRange | null => {
+    let seed = -1;
+    if (aroundRow >= 0 && aroundRow < rowCount && isNumeric({ col, row: aroundRow })) {
+      seed = aroundRow;
+    } else {
+      for (let row = aroundRow; row >= 0; row -= 1) {
+        if (isNumeric({ col, row })) {
+          seed = row;
+          break;
+        }
+      }
+    }
+    if (seed < 0) return null;
+    let minRow = seed;
+    let maxRow = seed;
+    while (minRow > 0 && isNumeric({ col, row: minRow - 1 })) minRow -= 1;
+    while (maxRow < rowCount - 1 && isNumeric({ col, row: maxRow + 1 })) maxRow += 1;
+    if (maxRow < aroundRow) maxRow = aroundRow;
+    return { anchor: { col, row: minRow }, focus: { col, row: maxRow } };
+  };
+
+  if (origin.row > 0) {
+    const aboveRow = expandHorizontal(origin.row - 1, origin.col);
+    if (aboveRow) return aboveRow;
+    const aboveCol = expandVertical(origin.col, origin.row - 1);
+    if (aboveCol) return aboveCol;
+  }
+  if (origin.col > 0) {
+    const left = expandHorizontal(origin.row, origin.col - 1);
+    if (left) return left;
+  }
+  return null;
+}
+
 export function toggleMerge(merges: SheetMerge[], range: CellRange): SheetMerge[] {
   const next = mergeFromRange(range);
   if (next.colSpan === 1 && next.rowSpan === 1) return merges;
@@ -128,20 +264,7 @@ export function toggleMerge(merges: SheetMerge[], range: CellRange): SheetMerge[
   if (existing) {
     return merges.filter((merge) => merge !== existing);
   }
-  return [
-    ...merges.filter((merge) => {
-      const other = rangeFromMerge(merge);
-      const a = normalizedRange(range);
-      const b = normalizedRange(other);
-      return (
-        a.maxCol < b.minCol ||
-        b.maxCol < a.minCol ||
-        a.maxRow < b.minRow ||
-        b.maxRow < a.minRow
-      );
-    }),
-    next,
-  ];
+  return addMerge(merges, range);
 }
 
 export function selectionStats(

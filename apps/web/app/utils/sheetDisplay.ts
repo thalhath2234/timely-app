@@ -91,6 +91,12 @@ function formatNumber(
   if (format === "percent") {
     return `${(value * 100).toLocaleString(undefined, options)}%`;
   }
+  if (format === "scientific") {
+    return value.toExponential(digits ?? 2);
+  }
+  if (format === "plain") {
+    return String(value);
+  }
   if (digits != null) {
     return value.toLocaleString(undefined, options);
   }
