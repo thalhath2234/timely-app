@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Sheet as SheetIcon, Star, Upload } from "lucide-react";
 import { useCreateSheet, useSheets } from "@/app/utils/hooks/sheets";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
+import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { csvToGrid } from "@/app/utils/sheetCsv";
 import { formatSheetDate, sheetMetaLabel } from "@/app/utils/sheetWorkbook";
 
@@ -36,7 +37,13 @@ export default function SheetsPage() {
       <div className="flex min-h-full flex-col px-6 py-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold text-foreground">Sheets</h1>
+            <div className="flex items-center gap-2">
+              <ExpandCollapsedListButton
+                storageKey="timely.sheetsListCollapsed"
+                label="sheets list"
+              />
+              <h1 className="text-2xl font-semibold text-foreground">Sheets</h1>
+            </div>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
               Track numbers in a grid. Cells support formulas such as{" "}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-primary">
