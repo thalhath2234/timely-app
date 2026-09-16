@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Task } from "@/app/_types/types";
 import { formatDuration } from "@/app/utils/calendar";
+import { taskEntityColor } from "@/app/utils/entityColor";
 import { rankUnscheduled } from "@/app/utils/scheduleRank";
 import { setTaskDragData } from "@/app/utils/taskDrag";
 import { taskDeadlineDate } from "@/app/utils/taskDates";
@@ -45,10 +46,16 @@ export default function WaitingForSlotRail({
                   draggable
                   onDragStart={(event) => setTaskDragData(event, task.id)}
                   className={cn(
-                    "mb-1.5 cursor-grab rounded-lg border border-border bg-background px-2.5 py-2 active:cursor-grabbing",
+                    "mb-1.5 flex cursor-grab overflow-hidden rounded-lg border border-border bg-background active:cursor-grabbing",
                     task.blockedById && "opacity-70",
                   )}
                 >
+                  <span
+                    className="w-1 shrink-0"
+                    style={{ backgroundColor: taskEntityColor(task) }}
+                    aria-hidden
+                  />
+                  <div className="min-w-0 flex-1 px-2.5 py-2">
                   <p className="truncate text-sm font-medium text-foreground">{task.name}</p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {task.duration > 0 ? formatDuration(task.duration) : "No estimate"}
@@ -64,6 +71,7 @@ export default function WaitingForSlotRail({
                   >
                     Schedule this
                   </button>
+                  </div>
                 </div>
               </li>
             );

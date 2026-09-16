@@ -12,6 +12,8 @@ import { useBulkUpdateTasks, useDeleteTask, useProjectsQuery, useSaveTask, useTa
 import { addDays, isSameDay, startOfDay, toDateInputValue } from "../../../lib/format";
 import { PRIORITIES, priorityRank } from "../../../lib/priority";
 import { isTaskOverdue } from "../../../lib/overdue";
+import { taskEntityColor } from "../../../lib/entityColor";
+import { mergeStatusesByName, statusNameKey } from "../../../lib/status";
 import { showUndoToast } from "../../../lib/toast";
 import type { Task } from "../../../lib/types";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
@@ -94,7 +96,7 @@ export default function TasksScreen() {
     for (const t of visible) {
       const key =
         filter === "board"
-          ? t.statusId ?? "none"
+          ? statusNameKey(t.status?.name) || "none"
           : t.projectId ?? `ws:${t.workspaceId}`;
       if (!map.has(key)) {
         map.set(key, {
@@ -102,7 +104,7 @@ export default function TasksScreen() {
             filter === "board"
               ? t.status?.name ?? "No status"
               : t.project?.title ?? `${t.workspace?.name ?? "Tasks"} · no project`,
-          color: filter === "board" ? t.status?.color ?? null : t.project?.color ?? null,
+          color: filter === "board" ? t.status?.color ?? null : taskEntityColor(t),
           tasks: [],
         });
       }
@@ -116,6 +118,7 @@ export default function TasksScreen() {
     () => workspaces.flatMap((space) => space.status ?? []),
     [workspaces],
   );
+  const statusGroups = useMemo(() => mergeStatusesByName(statuses), [statuses]);
   const labels = useMemo(
     () => workspaces.flatMap((space) => space.lables ?? []),
     [workspaces],
@@ -131,6 +134,24 @@ export default function TasksScreen() {
     const ids = selectedIds;
     bulk.mutate({ ids, update });
     showUndoToast(message, () => bulk.mutate({ ids, update: undo }));
+    setSelectedIds([]);
+    setBulkPicker(null);
+  }
+
+  function applyNamedStatus(nameKey: string) {
+    const group = statusGroups.find((item) => item.key === nameKey);
+    if (!group) return;
+    const ids = selectedIds;
+    const byWorkspace = new Map(group.statuses.map((status) => [status.workspaceId, status]));
+    ids.forEach((id) => {
+      const task = tasks.find((item) => item.id === id);
+      const status = byWorkspace.get(task?.workspaceId ?? "");
+      if (!status) return;
+      save.mutate({ id, data: { statusId: status.id } });
+    });
+    showUndoToast("Status updated", () => {
+      ids.forEach((id) => save.mutate({ id, data: { statusId: null } }));
+    });
     setSelectedIds([]);
     setBulkPicker(null);
   }
@@ -257,12 +278,9 @@ export default function TasksScreen() {
         <SheetOption onSelect={() => setBulkPicker("deadline")}>Deadline</SheetOption>
       </BottomSheet>
       <BottomSheet open={bulkPicker === "status"} onClose={() => setBulkPicker(null)} title="Status">
-        {statuses.map((status) => (
-          <SheetOption
-            key={status.id}
-            onSelect={() => applyBulk({ statusId: status.id }, { statusId: null }, "Status updated")}
-          >
-            {status.name}
+        {statusGroups.map((group) => (
+          <SheetOption key={group.key} onSelect={() => applyNamedStatus(group.key)}>
+            {group.name}
           </SheetOption>
         ))}
       </BottomSheet>

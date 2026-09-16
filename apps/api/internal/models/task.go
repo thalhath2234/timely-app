@@ -72,17 +72,17 @@ type Task struct {
 	Checklist Checklist `gorm:"type:jsonb;not null;default:'[]'" json:"checklist"`
 
 	// ActualMinutes is focused time, independent of estimated Duration.
-	ActualMinutes int `gorm:"not null;default:0" json:"actualMinutes"`
+	ActualMinutes  int     `gorm:"not null;default:0" json:"actualMinutes"`
 	FocusStartedAt *string `gorm:"type:timestamptz" json:"focusStartedAt"`
 	// TodayFocusOn is a calendar day the user picked as a Today focus item.
 	TodayFocusOn *string `gorm:"type:date" json:"todayFocusOn"`
 
-	MinChunkMinutes       int               `gorm:"not null;default:15" json:"minChunkMinutes"`
-	PreferredChunkMinutes *int              `json:"preferredChunkMinutes"`
-	Contiguous            bool              `gorm:"not null;default:false" json:"contiguous"`
-	EarliestStartAt       *string           `gorm:"type:timestamptz" json:"earliestStartAt"`
-	PreferredWindows      PreferredWindows  `gorm:"type:jsonb;not null;default:'[]'" json:"preferredWindows"`
-	ScheduleLocked        bool              `gorm:"not null;default:false" json:"scheduleLocked"`
+	MinChunkMinutes       int              `gorm:"not null;default:15" json:"minChunkMinutes"`
+	PreferredChunkMinutes *int             `json:"preferredChunkMinutes"`
+	Contiguous            bool             `gorm:"not null;default:false" json:"contiguous"`
+	EarliestStartAt       *string          `gorm:"type:timestamptz" json:"earliestStartAt"`
+	PreferredWindows      PreferredWindows `gorm:"type:jsonb;not null;default:'[]'" json:"preferredWindows"`
+	ScheduleLocked        bool             `gorm:"not null;default:false" json:"scheduleLocked"`
 
 	Deadline    *string `gorm:"type:date" json:"deadline"`
 	StartDate   *string `gorm:"type:date" json:"startDate"`
@@ -230,4 +230,29 @@ func (t *Task) MinChunk() int {
 		return 15
 	}
 	return t.MinChunkMinutes
+}
+
+// EntityColor is the scan color for lists and calendar: project, then workspace,
+// then a stable hash so tasks without a stored color still stay distinct.
+func (t *Task) EntityColor() string {
+	if t == nil {
+		return utils.UnstagedColor
+	}
+	if t.Project != nil {
+		color := ""
+		if t.Project.Color != nil {
+			color = *t.Project.Color
+		}
+		return utils.ResolvedColor(color, t.Project.ID, 0)
+	}
+	if t.ProjectID != nil && *t.ProjectID != "" {
+		return utils.StableColorForID(*t.ProjectID)
+	}
+	if t.Workspace != nil {
+		return utils.ResolvedColor(t.Workspace.Color, t.Workspace.ID, 0)
+	}
+	if t.WorkspaceID != nil && *t.WorkspaceID != "" {
+		return utils.StableColorForID(*t.WorkspaceID)
+	}
+	return utils.UnstagedColor
 }

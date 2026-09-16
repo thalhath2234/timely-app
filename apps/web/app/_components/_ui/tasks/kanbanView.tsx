@@ -3,9 +3,15 @@
 import { useMemo, useState } from "react";
 import ColorChip from "@/app/_components/_ui/colorChip";
 import type { Status, Task, Workspace } from "@/app/_types/types";
-import { resolvedColor } from "@/app/utils/entityColor";
+import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
 import { useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tasks";
-import { isCompletedStatus } from "@/app/utils/status";
+import {
+  isCompletedStatus,
+  mergeStatusesByName,
+  statusForWorkspace,
+  statusNameKey,
+  type NamedStatusGroup,
+} from "@/app/utils/status";
 import { showUndoToast } from "@/app/_store/toastStore";
 import { useQueryClient } from "@tanstack/react-query";
 import { isTaskOverdue, latestTaskSchedule } from "@/app/utils/overdue";
@@ -79,44 +85,57 @@ export default function KanbanView({
       selectedWorkspaceIds.length === 0
         ? workspaces
         : workspaces.filter((workspace) => selectedWorkspaceIds.includes(workspace.id));
+    const catalog = scopedWorkspaces.flatMap((workspace) => workspace.status ?? []);
     const showAllStatuses = selectedStatusIds.length === 0;
-    const visibleStatusIds = new Set(selectedStatusIds);
-    const order: Status[] = [];
-    const seen = new Set<string>();
-
-    for (const workspace of scopedWorkspaces) {
-      for (const status of workspace.status ?? []) {
-        if (!showAllStatuses && !visibleStatusIds.has(status.id)) continue;
-        if (seen.has(status.id)) continue;
-        seen.add(status.id);
-        order.push(status);
+    const selectedIds = new Set(selectedStatusIds);
+    const selectedKeys = new Set(
+      catalog
+        .filter((status) => selectedIds.has(status.id))
+        .map((status) => statusNameKey(status.name)),
+    );
+    const visible = showAllStatuses
+      ? catalog
+      : catalog.filter((status) => selectedKeys.has(statusNameKey(status.name)));
+    const groups = mergeStatusesByName(visible);
+    const groupByStatusId = new Map<string, string>();
+    for (const group of groups) {
+      for (const status of group.statuses) {
+        groupByStatusId.set(status.id, group.key);
       }
     }
 
-    const byStatus = new Map<string, Task[]>();
+    const byGroup = new Map<string, Task[]>();
     const uncategorized: Task[] = [];
     for (const row of rows) {
       const statusId = row.statusId ?? row.status?.id;
-      if (statusId && seen.has(statusId)) {
-        const existing = byStatus.get(statusId) ?? [];
+      const groupKey = statusId ? groupByStatusId.get(statusId) : undefined;
+      if (groupKey) {
+        const existing = byGroup.get(groupKey) ?? [];
         existing.push(row);
-        byStatus.set(statusId, existing);
+        byGroup.set(groupKey, existing);
       } else if (showAllStatuses) {
         uncategorized.push(row);
       }
     }
 
     return {
-      statuses: order.map((status) => ({
-        status,
-        items: byStatus.get(status.id) ?? [],
+      groups: groups.map((group) => ({
+        ...group,
+        items: byGroup.get(group.key) ?? [],
       })),
       uncategorized,
     };
   }, [rows, workspaces, selectedWorkspaceIds, selectedStatusIds]);
 
-  const moveTask = async (task: Task, status: Status) => {
+  const moveTask = async (task: Task, group: NamedStatusGroup) => {
     if (dataMode !== "task") return;
+    const workspaceId = task.workspaceId ?? task.workspace?.id;
+    const status = statusForWorkspace(group, workspaceId);
+    if (!status) {
+      const workspaceName = task.workspace?.name ?? "This workspace";
+      showUndoToast(`${workspaceName} has no "${group.name}" status`);
+      return;
+    }
     const previousStatusId = task.statusId ?? task.status?.id ?? "";
     const previousCompletedAt = task.completedAt ?? "";
     if (previousStatusId === status.id) return;
@@ -145,12 +164,12 @@ export default function KanbanView({
   };
 
   const sections = [
-    ...columns.statuses.map((column) => ({
-      key: column.status.id,
-      name: column.status.name,
-      color: column.status.color,
+    ...columns.groups.map((column) => ({
+      key: column.key,
+      name: column.name,
+      color: column.color,
       items: column.items,
-      status: column.status,
+      group: column as NamedStatusGroup,
     })),
     ...(columns.uncategorized.length
       ? [
@@ -159,7 +178,7 @@ export default function KanbanView({
             name: "No status",
             color: undefined as string | undefined,
             items: columns.uncategorized,
-            status: null as Status | null,
+            group: null as NamedStatusGroup | null,
           },
         ]
       : []),
@@ -176,11 +195,11 @@ export default function KanbanView({
           <section
             key={column.key}
             onDragOver={(event) => {
-              if (dataMode === "task" && column.status) event.preventDefault();
+              if (dataMode === "task" && column.group) event.preventDefault();
             }}
             onDrop={() => {
               const task = rows.find((item) => item.id === draggingId);
-              if (task && column.status) void moveTask(task, column.status);
+              if (task && column.group) void moveTask(task, column.group);
               setDraggingId(null);
             }}
             className="w-72 shrink-0 rounded-lg border border-border bg-muted/40"
@@ -211,25 +230,34 @@ export default function KanbanView({
                       onSelectRow(item);
                     }
                   }}
-                  className="cursor-pointer rounded-lg border border-border bg-card p-3 shadow-xs hover:border-primary/40"
+                  className="cursor-pointer overflow-hidden rounded-lg border border-border bg-card shadow-xs hover:border-primary/40"
                 >
-                  <div className="line-clamp-2 text-sm font-medium text-foreground">{item.name}</div>
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {item.workspace?.name ? (
-                      <ColorChip color={resolvedColor(item.workspace.color, item.workspace.id)}>
-                        {item.workspace.name}
-                      </ColorChip>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">No workspace</span>
-                    )}
-                    {dataMode === "task" && item.project?.title ? (
-                      <ColorChip color={resolvedColor(item.project.color, item.project.id)}>
-                        {item.project.title}
-                      </ColorChip>
-                    ) : null}
-                  </div>
-                  <div className={dateMeta.overdue ? "mt-2 text-xs text-destructive" : "mt-2 text-xs text-muted-foreground"}>
-                    {dateMeta.text}
+                  <div className="flex items-stretch">
+                    <span
+                      className="w-1 shrink-0"
+                      style={{ backgroundColor: taskEntityColor(item) }}
+                      aria-hidden
+                    />
+                    <div className="min-w-0 flex-1 p-3">
+                      <div className="line-clamp-2 text-sm font-medium text-foreground">{item.name}</div>
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {item.workspace?.name ? (
+                          <ColorChip color={resolvedColor(item.workspace.color, item.workspace.id)}>
+                            {item.workspace.name}
+                          </ColorChip>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No workspace</span>
+                        )}
+                        {dataMode === "task" && item.project?.title ? (
+                          <ColorChip color={resolvedColor(item.project.color, item.project.id)}>
+                            {item.project.title}
+                          </ColorChip>
+                        ) : null}
+                      </div>
+                      <div className={dateMeta.overdue ? "mt-2 text-xs text-destructive" : "mt-2 text-xs text-muted-foreground"}>
+                        {dateMeta.text}
+                      </div>
+                    </div>
                   </div>
                 </article>
                 );

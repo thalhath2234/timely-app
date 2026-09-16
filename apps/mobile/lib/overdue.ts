@@ -1,5 +1,6 @@
 import type { CalendarItem, Task } from "./types";
 import { startOfDay } from "./format";
+import { taskEntityColor } from "./entityColor";
 
 function dateFromDateInput(value: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -72,7 +73,7 @@ export function taskToCalendarItem(task: Task): CalendarItem {
     start: start.toISOString(),
     end: end.toISOString(),
     allDay: !schedule,
-    color: task.status?.color ?? task.project?.color ?? null,
+    color: taskEntityColor(task),
     blockId: schedule?.blockId,
     chunkIndex: 0,
     chunkCount: 1,

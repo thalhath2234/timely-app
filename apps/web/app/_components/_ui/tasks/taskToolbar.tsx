@@ -15,6 +15,7 @@ import type {
   Workspace,
 } from "@/app/_types/types";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { mergeStatusesByName, statusNameKey } from "@/app/utils/status";
 
 export type TaskListScope = "global" | "project";
 
@@ -238,27 +239,20 @@ export function TaskToolbar({
       ? workspaces
       : workspaces.filter((workspace) => selectedWorkspaceIds.includes(workspace.id));
 
-  const statusOptions = scopedWorkspaces.flatMap((workspace) =>
-    (workspace.status ?? []).map((status) => ({
-      id: status.id,
-      name: status.name,
-      color: status.color,
-      workspaceName: workspace.name,
-    })),
-  );
-  const duplicateStatusNames = new Set(
-    statusOptions
-      .map((status) => status.name)
-      .filter((name, index, names) => names.indexOf(name) !== index),
-  );
+  const statusCatalog = scopedWorkspaces.flatMap((workspace) => workspace.status ?? []);
+  const statusGroups = mergeStatusesByName(statusCatalog);
 
-  const toggleStatus = (statusId: string) => {
-    const allIds = statusOptions.map((status) => status.id);
+  const toggleStatusGroup = (key: string) => {
+    const idsForName = statusCatalog
+      .filter((status) => statusNameKey(status.name) === key)
+      .map((status) => status.id);
+    const allIds = statusCatalog.map((status) => status.id);
     const current = selectedStatusIds.length === 0 ? allIds : selectedStatusIds;
-
-    const next = current.includes(statusId)
-      ? current.filter((id) => id !== statusId)
-      : [...current, statusId];
+    const selected = new Set(current);
+    const allSelected = idsForName.length > 0 && idsForName.every((id) => selected.has(id));
+    const next = allSelected
+      ? current.filter((id) => !idsForName.includes(id))
+      : [...new Set([...current, ...idsForName])];
 
     setSelectedStatusIds(next.length === 0 || next.length === allIds.length ? [] : next);
   };
@@ -510,12 +504,17 @@ export function TaskToolbar({
             onClick={() => setStatusPanelOpen((prev) => !prev)}
           >
             <span>Status:</span>
-            <span className="font-medium text-foreground">
+              <span className="font-medium text-foreground">
               {selectedStatusIds.length === 0
                 ? "All"
-                : selectedStatusIds.length === 1
-                  ? (statusOptions.find((status) => status.id === selectedStatusIds[0])?.name ?? "Selected")
-                  : `${selectedStatusIds.length} selected`}
+                : (() => {
+                    const selectedGroups = mergeStatusesByName(
+                      statusCatalog.filter((status) => selectedStatusIds.includes(status.id)),
+                    );
+                    return selectedGroups.length === 1
+                      ? selectedGroups[0].name
+                      : `${selectedGroups.length} selected`;
+                  })()}
             </span>
             <ChevronDown size={12} />
           </button>
@@ -533,30 +532,32 @@ export function TaskToolbar({
               </div>
 
               <div className="max-h-56 space-y-1 overflow-auto">
-                {statusOptions.map((status) => {
-                  const checked = selectedStatusIds.length === 0 || selectedStatusIds.includes(status.id);
-                  const label = duplicateStatusNames.has(status.name)
-                    ? `${status.name} · ${status.workspaceName}`
-                    : status.name;
+                {statusGroups.map((group) => {
+                  const idsForName = group.statuses.map((status) => status.id);
+                  const current =
+                    selectedStatusIds.length === 0
+                      ? statusCatalog.map((status) => status.id)
+                      : selectedStatusIds;
+                  const checked = idsForName.every((id) => current.includes(id));
 
                   return (
                     <label
-                      key={status.id}
+                      key={group.key}
                       className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent hover:text-accent-foreground"
                     >
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={() => toggleStatus(status.id)}
+                        onChange={() => toggleStatusGroup(group.key)}
                         className="accent-primary"
                       />
-                      <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: status.color }} />
-                      <span className="truncate text-sm text-foreground">{label}</span>
+                      <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: group.color }} />
+                      <span className="truncate text-sm text-foreground">{group.name}</span>
                     </label>
                   );
                 })}
 
-                {statusOptions.length === 0 && (
+                {statusGroups.length === 0 && (
                   <div className="px-2 py-1 text-xs text-muted-foreground">No statuses found</div>
                 )}
               </div>

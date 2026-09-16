@@ -7,6 +7,7 @@ import type {
   CalendarView,
   Task,
 } from "@/app/_types/types";
+import { taskEntityColor, taskEntityLabel } from "@/app/utils/entityColor";
 
 /** Pixel height of one hour row in the day/week time grid. */
 export const HOUR_HEIGHT = 56;
@@ -36,6 +37,8 @@ export type CalendarEvent = {
   durationMinutes: number;
   allDay: boolean;
   color: string | null;
+  /** Legend grouping: project/workspace for tasks, "Events" for events. */
+  colorLabel: string | null;
   statusName: string | null;
   /** Secondary line for list-style views. */
   subtitle: string | null;
@@ -108,7 +111,8 @@ export function toCalendarEvents(items: CalendarItem[]): CalendarEvent[] {
         : Math.min(startMinutes + durationMinutes, MINUTES_PER_DAY) / 60,
       durationMinutes,
       allDay: item.allDay,
-      color: item.color ?? (isTask ? task?.status?.color ?? null : null),
+      color: isTask ? taskEntityColor(task) : item.color ?? null,
+      colorLabel: isTask ? taskEntityLabel(task) : "Events",
       statusName: isTask ? task?.status?.name ?? null : null,
       subtitle: subtitleParts.filter(Boolean).join(" · ") || null,
       task,
@@ -466,8 +470,8 @@ function packLanes(events: CalendarEvent[]): PositionedEvent[] {
 }
 
 /**
- * Status colors arrive from the API as hex strings; fall back to the theme's
- * primary when a task has no status.
+ * Project/workspace colors arrive from the API as hex strings; fall back to
+ * the theme's primary when a block has no entity color.
  */
 export function eventStyle(color?: string | null): CSSProperties {
   if (!color) {
@@ -498,16 +502,14 @@ export function formatDuration(minutes: number): string {
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
-/** Distinct statuses (and a single "Events" swatch) for the legend row. */
+/** Distinct projects/workspaces (and a single "Events" swatch) for the legend. */
 export function eventLegend(
   events: CalendarEvent[],
 ): { label: string; color: string | null }[] {
   const seen = new Map<string, { label: string; color: string | null }>();
 
   for (const event of events) {
-    const label = isTaskKind(event.kind)
-      ? event.statusName ?? "No status"
-      : "Events";
+    const label = event.colorLabel ?? (isTaskKind(event.kind) ? "No project" : "Events");
     if (!seen.has(label)) seen.set(label, { label, color: event.color });
   }
 

@@ -5,6 +5,7 @@ import type { Task } from "../../lib/types";
 import { formatDueDate, isOverdue, PRIORITY_META } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { Dot } from "../ui/primitives";
+import { taskEntityColor } from "../../lib/entityColor";
 
 export default function TaskCard({
   task,
@@ -24,9 +25,11 @@ export default function TaskCard({
   const overdue = isOverdue(task.deadline, task.completedAt);
   const due = formatDueDate(task.deadline);
   const priority = task.priorityLevel ? PRIORITY_META[task.priorityLevel] : null;
+  const accent = taskEntityColor(task);
 
   return (
     <View style={[styles.card, selected && styles.selected]}>
+      <View style={[styles.bar, { backgroundColor: accent }]} />
       <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked: done }}
@@ -81,6 +84,7 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
   },
   selected: { borderColor: colors.primary },
+  bar: { width: 4, alignSelf: "stretch", borderRadius: 4, marginVertical: 8, marginLeft: 8 },
   check: { width: 48, alignItems: "center", justifyContent: "center" },
   box: {
     width: 22,

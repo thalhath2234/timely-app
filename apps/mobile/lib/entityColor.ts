@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-
 /** Shared palette for workspaces, projects, and stages. */
 export const ENTITY_COLORS = [
   "#30A66D",
@@ -47,43 +45,6 @@ export function resolvedColor(
   return colorForIndex(fallbackIndex);
 }
 
-export function chipStyle(color?: string | null): CSSProperties {
-  if (!color) {
-    return {
-      backgroundColor: "var(--muted)",
-      color: "var(--muted-foreground)",
-      borderColor: "var(--border)",
-    };
-  }
-
-  return {
-    backgroundColor: `color-mix(in oklab, ${color} 18%, var(--card))`,
-    color,
-    borderColor: `color-mix(in oklab, ${color} 42%, var(--border))`,
-  };
-}
-
-export function laneStyle(color?: string | null): CSSProperties {
-  if (!color) {
-    return {
-      borderColor: "var(--border)",
-      backgroundColor: "color-mix(in oklab, var(--muted) 40%, transparent)",
-    };
-  }
-
-  return {
-    borderColor: `color-mix(in oklab, ${color} 55%, var(--border))`,
-    backgroundColor: `color-mix(in oklab, ${color} 10%, var(--card))`,
-    boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${color} 18%, transparent)`,
-  };
-}
-
-export function progressStyle(color?: string | null): CSSProperties {
-  return {
-    backgroundColor: color || "var(--primary)",
-  };
-}
-
 type ColorSource = {
   id?: string | null;
   color?: string | null;
@@ -103,11 +64,4 @@ export function taskEntityColor(task?: TaskColorSource | null): string {
     return resolvedColor(task.project?.color, task.project?.id ?? task.projectId);
   }
   return resolvedColor(task.workspace?.color, task.workspace?.id ?? task.workspaceId);
-}
-
-export function taskEntityLabel(task?: {
-  project?: { title?: string | null } | null;
-  workspace?: { name?: string | null } | null;
-} | null): string {
-  return task?.project?.title || task?.workspace?.name || "No project";
 }

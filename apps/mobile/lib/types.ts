@@ -102,6 +102,7 @@ export interface Project extends BaseEntity {
 
 export interface Workspace extends BaseEntity {
   name: string;
+  color?: string | null;
   userId: string;
   status: Status[];
   customFields: CustomField[];
