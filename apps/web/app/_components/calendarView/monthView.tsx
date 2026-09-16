@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import {
   eventsForDay,
   eventStyle,
@@ -23,6 +23,9 @@ type MonthViewProps = {
   /** Empty-cell click schedules a task at 9:00 that day. */
   onSelectSlot?: (day: Date, hour: number) => void;
   onDropTask?: (at: Date, taskId: string) => void;
+  onEventContextMenu?: (mouse: ReactMouseEvent, event: CalendarEvent) => void;
+  /** Month cells have no hour, so the menu anchors on 9:00 like a click does. */
+  onSlotContextMenu?: (mouse: ReactMouseEvent, day: Date, hour: number) => void;
 };
 
 export default function MonthView({
@@ -32,6 +35,8 @@ export default function MonthView({
   onOpenDay,
   onSelectSlot,
   onDropTask,
+  onEventContextMenu,
+  onSlotContextMenu,
 }: MonthViewProps) {
   const { days, rows } = useMemo(() => monthGrid(selectedDate), [selectedDate]);
   const today = new Date();
@@ -64,6 +69,7 @@ export default function MonthView({
               role="button"
               tabIndex={0}
               onClick={() => onSelectSlot?.(day, 9)}
+              onContextMenu={(mouse) => onSlotContextMenu?.(mouse, day, 9)}
               onDragOver={(event) => {
                 if (!onDropTask || !dragHasTask(event)) return;
                 event.preventDefault();
@@ -118,6 +124,7 @@ export default function MonthView({
                       clickEvent.stopPropagation();
                       onSelectEvent(event);
                     }}
+                    onContextMenu={(mouse) => onEventContextMenu?.(mouse, event)}
                     style={eventStyle(event.color)}
                     className={cn(
                       "truncate rounded border px-1.5 py-0.5 text-left text-[10px] leading-tight text-foreground transition-all hover:brightness-110",

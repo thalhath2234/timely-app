@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { FolderKanban, Plus } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useProjects } from "@/app/utils/hooks/projects";
+import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
@@ -26,7 +29,15 @@ function ProgressBar({ value, color }: { value: number; color?: string | null })
   );
 }
 
-function ProjectCard({ project, tasks }: { project: Project; tasks: Task[] }) {
+function ProjectCard({
+  project,
+  tasks,
+  onContextMenu,
+}: {
+  project: Project;
+  tasks: Task[];
+  onContextMenu: (event: ReactMouseEvent, project: Project) => void;
+}) {
   const stats = projectStats(project, tasks);
   const workspaceName = project.workspace?.name;
   const color = resolvedColor(project.color, project.id);
@@ -34,6 +45,7 @@ function ProjectCard({ project, tasks }: { project: Project; tasks: Task[] }) {
   return (
     <Link
       href={`/projects/${project.id}`}
+      onContextMenu={(event) => onContextMenu(event, project)}
       className="flex flex-col gap-3 overflow-hidden rounded-xl border border-white/10 bg-[#191b22] p-4 transition-colors hover:border-[#c0c1ff]/30 hover:bg-white/[0.03]"
       style={{ borderLeftColor: color, borderLeftWidth: 3 }}
     >
@@ -81,6 +93,12 @@ export default function ProjectsPage() {
   const { data: workspaces } = useWorkspaces();
   const setAddNewMode = useSidebarStore((state) => state.setAddNewMode);
   const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
+  const openMenu = useContextMenu();
+  const projectMenu = useProjectContextMenu();
+  const onProjectContextMenu = (event: ReactMouseEvent, project: Project) =>
+    openMenu(event, projectMenu(project, { omit: ["open"] }), {
+      title: project.title || "Untitled project",
+    });
 
   const openCreate = () => {
     setAddNewMode("project");
@@ -153,7 +171,12 @@ export default function ProjectsPage() {
         ) : (
           <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {list.map((project) => (
-              <ProjectCard key={project.id} project={project} tasks={allTasks} />
+              <ProjectCard
+                key={project.id}
+                project={project}
+                tasks={allTasks}
+                onContextMenu={onProjectContextMenu}
+              />
             ))}
           </div>
         )}

@@ -38,6 +38,8 @@ import {
 import { overdueAgendaTasks, taskToCalendarItem } from "@/app/utils/overdue";
 import { cn } from "@/app/utils/cn";
 import { rankUnscheduled } from "@/app/utils/scheduleRank";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
 
 function CalendarContent() {
   const searchParams = useSearchParams();
@@ -180,6 +182,20 @@ function CalendarContent() {
     },
     [commitBlock],
   );
+
+  const openMenu = useContextMenu();
+  const { eventMenu, slotMenu } = useCalendarContextMenu({
+    onOpenEvent: setSelectedEvent,
+    onSelectSlot: openScheduleSlot,
+    onAutoSchedule: openAutoSchedule,
+    onOpenDay: openDay,
+  });
+
+  const onEventContextMenu = (mouse: React.MouseEvent, event: CalendarEvent) =>
+    openMenu(mouse, eventMenu(event), { title: event.title });
+
+  const onSlotContextMenu = (mouse: React.MouseEvent, day: Date, hour: number) =>
+    openMenu(mouse, slotMenu(day, hour));
 
   // Server render has no "today"; the client snapshot fills it in after
   // hydration without a setState-in-effect round trip.
@@ -347,6 +363,8 @@ function CalendarContent() {
               onSelectSlot={openScheduleSlot}
               onDropTask={dropTaskOnSlot}
               onMoveBlock={moveCalendarBlock}
+              onEventContextMenu={onEventContextMenu}
+              onSlotContextMenu={onSlotContextMenu}
             />
           )}
 
@@ -358,6 +376,8 @@ function CalendarContent() {
               onSelectSlot={openScheduleSlot}
               onDropTask={dropTaskOnSlot}
               onMoveBlock={moveCalendarBlock}
+              onEventContextMenu={onEventContextMenu}
+              onSlotContextMenu={onSlotContextMenu}
             />
           )}
 
@@ -369,6 +389,8 @@ function CalendarContent() {
               onOpenDay={openDay}
               onSelectSlot={openScheduleSlot}
               onDropTask={dropTaskOnSlot}
+              onEventContextMenu={onEventContextMenu}
+              onSlotContextMenu={onSlotContextMenu}
             />
           )}
 
@@ -378,6 +400,7 @@ function CalendarContent() {
               events={events}
               overdueEvents={overdueEvents}
               onSelectEvent={setSelectedEvent}
+              onEventContextMenu={onEventContextMenu}
             />
           )}
           </div>

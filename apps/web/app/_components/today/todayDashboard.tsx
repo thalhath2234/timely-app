@@ -18,6 +18,7 @@ import {
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import ColorChip from "@/app/_components/_ui/colorChip";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import EventDialog from "@/app/_components/calendarView/eventDialog";
 import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
@@ -46,6 +47,8 @@ import {
 } from "@/app/utils/hooks/tasks";
 import { normalizePriority } from "@/app/utils/priority";
 import { isInboxTask, isReminderTask } from "@/app/utils/taskFilters";
+import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
+import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
 import type { CalendarItem, Task } from "@/app/_types/types";
 
 const MAX_TODAY_FOCUS = 7;
@@ -276,6 +279,7 @@ function FocusTaskRow({
   onStart,
   onStop,
   onUnstar,
+  onContextMenu,
 }: {
   task: Task;
   day: string;
@@ -287,6 +291,7 @@ function FocusTaskRow({
   onStart: () => void;
   onStop: () => void;
   onUnstar: () => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   const completed = Boolean(task.completedAt);
   const estimate = task.duration > 0 ? task.duration : null;
@@ -305,6 +310,7 @@ function FocusTaskRow({
         focusing && "border-primary/40 bg-primary/5",
         !completed && !focusing && "border-border bg-card hover:bg-accent/30",
       )}
+      onContextMenu={onContextMenu}
     >
       {focusing ? (
         <span className="absolute inset-y-0 left-0 w-1 bg-primary" />
@@ -447,10 +453,12 @@ function AgendaTimeline({
   items,
   now,
   onOpen,
+  onContextMenu,
 }: {
   items: CalendarItem[];
   now: number;
   onOpen: (item: CalendarItem) => void;
+  onContextMenu?: (event: React.MouseEvent, item: CalendarItem) => void;
 }) {
   const { from, to } = agendaRange(items);
   const span = Math.max(to - from, 60);
@@ -480,6 +488,7 @@ function AgendaTimeline({
                 type="button"
                 title={`${item.title} · ${formatTime(start)} – ${formatTime(end)}`}
                 onClick={() => onOpen(item)}
+                onContextMenu={(event) => onContextMenu?.(event, item)}
                 className="absolute overflow-hidden rounded-md px-2 text-left text-[10px] font-medium text-primary-foreground"
                 style={{
                   top: 6 + laneIndex * (laneHeight + 6),
@@ -520,7 +529,15 @@ function AgendaTimeline({
   );
 }
 
-function AgendaRow({ item, onOpen }: { item: CalendarItem; onOpen: () => void }) {
+function AgendaRow({
+  item,
+  onOpen,
+  onContextMenu,
+}: {
+  item: CalendarItem;
+  onOpen: () => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
+}) {
   const start = parseDate(item.start);
   const end = parseDate(item.end);
   const accent = itemAccent(item);
@@ -534,6 +551,7 @@ function AgendaRow({ item, onOpen }: { item: CalendarItem; onOpen: () => void })
     <button
       type="button"
       onClick={onOpen}
+      onContextMenu={onContextMenu}
       className="flex w-full items-stretch gap-0 overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:bg-accent/30"
     >
       <span className="w-1 shrink-0" style={{ backgroundColor: accent }} />
@@ -596,6 +614,11 @@ export default function TodayDashboard() {
   const setCreateTaskDraft = useSidebarStore((state) => state.setCreateTaskDraft);
   const [openEventId, setOpenEventId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const openMenu = useContextMenu();
+  const taskMenu = useTaskContextMenu();
+  const { eventMenu } = useCalendarContextMenu({
+    onOpenEvent: (event) => setOpenEventId(event.id),
+  });
   const data = today.data;
   const focusingId = data?.focusing?.id;
   const now = useNow(focusingId ? 1000 : 15_000);
@@ -629,6 +652,17 @@ export default function TodayDashboard() {
       return;
     }
     setOpenEventId(item.id);
+  };
+
+  const onItemContextMenu = (event: React.MouseEvent, item: CalendarItem) => {
+    if (item.task) {
+      openMenu(event, taskMenu(item.task), { title: item.task.name });
+      return;
+    }
+    const calendarEvent = calendarEvents.find((entry) => entry.id === item.id);
+    if (calendarEvent) {
+      openMenu(event, eventMenu(calendarEvent), { title: calendarEvent.title });
+    }
   };
 
   const completeTask = (task: Task) => {
@@ -878,6 +912,9 @@ export default function TodayDashboard() {
                         onStart={() => runMutation(startFocus.mutateAsync(task.id), "Could not start focus")}
                         onStop={() => runMutation(stopFocus.mutateAsync(task.id), "Could not stop focus")}
                         onUnstar={() => unstar(task)}
+                        onContextMenu={(event) =>
+                          openMenu(event, taskMenu(task), { title: task.name })
+                        }
                       />
                     ))
                   )}
@@ -916,7 +953,12 @@ export default function TodayDashboard() {
                 ) : (
                   <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-4">
                     {timedScheduled.length > 0 ? (
-                      <AgendaTimeline items={timedScheduled} now={now} onOpen={openItem} />
+                      <AgendaTimeline
+                        items={timedScheduled}
+                        now={now}
+                        onOpen={openItem}
+                        onContextMenu={onItemContextMenu}
+                      />
                     ) : null}
                     {allDayScheduled.length > 0 ? (
                       <ul className="flex flex-wrap gap-2">
@@ -925,6 +967,7 @@ export default function TodayDashboard() {
                             <button
                               type="button"
                               onClick={() => openItem(item)}
+                              onContextMenu={(event) => onItemContextMenu(event, item)}
                               className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs hover:bg-accent/40"
                             >
                               {item.title}
@@ -938,7 +981,12 @@ export default function TodayDashboard() {
                     ) : null}
                     <div className="space-y-2">
                       {timedScheduled.map((item) => (
-                        <AgendaRow key={item.id} item={item} onOpen={() => openItem(item)} />
+                        <AgendaRow
+                          key={item.id}
+                          item={item}
+                          onOpen={() => openItem(item)}
+                          onContextMenu={(event) => onItemContextMenu(event, item)}
+                        />
                       ))}
                     </div>
                   </div>
@@ -970,6 +1018,7 @@ export default function TodayDashboard() {
                         key={item.id}
                         type="button"
                         onClick={() => openItem(item)}
+                        onContextMenu={(event) => onItemContextMenu(event, item)}
                         className="flex w-full items-center justify-between gap-3 px-3.5 py-3.5 text-left hover:bg-accent/30"
                       >
                         <span className="min-w-0 truncate text-sm font-medium">{item.title}</span>
@@ -995,6 +1044,9 @@ export default function TodayDashboard() {
                         <button
                           type="button"
                           onClick={() => openTask(task.id)}
+                          onContextMenu={(event) =>
+                            openMenu(event, taskMenu(task), { title: task.name })
+                          }
                           className="min-w-0 flex-1 truncate rounded-xl border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent/40"
                         >
                           {task.name}

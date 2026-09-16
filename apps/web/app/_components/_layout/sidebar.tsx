@@ -14,6 +14,25 @@ import { useMutation } from "@tanstack/react-query";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
+import { requestConfirm } from "@/app/_store/confirmStore";
+
+const GO_SHORTCUTS: Record<string, string> = {
+  Today: "G then Y",
+  Inbox: "G then I",
+  Calendar: "G then C",
+  Tasks: "G then T",
+  Projects: "G then P",
+  Docs: "G then D",
+  Sheets: "G then S",
+  Report: "G then R",
+  Notifications: "G then N",
+};
+
+const NEW_SHORTCUTS: Partial<Record<AddNewModeOptions, string>> = {
+  task: "C",
+};
 
 const addNewOptions: { lable: string; value: AddNewModeOptions }[] = [
   { lable: "Task", value: "task" },
@@ -34,6 +53,7 @@ export default function Sidebar() {
   const addMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
+  const openMenu = useContextMenu();
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
@@ -71,8 +91,62 @@ export default function Sidebar() {
     };
   }, []);
 
+  const createItem = (mode: AddNewModeOptions) => {
+    setAddNewMode(mode);
+    setIsAddItemModalOpen(true);
+    setShowAddMenu(false);
+  };
+
+  const addMenuItems: ContextMenuEntry[] = addNewOptions.map((option) => ({
+    kind: "action",
+    label: `New ${option.lable.toLowerCase()}`,
+    shortcut: NEW_SHORTCUTS[option.value],
+    onSelect: () => createItem(option.value),
+  }));
+
+  const chromeMenu = tidyEntries([
+    {
+      kind: "action",
+      label: "Search",
+      shortcut: "/",
+      onSelect: () => setSearchMode(true),
+    },
+    { kind: "separator" },
+    ...addMenuItems,
+    { kind: "separator" },
+    {
+      kind: "submenu",
+      label: "Go to",
+      items: SIDEBAR_ITEMS.map((item) => ({
+        kind: "action" as const,
+        label: item.name,
+        shortcut: GO_SHORTCUTS[item.name],
+        onSelect: () => {
+          if (item.name === "Calendar") router.push("/calendar?view=month");
+          else router.push(item.href);
+        },
+      })),
+    },
+    { kind: "separator" },
+    {
+      kind: "action",
+      label: "Sign out",
+      danger: true,
+      onSelect: () =>
+        requestConfirm({
+          title: "Sign out?",
+          confirmLabel: "Sign out",
+          pendingLabel: "Signing out…",
+          onConfirm: () => logoutMutation.mutateAsync(),
+        }),
+    },
+  ]);
+
   return (
-    <div className="flex h-full w-full flex-col items-center gap-y-2 py-3">
+    <div
+      className="flex h-full w-full flex-col items-center gap-y-2 py-3"
+      onContextMenu={(event) => openMenu(event, chromeMenu)}
+    >
       <div className="flex items-center justify-center h-auto">
         <div className="flex flex-col items-center justify-center gap-y-2">
           <div className="relative" ref={addMenuRef}>
@@ -83,6 +157,7 @@ export default function Sidebar() {
               aria-haspopup="menu"
               className="flex cursor-pointer rounded-lg border-none bg-[#c0c1ff] p-2 text-[#1000a9] transition-colors hover:bg-[#a8a6ff]"
               onClick={() => setShowAddMenu((prev) => !prev)}
+              onContextMenu={(event) => openMenu(event, addMenuItems)}
             >
               <motion.div
                 whileHover={{ scale: 1.05 }}
@@ -108,11 +183,7 @@ export default function Sidebar() {
                       role="menuitem"
                       key={option.value}
                       className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
-                      onClick={() => {
-                        setAddNewMode(option.value);
-                        setIsAddItemModalOpen(true);
-                        setShowAddMenu(false);
-                      }}
+                      onClick={() => createItem(option.value)}
                     >
                       {option.lable}
                     </button>
@@ -126,6 +197,16 @@ export default function Sidebar() {
             aria-label="Search"
             className="flex cursor-pointer rounded-lg border-none p-2 text-[#908fa0] transition-colors hover:bg-white/5 hover:text-[#e2e2eb]"
             onClick={() => setSearchMode(true)}
+            onContextMenu={(event) =>
+              openMenu(event, [
+                {
+                  kind: "action",
+                  label: "Search",
+                  shortcut: "/",
+                  onSelect: () => setSearchMode(true),
+                },
+              ])
+            }
           >
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <Search className="size-5" />
@@ -141,7 +222,23 @@ export default function Sidebar() {
           const isActive = pathname.startsWith(item.href);
 
           return (
-            <div key={item.name} className="relative">
+            <div
+              key={item.name}
+              className="relative"
+              onContextMenu={(event) =>
+                openMenu(event, [
+                  {
+                    kind: "action",
+                    label: `Go to ${item.name}`,
+                    shortcut: GO_SHORTCUTS[item.name],
+                    onSelect: () => {
+                      if (item.name === "Calendar") router.push("/calendar?view=month");
+                      else router.push(item.href);
+                    },
+                  },
+                ])
+              }
+            >
               <AnimatePresence>
                 {isActive && (
                   <motion.div
@@ -166,6 +263,22 @@ export default function Sidebar() {
         aria-label="Sign out"
         className="mt-auto flex cursor-pointer items-center justify-center pb-1 text-[#908fa0] transition-colors hover:text-[#c0c1ff]"
         onClick={() => logoutMutation.mutate()}
+        onContextMenu={(event) =>
+          openMenu(event, [
+            {
+              kind: "action",
+              label: "Sign out",
+              danger: true,
+              onSelect: () =>
+                requestConfirm({
+                  title: "Sign out?",
+                  confirmLabel: "Sign out",
+                  pendingLabel: "Signing out…",
+                  onConfirm: () => logoutMutation.mutateAsync(),
+                }),
+            },
+          ])
+        }
       >
         <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
           <LogOut className="size-5" />

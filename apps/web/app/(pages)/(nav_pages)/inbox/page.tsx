@@ -5,8 +5,10 @@ import Link from "next/link";
 import { Inbox } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useCreateTask, useInboxTasks } from "@/app/utils/hooks/tasks";
+import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import type { Task } from "@/app/_types/types";
 
 export default function InboxPage() {
@@ -16,6 +18,8 @@ export default function InboxPage() {
   const [capturedFlash, setCapturedFlash] = useState(false);
   const captureRef = useRef<HTMLInputElement>(null);
   const openTask = useEntityDetailStore((state) => state.openTask);
+  const openMenu = useContextMenu();
+  const taskMenu = useTaskContextMenu();
   const items = (inbox.data ?? []) as Task[];
 
   const onCapture = (event: FormEvent) => {
@@ -105,6 +109,9 @@ export default function InboxPage() {
                 <button
                   type="button"
                   onClick={() => openTask(task.id)}
+                  onContextMenu={(event) =>
+                    openMenu(event, taskMenu(task), { title: task.name })
+                  }
                   className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-[#191b22] px-3 py-2.5 text-left text-sm transition hover:bg-white/5"
                 >
                   <span className="truncate">{task.name}</span>

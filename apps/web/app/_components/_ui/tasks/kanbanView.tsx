@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { CopyCheck, Plus } from "lucide-react";
 import ColorChip from "@/app/_components/_ui/colorChip";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
+import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
+import { tidyEntries } from "@/app/_store/contextMenuStore";
+import { useSidebarStore } from "@/app/_store/sidebarStore";
+import { useToastStore } from "@/app/_store/toastStore";
 import type { Status, Task, Workspace } from "@/app/_types/types";
 import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
 import { useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tasks";
@@ -79,6 +86,11 @@ export default function KanbanView({
   const updateTask = useUpdateTask();
   const queryClient = useQueryClient();
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const openMenu = useContextMenu();
+  const taskMenu = useTaskContextMenu();
+  const projectMenu = useProjectContextMenu();
+  const setAddNewMode = useSidebarStore((state) => state.setAddNewMode);
+  const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
 
   const columns = useMemo(() => {
     const scopedWorkspaces =
@@ -163,6 +175,50 @@ export default function KanbanView({
     }
   };
 
+  const onCardContextMenu = (event: React.MouseEvent, item: Task) => {
+    if (dataMode === "project") {
+      if (!item.project) return;
+      openMenu(event, projectMenu(item.project), { title: item.project.title });
+      return;
+    }
+    openMenu(event, taskMenu(item), { title: item.name });
+  };
+
+  const onColumnContextMenu = (
+    event: React.MouseEvent,
+    column: { name: string; items: Task[] },
+  ) => {
+    openMenu(
+      event,
+      tidyEntries([
+        dataMode === "task" && {
+          kind: "action",
+          label: "New task",
+          icon: Plus,
+          shortcut: "C",
+          onSelect: () => {
+            setAddNewMode("task");
+            setIsAddItemModalOpen(true);
+          },
+        },
+        column.items.length > 0 && {
+          kind: "action",
+          label: `Copy card names (${column.items.length})`,
+          icon: CopyCheck,
+          onSelect: () => {
+            void navigator.clipboard
+              .writeText(column.items.map((item) => item.name).join("\n"))
+              .then(() =>
+                useToastStore.getState().show(`Copied ${column.items.length} names`),
+              )
+              .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
+          },
+        },
+      ]),
+      { title: `${column.name} · ${column.items.length}` },
+    );
+  };
+
   const sections = [
     ...columns.groups.map((column) => ({
       key: column.key,
@@ -204,7 +260,10 @@ export default function KanbanView({
             }}
             className="w-72 shrink-0 rounded-lg border border-border bg-muted/40"
           >
-            <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+            <header
+              onContextMenu={(event) => onColumnContextMenu(event, column)}
+              className="flex items-center justify-between gap-2 border-b border-border px-3 py-2"
+            >
               <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
                 {column.color ? (
                   <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: column.color }} />
@@ -224,6 +283,7 @@ export default function KanbanView({
                   role="button"
                   tabIndex={0}
                   onClick={() => onSelectRow(item)}
+                  onContextMenu={(event) => onCardContextMenu(event, item)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();

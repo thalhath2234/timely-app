@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import {
   addDays,
   eventsForDay,
@@ -20,6 +20,7 @@ type AgendaViewProps = {
   events: CalendarEvent[];
   overdueEvents?: CalendarEvent[];
   onSelectEvent: (event: CalendarEvent) => void;
+  onEventContextMenu?: (mouse: ReactMouseEvent, event: CalendarEvent) => void;
 };
 
 function relativeDay(day: Date, today: Date) {
@@ -38,11 +39,13 @@ function AgendaRow({
   overdue,
   today,
   onSelectEvent,
+  onEventContextMenu,
 }: {
   event: CalendarEvent;
   overdue?: boolean;
   today: Date;
   onSelectEvent: (event: CalendarEvent) => void;
+  onEventContextMenu?: (mouse: ReactMouseEvent, event: CalendarEvent) => void;
 }) {
   const when = event.allDay
     ? overdue
@@ -61,6 +64,7 @@ function AgendaRow({
     <button
       type="button"
       onClick={() => onSelectEvent(event)}
+      onContextMenu={(mouse) => onEventContextMenu?.(mouse, event)}
       className="flex items-center gap-4 rounded-lg border border-border bg-card px-4 py-2.5 text-left transition-colors hover:bg-muted/40"
     >
       <span
@@ -100,6 +104,7 @@ export default function AgendaView({
   events,
   overdueEvents = [],
   onSelectEvent,
+  onEventContextMenu,
 }: AgendaViewProps) {
   const today = startOfDay(new Date());
 
@@ -135,6 +140,7 @@ export default function AgendaView({
                 overdue
                 today={today}
                 onSelectEvent={onSelectEvent}
+                onEventContextMenu={onEventContextMenu}
               />
             ))}
           </div>
@@ -159,6 +165,7 @@ export default function AgendaView({
                 event={event}
                 today={today}
                 onSelectEvent={onSelectEvent}
+                onEventContextMenu={onEventContextMenu}
               />
             ))}
           </div>
