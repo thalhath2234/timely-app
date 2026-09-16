@@ -1,4 +1,4 @@
-import Sidebar from "@/app/_components/_layout/sidebar";
+import AppShell from "@/app/_components/_layout/appShell";
 import SearchModal from "@/app/_components/_ui/modal/search";
 import AddItemModal from "@/app/_components/_ui/modal/addItem";
 import AutoScheduleIndicator from "@/app/_components/calendarView/autoScheduleIndicator";
@@ -26,14 +26,7 @@ export default async function DashboardLayout({
       <ToastHost />
       <ContextMenuHost />
       <ConfirmHost />
-      <div className="flex h-full w-full flex-row overflow-hidden bg-sidebar">
-        <div className="flex h-full w-[68px] shrink-0 items-center justify-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-          <Sidebar />
-        </div>
-        <div id="main-content" className="m-1 flex-1 overflow-hidden rounded-xl border border-border bg-background text-foreground shadow-sm">
-          {children}
-        </div>
-      </div>
+      <AppShell>{children}</AppShell>
     </>
   );
 }

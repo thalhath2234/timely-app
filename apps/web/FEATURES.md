@@ -437,12 +437,17 @@ Working hours, freeze, break minutes, excluded workspaces. Used by auto-schedule
 
 Picker → Name / Statuses / Labels / Custom fields (including Yes/No).
 
-### Data & appearance
+### Appearance
+
+- Theme: system / light / dark on desktop; light / dark on native.
+- Accent color presets and custom hex on desktop.
+- Auto-hide sidebar: reveal when the pointer is at the left edge.
+
+### Data & privacy
 
 - Full JSON backup, tasks CSV, calendar ICS.
 - Restore (replace-mode, transactional).
 - Encrypted server backups: create, list, download, delete; schedule + retention.
-- Theme: system / light / dark on desktop; light / dark on native.
 
 ### Integrations (desktop) / API keys (native)
 
@@ -457,7 +462,7 @@ Picker → Name / Statuses / Labels / Custom fields (including Yes/No).
 
 Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread and reminder snooze. Settings → Notifications: category prefs, quiet hours, digest times, failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
 
-**No** language picker, privacy, billing, or connected-account screens.
+**No** language picker, billing, or connected-account screens.
 
 ---
 
@@ -507,7 +512,7 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 
 ## 16. Create / navigation UX
 
-**Desktop sidebar:** + menu (Task, Event, Workspace, Project, Doc, Sheet), Search, Today, Inbox, Calendar, Tasks, Projects, Docs, Sheets, Report, Notifications, Settings, Logout. `g` then `y`/`i`/`n` jumps to Today/Inbox/Notifications.
+**Desktop sidebar:** + menu (Task, Event, Workspace, Project, Doc, Sheet), Search, Today, Inbox, Calendar, Tasks, Projects, Docs, Sheets, Report, Notifications, Settings, Logout. `g` then `y`/`i`/`n` jumps to Today/Inbox/Notifications. Settings → Appearance can auto-hide the rail until the pointer is at the left edge.
 
 **Add Item modal:** per-type forms. Tasks open with a **Work | Reminder** toggle first. Reminder uses Notify at (date and time). Work uses duration, workspace, project, stage, labels, custom fields. Rich description for task/project. Recurrence for task/event. Labels/custom fields with inline create. Events all-day/duration/workspace.
 
@@ -589,7 +594,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/sheets/[id]` | Spreadsheet |
 | `/report` | Productivity snapshot |
 | `/notifications` | In-app notification center |
-| `/settings` | Account (incl. devices), Schedule, Notifications, Workspaces, Data & appearance, Integrations (`?tab=`) |
+| `/settings` | Account (incl. devices), Appearance, Schedule, Notifications, Workspaces, Data & privacy, Integrations (`?tab=`) |
 | `/m`, `/m/*` | Redirect to `/calendar` (legacy mobile-web bookmarks) |
 
 ### Native app
