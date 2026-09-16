@@ -47,6 +47,48 @@ export function resolvedColor(
   return colorForIndex(fallbackIndex);
 }
 
+function parseHexRgb(color?: string | null): [number, number, number] | null {
+  const hex = color?.trim().replace(/^#/, "");
+  if (!hex) return null;
+  const full =
+    hex.length === 3
+      ? hex
+          .split("")
+          .map((ch) => ch + ch)
+          .join("")
+      : hex.length === 8
+        ? hex.slice(0, 6)
+        : hex;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null;
+  return [
+    parseInt(full.slice(0, 2), 16),
+    parseInt(full.slice(2, 4), 16),
+    parseInt(full.slice(4, 6), 16),
+  ];
+}
+
+function relativeLuminance([r, g, b]: [number, number, number]): number {
+  const channel = (value: number) => {
+    const c = value / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+/** White or near-black so labels stay readable on a solid entity-color fill. */
+export function contrastingTextColor(background?: string | null): string {
+  const rgb = parseHexRgb(background);
+  if (!rgb) return "var(--primary-foreground)";
+  return relativeLuminance(rgb) > 0.179 ? "#111319" : "#ffffff";
+}
+
+export function fillStyle(color?: string | null): CSSProperties {
+  return {
+    backgroundColor: color || "var(--primary)",
+    color: contrastingTextColor(color),
+  };
+}
+
 export function chipStyle(color?: string | null): CSSProperties {
   if (!color) {
     return {
