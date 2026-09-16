@@ -159,7 +159,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex items-center gap-2 border-b border-white/10 px-6 py-2.5">
+      <header className="flex items-center gap-2 border-b border-border px-6 py-2.5">
         <nav className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
           <Link
             href="/docs"
@@ -203,7 +203,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             };
             input.click();
           }}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/[0.06]"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
         >
           <Upload className="size-4" />
         </button>
@@ -212,7 +212,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           title="Download Markdown"
           aria-label="Download document as Markdown"
           onClick={() => void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`)}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/[0.06]"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
         >
           <Download className="size-4" />
         </button>
@@ -221,7 +221,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           type="button"
           title={doc.isFavorite ? "Remove from favorites" : "Add to favorites"}
           onClick={() => schedule({ isFavorite: !doc.isFavorite })}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground"
         >
           <Star
             className={`size-4 ${doc.isFavorite ? "fill-warning text-warning" : ""}`}
@@ -238,7 +238,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               schedule({ archived: !next }),
             );
           }}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/[0.06]"
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
         >
           <Archive className={`size-4 ${doc.archivedAt ? "text-warning" : ""}`} />
         </button>
@@ -248,13 +248,13 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             type="button"
             title="Delete doc"
             onClick={() => setIsConfirmingDelete((previous) => !previous)}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/[0.06] hover:text-destructive"
+            className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-destructive"
           >
             <Trash2 className="size-4" />
           </button>
 
           {isConfirmingDelete && (
-            <div className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-white/10 bg-[#191b22] p-3 text-xs shadow-xl">
+            <div className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-border bg-card p-3 text-xs shadow-xl">
               <p className="text-muted-foreground">
                 Delete <span className="text-foreground">{doc.title || "this doc"}</span>
                 {descendantCount > 0
@@ -297,7 +297,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             </button>
 
             {isIconPickerOpen && (
-              <div className="absolute left-0 top-12 z-50 w-64 rounded-lg border border-white/10 bg-[#191b22] p-2 shadow-xl">
+              <div className="absolute left-0 top-12 z-50 w-64 rounded-lg border border-border bg-card p-2 shadow-xl">
                 <div className="grid grid-cols-8 gap-1">
                   {ICON_CHOICES.map((icon) => (
                     <button

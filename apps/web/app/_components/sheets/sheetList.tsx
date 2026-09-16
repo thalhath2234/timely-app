@@ -77,7 +77,7 @@ export default function SheetList() {
 
   if (collapsed) {
     return (
-      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-white/10 bg-[#111319] py-3">
+      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-background py-3">
         <button
           type="button"
           title="Expand sheets list"
@@ -91,7 +91,7 @@ export default function SheetList() {
           title="New sheet"
           onClick={handleCreate}
           disabled={createSheet.isPending}
-          className="flex size-7 cursor-pointer items-center justify-center rounded-lg bg-[#c0c1ff] text-[#1000a9] hover:bg-[#a8a6ff] disabled:opacity-60"
+          className="flex size-7 cursor-pointer items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
         >
           <Plus className="size-4" />
         </button>
@@ -100,10 +100,10 @@ export default function SheetList() {
   }
 
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-white/10 bg-[#111319]">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3.5">
+    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-background">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
         <div className="flex items-center gap-2">
-          <span className="size-2 rounded-full bg-[#c0c1ff]" />
+          <span className="size-2 rounded-full bg-primary" />
           <h2 className="text-xs font-semibold uppercase tracking-wide text-foreground">
             {showArchived ? "Archived" : "Sheets Workspace"}
           </h2>
@@ -122,7 +122,7 @@ export default function SheetList() {
             title="New sheet"
             onClick={handleCreate}
             disabled={createSheet.isPending}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-lg bg-[#c0c1ff] text-[#1000a9] hover:bg-[#a8a6ff] disabled:opacity-60"
+            className="flex size-7 cursor-pointer items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
             <Plus className="size-4" />
           </button>
@@ -137,7 +137,7 @@ export default function SheetList() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search sheets, models..."
-            className="w-full rounded-lg border border-white/10 bg-[#0c0e14] py-1.5 pl-8 pr-8 text-xs text-foreground outline-none transition placeholder:text-muted-foreground focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
+            className="w-full rounded-lg border border-border bg-muted py-1.5 pl-8 pr-8 text-xs text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
           />
           <span className="absolute right-2.5 rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
             /
@@ -172,15 +172,15 @@ export default function SheetList() {
             <div
               className={`group flex items-center gap-1 rounded-lg pr-1 transition-colors ${
                 sheet.id === activeId
-                  ? "border border-[#c0c1ff]/20 bg-[#c0c1ff]/12 text-foreground"
-                  : "hover:bg-white/[0.04]"
+                  ? "border border-primary/20 bg-primary/12 text-foreground"
+                  : "hover:bg-accent"
               }`}
             >
               <Link
                 href={`/sheets/${sheet.id}`}
                 className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2"
               >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[#c0c1ff]/12 text-base leading-none text-[#c0c1ff]">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/12 text-base leading-none text-primary">
                   {sheet.icon ? (
                     sheet.icon
                   ) : (
@@ -214,7 +214,7 @@ export default function SheetList() {
             </div>
 
             {pendingDeleteId === sheet.id && (
-              <div className="my-1 rounded-md border border-white/10 bg-[#191b22] p-2 text-xs">
+              <div className="my-1 rounded-md border border-border bg-card p-2 text-xs">
                 <p className="text-muted-foreground">
                   Delete <span className="text-foreground">{sheet.title}</span>?
                 </p>
@@ -241,13 +241,13 @@ export default function SheetList() {
         ))}
       </div>
 
-      <div className="m-3 rounded-xl border border-white/10 bg-[#191b22] p-3 text-xs text-muted-foreground">
+      <div className="m-3 rounded-xl border border-border bg-card p-3 text-xs text-muted-foreground">
         <div className="mb-1 flex items-center gap-1.5 font-medium text-foreground">
-          <span className="size-1.5 rounded-full bg-[#c0c1ff]" />
+          <span className="size-1.5 rounded-full bg-primary" />
           Formula Syntax
         </div>
         <p className="font-mono text-[10px] leading-relaxed">
-          <span className="text-[#c0c1ff]">=SUM(A1:A10)</span>
+          <span className="text-primary">=SUM(A1:A10)</span>
           <br />
           <span className="text-success">=B2*1.1</span>
           <br />

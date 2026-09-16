@@ -241,7 +241,7 @@ function CalendarContent() {
           <button
             type="button"
             onClick={() => openAutoSchedule()}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-[#191b22] px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-white/5"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
             <Sparkles
               className={cn(
@@ -265,7 +265,7 @@ function CalendarContent() {
                 durationMinutes: 30,
               })
             }
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#c0c1ff] px-2.5 text-sm font-medium text-[#1000a9] transition-colors hover:bg-[#a8a6ff]"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             <CalendarPlus className="size-3.5" />
             Add
@@ -281,8 +281,8 @@ function CalendarContent() {
                 className={cn(
                   "h-8 min-w-8 rounded-lg border border-input px-2.5 text-sm font-medium transition-all",
                   activeView === option.value
-                    ? "bg-[#c0c1ff] text-[#1000a9]"
-                    : "bg-transparent text-muted-foreground hover:bg-white/5 hover:text-foreground",
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
                 {option.label}

@@ -86,7 +86,7 @@ function AccountSettingsForm({
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Your name"
-          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
+          className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring"
         />
       </label>
 
@@ -97,7 +97,7 @@ function AccountSettingsForm({
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
-          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
+          className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring"
         />
       </label>
 
@@ -117,7 +117,7 @@ function AccountSettingsForm({
           value={currentPassword}
           onChange={(event) => setCurrentPassword(event.target.value)}
           autoComplete="current-password"
-          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
+          className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring"
         />
       </label>
 
@@ -128,7 +128,7 @@ function AccountSettingsForm({
           value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)}
           autoComplete="new-password"
-          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
+          className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring"
         />
       </label>
 
@@ -139,7 +139,7 @@ function AccountSettingsForm({
         <button
           type="submit"
           disabled={updateMe.isPending}
-          className="cursor-pointer rounded-lg bg-[#c0c1ff] px-3 py-1.5 text-sm font-medium text-[#1000a9] hover:bg-[#a8a6ff] disabled:opacity-60"
+          className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
         >
           {updateMe.isPending ? "Saving…" : "Save account"}
         </button>
@@ -207,14 +207,14 @@ function DeviceSessions() {
           <li
             key={session.id}
             className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 ${
-              session.current ? "border-[#c0c1ff]/40 bg-[#c0c1ff]/8" : "border-white/10 bg-[#191b22]"
+              session.current ? "border-primary/40 bg-primary/10" : "border-border bg-card"
             }`}
           >
             <div className="min-w-0">
               <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
                 <span className="truncate">{humanizeDeviceLabel(session.deviceLabel)}</span>
                 {session.current ? (
-                  <span className="rounded-full bg-[#c0c1ff] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#1000a9]">
+                  <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary-foreground">
                     This device
                   </span>
                 ) : null}

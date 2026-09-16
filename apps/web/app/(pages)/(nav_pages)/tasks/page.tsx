@@ -511,7 +511,7 @@ export function TaskHeader({
           onClick={openCreate}
           disabled={!canCreate}
           title={canCreate ? "Create a task" : "Create a workspace first"}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[#c0c1ff] px-3.5 py-1.5 text-xs font-semibold text-[#1000a9] shadow-sm transition-colors hover:bg-[#a8a6ff] disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-60"
         >
           <Plus size={14} />
           New task

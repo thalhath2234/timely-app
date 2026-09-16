@@ -65,7 +65,7 @@ function SettingsContent() {
 
   return (
     <main className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="border-b border-white/10 px-6 py-5">
+      <div className="border-b border-border px-6 py-5">
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Manage your account and per-workspace configuration.
@@ -73,7 +73,7 @@ function SettingsContent() {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-white/10 bg-[#111319] p-3">
+        <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border bg-background p-3">
           {TABS.map((item) => {
             const active = tab === item.id;
             return (
@@ -85,8 +85,8 @@ function SettingsContent() {
                 className={cn(
                   "rounded-lg px-3 py-2 text-left transition-colors",
                   active
-                    ? "bg-[#c0c1ff]/12 text-foreground"
-                    : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+                    ? "bg-primary/12 text-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
                 <span className="block text-sm font-medium">{item.label}</span>
@@ -120,7 +120,7 @@ function DataAndAppearance() {
         <p className="mt-1 text-xs text-muted-foreground">Use your device setting or choose a theme for this browser.</p>
         <div className="mt-3 flex gap-2" role="group" aria-label="Color theme">
           {(["system", "light", "dark"] as const).map((option) => (
-            <button key={option} type="button" aria-pressed={theme === option} onClick={() => setTheme(option)} className={`rounded-lg border px-3 py-2 text-sm capitalize ${theme === option ? "border-[#c0c1ff]/40 bg-[#c0c1ff]/12 text-foreground" : "border-white/10 hover:bg-white/[0.04]"}`}>{option}</button>
+            <button key={option} type="button" aria-pressed={theme === option} onClick={() => setTheme(option)} className={`rounded-lg border px-3 py-2 text-sm capitalize ${theme === option ? "border-primary/40 bg-primary/12 text-foreground" : "border-border hover:bg-accent"}`}>{option}</button>
           ))}
         </div>
       </section>
