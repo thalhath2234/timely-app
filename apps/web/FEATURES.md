@@ -343,7 +343,7 @@ Nested notes (parentId + order), Notion-like.
 
 ### Editor
 
-- Slash `/`: Text, H1–H3, bullets, numbered, to-do list, quote, code block, 3×3 table, divider, link, mention.
+- Slash `/`: Text, H1–H3, bullets, numbered, to-do list, quote, code block, 3×3 table, divider, link, mention, **Page** (docs only: creates a nested page, inserts a title link, and opens the new editor).
 - Markdown-ish: `.`+space → bullet; `-`+space → divider.
 - Marks: bold, italic, strike, inline code, highlight.
 - `@` mentions: doc, sheet, task, project (no required leading space). Native also has a **Mention** toolbar button.

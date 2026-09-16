@@ -557,10 +557,14 @@ export interface DocContent {
 /** Entities that can be @-mentioned from inside any rich text field. */
 export type MentionEntityType = "doc" | "sheet" | "task" | "project";
 
+export type MentionAppearance = "mention" | "page";
+
 export interface MentionAttrs {
   id: string;
   label: string;
   entityType: MentionEntityType;
+  /** "page" is a subpage link: the title is shown and acts as a hyperlink. */
+  appearance?: MentionAppearance;
 }
 
 export interface Doc {

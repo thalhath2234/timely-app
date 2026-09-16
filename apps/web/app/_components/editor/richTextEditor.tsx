@@ -1,23 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useSidebarStore } from "@/app/_store/sidebarStore";
+import { DocContent } from "@/app/_types/types";
+import { openTasksEntityHref } from "@/app/utils/entityDetail";
+import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
+import CodeBlock from "@tiptap/extension-code-block";
+import Highlight from "@tiptap/extension-highlight";
+import { TableKit } from "@tiptap/extension-table";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
+import { Placeholder } from "@tiptap/extensions";
 import {
   Editor,
   EditorContent,
   Extensions,
   JSONContent,
+  Range,
   ReactNodeViewRenderer,
   useEditor,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import CodeBlock from "@tiptap/extension-code-block";
-import { Placeholder } from "@tiptap/extensions";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import Highlight from "@tiptap/extension-highlight";
-import { TableKit } from "@tiptap/extension-table";
 import {
+  AtSign,
   BetweenHorizontalEnd,
   BetweenHorizontalStart,
   BetweenVerticalEnd,
@@ -27,7 +31,6 @@ import {
   CheckSquare,
   Code,
   Code2,
-  AtSign,
   Columns2,
   ExternalLink,
   Heading,
@@ -47,18 +50,16 @@ import {
   Trash2,
   Unlink,
 } from "lucide-react";
-import { DocContent } from "@/app/_types/types";
-import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
-import { openTasksEntityHref } from "@/app/utils/entityDetail";
-import { useSidebarStore } from "@/app/_store/sidebarStore";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AutoCapitalize } from "./autoCapitalize";
+import CodeBlockView from "./codeBlockView";
+import { CodeHighlight } from "./codeHighlight";
 import { dismissSuggestionAndQuery } from "./dismissSuggestion";
+import { DotBulletShortcut } from "./dotBullet";
 import { Mention, MentionPluginKey } from "./mention";
 import { createMentionRenderer, filterMentionItems } from "./mentionMenu";
 import { SlashCommand, SlashCommandPluginKey } from "./slashCommand";
-import { DotBulletShortcut } from "./dotBullet";
-import { AutoCapitalize } from "./autoCapitalize";
-import { CodeHighlight } from "./codeHighlight";
-import CodeBlockView from "./codeBlockView";
 import {
   OPEN_LINK_EDITOR_EVENT,
   createSlashItems,
@@ -89,6 +90,8 @@ export interface RichTextEditorProps {
   autoFocus?: boolean;
   /** When this changes, the editor reloads `content`. Local drafts are otherwise kept. */
   syncKey?: number | string;
+  /** Docs only: slash "Page" creates a child of this page and links it. */
+  onCreateSubpage?: (props: { editor: Editor; range: Range }) => void | Promise<void>;
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -156,6 +159,7 @@ export default function RichTextEditor({
   enableMentions = true,
   autoFocus = false,
   syncKey = 0,
+  onCreateSubpage,
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -176,6 +180,7 @@ export default function RichTextEditor({
   // rebuilt whenever the data refreshes.
   const mentionItems = useMentionItems();
   const [mentionBox] = useState(() => createMentionBox(mentionItems));
+  const createSubpageRef = useRef(onCreateSubpage);
 
   const openLinkEditor = useCallback(() => {
     const editor = editorRef.current;
@@ -262,7 +267,16 @@ export default function RichTextEditor({
             allow: ({ editor: slashEditor, range }) =>
               !isInsideTable(slashEditor, range.from),
             items: ({ query }: { query: string }) =>
-              filterSlashItems(createSlashItems(), query),
+              filterSlashItems(
+                createSlashItems({
+                  onCreateSubpage: createSubpageRef.current
+                    ? (props) => {
+                        void createSubpageRef.current?.(props);
+                      }
+                    : undefined,
+                }),
+                query,
+              ),
             render: createSlashRenderer,
           },
         }),
@@ -325,6 +339,7 @@ export default function RichTextEditor({
 
   useEffect(() => {
     onChangeRef.current = onChange;
+    createSubpageRef.current = onCreateSubpage;
     mentionBox.set(mentionItems);
   });
 
@@ -353,6 +368,30 @@ export default function RichTextEditor({
     if (editor && onReady) onReady(editor);
   }, [editor, onReady]);
 
+  useEffect(() => {
+    if (!editor || !enableMentions) return;
+
+    const labels = new Map(
+      mentionItems.map((item) => [`${item.entityType}:${item.id}`, item.label]),
+    );
+    const { tr, doc } = editor.state;
+    let changed = false;
+
+    doc.descendants((node, pos) => {
+      if (node.type.name !== "mention" || !node.attrs.id) return;
+      const entityType = (node.attrs.entityType ?? "doc") as string;
+      const next = labels.get(`${entityType}:${node.attrs.id}`);
+      if (!next || next === node.attrs.label) return;
+      tr.setNodeMarkup(pos, undefined, { ...node.attrs, label: next });
+      changed = true;
+    });
+
+    if (changed) {
+      tr.setMeta("addToHistory", false);
+      editor.view.dispatch(tr);
+    }
+  }, [editor, enableMentions, mentionItems]);
+
   // Mention chips are anchors, so they are routed client-side instead of
   // triggering a full page load.
   useEffect(() => {
@@ -363,20 +402,25 @@ export default function RichTextEditor({
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       const mention = target?.closest?.("a[data-mention]");
-      if (!mention) return;
+      const internalLink =
+        mention ??
+        (target?.closest?.("a.doc-link") as HTMLElement | null | undefined);
+      if (!internalLink) return;
 
-      const href = mention.getAttribute("href");
+      const href = internalLink.getAttribute("href");
       if (!href || href === "#") return;
+      if (!mention && !href.startsWith("/")) return;
 
       event.preventDefault();
+      event.stopPropagation();
       if (openTasksEntityHref(href, (next) => router.push(next, { scroll: false }))) {
         return;
       }
       router.push(href);
     };
 
-    element.addEventListener("click", handleClick);
-    return () => element.removeEventListener("click", handleClick);
+    element.addEventListener("click", handleClick, true);
+    return () => element.removeEventListener("click", handleClick, true);
   }, [editor, router]);
 
   // Search (Ctrl+K) owns that shortcut — close editor overlays so they do

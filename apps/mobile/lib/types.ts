@@ -527,6 +527,7 @@ export interface MentionAttrs {
   id: string;
   label: string;
   entityType: MentionEntityType;
+  appearance?: "mention" | "page";
 }
 
 export interface Doc {

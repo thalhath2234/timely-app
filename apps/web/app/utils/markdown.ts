@@ -484,7 +484,11 @@ function renderInline(nodes: Node[]): string {
       const label = String(n.attrs?.label ?? "mention");
       const id = String(n.attrs?.id ?? "");
       const entity = String(n.attrs?.entityType ?? "task");
-      out += `[@${label}](timely://${entity}/${id})`;
+      if (n.attrs?.appearance === "page") {
+        out += `[${label}](/docs/${id})`;
+      } else {
+        out += `[@${label}](timely://${entity}/${id})`;
+      }
       i += 1;
       continue;
     }

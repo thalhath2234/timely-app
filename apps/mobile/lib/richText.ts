@@ -30,7 +30,10 @@ export function richToPlain(content: DocContent | null | undefined): string {
     }
     if (node.type === "mention") {
       const attrs = (node as { attrs?: MentionAttrs }).attrs;
-      lines[lines.length - 1] = (lines[lines.length - 1] ?? "") + `@${attrs?.label ?? "mention"}`;
+      const label = attrs?.label ?? "mention";
+      lines[lines.length - 1] =
+        (lines[lines.length - 1] ?? "") +
+        (attrs?.appearance === "page" ? label : `@${label}`);
       return;
     }
     if (node.type === "paragraph" || node.type === "heading") {

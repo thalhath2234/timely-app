@@ -28,7 +28,8 @@ export function useAutosave<T extends object>(
     }
 
     if (inFlightPromiseRef.current) {
-      return inFlightPromiseRef.current;
+      const ok = await inFlightPromiseRef.current;
+      if (!pendingRef.current) return ok;
     }
 
     if (!pendingRef.current) {

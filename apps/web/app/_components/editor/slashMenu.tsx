@@ -1,13 +1,5 @@
 "use client";
 
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
 import { Editor, Range, ReactRenderer } from "@tiptap/react";
 import {
   exitSuggestion,
@@ -18,6 +10,7 @@ import {
   AtSign,
   CheckSquare,
   Code2,
+  FileText,
   Heading1,
   Heading2,
   Heading3,
@@ -29,6 +22,14 @@ import {
   Table2,
   Type,
 } from "lucide-react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { dismissOnOutsidePointer, placeCaretPopup, watchCaretPopup } from "./caretPopup";
 import { SlashCommandItem, SlashCommandPluginKey } from "./slashCommand";
 
@@ -53,8 +54,10 @@ function runSlash(
   return apply(editor.chain().focus().deleteRange(clampedRange(editor, range)));
 }
 
-export function createSlashItems(): SlashCommandItem[] {
-  return [
+export function createSlashItems(options?: {
+  onCreateSubpage?: (props: { editor: Editor; range: Range }) => void;
+}): SlashCommandItem[] {
+  const items: SlashCommandItem[] = [
     {
       title: "Text",
       description: "Plain paragraph",
@@ -170,6 +173,24 @@ export function createSlashItems(): SlashCommandItem[] {
         runSlash(editor, range, (chain) => chain.insertContent("@").run()),
     },
   ];
+
+  const onCreateSubpage = options?.onCreateSubpage;
+  if (onCreateSubpage) {
+    items.push({
+      title: "Page",
+      description: "Nest a new page under this one and link it here",
+      icon: FileText,
+      keywords: ["subpage", "sub-page", "child", "nested", "page"],
+      run: ({ editor, range }) => {
+        onCreateSubpage({
+          editor,
+          range: clampedRange(editor, range),
+        });
+      },
+    });
+  }
+
+  return items;
 }
 
 export function filterSlashItems(items: SlashCommandItem[], query: string) {
