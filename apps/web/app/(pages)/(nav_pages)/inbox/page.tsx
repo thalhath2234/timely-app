@@ -68,7 +68,7 @@ export default function InboxPage() {
           </p>
         ) : null}
         {capture.isError ? (
-          <p className="mt-2 text-sm text-[#ffb4ab]">
+          <p className="mt-2 text-sm text-[#ffb4ab]" role="status">
             {capture.error instanceof Error ? capture.error.message : "Could not capture."}
           </p>
         ) : null}

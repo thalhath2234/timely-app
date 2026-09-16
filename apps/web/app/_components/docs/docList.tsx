@@ -328,7 +328,7 @@ export default function DocList() {
             }}
           />
         </label>
-        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0c0e14] px-2 py-1.5 transition focus-within:border-[#c0c1ff]/40">
+        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0c0e14] px-2 py-1.5 transition focus-within:border-[#c0c1ff] focus-within:ring-1 focus-within:ring-[#c0c1ff]">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
           <input
             value={search}

@@ -104,7 +104,7 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="border-t border-white/10 px-6 py-8 text-center text-xs text-[#464554]">
+      <footer className="border-t border-white/10 px-6 py-8 text-center text-xs text-[#908fa0]">
         © {new Date().getFullYear()} Timely Inc. All rights reserved.
       </footer>
     </div>

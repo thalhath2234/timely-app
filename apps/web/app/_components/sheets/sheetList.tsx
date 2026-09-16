@@ -137,7 +137,7 @@ export default function SheetList() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search sheets, models..."
-            className="w-full rounded-lg border border-white/10 bg-[#0c0e14] py-1.5 pl-8 pr-8 text-xs text-foreground outline-none transition placeholder:text-muted-foreground focus:border-[#c0c1ff]/40"
+            className="w-full rounded-lg border border-white/10 bg-[#0c0e14] py-1.5 pl-8 pr-8 text-xs text-foreground outline-none transition placeholder:text-muted-foreground focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
           />
           <span className="absolute right-2.5 rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
             /

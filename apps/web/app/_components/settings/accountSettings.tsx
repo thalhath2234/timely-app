@@ -86,7 +86,7 @@ function AccountSettingsForm({
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Your name"
-          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff]/40"
+          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
         />
       </label>
 
@@ -97,7 +97,7 @@ function AccountSettingsForm({
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
-          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff]/40"
+          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
         />
       </label>
 
@@ -117,7 +117,7 @@ function AccountSettingsForm({
           value={currentPassword}
           onChange={(event) => setCurrentPassword(event.target.value)}
           autoComplete="current-password"
-          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff]/40"
+          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
         />
       </label>
 
@@ -128,7 +128,7 @@ function AccountSettingsForm({
           value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)}
           autoComplete="new-password"
-          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff]/40"
+          className="w-full rounded-lg border border-white/10 bg-[#0c0e14] px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#c0c1ff] focus:ring-1 focus:ring-[#c0c1ff]"
         />
       </label>
 
