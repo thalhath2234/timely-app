@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-[#08090d]" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Timely - Create Your First Workspace</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN with forms and container-queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              200: '#c7d2fe',
+              300: '#a5b4fc',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+            }
+          }
+        }
+      }
+    }
+  </script>
+<!-- BEGIN: Custom Styles -->
+<style data-purpose="background-grid">
+    /* Subtle kinetic dot grid matching Timely design system */
+    .bg-dot-grid {
+      background-color: #090a0f;
+      background-image: radial-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 0);
+      background-size: 28px 28px;
+      background-position: -19px -19px;
+    }
+  </style>
+<style data-purpose="card-borders">
+    .hairline-border {
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .hairline-divider {
+      border-color: rgba(255, 255, 255, 0.06);
+    }
+  </style>
+<!-- END: Custom Styles -->
+</head>
+<body class="h-full font-sans text-zinc-100 antialiased bg-dot-grid flex flex-col justify-between overflow-x-hidden select-none">
+<!-- BEGIN: MainContainer -->
+<main class="min-h-screen w-full flex flex-col lg:flex-row relative">
+<!-- BEGIN: LeftEditorialPanel -->
+<section class="w-full lg:w-[45%] xl:w-[42%] flex flex-col justify-between p-8 sm:p-12 lg:p-16 xl:p-20 z-10 border-b lg:border-b-0 lg:border-r hairline-divider" data-purpose="editorial-branding-panel">
+<!-- Top Brand Anchor -->
+<div class="space-y-12">
+<!-- Logo block -->
+<header class="flex items-center gap-3.5" data-purpose="brand-header">
+<div class="w-10 h-10 rounded-xl bg-[#a5b4fc] text-[#0f1117] flex items-center justify-center font-bold text-xl shadow-sm">
+            T
+          </div>
+<div>
+<h1 class="text-base font-semibold tracking-tight text-white leading-tight">Timely</h1>
+<p class="text-xs text-zinc-400 font-normal">Productivity &amp; Sheets Workspace</p>
+</div>
+</header>
+<!-- Value Proposition Content -->
+<div class="pt-4 space-y-6 max-w-lg">
+<!-- Status Pill -->
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#131722] border hairline-border text-xs text-zinc-300 font-medium tracking-wide">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Local-first Workspace Engine
+          </div>
+<!-- Hero Headline -->
+<h2 class="text-3xl sm:text-4xl lg:text-[42px] font-bold text-white tracking-tight leading-[1.14]">
+            Clarity of mind starts with masterfully calibrated time.
+          </h2>
+<!-- Subtext description -->
+<p class="text-sm sm:text-base text-zinc-400 font-normal leading-relaxed">
+            A unified local-first workspace for tasks, computational sheets, and synchronous document streams.
+          </p>
+<!-- Session Calibration Telemetry Card -->
+<div class="pt-4">
+<div class="rounded-xl bg-[#11131a] hairline-border p-4 sm:p-5 shadow-2xl space-y-3.5" data-purpose="telemetry-display">
+<!-- Telemetry Header -->
+<div class="flex items-center justify-between text-[11px] font-semibold tracking-wider text-zinc-400 uppercase">
+<div class="flex items-center gap-2">
+<svg class="w-3.5 h-3.5 text-zinc-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="9" stroke-width="2"></circle>
+<path d="M12 7v5l3 3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span>Session Calibration</span>
+</div>
+<span class="text-emerald-400 tracking-wider font-mono text-[10px]">SYNCHRONIZED</span>
+</div>
+<!-- Calibration Telemetry Item 1 -->
+<div class="flex items-center justify-between text-xs pt-1 font-mono">
+<div class="flex items-center gap-2.5 text-zinc-300">
+<span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+<span class="font-sans text-zinc-200">Q3 Financial Model Calculation</span>
+</div>
+<span class="text-zinc-500 text-[11px]">09:00 AM</span>
+</div>
+<!-- Calibration Telemetry Item 2 -->
+<div class="flex items-center justify-between text-xs font-mono">
+<div class="flex items-center gap-2.5 text-zinc-300">
+<span class="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+<span class="font-sans text-zinc-300">Distributed Pipelines Validation</span>
+</div>
+<span class="text-zinc-500 text-[11px]">11:30 AM</span>
+</div>
+<!-- Calibration Telemetry Item 3 -->
+<div class="flex items-center justify-between text-xs font-mono">
+<div class="flex items-center gap-2.5 text-zinc-300">
+<span class="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
+<span class="font-sans text-zinc-300">Deep Focus · Engineering Ledger</span>
+</div>
+<span class="text-zinc-500 text-[11px]">02:00 PM</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Engine Meta Info -->
+<footer class="pt-8 lg:pt-12 flex items-center gap-2 text-xs font-mono text-zinc-400" data-purpose="editorial-footer">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+<span>Timely Core v2.4 · Local-first &amp; encrypted 256-bit AES</span>
+</footer>
+</section>
+<!-- END: LeftEditorialPanel -->
+<!-- BEGIN: RightFormPanel -->
+<section class="flex-1 flex flex-col justify-between items-center px-4 py-8 sm:p-12 lg:p-16 relative" data-purpose="workspace-onboarding-panel">
+<!-- Spacer to balance layout vertically -->
+<div class="hidden lg:block h-2"></div>
+<!-- Main Interaction Card -->
+<div class="w-full max-w-[480px] bg-[#11131a] hairline-border rounded-2xl p-6 sm:p-9 shadow-2xl shadow-black/60 my-auto" data-purpose="onboarding-form-card">
+<!-- Step Indicator Pill -->
+<div class="mb-4">
+<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-950/70 border border-indigo-500/25 text-[11px] font-medium tracking-wide text-brand-300">
+            STEP 1 OF 1
+          </span>
+</div>
+<!-- Card Title & Subtitle matching SCREEN_4 hierarchy & IMAGE_3 intent -->
+<div class="space-y-1.5 mb-7">
+<h2 class="text-2xl font-bold tracking-tight text-white">Create Your First Workspace</h2>
+<p class="text-sm text-zinc-400 font-normal">
+            Name the space where tasks, calendar, and docs will live.
+          </p>
+</div>
+<!-- Onboarding Form -->
+<form action="#" class="space-y-6" data-purpose="workspace-creation-form" method="POST" onsubmit="event.preventDefault();">
+<!-- Input Field: Workspace Name -->
+<div>
+<label class="block text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-2" for="workspace-name">
+              Workspace Name
+            </label>
+<div class="relative rounded-lg">
+<!-- Leading Icon -->
+<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-zinc-500">
+<svg class="h-4 w-4" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+<input autofocus="" class="block w-full rounded-lg border hairline-border bg-[#0b0c11] py-2.5 pl-10 pr-3 text-sm text-zinc-100 placeholder-zinc-600 focus:border-brand-400 focus:bg-[#0e1017] focus:outline-none focus:ring-1 focus:ring-brand-400 transition-all duration-150" id="workspace-name" name="workspace-name" placeholder="e.g. Acme Corp, My Team, or Personal" required="" type="text"/>
+</div>
+<!-- Helper text -->
+<p class="mt-2 text-xs text-zinc-400 leading-normal">
+              You can change your workspace name or create additional workspaces at any time in settings.
+            </p>
+</div>
+<!-- Primary Submit Button -->
+<div>
+<button class="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-[#a5b4fc] hover:bg-[#b4c0fd] active:bg-[#94a3f8] text-[#090b11] font-semibold text-sm py-2.5 px-4 transition-colors duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-300 focus:ring-offset-[#11131a]" type="submit">
+<span>Create Workspace</span>
+<svg class="w-4 h-4 text-[#090b11]" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M14 5l7 7m0 0l-7 7m7-7H3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+</form>
+<!-- Current User Status Context -->
+<div class="mt-6 pt-5 border-t hairline-divider flex items-center justify-between text-xs text-zinc-400">
+<span>Signed in as <strong class="text-zinc-300 font-medium">alex@acme.dev</strong></span>
+<a class="text-brand-300 hover:text-brand-200 hover:underline transition-colors" href="#">Sign out</a>
+</div>
+</div>
+<!-- Legal Footer matching SCREEN_4 -->
+<footer class="mt-8 text-center text-xs text-zinc-400" data-purpose="site-copyright">
+        © 2025 Timely Technologies Inc. All rights reserved.
+      </footer>
+</section>
+<!-- END: RightFormPanel -->
+</main>
+<!-- END: MainContainer -->
+<!-- BEGIN: Form Behavior Scripts -->
+<script data-purpose="form-interactivity">
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.querySelector('form');
+      const input = document.getElementById('workspace-name');
+      const submitBtn = form.querySelector('button[type="submit"]');
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const value = input.value.trim();
+        if (!value) {
+          input.focus();
+          return;
+        }
+
+        // Visual feedback on creation
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `
+          <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-[#090b11]" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span>Initializing Workspace...</span>
+        `;
+
+        setTimeout(() => {
+          submitBtn.innerHTML = `
+            <span>Workspace Created</span>
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          `;
+          submitBtn.classList.replace('bg-[#a5b4fc]', 'bg-emerald-400');
+        }, 800);
+      });
+    });
+  </script>
+<!-- END: Form Behavior Scripts -->
+</body></html>

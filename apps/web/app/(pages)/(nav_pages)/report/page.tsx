@@ -120,7 +120,7 @@ export default function ReportPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-2">
+          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#191b22] px-4 py-2">
             <CheckCircle2 className="size-4 text-success" />
             <div>
               <p className="text-xs text-muted-foreground">Completion</p>
@@ -152,7 +152,7 @@ export default function ReportPage() {
           {report.stats.map((stat) => (
             <div
               key={stat.label}
-              className="rounded-xl border border-border bg-card px-4 py-3"
+              className="rounded-xl border border-white/10 bg-[#191b22] px-4 py-3"
             >
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 {stat.label}
@@ -166,7 +166,7 @@ export default function ReportPage() {
         </section>
 
         <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <section className="rounded-xl border border-border bg-card p-4 xl:col-span-2">
+          <section className="rounded-xl border border-white/10 bg-[#191b22] p-4 xl:col-span-2">
             <SectionHeader
               icon={AlertTriangle}
               title="Overdue"
@@ -188,7 +188,7 @@ export default function ReportPage() {
             )}
           </section>
 
-          <section className="rounded-xl border border-border bg-card p-4">
+          <section className="rounded-xl border border-white/10 bg-[#191b22] p-4">
             <SectionHeader
               icon={ListTodo}
               title="Open by priority"
@@ -223,7 +223,7 @@ export default function ReportPage() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <section className="rounded-xl border border-border bg-card p-4">
+          <section className="rounded-xl border border-white/10 bg-[#191b22] p-4">
             <SectionHeader
               icon={CalendarClock}
               title="Due or planned in the next 14 days"
@@ -241,7 +241,7 @@ export default function ReportPage() {
             )}
           </section>
 
-          <section className="rounded-xl border border-border bg-card p-4">
+          <section className="rounded-xl border border-white/10 bg-[#191b22] p-4">
             <SectionHeader
               icon={FolderKanban}
               title="Projects with open work"
@@ -300,7 +300,7 @@ export default function ReportPage() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <section className="rounded-xl border border-border bg-card p-4">
+          <section className="rounded-xl border border-white/10 bg-[#191b22] p-4">
             <SectionHeader
               icon={Link2}
               title="Mentions"
@@ -322,7 +322,7 @@ export default function ReportPage() {
                   return (
                     <li
                       key={`${link.from.id}-${link.to.id}-${index}`}
-                      className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2 text-sm"
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-[#0c0e14] px-2.5 py-2 text-sm"
                     >
                       <Link
                         href={link.from.href}
@@ -352,7 +352,7 @@ export default function ReportPage() {
             )}
           </section>
 
-          <section className="rounded-xl border border-border bg-card p-4">
+          <section className="rounded-xl border border-white/10 bg-[#191b22] p-4">
             <SectionHeader
               icon={FileText}
               title="Recently updated"
@@ -371,7 +371,7 @@ export default function ReportPage() {
                         href={item.href}
                         className="flex items-center gap-3 py-2.5 transition-colors hover:bg-accent/40"
                       >
-                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-[#0c0e14]">
                           <Icon className="size-3.5 text-muted-foreground" />
                         </span>
                         <span className="min-w-0 flex-1">

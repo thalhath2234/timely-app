@@ -46,7 +46,10 @@ export default function ProjectDetailPage() {
           title="Project not found"
           description="It may have been deleted, or you don't have access."
           action={
-            <Link href="/projects" className="rounded-lg bg-secondary px-3 py-1.5 text-sm">
+            <Link
+              href="/projects"
+              className="rounded-lg bg-[#c0c1ff] px-3 py-1.5 text-sm font-medium text-[#1000a9]"
+            >
               Back to projects
             </Link>
           }
@@ -101,7 +104,7 @@ function ProjectHub({ project }: { project: Project }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3">
+      <header className="flex flex-wrap items-center gap-3 border-b border-white/10 px-5 py-3">
         <Link
           href="/projects"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -146,7 +149,7 @@ function ProjectHub({ project }: { project: Project }) {
           className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium ${
             project.completedAt
               ? "bg-success/15 text-success"
-              : "bg-foreground text-background"
+              : "bg-[#c0c1ff] text-[#1000a9] hover:bg-[#a8a6ff]"
           }`}
         >
           <Check className="size-4" />
@@ -159,7 +162,7 @@ function ProjectHub({ project }: { project: Project }) {
               router.push(`/projects/${copy.id}`);
             })
           }
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#191b22] px-3 py-1.5 text-sm hover:border-[#c0c1ff]/30"
         >
           <Copy className="size-4" />
           Duplicate
@@ -177,7 +180,7 @@ function ProjectHub({ project }: { project: Project }) {
         </button>
       </header>
 
-      <div className="flex gap-1 border-b border-border px-5">
+      <div className="flex gap-1 border-b border-white/10 px-5">
         {tabs.map((item) => (
           <button
             key={item.id}
@@ -185,18 +188,18 @@ function ProjectHub({ project }: { project: Project }) {
             onClick={() => setTab(item.id)}
             className={`inline-flex items-center border-b-2 px-3 py-2 text-sm ${
               tab === item.id
-                ? "border-foreground font-medium text-foreground"
+                ? "border-[#c0c1ff] font-medium text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             {item.label}
             {item.id === "tasks" ? (
-              <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
+              <span className="ml-1.5 rounded-full bg-white/8 px-1.5 text-[10px] tabular-nums text-muted-foreground">
                 {projectTasks.length}
               </span>
             ) : null}
             {item.id === "stages" && (project.stages?.length ?? 0) > 0 ? (
-              <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
+              <span className="ml-1.5 rounded-full bg-white/8 px-1.5 text-[10px] tabular-nums text-muted-foreground">
                 {project.stages?.length}
               </span>
             ) : null}
@@ -213,7 +216,7 @@ function ProjectHub({ project }: { project: Project }) {
                 onChange={(event) => schedule({ description: event.target.value })}
                 onBlur={() => void flush()}
                 placeholder="What is this project for?"
-                className="min-h-32 w-full rounded-xl border border-border bg-input/20 p-3 text-sm outline-none focus:border-ring"
+                className="min-h-32 w-full rounded-xl border border-white/10 bg-[#191b22] p-3 text-sm outline-none focus:border-[#c0c1ff]/40"
               />
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Fact label="Open tasks" value={String(stats.open)} />
@@ -222,7 +225,7 @@ function ProjectHub({ project }: { project: Project }) {
                 <Fact label="Next deadline" value={formatShortDate(stats.nextDeadline)} />
               </div>
             </div>
-            <aside className="space-y-3 rounded-xl border border-border p-4">
+            <aside className="space-y-3 rounded-2xl border border-white/10 bg-[#191b22] p-4">
               <label className="block text-xs text-muted-foreground">Status</label>
               <Select
                 size="sm"
@@ -358,7 +361,7 @@ function ProjectActivityFeed({ project, recent }: { project: Project; recent: Ta
         ) : entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">No recorded changes yet.</p>
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
+          <ul className="divide-y divide-white/10 rounded-lg border border-white/10 bg-[#191b22]">
             {entries.map((entry) => {
               const isProjectLevel = !entry.taskId;
               const row = (
@@ -410,7 +413,7 @@ function ProjectActivityFeed({ project, recent }: { project: Project; recent: Ta
               <li key={task.id}>
                 <Link
                   href={`/tasks?taskId=${encodeURIComponent(task.id)}`}
-                  className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent/40"
+                  className="flex items-center justify-between rounded-lg border border-white/10 bg-[#191b22] px-3 py-2 text-sm hover:border-[#c0c1ff]/30 hover:bg-white/[0.03]"
                 >
                   <span className="truncate">{task.name}</span>
                   <span className="text-xs text-muted-foreground">{formatShortDate(task.updatedAt)}</span>
@@ -426,9 +429,9 @@ function ProjectActivityFeed({ project, recent }: { project: Project; recent: Ta
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-border px-3 py-2">
+    <div className="rounded-xl border border-white/10 bg-[#191b22] px-3 py-3">
       <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-medium text-foreground">{value}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{value}</p>
     </div>
   );
 }

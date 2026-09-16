@@ -163,8 +163,8 @@ export default function DocList() {
         <div
           className={`group flex items-center gap-0.5 rounded-md pr-1 transition-colors ${
             isActive
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "hover:bg-sidebar-accent/60"
+              ? "bg-[#c0c1ff]/12 text-foreground"
+              : "hover:bg-white/[0.04]"
           }`}
           style={{ paddingLeft: depth * 12 }}
         >
@@ -219,7 +219,7 @@ export default function DocList() {
 
         {pendingDeleteId === node.id && (
           <div
-            className="my-1 rounded-md border border-border bg-card p-2 text-xs"
+            className="my-1 rounded-md border border-white/10 bg-[#191b22] p-2 text-xs"
             style={{ marginLeft: depth * 12 }}
           >
             <p className="text-muted-foreground">
@@ -255,7 +255,7 @@ export default function DocList() {
 
   if (collapsed) {
     return (
-      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-sidebar/40 py-3">
+      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-white/10 bg-[#111319] py-3">
         <button
           type="button"
           title="Expand docs list"
@@ -269,7 +269,7 @@ export default function DocList() {
           title="New doc"
           onClick={() => handleCreate()}
           disabled={createDoc.isPending}
-          className="flex size-7 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+          className="flex size-7 cursor-pointer items-center justify-center rounded-md bg-[#c0c1ff] text-[#1000a9] hover:bg-[#a8a6ff] disabled:opacity-60"
         >
           <Plus className="size-4" />
         </button>
@@ -278,7 +278,7 @@ export default function DocList() {
   }
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-sidebar/40">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-white/10 bg-[#111319]">
       <div className="flex items-center justify-between px-3 py-3">
         <h2 className="text-sm font-semibold text-foreground">
           {showArchived ? "Archived" : "Docs"}
@@ -297,7 +297,7 @@ export default function DocList() {
             title="New doc"
             onClick={() => handleCreate()}
             disabled={createDoc.isPending}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            className="flex size-7 cursor-pointer items-center justify-center rounded-md bg-[#c0c1ff] text-[#1000a9] hover:bg-[#a8a6ff] disabled:opacity-60"
           >
             <Plus className="size-4" />
           </button>
@@ -305,7 +305,7 @@ export default function DocList() {
       </div>
 
       <div className="px-3 pb-2">
-        <label className="mb-2 flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:border-ring hover:text-foreground">
+        <label className="mb-2 flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/10 px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:border-[#c0c1ff]/30 hover:text-foreground">
           <Upload className="size-3.5" />
           Import Markdown
           <input
@@ -328,7 +328,7 @@ export default function DocList() {
             }}
           />
         </label>
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-input/30 px-2 py-1.5 transition focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
+        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0c0e14] px-2 py-1.5 transition focus-within:border-[#c0c1ff] focus-within:ring-1 focus-within:ring-[#c0c1ff]">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
           <input
             value={search}
@@ -377,8 +377,8 @@ export default function DocList() {
                 href={`/docs/${doc.id}`}
                 className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors ${
                   doc.id === activeId
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "hover:bg-sidebar-accent/60"
+                    ? "bg-[#c0c1ff]/12 text-foreground"
+                    : "hover:bg-white/[0.04]"
                 }`}
               >
                 <FileText className="size-3.5 shrink-0 text-muted-foreground" />

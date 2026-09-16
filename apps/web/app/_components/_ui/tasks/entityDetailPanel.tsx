@@ -210,9 +210,9 @@ export default function EntityDetailPanel({
       ? ((tasks ?? []) as Task[]).find((item) => item.id === id)
       : undefined;
   const { data: fetchedTask, isLoading: taskLoading } = useTask(
-    kind === "task" && !tasksLoading && !listedTask ? id : undefined,
+    kind === "task" ? id : undefined,
   );
-  const task = listedTask ?? fetchedTask;
+  const task = fetchedTask ?? listedTask;
   const project =
     kind === "project"
       ? ((projects ?? []) as Project[]).find((item) => item.id === id)
@@ -220,7 +220,7 @@ export default function EntityDetailPanel({
 
   const isLoading =
     kind === "task"
-      ? tasksLoading || (!listedTask && taskLoading)
+      ? !listedTask && (tasksLoading || taskLoading)
       : projectsLoading;
 
   if (isLoading) {

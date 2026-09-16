@@ -22,11 +22,11 @@ export default async function DashboardLayout({
         <KeyboardShortcuts />
       </Suspense>
       <ToastHost />
-      <div className="flex flex-row h-full overflow-hidden w-full bg-sidebar">
-        <div className="w-16 items-center justify-center h-full bg-sidebar text-sidebar-foreground">
+      <div className="flex h-full w-full flex-row overflow-hidden bg-sidebar">
+        <div className="flex h-full w-[68px] shrink-0 items-center justify-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
           <Sidebar />
         </div>
-        <div id="main-content" className="flex-1 m-1 rounded-lg bg-card text-card-foreground border border-border shadow-sm overflow-hidden">
+        <div id="main-content" className="m-1 flex-1 overflow-hidden rounded-xl border border-border bg-background text-foreground shadow-sm">
           {children}
         </div>
       </div>

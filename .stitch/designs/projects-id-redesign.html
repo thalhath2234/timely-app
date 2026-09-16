@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-[#0c0e14]" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Website redesign · Timely Project Overview</title>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 with forms and container queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config -->
+<script data-purpose="tailwind-config">
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+          },
+          colors: {
+            obsidian: {
+              DEFAULT: '#0c0e14',
+              surface: '#11131c',
+              card: '#161824',
+              input: '#1a1d2d',
+              hover: '#202436',
+              border: '#222638',
+              borderSubtle: '#1a1d2b',
+              borderLight: '#2c3149',
+            },
+            primary: {
+              indigo: '#6366f1',
+              indigoLight: '#818cf8',
+              indigoDark: '#4f46e5',
+            }
+          }
+        }
+      }
+    };
+  </script>
+<!-- Custom Styles for Kinetic Dark Velocity Precision -->
+<style data-purpose="custom-styling">
+    body {
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0c0e14;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #252a3d;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #373d57;
+    }
+  </style>
+</head>
+<body class="h-full flex text-slate-200 overflow-hidden select-none bg-[#0c0e14]">
+<!-- BEGIN: LeftRailNavigation -->
+<!-- 68px width dedicated kinetic velocity sidebar rail -->
+<aside class="w-[68px] flex-shrink-0 bg-[#0c0e14] border-r border-[#1e2230] flex flex-col items-center py-3.5 z-40 justify-between select-none" data-purpose="global-sidebar">
+<!-- Top Action & Navigation Stack -->
+<div class="flex flex-col items-center w-full gap-2">
+<!-- Quick Action: Primary + Button -->
+<button class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white flex items-center justify-center shadow-sm shadow-indigo-950 transition-all duration-150 active:scale-95 group mb-1" title="Quick create" type="button">
+<svg class="w-5 h-5 transition-transform group-hover:rotate-90 duration-200" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewbox="0 0 24 24">
+<line x1="12" x2="12" y1="5" y2="19"></line>
+<line x1="5" x2="19" y1="12" y2="12"></line>
+</svg>
+</button>
+<!-- Global Search Button -->
+<button class="w-10 h-10 rounded-xl bg-indigo-600/90 text-white hover:bg-indigo-600 flex items-center justify-center transition-all duration-150 mb-2" title="Search workspace (⌘K)" type="button">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<circle cx="11" cy="11" r="8"></circle>
+<line x1="21" x2="16.65" y1="21" y2="16.65"></line>
+</svg>
+</button>
+<!-- Divider line -->
+<div class="w-7 h-[1px] bg-[#1e2230] my-1"></div>
+<!-- Main Navigation Items Stack -->
+<nav aria-label="Main Navigation" class="flex flex-col items-center gap-1 w-full px-2">
+<!-- Today / Sun -->
+<a class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors group" href="#" title="Today">
+<svg class="w-5 h-5 transition-transform group-hover:scale-105" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="4"></circle>
+<path d="M12 2v2"></path>
+<path d="M12 20v2"></path>
+<path d="m4.93 4.93 1.41 1.41"></path>
+<path d="m17.66 17.66 1.41 1.41"></path>
+<path d="M2 12h2"></path>
+<path d="M20 12h2"></path>
+<path d="m6.34 17.66-1.41 1.41"></path>
+<path d="m19.07 4.93-1.41 1.41"></path>
+</svg>
+</a>
+<!-- Inbox -->
+<a class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors group" href="#" title="Inbox">
+<svg class="w-5 h-5 transition-transform group-hover:scale-105" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline>
+<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+</svg>
+</a>
+<!-- Calendar -->
+<a class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors group" href="#" title="Calendar">
+<svg class="w-5 h-5 transition-transform group-hover:scale-105" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<rect height="18" rx="2" ry="2" width="18" x="3" y="4"></rect>
+<line x1="16" x2="16" y1="2" y2="6"></line>
+<line x1="8" x2="8" y1="2" y2="6"></line>
+<line x1="3" x2="21" y1="10" y2="10"></line>
+</svg>
+</a>
+<!-- Tasks -->
+<a class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors group" href="#" title="Tasks">
+<svg class="w-5 h-5 transition-transform group-hover:scale-105" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M9 11l3 3L22 4"></path>
+<path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+</svg>
+</a>
+<!-- Projects (Active Item) -->
+<a class="relative w-10 h-10 rounded-xl flex items-center justify-center bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 group" href="#" title="Projects">
+<!-- Active bar indicator -->
+<span class="absolute -left-2 top-2 bottom-2 w-1 bg-indigo-500 rounded-r-full"></span>
+<svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<rect height="9" rx="1.5" width="7" x="3" y="3"></rect>
+<rect height="5" rx="1.5" width="7" x="14" y="3"></rect>
+<rect height="9" rx="1.5" width="7" x="14" y="12"></rect>
+<rect height="5" rx="1.5" width="7" x="3" y="16"></rect>
+</svg>
+</a>
+<!-- Docs -->
+<a class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors group" href="#" title="Documents">
+<svg class="w-5 h-5 transition-transform group-hover:scale-105" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+<polyline points="14 2 14 8 20 8"></polyline>
+<line x1="16" x2="8" y1="13" y2="13"></line>
+<line x1="16" x2="8" y1="17" y2="17"></line>
+<polyline points="10 9 9 9 8 9"></polyline>
+</svg>
+</a>
+<!-- Sheets / Table -->
+<a class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors group" href="#" title="Spreadsheets &amp; Grid">
+<svg class="w-5 h-5 transition-transform group-hover:scale-105" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<rect height="18" rx="2" ry="2" width="18" x="3" y="3"></rect>
+<line x1="3" x2="21" y1="9" y2="9"></line>
+<line x1="3" x2="21" y1="15" y2="15"></line>
+<line x1="9" x2="9" y1="3" y2="21"></line>
+<line x1="15" x2="15" y1="3" y2="21"></line>
+</svg>
+</a>
+<!-- Analytics / Brain -->
+<a class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors group" href="#" title="Intelligence &amp; Reports">
+<svg class="w-5 h-5 transition-transform group-hover:scale-105" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04z"></path>
+<path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-2.04z"></path>
+</svg>
+</a>
+<!-- Notifications with subtle dot -->
+<a class="relative w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors group" href="#" title="Notifications">
+<svg class="w-5 h-5 transition-transform group-hover:scale-105" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+<path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+</svg>
+<span class="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-[#0c0e14]"></span>
+</a>
+</nav>
+</div>
+<!-- Bottom utility buttons and profile -->
+<div class="flex flex-col items-center gap-1.5 w-full">
+<!-- Settings -->
+<a class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors" href="#" title="Settings">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="3"></circle>
+<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+</svg>
+</a>
+<!-- Sign Out / Exit -->
+<button class="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-[#161824] transition-colors" title="Sign out" type="button">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+<polyline points="16 17 21 12 16 7"></polyline>
+<line x1="21" x2="9" y1="12" y2="12"></line>
+</svg>
+</button>
+<!-- User Avatar Monogram -->
+<button class="w-9 h-9 mt-1 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white font-semibold text-xs flex items-center justify-center ring-1 ring-white/10 hover:ring-indigo-400 transition-all" title="Account: Nathan R." type="button">
+        N
+      </button>
+</div>
+</aside>
+<!-- END: LeftRailNavigation -->
+<!-- BEGIN: MainContentWrapper -->
+<div class="flex-1 flex flex-col h-full overflow-hidden bg-[#0c0e14]">
+<!-- BEGIN: TopBar -->
+<header class="h-16 flex-shrink-0 border-b border-[#1e2230] bg-[#0c0e14] px-6 flex items-center justify-between z-30" data-purpose="page-header">
+<!-- Left side: Breadcrumb and Title -->
+<div class="flex items-center gap-3">
+<a class="group flex items-center gap-1.5 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors" href="#projects">
+<svg class="w-4 h-4 text-slate-400 group-hover:text-slate-200 transition-transform group-hover:-translate-x-0.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewbox="0 0 24 24">
+<line x1="19" x2="5" y1="12" y2="12"></line>
+<polyline points="12 19 5 12 12 5"></polyline>
+</svg>
+<span>Projects</span>
+</a>
+<!-- Purple Color Pip Dot -->
+<span class="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-sm shadow-indigo-500/50"></span>
+<!-- Page Title -->
+<h1 class="text-base font-bold text-white tracking-tight">Website redesign</h1>
+</div>
+<!-- Right side: Status Badge, Actions, Duplicate, Delete -->
+<div class="flex items-center gap-2.5">
+<!-- Release Cycle Status Badge -->
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+<span>Active Release Cycle</span>
+</div>
+<!-- Mark Complete Button -->
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1a1d2c] hover:bg-[#22273d] text-slate-200 border border-[#272b3e] text-xs font-semibold tracking-wide transition-colors active:scale-98" type="button">
+<svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewbox="0 0 24 24">
+<polyline points="20 6 9 17 4 12"></polyline>
+</svg>
+<span>Mark complete</span>
+</button>
+<!-- Duplicate Button -->
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#161824] hover:bg-[#1e2235] text-slate-300 border border-[#222638] text-xs font-medium transition-colors" type="button">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<rect height="13" rx="2" ry="2" width="13" x="9" y="9"></rect>
+<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+</svg>
+<span>Duplicate</span>
+</button>
+<!-- Delete Project Action -->
+<button class="w-8 h-8 rounded-lg flex items-center justify-center text-rose-400/80 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all" title="Delete project" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" viewbox="0 0 24 24">
+<polyline points="3 6 5 6 21 6"></polyline>
+<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+</svg>
+</button>
+</div>
+</header>
+<!-- END: TopBar -->
+<!-- BEGIN: NavigationTabs -->
+<div class="h-11 flex-shrink-0 border-b border-[#1e2230] bg-[#0c0e14] px-6 flex items-center gap-7" data-purpose="navigation-tabs-bar">
+<!-- Overview (Active) -->
+<a class="relative h-full flex items-center text-sm font-semibold text-white" href="#overview">
+<span>Overview</span>
+<div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 shadow-[0_-2px_8px_rgba(99,102,241,0.6)]"></div>
+</a>
+<!-- Tasks Tab -->
+<a class="h-full flex items-center gap-2 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors" href="#tasks">
+<span>Tasks</span>
+<span class="inline-flex items-center justify-center px-1.5 py-0.5 text-[11px] font-semibold rounded-md bg-[#191d2c] text-slate-400 border border-[#262b40]">5</span>
+</a>
+<!-- Stages Tab -->
+<a class="h-full flex items-center gap-2 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors" href="#stages">
+<span>Stages</span>
+<span class="inline-flex items-center justify-center px-1.5 py-0.5 text-[11px] font-semibold rounded-md bg-[#191d2c] text-slate-400 border border-[#262b40]">1</span>
+</a>
+<!-- Activity Tab -->
+<a class="h-full flex items-center text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors" href="#activity">
+<span>Activity</span>
+</a>
+</div>
+<!-- END: NavigationTabs -->
+<!-- BEGIN: WorkspaceBody -->
+<main class="flex-1 overflow-y-auto p-6" data-purpose="project-overview-content">
+<div class="max-w-[1400px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+<!-- BEGIN: LeftPrimaryColumn -->
+<section class="lg:col-span-8 xl:col-span-9 flex flex-col gap-6" data-purpose="primary-metrics-and-description">
+<!-- Description Text Card -->
+<div class="w-full bg-[#161824] rounded-2xl border border-[#222638] p-5 shadow-sm relative group focus-within:border-indigo-500/50 transition-colors">
+<label class="sr-only" for="project-description">Project Description</label>
+<textarea class="w-full bg-transparent border-0 p-0 text-slate-200 text-[14px] leading-relaxed resize-none focus:ring-0 placeholder:text-slate-500 selection:bg-indigo-500/30 font-normal" id="project-description" placeholder="Add project brief or high-level context..." rows="4">Refresh the planning experience with clear hierarchy and consistent controls.</textarea>
+<!-- Subtle textarea bottom-right corner resize hash glyph -->
+<div class="absolute bottom-2.5 right-2.5 opacity-30 text-slate-400 group-hover:opacity-70 pointer-events-none transition-opacity">
+<svg class="w-3 h-3" fill="currentColor" viewbox="0 0 10 10">
+<circle cx="8.5" cy="8.5" r="1.2"></circle>
+<circle cx="8.5" cy="4.5" r="1.2"></circle>
+<circle cx="4.5" cy="8.5" r="1.2"></circle>
+</svg>
+</div>
+</div>
+<!-- Metrics Telemetry Cards (4-column grid) -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+<!-- Stat 1: OPEN TASKS -->
+<div class="bg-[#161824] border border-[#222638] rounded-xl p-4 flex flex-col justify-between min-h-[96px] hover:border-[#2f354f] transition-colors">
+<span class="text-[11px] font-semibold text-slate-400 tracking-wider uppercase">Open Tasks</span>
+<div class="mt-2 flex items-baseline justify-between">
+<span class="text-2xl font-bold text-white tracking-tight tabular-nums">1</span>
+<span class="text-xs text-indigo-400/80 font-medium">In progress</span>
+</div>
+</div>
+<!-- Stat 2: PROGRESS -->
+<div class="bg-[#161824] border border-[#222638] rounded-xl p-4 flex flex-col justify-between min-h-[96px] hover:border-[#2f354f] transition-colors">
+<span class="text-[11px] font-semibold text-slate-400 tracking-wider uppercase">Progress</span>
+<div class="mt-2 flex items-baseline justify-between">
+<span class="text-2xl font-bold text-white tracking-tight tabular-nums">0%</span>
+<div class="w-14 h-1.5 rounded-full bg-[#202538] overflow-hidden self-center">
+<div class="h-full bg-indigo-500 w-0"></div>
+</div>
+</div>
+</div>
+<!-- Stat 3: SCHEDULED -->
+<div class="bg-[#161824] border border-[#222638] rounded-xl p-4 flex flex-col justify-between min-h-[96px] hover:border-[#2f354f] transition-colors">
+<span class="text-[11px] font-semibold text-slate-400 tracking-wider uppercase">Scheduled</span>
+<div class="mt-2 flex items-baseline justify-between">
+<span class="text-2xl font-bold text-white tracking-tight tabular-nums">0</span>
+<span class="text-xs text-slate-400 font-medium">Upcoming</span>
+</div>
+</div>
+<!-- Stat 4: NEXT DEADLINE -->
+<div class="bg-[#161824] border border-[#222638] rounded-xl p-4 flex flex-col justify-between min-h-[96px] hover:border-[#2f354f] transition-colors">
+<span class="text-[11px] font-semibold text-slate-400 tracking-wider uppercase">Next Deadline</span>
+<div class="mt-2 flex items-baseline justify-between">
+<span class="text-2xl font-bold text-white tracking-tight tabular-nums">Sep 25</span>
+<span class="text-xs text-amber-400 font-medium">Target</span>
+</div>
+</div>
+</div>
+</section>
+<!-- END: LeftPrimaryColumn -->
+<!-- BEGIN: RightPropertiesSidebar -->
+<aside class="lg:col-span-4 xl:col-span-3" data-purpose="project-metadata-properties">
+<div class="bg-[#161824] border border-[#222638] rounded-2xl p-5 shadow-sm space-y-4">
+<!-- Property: Status -->
+<div class="space-y-1.5">
+<label class="block text-xs font-medium text-slate-400" for="property-status">Status</label>
+<div class="relative">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="w-2 h-2 rounded-full bg-slate-400"></span>
+</div>
+<select class="w-full bg-[#1c1f2e] border border-[#282c40] rounded-lg py-2 pl-7 pr-8 text-xs font-medium text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 appearance-none cursor-pointer" id="property-status">
+<option selected="" value="todo">Todo</option>
+<option value="in_progress">In Progress</option>
+<option value="in_review">In Review</option>
+<option value="completed">Completed</option>
+</select>
+<div class="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none text-slate-400">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<polyline points="6 9 12 15 18 9"></polyline>
+</svg>
+</div>
+</div>
+</div>
+<!-- Property: Priority -->
+<div class="space-y-1.5">
+<label class="block text-xs font-medium text-slate-400" for="property-priority">Priority</label>
+<div class="relative">
+<select class="w-full bg-[#1c1f2e] border border-[#282c40] rounded-lg py-2 px-3 pr-8 text-xs font-medium text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 appearance-none cursor-pointer" id="property-priority">
+<option selected="" value="high">High</option>
+<option value="medium">Medium</option>
+<option value="low">Low</option>
+<option value="urgent">Urgent</option>
+</select>
+<div class="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none text-slate-400">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<polyline points="6 9 12 15 18 9"></polyline>
+</svg>
+</div>
+</div>
+</div>
+<!-- Property: Start Date -->
+<div class="space-y-1.5">
+<label class="block text-xs font-medium text-slate-400">Start</label>
+<div class="flex items-center justify-between bg-[#1c1f2e] border border-[#282c40] rounded-lg px-3 py-2 hover:border-[#383d59] transition-colors group cursor-pointer">
+<div class="flex items-center gap-2">
+<svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-300" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<rect height="18" rx="2" ry="2" width="18" x="3" y="4"></rect>
+<line x1="16" x2="16" y1="2" y2="6"></line>
+<line x1="8" x2="8" y1="2" y2="6"></line>
+<line x1="3" x2="21" y1="10" y2="10"></line>
+</svg>
+<span class="text-xs text-slate-200 font-medium tabular-nums">Sep 14, 2026</span>
+</div>
+<button class="text-slate-400 hover:text-slate-200 p-0.5" title="Clear start date" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewbox="0 0 24 24">
+<line x1="18" x2="6" y1="6" y2="18"></line>
+<line x1="6" x2="18" y1="6" y2="18"></line>
+</svg>
+</button>
+</div>
+</div>
+<!-- Property: Deadline Date -->
+<div class="space-y-1.5">
+<label class="block text-xs font-medium text-slate-400">Deadline</label>
+<div class="flex items-center justify-between bg-[#1c1f2e] border border-[#282c40] rounded-lg px-3 py-2 hover:border-[#383d59] transition-colors group cursor-pointer">
+<div class="flex items-center gap-2">
+<svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-300" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<rect height="18" rx="2" ry="2" width="18" x="3" y="4"></rect>
+<line x1="16" x2="16" y1="2" y2="6"></line>
+<line x1="8" x2="8" y1="2" y2="6"></line>
+<line x1="3" x2="21" y1="10" y2="10"></line>
+</svg>
+<span class="text-xs text-slate-200 font-medium tabular-nums">Sep 25, 2026</span>
+</div>
+<button class="text-slate-400 hover:text-slate-200 p-0.5" title="Clear deadline" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewbox="0 0 24 24">
+<line x1="18" x2="6" y1="6" y2="18"></line>
+<line x1="6" x2="18" y1="6" y2="18"></line>
+</svg>
+</button>
+</div>
+</div>
+<!-- Property: Color -->
+<div class="pt-1">
+<label class="block text-xs font-medium text-slate-400 mb-2">Color</label>
+<div class="flex items-center gap-2">
+<!-- Selected Purple Swatch Pill Button -->
+<button class="w-8 h-8 rounded-lg bg-[#1c1f2e] border border-indigo-500/50 flex items-center justify-center p-1 group" type="button">
+<span class="w-4 h-4 rounded-full bg-indigo-500 shadow-sm shadow-indigo-500/80 group-hover:scale-110 transition-transform"></span>
+</button>
+<!-- Alternative swatch circles for quick choice -->
+<button class="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/40 hover:scale-110 transition-transform flex items-center justify-center" title="Emerald" type="button">
+<span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+</button>
+<button class="w-6 h-6 rounded-full bg-sky-500/20 border border-sky-500/40 hover:scale-110 transition-transform flex items-center justify-center" title="Sky" type="button">
+<span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+</button>
+<button class="w-6 h-6 rounded-full bg-amber-500/20 border border-amber-500/40 hover:scale-110 transition-transform flex items-center justify-center" title="Amber" type="button">
+<span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+</button>
+<button class="w-6 h-6 rounded-full bg-rose-500/20 border border-rose-500/40 hover:scale-110 transition-transform flex items-center justify-center" title="Rose" type="button">
+<span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+</button>
+</div>
+</div>
+<!-- Property: Workspace Tag -->
+<div class="pt-2 flex items-center justify-between border-t border-[#1e2230]">
+<span class="text-xs text-slate-400">Workspace:</span>
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+<span>Design Studio</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- END: RightPropertiesSidebar -->
+</div>
+</main>
+<!-- END: WorkspaceBody -->
+<!-- BEGIN: GlobalFooterStatusBar -->
+<footer class="h-8 flex-shrink-0 bg-[#0c0e14] border-t border-[#1e2230] px-6 flex items-center justify-between text-[11px] text-slate-400 font-mono" data-purpose="global-status-bar">
+<!-- Sync telemetry -->
+<div class="flex items-center gap-2">
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+<span class="text-slate-400">All local changes synced</span>
+<span class="text-slate-600">·</span>
+<span class="text-slate-400">Project ID: proj_wbd92</span>
+</div>
+<!-- Quick Shortcuts -->
+<div class="hidden sm:flex items-center gap-3">
+<span><kbd class="text-slate-400">⌘K</kbd> Quick search</span>
+<span class="text-slate-600">·</span>
+<span><kbd class="text-slate-400">C</kbd> New task</span>
+<span class="text-slate-600">·</span>
+<span><kbd class="text-slate-400">⎋</kbd> Back to projects</span>
+</div>
+</footer>
+<!-- END: GlobalFooterStatusBar -->
+</div>
+<!-- END: MainContentWrapper -->
+<!-- BEGIN: InteractiveScripts -->
+<script data-purpose="tab-interaction-and-hotkeys">
+    document.addEventListener('DOMContentLoaded', () => {
+      // Basic keyboard shortcut handling for Timely environment
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          alert('Timely Quick Command palette');
+        }
+      });
+    });
+  </script>
+<!-- END: InteractiveScripts -->
+</body></html>

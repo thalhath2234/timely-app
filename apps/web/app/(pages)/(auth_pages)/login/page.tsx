@@ -4,16 +4,30 @@ import React, { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Mail, Lock, ArrowRight, Loader2, AlertCircle } from "lucide-react";
-import * as motion from "motion/react-client";
+import {
+  Mail,
+  Lock,
+  ArrowRight,
+  Loader2,
+  AlertCircle,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { getMe } from "@/app/utils/api/user";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
+import AuthBrandPanel from "../_components/authBrandPanel";
+
+const fieldClass =
+  "flex h-11 w-full items-center rounded-lg border border-white/10 bg-[#0c0e14] transition focus-within:border-[#c0c1ff] focus-within:ring-1 focus-within:ring-[#c0c1ff]";
+const inputClass =
+  "h-full w-full bg-transparent pr-3.5 text-sm text-[#e2e2eb] outline-none placeholder:text-[#908fa0]/70";
 
 export default function LoginPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [validationError, setValidationError] = useState("");
 
   const loginMutation = useMutation({
@@ -35,7 +49,6 @@ export default function LoginPage() {
       const me = await getMe();
 
       queryClient.setQueryData(["me"], me);
-      console.log("me: ", me)
 
       if (me.is_on_boarding_completed) {
         router.replace("/calendar");
@@ -54,117 +67,156 @@ export default function LoginPage() {
     loginMutation.mutate();
   };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 text-foreground">
-      <motion.div
-        initial={false}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="w-full max-w-md bg-card text-card-foreground border border-border shadow-xl rounded-2xl p-8 relative overflow-hidden"
-      >
-        {/* Decorative glowing sphere background */}
-        <div className="absolute -top-12 -left-12 w-32 h-32 bg-primary/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-chart-3/20 rounded-full blur-3xl pointer-events-none" />
+  const errorMessage = validationError || loginMutation.error?.message;
 
-        <div className="text-center mb-8 relative">
-          <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Welcome Back
-          </h1>
-          <p className="text-muted-foreground text-sm mt-2">
+  return (
+    <main id="main-content" className="flex min-h-screen flex-col bg-[#0c0e14] text-[#e2e2eb] md:flex-row">
+      <AuthBrandPanel />
+
+      <section className="relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12 sm:px-10">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(#282a30_1px,transparent_1px)] [background-size:24px_24px] opacity-25" />
+
+        <div className="relative z-10 w-full max-w-[420px] rounded-xl border border-white/10 bg-[#191b22] p-8 shadow-2xl sm:p-9">
+          <div className="mb-6 flex items-center justify-center gap-2.5 md:hidden">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-[#c0c1ff] text-[#1000a9]">
+              <span className="text-sm font-bold select-none">T</span>
+            </div>
+            <span className="text-xl font-semibold tracking-tight">Timely</span>
+          </div>
+
+          <h1 className="text-2xl font-semibold tracking-tight">Welcome Back</h1>
+          <p className="mt-1.5 text-sm text-[#908fa0]">
             Sign in to manage your schedule with Timely
           </p>
-        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5 relative">
-          {/* Error Alerts */}
-          {(validationError || loginMutation.isError) && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex items-center gap-2 bg-destructive/10 border border-destructive/30 text-destructive p-3 rounded-lg text-sm"
-            >
-              <AlertCircle className="size-5 shrink-0" />
-              <span>{validationError || loginMutation.error?.message}</span>
-            </motion.div>
-          )}
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            {errorMessage ? (
+              <div className="flex items-center gap-2.5 rounded-lg border border-[#ffb4ab]/30 bg-[#93000a]/20 px-3.5 py-3 text-sm font-medium text-[#ffb4ab]">
+                <AlertCircle className="size-[18px] shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            ) : null}
 
-          {/* Email Input */}
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-foreground block">
-              Email Address
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-5 text-muted-foreground" />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
-                className="w-full pl-10 pr-4 py-2.5 bg-input/30 border border-border rounded-xl outline-none focus:border-ring focus:ring-1 focus:ring-ring/40 transition text-sm placeholder:text-muted-foreground"
-              />
+            <div>
+              <label
+                htmlFor="email"
+                className="mb-2 block text-[0.6875rem] font-medium tracking-[0.08em] text-[#c7c4d7] uppercase"
+              >
+                Email Address
+              </label>
+              <div className={fieldClass}>
+                <Mail className="ml-3.5 mr-2.5 size-[18px] shrink-0 text-[#908fa0]" />
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  autoComplete="email"
+                  className={inputClass}
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Password Input */}
-          <div className="space-y-1">
-            <div className="flex justify-between items-center">
-              <label className="text-xs font-semibold text-foreground">
+            <div>
+              <label
+                htmlFor="password"
+                className="mb-2 block text-[0.6875rem] font-medium tracking-[0.08em] text-[#c7c4d7] uppercase"
+              >
                 Password
               </label>
+              <div className={fieldClass}>
+                <Lock className="ml-3.5 mr-2.5 size-[18px] shrink-0 text-[#908fa0]" />
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  className={`${inputClass} pr-2`}
+                />
+                <button
+                  type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((open) => !open)}
+                  className="pr-3.5 text-[#908fa0] transition-colors hover:text-[#e2e2eb]"
+                >
+                  {showPassword ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
+                </button>
+              </div>
             </div>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-5 text-muted-foreground" />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full pl-10 pr-4 py-2.5 bg-input/30 border border-border rounded-xl outline-none focus:border-ring focus:ring-1 focus:ring-ring/40 transition text-sm placeholder:text-muted-foreground"
-              />
+
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={loginMutation.isPending}
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#c0c1ff] text-sm font-semibold text-[#1000a9] shadow-sm transition hover:bg-[#a8a6ff] focus:outline-none focus:ring-2 focus:ring-[#c0c1ff]/50 active:scale-[0.98] disabled:opacity-60"
+              >
+                {loginMutation.isPending ? (
+                  <>
+                    <Loader2 className="size-5 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  <>
+                    Sign In
+                    <ArrowRight className="size-4" />
+                  </>
+                )}
+              </button>
             </div>
-          </div>
+          </form>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={loginMutation.isPending}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60 rounded-xl font-semibold text-sm transition cursor-pointer shadow-sm active:scale-[0.98] select-none"
-          >
-            {loginMutation.isPending ? (
-              <>
-                <Loader2 className="size-5 animate-spin" />
-                Signing in...
-              </>
-            ) : (
-              <>
-                Sign In
-                <ArrowRight className="size-4" />
-              </>
-            )}
-          </button>
-        </form>
+          <p className="mt-6 text-center text-sm text-[#908fa0]">
+            Don&apos;t have an account?{" "}
+            <Link
+              href="/signup"
+              className="font-medium text-[#c0c1ff] transition-colors hover:text-[#e1e0ff] hover:underline"
+            >
+              Sign up
+            </Link>
+          </p>
 
-        <div className="mt-8 text-center text-sm text-muted-foreground relative">
-          Don&apos;t have an account?{" "}
-          <Link
-            href="/signup"
-            className="text-primary hover:underline font-semibold"
-          >
-            Sign up
-          </Link>
+          {process.env.NODE_ENV === "development" ? (
+            <>
+              <div className="my-6 border-t border-white/10" />
+              <div className="rounded-lg border border-white/10 bg-[#0c0e14]/80 p-3">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[0.6875rem] font-medium text-[#908fa0]">
+                    Development seed account
+                  </span>
+                  <button
+                    type="button"
+                    className="font-mono text-xs text-[#c0c1ff] hover:underline"
+                    onClick={() => {
+                      setEmail("user@example.com");
+                      setPassword("password123");
+                      setValidationError("");
+                    }}
+                  >
+                    Autofill
+                  </button>
+                </div>
+                <div className="space-y-1 font-mono text-xs text-[#908fa0]">
+                  <div className="flex items-center justify-between">
+                    <span>Email:</span>
+                    <code className="text-[#c0c1ff] select-all">user@example.com</code>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Password:</span>
+                    <code className="text-[#c0c1ff] select-all">password123</code>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : null}
         </div>
-        {process.env.NODE_ENV === "development" ? (
-          <div className="mt-6 pt-5 border-t border-border text-center text-xs text-muted-foreground relative">
-            <p className="font-semibold text-foreground">Development seed account</p>
-            <p className="mt-1">
-              Email: <code className="text-primary font-mono">user@example.com</code>
-            </p>
-            <p>
-              Password: <code className="text-primary font-mono">password123</code>
-            </p>
-          </div>
-        ) : null}
-      </motion.div>
-    </div>
+
+        <footer className="relative z-10 mt-8 text-center text-xs text-[#464554]">
+          © {new Date().getFullYear()} Timely Technologies Inc. All rights reserved.
+        </footer>
+      </section>
+    </main>
   );
 }
