@@ -20,6 +20,7 @@ type ProjectRepository interface {
 	ReorderStages(projectID string, ids []string) error
 	NextStageOrder(projectID string) (int, error)
 	ListTaskActivity(userID, projectID string, limit int) ([]ProjectActivityEntry, error)
+	CountByWorkspace(workspaceID string) (int64, error)
 }
 
 // ProjectActivityEntry is one recorded change on a task inside the project,
@@ -115,6 +116,12 @@ func (r *projectRepository) CreateProject(project *models.Project, customFieldVa
 
 	return createdProject, nil
 
+}
+
+func (r *projectRepository) CountByWorkspace(workspaceID string) (int64, error) {
+	var count int64
+	err := r.db.Model(&models.Project{}).Where("workspace_id = ?", workspaceID).Count(&count).Error
+	return count, err
 }
 
 func (r *projectRepository) GetAllProjectByUser(userID string) ([]models.Project, error) {

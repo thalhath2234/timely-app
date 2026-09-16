@@ -26,7 +26,7 @@ import {
 } from "@/app/_types/types";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
-import { resolvedColor } from "@/app/utils/entityColor";
+import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
 import { priorityColor } from "@/app/utils/priority";
 import { filterTasks, type TaskListFilters } from "@/app/utils/taskFilters";
 import ColorChip from "@/app/_components/_ui/colorChip";
@@ -816,6 +816,11 @@ export default function TasksTable({
             }}
           >
             <span className="inline-flex min-w-0 items-center gap-2">
+              <span
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: taskEntityColor(task) }}
+                aria-hidden
+              />
               {completed ? (
                 <Check className="size-3.5 shrink-0 text-success" aria-hidden />
               ) : null}

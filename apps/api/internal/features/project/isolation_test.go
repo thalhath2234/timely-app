@@ -55,6 +55,9 @@ func (r *capturingRepo) NextStageOrder(projectID string) (int, error)           
 func (r *capturingRepo) ListTaskActivity(userID, projectID string, limit int) ([]ProjectActivityEntry, error) {
 	return nil, nil
 }
+func (r *capturingRepo) CountByWorkspace(workspaceID string) (int64, error) {
+	return 0, nil
+}
 
 func TestCreateRejectsForeignWorkspace(t *testing.T) {
 	repo := &capturingRepo{}
@@ -79,6 +82,9 @@ func TestCreateAllowsOwnedWorkspace(t *testing.T) {
 	}
 	if project == nil || repo.created == nil {
 		t.Fatal("expected create")
+	}
+	if project.Color == nil || *project.Color == "" {
+		t.Fatal("new projects should receive a palette color")
 	}
 }
 

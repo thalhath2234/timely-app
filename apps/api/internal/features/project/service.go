@@ -79,7 +79,8 @@ func (s *projectService) Create(userID string, project *models.Project, customFi
 	if project.WorkspaceID == nil || *project.WorkspaceID == "" {
 		return nil, errors.New("workspaceId is required")
 	}
-	if _, err := s.workspaces.GetWorkspaceById(userID, *project.WorkspaceID); err != nil {
+	workspace, err := s.workspaces.GetWorkspaceById(userID, *project.WorkspaceID)
+	if err != nil {
 		return nil, gorm.ErrRecordNotFound
 	}
 	if err := normalizeProjectPriority(project.PriorityLevel); err != nil {
@@ -91,8 +92,23 @@ func (s *projectService) Create(userID string, project *models.Project, customFi
 	}
 
 	project.ID = utils.NewProjectID()
+	if project.Color == nil || strings.TrimSpace(*project.Color) == "" {
+		index := 0
+		if count, err := s.repo.CountByWorkspace(*project.WorkspaceID); err == nil {
+			index = int(count)
+		}
+		skip := ""
+		if workspace != nil {
+			skip = workspace.Color
+		}
+		assigned := utils.ColorForIndexSkipping(index, skip)
+		project.Color = &assigned
+	} else {
+		normalized := utils.NormalizeHexColor(*project.Color, utils.ColorForIndex(0))
+		project.Color = &normalized
+	}
 
-	project, err := s.repo.CreateProject(project, customFieldValues)
+	project, err = s.repo.CreateProject(project, customFieldValues)
 	if err != nil {
 		return nil, err
 	}

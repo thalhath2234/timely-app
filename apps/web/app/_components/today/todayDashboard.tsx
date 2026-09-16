@@ -34,7 +34,7 @@ import {
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
-import { chipStyle } from "@/app/utils/entityColor";
+import { chipStyle, taskEntityColor } from "@/app/utils/entityColor";
 import { useToday } from "@/app/utils/hooks/calendar";
 import {
   useInboxTasks,
@@ -125,8 +125,8 @@ function meetingUrl(item: CalendarItem) {
 }
 
 function itemAccent(item: CalendarItem) {
+  if (item.task) return taskEntityColor(item.task);
   if (item.color) return item.color;
-  if (item.taskId) return "var(--success)";
   return "var(--primary)";
 }
 
@@ -306,7 +306,14 @@ function FocusTaskRow({
         !completed && !focusing && "border-border bg-card hover:bg-accent/30",
       )}
     >
-      {focusing ? <span className="absolute inset-y-0 left-0 w-1 bg-primary" /> : null}
+      {focusing ? (
+        <span className="absolute inset-y-0 left-0 w-1 bg-primary" />
+      ) : (
+        <span
+          className="absolute inset-y-0 left-0 w-1"
+          style={{ backgroundColor: taskEntityColor(task) }}
+        />
+      )}
       <div className={cn("flex min-w-0 items-start gap-3.5", focusing && "pl-2")}>
         <button
           type="button"
@@ -337,8 +344,12 @@ function FocusTaskRow({
               {task.name}
             </button>
             {task.project?.title ? (
-              <ColorChip color={task.project.color} className="text-[10px]" dot={false}>
+              <ColorChip color={taskEntityColor(task)} className="text-[10px]" dot={false}>
                 {task.project.title}
+              </ColorChip>
+            ) : task.workspace?.name ? (
+              <ColorChip color={taskEntityColor(task)} className="text-[10px]" dot={false}>
+                {task.workspace.name}
               </ColorChip>
             ) : null}
             {priority === "High" || priority === "Urgent" ? (

@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Label, Project, Task, Workspace } from "@/app/_types/types";
 import type { UpdateTaskPayload } from "@/app/utils/api/tasks";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { mergeStatusesByName, statusForWorkspace } from "@/app/utils/status";
 import { tasksKey, useBulkUpdateTasks, useDeleteTask, useUpdateTask } from "@/app/utils/hooks/tasks";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import Select from "@/app/_components/_ui/select";
@@ -75,6 +76,7 @@ export default function BulkActionBar({
     () => workspaces.flatMap((workspace) => workspace.status ?? []),
     [workspaces],
   );
+  const statusGroups = useMemo(() => mergeStatusesByName(statuses), [statuses]);
   const labels = useMemo(
     () => workspaces.flatMap((workspace) => workspace.lables ?? []),
     [workspaces],
@@ -118,6 +120,60 @@ export default function BulkActionBar({
     }
   };
 
+  const applyNamedStatus = async (nameKey: string) => {
+    const group = statusGroups.find((item) => item.key === nameKey);
+    if (!group) return;
+    setBusy(true);
+    try {
+      const cached = (queryClient.getQueryData<Task[]>(tasksKey) ?? []).filter((task) =>
+        ids.includes(task.id),
+      );
+      const before = snapshotBefore(cached, ["statusId", "completedAt"]);
+      const missing = ids.filter((id) => !before.has(id));
+      const skipped: string[] = [];
+
+      await Promise.all(
+        cached.map((task) => {
+          const workspaceId = task.workspaceId ?? task.workspace?.id;
+          const status = statusForWorkspace(group, workspaceId);
+          if (!status) {
+            skipped.push(task.workspace?.name || task.name);
+            return Promise.resolve();
+          }
+          return single.mutateAsync({ id: task.id, statusId: status.id });
+        }),
+      );
+
+      showUndoToast(
+        skipped.length
+          ? `Status updated · skipped ${skipped.length} without "${group.name}"`
+          : "Status updated",
+        () => {
+          void Promise.all(
+            [...before.entries()].map(([id, previous]) => single.mutateAsync({ id, ...previous })),
+          )
+            .then(() => {
+              if (missing.length > 0) {
+                useToastStore
+                  .getState()
+                  .show(
+                    `Restored ${before.size} task${before.size === 1 ? "" : "s"}; ${missing.length} had no cached previous value`,
+                  );
+              }
+            })
+            .catch((err: unknown) => {
+              useToastStore
+                .getState()
+                .show(err instanceof Error ? `Undo failed: ${err.message}` : "Undo failed");
+            });
+        },
+      );
+      onClear();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (ids.length === 0) return null;
 
   return (
@@ -150,13 +206,11 @@ export default function BulkActionBar({
           size="sm"
           value=""
           placeholder="Status"
-          onChange={(statusId) =>
-            void apply({ statusId }, ["statusId", "completedAt"], "Status updated")
-          }
-          options={statuses.map((status) => ({
-            value: status.id,
-            label: status.name,
-            color: status.color,
+          onChange={(nameKey) => void applyNamedStatus(nameKey)}
+          options={statusGroups.map((group) => ({
+            value: group.key,
+            label: group.name,
+            color: group.color,
           }))}
         />
       </div>

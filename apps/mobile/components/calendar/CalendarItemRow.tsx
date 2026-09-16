@@ -3,9 +3,11 @@ import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
 import { formatRelativeDay, formatTime, formatTimeRange } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { taskEntityColor } from "../../lib/entityColor";
 
 export function itemColor(item: CalendarItem) {
-  return item.color ?? item.task?.project?.color ?? colors.primary;
+  if (item.task) return taskEntityColor(item.task);
+  return item.color ?? colors.primary;
 }
 
 export function isTaskItem(item: CalendarItem) {

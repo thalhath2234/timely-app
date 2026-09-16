@@ -167,11 +167,8 @@ func reminderItem(task *models.Task, start time.Time) Item {
 }
 
 func taskColor(task *models.Task) *string {
-	if task.Status != nil && task.Status.Color != "" {
-		color := task.Status.Color
-		return &color
-	}
-	return nil
+	color := task.EntityColor()
+	return &color
 }
 
 func taskBlockItem(task *models.Task, block models.ScheduledBlock, chunkCount int) Item {

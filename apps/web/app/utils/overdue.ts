@@ -1,5 +1,6 @@
 import type { CalendarItem, Task } from "@/app/_types/types";
 import { dateFromDateInput, startOfDay } from "@/app/utils/calendar";
+import { taskEntityColor } from "@/app/utils/entityColor";
 
 export function latestTaskSchedule(
   task: Task,
@@ -65,7 +66,7 @@ export function taskToCalendarItem(task: Task): CalendarItem {
     start: start.toISOString(),
     end: end.toISOString(),
     allDay: !schedule,
-    color: task.status?.color ?? task.project?.color ?? null,
+    color: taskEntityColor(task),
     blockId: schedule?.blockId,
     chunkIndex: 0,
     chunkCount: 1,
