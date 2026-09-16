@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Timely - Report Workspace</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "primary": "#c0c1ff",
+            "surface": "#111319",
+            "on-tertiary-fixed": "#2a1700",
+            "inverse-primary": "#494bd6",
+            "surface-container-high": "#282a30",
+            "on-secondary-fixed": "#002113",
+            "on-secondary-container": "#00311f",
+            "on-primary": "#1000a9",
+            "primary-container": "#8083ff",
+            "outline-variant": "#464554",
+            "on-primary-fixed-variant": "#2f2ebe",
+            "outline": "#908fa0",
+            "tertiary": "#ffb95f",
+            "surface-container": "#1d1f26",
+            "surface-container-lowest": "#0c0e14",
+            "inverse-surface": "#e2e2eb",
+            "tertiary-fixed": "#ffddb8",
+            "on-tertiary": "#472a00",
+            "surface-dim": "#111319",
+            "on-secondary-fixed-variant": "#005236",
+            "secondary": "#4edea3",
+            "surface-variant": "#33343b",
+            "error": "#ffb4ab",
+            "error-container": "#93000a",
+            "surface-container-highest": "#33343b",
+            "on-surface": "#e2e2eb",
+            "background": "#111319",
+            "primary-fixed": "#e1e0ff",
+            "tertiary-fixed-dim": "#ffb95f",
+            "on-error-container": "#ffdad6",
+            "secondary-fixed": "#6ffbbe",
+            "on-secondary": "#003824",
+            "tertiary-container": "#ca8100",
+            "surface-tint": "#c0c1ff",
+            "secondary-container": "#00a572",
+            "on-tertiary-container": "#3e2400",
+            "on-primary-container": "#0d0096",
+            "surface-container-low": "#191b22",
+            "inverse-on-surface": "#2e3037",
+            "on-error": "#690005",
+            "on-primary-fixed": "#07006c",
+            "on-background": "#e2e2eb",
+            "surface-bright": "#373940",
+            "on-surface-variant": "#c7c4d7",
+            "primary-fixed-dim": "#c0c1ff",
+            "secondary-fixed-dim": "#4edea3",
+            "on-tertiary-fixed-variant": "#653e00"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-md": "0.75rem",
+            "space-sm": "0.5rem",
+            "gutter-mobile": "0.75rem",
+            "margin-mobile": "1rem",
+            "margin": "1.5rem",
+            "space-2xs": "0.125rem",
+            "gutter": "1rem",
+            "space-xs": "0.25rem",
+            "space-xl": "2rem",
+            "space-lg": "1.25rem"
+          },
+          "fontFamily": {
+            "body-lg": ["Inter"],
+            "headline-xl-mobile": ["Inter"],
+            "label-sm": ["Inter"],
+            "code-sm": ["JetBrains Mono"],
+            "title-sm": ["Inter"],
+            "headline-md": ["Inter"],
+            "headline-lg": ["Inter"],
+            "body-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-xl": ["Inter"],
+            "data-mono": ["JetBrains Mono"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "body-lg": ["1rem", { "lineHeight": "1.6rem", "letterSpacing": "-0.005em", "fontWeight": "400" }],
+            "headline-xl-mobile": ["1.75rem", { "lineHeight": "2.25rem", "letterSpacing": "-0.025em", "fontWeight": "700" }],
+            "label-sm": ["0.6875rem", { "lineHeight": "0.875rem", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "code-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "-0.01em", "fontWeight": "500" }],
+            "title-sm": ["1rem", { "lineHeight": "1.5rem", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-md": ["1.25rem", { "lineHeight": "1.75rem", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "headline-lg": ["1.5rem", { "lineHeight": "2rem", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+            "body-sm": ["0.75rem", { "lineHeight": "1.15rem", "letterSpacing": "0.005em", "fontWeight": "400" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1rem", "letterSpacing": "0.01em", "fontWeight": "500" }],
+            "headline-xl": ["2.25rem", { "lineHeight": "2.75rem", "letterSpacing": "-0.03em", "fontWeight": "700" }],
+            "data-mono": ["0.8125rem", { "lineHeight": "1.2rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.4rem", "letterSpacing": "0em", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 350, 'GRAD' 0, 'opsz' 20;
+      font-size: 20px;
+      line-height: 1;
+      display: inline-block;
+    }
+    .material-symbols-outlined.fill-icon {
+      font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+    }
+    body {
+      background-color: #0c0e14;
+      color: #e2e2eb;
+      font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+      -webkit-font-smoothing: antialiased;
+    }
+  </style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface font-body-md selection:bg-primary-container selection:text-on-primary-container antialiased">
+<!-- Left Global Icon Rail (68px wide fixed navigation) -->
+<aside class="fixed top-0 left-0 h-screen w-[68px] z-50 flex flex-col items-center justify-between py-space-md border-r border-outline-variant/20 bg-surface-container-lowest">
+<!-- Top Action Cluster -->
+<div class="flex flex-col items-center gap-space-sm w-full">
+<!-- Create Trigger Button -->
+<button class="w-10 h-10 rounded-xl bg-inverse-primary text-white flex items-center justify-center hover:bg-primary-container transition-transform duration-100 ease-out active:scale-95 shadow-sm" title="New Task or Doc">
+<span class="material-symbols-outlined font-bold text-[22px]" data-icon="add">add</span>
+</button>
+<!-- Quick Search Trigger -->
+<button class="w-10 h-10 rounded-lg text-outline flex items-center justify-center hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" title="Quick Search (⌘K)">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+<div class="w-6 h-[1px] bg-outline-variant/20 my-1"></div>
+<!-- Main Workspace Tool Stack -->
+<nav aria-label="Primary Navigation" class="flex flex-col items-center gap-1 w-full">
+<!-- Today / Sun -->
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Today">
+<span class="material-symbols-outlined" data-icon="wb_sunny">wb_sunny</span>
+</a>
+<!-- Inbox -->
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Inbox">
+<span class="material-symbols-outlined" data-icon="inbox">inbox</span>
+</a>
+<!-- Calendar -->
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Calendar">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+</a>
+<!-- Tasks -->
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Tasks">
+<span class="material-symbols-outlined" data-icon="check_circle">check_circle</span>
+</a>
+<!-- Pipelines / Projects -->
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Pipelines">
+<span class="material-symbols-outlined" data-icon="view_kanban">view_kanban</span>
+</a>
+<!-- Docs -->
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Docs">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+</a>
+<!-- Sheets -->
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Sheets">
+<span class="material-symbols-outlined" data-icon="table_chart">table_chart</span>
+</a>
+<!-- Active Navigation: Report / Insights (Psychology / Brain) -->
+<div class="relative flex items-center justify-center w-full">
+<span class="absolute left-0 w-1 h-5 bg-primary rounded-r-full"></span>
+<a aria-current="page" class="flex items-center justify-center w-10 h-10 rounded-lg bg-surface-container-highest text-primary shadow-sm" href="#" title="Report &amp; Analytics">
+<span class="material-symbols-outlined fill-icon" data-icon="psychology" style="font-variation-settings: 'FILL' 1;">psychology</span>
+</a>
+</div>
+<!-- Notifications -->
+<div class="relative">
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Notifications">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</a>
+<span class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-secondary"></span>
+</div>
+</nav>
+</div>
+<!-- Bottom Footer Meta Rail -->
+<div class="flex flex-col items-center gap-2 w-full">
+<!-- Settings -->
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Settings">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</a>
+<!-- Logout / Exit -->
+<a class="flex items-center justify-center w-10 h-10 rounded-lg text-outline hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 active:scale-95" href="#" title="Sign Out">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+</a>
+<!-- User Monogram Avatar -->
+<div class="mt-1 w-8 h-8 rounded-full bg-surface-container-high border border-outline-variant/30 text-on-surface flex items-center justify-center font-label-md text-label-md font-semibold cursor-pointer hover:border-primary/50 transition-colors" title="User Profile">
+        N
+      </div>
+</div>
+</aside>
+<!-- Main Canvas Viewport (1440px target layout centered, with 68px left rail offset) -->
+<main class="pl-[68px] min-h-screen pb-14 bg-surface-container-lowest">
+<div class="max-w-[1360px] mx-auto px-8 pt-8">
+<!-- Page Header Cluster -->
+<header class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+<div>
+<h1 class="font-headline-xl text-headline-xl text-white tracking-tight">Report</h1>
+<p class="font-body-md text-body-md text-outline mt-1">
+            A snapshot of open work, deadlines, and the links between your docs, sheets, tasks, and projects.
+          </p>
+</div>
+<!-- Completion Rate Indicator Card -->
+<div class="self-start md:self-auto bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-2.5 flex items-center gap-3.5 shadow-sm">
+<div class="w-7 h-7 rounded-full bg-secondary/15 border border-secondary/30 flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[18px]" data-icon="check">check</span>
+</div>
+<div class="flex flex-col">
+<div class="flex items-baseline gap-2">
+<span class="font-label-sm text-label-sm text-outline uppercase tracking-wider">Completion</span>
+<span class="font-title-sm text-title-sm text-white font-semibold">17%</span>
+</div>
+<span class="font-body-sm text-body-sm text-outline">1 done · 5 open</span>
+</div>
+</div>
+</header>
+<!-- Four Metric Cards Grid -->
+<section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+<!-- Open Tasks Card -->
+<div class="bg-surface-container-low border border-outline-variant/20 rounded-2xl p-5 hover:border-outline-variant/40 transition-colors duration-150">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-outline font-medium tracking-wider uppercase">Open Tasks</span>
+<span class="material-symbols-outlined text-outline/60 text-[18px]" data-icon="check_circle">check_circle</span>
+</div>
+<div class="font-headline-xl text-headline-xl font-bold font-data-mono text-white mt-2 mb-1">
+            5
+          </div>
+<div class="font-body-sm text-body-sm text-outline">
+            1 completed
+          </div>
+</div>
+<!-- Overdue Card -->
+<div class="bg-surface-container-low border border-outline-variant/20 rounded-2xl p-5 hover:border-outline-variant/40 transition-colors duration-150">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-outline font-medium tracking-wider uppercase">Overdue</span>
+<span class="material-symbols-outlined text-error text-[18px]" data-icon="warning">warning</span>
+</div>
+<div class="font-headline-xl text-headline-xl font-bold font-data-mono text-error mt-2 mb-1">
+            1
+          </div>
+<div class="font-body-sm text-body-sm text-outline">
+            Need attention
+          </div>
+</div>
+<!-- Projects Card -->
+<div class="bg-surface-container-low border border-outline-variant/20 rounded-2xl p-5 hover:border-outline-variant/40 transition-colors duration-150">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-outline font-medium tracking-wider uppercase">Projects</span>
+<span class="material-symbols-outlined text-outline/60 text-[18px]" data-icon="folder">folder</span>
+</div>
+<div class="font-headline-xl text-headline-xl font-bold font-data-mono text-white mt-2 mb-1">
+            1
+          </div>
+<div class="font-body-sm text-body-sm text-outline">
+            1 with open work
+          </div>
+</div>
+<!-- Docs & Sheets Card -->
+<div class="bg-surface-container-low border border-outline-variant/20 rounded-2xl p-5 hover:border-outline-variant/40 transition-colors duration-150">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-outline font-medium tracking-wider uppercase">Docs &amp; Sheets</span>
+<span class="material-symbols-outlined text-outline/60 text-[18px]" data-icon="layers">layers</span>
+</div>
+<div class="font-headline-xl text-headline-xl font-bold font-data-mono text-white mt-2 mb-1">
+            3
+          </div>
+<div class="font-body-sm text-body-sm text-outline">
+            2 docs · 1 sheets
+          </div>
+</div>
+</section>
+<!-- Middle Section: Overdue Attention Banner & Open by Priority Breakdown -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+<!-- Overdue Card (Wide ~60% = 7 cols) -->
+<div class="lg:col-span-7 bg-surface-container-low border border-outline-variant/20 rounded-2xl p-6 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="material-symbols-outlined text-tertiary text-[20px]" data-icon="warning">warning</span>
+<h2 class="font-title-sm text-title-sm text-white font-semibold">Overdue</h2>
+</div>
+<p class="font-body-sm text-body-sm text-outline mb-5">1 open past their deadline or last scheduled block</p>
+<!-- Overdue Task Row -->
+<div class="flex items-center justify-between py-3 border-t border-outline-variant/15 hover:bg-surface-container/50 px-2 -mx-2 rounded-lg transition-colors cursor-pointer group">
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Audit existing screens</span>
+<span class="font-body-sm text-body-sm text-outline mt-0.5">Website redesign · <span class="text-error font-medium">Urgent</span></span>
+</div>
+<div class="text-right">
+<span class="font-data-mono text-data-mono text-error font-medium">Sep 14 (yesterday)</span>
+</div>
+</div>
+</div>
+<div class="pt-3 border-t border-outline-variant/10 flex items-center justify-between text-outline font-body-sm text-body-sm">
+<span>Escalate schedule block</span>
+<button class="text-primary hover:underline font-label-md text-label-md flex items-center gap-1">
+<span>Reschedule</span>
+<span class="material-symbols-outlined text-[16px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Open by Priority Card (~40% = 5 cols) -->
+<div class="lg:col-span-5 bg-surface-container-low border border-outline-variant/20 rounded-2xl p-6 flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-1">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-outline text-[20px]" data-icon="tune">tune</span>
+<h2 class="font-title-sm text-title-sm text-white font-semibold">Open by priority</h2>
+</div>
+<span class="font-body-sm text-body-sm text-outline">5 tasks</span>
+</div>
+<p class="font-body-sm text-body-sm text-outline/80 mb-6">Sorted by open task count</p>
+<!-- Priority Progress Bars Rhythm -->
+<div class="space-y-4">
+<!-- Urgent -->
+<div class="flex items-center gap-3">
+<span class="w-16 font-body-sm text-body-sm text-on-surface">Urgent</span>
+<div class="flex-1 h-2 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-error rounded-full" style="width: 20%;"></div>
+</div>
+<span class="w-4 text-right font-data-mono text-data-mono text-outline font-medium">1</span>
+</div>
+<!-- Medium -->
+<div class="flex items-center gap-3">
+<span class="w-16 font-body-sm text-body-sm text-on-surface">Medium</span>
+<div class="flex-1 h-2 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-inverse-primary rounded-full" style="width: 40%;"></div>
+</div>
+<span class="w-4 text-right font-data-mono text-data-mono text-outline font-medium">2</span>
+</div>
+<!-- Low -->
+<div class="flex items-center gap-3">
+<span class="w-16 font-body-sm text-body-sm text-on-surface">Low</span>
+<div class="flex-1 h-2 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-outline-variant rounded-full" style="width: 40%;"></div>
+</div>
+<span class="w-4 text-right font-data-mono text-data-mono text-outline font-medium">2</span>
+</div>
+</div>
+</div>
+<div class="mt-6 pt-3 border-t border-outline-variant/10 text-right">
+<span class="font-label-sm text-label-sm text-outline uppercase tracking-wider">All priorities balanced</span>
+</div>
+</div>
+</section>
+<!-- Bottom Balanced 2x2 Bento Matrix -->
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+<!-- Due or Planned in Next 14 Days -->
+<div class="bg-surface-container-low border border-outline-variant/20 rounded-2xl p-6 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="material-symbols-outlined text-outline text-[20px]" data-icon="calendar_today">calendar_today</span>
+<h2 class="font-title-sm text-title-sm text-white font-semibold">Due or planned in the next 14 days</h2>
+</div>
+<p class="font-body-sm text-body-sm text-outline mb-4">4 upcoming · deadlines and next scheduled blocks</p>
+<div class="divide-y divide-outline-variant/10">
+<!-- Item 1 -->
+<div class="py-3 flex items-center justify-between hover:bg-surface-container/40 px-2 -mx-2 rounded-lg transition-colors cursor-pointer group">
+<div>
+<div class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Daily design check-in</div>
+<div class="font-body-sm text-body-sm text-outline mt-0.5">No project · Low · scheduled</div>
+</div>
+<div class="font-data-mono text-data-mono text-secondary font-medium">
+                  Sep 15 (today)
+                </div>
+</div>
+<!-- Item 2 -->
+<div class="py-3 flex items-center justify-between hover:bg-surface-container/40 px-2 -mx-2 rounded-lg transition-colors cursor-pointer group">
+<div>
+<div class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Review design proposal</div>
+<div class="font-body-sm text-body-sm text-outline mt-0.5">Website redesign · Medium</div>
+</div>
+<div class="font-data-mono text-data-mono text-outline font-medium">
+                  Sep 18 (in 3 days)
+                </div>
+</div>
+<!-- Item 3 -->
+<div class="py-3 flex items-center justify-between hover:bg-surface-container/40 px-2 -mx-2 rounded-lg transition-colors cursor-pointer group">
+<div>
+<div class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Prepare component library</div>
+<div class="font-body-sm text-body-sm text-outline mt-0.5">Website redesign · Low</div>
+</div>
+<div class="font-data-mono text-data-mono text-outline font-medium">
+                  Sep 22 (in 7 days)
+                </div>
+</div>
+<!-- Item 4 -->
+<div class="py-3 flex items-center justify-between hover:bg-surface-container/40 px-2 -mx-2 rounded-lg transition-colors cursor-pointer group">
+<div>
+<div class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Publish approved guidelines</div>
+<div class="font-body-sm text-body-sm text-outline mt-0.5">Website redesign · Medium</div>
+</div>
+<div class="font-data-mono text-data-mono text-outline font-medium">
+                  Sep 25 (in 10 days)
+                </div>
+</div>
+</div>
+</div>
+</div>
+<!-- Projects with Open Work -->
+<div class="bg-surface-container-low border border-outline-variant/20 rounded-2xl p-6 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="material-symbols-outlined text-outline text-[20px]" data-icon="folder">folder</span>
+<h2 class="font-title-sm text-title-sm text-white font-semibold">Projects with open work</h2>
+</div>
+<p class="font-body-sm text-body-sm text-outline mb-4">Sorted by open task count</p>
+<div class="py-3 flex items-center justify-between border-t border-outline-variant/15 hover:bg-surface-container/40 px-2 -mx-2 rounded-lg transition-colors cursor-pointer group">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-inverse-primary"></span>
+<span class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Website redesign</span>
+</div>
+<span class="font-data-mono text-data-mono text-white font-semibold">4</span>
+</div>
+<!-- By Workspace Section -->
+<div class="mt-4 pt-4 border-t border-outline-variant/10">
+<span class="font-label-sm text-label-sm text-outline/80 font-medium tracking-wider uppercase block mb-3">By Workspace</span>
+<div class="flex items-center justify-between hover:bg-surface-container/40 px-2 -mx-2 py-2.5 rounded-lg transition-colors cursor-pointer group">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-outline text-[18px]" data-icon="workspaces">workspaces</span>
+<span class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Design Studio</span>
+</div>
+<span class="font-data-mono text-data-mono text-white font-semibold">5</span>
+</div>
+</div>
+</div>
+<div class="pt-4 border-t border-outline-variant/10 flex items-center justify-between text-outline font-body-sm text-body-sm">
+<span>Filter by organization</span>
+<span class="font-code-sm text-code-sm text-outline-variant">Active tier</span>
+</div>
+</div>
+<!-- Mentions Empty State Card -->
+<div class="bg-surface-container-low border border-outline-variant/20 rounded-2xl p-6 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="material-symbols-outlined text-outline text-[20px]" data-icon="link">link</span>
+<h2 class="font-title-sm text-title-sm text-white font-semibold">Mentions</h2>
+</div>
+<p class="font-body-sm text-body-sm text-outline mb-6">No @mentions yet</p>
+<div class="bg-surface-container-lowest/60 border border-outline-variant/15 rounded-xl p-5 text-center my-2">
+<span class="material-symbols-outlined text-outline/40 text-[28px] mb-2" data-icon="alternate_email">alternate_email</span>
+<p class="font-body-sm text-body-sm text-outline max-w-sm mx-auto">
+                Type <span class="font-code-sm text-primary font-semibold">@</span> in a doc, sheet, task, or project description to link things together.
+              </p>
+</div>
+</div>
+<div class="pt-3 border-t border-outline-variant/10 flex items-center justify-between text-outline font-body-sm text-body-sm">
+<span>Inline cross-referencing enabled</span>
+<span class="font-code-sm text-code-sm text-outline-variant">Markdown link sync</span>
+</div>
+</div>
+<!-- Recently Updated Card -->
+<div class="bg-surface-container-low border border-outline-variant/20 rounded-2xl p-6 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="material-symbols-outlined text-outline text-[20px]" data-icon="description">description</span>
+<h2 class="font-title-sm text-title-sm text-white font-semibold">Recently updated</h2>
+</div>
+<p class="font-body-sm text-body-sm text-outline mb-4">Across tasks, projects, docs and sheets</p>
+<div class="divide-y divide-outline-variant/10">
+<!-- Item 1: Doc -->
+<div class="py-3 flex items-center justify-between hover:bg-surface-container/40 px-2 -mx-2 rounded-lg transition-colors cursor-pointer group">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-surface-container-highest flex items-center justify-center text-outline group-hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]" data-icon="description">description</span>
+</div>
+<div>
+<div class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Redesign brief</div>
+<div class="font-body-sm text-body-sm text-outline mt-0.5">Doc · Design Studio</div>
+</div>
+</div>
+<div class="font-data-mono text-data-mono text-outline font-medium">
+                  Sep 15
+                </div>
+</div>
+<!-- Item 2: Doc -->
+<div class="py-3 flex items-center justify-between hover:bg-surface-container/40 px-2 -mx-2 rounded-lg transition-colors cursor-pointer group">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-surface-container-highest flex items-center justify-center text-outline group-hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]" data-icon="description">description</span>
+</div>
+<div>
+<div class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Review notes</div>
+<div class="font-body-sm text-body-sm text-outline mt-0.5">Doc · Design Studio</div>
+</div>
+</div>
+<div class="font-data-mono text-data-mono text-outline font-medium">
+                  Sep 15
+                </div>
+</div>
+<!-- Item 3: Sheet -->
+<div class="py-3 flex items-center justify-between hover:bg-surface-container/40 px-2 -mx-2 rounded-lg transition-colors cursor-pointer group">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-surface-container-highest flex items-center justify-center text-secondary group-hover:text-secondary-fixed transition-colors">
+<span class="material-symbols-outlined text-[18px]" data-icon="table_chart">table_chart</span>
+</div>
+<div>
+<div class="font-body-md text-body-md text-white font-medium group-hover:text-primary transition-colors">Component inventory</div>
+<div class="font-body-sm text-body-sm text-outline mt-0.5">Sheet · Design Studio</div>
+</div>
+</div>
+<div class="font-data-mono text-data-mono text-outline font-medium">
+                  Sep 15
+                </div>
+</div>
+</div>
+</div>
+<div class="pt-3 border-t border-outline-variant/10 text-right">
+<button class="font-label-md text-label-md text-primary hover:underline">View activity log</button>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Global Footer Telemetry Status Bar (Fixed bottom indicator) -->
+<footer class="fixed bottom-0 left-[68px] right-0 h-9 bg-surface-container-lowest border-t border-outline-variant/20 px-6 flex items-center justify-between z-40 text-outline select-none font-code-sm text-code-sm">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="text-on-surface-variant font-medium">Workspace synced</span>
+<span class="text-outline-variant">·</span>
+<span class="text-outline">Analytics engine active</span>
+</div>
+<div class="flex items-center gap-4 text-outline/80">
+<span class="hover:text-white transition-colors cursor-pointer"><kbd class="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface border border-outline-variant/30 text-[10px]">⌘K</kbd> Quick search</span>
+<span class="hover:text-white transition-colors cursor-pointer"><kbd class="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface border border-outline-variant/30 text-[10px]">D</kbd> Date filter</span>
+<span class="hover:text-white transition-colors cursor-pointer"><kbd class="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface border border-outline-variant/30 text-[10px]">R</kbd> Refresh report</span>
+</div>
+</footer>
+<script>
+    // Lightweight keyboard navigation handlers
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        // Feedback visual trigger
+        console.log('Open Command Palette');
+      }
+      if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey) {
+        const refreshBadge = document.querySelector('footer span.bg-secondary');
+        if (refreshBadge) {
+          refreshBadge.classList.add('bg-primary');
+          setTimeout(() => refreshBadge.classList.remove('bg-primary'), 400);
+        }
+      }
+    });
+  </script>
+</body></html>

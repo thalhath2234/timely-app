@@ -17,6 +17,7 @@ import {
   useToggleChecklistItem,
 } from "@/app/utils/hooks/tasks";
 import { showUndoToast } from "@/app/_store/toastStore";
+import { isInboxTask, isReminderTask } from "@/app/utils/taskFilters";
 
 function todayStamp() {
   return localDateStamp();
@@ -45,6 +46,7 @@ export default function TaskExecution({
   const addInputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
 
+  const canAddSubtask = !task.parentTaskId && !compact && !isInboxTask(task) && !isReminderTask(task);
   const focusing = Boolean(task.focusStartedAt);
   const onToday = dateOnly(task.todayFocusOn) === todayStamp();
   const checklist = useMemo(
@@ -57,6 +59,11 @@ export default function TaskExecution({
     subtasks.filter((child) => child.completedAt).length;
   const totalCount = checklist.length + subtasks.length;
   const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  useEffect(() => {
+    if (!composeSubtask) return;
+    addInputRef.current?.focus();
+  }, [composeSubtask]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -127,7 +134,7 @@ export default function TaskExecution({
         >
           <Copy className="size-3.5" /> Duplicate
         </button>
-        {!task.parentTaskId && !compact ? (
+        {canAddSubtask ? (
           <button
             type="button"
             onClick={() => {
@@ -256,17 +263,22 @@ export default function TaskExecution({
               const done = () => {
                 submittingRef.current = false;
               };
-              if (composeSubtask && !task.parentTaskId) {
+              if (composeSubtask && canAddSubtask) {
+                const workspaceId = task.workspaceId || task.workspace?.id || undefined;
                 void createSubtask
                   .mutateAsync({
                     name: title,
                     parentTaskId: task.id,
-                    duration: 30,
-                    workspaceId: task.workspaceId ?? undefined,
+                    duration: task.duration > 0 ? task.duration : 30,
+                    kind: "task",
+                    workspaceId,
+                    projectId: task.projectId || task.project?.id || undefined,
+                    statusId: task.statusId || task.status?.id || undefined,
+                    stageId: task.stageId || task.stage?.id || undefined,
+                    priorityLevel: task.priorityLevel || undefined,
                   })
                   .then(() => {
                     setCheckTitle("");
-                    setComposeSubtask(false);
                   })
                   .finally(done);
                 return;
@@ -287,6 +299,13 @@ export default function TaskExecution({
               className="flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
             />
           </form>
+          {createSubtask.isError ? (
+            <p className="px-1 text-xs text-destructive">
+              {createSubtask.error instanceof Error
+                ? createSubtask.error.message
+                : "Could not add subtask."}
+            </p>
+          ) : null}
         </section>
       ) : null}
     </div>

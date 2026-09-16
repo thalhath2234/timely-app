@@ -70,8 +70,11 @@ func (h *Handler) Create(c *echo.Context) error {
 		)
 	}
 	req.WorkspaceID = nonemptyID(req.WorkspaceID)
+	req.ParentTaskID = nonemptyID(req.ParentTaskID)
 	kind := models.ResolveCreateKind(req.Kind, req.Duration, req.ScheduledOn, req.Recurrence != nil && req.Recurrence.RRule != "", req.ParentTaskID)
-	if kind == models.KindTask && req.WorkspaceID == nil {
+	// Subtasks inherit workspace/project from the parent in the service.
+	// Requiring workspaceId here rejected that path before inherit ran.
+	if kind == models.KindTask && req.WorkspaceID == nil && req.ParentTaskID == nil {
 		return echo.NewHTTPError(
 			http.StatusBadRequest,
 			"workspaceId is required",

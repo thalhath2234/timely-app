@@ -34,8 +34,8 @@ export default function SheetsPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="flex min-h-full flex-col px-6 py-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-foreground">Sheets</h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
               Track numbers in a grid. Cells support formulas such as{" "}
@@ -55,7 +55,7 @@ export default function SheetsPage() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-secondary px-4 py-2 font-medium text-secondary-foreground transition-colors hover:bg-accent">
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-[#191b22] px-4 py-2 font-medium text-foreground transition-colors hover:border-[#c0c1ff]/30">
               <Upload className="size-4" />
               Import CSV
               <input
@@ -73,7 +73,7 @@ export default function SheetsPage() {
               type="button"
               onClick={handleCreate}
               disabled={createSheet.isPending}
-              className="flex cursor-pointer items-center gap-2 rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+              className="flex cursor-pointer items-center gap-2 rounded-lg bg-[#c0c1ff] px-4 py-2 font-medium text-[#1000a9] hover:bg-[#a8a6ff] disabled:opacity-60"
             >
               <Plus className="size-4" />
               {createSheet.isPending ? "Creating..." : "New sheet"}
@@ -121,7 +121,7 @@ export default function SheetsPage() {
         )}
 
         {!isLoading && !(sheetsQuery.isError && !sheets) && recentSheets.length === 0 && (
-          <div className="mt-3 flex flex-1 items-center justify-center rounded-xl border border-dashed border-border px-6 py-10">
+          <div className="mt-3 flex flex-1 items-center justify-center rounded-xl border border-dashed border-white/10 bg-[#191b22] px-6 py-10">
             <p className="text-sm text-muted-foreground">
               Nothing here yet. Create a sheet or import a CSV to get started.
             </p>
@@ -166,10 +166,10 @@ function SheetCard({
   return (
     <Link
       href={href}
-      className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-ring hover:bg-accent/40"
+      className="rounded-xl border border-white/10 bg-[#191b22] p-4 transition-colors hover:border-[#c0c1ff]/30 hover:bg-white/[0.03]"
     >
       <div className="flex items-center gap-2">
-        <span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-base leading-none text-primary">
+        <span className="flex size-8 items-center justify-center rounded-lg bg-[#c0c1ff]/12 text-base leading-none text-[#c0c1ff]">
           {icon ?? <SheetIcon className="size-4" />}
         </span>
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">

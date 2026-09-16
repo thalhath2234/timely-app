@@ -1,0 +1,67 @@
+{
+  "projectId": "3890227041261643615",
+  "title": "Timely",
+  "designSystem": "assets/22600a2adfbd47709b3b6c2cb46a4ca0",
+  "designSystemName": "Kinetic Dark Velocity",
+  "screens": [
+    {
+      "route": "/login",
+      "title": "Timely - Sign In",
+      "screenId": "3a3665ed91e84c5cbd8dec8abee16923",
+      "sourceImages": ["001-login.png", "002-login-validation.png"]
+    },
+    {
+      "route": "/inbox",
+      "title": "Timely - Inbox & Quick Capture Redesign",
+      "screenId": "f0c48a46db9e4659999f0d126e1f1d00"
+    },
+    {
+      "route": "/projects/[id]",
+      "title": "Timely - Project Overview Production",
+      "screenId": "58162225390b4c33bbeba0ea6adf0e51",
+      "sourceImages": ["070-project-overview.png"]
+    },
+    {
+      "route": "/docs",
+      "title": "Timely - Docs Hub Production",
+      "screenId": "ef47757c21704816a96bbb008d7cafb3",
+      "sourceImages": ["018-docs-populated.png"]
+    },
+    {
+      "route": "/docs/[id]",
+      "title": "Timely - Document Editor Production",
+      "screenId": "58699f99b80d4a2c9f210371454c6466",
+      "sourceImages": ["080-document-editor.png"]
+    },
+    {
+      "route": "/sheets",
+      "title": "Timely - Sheets Hub Production",
+      "screenId": "38274206b4c24fcdb3fe698a04a44e1a",
+      "sourceImages": ["019-sheets-populated.png"]
+    },
+    {
+      "route": "/sheets/[id]",
+      "title": "Timely - Spreadsheet Editor Production",
+      "screenId": "1ce245a6c4b448be996dba1f18fa490a",
+      "sourceImages": ["086-sheet-editor.png"]
+    },
+    {
+      "route": "/report",
+      "title": "Timely - Report & Analytics Snapshot",
+      "screenId": "45bce1e405284f51bbe1aa13dd90eb55",
+      "sourceImages": ["020-report-populated.png"]
+    },
+    {
+      "route": "/notifications",
+      "title": "Timely - Notifications Production",
+      "screenId": "eb46cb1ac47f4f8791414dc70e27f476",
+      "sourceImages": ["115-notifications-populated.png"]
+    },
+    {
+      "route": "/settings",
+      "title": "/settings account current (Stitch edit unavailable)",
+      "sourceScreenId": "394579728165402096",
+      "sourceImages": ["040-settings-account.png"]
+    }
+  ]
+}

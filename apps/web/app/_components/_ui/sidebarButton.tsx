@@ -21,7 +21,7 @@ export default function SidebarButton({ item }: { item: SidebarProps }) {
     : item.href;
   return (
     <motion.div
-      className={`rounded-lg border-none m-0 cursor-pointer transition-colors ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground"} hover:text-sidebar-primary`}
+      className={`m-0 cursor-pointer rounded-lg border-none transition-colors ${isActive ? "text-[#c0c1ff]" : "text-[#908fa0]"} hover:text-[#c0c1ff]`}
       whileHover={{ scale: 1.05}}
       whileTap={{ scale: 0.9 }}
       onClick={() => setActiveItem(item.name)}
@@ -30,7 +30,7 @@ export default function SidebarButton({ item }: { item: SidebarProps }) {
         href={linkHref}
         aria-label={item.name}
         aria-current={isActive ? "page" : undefined}
-        className={`relative p-2 w-full h-full flex items-center justify-center transition-colors ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground"} hover:text-sidebar-primary`}
+        className={`relative flex h-full w-full items-center justify-center p-2 transition-colors ${isActive ? "text-[#c0c1ff]" : "text-[#908fa0]"} hover:text-[#c0c1ff]`}
       >
         <SidebarButtonIcon icon={item.icon} />
         {item.name === "Notifications" ? <UnreadBadge /> : null}

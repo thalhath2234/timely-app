@@ -22,7 +22,7 @@ export default function WaitingForSlotRail({
   if (waiting.length === 0) return null;
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
+    <aside className="flex w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0c0e14]">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}

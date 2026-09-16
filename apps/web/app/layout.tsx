@@ -1,16 +1,16 @@
 
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 import Providers from "./providers";
 
-const geistSans = Geist({
+const inter = Inter({
   variable: "--font-geist-sans",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
+const jetbrainsMono = JetBrains_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
@@ -29,7 +29,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased bg-background`}
+      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased bg-background`}
     >
       <body className="h-screen flex flex-col font-sans">
         <a href="#main-content" className="sr-only z-[110] rounded bg-background px-3 py-2 text-foreground focus:not-sr-only focus:fixed focus:left-3 focus:top-3">Skip to content</a>

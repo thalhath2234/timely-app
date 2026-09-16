@@ -473,8 +473,13 @@ export default function TaskDetailScreen() {
                   .mutateAsync({
                     name,
                     parentTaskId: task.id,
-                    duration: 30,
-                    workspaceId: task.workspaceId ?? undefined,
+                    duration: task.duration > 0 ? task.duration : 30,
+                    kind: "task",
+                    workspaceId: task.workspaceId || task.workspace?.id || undefined,
+                    projectId: task.projectId || task.project?.id || undefined,
+                    statusId: task.statusId || task.status?.id || undefined,
+                    stageId: task.stageId || task.stage?.id || undefined,
+                    priorityLevel: task.priorityLevel || undefined,
                   })
                   .then(() => setSubtaskTitle(""));
               }}

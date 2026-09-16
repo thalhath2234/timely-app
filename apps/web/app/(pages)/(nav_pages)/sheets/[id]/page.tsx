@@ -143,7 +143,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex items-center gap-2 border-b border-border bg-popover/80 px-6 py-2.5 backdrop-blur-md">
+      <header className="flex items-center gap-2 border-b border-white/10 bg-[#111319] px-6 py-2.5">
         <nav className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
           <Link
             href="/sheets"
@@ -161,7 +161,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
           type="button"
           title={sheet.isFavorite ? "Remove from favorites" : "Add to favorites"}
           onClick={() => schedule({ isFavorite: !sheet.isFavorite })}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/[0.06] hover:text-foreground"
         >
           <Star
             className={`size-4 ${sheet.isFavorite ? "fill-warning text-warning" : ""}`}
@@ -178,7 +178,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
               router.push(`/sheets/${copy.id}`);
             });
           }}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/[0.06]"
         >
           <Copy className="size-4" />
         </button>
@@ -187,7 +187,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
           type="button"
           title="Export CSV"
           onClick={handleExport}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/[0.06]"
         >
           <Download className="size-4" />
         </button>
@@ -202,7 +202,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
               schedule({ archived: !next }),
             );
           }}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/[0.06]"
         >
           <Archive className={`size-4 ${sheet.archivedAt ? "text-warning" : ""}`} />
         </button>
@@ -212,13 +212,13 @@ function SheetView({ sheet }: { sheet: Sheet }) {
             type="button"
             title="Delete sheet"
             onClick={() => setIsConfirmingDelete((previous) => !previous)}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-destructive"
+            className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/[0.06] hover:text-destructive"
           >
             <Trash2 className="size-4" />
           </button>
 
           {isConfirmingDelete && (
-            <div className="absolute right-0 top-9 z-50 w-52 rounded-lg border border-border bg-popover p-3 text-xs shadow-xl">
+            <div className="absolute right-0 top-9 z-50 w-52 rounded-lg border border-white/10 bg-[#191b22] p-3 text-xs shadow-xl">
               <p className="text-muted-foreground">Delete this sheet?</p>
               <div className="mt-2 flex justify-end gap-1.5">
                 <button
@@ -244,7 +244,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
         <button
           type="button"
           onClick={() => void handleShare()}
-          className="ml-1 flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+          className="ml-1 flex cursor-pointer items-center gap-1.5 rounded-lg bg-[#c0c1ff] px-3 py-1.5 text-xs font-medium text-[#1000a9] hover:bg-[#a8a6ff]"
         >
           <Share2 className="size-3.5" />
           Share
@@ -257,13 +257,13 @@ function SheetView({ sheet }: { sheet: Sheet }) {
             type="button"
             onClick={() => setIsIconPickerOpen((previous) => !previous)}
             title="Change icon"
-            className="flex size-9 cursor-pointer items-center justify-center rounded-xl border border-border bg-card text-xl text-primary shadow-sm transition-colors hover:border-ring"
+            className="flex size-9 cursor-pointer items-center justify-center rounded-xl border border-white/10 bg-[#191b22] text-xl text-[#c0c1ff] transition-colors hover:border-[#c0c1ff]/30"
           >
             {sheet.icon ?? <Smile className="size-5 text-muted-foreground" />}
           </button>
 
           {isIconPickerOpen && (
-            <div className="absolute left-0 top-11 z-50 w-64 rounded-lg border border-border bg-popover p-2 shadow-xl">
+            <div className="absolute left-0 top-11 z-50 w-64 rounded-lg border border-white/10 bg-[#191b22] p-2 shadow-xl">
               <div className="grid grid-cols-8 gap-1">
                 {ICON_CHOICES.map((icon) => (
                   <button
@@ -305,7 +305,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
         />
       </div>
 
-      <div className="mx-6 mb-3 rounded-lg border border-border bg-input/20 px-3 py-2">
+      <div className="mx-6 mb-3 rounded-lg border border-white/10 bg-[#191b22] px-3 py-2">
         <RichTextEditor
           variant="compact"
           toolbar="fixed"

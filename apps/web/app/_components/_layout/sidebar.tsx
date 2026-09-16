@@ -72,7 +72,7 @@ export default function Sidebar() {
   }, []);
 
   return (
-    <div className="flex flex-col w-full h-full  mt-2 gap-y-2">
+    <div className="flex h-full w-full flex-col items-center gap-y-2 py-3">
       <div className="flex items-center justify-center h-auto">
         <div className="flex flex-col items-center justify-center gap-y-2">
           <div className="relative" ref={addMenuRef}>
@@ -81,7 +81,7 @@ export default function Sidebar() {
               aria-label="Add item"
               aria-expanded={showAddMenu}
               aria-haspopup="menu"
-              className="flex bg-sidebar-primary text-sidebar-primary-foreground rounded-lg p-2 border-none m-0 cursor-pointer transition-colors hover:bg-sidebar-primary/90"
+              className="flex cursor-pointer rounded-lg border-none bg-[#c0c1ff] p-2 text-[#1000a9] transition-colors hover:bg-[#a8a6ff]"
               onClick={() => setShowAddMenu((prev) => !prev)}
             >
               <motion.div
@@ -124,7 +124,7 @@ export default function Sidebar() {
           <button
             type="button"
             aria-label="Search"
-            className="flex bg-sidebar-primary text-sidebar-primary-foreground rounded-lg p-2 border-none m-0 cursor-pointer transition-colors hover:bg-sidebar-primary/90"
+            className="flex cursor-pointer rounded-lg border-none p-2 text-[#908fa0] transition-colors hover:bg-white/5 hover:text-[#e2e2eb]"
             onClick={() => setSearchMode(true)}
           >
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -136,7 +136,7 @@ export default function Sidebar() {
       <div className="w-full flex items-center justify-center">
         <p className="border-b border-sidebar-border w-1/2"> </p>
       </div>
-      <div className="flex flex-col items-center gap-y-1 text-sidebar-foreground">
+      <div className="flex flex-1 flex-col items-center gap-y-1 text-[#908fa0]">
         {SIDEBAR_ITEMS.map((item: SidebarProps) => {
           const isActive = pathname.startsWith(item.href);
 
@@ -151,7 +151,7 @@ export default function Sidebar() {
                       stiffness: 400,
                       damping: 32,
                     }}
-                    className="absolute inset-0 rounded-lg bg-sidebar-accent -z-10"
+                    className="absolute inset-0 -z-10 rounded-lg bg-[#c0c1ff]/12"
                   />
                 )}
               </AnimatePresence>
@@ -164,7 +164,7 @@ export default function Sidebar() {
       <button
         type="button"
         aria-label="Sign out"
-        className="flex items-center justify-center text-sidebar-foreground hover:text-sidebar-primary transition-colors cursor-pointer"
+        className="mt-auto flex cursor-pointer items-center justify-center pb-1 text-[#908fa0] transition-colors hover:text-[#c0c1ff]"
         onClick={() => logoutMutation.mutate()}
       >
         <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>

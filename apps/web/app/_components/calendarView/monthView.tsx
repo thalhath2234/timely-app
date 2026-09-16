@@ -37,7 +37,7 @@ export default function MonthView({
   const today = new Date();
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+    <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0c0e14]">
       <div className="grid grid-cols-7 border-b border-border">
         {DAY_NAMES.map((day) => (
           <div
@@ -82,8 +82,9 @@ export default function MonthView({
                 }
               }}
               className={cn(
-                "flex min-h-24 cursor-pointer flex-col gap-1 border-b border-r border-border p-1.5 transition-colors hover:bg-accent/20 [&:nth-child(7n)]:border-r-0",
-                !inMonth && "bg-muted/30",
+                "flex min-h-24 cursor-pointer flex-col gap-1 border-b border-r border-white/10 p-1.5 transition-colors hover:bg-white/[0.03] [&:nth-child(7n)]:border-r-0",
+                !inMonth && "bg-white/[0.02]",
+                isToday && "bg-[#191b22]",
               )}
             >
               <button
