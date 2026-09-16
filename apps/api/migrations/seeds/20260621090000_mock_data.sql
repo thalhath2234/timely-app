@@ -1,10 +1,11 @@
 -- +goose Up
 -- Seed data for local testing:
 -- 1 user, 2 workspaces, 2 projects per workspace, 5 tasks per project (20 total).
+-- Login: thalhathva2@gmail.com / 12341234
 
 INSERT INTO users (id, email, password, created_at, updated_at)
 VALUES
-    ('usr_seed_01', 'test@gmail.com', '$2a$10$v2/oVZLI9wiGWtQrBoqFGeE/W4GPsr.mpOCPLHob.Ztpr.tcI0x.y', '2026-06-21T09:00:00Z', '2026-06-21T09:00:00Z')
+    ('usr_seed_01', 'thalhathva2@gmail.com', '$2a$10$Tnje59vzgrzQUJi/bkWAFuN4RuVcpXSkN0Mzx/FYdONfu.fvlYcgS', '2026-06-21T09:00:00Z', '2026-06-21T09:00:00Z')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO configs (id, user_id, is_on_boarding_completed, created_at, updated_at)

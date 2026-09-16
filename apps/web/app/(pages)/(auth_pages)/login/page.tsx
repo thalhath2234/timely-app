@@ -190,8 +190,8 @@ export default function LoginPage() {
                     type="button"
                     className="font-mono text-xs text-[#c0c1ff] hover:underline"
                     onClick={() => {
-                      setEmail("user@example.com");
-                      setPassword("password123");
+                      setEmail("thalhathva2@gmail.com");
+                      setPassword("12341234");
                       setValidationError("");
                     }}
                   >
@@ -201,11 +201,11 @@ export default function LoginPage() {
                 <div className="space-y-1 font-mono text-xs text-[#908fa0]">
                   <div className="flex items-center justify-between">
                     <span>Email:</span>
-                    <code className="text-[#c0c1ff] select-all">user@example.com</code>
+                    <code className="text-[#c0c1ff] select-all">thalhathva2@gmail.com</code>
                   </div>
                   <div className="flex items-center justify-between">
                     <span>Password:</span>
-                    <code className="text-[#c0c1ff] select-all">password123</code>
+                    <code className="text-[#c0c1ff] select-all">12341234</code>
                   </div>
                 </div>
               </div>

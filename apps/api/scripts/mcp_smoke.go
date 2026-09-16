@@ -33,8 +33,8 @@ func (r roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func main() {
 	ctx := context.Background()
-	email := getenv("TIMELY_EMAIL", "user@example.com")
-	password := getenv("TIMELY_PASSWORD", "password123")
+	email := getenv("TIMELY_EMAIL", "thalhathva2@gmail.com")
+	password := getenv("TIMELY_PASSWORD", "12341234")
 	base := getenv("TIMELY_API", "http://localhost:8080")
 
 	jar, err := cookiejar.New(nil)

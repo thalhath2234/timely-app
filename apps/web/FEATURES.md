@@ -31,7 +31,7 @@ Ownership is always “this user owns this row.” No members, roles, invites, o
 - **Profile:** name, email, change password (needs current password).
 - **Device sessions:** Settings → Account lists sessions and can **log out a device** (`GET /sessions`, `DELETE /sessions/:id`).
 - **Onboarding:** create a workspace, mark complete, land on Calendar. Unauthenticated private routes redirect to login; unfinished onboarding redirects to `/onboarding`.
-- Landing `/` with Sign In / Register / Get Started. **No “Sign In Demo”.** Seed credentials (`user@example.com` / `password123`) appear on login **only in development**.
+- Landing `/` with Sign In / Register / Get Started. **No “Sign In Demo”.** Seed credentials (`thalhathva2@gmail.com` / `12341234`) appear on login **only in development**.
 - Password recovery is a **local administration command** (`timely-api/scripts/reset_password.go`), not email.
 
 **Protected routes (web proxy)**

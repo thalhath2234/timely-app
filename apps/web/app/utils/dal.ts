@@ -27,7 +27,7 @@ export const getCurrentUser = cache(async () => {
         return {
             id: session.userId,
             name: 'Test User',
-            email: 'user@example.com',
+            email: 'thalhathva2@gmail.com',
         };
     } catch {
         console.error('Failed to fetch authenticated user profile');
