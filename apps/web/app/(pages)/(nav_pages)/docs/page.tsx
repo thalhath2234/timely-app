@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileText, Plus, Upload } from "lucide-react";
 import { useCreateDoc, useDocs } from "@/app/utils/hooks/docs";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
+import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value);
@@ -45,7 +46,13 @@ export default function DocsPage() {
       <div className="flex min-h-full flex-col px-6 py-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold text-foreground">Docs</h1>
+            <div className="flex items-center gap-2">
+              <ExpandCollapsedListButton
+                storageKey="timely.docsListCollapsed"
+                label="docs list"
+              />
+              <h1 className="text-2xl font-semibold text-foreground">Docs</h1>
+            </div>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
               Write notes, specs and meeting minutes. Type{" "}
               <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs">

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Search,
   Sheet as SheetIcon,
@@ -104,29 +103,7 @@ export default function SheetList() {
     );
   };
 
-  if (collapsed) {
-    return (
-      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-background py-3">
-        <button
-          type="button"
-          title="Expand sheets list"
-          onClick={toggle}
-          className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-        >
-          <PanelLeftOpen className="size-4" />
-        </button>
-        <button
-          type="button"
-          title="New sheet"
-          onClick={handleCreate}
-          disabled={createSheet.isPending}
-          className="flex size-7 cursor-pointer items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-        >
-          <Plus className="size-4" />
-        </button>
-      </aside>
-    );
-  }
+  if (collapsed) return null;
 
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-background">

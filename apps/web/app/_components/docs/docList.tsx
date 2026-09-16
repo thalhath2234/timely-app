@@ -7,7 +7,6 @@ import {
   ChevronRight,
   FileText,
   PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Search,
   Star,
@@ -314,29 +313,7 @@ export default function DocList() {
     );
   };
 
-  if (collapsed) {
-    return (
-      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-border bg-background py-3">
-        <button
-          type="button"
-          title="Expand docs list"
-          onClick={toggle}
-          className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-        >
-          <PanelLeftOpen className="size-4" />
-        </button>
-        <button
-          type="button"
-          title="New doc"
-          onClick={() => handleCreate()}
-          disabled={createDoc.isPending}
-          className="flex size-7 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-        >
-          <Plus className="size-4" />
-        </button>
-      </aside>
-    );
-  }
+  if (collapsed) return null;
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-background">
