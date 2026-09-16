@@ -1,0 +1,1054 @@
+{
+  "pages": [
+    {
+      "source": "apps/web/app/(pages)/(auth_pages)/login/page.tsx",
+      "route": "/login",
+      "symbols": [
+        "LoginPage"
+      ],
+      "screenshots": [
+        "001",
+        "002"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(auth_pages)/onboarding/page.tsx",
+      "route": "/onboarding",
+      "symbols": [
+        "Onboarding"
+      ],
+      "screenshots": [
+        "004"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(auth_pages)/signup/page.tsx",
+      "route": "/signup",
+      "symbols": [
+        "SignupPage"
+      ],
+      "screenshots": [
+        "003"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/calendar/page.tsx",
+      "route": "/calendar",
+      "symbols": [
+        "Calendar",
+        "CalendarContent"
+      ],
+      "screenshots": [
+        "005",
+        "021",
+        "022",
+        "023",
+        "024"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/docs/[id]/page.tsx",
+      "route": "/docs/[id]",
+      "symbols": [
+        "DocPage",
+        "DocView",
+        "ICON"
+      ],
+      "screenshots": [
+        "080",
+        "104"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/docs/page.tsx",
+      "route": "/docs",
+      "symbols": [
+        "DocsPage"
+      ],
+      "screenshots": [
+        "010",
+        "018"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/inbox/page.tsx",
+      "route": "/inbox",
+      "symbols": [
+        "InboxPage"
+      ],
+      "screenshots": [
+        "007",
+        "015",
+        "068"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/notifications/page.tsx",
+      "route": "/notifications",
+      "symbols": [
+        "NotificationsPage"
+      ],
+      "screenshots": [
+        "013",
+        "115",
+        "116",
+        "185"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/projects/[id]/page.tsx",
+      "route": "/projects/[id]",
+      "symbols": [
+        "Fact",
+        "ProjectActivityFeed",
+        "ProjectDetailPage",
+        "ProjectHub"
+      ],
+      "screenshots": [
+        "070",
+        "071",
+        "072",
+        "073"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/projects/page.tsx",
+      "route": "/projects",
+      "symbols": [
+        "ProgressBar",
+        "ProjectCard",
+        "ProjectsPage"
+      ],
+      "screenshots": [
+        "009",
+        "017"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/report/page.tsx",
+      "route": "/report",
+      "symbols": [
+        "DeadlineRow",
+        "EmptyState",
+        "FromIcon",
+        "Icon",
+        "KIND",
+        "PRIORITY",
+        "ReportPage",
+        "SectionHeader",
+        "ToIcon"
+      ],
+      "screenshots": [
+        "012",
+        "020",
+        "184"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/settings/page.tsx",
+      "route": "/settings",
+      "symbols": [
+        "DataAndAppearance",
+        "SettingsContent",
+        "SettingsPage",
+        "TABS"
+      ],
+      "screenshots": [
+        "040",
+        "041",
+        "042",
+        "043",
+        "044",
+        "045"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/sheets/[id]/page.tsx",
+      "route": "/sheets/[id]",
+      "symbols": [
+        "ICON",
+        "SheetPage",
+        "SheetView"
+      ],
+      "screenshots": [
+        "086"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/sheets/page.tsx",
+      "route": "/sheets",
+      "symbols": [
+        "SheetCard",
+        "SheetsPage"
+      ],
+      "screenshots": [
+        "011",
+        "019"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/tasks/page.tsx",
+      "route": "/tasks",
+      "symbols": [
+        "PROJECT",
+        "TaskHeader",
+        "TaskNavigationBar",
+        "Tasks",
+        "TasksPage"
+      ],
+      "screenshots": [
+        "008",
+        "016",
+        "046",
+        "047",
+        "056"
+      ]
+    },
+    {
+      "source": "apps/web/app/(pages)/(nav_pages)/today/page.tsx",
+      "route": "/today",
+      "symbols": [
+        "TodayPage"
+      ],
+      "screenshots": [
+        "006",
+        "014"
+      ]
+    },
+    {
+      "source": "apps/web/app/page.tsx",
+      "route": "/",
+      "symbols": [
+        "Home"
+      ],
+      "screenshots": [
+        "000"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "source": "apps/web/app/_components/_layout/clientRuntime.tsx",
+      "symbols": [
+        "ClientRuntime",
+        "PreferencesContext"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "102",
+        "120"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_layout/sidebar.tsx",
+      "symbols": [
+        "Sidebar"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "170",
+        "030"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/colorChip.tsx",
+      "symbols": [
+        "ColorChip"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "016",
+        "070"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/colorPicker.tsx",
+      "symbols": [
+        "ColorPicker"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "074"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/confirmDialog.tsx",
+      "symbols": [
+        "ConfirmDialog"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "064"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/customFieldControl.tsx",
+      "symbols": [
+        "CustomFieldControl"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "181",
+        "182"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/datePicker.tsx",
+      "symbols": [
+        "DateField",
+        "DatePicker",
+        "DateTimeField",
+        "TimeField",
+        "TimeStepper",
+        "TriggerIcon",
+        "WheelColumn"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "026"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/emptyState.tsx",
+      "symbols": [
+        "EmptyState"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "006",
+        "009",
+        "013"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/keyboardShortcuts.tsx",
+      "symbols": [
+        "KeyboardShortcuts"
+      ],
+      "status": "Nonvisual behavior; related UI shown",
+      "screenshots": [
+        "037",
+        "031"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/labelPicker.tsx",
+      "symbols": [
+        "LabelPicker"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "063",
+        "112"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/loadError.tsx",
+      "symbols": [
+        "LoadError",
+        "LoadErrorBanner",
+        "QueryFailure"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "108",
+        "109"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/modal/addItem.tsx",
+      "symbols": [
+        "AddItemModal",
+        "CreateAction"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "031",
+        "032",
+        "033",
+        "034",
+        "035",
+        "036",
+        "110",
+        "176"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/modal/entityModal.tsx",
+      "symbols": [
+        "EntityModalShell",
+        "ModalMain",
+        "ModalSidebar",
+        "PropertyRow",
+        "SidebarSectionTitle"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "057",
+        "176"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/modal/search.tsx",
+      "symbols": [
+        "KindBadge",
+        "SearchModal",
+        "SearchPanel"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "037",
+        "038",
+        "039"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/recurrenceEditor.tsx",
+      "symbols": [
+        "Field",
+        "MonthDayGrid",
+        "Radio",
+        "RecurrenceEditor"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "059",
+        "060",
+        "061"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/saveStatus.tsx",
+      "symbols": [
+        "SaveStatusBadge"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "083",
+        "106"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/select.tsx",
+      "symbols": [
+        "Select"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "058",
+        "079",
+        "182"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/sidebarButton.tsx",
+      "symbols": [
+        "SidebarButton",
+        "SidebarButtonIcon",
+        "UnreadBadge"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "170",
+        "115"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/bulkActionBar.tsx",
+      "symbols": [
+        "BulkActionBar"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "053",
+        "186"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/entityDetailHost.tsx",
+      "symbols": [
+        "EntityDetailHost"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "068"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/entityDetailPanel.tsx",
+      "symbols": [
+        "DetailBody",
+        "EntityDetailPanel",
+        "PanelShell",
+        "ProjectDetail",
+        "ProjectTaskLink",
+        "TaskActivityFeed",
+        "TaskActivityItem",
+        "TaskDetail"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "056",
+        "057",
+        "062",
+        "063",
+        "068",
+        "069",
+        "177",
+        "181"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/ganttView.tsx",
+      "symbols": [
+        "GanttView"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "047"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/kanbanView.tsx",
+      "symbols": [
+        "KanbanView"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "046"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/projectTaskList.tsx",
+      "symbols": [
+        "ProjectTaskList"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "071"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/taskExecution.tsx",
+      "symbols": [
+        "TaskExecution"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "062",
+        "065"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/taskScheduleSection.tsx",
+      "symbols": [
+        "TaskScheduleSection"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "059",
+        "061",
+        "063"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/taskToolbar.tsx",
+      "symbols": [
+        "TaskListStatusBar",
+        "TaskOptionsBar",
+        "TaskToolbar"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "049",
+        "050",
+        "051",
+        "052"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/taskTypeToggle.tsx",
+      "symbols": [
+        "TaskTypeToggle"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "031",
+        "069"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/tasks/tasktable.tsx",
+      "symbols": [
+        "TasksTable"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "016",
+        "048"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/timezoneSelect.tsx",
+      "symbols": [
+        "TimezoneSelect"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "041",
+        "042"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/toastHost.tsx",
+      "symbols": [
+        "ToastHost"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "066",
+        "186"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/_ui/workspaceQuickCreate.tsx",
+      "symbols": [
+        "CreateCustomFieldInline",
+        "CreateLabelInline"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "111",
+        "112"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/agendaView.tsx",
+      "symbols": [
+        "AgendaRow",
+        "AgendaView"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "024"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/autoScheduleDialog.tsx",
+      "symbols": [
+        "AutoScheduleDialog",
+        "AutoSchedulePanel"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "028",
+        "114",
+        "163"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/autoScheduleIndicator.tsx",
+      "symbols": [
+        "AutoScheduleIndicator"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "164"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/dayView.tsx",
+      "symbols": [
+        "DayView"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "023"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/eventDialog.tsx",
+      "symbols": [
+        "DialogFrame",
+        "EventDialog",
+        "EventPanel",
+        "ScopePicker",
+        "TaskBlockPanel",
+        "TaskDetails",
+        "TaskOccurrencePanel",
+        "TimeFields"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "029"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/monthView.tsx",
+      "symbols": [
+        "MonthView"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "021"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/scheduleDialog.tsx",
+      "symbols": [
+        "ScheduleDialog",
+        "ScheduleDialogPanel"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "025",
+        "027"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/timeGrid.tsx",
+      "symbols": [
+        "HourLines",
+        "TimeGrid"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "022",
+        "023"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/waitingForSlotRail.tsx",
+      "symbols": [
+        "WaitingForSlotRail"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "021",
+        "024"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/calendarView/weekView.tsx",
+      "symbols": [
+        "WeekView"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "022"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/docs/docList.tsx",
+      "symbols": [
+        "DocList"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "018",
+        "080",
+        "118"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/autoCapitalize.ts",
+      "symbols": [
+        "AutoCapitalize"
+      ],
+      "status": "Nonvisual behavior; related UI shown",
+      "screenshots": [
+        "080"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/caretPopup.ts",
+      "symbols": [],
+      "status": "Nonvisual behavior; related UI shown",
+      "screenshots": [
+        "082",
+        "083"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/codeBlockView.tsx",
+      "symbols": [
+        "CodeBlockView"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "106"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/codeHighlight.ts",
+      "symbols": [
+        "CodeHighlight"
+      ],
+      "status": "Nonvisual behavior; related UI shown",
+      "screenshots": [
+        "106"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/dismissSuggestion.ts",
+      "symbols": [],
+      "status": "Nonvisual behavior; related UI shown",
+      "screenshots": [
+        "082"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/dotBullet.ts",
+      "symbols": [
+        "DotBulletShortcut"
+      ],
+      "status": "Nonvisual behavior; related UI shown",
+      "screenshots": [
+        "080"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/mention.ts",
+      "symbols": [
+        "Mention",
+        "MentionPluginKey"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "183"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/mentionMenu.tsx",
+      "symbols": [
+        "Icon",
+        "MentionMenuList"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "083"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/richTextEditor.tsx",
+      "symbols": [
+        "Icon",
+        "RichTextEditor"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "080",
+        "082",
+        "083",
+        "105",
+        "106",
+        "107",
+        "179"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/slashCommand.ts",
+      "symbols": [
+        "SlashCommand",
+        "SlashCommandPluginKey"
+      ],
+      "status": "Nonvisual behavior; related UI shown",
+      "screenshots": [
+        "082"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/editor/slashMenu.tsx",
+      "symbols": [
+        "Icon",
+        "SlashMenuList"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "082"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/projects/stageBoard.tsx",
+      "symbols": [
+        "StageBoard"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "072"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/projects/stageCatalog.tsx",
+      "symbols": [
+        "StageCatalog"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "072",
+        "117"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/settings/accountSettings.tsx",
+      "symbols": [
+        "AccountSettings",
+        "AccountSettingsForm",
+        "DeviceSessions"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "040"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/settings/apiKeysSettings.tsx",
+      "symbols": [
+        "ApiKeysSettings"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "045",
+        "100"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/settings/customFieldEditor.tsx",
+      "symbols": [
+        "CustomFieldEditor",
+        "OptionList"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "077",
+        "078",
+        "079"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/settings/dataSettings.tsx",
+      "symbols": [
+        "DataSettings",
+        "ExportButton"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "044",
+        "101"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/settings/namedColorEditor.tsx",
+      "symbols": [
+        "NamedColorEditor"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "075",
+        "076"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/settings/notificationSettings.tsx",
+      "symbols": [
+        "FailedJobsPanel",
+        "NotificationSettingsForm",
+        "NotificationSettingsPanel"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "042"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/settings/workingHoursSettings.tsx",
+      "symbols": [
+        "EngineSettingsForm",
+        "EngineSettingsPanel",
+        "WorkingHoursForm",
+        "WorkingHoursSettings"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "041",
+        "178"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/settings/workspaceSettings.tsx",
+      "symbols": [
+        "WorkspaceEditor",
+        "WorkspaceSettings"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "043",
+        "074",
+        "075",
+        "076",
+        "077"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/sheets/sheetGrid.tsx",
+      "symbols": [
+        "SheetGrid"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "086",
+        "087",
+        "088",
+        "089",
+        "090",
+        "091",
+        "092",
+        "093",
+        "094",
+        "095",
+        "096",
+        "097",
+        "098",
+        "119",
+        "180"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/sheets/sheetList.tsx",
+      "symbols": [
+        "SheetList"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "019",
+        "086"
+      ]
+    },
+    {
+      "source": "apps/web/app/_components/today/todayDashboard.tsx",
+      "symbols": [
+        "AgendaRow",
+        "AgendaTimeline",
+        "FocusTaskRow",
+        "Metric",
+        "SectionHeading",
+        "StarGlyph",
+        "StarPicker",
+        "TodayDashboard"
+      ],
+      "status": "Rendered in linked captures",
+      "screenshots": [
+        "006",
+        "014",
+        "065",
+        "066",
+        "067",
+        "171",
+        "172",
+        "173",
+        "174",
+        "175"
+      ]
+    }
+  ]
+}

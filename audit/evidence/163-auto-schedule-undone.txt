@@ -1,0 +1,170 @@
+Skip to content
+
+2
+Calendar
+September 2026
+Today
+Auto-schedule
+Add
+Day
+Week
+Month
+Agenda
+Events
+No status
+Todo
+14 on calendar
+Sun
+Mon
+Tue
+Wed
+Thu
+Fri
+Sat
+30
+31
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+Design review
+Screenshot audit reminder
+Send design review notes
+16
+Review design proposal
+Prepare component library
+Publish approved guidelines
++3 more
+17
+Daily design check-in
+18
+Daily design check-in
+19
+20
+21
+Daily design check-in
+Daily design check-in
+Daily design check-in
+22
+23
+24
+25
+26
+27
+28
+29
+30
+1
+2
+3
+Auto-schedule
+
+Open work is placed into working hours around events, pins, and freeze. Nothing is saved until you apply.
+
+Also move blocks I placed by hand
+Tue, Sep 15, 11:40 PM – Tue, Sep 29, 11:40 PM
+6h 15m planned of 80h free
+Capacity by day
+11 changes
+Review design proposal
+Unchanged
+Prepare component library
+Unchanged
+Publish approved guidelines
+Unchanged
+UI creation smoke check
+Unchanged
+Daily design check-in
+Move Daily design check-in
+Daily design check-in
+Move Daily design check-in
+Daily design check-in
+Move Daily design check-in
+Daily design check-in
+Move Daily design check-in
+Daily design check-in
+Move Daily design check-in
+Daily design check-in
+Move Daily design check-in
+Review navigation labels
+Move Review navigation labels
+Review design proposal
+1 block · 1h of 1h
+Wed, Sep 16, 9:00 AM – 10:00 AM
+
+due in 3 days, medium priority
+
+Prepare component library
+1 block · 1h 15m of 1h 15m
+Wed, Sep 16, 10:05 AM – 11:20 AM
+
+due in 7 days
+
+Publish approved guidelines
+1 block · 1h 30m of 1h 30m
+Wed, Sep 16, 11:25 AM – 12:55 PM
+
+medium priority
+
+UI creation smoke check
+1 block · 30m of 30m
+Wed, Sep 16, 1:00 PM – 1:30 PM
+
+medium priority
+
+Daily design check-in
+1 block · 15m of 15m
+Wed, Sep 16, 1:35 PM – 1:50 PM
+
+open work
+
+Daily design check-in
+1 block · 15m of 15m
+Thu, Sep 17, 9:00 AM – 9:15 AM
+
+open work
+
+Daily design check-in
+1 block · 15m of 15m
+Fri, Sep 18, 9:00 AM – 9:15 AM
+
+open work
+
+Daily design check-in
+1 block · 15m of 15m
+Mon, Sep 21, 9:00 AM – 9:15 AM
+
+open work
+
+Daily design check-in
+1 block · 15m of 15m
+Mon, Sep 21, 9:20 AM – 9:35 AM
+
+open work
+
+Daily design check-in
+1 block · 15m of 15m
+Mon, Sep 21, 9:40 AM – 9:55 AM
+
+open work
+
+Review navigation labels
+1 block · 30m of 30m
+Wed, Sep 16, 1:55 PM – 2:25 PM
+
+open work
+
+2 not placed
+Cancel
+Apply schedule

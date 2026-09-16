@@ -1,0 +1,72 @@
+Skip to content
+
+Calendar
+Sep 15 – 21, 2026
+Today
+Auto-schedule
+4
+Add
+Day
+Week
+Month
+Agenda
+Events
+No status
+2 on calendar · 4 waiting
+Overdue
+Due Yesterday
+
+Audit existing screens
+
+Todo · Website redesign
+
+30m
+Today
+2:00 PM – 3:00 PM
+
+Design review
+
+Event
+
+1h
+Waiting for a slot
+4
+
+Audit existing screens
+
+30m · due Sep 14
+
+Schedule this
+
+Review design proposal
+
+1h · due Sep 18
+
+Schedule this
+
+Prepare component library
+
+1h 15m · due Sep 22
+
+Schedule this
+
+Publish approved guidelines
+
+1h 30m · due Sep 25
+
+Schedule this
+Add to calendar
+
+Place a task by hand, or create an event that blocks the time.
+
+Schedule a task
+New event
+Title
+When
+Sep 15, 2026, 9:00 AM
+Duration (30m)
+All day
+Repeat
+Does not repeat
+Cancel
+Create event

@@ -1,0 +1,86 @@
+Skip to content
+
+Docs
+Redesign brief
+
+36 words
+
+Redesign brief
+
+A focused workspace for planning, writing, and reviewing work.
+
+Design principles
+
+Clear visual hierarchy
+
+Consistent controls
+
+Useful empty states
+
+Next steps: review the screenshot gallery and group components.
+
+
+
+
+
+
+
+	
+
+
+
+
+	
+
+
+
+
+
+
+
+
+
+
+plain
+typescript
+javascript
+tsx
+jsx
+python
+go
+rust
+json
+css
+html
+bash
+sql
+markdown
+Copy
+Const audit = "Every screen matters";
+	
+
+
+
+
+	
+
+
+
+
+
+
+
+
+
+
+	
+
+
+
+
+	
+
+
+
+
+

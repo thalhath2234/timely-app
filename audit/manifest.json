@@ -1,0 +1,2446 @@
+[
+  {
+    "id": "000-landing",
+    "file": "screenshots/000-landing.png",
+    "url": "/",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:37:35.663Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1012
+    },
+    "sha256": "aa4d55ef0d4dbeda1d0a0094c0f4e14397bf65938a5cccebd7d3c28cb9fddc3e"
+  },
+  {
+    "id": "001-login",
+    "file": "screenshots/001-login.png",
+    "url": "/login",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:35:13.904Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "4c9968342e89ed72ccd0d489964aff915fc9dda8a61017437c2f6a20d0224918"
+  },
+  {
+    "id": "002-login-validation",
+    "file": "screenshots/002-login-validation.png",
+    "url": "/login",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:35:14.340Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "81a5c88dc1d83c112d5b203e9ed2350bef7953da37abbfa500089d9d37f629a8"
+  },
+  {
+    "id": "003-signup",
+    "file": "screenshots/003-signup.png",
+    "url": "/signup",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:35:18.304Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "a503bc8b2a73207bb4dd572ec069616ddf1e9f0c8fed821213c0b4e05e73ea0a"
+  },
+  {
+    "id": "004-onboarding",
+    "file": "screenshots/004-onboarding.png",
+    "url": "/onboarding",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:35:21.216Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "dd6032b29ae6e3d2697dcf67331e4c2ed5ba7714be019d17d8ca0aca82b7cfc9"
+  },
+  {
+    "id": "005-calendar-empty",
+    "file": "screenshots/005-calendar-empty.png",
+    "url": "/calendar",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:35:44.320Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "ccc396cd7fb4a8414626e9c987eef0e5e5bc21983cc61d3134a645d8df3c6d93"
+  },
+  {
+    "id": "006-today-empty",
+    "file": "screenshots/006-today-empty.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:35:48.709Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "3b9af980b1e74fa7ef4f3d588f3af94c9b051230d7ab3a085657c6463a5c89b7"
+  },
+  {
+    "id": "007-inbox-empty",
+    "file": "screenshots/007-inbox-empty.png",
+    "url": "/inbox",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:35:52.682Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "eef87737bbd5b447a9b80ae9a760c8e8a3f520a2ba679238b19b3cf01983831b"
+  },
+  {
+    "id": "008-tasks-empty",
+    "file": "screenshots/008-tasks-empty.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:35:59.787Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "61c4326fd56a5008c15c1eb4d52515b34cc776a76f084dfff0640155552de351"
+  },
+  {
+    "id": "009-projects-empty",
+    "file": "screenshots/009-projects-empty.png",
+    "url": "/projects",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:36:05.729Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "bb21a0d88056f28b42a64f8cb19b38d2f51eba28128943d29418da1763ca09b6"
+  },
+  {
+    "id": "010-docs-empty",
+    "file": "screenshots/010-docs-empty.png",
+    "url": "/docs",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:36:10.302Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "8d73e3da2d8588ef49ed918d098ecfaabd6e9aeb693f5db3910a1f828e73bc37"
+  },
+  {
+    "id": "011-sheets-empty",
+    "file": "screenshots/011-sheets-empty.png",
+    "url": "/sheets",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:36:14.977Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "e98d9bd105c444e30d4ffa490cc047ab26664b523877019c5beb449f542bbb1a"
+  },
+  {
+    "id": "012-report-empty",
+    "file": "screenshots/012-report-empty.png",
+    "url": "/report",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:36:22.583Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "de43fbe49da766a1c74fc785b00cb00c1d53ad2c48293a37fc798bb3c1a604c5"
+  },
+  {
+    "id": "013-notifications-empty",
+    "file": "screenshots/013-notifications-empty.png",
+    "url": "/notifications",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:36:28.918Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "bff6583960beb37945a222e2b5da833f03c3d942d2fe9012e67e635b4bd804b2"
+  },
+  {
+    "id": "014-today-populated",
+    "file": "screenshots/014-today-populated.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:37:46.221Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "6ffaa2d3618416eb92228c5583a0a583f6a2c17050f984473e5d8ddb23e9d9fa"
+  },
+  {
+    "id": "015-inbox-populated",
+    "file": "screenshots/015-inbox-populated.png",
+    "url": "/inbox",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:37:48.900Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "cb4e8639bce34736c054da66e03f74859ad8436c087df7714099381fcb84fbeb"
+  },
+  {
+    "id": "016-tasks-populated",
+    "file": "screenshots/016-tasks-populated.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:37:51.657Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "d3be6e1874d0d4c66d84223e100f8517a17c759892a3d61c5d5db8533856409d"
+  },
+  {
+    "id": "017-projects-populated",
+    "file": "screenshots/017-projects-populated.png",
+    "url": "/projects",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:37:54.414Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "25a5ba08409baa05f6ca253b85a3c95417d843b246ae2d6a93af550ad3be0422"
+  },
+  {
+    "id": "018-docs-populated",
+    "file": "screenshots/018-docs-populated.png",
+    "url": "/docs",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:37:57.237Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "05154489d21c6867b164f72e0b1746f005a939bffc3b36b9d07740051f4f4710"
+  },
+  {
+    "id": "019-sheets-populated",
+    "file": "screenshots/019-sheets-populated.png",
+    "url": "/sheets",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:37:59.941Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "3d0af88af084b73b3f06759b07dad5a98940fd306fd5d336a6d8c3d1718e7499"
+  },
+  {
+    "id": "020-report-populated",
+    "file": "screenshots/020-report-populated.png",
+    "url": "/report",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:38:02.696Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "3f950a61918fb7ab46cfad8c0a09f0cd56970dc253571af0a653e67144d3bd62"
+  },
+  {
+    "id": "021-calendar-month",
+    "file": "screenshots/021-calendar-month.png",
+    "url": "/calendar?view=month",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:38:06.181Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "4b5302b91138f92972781bb6c96fc2f6843b2b7a35a319dd9f3b6442464e3e4f"
+  },
+  {
+    "id": "022-calendar-week",
+    "file": "screenshots/022-calendar-week.png",
+    "url": "/calendar?view=week",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:38:07.209Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "4881cc9c6e6f791a202265929b9a6756d369f9123702cff75354d05456e34bfe"
+  },
+  {
+    "id": "023-calendar-day",
+    "file": "screenshots/023-calendar-day.png",
+    "url": "/calendar?view=day",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:38:08.268Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "ebd5841dad2dc192e039686b77fd126504882ad116da1ddefd40630bf353fb21"
+  },
+  {
+    "id": "024-calendar-agenda",
+    "file": "screenshots/024-calendar-agenda.png",
+    "url": "/calendar?view=agenda",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:38:09.270Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "c9b2861eab7f72da36aa7cb000862e10e0124d64215251578d23312f388f2161"
+  },
+  {
+    "id": "025-calendar-add",
+    "file": "screenshots/025-calendar-add.png",
+    "url": "/calendar?view=agenda",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:38:09.911Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "3952aeee1748fd04cb7054fd0998e6eb9accda80195162ba030366d5fe283e1f"
+  },
+  {
+    "id": "026-date-time-picker",
+    "file": "screenshots/026-date-time-picker.png",
+    "url": "/calendar?view=agenda",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:39:01.400Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "ead715feb0d95cabae04879646a1fcdb758cb43eb8cf5576c81d0fccb1b453b9"
+  },
+  {
+    "id": "027-calendar-new-event",
+    "file": "screenshots/027-calendar-new-event.png",
+    "url": "/calendar?view=agenda",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:39:47.097Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "40c7959abc1877c90ae138c81189fdc4e15fd17084b1118024b8c28d6fb5a942"
+  },
+  {
+    "id": "028-auto-schedule-preview",
+    "file": "screenshots/028-auto-schedule-preview.png",
+    "url": "/calendar?view=agenda",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:39:49.482Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "6b33137cb718c0f8a69ba48a978daa35f811a7cc8350668b521d1db132fc516f"
+  },
+  {
+    "id": "029-event-detail",
+    "file": "screenshots/029-event-detail.png",
+    "url": "/calendar?view=agenda",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:39:50.690Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "c7495edd1e648f1f686b366fa462f48616ad6a3cf913a444607f56bc22fdb7df"
+  },
+  {
+    "id": "030-global-add-menu",
+    "file": "screenshots/030-global-add-menu.png",
+    "url": "/calendar?view=agenda",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:39:51.705Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "335899ec6eab2049d430911bbff2c118f7fc61fe0843718f2fe1c5a603e8f221"
+  },
+  {
+    "id": "031-create-task",
+    "file": "screenshots/031-create-task.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:39:55.524Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "b800843c26532c7f35378b6f9d7f32367f26cbf6d10259bed7a091afe139f1c6"
+  },
+  {
+    "id": "032-create-event",
+    "file": "screenshots/032-create-event.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:39:56.854Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "11a732bac644e35d1d6500dc002bcb0b0d84048de508e3af73fcb2395517fd26"
+  },
+  {
+    "id": "033-create-workspace",
+    "file": "screenshots/033-create-workspace.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:39:58.144Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "2110db0f85e06fb0109ded8b4c4c871a309079bd142e90518f601cc6b716caa9"
+  },
+  {
+    "id": "034-create-project",
+    "file": "screenshots/034-create-project.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:39:59.533Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "e32fb97f8a8875df323c99cc1e23e6c1bd38a0826adf4bb79bb2dd84da5cad11"
+  },
+  {
+    "id": "035-create-doc",
+    "file": "screenshots/035-create-doc.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:00.836Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "bd68f91479319017eebae3450aa54634afbb3f4a0d88dde51043d395ac6edb0d"
+  },
+  {
+    "id": "036-create-sheet",
+    "file": "screenshots/036-create-sheet.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:02.048Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "4ca30c216b9bd39e9a32fb183e67249b36dd1f9e1e5324d9a126f13c5194f69d"
+  },
+  {
+    "id": "037-search-empty",
+    "file": "screenshots/037-search-empty.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:03.067Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "a284a3bd8a8c7e046d615b22a2798c5701ad484928a06577e2eb929aed9d7323"
+  },
+  {
+    "id": "038-search-results",
+    "file": "screenshots/038-search-results.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:56.346Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "af19335c38df4cb5d50d903beb09ed7f55a5fdc1b2f5361eeeddaed081b154f7"
+  },
+  {
+    "id": "039-search-no-results",
+    "file": "screenshots/039-search-no-results.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:57.834Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "c41d2dcf6ec7f431f64129582756245e107fcfac301af86757539ba1755a5e8b"
+  },
+  {
+    "id": "040-settings-account",
+    "file": "screenshots/040-settings-account.png",
+    "url": "/settings?tab=account",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:16.964Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "898078710446a59e29db5f040d62a4c0d8a5ad05adeae97016de32a35c9a7149"
+  },
+  {
+    "id": "040-settings-account-lower",
+    "file": "screenshots/040-settings-account-lower.png",
+    "url": "/settings?tab=account",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:17.323Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "898078710446a59e29db5f040d62a4c0d8a5ad05adeae97016de32a35c9a7149"
+  },
+  {
+    "id": "041-settings-schedule",
+    "file": "screenshots/041-settings-schedule.png",
+    "url": "/settings?tab=schedule",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:20.027Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "d5800b9e21ae0efc2effc57b1c706eae3fb5de3381c755bbc32ca43a24a515ac"
+  },
+  {
+    "id": "041-settings-schedule-lower",
+    "file": "screenshots/041-settings-schedule-lower.png",
+    "url": "/settings?tab=schedule",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:20.395Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "325e0d14e3ec0702999199b4a8c2ff03eaa4433d7e3471bff9a69db71be8f43f"
+  },
+  {
+    "id": "042-settings-notifications",
+    "file": "screenshots/042-settings-notifications.png",
+    "url": "/settings?tab=notifications",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:23.120Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f90a9393b5e9e66a7fbe0df88ec21df1186cdbf6d2c316f3af49c83367f306ac"
+  },
+  {
+    "id": "042-settings-notifications-lower",
+    "file": "screenshots/042-settings-notifications-lower.png",
+    "url": "/settings?tab=notifications",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:23.496Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f90a9393b5e9e66a7fbe0df88ec21df1186cdbf6d2c316f3af49c83367f306ac"
+  },
+  {
+    "id": "043-settings-workspaces",
+    "file": "screenshots/043-settings-workspaces.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:26.256Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "23e2cff2feec98301ca6c4ed6c97245709fd3b92916c0ea5fa51325c2fa8fbb2"
+  },
+  {
+    "id": "043-settings-workspaces-lower",
+    "file": "screenshots/043-settings-workspaces-lower.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:26.618Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "23e2cff2feec98301ca6c4ed6c97245709fd3b92916c0ea5fa51325c2fa8fbb2"
+  },
+  {
+    "id": "044-settings-data",
+    "file": "screenshots/044-settings-data.png",
+    "url": "/settings?tab=data",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:29.616Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "5ddab0ef19ae96559558377be8b7d9c7d63b33269b68eae366270eeadebe95e0"
+  },
+  {
+    "id": "044-settings-data-lower",
+    "file": "screenshots/044-settings-data-lower.png",
+    "url": "/settings?tab=data",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:29.978Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "5ddab0ef19ae96559558377be8b7d9c7d63b33269b68eae366270eeadebe95e0"
+  },
+  {
+    "id": "045-settings-integrations",
+    "file": "screenshots/045-settings-integrations.png",
+    "url": "/settings?tab=integrations",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:32.685Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "e4527f1ba66e4c5398432a20c1a5eb6fbab3600c70868a78e1b739cbf5d797f3"
+  },
+  {
+    "id": "045-settings-integrations-lower",
+    "file": "screenshots/045-settings-integrations-lower.png",
+    "url": "/settings?tab=integrations",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:33.047Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "e4527f1ba66e4c5398432a20c1a5eb6fbab3600c70868a78e1b739cbf5d797f3"
+  },
+  {
+    "id": "046-tasks-kanban",
+    "file": "screenshots/046-tasks-kanban.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:58.785Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "1b90d0af2da3be582f6c49ac76e674a9ea5a56e39e4c2da6ade5ce1b42f574f0"
+  },
+  {
+    "id": "047-tasks-gantt",
+    "file": "screenshots/047-tasks-gantt.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:59.217Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "5ced24a83a62472c3dd34c95de89f1125c150cc16c6f4768ecb33edf02eb1735"
+  },
+  {
+    "id": "048-tasks-list",
+    "file": "screenshots/048-tasks-list.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:40:59.746Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "64904227a81fc261da2377b534623a4e552183a27b27bb4dfa423d82e5cb46c8"
+  },
+  {
+    "id": "049-task-group-menu",
+    "file": "screenshots/049-task-group-menu.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:00.159Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "817c1f92ff8eea490b0cb79733536ce2b98b7a2a207f1260ad2d8262a7842384"
+  },
+  {
+    "id": "050-task-group-sort",
+    "file": "screenshots/050-task-group-sort.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:00.668Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "35a661b1da0ccceff580cead0ae9adbee475b3abb2db6786a0c651a42ee1b2fa"
+  },
+  {
+    "id": "051-task-status-filter",
+    "file": "screenshots/051-task-status-filter.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:01.184Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "e8fe1158c51526dd18ffe3f22611a9a458336af3db467e6d65eb7938b7c4c507"
+  },
+  {
+    "id": "052-task-workspace-filter",
+    "file": "screenshots/052-task-workspace-filter.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:01.634Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "39cd9fda570584451b877605f42fd4a82d56133ac9070813a15b48711ba77e9b"
+  },
+  {
+    "id": "053-task-bulk-actions",
+    "file": "screenshots/053-task-bulk-actions.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:02.141Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "62c69006b543662baf9cb07a24bbe4109831f0c3b8d80fdcd691a7f76b527cd5"
+  },
+  {
+    "id": "054-task-new-view",
+    "file": "screenshots/054-task-new-view.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:02.735Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f39158241ab7843436eb86bfee8abaafbae9f8c27c95ae5cdd8023f7f04614e3"
+  },
+  {
+    "id": "055-task-rename-view",
+    "file": "screenshots/055-task-rename-view.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:03.136Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "2099212af4864e66ebaabaf2a3cefe32dc8e1c379a1870119341a5f4d9ea54cb"
+  },
+  {
+    "id": "056-task-detail",
+    "file": "screenshots/056-task-detail.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:06.063Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "55534f3c89d23039c9e5b3868690916498592178d0863b698bbb217e001ba024"
+  },
+  {
+    "id": "057-task-detail-component",
+    "file": "screenshots/057-task-detail-component.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T11:41:23.373Z",
+    "imageDimensions": {
+      "width": 1152,
+      "height": 942
+    },
+    "sha256": "592d2ea98472877a819ba1817f4e785555b471cc64eedb3c338acb59dca47417"
+  },
+  {
+    "id": "058-status-select",
+    "file": "screenshots/058-status-select.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:24.411Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "a125cf7867355f977c94cbd952085b2d570b3fcf912470b98f28dd215b277b1c"
+  },
+  {
+    "id": "059-recurrence-options",
+    "file": "screenshots/059-recurrence-options.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:27.791Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "7a9779b243dc4fac98ec615b4d9f7145b1ddf929bcc16006b22b6ec511122e12"
+  },
+  {
+    "id": "060-recurrence-custom",
+    "file": "screenshots/060-recurrence-custom.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:49.345Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "59a5c41c0535841edffbf259857155587cf477e6be135cad2b210e185591ceb7"
+  },
+  {
+    "id": "061-recurrence-custom-lower",
+    "file": "screenshots/061-recurrence-custom-lower.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:50.099Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "fb676341516adcc7bd1f2bb86034aa37e659549540e9b9f63bd7ce780de5aab1"
+  },
+  {
+    "id": "062-task-checklist-subtask-activity",
+    "file": "screenshots/062-task-checklist-subtask-activity.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:55.622Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "08e5ce20695f6cc44e87cb5c810744367c135e56e486f267533b556caaaf933c"
+  },
+  {
+    "id": "063-task-schedule-custom-fields",
+    "file": "screenshots/063-task-schedule-custom-fields.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:41:56.178Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "9b5261656672f23a9a561e40562a06ad03a6797fe83936480c09e833c9159626"
+  },
+  {
+    "id": "064-delete-confirmation",
+    "file": "screenshots/064-delete-confirmation.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T11:41:56.751Z",
+    "imageDimensions": {
+      "width": 384,
+      "height": 140
+    },
+    "sha256": "23f536762a0ed34521a225d7013ca4da3e2ab678ae21f031c204039f6c22dd88"
+  },
+  {
+    "id": "065-focus-running",
+    "file": "screenshots/065-focus-running.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:42:00.905Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "de82c78542d02012d5f8d62945b7dc13a0093c401e3a2f0006a83df1e0cbbbfc"
+  },
+  {
+    "id": "066-evening-shutdown",
+    "file": "screenshots/066-evening-shutdown.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:42:21.897Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f3943f7218f1484d6cd77d926c31483f1882b74bbffe4017b87f87e14020d343"
+  },
+  {
+    "id": "067-today-focus-picker",
+    "file": "screenshots/067-today-focus-picker.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:42:22.858Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "ae3f19a53f28d992feab3dcf71a49cffd10b359f92b20568ed04ef8e7d403e3c"
+  },
+  {
+    "id": "068-inbox-review",
+    "file": "screenshots/068-inbox-review.png",
+    "url": "/inbox",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:45:41.772Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "7fce0f71eb73c41cd3961ac780fc8c813a7685b985bd99152a2b5964487a96d2"
+  },
+  {
+    "id": "069-reminder-detail",
+    "file": "screenshots/069-reminder-detail.png",
+    "url": "/tasks?taskId=tsk_12b1e3dd-da29-480d-820f-72307c03984f",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:45:44.790Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "8d50236aa9d3b59440885d56968b0215606124e8aeb6bafe5e1614d3fe447f4a"
+  },
+  {
+    "id": "070-project-overview",
+    "file": "screenshots/070-project-overview.png",
+    "url": "/projects/pr_00efce70-2580-46f7-a514-b2e3012f9147",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:42:54.998Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "790dc7b7ee6dc2cf9c80bf74a1267edba17e08548a0b4f0c295a8a4986600927"
+  },
+  {
+    "id": "071-project-tasks",
+    "file": "screenshots/071-project-tasks.png",
+    "url": "/projects/pr_00efce70-2580-46f7-a514-b2e3012f9147",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:42:55.410Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "90c7cdb04dbc5e42e151a9aa06acc54a1639a60381b374e191f3591e6981bee1"
+  },
+  {
+    "id": "072-project-stages",
+    "file": "screenshots/072-project-stages.png",
+    "url": "/projects/pr_00efce70-2580-46f7-a514-b2e3012f9147",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:42:55.834Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "49f997111d462d783592397349cd527da416076a95cd7606f70654b5833c16f9"
+  },
+  {
+    "id": "073-project-activity",
+    "file": "screenshots/073-project-activity.png",
+    "url": "/projects/pr_00efce70-2580-46f7-a514-b2e3012f9147",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:42:56.270Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "a942b36da92564bfbcc585e06f994a0fa1a929a64b57bf3896029afaef2a777e"
+  },
+  {
+    "id": "074-color-picker",
+    "file": "screenshots/074-color-picker.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:14.093Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "9622a422a02cf505590894358da9d2a7e008a578269a03564844b74cda983820"
+  },
+  {
+    "id": "075-workspace-status",
+    "file": "screenshots/075-workspace-status.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:14.554Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "268d80a86a18199dda62be3a53c91368fe5637ab2ecca22d03ca859867105af0"
+  },
+  {
+    "id": "076-workspace-labels",
+    "file": "screenshots/076-workspace-labels.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:14.945Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "7a5d01895853c579fde748f3b8d3c1b37e79d73a1df3b2c85fbf65f54c611cb4"
+  },
+  {
+    "id": "077-workspace-custom-fields",
+    "file": "screenshots/077-workspace-custom-fields.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:15.330Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "3f91b19fc5ae3a411db4d597d12400640e57ea9dd929175818e78cfab15d0634"
+  },
+  {
+    "id": "078-custom-field-edit",
+    "file": "screenshots/078-custom-field-edit.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:15.724Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "b19c92d30228d32e870613ffcdac08e590b92bc3d2643508677b59800b3df413"
+  },
+  {
+    "id": "079-custom-field-types",
+    "file": "screenshots/079-custom-field-types.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:45:47.712Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "2a5044ea0862338c2063679f5ff00a866d5798fe91ddf038c0fdf8d9ca7dc71d"
+  },
+  {
+    "id": "080-document-editor",
+    "file": "screenshots/080-document-editor.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:40.347Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "cc95de1dc23ff87024e60fbc803aa8906bba548c4ce19b6c476a9509efc4fd85"
+  },
+  {
+    "id": "081-document-icon-picker",
+    "file": "screenshots/081-document-icon-picker.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:40.772Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "342266d7e2cf6eca1b883076a0a2af625ef9cc195306341e04727bbdc8884369"
+  },
+  {
+    "id": "082-editor-slash-menu",
+    "file": "screenshots/082-editor-slash-menu.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:41.923Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "e6b8f08da6dc0633b4e714931d7828344d03b29bc72b1471926642b164782af7"
+  },
+  {
+    "id": "083-editor-mention-menu",
+    "file": "screenshots/083-editor-mention-menu.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:43.026Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "404206d75574e1566aea25be2dd8ffbd99679c958aef416dee83bac48d2918a0"
+  },
+  {
+    "id": "084-document-favorite",
+    "file": "screenshots/084-document-favorite.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:43.989Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "d3be629c8f10997d8190ca46d4a976e2e294cf475de9292d57ee8832407fb225"
+  },
+  {
+    "id": "085-document-delete-confirm",
+    "file": "screenshots/085-document-delete-confirm.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:43:44.412Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "23015cd021ed59b559513f92b154e3154ce87877030bd084906354ff4d40edf4"
+  },
+  {
+    "id": "086-sheet-editor",
+    "file": "screenshots/086-sheet-editor.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:06.260Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "807853d8b44747bce5e24110f44055107387351e8bae2a3fc7fd570356b660a5"
+  },
+  {
+    "id": "087-sheet-zoom",
+    "file": "screenshots/087-sheet-zoom.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:06.686Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "57991ca898c51d3d143ba7ce48165164530a49ddb5fc9859510f8bb30dd48dd6"
+  },
+  {
+    "id": "088-sheet-number-format",
+    "file": "screenshots/088-sheet-number-format.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:07.174Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "685d861cd6f89bbad0f53ab5c5f7b85856395fc76618ebe578eb2fd611410f08"
+  },
+  {
+    "id": "089-sheet-font",
+    "file": "screenshots/089-sheet-font.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:07.684Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "4e5be509b91ae8270361364509748cdfe9dd359c750b9a891c2a8c6708ac6ab2"
+  },
+  {
+    "id": "090-sheet-font-size",
+    "file": "screenshots/090-sheet-font-size.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:08.182Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f37e291a46cc7b201dd3a19ec35b206515c91e710945c2a68464fac01fe16d6b"
+  },
+  {
+    "id": "091-sheet-text-color",
+    "file": "screenshots/091-sheet-text-color.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:08.676Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "e1aa47a7522f5c9bb665a869e3b73cf93ebdadade68a1278f654457db12dc5e2"
+  },
+  {
+    "id": "092-sheet-fill-color",
+    "file": "screenshots/092-sheet-fill-color.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:09.186Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "4d725d7463c428d3aef367460df70f202cce75891c240a3a20dfac3aedbc5773"
+  },
+  {
+    "id": "093-sheet-borders",
+    "file": "screenshots/093-sheet-borders.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:09.697Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "a94963f1b6a0be7d48996b1a4e4be45815d0839c988d31cf507dc5678e215830"
+  },
+  {
+    "id": "094-sheet-insert-link",
+    "file": "screenshots/094-sheet-insert-link.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:10.227Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "9d55ced3c97fe6bcc0115c586f9501759f71673d17362287cb0304507016354f"
+  },
+  {
+    "id": "095-sheet-note",
+    "file": "screenshots/095-sheet-note.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:10.829Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "ca93b73b66840413dee9f18ed0816896c91645d4e46da70e98a02fa708f22355"
+  },
+  {
+    "id": "096-sheet-functions",
+    "file": "screenshots/096-sheet-functions.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:11.386Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "428ad7b3a6b22b19827c0b25c5a4abd3d8702175b696c04fc911f976dc3d0bdf"
+  },
+  {
+    "id": "097-sheet-filter-sort",
+    "file": "screenshots/097-sheet-filter-sort.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:11.910Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "795c72eb844ba8191de7d216d55374aeea85a6cb945ac9eadd9a4fa8f553ac66"
+  },
+  {
+    "id": "098-sheet-chart",
+    "file": "screenshots/098-sheet-chart.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:44:12.416Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "56a8e4d52ec396f387dcfe6b5a92572774036871f959d716ff6057644d8e6436"
+  },
+  {
+    "id": "100-api-key-created-redacted",
+    "file": "screenshots/100-api-key-created-redacted.png",
+    "url": "/settings?tab=integrations",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:45:51.367Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "72ab01dd203b3c21bf6d817c0846f44827f7e783436f0605c5b16c19ab8e88b6"
+  },
+  {
+    "id": "101-backup-created",
+    "file": "screenshots/101-backup-created.png",
+    "url": "/settings?tab=data",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:45:55.411Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "fff85451353a7595ba1f5fe7a7390475148df0a8f1dced5cce598ae328e67bc8"
+  },
+  {
+    "id": "102-offline-banner",
+    "file": "screenshots/102-offline-banner.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:46:12.162Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "587e342e6f01a815686c0cb1d729237fed34e95df66018bf52d5282e3e40bc5d"
+  },
+  {
+    "id": "103-not-found",
+    "file": "screenshots/103-not-found.png",
+    "url": "/does-not-exist",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:46:17.533Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "2835b0803081906199be49f8c7f617ba322af1964cc1385a3e93016ace1b379f"
+  },
+  {
+    "id": "104-document-not-found",
+    "file": "screenshots/104-document-not-found.png",
+    "url": "/docs/missing-audit-id",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:37:55.328Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "fa2367fbd67bef04097ce1cb2b5ac5a9807433cb59ec61535910b4e103b86693"
+  },
+  {
+    "id": "105-editor-table-tools",
+    "file": "screenshots/105-editor-table-tools.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:46:25.684Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "9e2ac6c72036df5f2165d5516ba7e36db5c21953b0a0822017fed74f00498ec5"
+  },
+  {
+    "id": "106-editor-code-block",
+    "file": "screenshots/106-editor-code-block.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:46:27.229Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "bd0003c9e2d2b44e1f366e357090956367b3983f7a264c9d01d508c988f60f4c"
+  },
+  {
+    "id": "107-editor-link-popover",
+    "file": "screenshots/107-editor-link-popover.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:46:27.688Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f8c620bce240f00ba99bd4fee5b701cb5e7cc2ad7cb2baeffba2b75cbf196b63"
+  },
+  {
+    "id": "108-tasks-load-error-simulated",
+    "file": "screenshots/108-tasks-load-error-simulated.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:47:03.218Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "936e0ae662a2ef2f77b129caa739ada72236dc57c3753b0fa134d2bf2dcfa86e"
+  },
+  {
+    "id": "109-tasks-retry-recovered",
+    "file": "screenshots/109-tasks-retry-recovered.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:47:04.543Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "1ec4d4e82f77ce05824f317b2d468339222a60c1d7057b8bbe8f44a0da28a154"
+  },
+  {
+    "id": "110-create-task-validation",
+    "file": "screenshots/110-create-task-validation.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:36:59.475Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "183d51be71d106acf4040a3c22957599fecc505d68b47ca1467076698e1e282b"
+  },
+  {
+    "id": "111-inline-custom-field-builder",
+    "file": "screenshots/111-inline-custom-field-builder.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:37:00.243Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "ef6aae19888befa173c064108d62e0affbbf38ef491608d7416aee573a0b8d8e"
+  },
+  {
+    "id": "112-inline-label-field-controls",
+    "file": "screenshots/112-inline-label-field-controls.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:37:00.744Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "03aaebf1f8cdddeb0eb98d254f71b183bd52607ff22d35d74967c7773bba9785"
+  },
+  {
+    "id": "113-task-created",
+    "file": "screenshots/113-task-created.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:37:02.080Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "0194e0d86c31d31f564f7459740f255a1e30f7744914bf79c53e55869c2872af"
+  },
+  {
+    "id": "114-auto-schedule-applied",
+    "file": "screenshots/114-auto-schedule-applied.png",
+    "url": "/calendar",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:37:06.787Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "771ea98971b0bc01fbbbdb765bcc5af034cbfb818ceb45f200b3fd7aafcba877"
+  },
+  {
+    "id": "115-notifications-populated",
+    "file": "screenshots/115-notifications-populated.png",
+    "url": "/notifications",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:37:40.745Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "019a346dba60d0d5b82e846b8868e9c4896a09ef4bb2c955bfdbcc43b6b7ebc3"
+  },
+  {
+    "id": "116-notification-snoozed",
+    "file": "screenshots/116-notification-snoozed.png",
+    "url": "/notifications",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:38:40.876Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "21a419f97c19208a6fa2eebbfa2631bda707f1ac45ad9ed1c938231f7984241d"
+  },
+  {
+    "id": "117-stage-rename",
+    "file": "screenshots/117-stage-rename.png",
+    "url": "/projects/pr_00efce70-2580-46f7-a514-b2e3012f9147",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:38:00.229Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "6a6ee185b428f2f0b91471317bb108687b62ea23d3bef2011aafb86ef9f1aef9"
+  },
+  {
+    "id": "118-docs-sidebar-collapsed",
+    "file": "screenshots/118-docs-sidebar-collapsed.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:38:02.958Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "1f82a08b0f871b93fd57c0806f6459d826a596b3dcf34e98e220aa0d816c7f2d"
+  },
+  {
+    "id": "119-sheet-column-types",
+    "file": "screenshots/119-sheet-column-types.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:38:07.425Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "039da51724580781abfd7e84d6c4fe7e84639bd47ef2cfae8fea35eb69f2d8c9"
+  },
+  {
+    "id": "120-dark-today",
+    "file": "screenshots/120-dark-today.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:22.502Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "c6285decfe1202704014c9737787179659d8c0b41f9f8f5d295b730e3a0b7e4b"
+  },
+  {
+    "id": "121-dark-inbox",
+    "file": "screenshots/121-dark-inbox.png",
+    "url": "/inbox",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:26.002Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "dc5037c65c3b085eaeff3a816770d26529872997fac6c8f5892e6b3023f52713"
+  },
+  {
+    "id": "122-dark-tasks",
+    "file": "screenshots/122-dark-tasks.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:29.732Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f4776a07c8893787e57f2e8e56085bd6090c70ffaafb369eda035faa81d605a7"
+  },
+  {
+    "id": "123-dark-calendar",
+    "file": "screenshots/123-dark-calendar.png",
+    "url": "/calendar",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:32.276Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "a1ccfe5e986e779758026f38ce1d9398b115a3e2180952c9dea36ce3912a8948"
+  },
+  {
+    "id": "124-dark-projects",
+    "file": "screenshots/124-dark-projects.png",
+    "url": "/projects",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:36.088Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f165959ebf198ee7908c87eda22e593ae2383f164be5056142868b1b797732a2"
+  },
+  {
+    "id": "125-dark-project",
+    "file": "screenshots/125-dark-project.png",
+    "url": "/projects/pr_00efce70-2580-46f7-a514-b2e3012f9147",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:41.123Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "3e155e6f71a33b9c52a88fda59441dbfd15db7e3289bcc0a6c2f98f4a3b7525a"
+  },
+  {
+    "id": "126-dark-docs",
+    "file": "screenshots/126-dark-docs.png",
+    "url": "/docs",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:45.145Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "951fd5533d8d27a565af082eaf01751ce87730bac79e441a32ec02e179c76b5e"
+  },
+  {
+    "id": "127-dark-document",
+    "file": "screenshots/127-dark-document.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:48.198Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "0f13b952275b25a237674993a04a3b0064a01064e1030f61008288fa7acae018"
+  },
+  {
+    "id": "128-dark-sheets",
+    "file": "screenshots/128-dark-sheets.png",
+    "url": "/sheets",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:52.357Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "b14b5e7ebc36b4c32147e8fbce5953e8d01ccdf4fc75482a6b1bf29bd021ac99"
+  },
+  {
+    "id": "129-dark-sheet",
+    "file": "screenshots/129-dark-sheet.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:55.047Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "3cb63c9ece295ec121e597e058d021f7002b20d5d5f71594487ff27dc22ef783"
+  },
+  {
+    "id": "130-dark-report",
+    "file": "screenshots/130-dark-report.png",
+    "url": "/report",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:40:59.005Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "2172254883843b535fd984063dba109775ce753e56c1861d93f36bf7b76e06f8"
+  },
+  {
+    "id": "131-dark-notifications",
+    "file": "screenshots/131-dark-notifications.png",
+    "url": "/notifications",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:02.925Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "c74694854a2939111fafd06e6528c418ad067194f97202853362e317d869ad28"
+  },
+  {
+    "id": "132-dark-settings",
+    "file": "screenshots/132-dark-settings.png",
+    "url": "/settings",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:05.443Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "582324e5de9df123a77279e8be5e76d09b07a8ec7b2f34aea6ac2a413abd51bd"
+  },
+  {
+    "id": "140-desktop-min-today",
+    "file": "screenshots/140-desktop-min-today.png",
+    "url": "/today",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:10.116Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "27b27335b45a3af19ec5324de4722e66710e2f01e2ce6dd8103d8094b359410b"
+  },
+  {
+    "id": "141-desktop-min-inbox",
+    "file": "screenshots/141-desktop-min-inbox.png",
+    "url": "/inbox",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:12.585Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "a3c8951c62d6bca959d7de9c5d5cce5bc82a136724a88c1bdc009b63a8c884e5"
+  },
+  {
+    "id": "142-desktop-min-tasks",
+    "file": "screenshots/142-desktop-min-tasks.png",
+    "url": "/tasks",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:15.516Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "a893b0177757d7dde8ebcd19686d102a927dd0cb179a03a31550ce294068f025"
+  },
+  {
+    "id": "143-desktop-min-calendar",
+    "file": "screenshots/143-desktop-min-calendar.png",
+    "url": "/calendar",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:18.040Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "0f75aaf1544daf949d3e66d9ab3a672e879e37380d60eb68d014054d2dd0e6ca"
+  },
+  {
+    "id": "144-desktop-min-projects",
+    "file": "screenshots/144-desktop-min-projects.png",
+    "url": "/projects",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:20.505Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "034d7f34fa409977868b6e828797968bfcf32e493fded47d9efb58ebc9ed9466"
+  },
+  {
+    "id": "145-desktop-min-project",
+    "file": "screenshots/145-desktop-min-project.png",
+    "url": "/projects/pr_00efce70-2580-46f7-a514-b2e3012f9147",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:23.154Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 997
+    },
+    "sha256": "ea531016c1a3f82ad404c79c3746e8a85c772ab8d2604ff26cdaa31a7a96208b"
+  },
+  {
+    "id": "146-desktop-min-docs",
+    "file": "screenshots/146-desktop-min-docs.png",
+    "url": "/docs",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:25.606Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "35875c8c1c6faedb57a4702889452eddea980d621149eb329c2cc5f3879e4eb8"
+  },
+  {
+    "id": "147-desktop-min-document",
+    "file": "screenshots/147-desktop-min-document.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:28.298Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "2e4adc6fd18ae981a7957fbbfcf303ce7086fb56fb8a0ed7ea9adedd242e2754"
+  },
+  {
+    "id": "148-desktop-min-sheets",
+    "file": "screenshots/148-desktop-min-sheets.png",
+    "url": "/sheets",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:30.973Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "846d4d1c832f377b5f2271bb216f107bdf44233cdcfeb04d04cc035006e2f15c"
+  },
+  {
+    "id": "149-desktop-min-sheet",
+    "file": "screenshots/149-desktop-min-sheet.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:33.589Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "bdabd31c615fe3d3474c72ed5eadbd18f49fbe52444265fb16cfa3138f48ce7c"
+  },
+  {
+    "id": "150-desktop-min-report",
+    "file": "screenshots/150-desktop-min-report.png",
+    "url": "/report",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:36.139Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "31dd1d21dafc00882c3609710d9142338c2b4bdeee316526413d89756ff13cee"
+  },
+  {
+    "id": "151-desktop-min-notifications",
+    "file": "screenshots/151-desktop-min-notifications.png",
+    "url": "/notifications",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:38.540Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "b197bc739f24eae2109bc7d7ac600d7b0c18af7c28be08f0d0d2b26852756aed"
+  },
+  {
+    "id": "152-desktop-min-settings",
+    "file": "screenshots/152-desktop-min-settings.png",
+    "url": "/settings",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:41:40.979Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "9bacb849b6972fa68c159e2578775b9472eccfbdbfd9ca14bed3e40312a4d37d"
+  },
+  {
+    "id": "160-electron-login",
+    "file": "screenshots/160-electron-login.png",
+    "url": "/login",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:47:21.794Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "d2b8d2df981155bacd8fe6ea605c8fcc9c8f6dc28fed45b258703432a0fe7674"
+  },
+  {
+    "id": "161-electron-today",
+    "file": "screenshots/161-electron-today.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:47:29.041Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "7f6103d4a3340f89bd2e0fc8ede535bef4ac7b61a89f79450461c5b723984dbf"
+  },
+  {
+    "id": "162-electron-tasks",
+    "file": "screenshots/162-electron-tasks.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T11:47:32.000Z",
+    "imageDimensions": {
+      "width": 900,
+      "height": 600
+    },
+    "sha256": "c97d48c5d3a63180c69781133ab91f921abf62e9d17cdcf2905ca9a882c19306"
+  },
+  {
+    "id": "163-auto-schedule-undone",
+    "file": "screenshots/163-auto-schedule-undone.png",
+    "url": "/calendar",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:37:28.704Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "3c20b07b238d5ff953d67b18044d6052fa8eb9d3a87526bb59808e0f030f0464"
+  },
+  {
+    "id": "164-schedule-result-indicator",
+    "file": "screenshots/164-schedule-result-indicator.png",
+    "url": "/calendar",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:37:29.897Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "211348338833b58811b4d5f6020a72a6245534025558e4e7ed0305fbd708d597"
+  },
+  {
+    "id": "170-component-navigation",
+    "file": "screenshots/170-component-navigation.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:44:38.237Z",
+    "imageDimensions": {
+      "width": 64,
+      "height": 1000
+    },
+    "sha256": "d803d011ee58c1e84237f7051397a05a7dcca1e1d85548cadb2ba276ecb4473d"
+  },
+  {
+    "id": "171-component-today-focus",
+    "file": "screenshots/171-component-today-focus.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:44:38.589Z",
+    "imageDimensions": {
+      "width": 1302,
+      "height": 184
+    },
+    "sha256": "6f30a3efd92aadb48160aba323882c8bcc5cea773dd177ee3a7fc545b37652a8"
+  },
+  {
+    "id": "172-component-scheduled-agenda",
+    "file": "screenshots/172-component-scheduled-agenda.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:44:38.923Z",
+    "imageDimensions": {
+      "width": 1302,
+      "height": 233
+    },
+    "sha256": "3e4cc97db8cc8a440aeaccd39218550c7125d4e10f6edc6eb5a856a147611ebd"
+  },
+  {
+    "id": "173-component-reminders",
+    "file": "screenshots/173-component-reminders.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:44:39.251Z",
+    "imageDimensions": {
+      "width": 1302,
+      "height": 132
+    },
+    "sha256": "5cd08ddd68845462e2f4d633cd6f50b847bb3770a6be41eb7b60ff43d1dd70ee"
+  },
+  {
+    "id": "174-component-overdue",
+    "file": "screenshots/174-component-overdue.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:44:39.585Z",
+    "imageDimensions": {
+      "width": 1302,
+      "height": 104
+    },
+    "sha256": "75c2f65fcb1f0f1d906e52d7e9027fb48491a9c4dbbd3bf09f27c12de309fdea"
+  },
+  {
+    "id": "175-component-end-of-day-shutdown-&-reflection",
+    "file": "screenshots/175-component-end-of-day-shutdown-&-reflection.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:44:39.937Z",
+    "imageDimensions": {
+      "width": 1302,
+      "height": 117
+    },
+    "sha256": "6a8c6992d2f2b1cf72885e152748daf5bda9b48677fe7341497acb8013bc3e7c"
+  },
+  {
+    "id": "176-component-create-task",
+    "file": "screenshots/176-component-create-task.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:44:43.141Z",
+    "imageDimensions": {
+      "width": 1024,
+      "height": 860
+    },
+    "sha256": "76863bf54e0da320a847621ae8419f1b3d72b9147e92416765684b4511f32fc2"
+  },
+  {
+    "id": "177-component-properties",
+    "file": "screenshots/177-component-properties.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:44:45.967Z",
+    "imageDimensions": {
+      "width": 360,
+      "height": 844
+    },
+    "sha256": "b3b13622ba433cd9ba24ded248f72152cfe63a69cb2b5d17771eb9838f1a6081"
+  },
+  {
+    "id": "178-component-working-hours",
+    "file": "screenshots/178-component-working-hours.png",
+    "url": "/settings?tab=schedule",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:45:23.269Z",
+    "imageDimensions": {
+      "width": 672,
+      "height": 616
+    },
+    "sha256": "3ded3d2eca0102ddff4beb8b62cf97b87a528db084c38e5c41ba1d10ef1ff21c"
+  },
+  {
+    "id": "179-component-rich-text",
+    "file": "screenshots/179-component-rich-text.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:45:25.931Z",
+    "imageDimensions": {
+      "width": 688,
+      "height": 613
+    },
+    "sha256": "f2abe987789fbca56bd89b2ffa4c044f14fe4df526a7bf7804b852da46ec266a"
+  },
+  {
+    "id": "180-component-sheet-grid",
+    "file": "screenshots/180-component-sheet-grid.png",
+    "url": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": null,
+    "kind": "component",
+    "capturedAt": "2026-09-15T14:48:27.825Z",
+    "imageDimensions": {
+      "width": 1078,
+      "height": 547
+    },
+    "sha256": "5daed70227cf2b7eebcd28b9466b982d8bb849a7297ac6d48298c472d33f477a"
+  },
+  {
+    "id": "181-all-custom-field-controls",
+    "file": "screenshots/181-all-custom-field-controls.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:38:28.577Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "5e152ce04cb06338c2e0aa8baa9b68f09384889606af2d72fd26c01eb65f1763"
+  },
+  {
+    "id": "182-custom-select-options",
+    "file": "screenshots/182-custom-select-options.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:38:29.165Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "8d08c2b071a10a6a85ccfde941c464c74f46c4cc6fcab38e500af50fbab42057"
+  },
+  {
+    "id": "183-mention-chip",
+    "file": "screenshots/183-mention-chip.png",
+    "url": "/docs/doc_c2193700-f074-4b37-b5f7-556b64c53f6b",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:38:33.312Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "a6ef28daeb7dfffe0740a27d288a76fbdf523de90c4c6efd8e61bdcf6434b67a"
+  },
+  {
+    "id": "184-report-mentions",
+    "file": "screenshots/184-report-mentions.png",
+    "url": "/report",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:38:37.861Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "859903fe8214307b4a594cca1479b8b15d6d5b9a81f75c47320e4931463e5402"
+  },
+  {
+    "id": "185-notifications-read",
+    "file": "screenshots/185-notifications-read.png",
+    "url": "/notifications",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:38:41.737Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "8feb07e50a71fbf12206c55624efeaf9c2a8ce0bba7149c1578c61de6e3fbe8f"
+  },
+  {
+    "id": "186-bulk-complete-undo-toast",
+    "file": "screenshots/186-bulk-complete-undo-toast.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:45:39.306Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "a2ddca5b38a343c6054b35a62100e88b46d9b2e5f5cfcab618d5ed615c2514c5"
+  },
+  {
+    "id": "187-document-archived",
+    "file": "screenshots/187-document-archived.png",
+    "url": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:45:43.128Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f0c7b5b80e03fa990aa9a0796eb644c2de45815a47acb450997ece35aba305bf"
+  },
+  {
+    "id": "189-status-edit",
+    "file": "screenshots/189-status-edit.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:47:44.323Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "1a262e9e605104033b8de75eff3d4fd8407c70fdb2d29ecd813412ce6d27bccd"
+  },
+  {
+    "id": "190-label-edit",
+    "file": "screenshots/190-label-edit.png",
+    "url": "/settings?tab=workspaces",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:47:44.799Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "3c441cd463f30cbf764f5425d6bb1c30696e3c1182fa0282cd2c2bddbffcb171"
+  },
+  {
+    "id": "191-working-hours-split",
+    "file": "screenshots/191-working-hours-split.png",
+    "url": "/settings?tab=schedule",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:47:47.376Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "61613f4f39ad0b0b96552be9749bf24c42e8e8ee71bd9adf16dc16de9ac0febe"
+  },
+  {
+    "id": "192-device-details",
+    "file": "screenshots/192-device-details.png",
+    "url": "/settings?tab=account",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:47:49.890Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "2ef1e9b4c183f5b488f320988ea6854b103c6151e17c0187273a75e38e2fb89e"
+  },
+  {
+    "id": "200-today-scroll-0-792",
+    "file": "screenshots/200-today-scroll-0-792.png",
+    "url": "/today",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:46:16.183Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "4562971312cd7919754f4309c13c61725a2538f6bfc0c968066d2e95d79fe796"
+  },
+  {
+    "id": "201-report-scroll-0-792",
+    "file": "screenshots/201-report-scroll-0-792.png",
+    "url": "/report",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:46:18.674Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "8411e00992f40514bbb58f95378421da2a512c1c610eaec105801233ae194e68"
+  },
+  {
+    "id": "202-task-detail-scroll-0-675",
+    "file": "screenshots/202-task-detail-scroll-0-675.png",
+    "url": "/tasks?taskId=tsk_667fc5e0-143a-4133-8a05-b7385a56e325",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:46:21.339Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "583e6cf2c78ab55b788467e4526069e0f5062f1cca787f155513eccce2b6701e"
+  },
+  {
+    "id": "203-settings-schedule-scroll-0-714",
+    "file": "screenshots/203-settings-schedule-scroll-0-714.png",
+    "url": "/settings?tab=schedule",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:46:28.224Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "325e0d14e3ec0702999199b4a8c2ff03eaa4433d7e3471bff9a69db71be8f43f"
+  },
+  {
+    "id": "204-task-table-columns-1093",
+    "file": "screenshots/204-task-table-columns-1093.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:46:35.046Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "2c99aebabb1171e1b9fa5e65277747cc04371ec46fca785d9b08ec251035dad3"
+  },
+  {
+    "id": "205-task-table-columns-2186",
+    "file": "screenshots/205-task-table-columns-2186.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:46:35.380Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "f1d3716c1b5725b1f5d67c567cb15502a64e964e5174e14504775b15684b3c2f"
+  },
+  {
+    "id": "206-task-table-columns-3278",
+    "file": "screenshots/206-task-table-columns-3278.png",
+    "url": "/tasks",
+    "viewport": null,
+    "kind": "page",
+    "capturedAt": "2026-09-15T14:46:35.717Z",
+    "imageDimensions": {
+      "width": 1440,
+      "height": 1000
+    },
+    "sha256": "772081a16659ca528997aa7458cf042116896f19a923b1a488376137b6339b8e"
+  }
+]

@@ -1,0 +1,71 @@
+Skip to content
+
+Docs
+Import Markdown
+Show archived
+Redesign brief
+Docs
+Redesign brief
+Saved just now
+📄
+📝
+📌
+📊
+🗂️
+💡
+🚀
+🎯
+🐛
+🧪
+📚
+🔧
+🔥
+✅
+⭐
+🧠
+Remove icon
+
+31 words
+
+Redesign brief
+
+A focused workspace for planning, writing, and reviewing work.
+
+Design principles
+
+Clear visual hierarchy
+
+Consistent controls
+
+Useful empty states
+
+Next steps: review the screenshot gallery and group components.
+
+/
+
+Text
+Plain paragraph
+Heading 1
+Large section heading
+Heading 2
+Medium section heading
+Heading 3
+Small section heading
+Bulleted list
+Bullets — type . then space
+Numbered list
+List with ordering
+To-do list
+Track tasks with checkboxes
+Quote
+Capture a quotation
+Code block
+Monospace code with syntax
+Table
+Insert a 3x3 table
+Divider
+Line — type - then space
+Link
+Add a hyperlink
+Mention
+Reference a doc, sheet, task or project

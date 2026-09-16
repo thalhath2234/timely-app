@@ -1,0 +1,15 @@
+Skip to content
+Welcome Back
+
+Sign in to manage your schedule with Timely
+
+Email Address
+Password
+Sign In
+Don't have an account? Sign up
+
+Development seed account
+
+Email: user@example.com
+
+Password: password123

@@ -1,0 +1,13 @@
+{
+  "desktop": {
+    "platform": "linux",
+    "versions": {
+      "electron": "44.3.0",
+      "chrome": "152.0.7977.78",
+      "node": "24.20.0"
+    }
+  },
+  "innerWidth": 900,
+  "innerHeight": 600,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Timely/0.1.0 Chrome/152.0.7977.78 Electron/44.3.0 Safari/537.36"
+}

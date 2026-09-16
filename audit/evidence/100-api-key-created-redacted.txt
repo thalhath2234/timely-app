@@ -1,0 +1,44 @@
+Skip to content
+
+Settings
+
+Manage your account and per-workspace configuration.
+
+Account
+Your profile and login details
+Schedule
+Working hours, freeze, and engine controls
+Notifications
+Reminders, digests, quiet hours, and jobs
+Workspaces
+Statuses, labels, and custom fields
+Data & appearance
+Export, backups, restore, and theme
+Integrations
+API keys for Hermes and MCP
+Integrations
+
+Personal API keys let Hermes (and other MCP clients) read and edit your Timely data. The full key is shown only once.
+
+Key name
+Create key
+
+Copy this key now. You will not see it again.
+
+tk_REDACTED_AUDIT_KEY
+
+Paste this into ~/.hermes/config.yaml:
+
+mcp_servers:
+  timely:
+    url: "http://localhost:8080/mcp"
+    headers:
+      Authorization: "Bearer tk_REDACTED_AUDIT_KEY"
+Copy Hermes snippet
+Active keys
+
+Audit temporary key
+
+tk_a84a… · created 9/15/2026, 8:45:50 PM · last used Never
+
+Revoke

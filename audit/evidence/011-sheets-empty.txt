@@ -1,0 +1,24 @@
+Skip to content
+
+SHEETS WORKSPACE
+/
+RECENT SHEETS
+Show archived
+
+No sheets yet.
+
+Formula Syntax
+
+=SUM(A1:A10)
+=B2*1.1
+=IF(C1>10, "high", "low")
+
+Sheets
+
+Track numbers in a grid. Cells support formulas such as =SUM(A1:A10), =B2*1.1 and =IF(C1>10,"high","low").
+
+Import CSV
+New sheet
+RECENTLY EDITED
+
+Nothing here yet. Create a sheet or import a CSV to get started.

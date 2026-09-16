@@ -1,0 +1,27 @@
+1/1Next.js 16.2.3 (stale)WebpackRecoverable ErrorHydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.See more info here: https://nextjs.org/docs/messages/react-hydration-error+ Client- Server  ...
+    <RedirectBoundary>
+      <RedirectErrorBoundary router={{...}}>
+        <InnerLayoutRouter url="/settings?..." tree={[...]} params={{}} cacheNode={{rsc:{...}, ...}} segmentPath={[...]} ...>
+          <SegmentViewNode type="page" pagePath="(pages)/(n...">
+            <SegmentTrieNode>
+            <ClientPageRoot Component={function SettingsPage} serverProvidedParams={{...}}>
+              <SettingsPage params={Promise} searchParams={Promise}>
+                <Suspense fallback={<div>}>
+                  <SettingsContent>
+                    <main className="flex h-ful...">
+                      <div>
+                      <div className="flex min-h...">
+                        <nav>
+                        <div className="min-h-0 fl...">
+                          <WorkspaceSettings>
++                           <div className="flex max-w-2xl flex-col gap-6">
+-                           <p className="text-sm text-muted-foreground">
+          ...
+        ...
+app/_components/settings/workspaceSettings.tsx (67:5) @ WorkspaceSettings  65 |  66 |   return (> 67 |     <div className="flex max-w-2xl flex-col gap-6">     |     ^  68 |       <div>  69 |         <h2 className="text-base font-semibold text-foreground">Workspaces</h2>  70 |         <p className="mt-1 text-xs text-muted-foreground">Call Stack 15Show 11 ignore-listed frame(s)div<anonymous>WorkspaceSettingsapp/_components/settings/workspaceSettings.tsx (67:5)SettingsContentapp/(pages)/(nav_pages)/settings/page.tsx (105:36)SettingsPageapp/(pages)/(nav_pages)/settings/page.tsx (56:7)12

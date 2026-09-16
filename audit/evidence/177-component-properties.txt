@@ -1,0 +1,287 @@
+Skip to content
+
+Projects & Tasks
+7 Tasks · 1 Project
+Hide options
+New task
+C
+Task List
+My Deadlines
+Overview
+Project Timelines
+New View 5
+Group by:
+Workspace > Project > Stage
+Sort Groups
+List
+Kanban
+Gantt
+Sort
+Deadline
+Asc
+Status:
+All
+Workspace:
+All
+TASKS: 7
+Overdue
+Show completed
+Scheduled
+Recurring
+Dated only
+All projects
+All priorities
+All labels
+All stages
+	TASK	DESCRIPTION	DURATION	START DATE	DEADLINE	SCHEDULED ON	COMPLETED AT	CREATED AT	UPDATED AT	PROJECT	WORKSPACE	BLOCKED BY	PRIORITY	STAGE	STATUS	LABELS	EFFORT POINTS	OWNER NOTES	REFERENCE URL	REVIEW DATE	APPROVED	DESIGN PHASE	PLATFORMS
+
+Design Studio
+(7)
+
+
+No project
+(2)
+
+
+No stage
+(2)
+
+	
+Daily design check-in
+	-	15m	-	-	9/15/2026	-	9/15/2026	9/15/2026	-	
+Design Studio
+	-	
+Low
+	-	
+Todo
+	
+-
+	-	-	-	-	-	-	-
+	
+UI creation smoke check
+	-	30m	-	-	9/16/2026	-	9/15/2026	9/15/2026	-	
+Design Studio
+	-	
+Medium
+	-	
+Todo
+	
+-
+	-	-	-	-	-	-	-
+
+Website redesign
+(5)
+1/5 done
+
+
+Discovery
+(5)
+
+	
+Audit existing screens
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	30m	9/14/2026	9/14/2026	9/15/2026	-	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+Urgent
+	
+Discovery
+	
+Todo
+	
+Design
+	-	-	-	-	-	-	-
+	
+Sketch navigation concepts
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	45m	9/14/2026	9/16/2026	-	9/15/2026	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+High
+	
+Discovery
+	
+Completed
+	
+Design
+	-	-	-	-	-	-	-
+	
+Review design proposal
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	60m	9/14/2026	9/18/2026	9/16/2026	-	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+Medium
+	
+Discovery
+	
+Todo
+	
+Design
+	-	-	-	-	-	-	-
+	
+Prepare component library
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	75m	9/14/2026	9/22/2026	9/16/2026	-	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+Low
+	
+Discovery
+	
+Todo
+	
+Design
+	-	-	-	-	-	-	-
+	
+Publish approved guidelines
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	90m	9/14/2026	9/25/2026	9/16/2026	-	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+Medium
+	
+Discovery
+	
+Todo
+	
+Design
+	-	-	-	-	-	-	-
+All local changes synced
+·
+Showing 7 tasks
+⌘K
+Quick search
+·
+C
+New task
+Design Studio
+/
+Website redesign
+/
+Discovery
+Mark complete
+ESC
+DISCOVERY
+Created Sep 15 by @Design Audit
+
+Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.
+
+Focus Now
+⌘F
+In Today
+Duplicate
+Add Subtask
+1m focused
+SUBTASKS & VALIDATION
+0 of 2 done
+0%
+Verify every page is represented
+Remove
+Review navigation labels
+ACTIVITY & COMMENTS
+D
+
+Design Audit commented
+
+Audit note: preserve useful keyboard shortcuts in the redesign.
+
+Sep 15, 8:41 PM
+
+D
+
+Design Audit created this task
+
+Sep 15, 8:37 PM
+
+Ctrl
++
+Enter
+Send
+Work
+Reminder
+
+Estimated focus capacity: 30 minutes
+
+Workspace
+Design Studio
+Project
+Website redesign
+Status
+Todo
+Stage
+Discovery
+Priority
+Urgent
+Duration
+min
+15m
+30m
+45m
+1h
+90m
+2h
+Start date
+Sep 14, 2026
+Deadline
+Sep 14, 2026
+
+SCHEDULE
+
+Repeat
+Weekly on Tuesday
+Time
+9:00 PM
+
+Every week on Tue at 9:00 PM. Each occurrence starts at this time; auto-schedule will not give the block to other tasks.
+
+ENGINE
+
+Pin this task (engine will not move it)
+Must run in one sitting
+Min chunk (min)
+Preferred chunk
+Earliest
+Pick date & time
+Prefer
+Pick a time
+to
+Pick a time
+
+LABELS
+
+Design
+×
+
+CUSTOM FIELDS
+
+Effort points
+Owner notes
+Reference URL
+Review date
+Pick a date
+Approved
+Design phase
+Empty
+Platforms
+Web
+Desktop
+
+DEPENDENCIES
+
+Blocked by
+None
+Blocking
+None
+⌘↵
+Save & Close
+Tab
+Navigate
+C
+Mark Complete
+Synced with Cloud

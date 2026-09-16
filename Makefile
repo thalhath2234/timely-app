@@ -73,6 +73,22 @@ dev-api: ## Run the Go API with live reload (air)
 dev-web: ## Run the Next.js dev server on :4001
 	@pnpm --filter @timely/web dev
 
+.PHONY: audit-web
+AUDIT_PORT ?= 4050
+audit-web: ## Run an isolated web server for screenshot audits (AUDIT_PORT=4050)
+	@pnpm --filter @timely/web exec next dev --webpack -p $(AUDIT_PORT)
+
+.PHONY: audit-desktop
+AUDIT_ELECTRON_BIN ?= $(CURDIR)/$(WEB)/node_modules/electron/dist/electron
+audit-desktop: ## Run Electron under Xvfb for desktop audit captures (Linux)
+	@pnpm --filter @timely/web electron:compile
+	@cd $(WEB) && env -u ELECTRON_RUN_AS_NODE ELECTRON_RENDERER_URL=http://localhost:$(AUDIT_PORT) xvfb-run -a -s '-screen 0 1600x1000x24' $(AUDIT_ELECTRON_BIN) --no-sandbox --ozone-platform=x11 --remote-debugging-port=4061 --user-data-dir=/tmp/timely-design-audit-electron .
+
+.PHONY: audit-index
+audit-index: ## Rebuild and validate the portable screenshot gallery
+	@python audit/scripts/build_index.py
+	@python audit/scripts/build_inventory.py
+
 dev-mobile: ## Start the Expo dev server (Metro)
 	@pnpm --filter @timely/mobile start
 

@@ -1,0 +1,123 @@
+Skip to content
+
+Projects
+Active Release Cycle
+Mark complete
+Duplicate
+Overview
+Tasks
+5
+Stages
+1
+Activity
+Hide options
+New task
+C
+Group by:
+Stage
+Sort Groups
+List
+Kanban
+Gantt
+Sort
+Deadline
+Asc
+Status:
+All
+TASKS: 5
+Overdue
+Show completed
+Scheduled
+Recurring
+Dated only
+All priorities
+All labels
+All stages
+	TASK	DESCRIPTION	DURATION	START DATE	DEADLINE	SCHEDULED ON	COMPLETED AT	CREATED AT	UPDATED AT	PROJECT	WORKSPACE	BLOCKED BY	PRIORITY	STAGE	STATUS	LABELS	EFFORT POINTS
+
+Discovery
+(5)
+
+	
+Audit existing screens
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	30m	9/14/2026	9/14/2026	9/15/2026	-	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+Urgent
+	
+Discovery
+	
+Todo
+	
+Design
+	-
+	
+Sketch navigation concepts
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	45m	9/14/2026	9/16/2026	-	9/15/2026	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+High
+	
+Discovery
+	
+Completed
+	
+Design
+	-
+	
+Review design proposal
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	60m	9/14/2026	9/18/2026	-	-	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+Medium
+	
+Discovery
+	
+Todo
+	
+Design
+	-
+	
+Prepare component library
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	75m	9/14/2026	9/22/2026	-	-	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+Low
+	
+Discovery
+	
+Todo
+	
+Design
+	-
+	
+Publish approved guidelines
+	Sample content for the screenshot audit. Check hierarchy, spacing, and interaction states.	90m	9/14/2026	9/25/2026	-	-	9/15/2026	9/15/2026	
+Website redesign
+	
+Design Studio
+	-	
+Medium
+	
+Discovery
+	
+Todo
+	
+Design
+	-
+All local changes synced
+·
+Showing 5 tasks
+⌘K
+Quick search
+·
+C
+New task

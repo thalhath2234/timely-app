@@ -1,0 +1,223 @@
+[
+  {
+    "route": "/today",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": []
+  },
+  {
+    "route": "/inbox",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": []
+  },
+  {
+    "route": "/tasks",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": []
+  },
+  {
+    "route": "/calendar",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": []
+  },
+  {
+    "route": "/projects",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": []
+  },
+  {
+    "route": "/projects/pr_00efce70-2580-46f7-a514-b2e3012f9147",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": [
+      {
+        "type": "text",
+        "placeholder": "",
+        "tag": "INPUT"
+      },
+      {
+        "type": "text",
+        "placeholder": "Create new release stage (e.g. R6 — Polish & Billing)…",
+        "tag": "INPUT"
+      }
+    ]
+  },
+  {
+    "route": "/docs",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": []
+  },
+  {
+    "route": "/docs/doc_5a38f873-0b9d-449e-a4df-8abefd26ed95",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": [
+      {
+        "type": "text",
+        "placeholder": "Untitled",
+        "tag": "INPUT"
+      }
+    ]
+  },
+  {
+    "route": "/sheets",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": [
+      {
+        "type": "text",
+        "placeholder": "Search sheets, models...",
+        "tag": "INPUT"
+      }
+    ]
+  },
+  {
+    "route": "/sheets/sht_6f2b040e-4555-4754-ac5a-7b931b3cf4b4",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": [
+      {
+        "type": "text",
+        "placeholder": "Search sheets, models...",
+        "tag": "INPUT"
+      },
+      {
+        "type": "text",
+        "placeholder": "Untitled",
+        "tag": "INPUT"
+      },
+      {
+        "type": "text",
+        "placeholder": "Enter a value or formula (=SUM, =AVERAGE)",
+        "tag": "INPUT"
+      }
+    ]
+  },
+  {
+    "route": "/report",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": []
+  },
+  {
+    "route": "/notifications",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": []
+  },
+  {
+    "route": "/settings",
+    "viewport": {
+      "width": 900,
+      "height": 600
+    },
+    "overflow": {
+      "bodyWidth": 900,
+      "viewportWidth": 900,
+      "bodyHeight": 600,
+      "viewportHeight": 600
+    },
+    "unlabelledInputs": []
+  }
+]
