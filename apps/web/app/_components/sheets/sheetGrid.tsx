@@ -4,9 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AlignCenter from "lucide-react/dist/esm/icons/align-center.mjs";
 import AlignLeft from "lucide-react/dist/esm/icons/align-left.mjs";
 import AlignRight from "lucide-react/dist/esm/icons/align-right.mjs";
+import AlignVerticalJustifyCenter from "lucide-react/dist/esm/icons/align-vertical-justify-center.mjs";
+import AlignVerticalJustifyEnd from "lucide-react/dist/esm/icons/align-vertical-justify-end.mjs";
+import AlignVerticalJustifyStart from "lucide-react/dist/esm/icons/align-vertical-justify-start.mjs";
 import ArrowDownAZ from "lucide-react/dist/esm/icons/arrow-down-a-z.mjs";
 import ArrowUpAZ from "lucide-react/dist/esm/icons/arrow-up-a-z.mjs";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3.mjs";
+import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
 import BetweenHorizontalEnd from "lucide-react/dist/esm/icons/between-horizontal-end.mjs";
 import BetweenHorizontalStart from "lucide-react/dist/esm/icons/between-horizontal-start.mjs";
 import BetweenVerticalEnd from "lucide-react/dist/esm/icons/between-vertical-end.mjs";
@@ -44,6 +48,7 @@ import {
   SheetMerge,
   SheetNumberFormat,
   SheetRow,
+  SheetVerticalAlign,
 } from "@/app/_types/types";
 import {
   columnIndexToLetter,
@@ -75,16 +80,28 @@ import {
   clampAddress,
   coveredByMerge,
   findMerge,
+  formulaOutputAddress,
+  guessAggregateRange,
+  hasMergeInRange,
   isInRange,
   isMergeOrigin,
+  mergeAll,
   mergeFromRange,
+  mergeHorizontally,
+  mergeVertically,
   normalizedRange,
   rangeAddressLabel,
+  rangeFromMerge,
   sameAddress,
   selectionStats,
-  toggleMerge,
+  unmergeRange,
   visitRange,
 } from "@/app/utils/sheetRange";
+import {
+  closeOpenParens,
+  insertFormulaRange,
+  type FormulaRefSpan,
+} from "@/app/utils/sheetFormulaInput";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 
@@ -99,13 +116,28 @@ const FILL_COLORS = ["#202124", "#5f2120", "#614a19", "#137333", "#174ea6", "#76
 const FORMULA_INSERTS: { label: string; template: (range: string) => string }[] = [
   { label: "SUM", template: (range) => `=SUM(${range})` },
   { label: "AVERAGE", template: (range) => `=AVERAGE(${range})` },
-  { label: "MIN", template: (range) => `=MIN(${range})` },
-  { label: "MAX", template: (range) => `=MAX(${range})` },
   { label: "COUNT", template: (range) => `=COUNT(${range})` },
+  { label: "MAX", template: (range) => `=MAX(${range})` },
+  { label: "MIN", template: (range) => `=MIN(${range})` },
   { label: "COUNTA", template: (range) => `=COUNTA(${range})` },
   { label: "PRODUCT", template: (range) => `=PRODUCT(${range})` },
-  { label: "IF", template: (range) => `=IF(${range}>0,"yes","no")` },
+  { label: "IF", template: (range) => `=IF(${range || "A1"}>0,"yes","no")` },
+  { label: "CONCAT", template: (range) => `=CONCAT(${range || "A1"},"")` },
+  { label: "ROUND", template: (range) => `=ROUND(${range || "A1"},0)` },
 ];
+const NUMBER_FORMATS: { value: SheetNumberFormat | ""; label: string }[] = [
+  { value: "", label: "Automatic" },
+  { value: "plain", label: "Plain text" },
+  { value: "number", label: "Number" },
+  { value: "percent", label: "Percent" },
+  { value: "scientific", label: "Scientific" },
+  { value: "currency", label: "Currency" },
+];
+const ROTATIONS = [0, 45, -45, 90, -90];
+const POPOVER_PANEL =
+  "absolute z-40 rounded-md border border-border bg-popover p-1 shadow-lg";
+const POPOVER_ITEM =
+  "block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent";
 
 type GridSnapshot = {
   columns: SheetColumn[];
@@ -179,13 +211,12 @@ export default function SheetGrid({
     null,
   );
   const [typeMenuIndex, setTypeMenuIndex] = useState<number | null>(null);
-  const [filterOpen, setFilterOpen] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
   const [paintFormat, setPaintFormat] = useState<SheetCellFormat | null>(null);
-  const [chartOpen, setChartOpen] = useState(false);
+  const [formulaRange, setFormulaRange] = useState<CellRange | null>(null);
   const [history, setHistory] = useState<{ past: GridSnapshot[]; future: GridSnapshot[] }>({
     past: [],
     future: [],
@@ -194,9 +225,20 @@ export default function SheetGrid({
   const selected = range.focus;
   const gridRef = useRef<HTMLDivElement>(null);
   const cellInputRef = useRef<HTMLInputElement>(null);
+  const formulaBarRef = useRef<HTMLInputElement>(null);
   const editSourceRef = useRef<"cell" | "formulaBar">("cell");
-  const dragRef = useRef<"select" | "fill" | null>(null);
+  const dragRef = useRef<
+    "select" | "fill" | "formula" | "formula-col" | "formula-row" | null
+  >(null);
   const fillOriginRef = useRef<CellRange | null>(null);
+  const formulaPickOriginRef = useRef<CellAddress | null>(null);
+  const formulaSpanRef = useRef<FormulaRefSpan | null>(null);
+  const formulaPickingRef = useRef(false);
+  const caretRef = useRef(0);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
   const clipboardRef = useRef<string[][]>([]);
   const resizeStateRef = useRef<{
     index: number;
@@ -511,7 +553,7 @@ export default function SheetGrid({
       return direction === "asc" ? compared : -compared;
     });
     commit({ rows: sorted, merges: [] });
-    setFilterOpen(false);
+    setOpenMenu(null);
   };
 
   const fillRange = (from: CellRange, to: CellAddress) => {
@@ -580,30 +622,123 @@ export default function SheetGrid({
     source: "cell" | "formulaBar" = "cell",
   ) => {
     editSourceRef.current = source;
+    formulaSpanRef.current = null;
+    formulaPickOriginRef.current = null;
+    setFormulaRange(null);
     setSelection(address);
-    setDraft(initialValue ?? rawAt(address));
+    const nextDraft = initialValue ?? rawAt(address);
+    caretRef.current = nextDraft.length;
+    setDraft(nextDraft);
     setEditing(address);
   };
 
+  const clearFormulaPick = () => {
+    formulaSpanRef.current = null;
+    formulaPickOriginRef.current = null;
+    formulaPickingRef.current = false;
+    setFormulaRange(null);
+  };
+
   const commitEdit = (move: "down" | "right" | "none" = "none") => {
-    if (!editing) return;
+    const address = editingRef.current;
+    if (!address) return;
     const startedInFormulaBar = editSourceRef.current === "formulaBar";
-    setCellValue(editing, draft);
+    const raw = draftRef.current;
+    const value = isFormulaValue(raw) ? closeOpenParens(raw.trim()) : raw;
+    editingRef.current = null;
+    setCellValue(address, value);
     setEditing(null);
     setDraft("");
+    clearFormulaPick();
     if (move === "down") {
-      setSelection({ col: editing.col, row: Math.min(editing.row + 1, rows.length - 1) });
+      setSelection({ col: address.col, row: Math.min(address.row + 1, rows.length - 1) });
     }
     if (move === "right") {
-      setSelection({ col: Math.min(editing.col + 1, columns.length - 1), row: editing.row });
+      setSelection({ col: Math.min(address.col + 1, columns.length - 1), row: address.row });
     }
     if (!startedInFormulaBar || move !== "none") gridRef.current?.focus();
   };
 
   const cancelEdit = () => {
+    editingRef.current = null;
     setEditing(null);
     setDraft("");
+    clearFormulaPick();
     gridRef.current?.focus();
+  };
+
+  const isEditingFormula = Boolean(editing && isFormulaValue(draft));
+
+  const trackCaret = (target: HTMLInputElement) => {
+    caretRef.current = target.selectionStart ?? target.value.length;
+  };
+
+  const focusFormulaInput = (caret: number) => {
+    const target =
+      editSourceRef.current === "formulaBar"
+        ? formulaBarRef.current
+        : cellInputRef.current;
+    target?.focus();
+    target?.setSelectionRange(caret, caret);
+    caretRef.current = caret;
+  };
+
+  const applyFormulaRange = (picked: CellRange) => {
+    const label = rangeAddressLabel(picked);
+    const result = insertFormulaRange(
+      draftRef.current,
+      caretRef.current,
+      label,
+      formulaSpanRef.current,
+    );
+    formulaSpanRef.current = result.span;
+    caretRef.current = result.caret;
+    setDraft(result.value);
+    setFormulaRange(picked);
+    focusFormulaInput(result.caret);
+    requestAnimationFrame(() => focusFormulaInput(result.caret));
+  };
+
+  const beginFormulaPick = (
+    address: CellAddress,
+    mode: "formula" | "formula-col" | "formula-row",
+  ) => {
+    formulaPickingRef.current = true;
+    dragRef.current = mode;
+    formulaPickOriginRef.current = address;
+    const picked =
+      mode === "formula-col"
+        ? {
+            anchor: { col: address.col, row: 0 },
+            focus: { col: address.col, row: Math.max(rows.length - 1, 0) },
+          }
+        : mode === "formula-row"
+          ? {
+              anchor: { col: 0, row: address.row },
+              focus: { col: Math.max(columns.length - 1, 0), row: address.row },
+            }
+          : { anchor: address, focus: address };
+    applyFormulaRange(picked);
+  };
+
+  const extendFormulaPick = (address: CellAddress) => {
+    const origin = formulaPickOriginRef.current;
+    if (!origin || !dragRef.current?.startsWith("formula")) return;
+    if (dragRef.current === "formula-col") {
+      applyFormulaRange({
+        anchor: { col: origin.col, row: 0 },
+        focus: { col: address.col, row: Math.max(rows.length - 1, 0) },
+      });
+      return;
+    }
+    if (dragRef.current === "formula-row") {
+      applyFormulaRange({
+        anchor: { col: 0, row: origin.row },
+        focus: { col: Math.max(columns.length - 1, 0), row: address.row },
+      });
+      return;
+    }
+    applyFormulaRange({ anchor: origin, focus: address });
   };
 
   const handleGridKeyDown = (event: React.KeyboardEvent) => {
@@ -725,6 +860,10 @@ export default function SheetGrid({
       resizeStateRef.current = null;
       dragRef.current = null;
       fillOriginRef.current = null;
+      formulaPickOriginRef.current = null;
+      window.setTimeout(() => {
+        formulaPickingRef.current = false;
+      }, 0);
     };
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
@@ -733,6 +872,44 @@ export default function SheetGrid({
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [columns, persist, zoom]);
+
+  useEffect(() => {
+    if (openMenu == null && typeMenuIndex == null) return;
+    const close = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-sheet-popover]")) return;
+      setOpenMenu(null);
+      setTypeMenuIndex(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (editing) return;
+      setOpenMenu(null);
+      setTypeMenuIndex(null);
+    };
+    document.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [editing, openMenu, typeMenuIndex]);
+
+  useEffect(() => {
+    if (!editing) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (formulaPickingRef.current) return;
+      if (!isFormulaValue(draftRef.current)) return;
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest("[data-sheet-popover]")) return;
+      if (target.closest("[data-formula-bar]")) return;
+      if (gridRef.current?.contains(target)) return;
+      commitEdit();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [editing]);
 
   const gridTemplateColumns = `${ROW_HEADER_WIDTH}px ${columns
     .map((column) => `${column.width}px`)
@@ -752,7 +929,7 @@ export default function SheetGrid({
 
   const selectedMerge = mergeFromRange(range);
   const canMerge = selectedMerge.colSpan > 1 || selectedMerge.rowSpan > 1;
-  const mergeActive = Boolean(findMerge(merges, selected));
+  const mergeActive = hasMergeInRange(merges, range);
 
   const applyNumberFormat = (format: SheetNumberFormat) => {
     applyFormat({
@@ -773,8 +950,53 @@ export default function SheetGrid({
     });
   };
 
+  const bumpFontSize = (delta: number) => {
+    const current = selectedFormat?.fontSize ?? 13;
+    applyFormat({ fontSize: Math.max(8, Math.min(36, current + delta)) });
+  };
+
   const insertFormula = (template: (rangeLabel: string) => string) => {
-    startEditing(selected, template(selectedAddress), "formulaBar");
+    const multi = !sameAddress(range.anchor, range.focus);
+    const guessed =
+      !multi && rawAt(selected).trim() === ""
+        ? guessAggregateRange(
+            selected,
+            columns.length,
+            rows.length,
+            (address) => evaluator.valueAt(address.col, address.row).type === "number",
+          )
+        : null;
+    const picked = multi ? range : guessed;
+    const label = picked ? rangeAddressLabel(picked) : "";
+    const value = template(label);
+    const target =
+      picked && isInRange(selected, picked)
+        ? formulaOutputAddress(picked, columns.length, rows.length)
+        : selected;
+    startEditing(target, value, "formulaBar");
+    setOpenMenu(null);
+    if (picked && label) {
+      const start = value.indexOf(label);
+      if (start >= 0) {
+        formulaSpanRef.current = { start, end: start + label.length };
+        caretRef.current = start + label.length;
+        setFormulaRange(picked);
+      }
+    } else {
+      const open = value.lastIndexOf("(");
+      const close = value.indexOf(")", Math.max(open, 0));
+      caretRef.current = close >= 0 ? close : value.length;
+    }
+    const caret = caretRef.current;
+    requestAnimationFrame(() => {
+      formulaBarRef.current?.focus();
+      formulaBarRef.current?.setSelectionRange(caret, caret);
+      caretRef.current = caret;
+    });
+  };
+
+  const applyMerge = (next: SheetMerge[]) => {
+    commit({ merges: next });
     setOpenMenu(null);
   };
 
@@ -824,12 +1046,37 @@ export default function SheetGrid({
         shortcut: "F2",
         onSelect: () => startEditing(address),
       },
-      canMergeHere && {
-        kind: "action",
-        label: merged ? "Unmerge cells" : "Merge cells",
+      canMergeHere || merged ? {
+        kind: "submenu" as const,
+        label: "Merge cells",
         icon: Combine,
-        onSelect: () => commit({ merges: toggleMerge(merges, activeRange) }),
-      },
+        items: [
+          {
+            kind: "action" as const,
+            label: "Merge all",
+            disabled: !canMergeHere,
+            onSelect: () => applyMerge(mergeAll(merges, activeRange)),
+          },
+          {
+            kind: "action" as const,
+            label: "Merge horizontally",
+            disabled: span.colSpan <= 1,
+            onSelect: () => applyMerge(mergeHorizontally(merges, activeRange)),
+          },
+          {
+            kind: "action" as const,
+            label: "Merge vertically",
+            disabled: span.rowSpan <= 1,
+            onSelect: () => applyMerge(mergeVertically(merges, activeRange)),
+          },
+          {
+            kind: "action" as const,
+            label: "Unmerge",
+            disabled: !merged,
+            onSelect: () => applyMerge(unmergeRange(merges, activeRange)),
+          },
+        ],
+      } : false,
       { kind: "separator" },
       {
         kind: "action",
@@ -1010,8 +1257,10 @@ export default function SheetGrid({
       active ? "bg-accent text-foreground" : "text-muted-foreground"
     }`;
 
-  const toggleMenu = (name: string) =>
+  const toggleMenu = (name: string) => {
+    setTypeMenuIndex(null);
     setOpenMenu((current) => (current === name ? null : name));
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -1034,12 +1283,12 @@ export default function SheetGrid({
           <Paintbrush className="size-4" />
         </button>
         <span className="mx-0.5 h-5 w-px bg-border" />
-        <div className="relative">
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Zoom" onClick={() => toggleMenu("zoom")} className={`${toolClass(openMenu === "zoom")} w-auto px-1.5 font-mono text-[11px]`}>
             {zoom}%
           </button>
           {openMenu === "zoom" && (
-            <div className="absolute left-0 top-8 z-40 w-24 rounded-md border border-border bg-popover p-1 shadow-lg">
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-24`}>
               {ZOOM_OPTIONS.map((option) => (
                 <button
                   key={option}
@@ -1048,9 +1297,7 @@ export default function SheetGrid({
                     setZoom(option);
                     setOpenMenu(null);
                   }}
-                  className={`block w-full rounded px-2 py-1 text-left text-xs ${
-                    zoom === option ? "bg-accent" : "hover:bg-accent"
-                  }`}
+                  className={`${POPOVER_ITEM} ${zoom === option ? "bg-accent" : ""}`}
                 >
                   {option}%
                 </button>
@@ -1071,35 +1318,36 @@ export default function SheetGrid({
         <button type="button" title="Increase decimal places" onClick={() => bumpDecimals(1)} className={toolClass()}>
           <span className="font-mono text-[10px]">.00</span>
         </button>
-        <div className="relative">
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Number format" onClick={() => toggleMenu("number")} className={`${toolClass(openMenu === "number")} w-auto px-1.5 font-mono text-[11px]`}>
             123
           </button>
           {openMenu === "number" && (
-            <div className="absolute left-0 top-8 z-40 w-36 rounded-md border border-border bg-popover p-1 shadow-lg">
-              {(["number", "currency", "percent"] as SheetNumberFormat[]).map((format) => (
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-40`}>
+              {NUMBER_FORMATS.map((format) => (
                 <button
-                  key={format}
+                  key={format.label}
                   type="button"
                   onClick={() => {
-                    applyNumberFormat(format);
+                    if (format.value) applyNumberFormat(format.value);
+                    else applyFormat({ numberFormat: undefined, decimals: undefined });
                     setOpenMenu(null);
                   }}
-                  className="block w-full rounded px-2 py-1 text-left text-xs capitalize hover:bg-accent"
+                  className={POPOVER_ITEM}
                 >
-                  {format}
+                  {format.label}
                 </button>
               ))}
             </div>
           )}
         </div>
         <span className="mx-0.5 h-5 w-px bg-border" />
-        <div className="relative">
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Font" onClick={() => toggleMenu("font")} className={`${toolClass(openMenu === "font")} w-auto px-1.5 text-[11px]`}>
             {selectedFormat?.fontFamily === "serif" ? "Serif" : selectedFormat?.fontFamily === "mono" ? "Mono" : "Default"}
           </button>
           {openMenu === "font" && (
-            <div className="absolute left-0 top-8 z-40 w-28 rounded-md border border-border bg-popover p-1 shadow-lg">
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-28`}>
               {(["default", "serif", "mono"] as SheetFontFamily[]).map((family) => (
                 <button
                   key={family}
@@ -1108,7 +1356,7 @@ export default function SheetGrid({
                     applyFormat({ fontFamily: family === "default" ? undefined : family });
                     setOpenMenu(null);
                   }}
-                  className="block w-full rounded px-2 py-1 text-left text-xs capitalize hover:bg-accent"
+                  className={`${POPOVER_ITEM} capitalize`}
                 >
                   {family}
                 </button>
@@ -1116,12 +1364,15 @@ export default function SheetGrid({
             </div>
           )}
         </div>
-        <div className="relative">
+        <button type="button" title="Decrease font size" onClick={() => bumpFontSize(-1)} className={toolClass()}>
+          <Minus className="size-3.5" />
+        </button>
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Font size" onClick={() => toggleMenu("size")} className={`${toolClass(openMenu === "size")} w-auto px-1.5 font-mono text-[11px]`}>
             {selectedFormat?.fontSize ?? 13}
           </button>
           {openMenu === "size" && (
-            <div className="absolute left-0 top-8 z-40 w-16 rounded-md border border-border bg-popover p-1 shadow-lg">
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-16`}>
               {FONT_SIZES.map((size) => (
                 <button
                   key={size}
@@ -1130,7 +1381,7 @@ export default function SheetGrid({
                     applyFormat({ fontSize: size });
                     setOpenMenu(null);
                   }}
-                  className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                  className={POPOVER_ITEM}
                 >
                   {size}
                 </button>
@@ -1138,6 +1389,9 @@ export default function SheetGrid({
             </div>
           )}
         </div>
+        <button type="button" title="Increase font size" onClick={() => bumpFontSize(1)} className={toolClass()}>
+          <Plus className="size-3.5" />
+        </button>
         <button type="button" title="Bold (⌘B)" onClick={() => applyFormat({ bold: !selectedFormat?.bold })} className={toolClass(Boolean(selectedFormat?.bold))}>
           <Bold className="size-3.5" />
         </button>
@@ -1150,7 +1404,7 @@ export default function SheetGrid({
         <button type="button" title="Strikethrough" onClick={() => applyFormat({ strikethrough: !selectedFormat?.strikethrough })} className={toolClass(Boolean(selectedFormat?.strikethrough))}>
           <Strikethrough className="size-3.5" />
         </button>
-        <div className="relative">
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Text color" onClick={() => toggleMenu("textColor")} className={toolClass(openMenu === "textColor")}>
             <Type className="size-3.5" style={{ color: selectedFormat?.textColor }} />
           </button>
@@ -1170,7 +1424,7 @@ export default function SheetGrid({
             </div>
           )}
         </div>
-        <div className="relative">
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Fill color" onClick={() => toggleMenu("fill")} className={toolClass(openMenu === "fill")}>
             <Highlighter className="size-3.5" />
           </button>
@@ -1190,16 +1444,29 @@ export default function SheetGrid({
             </div>
           )}
         </div>
-        <div className="relative">
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Borders" onClick={() => toggleMenu("border")} className={toolClass(Boolean(selectedFormat?.border) || openMenu === "border")}>
             <Square className="size-3.5" />
           </button>
           {openMenu === "border" && (
-            <div className="absolute left-0 top-8 z-40 w-28 rounded-md border border-border bg-popover p-1 shadow-lg">
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-28`}>
+              <button
+                type="button"
+                onClick={() => {
+                  applyFormat({ border: undefined });
+                  setOpenMenu(null);
+                }}
+                className={POPOVER_ITEM}
+              >
+                None
+              </button>
               {([
                 ["all", "All borders"],
                 ["outer", "Outer"],
+                ["top", "Top"],
                 ["bottom", "Bottom"],
+                ["left", "Left"],
+                ["right", "Right"],
               ] as [SheetBorder, string][]).map(([value, label]) => (
                 <button
                   key={value}
@@ -1208,7 +1475,7 @@ export default function SheetGrid({
                     applyFormat({ border: selectedFormat?.border === value ? undefined : value });
                     setOpenMenu(null);
                   }}
-                  className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                  className={POPOVER_ITEM}
                 >
                   {label}
                 </button>
@@ -1216,30 +1483,198 @@ export default function SheetGrid({
             </div>
           )}
         </div>
-        <button
-          type="button"
-          title={canMerge || mergeActive ? "Merge cells" : "Select more than one cell to merge"}
-          disabled={!canMerge && !mergeActive}
-          onClick={() => commit({ merges: toggleMerge(merges, range) })}
-          className={toolClass(mergeActive)}
-        >
-          <Combine className="size-3.5" />
-        </button>
+        <div className="relative flex" data-sheet-popover>
+          <button
+            type="button"
+            title={canMerge || mergeActive ? "Merge cells" : "Select more than one cell to merge"}
+            disabled={!canMerge && !mergeActive}
+            onClick={() =>
+              applyMerge(mergeActive ? unmergeRange(merges, range) : mergeAll(merges, range))
+            }
+            className={toolClass(mergeActive)}
+          >
+            <Combine className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            title="Select merge type"
+            disabled={!canMerge && !mergeActive}
+            onClick={() => toggleMenu("merge")}
+            className={`${toolClass(openMenu === "merge")} w-auto px-0.5`}
+          >
+            <ChevronDown className="size-3" />
+          </button>
+          {openMenu === "merge" && (
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-44`}>
+              <button
+                type="button"
+                disabled={!canMerge}
+                onClick={() => applyMerge(mergeAll(merges, range))}
+                className={`${POPOVER_ITEM} disabled:pointer-events-none disabled:opacity-35`}
+              >
+                Merge all
+              </button>
+              <button
+                type="button"
+                disabled={selectedMerge.colSpan <= 1}
+                onClick={() => applyMerge(mergeHorizontally(merges, range))}
+                className={`${POPOVER_ITEM} disabled:pointer-events-none disabled:opacity-35`}
+              >
+                Merge horizontally
+              </button>
+              <button
+                type="button"
+                disabled={selectedMerge.rowSpan <= 1}
+                onClick={() => applyMerge(mergeVertically(merges, range))}
+                className={`${POPOVER_ITEM} disabled:pointer-events-none disabled:opacity-35`}
+              >
+                Merge vertically
+              </button>
+              <button
+                type="button"
+                disabled={!mergeActive}
+                onClick={() => applyMerge(unmergeRange(merges, range))}
+                className={`${POPOVER_ITEM} disabled:pointer-events-none disabled:opacity-35`}
+              >
+                Unmerge
+              </button>
+            </div>
+          )}
+        </div>
         <span className="mx-0.5 h-5 w-px bg-border" />
-        <button type="button" title="Align left" onClick={() => applyFormat({ align: "left" })} className={toolClass(selectedFormat?.align === "left")}>
-          <AlignLeft className="size-3.5" />
-        </button>
-        <button type="button" title="Align center" onClick={() => applyFormat({ align: "center" })} className={toolClass(selectedFormat?.align === "center")}>
-          <AlignCenter className="size-3.5" />
-        </button>
-        <button type="button" title="Align right" onClick={() => applyFormat({ align: "right" })} className={toolClass(selectedFormat?.align === "right")}>
-          <AlignRight className="size-3.5" />
-        </button>
-        <button type="button" title="Wrap text" onClick={() => applyFormat({ wrap: !selectedFormat?.wrap })} className={toolClass(Boolean(selectedFormat?.wrap))}>
-          <WrapText className="size-3.5" />
-        </button>
+        <div className="relative" data-sheet-popover>
+          <button
+            type="button"
+            title="Horizontal align"
+            onClick={() => toggleMenu("align")}
+            className={`${toolClass(openMenu === "align")} w-auto gap-0.5 px-1`}
+          >
+            {selectedFormat?.align === "center" ? (
+              <AlignCenter className="size-3.5" />
+            ) : selectedFormat?.align === "right" ? (
+              <AlignRight className="size-3.5" />
+            ) : (
+              <AlignLeft className="size-3.5" />
+            )}
+            <ChevronDown className="size-3" />
+          </button>
+          {openMenu === "align" && (
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-28`}>
+              <button type="button" onClick={() => { applyFormat({ align: "left" }); setOpenMenu(null); }} className={POPOVER_ITEM}>
+                Left
+              </button>
+              <button type="button" onClick={() => { applyFormat({ align: "center" }); setOpenMenu(null); }} className={POPOVER_ITEM}>
+                Center
+              </button>
+              <button type="button" onClick={() => { applyFormat({ align: "right" }); setOpenMenu(null); }} className={POPOVER_ITEM}>
+                Right
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="relative" data-sheet-popover>
+          <button
+            type="button"
+            title="Vertical align"
+            onClick={() => toggleMenu("valign")}
+            className={`${toolClass(openMenu === "valign")} w-auto gap-0.5 px-1`}
+          >
+            {selectedFormat?.verticalAlign === "top" ? (
+              <AlignVerticalJustifyStart className="size-3.5" />
+            ) : selectedFormat?.verticalAlign === "bottom" ? (
+              <AlignVerticalJustifyEnd className="size-3.5" />
+            ) : (
+              <AlignVerticalJustifyCenter className="size-3.5" />
+            )}
+            <ChevronDown className="size-3" />
+          </button>
+          {openMenu === "valign" && (
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-28`}>
+              <button type="button" onClick={() => { applyFormat({ verticalAlign: "top" }); setOpenMenu(null); }} className={POPOVER_ITEM}>
+                Top
+              </button>
+              <button type="button" onClick={() => { applyFormat({ verticalAlign: "middle" }); setOpenMenu(null); }} className={POPOVER_ITEM}>
+                Middle
+              </button>
+              <button type="button" onClick={() => { applyFormat({ verticalAlign: "bottom" }); setOpenMenu(null); }} className={POPOVER_ITEM}>
+                Bottom
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="relative" data-sheet-popover>
+          <button
+            type="button"
+            title="Text wrapping"
+            onClick={() => toggleMenu("wrap")}
+            className={toolClass(Boolean(selectedFormat?.wrap) || Boolean(selectedFormat?.clip) || openMenu === "wrap")}
+          >
+            <WrapText className="size-3.5" />
+          </button>
+          {openMenu === "wrap" && (
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-32`}>
+              <button
+                type="button"
+                onClick={() => {
+                  applyFormat({ wrap: false, clip: false });
+                  setOpenMenu(null);
+                }}
+                className={POPOVER_ITEM}
+              >
+                Overflow
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyFormat({ wrap: true, clip: false });
+                  setOpenMenu(null);
+                }}
+                className={POPOVER_ITEM}
+              >
+                Wrap
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  applyFormat({ wrap: false, clip: true });
+                  setOpenMenu(null);
+                }}
+                className={POPOVER_ITEM}
+              >
+                Clip
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="relative" data-sheet-popover>
+          <button
+            type="button"
+            title="Text rotation"
+            onClick={() => toggleMenu("rotation")}
+            className={`${toolClass(Boolean(selectedFormat?.rotation) || openMenu === "rotation")} w-auto px-1.5 font-mono text-[11px]`}
+          >
+            {selectedFormat?.rotation ? `${selectedFormat.rotation}°` : "A"}
+          </button>
+          {openMenu === "rotation" && (
+            <div className={`${POPOVER_PANEL} left-0 top-8 w-24`}>
+              {ROTATIONS.map((angle) => (
+                <button
+                  key={angle}
+                  type="button"
+                  onClick={() => {
+                    applyFormat({ rotation: angle || undefined });
+                    setOpenMenu(null);
+                  }}
+                  className={POPOVER_ITEM}
+                >
+                  {angle === 0 ? "None" : `${angle}°`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <span className="mx-0.5 h-5 w-px bg-border" />
-        <div className="relative">
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Insert link" onClick={() => toggleMenu("link")} className={toolClass(Boolean(selectedFormat?.link) || openMenu === "link")}>
             <Link2 className="size-3.5" />
           </button>
@@ -1261,11 +1696,24 @@ export default function SheetGrid({
                 <button type="button" onClick={() => { applyFormat({ link: undefined }); setOpenMenu(null); }} className="rounded px-2 py-1 text-[11px] hover:bg-accent">
                   Remove
                 </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    const input = event.currentTarget
+                      .closest(".absolute")
+                      ?.querySelector("input");
+                    applyFormat({ link: input?.value.trim() || undefined });
+                    setOpenMenu(null);
+                  }}
+                  className="rounded bg-secondary px-2 py-1 text-[11px] hover:bg-accent"
+                >
+                  Apply
+                </button>
               </div>
             </div>
           )}
         </div>
-        <div className="relative">
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Note" onClick={() => toggleMenu("note")} className={toolClass(Boolean(selectedFormat?.note) || openMenu === "note")}>
             <MessageSquare className="size-3.5" />
           </button>
@@ -1282,11 +1730,11 @@ export default function SheetGrid({
             </div>
           )}
         </div>
-        <div className="relative">
-          <button type="button" title="Chart selected numbers" onClick={() => { setChartOpen((open) => !open); setOpenMenu(null); }} className={toolClass(chartOpen)}>
+        <div className="relative" data-sheet-popover>
+          <button type="button" title="Chart selected numbers" onClick={() => toggleMenu("chart")} className={toolClass(openMenu === "chart")}>
             <BarChart3 className="size-3.5" />
           </button>
-          {chartOpen && (
+          {openMenu === "chart" && (
             <div className="absolute right-0 top-8 z-40 w-64 rounded-md border border-border bg-popover p-3 shadow-xl">
               <p className="mb-2 text-[11px] font-medium text-foreground">Selected values</p>
               {chartValues.length === 0 ? (
@@ -1308,11 +1756,11 @@ export default function SheetGrid({
             </div>
           )}
         </div>
-        <div className="relative">
-          <button type="button" title="Filter & sort" onClick={() => { setFilterOpen((open) => !open); setOpenMenu(null); }} className={toolClass(filterOpen || Boolean(filterQuery))}>
+        <div className="relative" data-sheet-popover>
+          <button type="button" title="Filter & sort" onClick={() => toggleMenu("filter")} className={toolClass(openMenu === "filter" || Boolean(filterQuery))}>
             <Filter className="size-3.5" />
           </button>
-          {filterOpen && (
+          {openMenu === "filter" && (
             <div className="absolute right-0 top-8 z-40 w-56 rounded-lg border border-border bg-popover p-2 shadow-xl">
               <input
                 autoFocus
@@ -1332,18 +1780,18 @@ export default function SheetGrid({
             </div>
           )}
         </div>
-        <div className="relative">
+        <div className="relative" data-sheet-popover>
           <button type="button" title="Functions" onClick={() => toggleMenu("fx")} className={toolClass(openMenu === "fx")}>
             <Sigma className="size-3.5" />
           </button>
           {openMenu === "fx" && (
-            <div className="absolute right-0 top-8 z-40 w-36 rounded-md border border-border bg-popover p-1 shadow-lg">
+            <div className={`${POPOVER_PANEL} right-0 top-8 w-36`}>
               {FORMULA_INSERTS.map((item) => (
                 <button
                   key={item.label}
                   type="button"
                   onClick={() => insertFormula(item.template)}
-                  className="block w-full rounded px-2 py-1 text-left font-mono text-xs hover:bg-accent"
+                  className={`${POPOVER_ITEM} font-mono`}
                 >
                   {item.label}
                 </button>
@@ -1372,7 +1820,7 @@ export default function SheetGrid({
         </button>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-border bg-popover/60 px-3 py-1.5">
+      <div className="flex items-center gap-2 border-b border-border bg-popover/60 px-3 py-1.5" data-formula-bar>
         <span className="w-16 shrink-0 rounded-md border border-border bg-muted px-2 py-1 text-center font-mono text-xs font-semibold text-primary">
           {selectedAddress}
         </span>
@@ -1380,15 +1828,43 @@ export default function SheetGrid({
           <span className="mr-2 shrink-0 font-mono text-xs italic text-muted-foreground">fx</span>
           <span className="mr-2 h-3.5 w-px bg-border" />
           <input
+            ref={formulaBarRef}
             value={editing ? draft : selectedRaw}
+            onFocus={() => {
+              editSourceRef.current = "formulaBar";
+              if (!editing) startEditing(selected, undefined, "formulaBar");
+            }}
+            onSelect={(event) => trackCaret(event.currentTarget)}
+            onClick={(event) => trackCaret(event.currentTarget)}
+            onKeyUp={(event) => trackCaret(event.currentTarget)}
             onChange={(event) => {
+              formulaSpanRef.current = null;
+              setFormulaRange(null);
+              trackCaret(event.currentTarget);
               if (!editing) {
                 startEditing(selected, event.target.value, "formulaBar");
               } else {
                 setDraft(event.target.value);
               }
             }}
+            onBlur={() => {
+              window.setTimeout(() => {
+                if (formulaPickingRef.current) return;
+                if (!editingRef.current) return;
+                const active = document.activeElement;
+                if (active === formulaBarRef.current || active === cellInputRef.current) return;
+                if (
+                  isFormulaValue(draftRef.current) &&
+                  active instanceof Node &&
+                  gridRef.current?.contains(active)
+                ) {
+                  return;
+                }
+                commitEdit();
+              }, 0);
+            }}
             onKeyDown={(event) => {
+              trackCaret(event.currentTarget);
               if (event.key === "Enter") {
                 event.preventDefault();
                 commitEdit("down");
@@ -1408,7 +1884,7 @@ export default function SheetGrid({
         ref={gridRef}
         tabIndex={0}
         onKeyDown={handleGridKeyDown}
-        className="min-h-0 flex-1 overflow-auto outline-none"
+        className="min-h-0 flex-1 overflow-auto outline-none select-none"
         style={{ zoom: zoom / 100 }}
       >
         <div className="inline-block min-w-full">
@@ -1427,8 +1903,28 @@ export default function SheetGrid({
                   setSelection({ col: index, row: selected.row });
                   showContextMenu(event, columnMenu(index), { title: column.name });
                 }}
+                onMouseDown={(event) => {
+                  const target = event.target as HTMLElement;
+                  if (target.closest("[data-sheet-popover]")) return;
+                  if (target.getAttribute("role") === "separator") return;
+                  event.preventDefault();
+                  window.getSelection()?.removeAllRanges();
+                  if (!isEditingFormula) return;
+                  beginFormulaPick({ col: index, row: 0 }, "formula-col");
+                }}
+                onMouseEnter={() => {
+                  if (dragRef.current === "formula-col") {
+                    extendFormulaPick({ col: index, row: 0 });
+                  }
+                }}
                 className={`group relative flex items-center gap-1.5 border-b border-r border-border px-2 py-1.5 ${
                   index >= bounds.minCol && index <= bounds.maxCol ? "bg-accent/60" : ""
+                } ${
+                  formulaRange &&
+                  index >= normalizedRange(formulaRange).minCol &&
+                  index <= normalizedRange(formulaRange).maxCol
+                    ? "outline outline-dashed outline-primary/70"
+                    : ""
                 }`}
               >
                 <span className="shrink-0 font-mono text-[10px] font-bold text-muted-foreground">
@@ -1447,15 +1943,16 @@ export default function SheetGrid({
                       if (event.key === "Enter") event.currentTarget.blur();
                       if (event.key === "Escape") setRenamingColumnIndex(null);
                     }}
-                    className="min-w-0 flex-1 rounded border border-ring bg-input/40 px-1 text-xs text-foreground outline-none"
+                    className="min-w-0 flex-1 select-text rounded border border-ring bg-input/40 px-1 text-xs text-foreground outline-none"
                   />
                 ) : (
                   <button
                     type="button"
                     onDoubleClick={() => setRenamingColumnIndex(index)}
-                    onClick={() =>
-                      setSelection({ col: index, row: selected.row })
-                    }
+                    onClick={() => {
+                      if (isEditingFormula) return;
+                      setSelection({ col: index, row: selected.row });
+                    }}
                     title="Double-click to rename"
                     className="min-w-0 flex-1 cursor-pointer truncate text-left text-xs font-medium text-foreground"
                   >
@@ -1463,7 +1960,7 @@ export default function SheetGrid({
                   </button>
                 )}
 
-                <div className="relative shrink-0">
+                <div className="relative shrink-0" data-sheet-popover>
                   <button
                     type="button"
                     title="Column type"
@@ -1509,6 +2006,7 @@ export default function SheetGrid({
                   aria-orientation="vertical"
                   onMouseDown={(event) => {
                     event.preventDefault();
+                    event.stopPropagation();
                     resizeStateRef.current = {
                       index,
                       startX: event.clientX,
@@ -1537,8 +2035,25 @@ export default function SheetGrid({
                   rowIndex >= bounds.minRow && rowIndex <= bounds.maxRow
                     ? "bg-accent/60 text-primary"
                     : "bg-muted"
+                } ${
+                  formulaRange &&
+                  rowIndex >= normalizedRange(formulaRange).minRow &&
+                  rowIndex <= normalizedRange(formulaRange).maxRow
+                    ? "outline outline-dashed outline-primary/70"
+                    : ""
                 }`}
                 style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  window.getSelection()?.removeAllRanges();
+                  if (!isEditingFormula) return;
+                  beginFormulaPick({ col: 0, row: rowIndex }, "formula-row");
+                }}
+                onMouseEnter={() => {
+                  if (dragRef.current === "formula-row") {
+                    extendFormulaPick({ col: 0, row: rowIndex });
+                  }
+                }}
                 onContextMenu={(event) => {
                   setSelection({ col: selected.col, row: rowIndex });
                   showContextMenu(event, rowMenu(rowIndex), {
@@ -1552,7 +2067,21 @@ export default function SheetGrid({
               {columns.map((column, colIndex) => {
                 const address = { col: colIndex, row: rowIndex };
                 if (coveredByMerge(merges, address)) {
-                  return <div key={column.id} className="border-b border-r border-border" />;
+                  const covered = findMerge(merges, address);
+                  if (covered && address.col === covered.startCol) {
+                    return (
+                      <div
+                        key={column.id}
+                        aria-hidden
+                        className="border-b border-border"
+                        style={{
+                          gridColumn: `span ${covered.colSpan}`,
+                          height: ROW_HEIGHT,
+                        }}
+                      />
+                    );
+                  }
+                  return null;
                 }
 
                 const merge = findMerge(merges, address);
@@ -1565,14 +2094,24 @@ export default function SheetGrid({
                 const display = formatSheetDisplay(result, column.type, raw, format);
                 const chip = column.type === "text" || column.type === "formula" ? statusChip(display) : null;
                 const align = format?.align ?? defaultAlign(column.type);
+                const inFormulaRange = Boolean(formulaRange && isInRange(address, formulaRange));
                 const isFillCorner =
-                  colIndex === bounds.maxCol && rowIndex === bounds.maxRow;
+                  colIndex === bounds.maxCol && rowIndex === bounds.maxRow && !isEditingFormula;
+                const verticalAlign: SheetVerticalAlign = format?.verticalAlign ?? "middle";
 
                 return (
                   <div
                     key={column.id}
                     onMouseDown={(event) => {
+                      if (isEditingFormula && !isEditing) {
+                        event.preventDefault();
+                        beginFormulaPick(address, "formula");
+                        return;
+                      }
                       if (isEditing) return;
+                      event.preventDefault();
+                      window.getSelection()?.removeAllRanges();
+                      gridRef.current?.focus();
                       if (paintFormat) {
                         event.preventDefault();
                         const copied = { ...paintFormat };
@@ -1592,14 +2131,21 @@ export default function SheetGrid({
                         setSelection(address);
                         return;
                       }
+                      const mergeAt = findMerge(merges, address);
                       if (event.shiftKey) {
                         setSelection(address, true);
+                      } else if (mergeAt) {
+                        setSelection(rangeFromMerge(mergeAt));
                       } else {
                         setSelection(address);
                       }
                       dragRef.current = "select";
                     }}
                     onMouseEnter={() => {
+                      if (dragRef.current?.startsWith("formula")) {
+                        extendFormulaPick(address);
+                        return;
+                      }
                       if (dragRef.current === "select") setSelection(address, true);
                       if (dragRef.current === "fill" && fillOriginRef.current) {
                         setSelection({
@@ -1627,16 +2173,34 @@ export default function SheetGrid({
                         toggleBoolean(address);
                       }
                     }}
-                    className={`relative min-w-0 border-b border-r border-border px-2 text-sm ${
+                    className={`relative flex min-w-0 border-b border-r border-border px-2 text-sm ${
+                      verticalAlign === "top"
+                        ? "items-start"
+                        : verticalAlign === "bottom"
+                          ? "items-end"
+                          : "items-center"
+                    } ${
                       inRange && !format?.fillColor ? "bg-primary/10" : ""
                     } ${isSelected ? "z-10 ring-2 ring-inset ring-ring" : ""} ${
+                      inFormulaRange ? "outline outline-dashed outline-1 outline-primary" : ""
+                    } ${
                       result.type === "error" ? "text-destructive" : ""
                     } ${evaluator.isFormula(colIndex, rowIndex) && result.type === "number" && !format?.textColor ? "text-primary" : ""} ${
                       format?.border === "all" ? "ring-1 ring-inset ring-foreground/50" : ""
                     } ${format?.border === "bottom" ? "border-b-foreground/70" : ""} ${
+                      format?.border === "top" ? "border-t-foreground/70" : ""
+                    } ${format?.border === "left" ? "border-l-foreground/70" : ""} ${
+                      format?.border === "right" ? "border-r-foreground/70" : ""
+                    } ${
                       format?.border === "outer" ? "outline outline-1 outline-foreground/40" : ""
+                    } ${format?.clip ? "overflow-hidden" : ""} ${
+                      merge && isMergeOrigin(merge, address) ? "z-[8] bg-background" : ""
                     }`}
                     style={{
+                      gridColumn:
+                        merge && isMergeOrigin(merge, address) && merge.colSpan > 1
+                          ? `span ${merge.colSpan}`
+                          : undefined,
                       height: format?.wrap
                         ? "auto"
                         : merge && isMergeOrigin(merge, address)
@@ -1646,6 +2210,8 @@ export default function SheetGrid({
                         ? ROW_HEIGHT * merge.rowSpan
                         : ROW_HEIGHT,
                       textAlign: align,
+                      justifyContent:
+                        align === "center" ? "center" : align === "right" ? "flex-end" : "flex-start",
                       fontWeight: format?.bold ? 700 : undefined,
                       fontStyle: format?.italic ? "italic" : undefined,
                       textDecoration: cellTextDecoration(format),
@@ -1655,7 +2221,7 @@ export default function SheetGrid({
                       fontFamily: cellFormatFontFamily(format?.fontFamily),
                       whiteSpace: format?.wrap ? "pre-wrap" : undefined,
                       overflowWrap: format?.wrap ? "anywhere" : undefined,
-                      verticalAlign: format?.verticalAlign,
+                      transform: format?.rotation ? `rotate(${format.rotation}deg)` : undefined,
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
@@ -1663,9 +2229,41 @@ export default function SheetGrid({
                       <input
                         ref={cellInputRef}
                         value={draft}
-                        onChange={(event) => setDraft(event.target.value)}
-                        onBlur={() => commitEdit()}
+                        onFocus={() => {
+                          editSourceRef.current = "cell";
+                        }}
+                        onSelect={(event) => trackCaret(event.currentTarget)}
+                        onClick={(event) => trackCaret(event.currentTarget)}
+                        onKeyUp={(event) => trackCaret(event.currentTarget)}
+                        onChange={(event) => {
+                          formulaSpanRef.current = null;
+                          setFormulaRange(null);
+                          trackCaret(event.currentTarget);
+                          setDraft(event.target.value);
+                        }}
+                        onBlur={() => {
+                          window.setTimeout(() => {
+                            if (formulaPickingRef.current) return;
+                            if (!editingRef.current) return;
+                            const active = document.activeElement;
+                            if (
+                              active === formulaBarRef.current ||
+                              active === cellInputRef.current
+                            ) {
+                              return;
+                            }
+                            if (
+                              isFormulaValue(draftRef.current) &&
+                              active instanceof Node &&
+                              gridRef.current?.contains(active)
+                            ) {
+                              return;
+                            }
+                            commitEdit();
+                          }, 0);
+                        }}
                         onKeyDown={(event) => {
+                          trackCaret(event.currentTarget);
                           if (event.key === "Enter") {
                             event.preventDefault();
                             commitEdit("down");
@@ -1679,7 +2277,7 @@ export default function SheetGrid({
                             cancelEdit();
                           }
                         }}
-                        className="absolute inset-0 w-full bg-card px-2 py-1 text-left font-sans text-sm text-foreground outline-none ring-2 ring-inset ring-ring"
+                        className="absolute inset-0 w-full select-text bg-card px-2 py-1 text-left font-sans text-sm text-foreground outline-none ring-2 ring-inset ring-ring"
                       />
                     ) : chip ? (
                       <span
@@ -1693,12 +2291,12 @@ export default function SheetGrid({
                         target="_blank"
                         rel="noreferrer"
                         onClick={(event) => event.stopPropagation()}
-                        className="block truncate leading-8 text-primary underline"
+                        className="min-w-0 max-w-full truncate leading-8 text-primary underline"
                       >
                         {display || format.link}
                       </a>
                     ) : (
-                      <span className={`block leading-8 ${format?.wrap ? "whitespace-pre-wrap" : "truncate"}`}>
+                      <span className={`min-w-0 max-w-full leading-8 ${format?.wrap ? "whitespace-pre-wrap" : format?.clip ? "overflow-hidden" : "truncate"}`}>
                         {display}
                       </span>
                     )}

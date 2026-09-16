@@ -699,7 +699,7 @@ export function createSheetEvaluator(columns: SheetColumn[], rows: SheetRow[]) {
 
     if (visiting.has(key)) return error("#CYCLE!");
 
-    const raw = rawAt(col, row);
+    const raw = rawAt(col, row).trim();
     if (!raw.startsWith("=")) {
       const literal = parseLiteral(raw);
       cache.set(key, literal);
@@ -719,6 +719,6 @@ export function createSheetEvaluator(columns: SheetColumn[], rows: SheetRow[]) {
   return {
     valueAt,
     displayAt: (col: number, row: number) => formatCellResult(valueAt(col, row)),
-    isFormula: (col: number, row: number) => rawAt(col, row).startsWith("="),
+    isFormula: (col: number, row: number) => rawAt(col, row).trim().startsWith("="),
   };
 }

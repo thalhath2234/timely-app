@@ -44,6 +44,8 @@ type SheetCellFormat struct {
 	Align         string `json:"align,omitempty"`
 	VerticalAlign string `json:"verticalAlign,omitempty"`
 	Wrap          bool   `json:"wrap,omitempty"`
+	Clip          bool   `json:"clip,omitempty"`
+	Rotation      int    `json:"rotation,omitempty"`
 	NumberFormat  string `json:"numberFormat,omitempty"`
 	Decimals      *int   `json:"decimals,omitempty"`
 	TextColor     string `json:"textColor,omitempty"`
@@ -247,13 +249,18 @@ const (
 	SheetVerticalAlignMiddle = "middle"
 	SheetVerticalAlignBottom = "bottom"
 
-	SheetNumberFormatNumber   = "number"
-	SheetNumberFormatCurrency = "currency"
-	SheetNumberFormatPercent  = "percent"
+	SheetNumberFormatNumber     = "number"
+	SheetNumberFormatCurrency   = "currency"
+	SheetNumberFormatPercent    = "percent"
+	SheetNumberFormatScientific = "scientific"
+	SheetNumberFormatPlain      = "plain"
 
 	SheetBorderAll    = "all"
 	SheetBorderOuter  = "outer"
 	SheetBorderBottom = "bottom"
+	SheetBorderTop    = "top"
+	SheetBorderLeft   = "left"
+	SheetBorderRight  = "right"
 
 	SheetFontFamilyDefault = "default"
 	SheetFontFamilySerif   = "serif"
@@ -376,6 +383,8 @@ func NormalizeCellFormats(formats map[string]SheetCellFormat) map[string]SheetCe
 			Align:         strings.ToLower(strings.TrimSpace(format.Align)),
 			VerticalAlign: strings.ToLower(strings.TrimSpace(format.VerticalAlign)),
 			Wrap:          format.Wrap,
+			Clip:          format.Clip,
+			Rotation:      format.Rotation,
 			NumberFormat:  strings.ToLower(strings.TrimSpace(format.NumberFormat)),
 			TextColor:     normalizeHexColor(format.TextColor),
 			FillColor:     normalizeHexColor(format.FillColor),
@@ -396,14 +405,21 @@ func NormalizeCellFormats(formats map[string]SheetCellFormat) map[string]SheetCe
 			normalized.VerticalAlign = ""
 		}
 		switch normalized.NumberFormat {
-		case SheetNumberFormatNumber, SheetNumberFormatCurrency, SheetNumberFormatPercent:
+		case SheetNumberFormatNumber, SheetNumberFormatCurrency, SheetNumberFormatPercent,
+			SheetNumberFormatScientific, SheetNumberFormatPlain:
 		default:
 			normalized.NumberFormat = ""
 		}
 		switch normalized.Border {
-		case SheetBorderAll, SheetBorderOuter, SheetBorderBottom:
+		case SheetBorderAll, SheetBorderOuter, SheetBorderBottom, SheetBorderTop, SheetBorderLeft, SheetBorderRight:
 		default:
 			normalized.Border = ""
+		}
+		if normalized.Rotation > 90 {
+			normalized.Rotation = 90
+		}
+		if normalized.Rotation < -90 {
+			normalized.Rotation = -90
 		}
 		switch normalized.FontFamily {
 		case SheetFontFamilyDefault, SheetFontFamilySerif, SheetFontFamilyMono:
@@ -480,6 +496,8 @@ func cellFormatEmpty(format SheetCellFormat) bool {
 		format.Align == "" &&
 		format.VerticalAlign == "" &&
 		!format.Wrap &&
+		!format.Clip &&
+		format.Rotation == 0 &&
 		format.NumberFormat == "" &&
 		format.Decimals == nil &&
 		format.TextColor == "" &&

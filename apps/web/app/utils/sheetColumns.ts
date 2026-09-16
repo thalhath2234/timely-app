@@ -81,6 +81,8 @@ export function isEmptyCellFormat(format: SheetCellFormat): boolean {
     !format.align &&
     !format.verticalAlign &&
     !format.wrap &&
+    !format.clip &&
+    !format.rotation &&
     !format.numberFormat &&
     format.decimals == null &&
     !format.textColor &&
@@ -107,6 +109,8 @@ export function setCellFormat(
   if (!merged.align) delete merged.align;
   if (!merged.verticalAlign) delete merged.verticalAlign;
   if (!merged.wrap) delete merged.wrap;
+  if (!merged.clip) delete merged.clip;
+  if (!merged.rotation) delete merged.rotation;
   if (!merged.numberFormat) delete merged.numberFormat;
   if (merged.decimals == null) delete merged.decimals;
   if (!merged.textColor) delete merged.textColor;

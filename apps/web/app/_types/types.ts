@@ -595,8 +595,13 @@ export type SheetColumnType =
 
 export type SheetAlign = "left" | "center" | "right";
 export type SheetVerticalAlign = "top" | "middle" | "bottom";
-export type SheetNumberFormat = "number" | "currency" | "percent";
-export type SheetBorder = "all" | "outer" | "bottom";
+export type SheetNumberFormat =
+  | "number"
+  | "currency"
+  | "percent"
+  | "scientific"
+  | "plain";
+export type SheetBorder = "all" | "outer" | "bottom" | "top" | "left" | "right";
 export type SheetFontFamily = "default" | "serif" | "mono";
 
 export interface SheetCellFormat {
@@ -607,6 +612,8 @@ export interface SheetCellFormat {
   align?: SheetAlign;
   verticalAlign?: SheetVerticalAlign;
   wrap?: boolean;
+  clip?: boolean;
+  rotation?: number;
   numberFormat?: SheetNumberFormat;
   decimals?: number;
   textColor?: string;
