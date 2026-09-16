@@ -1,12 +1,18 @@
 "use client";
 
-import { useMemo, useState, type DragEvent } from "react";
+import { useMemo, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { CalendarOff, CalendarRange } from "lucide-react";
 import type { Task, TaskListDataMode } from "@/app/_types/types";
-import { toDateInputValue } from "@/app/utils/calendar";
+import { localDateStamp, toDateInputValue } from "@/app/utils/calendar";
 import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { dragHasTask, readTaskDragId, setTaskDragData } from "@/app/utils/taskDrag";
 import { taskTimelineSpan } from "@/app/utils/taskDates";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
+import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
+import { tidyEntries } from "@/app/_store/contextMenuStore";
+import { showUndoToast } from "@/app/_store/toastStore";
 
 type GanttViewProps = {
   rows: Task[];
@@ -51,6 +57,9 @@ function dateAtClientX(clientX: number, target: HTMLElement, min: Date, totalDur
 export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProps) {
   const updateTask = useUpdateTask();
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const openMenu = useContextMenu();
+  const taskMenu = useTaskContextMenu();
+  const projectMenu = useProjectContextMenu();
 
   const timelineRows = useMemo(() => {
     const dated: { row: Task; start: Date; end: Date }[] = [];
@@ -120,6 +129,59 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
     placeOnTimeline(id, dateAtClientX(event.clientX, event.currentTarget, timelineRows.min, totalDurationMs));
   };
 
+  /** Timeline rows get two bar-specific verbs on top of the shared task menu:
+   * the dates that place a bar are exactly what this view edits by drag. */
+  const onRowContextMenu = (event: ReactMouseEvent, row: Task) => {
+    if (dataMode === "project") {
+      if (!row.project) return;
+      openMenu(event, projectMenu(row.project), { title: row.project.title });
+      return;
+    }
+
+    const hasDates = Boolean(row.startDate || row.deadline);
+    openMenu(
+      event,
+      taskMenu(row, {
+        extra: tidyEntries([
+          {
+            kind: "action",
+            label: "Start today",
+            icon: CalendarRange,
+            onSelect: () => {
+              const previous = { startDate: row.startDate ?? "" };
+              void updateTask
+                .mutateAsync({ id: row.id, startDate: localDateStamp() })
+                .then(() =>
+                  showUndoToast("Start date set to today", () => {
+                    void updateTask.mutateAsync({ id: row.id, ...previous });
+                  }),
+                );
+            },
+          },
+          hasDates && {
+            kind: "action",
+            label: "Clear timeline dates",
+            icon: CalendarOff,
+            onSelect: () => {
+              const previous = {
+                startDate: row.startDate ?? "",
+                deadline: row.deadline ?? "",
+              };
+              void updateTask
+                .mutateAsync({ id: row.id, startDate: "", deadline: "" })
+                .then(() =>
+                  showUndoToast("Timeline dates cleared", () => {
+                    void updateTask.mutateAsync({ id: row.id, ...previous });
+                  }),
+                );
+            },
+          },
+        ]),
+      }),
+      { title: row.name },
+    );
+  };
+
   if (timelineRows.entries.length === 0 && timelineRows.undated.length === 0) {
     return <div className="p-4 text-sm text-muted-foreground">No items found for Gantt view.</div>;
   }
@@ -153,6 +215,7 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
               role="button"
               tabIndex={0}
               onClick={() => onSelectRow(row)}
+              onContextMenu={(event) => onRowContextMenu(event, row)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
@@ -225,6 +288,7 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
                     }}
                     onDragEnd={() => setDraggingId(null)}
                     onClick={() => onSelectRow(row)}
+                    onContextMenu={(event) => onRowContextMenu(event, row)}
                     className="flex w-full cursor-grab items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/40 active:cursor-grabbing"
                   >
                     <span className="truncate text-foreground">{row.name}</span>

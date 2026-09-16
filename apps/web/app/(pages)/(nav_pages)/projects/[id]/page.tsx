@@ -23,6 +23,8 @@ import {
   useUpdateProject,
 } from "@/app/utils/hooks/projects";
 import LoadError from "@/app/_components/_ui/loadError";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
@@ -68,6 +70,8 @@ function ProjectHub({ project }: { project: Project }) {
   const duplicateProject = useDuplicateProject();
   const { data: tasks } = useTasks();
   const { data: workspaces } = useWorkspaces();
+  const openMenu = useContextMenu();
+  const projectMenu = useProjectContextMenu();
   const [tab, setTab] = useState<Tab>(project.doesHaveStages ? "stages" : "overview");
   const [title, setTitle] = useState(project.title);
 
@@ -104,7 +108,15 @@ function ProjectHub({ project }: { project: Project }) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3">
+      <header
+        className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3"
+        onContextMenu={(event) => {
+          if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+          openMenu(event, projectMenu(project, { omit: ["open"] }), {
+            title: project.title || "Untitled project",
+          });
+        }}
+      >
         <Link
           href="/projects"
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

@@ -3,6 +3,8 @@ import SearchModal from "@/app/_components/_ui/modal/search";
 import AddItemModal from "@/app/_components/_ui/modal/addItem";
 import AutoScheduleIndicator from "@/app/_components/calendarView/autoScheduleIndicator";
 import ToastHost from "@/app/_components/_ui/toastHost";
+import ContextMenuHost from "@/app/_components/_ui/contextMenu";
+import ConfirmHost from "@/app/_components/_ui/confirmHost";
 import KeyboardShortcuts from "@/app/_components/_ui/keyboardShortcuts";
 import EntityDetailHost from "@/app/_components/_ui/tasks/entityDetailHost";
 import { Suspense } from "react";
@@ -22,6 +24,8 @@ export default async function DashboardLayout({
         <KeyboardShortcuts />
       </Suspense>
       <ToastHost />
+      <ContextMenuHost />
+      <ConfirmHost />
       <div className="flex h-full w-full flex-row overflow-hidden bg-sidebar">
         <div className="flex h-full w-[68px] shrink-0 items-center justify-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
           <Sidebar />

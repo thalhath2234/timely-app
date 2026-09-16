@@ -1,20 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, type ComponentType } from "react";
+import { useMemo, type ComponentType, type MouseEvent as ReactMouseEvent } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
   CalendarClock,
   CheckCircle2,
+  Copy,
+  ExternalLink,
   FileText,
   FolderKanban,
   Link2,
   ListTodo,
   Sheet as SheetIcon,
 } from "lucide-react";
-import { MENTION_TYPE_LABELS } from "@/app/_components/editor/mention";
-import { Doc, Project, Sheet, Task, Workspace } from "@/app/_types/types";
+import { MENTION_TYPE_LABELS, mentionHref } from "@/app/_components/editor/mention";
+import { Doc, Project, Sheet, Task, Workspace, type MentionEntityType } from "@/app/_types/types";
 import { useDocs } from "@/app/utils/hooks/docs";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { useSheets } from "@/app/utils/hooks/sheets";
@@ -28,6 +31,13 @@ import {
 } from "@/app/utils/report";
 import { taskDateSourceLabel } from "@/app/utils/taskDates";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
+import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
+import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
+import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
+import { tidyEntries } from "@/app/_store/contextMenuStore";
+import { useToastStore } from "@/app/_store/toastStore";
 
 const KIND_ICON = {
   doc: FileText,
@@ -56,6 +66,90 @@ export default function ReportPage() {
   const { data: docs } = docsQuery;
   const { data: sheets } = sheetsQuery;
   const { data: workspaces } = workspacesQuery;
+  const router = useRouter();
+  const openMenu = useContextMenu();
+  const taskMenu = useTaskContextMenu();
+  const projectMenu = useProjectContextMenu();
+  const docMenu = useDocContextMenu();
+  const sheetMenu = useSheetContextMenu();
+
+  const tasksById = useMemo(
+    () => new Map(((tasks ?? []) as Task[]).map((item) => [item.id, item])),
+    [tasks],
+  );
+  const projectsById = useMemo(
+    () => new Map(((projects ?? []) as Project[]).map((item) => [item.id, item])),
+    [projects],
+  );
+  const docsById = useMemo(
+    () => new Map(((docs ?? []) as Doc[]).map((item) => [item.id, item])),
+    [docs],
+  );
+  const sheetsById = useMemo(
+    () => new Map(((sheets ?? []) as Sheet[]).map((item) => [item.id, item])),
+    [sheets],
+  );
+
+  const openEntityMenu = (
+    event: ReactMouseEvent,
+    kind: MentionEntityType,
+    id: string,
+    fallbackLabel?: string,
+  ) => {
+    if (kind === "task") {
+      const task = tasksById.get(id);
+      if (task) {
+        openMenu(event, taskMenu(task), { title: task.name });
+        return;
+      }
+    } else if (kind === "project") {
+      const project = projectsById.get(id);
+      if (project) {
+        openMenu(event, projectMenu(project), { title: project.title || "Untitled project" });
+        return;
+      }
+    } else if (kind === "doc") {
+      const doc = docsById.get(id);
+      if (doc) {
+        openMenu(event, docMenu(doc), { title: doc.title });
+        return;
+      }
+    } else if (kind === "sheet") {
+      const sheet = sheetsById.get(id);
+      if (sheet) {
+        openMenu(event, sheetMenu(sheet), { title: sheet.title });
+        return;
+      }
+    }
+
+    const href = mentionHref(kind, id);
+    const label = fallbackLabel || "Open";
+    openMenu(
+      event,
+      tidyEntries([
+        {
+          kind: "action",
+          label: "Open",
+          icon: ExternalLink,
+          shortcut: "Enter",
+          onSelect: () => router.push(href),
+        },
+        {
+          kind: "action",
+          label: "Copy link",
+          icon: Link2,
+          shortcut: "mod+shift+C",
+          onSelect: () => {
+            void navigator.clipboard
+              .writeText(new URL(href, window.location.origin).toString())
+              .then(() => useToastStore.getState().show("Link copied"))
+              .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
+          },
+        },
+      ]),
+      { title: label },
+    );
+  };
 
   const isLoading =
     tasksQuery.isLoading ||
@@ -182,7 +276,12 @@ export default function ReportPage() {
             ) : (
               <ul className="mt-3 divide-y divide-border">
                 {report.overdue.map((item) => (
-                  <DeadlineRow key={item.id} item={item} tone="danger" />
+                  <DeadlineRow
+                    key={item.id}
+                    item={item}
+                    tone="danger"
+                    onContextMenu={(event) => openEntityMenu(event, "task", item.id, item.name)}
+                  />
                 ))}
               </ul>
             )}
@@ -235,7 +334,12 @@ export default function ReportPage() {
             ) : (
               <ul className="mt-3 divide-y divide-border">
                 {report.upcoming.map((item) => (
-                  <DeadlineRow key={item.id} item={item} tone="neutral" />
+                  <DeadlineRow
+                    key={item.id}
+                    item={item}
+                    tone="neutral"
+                    onContextMenu={(event) => openEntityMenu(event, "task", item.id, item.name)}
+                  />
                 ))}
               </ul>
             )}
@@ -260,6 +364,9 @@ export default function ReportPage() {
                   <li key={project.id}>
                     <Link
                       href={project.href}
+                      onContextMenu={(event) =>
+                        openEntityMenu(event, "project", project.id, project.name)
+                      }
                       className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-accent/50"
                     >
                       <span className="truncate text-foreground">
@@ -283,7 +390,35 @@ export default function ReportPage() {
                   {report.byWorkspace.map((workspace) => (
                     <li
                       key={workspace.id}
-                      className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm"
+                      onContextMenu={(event) =>
+                        openMenu(
+                          event,
+                          tidyEntries([
+                            {
+                              kind: "action",
+                              label: "Open tasks",
+                              icon: ListTodo,
+                              shortcut: "Enter",
+                              onSelect: () => router.push("/tasks"),
+                            },
+                            {
+                              kind: "action",
+                              label: "Copy name",
+                              icon: Copy,
+                              onSelect: () => {
+                                void navigator.clipboard
+                                  .writeText(workspace.name)
+                                  .then(() => useToastStore.getState().show("Name copied"))
+                                  .catch(() =>
+                                    useToastStore.getState().show("Could not copy to clipboard"),
+                                  );
+                              },
+                            },
+                          ]),
+                          { title: workspace.name },
+                        )
+                      }
+                      className="flex cursor-default items-center justify-between rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-accent/50"
                     >
                       <span className="truncate text-foreground">
                         {workspace.name}
@@ -326,6 +461,9 @@ export default function ReportPage() {
                     >
                       <Link
                         href={link.from.href}
+                        onContextMenu={(event) =>
+                          openEntityMenu(event, link.from.kind, link.from.id, link.from.label)
+                        }
                         className="inline-flex min-w-0 items-center gap-1.5 text-foreground transition-colors hover:text-primary"
                       >
                         <FromIcon className="size-3.5 shrink-0 text-muted-foreground" />
@@ -336,6 +474,9 @@ export default function ReportPage() {
 
                       <Link
                         href={link.to.href}
+                        onContextMenu={(event) =>
+                          openEntityMenu(event, link.to.entityType, link.to.id, link.to.label)
+                        }
                         className="inline-flex min-w-0 items-center gap-1.5 text-foreground transition-colors hover:text-primary"
                         data-entity-type={link.to.entityType}
                       >
@@ -369,6 +510,9 @@ export default function ReportPage() {
                     <li key={`${item.kind}-${item.id}`}>
                       <Link
                         href={item.href}
+                        onContextMenu={(event) =>
+                          openEntityMenu(event, item.kind, item.id, item.label)
+                        }
                         className="flex items-center gap-3 py-2.5 transition-colors hover:bg-accent/40"
                       >
                         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted">
@@ -426,9 +570,11 @@ function EmptyState({ text }: { text: string }) {
 function DeadlineRow({
   item,
   tone,
+  onContextMenu,
 }: {
   item: DeadlineItem;
   tone: "danger" | "neutral";
+  onContextMenu: (event: ReactMouseEvent) => void;
 }) {
   const sourceHint =
     item.source === "deadline"
@@ -440,6 +586,7 @@ function DeadlineRow({
     <li>
       <Link
         href={item.href}
+        onContextMenu={onContextMenu}
         className="flex items-center gap-3 py-2.5 transition-colors hover:bg-accent/40"
       >
         <span className="min-w-0 flex-1">

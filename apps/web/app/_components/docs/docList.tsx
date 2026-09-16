@@ -15,10 +15,12 @@ import {
   Upload,
 } from "lucide-react";
 import { Doc } from "@/app/_types/types";
-import { useCreateDoc, useDeleteDoc, useDocs } from "@/app/utils/hooks/docs";
+import { useCreateDoc, useDeleteDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
 
 interface DocNode extends Doc {
   children: DocNode[];
@@ -80,13 +82,17 @@ export default function DocList() {
   const { data: docs, isLoading } = docsQuery;
   const createDoc = useCreateDoc();
   const deleteDoc = useDeleteDoc();
+  const updateDoc = useUpdateDoc();
 
   const [search, setSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const { collapsed, toggle } = useCollapsedPanel("timely.docsListCollapsed");
+  const openMenu = useContextMenu();
+  const docMenu = useDocContextMenu();
 
   const allDocs = useMemo(
     () =>
@@ -152,6 +158,23 @@ export default function DocList() {
     if (activeId === id) router.push("/docs");
   };
 
+  const onRowContextMenu = (event: React.MouseEvent, node: DocNode) => {
+    openMenu(
+      event,
+      docMenu(node, {
+        hasChildren: node.children.length > 0,
+        expanded: isExpanded(node.id),
+        onToggleExpand: () => toggleExpanded(node.id),
+        onRename: () => setRenamingId(node.id),
+        onDeleted: (id) => {
+          setPendingDeleteId(null);
+          if (activeId === id) router.push("/docs");
+        },
+      }),
+      { title: node.title },
+    );
+  };
+
   const renderRow = (node: DocNode, depth: number) => {
     const isActive = node.id === activeId;
     const expanded = isExpanded(node.id);
@@ -167,6 +190,7 @@ export default function DocList() {
               : "hover:bg-accent"
           }`}
           style={{ paddingLeft: depth * 12 }}
+          onContextMenu={(event) => onRowContextMenu(event, node)}
         >
           <button
             type="button"
@@ -181,22 +205,59 @@ export default function DocList() {
             />
           </button>
 
-          <Link
-            href={`/docs/${node.id}`}
-            className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-sm"
-          >
-            <span className="shrink-0 text-base leading-none">
-              {node.icon ? (
-                node.icon
-              ) : (
-                <FileText className="size-3.5 text-muted-foreground" />
+          {renamingId === node.id ? (
+            <form
+              className="flex min-w-0 flex-1 items-center gap-1.5 py-1"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const title = new FormData(event.currentTarget).get("title");
+                const next = typeof title === "string" ? title.trim() : "";
+                setRenamingId(null);
+                if (!next || next === node.title) return;
+                void updateDoc.mutateAsync({ id: node.id, title: next });
+              }}
+            >
+              <span className="shrink-0 text-base leading-none">
+                {node.icon ? node.icon : <FileText className="size-3.5 text-muted-foreground" />}
+              </span>
+              <input
+                name="title"
+                autoFocus
+                defaultValue={node.title}
+                aria-label="Rename doc"
+                onBlur={(event) => {
+                  const next = event.currentTarget.value.trim();
+                  setRenamingId(null);
+                  if (!next || next === node.title) return;
+                  void updateDoc.mutateAsync({ id: node.id, title: next });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setRenamingId(null);
+                  }
+                }}
+                className="min-w-0 flex-1 rounded border border-ring bg-input/40 px-1 py-0.5 text-sm outline-none"
+              />
+            </form>
+          ) : (
+            <Link
+              href={`/docs/${node.id}`}
+              className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-sm"
+            >
+              <span className="shrink-0 text-base leading-none">
+                {node.icon ? (
+                  node.icon
+                ) : (
+                  <FileText className="size-3.5 text-muted-foreground" />
+                )}
+              </span>
+              <span className="truncate">{node.title}</span>
+              {node.isFavorite && (
+                <Star className="size-3 shrink-0 fill-warning text-warning" />
               )}
-            </span>
-            <span className="truncate">{node.title}</span>
-            {node.isFavorite && (
-              <Star className="size-3 shrink-0 fill-warning text-warning" />
-            )}
-          </Link>
+            </Link>
+          )}
 
           <button
             type="button"
@@ -375,6 +436,9 @@ export default function DocList() {
               <Link
                 key={doc.id}
                 href={`/docs/${doc.id}`}
+                onContextMenu={(event) =>
+                  onRowContextMenu(event, { ...doc, children: [] })
+                }
                 className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors ${
                   doc.id === activeId
                     ? "bg-primary/12 text-foreground"

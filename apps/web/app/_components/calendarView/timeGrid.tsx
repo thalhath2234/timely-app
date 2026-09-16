@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Bell } from "lucide-react";
 import { formatHour, HOURS } from "@/app/_types/types";
 import {
@@ -31,6 +38,10 @@ type TimeGridProps = {
   onDropTask?: (at: Date, taskId: string) => void;
   /** Drag-move or edge-resize a scheduled work block. */
   onMoveBlock?: (event: CalendarEvent, start: Date, end: Date) => void;
+  /** Right-click on a block. */
+  onEventContextMenu?: (mouse: ReactMouseEvent, event: CalendarEvent) => void;
+  /** Right-click on an empty hour. */
+  onSlotContextMenu?: (mouse: ReactMouseEvent, day: Date, hour: number) => void;
 };
 
 const MIN_BLOCK_HEIGHT = 20;
@@ -97,6 +108,8 @@ export default function TimeGrid({
   onSelectSlot,
   onDropTask,
   onMoveBlock,
+  onEventContextMenu,
+  onSlotContextMenu,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -397,6 +410,7 @@ export default function TimeGrid({
                       if (preview) return;
                       onSelectSlot?.(day, hour);
                     }}
+                    onContextMenu={(mouse) => onSlotContextMenu?.(mouse, day, hour)}
                     onDragOver={(event) => {
                       if (!onDropTask || !dragHasTask(event)) return;
                       event.preventDefault();
@@ -456,6 +470,7 @@ export default function TimeGrid({
                         key={event.id}
                         type="button"
                         onClick={() => onSelectEvent(event)}
+                        onContextMenu={(mouse) => onEventContextMenu?.(mouse, event)}
                         style={{
                           top: event.startHour * HOUR_HEIGHT - REMINDER_HEIGHT / 2,
                           height: REMINDER_HEIGHT,
@@ -499,6 +514,7 @@ export default function TimeGrid({
                         }
                         onSelectEvent(event);
                       }}
+                      onContextMenu={(mouse) => onEventContextMenu?.(mouse, event)}
                       onPointerDown={(pointer) => startDrag(event, day, "move", pointer)}
                       style={{
                         top: event.startHour * HOUR_HEIGHT,
