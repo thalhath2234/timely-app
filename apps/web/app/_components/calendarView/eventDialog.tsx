@@ -983,7 +983,7 @@ function EventPanel({ event, onClose }: { event: CalendarEvent; onClose: () => v
               type="button"
               onClick={remove}
               disabled={pending}
-              className="ml-auto cursor-pointer rounded-lg bg-destructive px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-60"
+              className="ml-auto cursor-pointer rounded-lg bg-destructive-container px-3 py-1.5 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive-container/90 disabled:opacity-60"
             >
               {pending ? "Deleting..." : "Delete"}
             </button>

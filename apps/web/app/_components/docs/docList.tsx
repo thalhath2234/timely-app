@@ -301,7 +301,7 @@ export default function DocList() {
                 type="button"
                 onClick={() => handleDelete(node.id)}
                 disabled={deleteDoc.isPending}
-                className="cursor-pointer rounded-md bg-destructive px-2 py-1 text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                className="cursor-pointer rounded-md bg-destructive-container px-2 py-1 text-destructive-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
               >
                 Delete
               </button>
