@@ -46,7 +46,7 @@ function ProjectCard({
     <Link
       href={`/projects/${project.id}`}
       onContextMenu={(event) => onContextMenu(event, project)}
-      className="flex flex-col gap-3 overflow-hidden rounded-xl border border-white/10 bg-[#191b22] p-4 transition-colors hover:border-[#c0c1ff]/30 hover:bg-white/[0.03]"
+      className="flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-accent/50"
       style={{ borderLeftColor: color, borderLeftWidth: 3 }}
     >
       <div className="flex items-start justify-between gap-3">
@@ -123,7 +123,7 @@ export default function ProjectsPage() {
             type="button"
             onClick={openCreate}
             disabled={!canCreate}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#c0c1ff] px-4 py-2 font-medium text-[#1000a9] hover:bg-[#a8a6ff] disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
             <Plus className="size-4" />
             New project
@@ -161,7 +161,7 @@ export default function ProjectsPage() {
                 <button
                   type="button"
                   onClick={openCreate}
-                  className="mt-2 rounded-lg bg-[#c0c1ff] px-3 py-1.5 text-sm text-[#1000a9]"
+                  className="mt-2 rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground"
                 >
                   New project
                 </button>

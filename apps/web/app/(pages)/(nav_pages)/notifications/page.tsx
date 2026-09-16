@@ -35,7 +35,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-4">
+      <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
         <div>
           <h1 className="text-2xl font-semibold">Notifications</h1>
           <p className="text-sm text-muted-foreground">
@@ -46,7 +46,7 @@ export default function NotificationsPage() {
           type="button"
           disabled={markAll.isPending || items.every((item) => item.readAt)}
           onClick={() => void markAll.mutateAsync()}
-          className="rounded-lg border border-white/10 bg-[#191b22] px-3 py-1.5 text-sm hover:border-[#c0c1ff]/30 disabled:opacity-50"
+          className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:border-primary/30 disabled:opacity-50"
         >
           Mark all read
         </button>
@@ -68,7 +68,7 @@ export default function NotificationsPage() {
               return (
                 <li
                   key={item.id}
-                  className={`rounded-xl border border-white/10 bg-[#191b22] px-3 py-3 ${unread ? "border-l-2 border-l-[#c0c1ff] bg-[#c0c1ff]/8" : ""}`}
+                  className={`rounded-xl border border-border bg-card px-3 py-3 ${unread ? "border-l-2 border-l-primary bg-primary/10" : ""}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <button
@@ -101,21 +101,21 @@ export default function NotificationsPage() {
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button
                         type="button"
-                        className="rounded-md border border-white/10 bg-[#0c0e14] px-2 py-1 text-xs hover:border-[#c0c1ff]/30"
+                        className="rounded-md border border-border bg-muted px-2 py-1 text-xs hover:border-primary/30"
                         onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 15 })}
                       >
                         Snooze 15m
                       </button>
                       <button
                         type="button"
-                        className="rounded-md border border-white/10 bg-[#0c0e14] px-2 py-1 text-xs hover:border-[#c0c1ff]/30"
+                        className="rounded-md border border-border bg-muted px-2 py-1 text-xs hover:border-primary/30"
                         onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 60 })}
                       >
                         Snooze 1h
                       </button>
                       <button
                         type="button"
-                        className="rounded-md border border-white/10 bg-[#0c0e14] px-2 py-1 text-xs hover:border-[#c0c1ff]/30"
+                        className="rounded-md border border-border bg-muted px-2 py-1 text-xs hover:border-primary/30"
                         onClick={() => void snooze.mutateAsync({ id: item.id, until: tomorrowNine() })}
                       >
                         Tomorrow 9:00

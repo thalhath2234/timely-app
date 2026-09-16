@@ -155,7 +155,7 @@ export default function Sidebar() {
               aria-label="Add item"
               aria-expanded={showAddMenu}
               aria-haspopup="menu"
-              className="flex cursor-pointer rounded-lg border-none bg-[#c0c1ff] p-2 text-[#1000a9] transition-colors hover:bg-[#a8a6ff]"
+              className="flex cursor-pointer rounded-lg border-none bg-primary p-2 text-primary-foreground transition-colors hover:bg-primary/90"
               onClick={() => setShowAddMenu((prev) => !prev)}
               onContextMenu={(event) => openMenu(event, addMenuItems)}
             >
@@ -195,7 +195,7 @@ export default function Sidebar() {
           <button
             type="button"
             aria-label="Search"
-            className="flex cursor-pointer rounded-lg border-none p-2 text-[#908fa0] transition-colors hover:bg-white/5 hover:text-[#e2e2eb]"
+            className="flex cursor-pointer rounded-lg border-none p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             onClick={() => setSearchMode(true)}
             onContextMenu={(event) =>
               openMenu(event, [
@@ -217,7 +217,7 @@ export default function Sidebar() {
       <div className="w-full flex items-center justify-center">
         <p className="border-b border-sidebar-border w-1/2"> </p>
       </div>
-      <div className="flex flex-1 flex-col items-center gap-y-1 text-[#908fa0]">
+      <div className="flex flex-1 flex-col items-center gap-y-1 text-muted-foreground">
         {SIDEBAR_ITEMS.map((item: SidebarProps) => {
           const isActive = pathname.startsWith(item.href);
 
@@ -248,7 +248,7 @@ export default function Sidebar() {
                       stiffness: 400,
                       damping: 32,
                     }}
-                    className="absolute inset-0 -z-10 rounded-lg bg-[#c0c1ff]/12"
+                    className="absolute inset-0 -z-10 rounded-lg bg-primary/12"
                   />
                 )}
               </AnimatePresence>
@@ -261,7 +261,7 @@ export default function Sidebar() {
       <button
         type="button"
         aria-label="Sign out"
-        className="mt-auto flex cursor-pointer items-center justify-center pb-1 text-[#908fa0] transition-colors hover:text-[#c0c1ff]"
+        className="mt-auto flex cursor-pointer items-center justify-center pb-1 text-muted-foreground transition-colors hover:text-primary"
         onClick={() => logoutMutation.mutate()}
         onContextMenu={(event) =>
           openMenu(event, [

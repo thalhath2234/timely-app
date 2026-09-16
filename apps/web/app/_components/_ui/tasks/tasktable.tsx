@@ -748,7 +748,7 @@ export default function TasksTable({
   const selectCell = (task: Task) =>
     canSelect ? (
       <td
-        className="w-10 px-4 text-center align-middle"
+        className="w-10 border-b border-border/60 px-4 text-center align-middle"
         onClick={(event) => event.stopPropagation()}
       >
         <input
@@ -972,7 +972,7 @@ export default function TasksTable({
   }
 
   const headerCellClass =
-    "px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap bg-background/95 text-muted-foreground align-middle";
+    "px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap border-b border-border bg-background text-muted-foreground align-middle";
   const textCell = "px-3 py-2.5 text-foreground whitespace-nowrap align-middle";
   const primaryTextCell = "px-3 py-2.5 font-medium text-foreground whitespace-nowrap align-middle";
   const descriptionCell = "px-3 py-2.5 text-muted-foreground max-w-80 truncate align-middle";
@@ -1006,7 +1006,7 @@ export default function TasksTable({
   };
 
   const bodyCellClass = (base: string, columnId: string) =>
-    cn(base, columnDrag && columnDrag.id !== columnId && "bg-background");
+    cn(base, "border-b border-border/60", columnDrag && columnDrag.id !== columnId && "bg-background");
 
   const renderColumnCell = (column: ListColumn, task: Task, indentDepth = 0): ReactNode => {
     if (column.id.startsWith("cf:")) {
@@ -1235,21 +1235,21 @@ export default function TasksTable({
     <div
       ref={tableWrapRef}
       className={cn(
-        "relative isolate h-full w-full overflow-x-auto overflow-y-auto",
+        "relative isolate h-full w-full overflow-x-auto overflow-y-auto bg-background",
         columnDrag && "select-none",
       )}
     >
-      <table className="w-max min-w-full border-collapse text-xs">
+      <table className="w-max min-w-full border-separate border-spacing-0 text-xs">
         <colgroup>
           {canSelect ? <col className="w-10" /> : null}
           {columns.map((column) => (
             <col key={`col-${column.id}`} className={column.width} />
           ))}
         </colgroup>
-        <thead className="sticky top-0 z-30">
-          <tr className="border-b border-border bg-background/95 text-left backdrop-blur-sm">
+        <thead className="sticky top-0 z-30 bg-background">
+          <tr className="bg-background text-left">
             {canSelect ? (
-              <th className="w-10 px-4 text-center">
+              <th className="w-10 border-b border-border bg-background px-4 text-center">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -1299,7 +1299,7 @@ export default function TasksTable({
                 key={task.id}
                 onClick={() => onSelectRow(task)}
                 onContextMenu={(event) => onRowContextMenu(event, task)}
-                className="group cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/25"
+                className="group cursor-pointer bg-background transition-colors hover:bg-muted"
               >
                 {selectCell(task)}
                 {renderTaskCells(task, 0)}
@@ -1320,16 +1320,7 @@ export default function TasksTable({
 
                 return (
                   <Fragment key={node.key}>
-                    <tr
-                      className={cn(
-                        "border-b",
-                        allDone
-                          ? "border-success/20"
-                          : isRoot
-                            ? "border-primary/20"
-                            : "border-border/70",
-                      )}
-                    >
+                    <tr>
                       <td
                         colSpan={columns.length + (canSelect ? 1 : 0)}
                         onContextMenu={(event) => onGroupContextMenu(event, node)}
@@ -1337,10 +1328,10 @@ export default function TasksTable({
                           "sticky px-4 align-middle",
                           isRoot ? "py-2.5" : node.depth === 1 ? "py-2" : "py-1.5",
                           allDone
-                            ? "bg-success/5"
+                            ? "border-b border-success/20 bg-[color-mix(in_oklab,var(--success)_12%,var(--background))]"
                             : isRoot
-                              ? "bg-muted/70"
-                              : "bg-muted/40",
+                              ? "border-b border-primary/20 bg-muted"
+                              : "border-b border-border/70 bg-[color-mix(in_oklab,var(--muted)_72%,var(--background))]",
                         )}
                         style={{
                           top: `${stickyTop}px`,
@@ -1433,7 +1424,7 @@ export default function TasksTable({
                               key={task.id}
                               onClick={() => onSelectRow(task)}
                               onContextMenu={(event) => onRowContextMenu(event, task)}
-                              className="group cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/20"
+                              className="group cursor-pointer bg-background transition-colors hover:bg-muted"
                             >
                               {selectCell(task)}
                               {renderTaskCells(task, node.depth + 1)}
