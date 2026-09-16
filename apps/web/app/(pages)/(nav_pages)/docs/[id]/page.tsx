@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Editor } from "@tiptap/react";
 import { ChevronRight, Archive, Download, Smile, Star, Trash2, Upload } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
+import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
 import { useQueryClient } from "@tanstack/react-query";
@@ -160,6 +161,10 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <header className="flex items-center gap-2 border-b border-border px-6 py-2.5">
+        <ExpandCollapsedListButton
+          storageKey="timely.docsListCollapsed"
+          label="docs list"
+        />
         <nav className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
           <Link
             href="/docs"
