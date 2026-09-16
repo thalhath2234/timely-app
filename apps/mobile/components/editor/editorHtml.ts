@@ -72,13 +72,19 @@ export function buildEditorHtml(content: DocContent | null | undefined, placehol
           id: { default: null },
           label: { default: "mention" },
           entityType: { default: "doc" },
+          appearance: { default: "mention" },
         };
       },
       parseHTML() { return [{ tag: "span[data-mention]" }]; },
-      renderHTML({ HTMLAttributes }) {
-        return ["span", { ...HTMLAttributes, "data-mention": "", class: "mention" }, "@" + (HTMLAttributes.label || "mention")];
+      renderHTML({ node, HTMLAttributes }) {
+        const label = node.attrs.label || "mention";
+        const text = node.attrs.appearance === "page" ? label : "@" + label;
+        return ["span", { ...HTMLAttributes, "data-mention": "", class: "mention" }, text];
       },
-      renderText({ node }) { return "@" + (node.attrs.label || "mention"); },
+      renderText({ node }) {
+        const label = node.attrs.label || "mention";
+        return node.attrs.appearance === "page" ? label : "@" + label;
+      },
     });
 
     const ExtraShortcuts = Extension.create({

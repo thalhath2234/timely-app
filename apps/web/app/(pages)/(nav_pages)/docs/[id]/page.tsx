@@ -3,15 +3,17 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Editor } from "@tiptap/react";
+import { Editor, Range } from "@tiptap/react";
 import { ChevronRight, Archive, Download, Smile, Star, Trash2, Upload } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
+import { insertPageMention } from "@/app/_components/editor/mention";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   docKey,
+  useCreateDoc,
   useDeleteDoc,
   useDoc,
   useDocWatch,
@@ -21,7 +23,7 @@ import {
 import { useAutosave } from "@/app/utils/hooks/useAutosave";
 import { resolveDocContent } from "@/app/utils/markdown";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
-import { showUndoToast } from "@/app/_store/toastStore";
+import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { downloadPortable } from "@/app/utils/api/portability";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
 
@@ -96,6 +98,7 @@ function countDescendantsFromList(docs: Doc[], id: string): number {
 function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const createDoc = useCreateDoc();
   const updateDoc = useUpdateDoc();
   const deleteDoc = useDeleteDoc();
 
@@ -151,6 +154,24 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
       schedule({ content, plainText });
     },
     [schedule],
+  );
+
+  const handleCreateSubpage = useCallback(
+    async ({ editor, range }: { editor: Editor; range: Range }) => {
+      try {
+        const child = await createDoc.mutateAsync({ parentId: doc.id });
+        if (editor.isDestroyed) return;
+        insertPageMention(editor, range, child);
+        const saved = await flush();
+        if (!saved) {
+          useToastStore.getState().show("Subpage created, but the parent could not be saved");
+        }
+        router.push(`/docs/${child.id}`);
+      } catch {
+        useToastStore.getState().show("Could not create subpage");
+      }
+    },
+    [createDoc, doc.id, flush, router],
   );
 
   const handleDelete = async () => {
@@ -361,6 +382,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             syncKey={remoteEpoch}
             onReady={handleEditorReady}
             onChange={handleEditorChange}
+            onCreateSubpage={handleCreateSubpage}
           />
         </div>
       </div>

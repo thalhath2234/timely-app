@@ -112,9 +112,11 @@ function Inline({ nodes }: { nodes?: Node[] }): ReactNode {
       {(nodes ?? []).map((node, i) => {
         if (node.type === "hardBreak") return "\n";
         if (node.type === "mention") {
+          const label = String(node.attrs?.label ?? "mention");
+          const text = node.attrs?.appearance === "page" ? label : `@${label}`;
           return (
             <Text key={i} style={styles.mention}>
-              @{String(node.attrs?.label ?? "mention")}
+              {text}
             </Text>
           );
         }
@@ -153,7 +155,10 @@ function markStyle(marks?: Mark[]): TextStyle[] {
 function plain(node?: Node): string {
   if (!node) return "";
   if (node.type === "text") return node.text ?? "";
-  if (node.type === "mention") return `@${String(node.attrs?.label ?? "")}`;
+  if (node.type === "mention") {
+    const label = String(node.attrs?.label ?? "");
+    return node.attrs?.appearance === "page" ? label : `@${label}`;
+  }
   if (node.type === "hardBreak") return "\n";
   return (node.content ?? []).map(plain).join("");
 }

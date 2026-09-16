@@ -648,3 +648,8 @@ body::-webkit-scrollbar-corner,
 .doc-editor-content a.doc-mention.ProseMirror-selectednode {
   outline: 2px solid color-mix(in oklch, var(--mention-tint) 45%, transparent);
 }
+
+.doc-editor-content a.doc-page-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

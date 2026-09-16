@@ -1,7 +1,10 @@
-import { Node as TiptapNode, mergeAttributes } from "@tiptap/react";
+import { Editor, Node as TiptapNode, mergeAttributes } from "@tiptap/react";
 import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, { SuggestionOptions } from "@tiptap/suggestion";
-import { MentionEntityType } from "@/app/_types/types";
+import {
+  MentionAppearance,
+  MentionEntityType,
+} from "@/app/_types/types";
 
 export interface MentionItem {
   id: string;
@@ -23,6 +26,48 @@ export const MENTION_TYPE_LABELS: Record<MentionEntityType, string> = {
   task: "Task",
   project: "Project",
 };
+
+export function isPageAppearance(appearance?: string | null) {
+  return appearance === "page";
+}
+
+/** Visible text for a mention node: page links show the title, others keep @. */
+export function mentionDisplayText(attrs: {
+  label?: string | null;
+  appearance?: string | null;
+}) {
+  const label = attrs.label || "Untitled";
+  return isPageAppearance(attrs.appearance) ? label : `@${label}`;
+}
+
+/** Replace `range` (the `/` query) with a nested-page link showing the doc title. */
+export function insertPageMention(
+  editor: Editor,
+  range: { from: number; to?: number },
+  doc: { id: string; title?: string | null },
+) {
+  const size = editor.state.doc.content.size;
+  const from = Math.max(0, Math.min(range.from, size));
+  const to = Math.max(from, Math.min(range.to ?? from, size));
+  const label = doc.title || "Untitled";
+
+  return editor
+    .chain()
+    .focus()
+    .insertContentAt({ from, to }, [
+      {
+        type: "mention",
+        attrs: {
+          id: doc.id,
+          label,
+          entityType: "doc",
+          appearance: "page" satisfies MentionAppearance,
+        },
+      },
+      { type: "text", text: " " },
+    ])
+    .run();
+}
 
 /** Where a mention chip navigates to when clicked. */
 export function mentionHref(entityType: MentionEntityType, id: string) {
@@ -101,6 +146,15 @@ export const Mention = TiptapNode.create<MentionOptions>({
             ? { "data-entity-type": attributes.entityType }
             : {},
       },
+      appearance: {
+        default: "mention",
+        parseHTML: (element) =>
+          element.getAttribute("data-appearance") || "mention",
+        renderHTML: (attributes) =>
+          isPageAppearance(attributes.appearance)
+            ? { "data-appearance": "page" }
+            : {},
+      },
     };
   },
 
@@ -112,22 +166,23 @@ export const Mention = TiptapNode.create<MentionOptions>({
     const entityType = (node.attrs.entityType ??
       "doc") as MentionEntityType;
     const label = node.attrs.label || "Untitled";
+    const isPage = isPageAppearance(node.attrs.appearance);
 
     return [
       "a",
       mergeAttributes(HTMLAttributes, {
         "data-mention": "",
-        class: "doc-mention",
+        class: isPage ? "doc-mention doc-page-link" : "doc-mention",
         href: mentionHref(entityType, node.attrs.id),
         title: `${MENTION_TYPE_LABELS[entityType] ?? "Item"}: ${label}`,
       }),
-      `@${label}`,
+      mentionDisplayText(node.attrs),
     ];
   },
 
   // Keeps mentions readable in the plain-text copy used for search.
   renderText({ node }) {
-    return `@${node.attrs.label || "Untitled"}`;
+    return mentionDisplayText(node.attrs);
   },
 
   addProseMirrorPlugins() {
