@@ -128,6 +128,30 @@
   --sidebar-ring: #c0c1ff;
 }
 
+html.theme-custom {
+  --primary: oklch(0.51 var(--accent-chroma) var(--accent-hue));
+  --primary-foreground: oklch(0.985 0.01 var(--accent-hue));
+  --ring: oklch(0.51 var(--accent-chroma) var(--accent-hue));
+  --accent: oklch(0.945 0.03 var(--accent-hue));
+  --accent-foreground: oklch(0.4 0.14 var(--accent-hue));
+  --chart-1: oklch(0.51 var(--accent-chroma) var(--accent-hue));
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-ring: var(--ring);
+}
+
+html.dark.theme-custom {
+  --primary: oklch(0.82 0.12 var(--accent-hue));
+  --primary-foreground: oklch(0.22 0.08 var(--accent-hue));
+  --ring: oklch(0.82 0.12 var(--accent-hue));
+  --accent: oklch(0.28 0.04 var(--accent-hue));
+  --accent-foreground: oklch(0.82 0.12 var(--accent-hue));
+  --chart-1: oklch(0.82 0.12 var(--accent-hue));
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-ring: var(--ring);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

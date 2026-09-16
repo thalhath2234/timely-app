@@ -2,37 +2,73 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
+import {
+  ACCENT_STORAGE_KEY,
+  applyDocumentAppearance,
+  readStoredAccent,
+  readStoredSidebarAutoHide,
+  readStoredTheme,
+  SIDEBAR_AUTO_HIDE_STORAGE_KEY,
+  THEME_STORAGE_KEY,
+  type AccentPreference,
+  type ThemePreference,
+} from "@/app/utils/theme";
 
-export type ThemePreference = "light" | "dark" | "system";
+export type { AccentPreference, ThemePreference };
 
-const PreferencesContext = createContext<{
+type Preferences = {
   theme: ThemePreference;
   setTheme: (theme: ThemePreference) => void;
-}>({ theme: "system", setTheme: () => undefined });
+  accent: AccentPreference;
+  setAccent: (accent: AccentPreference) => void;
+  sidebarAutoHide: boolean;
+  setSidebarAutoHide: (hide: boolean) => void;
+};
+
+const PreferencesContext = createContext<Preferences>({
+  theme: "system",
+  setTheme: () => undefined,
+  accent: "default",
+  setAccent: () => undefined,
+  sidebarAutoHide: false,
+  setSidebarAutoHide: () => undefined,
+});
 
 export function usePreferences() { return useContext(PreferencesContext); }
 
 export default function ClientRuntime({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [online, setOnline] = useState(true);
-  const [theme, setThemeState] = useState<ThemePreference>(() => {
-    if (typeof window === "undefined") return "system";
-    const saved = localStorage.getItem("timely.theme");
-    return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
-  });
+  const [hydrated, setHydrated] = useState(false);
+  const [theme, setThemeState] = useState<ThemePreference>("system");
+  const [accent, setAccentState] = useState<AccentPreference>("default");
+  const [sidebarAutoHide, setSidebarAutoHideState] = useState(false);
 
   useEffect(() => {
+    const nextTheme = readStoredTheme();
+    const nextAccent = readStoredAccent();
+    setThemeState(nextTheme);
+    setAccentState(nextAccent);
+    setSidebarAutoHideState(readStoredSidebarAutoHide());
+    applyDocumentAppearance(nextTheme, nextAccent);
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const dark = theme === "dark" || (theme === "system" && media.matches);
-      document.documentElement.classList.toggle("dark", dark);
-      document.documentElement.style.colorScheme = dark ? "dark" : "light";
-    };
+    const apply = () => applyDocumentAppearance(theme, accent);
     apply();
     media.addEventListener("change", apply);
-    localStorage.setItem("timely.theme", theme);
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+    localStorage.setItem(ACCENT_STORAGE_KEY, accent);
     return () => media.removeEventListener("change", apply);
-  }, [theme]);
+  }, [theme, accent, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(SIDEBAR_AUTO_HIDE_STORAGE_KEY, sidebarAutoHide ? "true" : "false");
+  }, [sidebarAutoHide, hydrated]);
 
   useEffect(() => {
     const update = () => {
@@ -53,7 +89,11 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({
     theme,
     setTheme: (next: ThemePreference) => setThemeState(next),
-  }), [theme]);
+    accent,
+    setAccent: (next: AccentPreference) => setAccentState(next),
+    sidebarAutoHide,
+    setSidebarAutoHide: (next: boolean) => setSidebarAutoHideState(next),
+  }), [theme, accent, sidebarAutoHide]);
 
   return (
     <PreferencesContext.Provider value={value}>

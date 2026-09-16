@@ -8,16 +8,21 @@ import WorkingHoursSettings from "@/app/_components/settings/workingHoursSetting
 import NotificationSettings from "@/app/_components/settings/notificationSettings";
 import ApiKeysSettings from "@/app/_components/settings/apiKeysSettings";
 import DataSettings from "@/app/_components/settings/dataSettings";
-import { usePreferences } from "@/app/_components/_layout/clientRuntime";
+import AppearanceSettings from "@/app/_components/settings/appearanceSettings";
 import { cn } from "@/app/utils/cn";
 
-type SettingsTab = "account" | "schedule" | "notifications" | "workspaces" | "data" | "integrations";
+type SettingsTab = "account" | "appearance" | "schedule" | "notifications" | "workspaces" | "data" | "integrations";
 
 const TABS: { id: SettingsTab; label: string; description: string }[] = [
   {
     id: "account",
     label: "Account",
     description: "Your profile and login details",
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    description: "Theme, colors, and sidebar",
   },
   {
     id: "schedule",
@@ -36,8 +41,8 @@ const TABS: { id: SettingsTab; label: string; description: string }[] = [
   },
   {
     id: "data",
-    label: "Data & appearance",
-    description: "Export, backups, restore, and theme",
+    label: "Data & privacy",
+    description: "Export, backups, and restore",
   },
   {
     id: "integrations",
@@ -100,31 +105,14 @@ function SettingsContent() {
 
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {tab === "account" && <AccountSettings />}
+          {tab === "appearance" && <AppearanceSettings />}
           {tab === "schedule" && <WorkingHoursSettings />}
           {tab === "notifications" && <NotificationSettings />}
           {tab === "workspaces" && <WorkspaceSettings />}
-          {tab === "data" && <DataAndAppearance />}
+          {tab === "data" && <DataSettings />}
           {tab === "integrations" && <ApiKeysSettings />}
         </div>
       </div>
     </main>
-  );
-}
-
-function DataAndAppearance() {
-  const { theme, setTheme } = usePreferences();
-  return (
-    <div className="flex flex-col gap-8">
-      <section className="max-w-3xl">
-        <h2 className="text-base font-semibold">Appearance</h2>
-        <p className="mt-1 text-xs text-muted-foreground">Use your device setting or choose a theme for this browser.</p>
-        <div className="mt-3 flex gap-2" role="group" aria-label="Color theme">
-          {(["system", "light", "dark"] as const).map((option) => (
-            <button key={option} type="button" aria-pressed={theme === option} onClick={() => setTheme(option)} className={`rounded-lg border px-3 py-2 text-sm capitalize ${theme === option ? "border-primary/40 bg-primary/12 text-foreground" : "border-border hover:bg-accent"}`}>{option}</button>
-          ))}
-        </div>
-      </section>
-      <DataSettings />
-    </div>
   );
 }
