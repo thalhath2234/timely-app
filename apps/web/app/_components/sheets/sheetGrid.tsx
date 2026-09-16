@@ -4,12 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AlignCenter from "lucide-react/dist/esm/icons/align-center.mjs";
 import AlignLeft from "lucide-react/dist/esm/icons/align-left.mjs";
 import AlignRight from "lucide-react/dist/esm/icons/align-right.mjs";
+import ArrowDownAZ from "lucide-react/dist/esm/icons/arrow-down-a-z.mjs";
+import ArrowUpAZ from "lucide-react/dist/esm/icons/arrow-up-a-z.mjs";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3.mjs";
 import BetweenHorizontalEnd from "lucide-react/dist/esm/icons/between-horizontal-end.mjs";
 import BetweenHorizontalStart from "lucide-react/dist/esm/icons/between-horizontal-start.mjs";
 import BetweenVerticalEnd from "lucide-react/dist/esm/icons/between-vertical-end.mjs";
 import BetweenVerticalStart from "lucide-react/dist/esm/icons/between-vertical-start.mjs";
 import Bold from "lucide-react/dist/esm/icons/bold.mjs";
+import ClipboardCopy from "lucide-react/dist/esm/icons/clipboard-copy.mjs";
+import ClipboardPaste from "lucide-react/dist/esm/icons/clipboard-paste.mjs";
 import Combine from "lucide-react/dist/esm/icons/combine.mjs";
 import Filter from "lucide-react/dist/esm/icons/filter.mjs";
 import Highlighter from "lucide-react/dist/esm/icons/highlighter.mjs";
@@ -18,9 +22,11 @@ import Link2 from "lucide-react/dist/esm/icons/link-2.mjs";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square.mjs";
 import Minus from "lucide-react/dist/esm/icons/minus.mjs";
 import Paintbrush from "lucide-react/dist/esm/icons/paintbrush.mjs";
+import Pencil from "lucide-react/dist/esm/icons/pencil.mjs";
 import Plus from "lucide-react/dist/esm/icons/plus.mjs";
 import Printer from "lucide-react/dist/esm/icons/printer.mjs";
 import Redo2 from "lucide-react/dist/esm/icons/redo-2.mjs";
+import Scissors from "lucide-react/dist/esm/icons/scissors.mjs";
 import Sigma from "lucide-react/dist/esm/icons/sigma.mjs";
 import Square from "lucide-react/dist/esm/icons/square.mjs";
 import Strikethrough from "lucide-react/dist/esm/icons/strikethrough.mjs";
@@ -79,6 +85,8 @@ import {
   toggleMerge,
   visitRange,
 } from "@/app/utils/sheetRange";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 640;
@@ -142,6 +150,13 @@ function formatAt(
   return row?.formats?.[columnId];
 }
 
+function parseTsv(text: string): string[][] {
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const body = normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized;
+  if (body === "") return [];
+  return body.split("\n").map((line) => line.split("\t"));
+}
+
 export default function SheetGrid({
   columns,
   rows,
@@ -182,11 +197,13 @@ export default function SheetGrid({
   const editSourceRef = useRef<"cell" | "formulaBar">("cell");
   const dragRef = useRef<"select" | "fill" | null>(null);
   const fillOriginRef = useRef<CellRange | null>(null);
+  const clipboardRef = useRef<string[][]>([]);
   const resizeStateRef = useRef<{
     index: number;
     startX: number;
     startWidth: number;
   } | null>(null);
+  const showContextMenu = useContextMenu();
 
   const evaluator = useMemo(
     () => createSheetEvaluator(columns, rows),
@@ -293,6 +310,74 @@ export default function SheetGrid({
       nextRows[address.row] = mutator(row, address, column);
     });
     commit({ rows: nextRows });
+  };
+
+  const copySelection = () => {
+    const { minCol, maxCol, minRow, maxRow } = normalizedRange(range);
+    const table: string[][] = [];
+    for (let row = minRow; row <= maxRow; row += 1) {
+      const line: string[] = [];
+      for (let col = minCol; col <= maxCol; col += 1) {
+        line.push(rawAt({ col, row }));
+      }
+      table.push(line);
+    }
+    clipboardRef.current = table;
+    const tsv = table.map((line) => line.join("\t")).join("\n");
+    void navigator.clipboard.writeText(tsv).catch(() => undefined);
+  };
+
+  const clearSelection = () => {
+    patchCells((row, _address, column) => ({
+      ...row,
+      cells: { ...row.cells, [column.id]: "" },
+    }));
+  };
+
+  const pasteTable = (table: string[][], origin: CellAddress) => {
+    if (table.length === 0) return;
+    const width = Math.max(...table.map((line) => line.length), 0);
+    if (width === 0) return;
+    const nextRows = rows.map((row) => ({
+      ...row,
+      cells: { ...row.cells },
+    }));
+    for (let rowOffset = 0; rowOffset < table.length; rowOffset += 1) {
+      const rowIndex = origin.row + rowOffset;
+      if (rowIndex >= nextRows.length) break;
+      for (let colOffset = 0; colOffset < table[rowOffset].length; colOffset += 1) {
+        const colIndex = origin.col + colOffset;
+        const column = columns[colIndex];
+        const row = nextRows[rowIndex];
+        if (!column || !row) continue;
+        const value = table[rowOffset][colOffset] ?? "";
+        row.cells[column.id] = isFormulaValue(value)
+          ? value
+          : normalizeTypedCell(column.type, value);
+      }
+    }
+    commit({ rows: nextRows });
+    setSelection({
+      anchor: origin,
+      focus: {
+        col: Math.min(origin.col + width - 1, columns.length - 1),
+        row: Math.min(origin.row + table.length - 1, rows.length - 1),
+      },
+    });
+  };
+
+  const pasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const table = parseTsv(text);
+      if (table.length) {
+        pasteTable(table, selected);
+        return;
+      }
+    } catch {
+      // Fall through to the in-memory copy from Cut/Copy in this session.
+    }
+    if (clipboardRef.current.length) pasteTable(clipboardRef.current, selected);
   };
 
   const applyFormat = (patch: Partial<SheetCellFormat>) => {
@@ -568,6 +653,31 @@ export default function SheetGrid({
           return redo();
         }
         break;
+      case "c":
+      case "C":
+        if (event.metaKey || event.ctrlKey) {
+          event.preventDefault();
+          copySelection();
+          return;
+        }
+        break;
+      case "x":
+      case "X":
+        if (event.metaKey || event.ctrlKey) {
+          event.preventDefault();
+          copySelection();
+          clearSelection();
+          return;
+        }
+        break;
+      case "v":
+      case "V":
+        if (event.metaKey || event.ctrlKey) {
+          event.preventDefault();
+          void pasteFromClipboard();
+          return;
+        }
+        break;
       case "b":
       case "B":
       case "i":
@@ -667,6 +777,185 @@ export default function SheetGrid({
     startEditing(selected, template(selectedAddress), "formulaBar");
     setOpenMenu(null);
   };
+
+  const cellMenu = (address: CellAddress): ContextMenuEntry[] => {
+    const activeRange = isInRange(address, range)
+      ? range
+      : { anchor: address, focus: address };
+    const span = mergeFromRange(activeRange);
+    const canMergeHere = span.colSpan > 1 || span.rowSpan > 1;
+    const merged = Boolean(findMerge(merges, address));
+    return tidyEntries([
+      {
+        kind: "action",
+        label: "Cut",
+        icon: Scissors,
+        shortcut: "mod+X",
+        onSelect: () => {
+          copySelection();
+          clearSelection();
+        },
+      },
+      {
+        kind: "action",
+        label: "Copy",
+        icon: ClipboardCopy,
+        shortcut: "mod+C",
+        onSelect: copySelection,
+      },
+      {
+        kind: "action",
+        label: "Paste",
+        icon: ClipboardPaste,
+        shortcut: "mod+V",
+        onSelect: () => void pasteFromClipboard(),
+      },
+      {
+        kind: "action",
+        label: "Clear",
+        shortcut: "Delete",
+        onSelect: clearSelection,
+      },
+      { kind: "separator" },
+      {
+        kind: "action",
+        label: "Edit cell",
+        icon: Pencil,
+        shortcut: "F2",
+        onSelect: () => startEditing(address),
+      },
+      canMergeHere && {
+        kind: "action",
+        label: merged ? "Unmerge cells" : "Merge cells",
+        icon: Combine,
+        onSelect: () => commit({ merges: toggleMerge(merges, activeRange) }),
+      },
+      { kind: "separator" },
+      {
+        kind: "action",
+        label: "Insert row above",
+        icon: BetweenHorizontalStart,
+        onSelect: () => addRows(1, address.row),
+      },
+      {
+        kind: "action",
+        label: "Insert row below",
+        icon: BetweenHorizontalEnd,
+        onSelect: () => addRows(1, address.row + 1),
+      },
+      {
+        kind: "action",
+        label: "Insert column left",
+        icon: BetweenVerticalStart,
+        onSelect: () => addColumn(address.col),
+      },
+      {
+        kind: "action",
+        label: "Insert column right",
+        icon: BetweenVerticalEnd,
+        onSelect: () => addColumn(address.col + 1),
+      },
+      { kind: "separator" },
+      {
+        kind: "action",
+        label: "Delete row",
+        icon: Minus,
+        disabled: rows.length <= 1,
+        danger: true,
+        onSelect: () => deleteRow(address.row),
+      },
+      {
+        kind: "action",
+        label: "Delete column",
+        icon: Trash2,
+        disabled: columns.length <= 1,
+        danger: true,
+        onSelect: () => deleteColumn(address.col),
+      },
+    ]);
+  };
+
+  const columnMenu = (index: number): ContextMenuEntry[] => {
+    const column = columns[index];
+    return tidyEntries([
+      {
+        kind: "action",
+        label: "Rename column",
+        icon: Pencil,
+        shortcut: "F2",
+        onSelect: () => setRenamingColumnIndex(index),
+      },
+      {
+        kind: "submenu",
+        label: "Column type",
+        icon: Type,
+        items: SHEET_COLUMN_TYPES.map<ContextMenuEntry>((option) => ({
+          kind: "action",
+          label: option.label,
+          checked: column?.type === option.value,
+          onSelect: () => setColumnType(index, option.value),
+        })),
+      },
+      { kind: "separator" },
+      {
+        kind: "action",
+        label: "Sort A → Z",
+        icon: ArrowUpAZ,
+        onSelect: () => sortByColumn(index, "asc"),
+      },
+      {
+        kind: "action",
+        label: "Sort Z → A",
+        icon: ArrowDownAZ,
+        onSelect: () => sortByColumn(index, "desc"),
+      },
+      { kind: "separator" },
+      {
+        kind: "action",
+        label: "Insert column left",
+        icon: BetweenVerticalStart,
+        onSelect: () => addColumn(index),
+      },
+      {
+        kind: "action",
+        label: "Insert column right",
+        icon: BetweenVerticalEnd,
+        onSelect: () => addColumn(index + 1),
+      },
+      {
+        kind: "action",
+        label: "Delete column",
+        icon: Trash2,
+        disabled: columns.length <= 1,
+        danger: true,
+        onSelect: () => deleteColumn(index),
+      },
+    ]);
+  };
+
+  const rowMenu = (index: number): ContextMenuEntry[] =>
+    tidyEntries([
+      {
+        kind: "action",
+        label: "Insert row above",
+        icon: BetweenHorizontalStart,
+        onSelect: () => addRows(1, index),
+      },
+      {
+        kind: "action",
+        label: "Insert row below",
+        icon: BetweenHorizontalEnd,
+        onSelect: () => addRows(1, index + 1),
+      },
+      {
+        kind: "action",
+        label: "Delete row",
+        icon: Minus,
+        disabled: rows.length <= 1,
+        danger: true,
+        onSelect: () => deleteRow(index),
+      },
+    ]);
 
   const printSheet = () => {
     const markup = gridRef.current?.innerHTML ?? "";
@@ -1134,6 +1423,10 @@ export default function SheetGrid({
             {columns.map((column, index) => (
               <div
                 key={column.id}
+                onContextMenu={(event) => {
+                  setSelection({ col: index, row: selected.row });
+                  showContextMenu(event, columnMenu(index), { title: column.name });
+                }}
                 className={`group relative flex items-center gap-1.5 border-b border-r border-border px-2 py-1.5 ${
                   index >= bounds.minCol && index <= bounds.maxCol ? "bg-accent/60" : ""
                 }`}
@@ -1246,6 +1539,12 @@ export default function SheetGrid({
                     : "bg-muted"
                 }`}
                 style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
+                onContextMenu={(event) => {
+                  setSelection({ col: selected.col, row: rowIndex });
+                  showContextMenu(event, rowMenu(rowIndex), {
+                    title: `Row ${rowIndex + 1}`,
+                  });
+                }}
               >
                 {rowIndex + 1}
               </div>
@@ -1316,6 +1615,12 @@ export default function SheetGrid({
                       dragRef.current = null;
                     }}
                     onDoubleClick={() => startEditing(address)}
+                    onContextMenu={(event) => {
+                      if (!inRange) setSelection(address);
+                      showContextMenu(event, cellMenu(address), {
+                        title: rangeAddressLabel(inRange ? range : { anchor: address, focus: address }),
+                      });
+                    }}
                     onClick={() => {
                       if (!isSelected) return;
                       if (column.type === "boolean" && !isFormulaValue(raw)) {

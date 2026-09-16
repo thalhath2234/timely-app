@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Check, Circle, Plus } from "lucide-react";
+import { useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { Check, Circle, Columns3, CopyCheck, Plus } from "lucide-react";
 import ColorChip from "@/app/_components/_ui/colorChip";
 import type { Stage, Task } from "@/app/_types/types";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
-import { showUndoToast } from "@/app/_store/toastStore";
+import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
+import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { chipStyle, laneStyle, resolvedColor, UNSTAGED_COLOR } from "@/app/utils/entityColor";
 import { isCompletedStatus } from "@/app/utils/status";
 import { priorityColor } from "@/app/utils/priority";
@@ -30,6 +33,8 @@ export default function StageBoard({
   const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
   const setCreateTaskDraft = useSidebarStore((state) => state.setCreateTaskDraft);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const openMenu = useContextMenu();
+  const taskMenu = useTaskContextMenu();
   const ordered = sortedStages(stages);
 
   const columns = useMemo(() => {
@@ -96,6 +101,54 @@ export default function StageBoard({
     }
   };
 
+  /** The board's own verb is "which lane", so the shared task menu gains a
+   * stage picker here. */
+  const onCardContextMenu = (event: ReactMouseEvent, task: Task) => {
+    const stagePicker: ContextMenuEntry = {
+      kind: "submenu",
+      label: "Stage",
+      icon: Columns3,
+      items: columns.map<ContextMenuEntry>((column) => ({
+        kind: "action",
+        label: column.name,
+        color: column.color,
+        checked: (task.stageId ?? "") === column.id,
+        onSelect: () => void moveTask(task, column.id),
+      })),
+    };
+
+    openMenu(event, taskMenu(task, { extra: [stagePicker] }), { title: task.name });
+  };
+
+  const onLaneContextMenu = (
+    event: ReactMouseEvent,
+    column: { id: string; name: string; items: Task[] },
+  ) => {
+    openMenu(
+      event,
+      tidyEntries([
+        {
+          kind: "action",
+          label: `Add task to ${column.name}`,
+          icon: Plus,
+          onSelect: () => addTask(column.id || undefined),
+        },
+        column.items.length > 0 && {
+          kind: "action",
+          label: `Copy card names (${column.items.length})`,
+          icon: CopyCheck,
+          onSelect: () => {
+            void navigator.clipboard
+              .writeText(column.items.map((item) => item.name).join("\n"))
+              .then(() => useToastStore.getState().show(`Copied ${column.items.length} names`))
+              .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
+          },
+        },
+      ]),
+      { title: `${column.name} · ${column.items.length}` },
+    );
+  };
+
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-2">
@@ -125,7 +178,10 @@ export default function StageBoard({
                 className="w-72 shrink-0 rounded-xl border bg-muted/30"
                 style={laneStyle(column.color)}
               >
-                <header className="flex items-center justify-between gap-2 px-3 py-2">
+                <header
+                  onContextMenu={(event) => onLaneContextMenu(event, column)}
+                  className="flex items-center justify-between gap-2 px-3 py-2"
+                >
                   <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
                     <span
                       className="size-2 shrink-0 rounded-full"
@@ -168,6 +224,7 @@ export default function StageBoard({
                         draggable
                         onDragStart={() => setDraggingId(task.id)}
                         onClick={() => openTask(task.id)}
+                        onContextMenu={(event) => onCardContextMenu(event, task)}
                         className="cursor-pointer rounded-lg border border-border bg-card p-3 text-sm shadow-xs hover:border-primary/40"
                       >
                         <div className="flex items-start justify-between gap-2">

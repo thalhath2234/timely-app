@@ -13,7 +13,17 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CopyCheck,
+  ListRestart,
+  SquareCheck,
+  SquareDashed,
+} from "lucide-react";
 import {
   Config,
   CustomField,
@@ -30,6 +40,11 @@ import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
 import { priorityColor } from "@/app/utils/priority";
 import { filterTasks, type TaskListFilters } from "@/app/utils/taskFilters";
 import ColorChip from "@/app/_components/_ui/colorChip";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
+import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
+import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
+import { useToastStore } from "@/app/_store/toastStore";
 
 type TasksTableProps = {
   config: Config;
@@ -247,6 +262,52 @@ function getCustomFieldDisplayValue(task: Task, fieldId: string): string {
   if (typeof value.boolValue === "boolean") return value.boolValue ? "Yes" : "No";
 
   return "-";
+}
+
+/** Plain-text rendering of one cell, used by "Copy column values". */
+function columnTextValue(
+  columnId: string,
+  task: Task,
+  stageNames: Record<string, string>,
+): string {
+  if (columnId.startsWith("cf:")) return getCustomFieldDisplayValue(task, columnId.slice(3));
+
+  switch (columnId) {
+    case "name":
+      return task.name || "";
+    case "description":
+      return task.description || "";
+    case "duration":
+      return typeof task.duration === "number" ? `${task.duration}m` : "";
+    case "startDate":
+      return formatDate(task.startDate);
+    case "deadline":
+      return formatDate(task.deadline);
+    case "scheduledOn":
+      return formatDate(task.scheduledOn);
+    case "completedAt":
+      return formatDate(task.completedAt);
+    case "createdAt":
+      return formatDate(task.createdAt);
+    case "updatedAt":
+      return formatDate(task.updatedAt);
+    case "project":
+      return task.project?.title || "";
+    case "workspace":
+      return task.workspace?.name || "";
+    case "blockedBy":
+      return getBlockedByDisplayValue(task);
+    case "priority":
+      return task.priorityLevel || "";
+    case "stageId":
+      return (task.stageId && stageNames[task.stageId]) || task.stage?.name || "";
+    case "status":
+      return task.status?.name || "";
+    case "labels":
+      return (task.labels ?? []).map((label) => label.name).join(", ");
+    default:
+      return "";
+  }
 }
 
 function getGroupMeta(
@@ -521,6 +582,166 @@ export default function TasksTable({
       selectedIds.includes(id)
         ? selectedIds.filter((item) => item !== id)
         : [...selectedIds, id],
+    );
+  };
+
+  const openMenu = useContextMenu();
+  const taskMenu = useTaskContextMenu();
+  const projectMenu = useProjectContextMenu();
+
+  const onRowContextMenu = (event: React.MouseEvent, row: Task) => {
+    // In project mode the rows are rolled-up projects, not tasks.
+    if (dataMode === "project") {
+      if (!row.project) return;
+      openMenu(event, projectMenu(row.project), { title: row.project.title });
+      return;
+    }
+
+    const selectionExtras: ContextMenuEntry[] = canSelect
+      ? tidyEntries([
+          {
+            kind: "action",
+            label: selectedIds.includes(row.id) ? "Deselect row" : "Select row",
+            icon: selectedIds.includes(row.id) ? SquareDashed : SquareCheck,
+            onSelect: () => toggleRow(row.id),
+          },
+          !allSelected && {
+            kind: "action",
+            label: `Select all visible (${visibleIds.length})`,
+            icon: SquareCheck,
+            onSelect: () => onSelectedIdsChange?.(visibleIds),
+          },
+          selectedIds.length > 0 && {
+            kind: "action",
+            label: "Clear selection",
+            icon: SquareDashed,
+            onSelect: () => onSelectedIdsChange?.([]),
+          },
+        ])
+      : [];
+
+    openMenu(
+      event,
+      taskMenu(row, {
+        selectedIds,
+        extra: selectionExtras,
+        onDeleted: (ids) =>
+          onSelectedIdsChange?.(selectedIds.filter((id) => !ids.includes(id))),
+      }),
+      { title: row.name },
+    );
+  };
+
+  const onHeaderContextMenu = (event: React.MouseEvent, column: ListColumn) => {
+    const ids = columns.map((item) => item.id);
+    const index = ids.indexOf(column.id);
+
+    openMenu(
+      event,
+      tidyEntries([
+        {
+          kind: "action",
+          label: "Move to start",
+          icon: ArrowLeftToLine,
+          disabled: index <= 0,
+          onSelect: () => onColumnOrderChange(reorderColumnIds(ids, index, 0)),
+        },
+        {
+          kind: "action",
+          label: "Move to end",
+          icon: ArrowRightToLine,
+          disabled: index === ids.length - 1,
+          onSelect: () => onColumnOrderChange(reorderColumnIds(ids, index, ids.length - 1)),
+        },
+        { kind: "separator" },
+        {
+          kind: "action",
+          label: `Copy column values (${sortedTasks.length})`,
+          icon: CopyCheck,
+          onSelect: () => {
+            const text = sortedTasks
+              .map((task) => columnTextValue(column.id, task, stageNames))
+              .join("\n");
+            void navigator.clipboard
+              .writeText(text)
+              .then(() =>
+                useToastStore.getState().show(`Copied ${sortedTasks.length} ${column.label} values`),
+              )
+              .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
+          },
+        },
+        { kind: "separator" },
+        {
+          kind: "action",
+          label: "Reset column order",
+          icon: ListRestart,
+          onSelect: () =>
+            onColumnOrderChange(defaultListColumns(customFields).map((item) => item.id)),
+        },
+      ]),
+      { title: column.label },
+    );
+  };
+
+  const onGroupContextMenu = (event: React.MouseEvent, node: GroupNode) => {
+    const descendantKeys = (current: GroupNode): string[] => [
+      current.key,
+      ...current.children.flatMap(descendantKeys),
+    ];
+    const allKeys = nestedGroups.flatMap(descendantKeys);
+    const groupIds = node.rows.map((task) => task.id);
+
+    openMenu(
+      event,
+      tidyEntries([
+        {
+          kind: "action",
+          label: collapsedGroups[node.key] ? "Expand group" : "Collapse group",
+          icon: collapsedGroups[node.key] ? ChevronDown : ChevronRight,
+          onSelect: () => toggleGroup(node.key),
+        },
+        {
+          kind: "action",
+          label: "Expand all groups",
+          icon: ChevronDown,
+          onSelect: () => setCollapsedGroups({}),
+        },
+        {
+          kind: "action",
+          label: "Collapse all groups",
+          icon: ChevronRight,
+          onSelect: () =>
+            setCollapsedGroups(Object.fromEntries(allKeys.map((key) => [key, true]))),
+        },
+        canSelect && { kind: "separator" },
+        canSelect && {
+          kind: "action",
+          label: `Select these tasks (${groupIds.length})`,
+          icon: SquareCheck,
+          onSelect: () =>
+            onSelectedIdsChange?.([...new Set([...selectedIds, ...groupIds])]),
+        },
+        canSelect && groupIds.some((id) => selectedIds.includes(id)) && {
+          kind: "action",
+          label: "Deselect these tasks",
+          icon: SquareDashed,
+          onSelect: () =>
+            onSelectedIdsChange?.(selectedIds.filter((id) => !groupIds.includes(id))),
+        },
+        { kind: "separator" },
+        {
+          kind: "action",
+          label: "Copy task names",
+          icon: CopyCheck,
+          onSelect: () => {
+            void navigator.clipboard
+              .writeText(node.rows.map((task) => task.name).join("\n"))
+              .then(() => useToastStore.getState().show(`Copied ${groupIds.length} names`))
+              .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
+          },
+        },
+      ]),
+      { title: `${node.label} · ${node.count}` },
     );
   };
 
@@ -1048,6 +1269,7 @@ export default function TasksTable({
                   else headerCellRefs.current.delete(column.id);
                 }}
                 title="Drag to reorder"
+                onContextMenu={(event) => onHeaderContextMenu(event, column)}
                 onPointerDown={(event) => onColumnPointerDown(column, event)}
                 onPointerMove={onColumnPointerMove}
                 onPointerUp={onColumnPointerUp}
@@ -1076,6 +1298,7 @@ export default function TasksTable({
               <tr
                 key={task.id}
                 onClick={() => onSelectRow(task)}
+                onContextMenu={(event) => onRowContextMenu(event, task)}
                 className="group cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/25"
               >
                 {selectCell(task)}
@@ -1109,6 +1332,7 @@ export default function TasksTable({
                     >
                       <td
                         colSpan={columns.length + (canSelect ? 1 : 0)}
+                        onContextMenu={(event) => onGroupContextMenu(event, node)}
                         className={cn(
                           "sticky px-4 align-middle",
                           isRoot ? "py-2.5" : node.depth === 1 ? "py-2" : "py-1.5",
@@ -1208,6 +1432,7 @@ export default function TasksTable({
                             <tr
                               key={task.id}
                               onClick={() => onSelectRow(task)}
+                              onContextMenu={(event) => onRowContextMenu(event, task)}
                               className="group cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/20"
                             >
                               {selectCell(task)}

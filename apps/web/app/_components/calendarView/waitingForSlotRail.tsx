@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Task } from "@/app/_types/types";
 import { formatDuration } from "@/app/utils/calendar";
@@ -9,6 +9,9 @@ import { rankUnscheduled } from "@/app/utils/scheduleRank";
 import { setTaskDragData } from "@/app/utils/taskDrag";
 import { taskDeadlineDate } from "@/app/utils/taskDates";
 import { cn } from "@/app/utils/cn";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
+import { tidyEntries } from "@/app/_store/contextMenuStore";
 
 export default function WaitingForSlotRail({
   tasks,
@@ -19,6 +22,8 @@ export default function WaitingForSlotRail({
 }) {
   const [open, setOpen] = useState(true);
   const waiting = useMemo(() => rankUnscheduled(tasks), [tasks]);
+  const openMenu = useContextMenu();
+  const taskMenu = useTaskContextMenu();
 
   if (waiting.length === 0) return null;
 
@@ -45,6 +50,22 @@ export default function WaitingForSlotRail({
                 <div
                   draggable
                   onDragStart={(event) => setTaskDragData(event, task.id)}
+                  onContextMenu={(event) =>
+                    openMenu(
+                      event,
+                      taskMenu(task, {
+                        extra: tidyEntries([
+                          {
+                            kind: "action",
+                            label: "Schedule this…",
+                            icon: Sparkles,
+                            onSelect: () => onSchedule(task.id),
+                          },
+                        ]),
+                      }),
+                      { title: task.name },
+                    )
+                  }
                   className={cn(
                     "mb-1.5 flex cursor-grab overflow-hidden rounded-lg border border-border bg-background active:cursor-grabbing",
                     task.blockedById && "opacity-70",

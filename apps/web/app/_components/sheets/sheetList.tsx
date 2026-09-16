@@ -16,9 +16,13 @@ import {
   useCreateSheet,
   useDeleteSheet,
   useSheets,
+  useUpdateSheet,
 } from "@/app/utils/hooks/sheets";
 import { sheetMetaLabel } from "@/app/utils/sheetWorkbook";
 import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
+import type { Sheet } from "@/app/_types/types";
 
 export default function SheetList() {
   const router = useRouter();
@@ -28,12 +32,16 @@ export default function SheetList() {
   const { data: sheets, isLoading } = useSheets();
   const createSheet = useCreateSheet();
   const deleteSheet = useDeleteSheet();
+  const updateSheet = useUpdateSheet();
 
   const [search, setSearch] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const { collapsed, toggle } = useCollapsedPanel("timely.sheetsListCollapsed");
+  const openMenu = useContextMenu();
+  const sheetMenu = useSheetContextMenu();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -73,6 +81,27 @@ export default function SheetList() {
     setPendingDeleteId(null);
 
     if (activeId === id) router.push("/sheets");
+  };
+
+  const commitRename = (sheet: Sheet, next: string) => {
+    const title = next.trim();
+    setRenamingId(null);
+    if (!title || title === sheet.title) return;
+    void updateSheet.mutateAsync({ id: sheet.id, title });
+  };
+
+  const onSheetContextMenu = (event: React.MouseEvent, sheet: Sheet) => {
+    openMenu(
+      event,
+      sheetMenu(sheet, {
+        onRename: () => setRenamingId(sheet.id),
+        onDeleted: (id) => {
+          setPendingDeleteId(null);
+          if (activeId === id) router.push("/sheets");
+        },
+      }),
+      { title: sheet.title },
+    );
   };
 
   if (collapsed) {
@@ -175,33 +204,63 @@ export default function SheetList() {
                   ? "border border-[#c0c1ff]/20 bg-[#c0c1ff]/12 text-foreground"
                   : "hover:bg-white/[0.04]"
               }`}
+              onContextMenu={(event) => onSheetContextMenu(event, sheet)}
             >
-              <Link
-                href={`/sheets/${sheet.id}`}
-                className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2"
-              >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[#c0c1ff]/12 text-base leading-none text-[#c0c1ff]">
-                  {sheet.icon ? (
-                    sheet.icon
-                  ) : (
-                    <SheetIcon className="size-3.5" />
-                  )}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1">
-                    <span className="truncate text-xs font-medium">{sheet.title}</span>
-                    {sheet.isFavorite && (
-                      <Star className="size-3 shrink-0 fill-warning text-warning" />
+              {renamingId === sheet.id ? (
+                <form
+                  className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const title = new FormData(event.currentTarget).get("title");
+                    commitRename(sheet, typeof title === "string" ? title : "");
+                  }}
+                >
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[#c0c1ff]/12 text-base leading-none text-[#c0c1ff]">
+                    {sheet.icon ? sheet.icon : <SheetIcon className="size-3.5" />}
+                  </span>
+                  <input
+                    name="title"
+                    autoFocus
+                    defaultValue={sheet.title}
+                    aria-label="Rename sheet"
+                    onBlur={(event) => commitRename(sheet, event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        setRenamingId(null);
+                      }
+                    }}
+                    className="min-w-0 flex-1 rounded border border-ring bg-input/40 px-1 py-0.5 text-xs outline-none"
+                  />
+                </form>
+              ) : (
+                <Link
+                  href={`/sheets/${sheet.id}`}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2"
+                >
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[#c0c1ff]/12 text-base leading-none text-[#c0c1ff]">
+                    {sheet.icon ? (
+                      sheet.icon
+                    ) : (
+                      <SheetIcon className="size-3.5" />
                     )}
                   </span>
-                  <span className="block truncate text-[10px] text-muted-foreground">
-                    {sheetMetaLabel(sheet)}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1">
+                      <span className="truncate text-xs font-medium">{sheet.title}</span>
+                      {sheet.isFavorite && (
+                        <Star className="size-3 shrink-0 fill-warning text-warning" />
+                      )}
+                    </span>
+                    <span className="block truncate text-[10px] text-muted-foreground">
+                      {sheetMetaLabel(sheet)}
+                    </span>
                   </span>
-                </span>
-                {sheet.id === activeId && (
-                  <span className="size-1.5 shrink-0 rounded-full bg-success" />
-                )}
-              </Link>
+                  {sheet.id === activeId && (
+                    <span className="size-1.5 shrink-0 rounded-full bg-success" />
+                  )}
+                </Link>
+              )}
 
               <button
                 type="button"
