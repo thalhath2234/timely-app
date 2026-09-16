@@ -11,6 +11,10 @@ import { taskEntityColor, taskEntityLabel } from "@/app/utils/entityColor";
 
 /** Pixel height of one hour row in the day/week time grid. */
 export const HOUR_HEIGHT = 56;
+/** Compact reminder chip; sits above its start time rather than through it. */
+export const REMINDER_HEIGHT = 22;
+/** Gap between stacked reminder chips that would otherwise overlap. */
+export const REMINDER_STACK_GAP = 2;
 /** Calendar drag/resize snaps to this clock increment. */
 export const SNAP_MINUTES = 15;
 export const MIN_BLOCK_MINUTES = 15;
@@ -412,6 +416,10 @@ export type PositionedEvent = {
   lane: number;
   /** How many columns that overlapping set was split into. */
   lanes: number;
+  /** Reminder chip visually overlaps a work block; render it as a right-aligned chip. */
+  reminderOverTask?: boolean;
+  /** Hours to lift a reminder chip so stacked pings don't paint over each other. */
+  reminderLiftHours?: number;
 };
 
 /**
@@ -426,11 +434,7 @@ export function layoutDayEvents(events: CalendarEvent[]): PositionedEvent[] {
     else occupying.push(event);
   }
 
-  const positioned = packLanes(occupying);
-  for (const event of reminders) {
-    positioned.push({ event, lane: 0, lanes: 1 });
-  }
-  return positioned;
+  return [...packLanes(occupying), ...packReminderChips(reminders, occupying)];
 }
 
 function packLanes(events: CalendarEvent[]): PositionedEvent[] {
@@ -467,6 +471,50 @@ function packLanes(events: CalendarEvent[]): PositionedEvent[] {
 
   closeCluster();
   return positioned;
+}
+
+function hoursOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number) {
+  return aStart < bEnd - 1e-9 && bStart < aEnd - 1e-9;
+}
+
+/**
+ * Reminder chips sit above their start time and stack upward when those
+ * intervals collide. They still don't steal a task lane.
+ */
+function packReminderChips(
+  reminders: CalendarEvent[],
+  occupying: CalendarEvent[],
+): PositionedEvent[] {
+  const heightHours = REMINDER_HEIGHT / HOUR_HEIGHT;
+  const gapHours = REMINDER_STACK_GAP / HOUR_HEIGHT;
+  const sorted = [...reminders].sort(
+    (a, b) => a.startHour - b.startHour || a.id.localeCompare(b.id),
+  );
+  const placed: { top: number; bottom: number }[] = [];
+
+  return sorted.map((event) => {
+    let bottom = event.startHour;
+    for (;;) {
+      const top = bottom - heightHours;
+      const hits = placed.filter((other) =>
+        hoursOverlap(top, bottom, other.top, other.bottom),
+      );
+      if (hits.length === 0) break;
+      bottom = Math.min(...hits.map((hit) => hit.top)) - gapHours;
+    }
+
+    const top = bottom - heightHours;
+    placed.push({ top, bottom });
+    return {
+      event,
+      lane: 0,
+      lanes: 1,
+      reminderOverTask: occupying.some((block) =>
+        hoursOverlap(top, bottom, block.startHour, block.endHour),
+      ),
+      reminderLiftHours: event.startHour - bottom,
+    };
+  });
 }
 
 /**

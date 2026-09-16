@@ -21,6 +21,7 @@ import {
   isSameDay,
   layoutDayEvents,
   mergeAdjacentTaskBlocks,
+  REMINDER_HEIGHT,
   snapMinutes,
   type CalendarEvent,
   type GridDragMode,
@@ -45,7 +46,6 @@ type TimeGridProps = {
 };
 
 const MIN_BLOCK_HEIGHT = 20;
-const REMINDER_HEIGHT = 22;
 const GRID_HEIGHT = HOURS.length * HOUR_HEIGHT;
 const MINUTES_PER_DAY = 24 * 60;
 
@@ -463,106 +463,112 @@ export default function TimeGrid({
                   />
                 )}
 
-                {visibleEvents[dayIndex].map(({ event, lane, lanes }) => {
-                  if (event.reminder) {
+                {visibleEvents[dayIndex].map(
+                  ({ event, lane, lanes, reminderOverTask, reminderLiftHours }) => {
+                    if (event.reminder) {
+                      const liftPx = (reminderLiftHours ?? 0) * HOUR_HEIGHT;
+                      return (
+                        <button
+                          key={event.id}
+                          type="button"
+                          title={event.title}
+                          onClick={() => onSelectEvent(event)}
+                          onContextMenu={(mouse) => onEventContextMenu?.(mouse, event)}
+                          style={{
+                            top:
+                              event.startHour * HOUR_HEIGHT - REMINDER_HEIGHT - liftPx,
+                            height: REMINDER_HEIGHT,
+                            ...eventStyle(event.color),
+                          }}
+                          className={cn(
+                            "absolute z-[3] flex items-center gap-1 overflow-hidden rounded-full border bg-card px-2 text-left text-foreground shadow-sm hover:z-[6] hover:shadow-md hover:brightness-110",
+                            reminderOverTask
+                              ? "right-[4px] left-auto w-[min(12.5rem,50%)] max-w-[calc(100%-8px)] hover:w-[calc(100%-8px)]"
+                              : "left-[2px] right-[2px] w-auto",
+                            preview && "pointer-events-none",
+                          )}
+                        >
+                          <Bell className="size-3 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 truncate text-xs font-medium leading-none">
+                            {event.title}
+                          </span>
+                          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                            {formatTime(event.start)}
+                          </span>
+                        </button>
+                      );
+                    }
+
+                    const height = Math.max(
+                      (event.endHour - event.startHour) * HOUR_HEIGHT - 2,
+                      MIN_BLOCK_HEIGHT,
+                    );
+                    const draggable = Boolean(onMoveBlock) && isDraggableCalendarBlock(event);
+                    const isSource = preview?.event.id === event.id;
+                    const left = `calc(${(lane * 100) / lanes}% + 2px)`;
+                    const width = `calc(${100 / lanes}% - 4px)`;
+
                     return (
                       <button
                         key={event.id}
                         type="button"
-                        onClick={() => onSelectEvent(event)}
+                        onClick={() => {
+                          if (suppressClickRef.current) {
+                            suppressClickRef.current = false;
+                            return;
+                          }
+                          onSelectEvent(event);
+                        }}
                         onContextMenu={(mouse) => onEventContextMenu?.(mouse, event)}
+                        onPointerDown={(pointer) => startDrag(event, day, "move", pointer)}
                         style={{
-                          top: event.startHour * HOUR_HEIGHT - REMINDER_HEIGHT / 2,
-                          height: REMINDER_HEIGHT,
-                          left: `calc(${(lane * 100) / lanes}% + 2px)`,
-                          width: `calc(${100 / lanes}% - 4px)`,
+                          top: event.startHour * HOUR_HEIGHT,
+                          height,
+                          left,
+                          width,
                           ...eventStyle(event.color),
                         }}
                         className={cn(
-                          "absolute z-[3] flex items-center gap-1 overflow-hidden rounded-full border bg-card px-2 text-left text-foreground shadow-sm hover:z-[4] hover:brightness-110",
-                          preview && "pointer-events-none",
+                          "group absolute z-[2] flex flex-col overflow-hidden rounded-md border bg-card px-2 py-1 text-left text-foreground hover:z-[3] hover:shadow-md hover:brightness-110",
+                          draggable && "cursor-grab touch-none",
+                          isSource && "opacity-40",
+                          (preview || isSource) && "pointer-events-none",
                         )}
                       >
-                        <Bell className="size-3 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 truncate text-xs font-medium leading-none">
+                        <span className="truncate text-xs font-medium leading-tight">
                           {event.title}
                         </span>
-                        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                          {formatTime(event.start)}
-                        </span>
+                        {height > 36 ? (
+                          <span className="truncate text-[10px] tabular-nums text-muted-foreground">
+                            {formatTime(event.start)} – {formatTime(event.end)}
+                          </span>
+                        ) : null}
+                        {draggable ? (
+                          <>
+                            <span
+                              role="separator"
+                              aria-label={`Resize start of ${event.title}`}
+                              onPointerDown={(pointer) => {
+                                pointer.preventDefault();
+                                startDrag(event, day, "resize-start", pointer);
+                              }}
+                              className="absolute inset-x-0 top-0 z-[1] h-2 cursor-ns-resize group-hover:bg-foreground/15"
+                            />
+                            <span
+                              role="separator"
+                              aria-label={`Resize end of ${event.title}`}
+                              onPointerDown={(pointer) => {
+                                pointer.preventDefault();
+                                startDrag(event, day, "resize-end", pointer);
+                              }}
+                              className="absolute inset-x-0 bottom-0 z-[1] h-2 cursor-ns-resize group-hover:bg-foreground/15"
+                            />
+                          </>
+                        ) : null}
                       </button>
                     );
-                  }
-
-                  const height = Math.max(
-                    (event.endHour - event.startHour) * HOUR_HEIGHT - 2,
-                    MIN_BLOCK_HEIGHT,
-                  );
-                  const draggable = Boolean(onMoveBlock) && isDraggableCalendarBlock(event);
-                  const isSource = preview?.event.id === event.id;
-                  const left = `calc(${(lane * 100) / lanes}% + 2px)`;
-                  const width = `calc(${100 / lanes}% - 4px)`;
-
-                  return (
-                    <button
-                      key={event.id}
-                      type="button"
-                      onClick={() => {
-                        if (suppressClickRef.current) {
-                          suppressClickRef.current = false;
-                          return;
-                        }
-                        onSelectEvent(event);
-                      }}
-                      onContextMenu={(mouse) => onEventContextMenu?.(mouse, event)}
-                      onPointerDown={(pointer) => startDrag(event, day, "move", pointer)}
-                      style={{
-                        top: event.startHour * HOUR_HEIGHT,
-                        height,
-                        left,
-                        width,
-                        ...eventStyle(event.color),
-                      }}
-                      className={cn(
-                        "group absolute z-[2] flex flex-col overflow-hidden rounded-md border bg-card px-2 py-1 text-left text-foreground hover:z-[3] hover:shadow-md hover:brightness-110",
-                        draggable && "cursor-grab touch-none",
-                        isSource && "opacity-40",
-                        (preview || isSource) && "pointer-events-none",
-                      )}
-                    >
-                      <span className="truncate text-xs font-medium leading-tight">
-                        {event.title}
-                      </span>
-                      {height > 36 ? (
-                        <span className="truncate text-[10px] tabular-nums text-muted-foreground">
-                          {formatTime(event.start)} – {formatTime(event.end)}
-                        </span>
-                      ) : null}
-                      {draggable ? (
-                        <>
-                          <span
-                            role="separator"
-                            aria-label={`Resize start of ${event.title}`}
-                            onPointerDown={(pointer) => {
-                              pointer.preventDefault();
-                              startDrag(event, day, "resize-start", pointer);
-                            }}
-                            className="absolute inset-x-0 top-0 z-[1] h-2 cursor-ns-resize group-hover:bg-foreground/15"
-                          />
-                          <span
-                            role="separator"
-                            aria-label={`Resize end of ${event.title}`}
-                            onPointerDown={(pointer) => {
-                              pointer.preventDefault();
-                              startDrag(event, day, "resize-end", pointer);
-                            }}
-                            className="absolute inset-x-0 bottom-0 z-[1] h-2 cursor-ns-resize group-hover:bg-foreground/15"
-                          />
-                        </>
-                      ) : null}
-                    </button>
-                  );
-                })}
+                  },
+                )}
 
                 {columnPreview ? (
                   <div
