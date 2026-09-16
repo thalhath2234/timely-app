@@ -35,7 +35,7 @@ import {
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
-import { chipStyle, taskEntityColor } from "@/app/utils/entityColor";
+import { chipStyle, fillStyle, taskEntityColor } from "@/app/utils/entityColor";
 import { useToday } from "@/app/utils/hooks/calendar";
 import {
   useInboxTasks,
@@ -489,13 +489,13 @@ function AgendaTimeline({
                 title={`${item.title} · ${formatTime(start)} – ${formatTime(end)}`}
                 onClick={() => onOpen(item)}
                 onContextMenu={(event) => onContextMenu?.(event, item)}
-                className="absolute overflow-hidden rounded-md px-2 text-left text-[10px] font-medium text-primary-foreground"
+                className="absolute overflow-hidden rounded-md px-2 text-left text-[10px] font-medium"
                 style={{
                   top: 6 + laneIndex * (laneHeight + 6),
                   height: laneHeight,
                   left: `${left}%`,
                   width: `${width}%`,
-                  backgroundColor: itemAccent(item),
+                  ...fillStyle(itemAccent(item)),
                 }}
               >
                 <span className="block truncate leading-8">{item.title}</span>
