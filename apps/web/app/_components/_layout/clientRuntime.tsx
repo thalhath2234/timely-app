@@ -1,11 +1,14 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
+import { getConfig, updateAppearanceConfig } from "@/app/utils/api/worksapce";
 import {
   ACCENT_STORAGE_KEY,
   applyDocumentAppearance,
+  isAccentPreference,
+  isThemePreference,
   readStoredAccent,
   readStoredSidebarAutoHide,
   readStoredTheme,
@@ -37,6 +40,18 @@ const PreferencesContext = createContext<Preferences>({
 
 export function usePreferences() { return useContext(PreferencesContext); }
 
+function appearanceFromConfig(value: { theme?: string; accent?: string } | undefined): {
+  theme: ThemePreference;
+  accent: AccentPreference;
+} {
+  const rawTheme = value?.theme ?? null;
+  const rawAccent = value?.accent ?? null;
+  return {
+    theme: isThemePreference(rawTheme) ? rawTheme : "system",
+    accent: isAccentPreference(rawAccent) ? rawAccent : "default",
+  };
+}
+
 export default function ClientRuntime({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [online, setOnline] = useState(true);
@@ -44,6 +59,9 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemePreference>("system");
   const [accent, setAccentState] = useState<AccentPreference>("default");
   const [sidebarAutoHide, setSidebarAutoHideState] = useState(false);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipPersist = useRef(true);
+  const accountReady = useRef(false);
 
   useEffect(() => {
     const nextTheme = readStoredTheme();
@@ -57,6 +75,41 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!hydrated) return;
+    let cancelled = false;
+    void getConfig()
+      .then((config) => {
+        if (cancelled) return;
+        const remote = appearanceFromConfig(config.appearance);
+        const localTheme = readStoredTheme();
+        const localAccent = readStoredAccent();
+        const serverIsDefault = remote.theme === "system" && remote.accent === "default";
+        const localDiffers = localTheme !== "system" || localAccent !== "default";
+        if (serverIsDefault && localDiffers) {
+          skipPersist.current = false;
+          accountReady.current = true;
+          setThemeState(localTheme);
+          setAccentState(localAccent);
+          void updateAppearanceConfig({ theme: localTheme, accent: localAccent }).catch(() => undefined);
+          return;
+        }
+        skipPersist.current = true;
+        setThemeState(remote.theme);
+        setAccentState(remote.accent);
+        accountReady.current = true;
+        queueMicrotask(() => {
+          skipPersist.current = false;
+        });
+      })
+      .catch(() => {
+        skipPersist.current = false;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => applyDocumentAppearance(theme, accent);
     apply();
@@ -64,6 +117,17 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
     localStorage.setItem(ACCENT_STORAGE_KEY, accent);
     return () => media.removeEventListener("change", apply);
+  }, [theme, accent, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || skipPersist.current || !accountReady.current) return;
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => {
+      void updateAppearanceConfig({ theme, accent }).catch(() => undefined);
+    }, 250);
+    return () => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+    };
   }, [theme, accent, hydrated]);
 
   useEffect(() => {

@@ -14,8 +14,8 @@ export default function LoginScreen() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
-  if (token && isOnboarded(user)) return <Redirect href="/(app)/(tabs)/calendar" />;
-  if (token) return <Redirect href="/onboarding" />;
+  if (token && isOnboarded(user)) return <Redirect href="/(app)/(tabs)/home" />;
+  if (token && user) return <Redirect href="/onboarding" />;
 
   async function submit() {
     if (!email.trim() || !password.trim()) {
@@ -26,7 +26,7 @@ export default function LoginScreen() {
     setError("");
     try {
       const next = await login(email.trim(), password);
-      router.replace(isOnboarded(next) ? "/(app)/(tabs)/calendar" : "/onboarding");
+      router.replace(isOnboarded(next) ? "/(app)/(tabs)/home" : "/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -37,8 +37,8 @@ export default function LoginScreen() {
   return (
     <Screen padded>
       <View style={styles.wrap}>
-        <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.sub}>Sign in to manage your schedule with Timely</Text>
+        <Text style={styles.title}>Timely</Text>
+        <Text style={styles.sub}>Sign in to your kinetic day</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Field
           testID="login-email"
@@ -65,9 +65,9 @@ export default function LoginScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  wrap: { flex: 1, justifyContent: "center", gap: 12 },
-  title: { color: colors.foreground, fontSize: 28, fontWeight: "600" },
-  sub: { color: colors.mutedForeground, fontSize: 14, marginBottom: 8 },
+  wrap: { flex: 1, justifyContent: "center", gap: 14 },
+  title: { color: colors.foreground, fontSize: 34, fontWeight: "700", letterSpacing: -0.8 },
+  sub: { color: colors.mutedForeground, fontSize: 15, marginBottom: 10 },
   error: { color: colors.destructive, fontSize: 13 },
   link: { color: colors.primary, textAlign: "center", marginTop: 8 },
 }));

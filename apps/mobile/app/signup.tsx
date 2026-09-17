@@ -15,7 +15,7 @@ export default function SignupScreen() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
-  if (token && isOnboarded(user)) return <Redirect href="/(app)/(tabs)/calendar" />;
+  if (token && isOnboarded(user)) return <Redirect href="/(app)/(tabs)/home" />;
   if (token) return <Redirect href="/onboarding" />;
 
   async function submit() {
@@ -56,9 +56,9 @@ export default function SignupScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  wrap: { flex: 1, justifyContent: "center", gap: 12 },
-  title: { color: colors.foreground, fontSize: 28, fontWeight: "600" },
-  sub: { color: colors.mutedForeground, fontSize: 14, marginBottom: 8 },
+  wrap: { flex: 1, justifyContent: "center", gap: 14 },
+  title: { color: colors.foreground, fontSize: 34, fontWeight: "700", letterSpacing: -0.8 },
+  sub: { color: colors.mutedForeground, fontSize: 15, marginBottom: 10 },
   error: { color: colors.destructive, fontSize: 13 },
   link: { color: colors.primary, textAlign: "center", marginTop: 8 },
 }));

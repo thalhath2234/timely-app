@@ -1,4 +1,4 @@
-import type { CustomFieldValueInput, DocContent, Project, Stage } from "../types";
+import type { CustomFieldValueInput, DocContent, Project, ProjectActivityEntry, Stage } from "../types";
 import { api, unwrap } from "./client";
 
 export type CreateProjectPayload = {
@@ -69,4 +69,8 @@ export function reorderStages(projectId: string, ids: string[]) {
 export async function duplicateProject(id: string) {
   const res = await api<Project | { project: Project }>(`/projects/${id}/duplicate`, { method: "POST" });
   return unwrap(res, "project");
+}
+
+export function getProjectActivity(id: string) {
+  return api<ProjectActivityEntry[]>(`/projects/${encodeURIComponent(id)}/activity`);
 }

@@ -337,3 +337,20 @@ export async function updateTaskViewsConfig(data: {
 
   return response.json();
 }
+
+export async function updateAppearanceConfig(appearance: NonNullable<Config["appearance"]>): Promise<Config> {
+  const response = await apiFetch("/config", {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ appearance }),
+  });
+
+  if (!response.ok) {
+    throw new ApiError("Failed to update appearance", response.status);
+  }
+
+  return response.json();
+}

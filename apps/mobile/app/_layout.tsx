@@ -6,7 +6,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "../lib/auth/AuthProvider";
-import { colors, initializeTheme } from "../lib/theme";
+import { colors, createThemedStyleSheet, initializeTheme, ThemeRoot } from "../lib/theme";
 import { stackFadeAnimation, stackPushAnimation } from "../lib/motion";
 import ConnectivityBanner from "../components/ConnectivityBanner";
 import { requestNotificationPermission } from "../lib/notifications";
@@ -51,6 +51,7 @@ export default function RootLayout() {
   if (!ready) return null;
 
   return (
+    <ThemeRoot>
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
@@ -74,5 +75,6 @@ export default function RootLayout() {
         </AuthProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
+    </ThemeRoot>
   );
 }

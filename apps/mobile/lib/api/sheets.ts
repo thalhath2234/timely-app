@@ -1,5 +1,5 @@
 import { normalizeSheet } from "../sheet";
-import type { DocContent, Sheet, SheetColumn, SheetRow } from "../types";
+import type { DocContent, Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab } from "../types";
 import { api, unwrap } from "./client";
 
 export type CreateSheetPayload = {
@@ -9,6 +9,8 @@ export type CreateSheetPayload = {
   descriptionRich?: DocContent;
   columns?: SheetColumn[];
   rows?: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
   workspaceId?: string;
   projectId?: string | null;
 };
@@ -20,6 +22,8 @@ export type UpdateSheetPayload = {
   descriptionRich?: DocContent;
   columns?: SheetColumn[];
   rows?: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
   projectId?: string | null;
   isFavorite?: boolean;
   archived?: boolean;
@@ -48,4 +52,9 @@ export async function updateSheet(id: string, data: UpdateSheetPayload) {
 
 export function deleteSheet(id: string) {
   return api<void>(`/sheets/${id}`, { method: "DELETE" });
+}
+
+export async function duplicateSheet(id: string) {
+  const res = await api<Sheet | { sheet: Sheet }>(`/sheets/${id}/duplicate`, { method: "POST" });
+  return normalizeSheet(unwrap(res, "sheet"));
 }

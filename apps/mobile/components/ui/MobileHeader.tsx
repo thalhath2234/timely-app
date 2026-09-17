@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -71,26 +71,26 @@ export default function MobileHeader({
 
 const styles = createThemedStyleSheet((colors) => ({
   wrap: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    paddingBottom: 8,
     backgroundColor: colors.background,
   },
   row: {
-    minHeight: 52,
-    paddingHorizontal: 12,
+    minHeight: 56,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  title: { color: colors.foreground, fontSize: 22, fontWeight: "600" },
-  titleCompact: { fontSize: 17 },
+  title: { color: colors.foreground, fontSize: 28, fontWeight: "700", letterSpacing: -0.4 },
+  titleCompact: { fontSize: 18, fontWeight: "600", letterSpacing: -0.2 },
   sub: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   actions: { flexDirection: "row", alignItems: "center", gap: 4 },
   iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: colors.card,
   },
 }));

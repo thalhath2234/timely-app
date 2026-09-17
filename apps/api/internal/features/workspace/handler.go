@@ -475,11 +475,20 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 		)
 	}
 
+	existing, err := h.workspaceService.GetConfig(userID)
+	if err != nil {
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			err.Error(),
+		)
+	}
+
 	var req struct {
-		IsOnBoardingCompleted bool                     `json:"isOnboardingCompleted"`
+		IsOnBoardingCompleted *bool                    `json:"isOnboardingCompleted"`
 		TaskViews             models.TaskViews         `json:"taskViews"`
-		ActiveTaskViewId      string                   `json:"activeTaskViewId"`
+		ActiveTaskViewId      *string                  `json:"activeTaskViewId"`
 		ProjectTaskViews      *models.ProjectTaskViews `json:"projectTaskViews"`
+		Appearance            *models.Appearance       `json:"appearance"`
 	}
 
 	if err := c.Bind(&req); err != nil {
@@ -489,14 +498,22 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 		)
 	}
 
-	config := &models.Config{
-		UserID:                userID,
-		IsOnBoardingCompleted: req.IsOnBoardingCompleted,
-		TaskViews:             req.TaskViews,
-		ActiveTaskViewId:      req.ActiveTaskViewId,
+	config := existing
+	config.UserID = userID
+	if req.IsOnBoardingCompleted != nil {
+		config.IsOnBoardingCompleted = *req.IsOnBoardingCompleted
+	}
+	if len(req.TaskViews) > 0 {
+		config.TaskViews = req.TaskViews
+	}
+	if req.ActiveTaskViewId != nil {
+		config.ActiveTaskViewId = *req.ActiveTaskViewId
 	}
 	if req.ProjectTaskViews != nil {
 		config.ProjectTaskViews = *req.ProjectTaskViews
+	}
+	if req.Appearance != nil {
+		config.Appearance = *req.Appearance
 	}
 
 	updatedConfig, err := h.workspaceService.UpdateConfig(config)

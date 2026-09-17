@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Bell } from "lucide-react-native";
 import Screen from "../../components/ui/Screen";
@@ -12,11 +12,22 @@ import {
 } from "../../lib/hooks";
 import type { AppNotification } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { needsNetworkCopy } from "../../lib/queryCopy";
 
-function taskIdOf(item: AppNotification) {
+function routeFor(item: AppNotification): string | null {
   const fromData = item.data?.taskId;
-  if (typeof fromData === "string" && fromData) return fromData;
-  if (item.entityType === "task" && item.entityId) return item.entityId;
+  if (typeof fromData === "string" && fromData) return `/(app)/tasks/${fromData}`;
+  if (item.entityType === "task" && item.entityId) return `/(app)/tasks/${item.entityId}`;
+  if (item.entityType === "project" && item.entityId) return `/(app)/projects/${item.entityId}`;
+  if (item.entityType === "doc" && item.entityId) return `/(app)/docs/${item.entityId}`;
+  if (item.entityType === "sheet" && item.entityId) return `/(app)/sheets/${item.entityId}`;
+  if (item.entityType === "event" && item.entityId) return `/(app)/events/${item.entityId}`;
+  const projectId = item.data?.projectId;
+  if (typeof projectId === "string" && projectId) return `/(app)/projects/${projectId}`;
+  const docId = item.data?.docId;
+  if (typeof docId === "string" && docId) return `/(app)/docs/${docId}`;
+  const eventId = item.data?.eventId;
+  if (typeof eventId === "string" && eventId) return `/(app)/events/${eventId}`;
   return null;
 }
 
@@ -34,11 +45,21 @@ export default function NotificationsScreen() {
   const markAll = useMarkAllNotificationsRead();
   const snooze = useSnoozeNotification();
   const items = list.data ?? [];
+  const networkCopy = needsNetworkCopy(list);
 
   return (
     <Screen>
       <MobileHeader title="Notifications" back large={false} />
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        refreshControl={
+          <RefreshControl
+            refreshing={list.isRefetching && !list.isPending}
+            onRefresh={() => void list.refetch()}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <Pressable
           onPress={() => void markAll.mutateAsync()}
           disabled={markAll.isPending || items.every((item) => item.readAt)}
@@ -46,7 +67,14 @@ export default function NotificationsScreen() {
         >
           <Text style={styles.markAllText}>Mark all read</Text>
         </Pressable>
-        {items.length === 0 ? (
+        {networkCopy && items.length === 0 ? (
+          <EmptyState
+            icon={Bell}
+            title="Couldn't load notifications"
+            description={networkCopy}
+            compact
+          />
+        ) : items.length === 0 ? (
           <EmptyState
             icon={Bell}
             title="Nothing yet"
@@ -55,13 +83,13 @@ export default function NotificationsScreen() {
           />
         ) : (
           items.map((item) => {
-            const taskId = taskIdOf(item);
+            const href = routeFor(item);
             return (
               <View key={item.id} style={[styles.row, !item.readAt && styles.unread]}>
                 <Pressable
                   onPress={() => {
                     if (!item.readAt) void markRead.mutateAsync(item.id);
-                    if (taskId) router.push(`/(app)/tasks/${taskId}`);
+                    if (href) router.push(href as never);
                   }}
                 >
                   <Text style={styles.title}>{item.title}</Text>

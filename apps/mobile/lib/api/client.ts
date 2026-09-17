@@ -13,7 +13,15 @@ import { isOffline } from "../networkState";
 
 function bundledApiUrl() {
   const extra = Constants.expoConfig?.extra as { apiUrl?: string } | undefined;
-  return BUNDLED_API_URL || process.env.EXPO_PUBLIC_API_URL || extra?.apiUrl || "";
+  const fromEnv = process.env.EXPO_PUBLIC_API_URL || "";
+  if (
+    fromEnv.includes("10.0.2.2") ||
+    fromEnv.includes("localhost") ||
+    fromEnv.includes("127.0.0.1")
+  ) {
+    return fromEnv;
+  }
+  return BUNDLED_API_URL || fromEnv || extra?.apiUrl || "";
 }
 
 function fallbackApiUrl() {

@@ -1,7 +1,7 @@
 import { PermissionsAndroid, Platform } from "react-native";
 import Constants from "expo-constants";
 import type { CalendarItem } from "./types";
-import { registerPushDevice } from "./api/notifications";
+import { registerPushDevice, unregisterPushDevice } from "./api/notifications";
 
 const CHANNEL = "reminders";
 const PREFIX = "timely-reminder:";
@@ -12,6 +12,7 @@ type NotificationsModule = typeof import("expo-notifications");
 
 let loaded: NotificationsModule | null | undefined;
 let serverPush = false;
+let lastPushToken: string | null = null;
 
 export function isServerPushEnabled() {
   return serverPush;
@@ -24,6 +25,11 @@ function easProjectId() {
 
 function notifications(): NotificationsModule | null {
   if (loaded !== undefined) return loaded;
+  // Expo Go (SDK 53+) throws if the Android push module is touched.
+  if (Constants.appOwnership === "expo") {
+    loaded = null;
+    return null;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require("expo-notifications") as NotificationsModule;
@@ -134,6 +140,7 @@ export async function registerServerPush() {
       ? await N.getExpoPushTokenAsync({ projectId })
       : await N.getExpoPushTokenAsync();
     if (!token?.data) return false;
+    lastPushToken = token.data;
     await registerPushDevice(token.data, Platform.OS === "ios" ? "ios" : "android");
     serverPush = true;
     return true;
@@ -202,6 +209,18 @@ export async function syncReminderNotifications(items: CalendarItem[]) {
   );
 
   return upcoming.length;
+}
+
+export async function unregisterServerPush() {
+  const token = lastPushToken;
+  lastPushToken = null;
+  serverPush = false;
+  if (!token) return;
+  try {
+    await unregisterPushDevice(token);
+  } catch {
+    // Sign-out should continue even if the push token is already gone.
+  }
 }
 
 export function addReminderResponseListener(

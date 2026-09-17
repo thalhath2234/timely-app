@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getMe } from "./api/auth";
+import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, stopFocus, setTodayFocus } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
 import type { Doc } from "./types";
-import { getSheets, getSheet, createSheet, updateSheet, deleteSheet } from "./api/sheets";
-import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject } from "./api/projects";
-import { getWorkspaces, getConfig } from "./api/workspaces";
+import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet } from "./api/sheets";
+import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject, getProjectActivity } from "./api/projects";
+import { getWorkspaces, getConfig, updateConfig, updateTaskViewsConfig } from "./api/workspaces";
 import {
   addTaskBlock,
   applySchedule,
+  clearTaskBlocks,
+  deleteBlock,
   getCalendarRange,
   getScheduleSettings,
   getToday,
@@ -38,8 +40,8 @@ import {
   unreadNotificationCount,
   updateNotificationSettings,
 } from "./api/notifications";
-import type { UpdateTaskPayload } from "./api/tasks";
-import type { MentionEntityType, NotificationSettings, Sheet } from "./types";
+import type { UpdateTaskPayload, CreateTaskPayload } from "./api/tasks";
+import type { MentionEntityType, NotificationSettings, Sheet, TaskViewConfig } from "./types";
 
 export type MentionItem = {
   id: string;
@@ -78,6 +80,8 @@ export const keys = {
   unreadNotifications: ["notifications", "unread-count"] as const,
   notificationSettings: ["notification-settings"] as const,
   failedJobs: ["jobs", "failed"] as const,
+  sessions: ["sessions"] as const,
+  projectActivity: (id: string) => ["project-activity", id] as const,
   jobHealth: ["jobs", "health"] as const,
 };
 
@@ -155,6 +159,26 @@ export function useWorkspacesQuery() {
 
 export function useConfigQuery() {
   return useQuery({ queryKey: keys.config, queryFn: getConfig });
+}
+
+export function useUpdateAppearance() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (appearance: NonNullable<import("./types").Config["appearance"]>) => updateConfig({ appearance }),
+    onSuccess: (config) => {
+      client.setQueryData(keys.config, config);
+    },
+  });
+}
+
+export function useUpdateTaskViews() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { taskViews: TaskViewConfig[]; activeTaskViewId: string }) => updateTaskViewsConfig(data),
+    onSuccess: (config) => {
+      client.setQueryData(keys.config, config);
+    },
+  });
 }
 
 export function useCalendarQuery(from: Date, to: Date) {
@@ -283,6 +307,12 @@ export function useAutoScheduleAfterCreate() {
   };
 }
 
+function shouldAutoScheduleAfterCreate(payload: CreateTaskPayload) {
+  if (payload.kind === "inbox" || payload.kind === "reminder") return false;
+  if (!payload.workspaceId) return false;
+  return (payload.duration ?? 0) > 0;
+}
+
 export function useSaveTask() {
   const client = useQueryClient();
   return useMutation({
@@ -381,9 +411,9 @@ export function useCreateTask() {
   const autoSchedule = useAutoScheduleAfterCreate();
   return useMutation({
     mutationFn: createTask,
-    onSuccess: async () => {
+    onSuccess: async (_task, payload) => {
       await invalidate();
-      void autoSchedule();
+      if (shouldAutoScheduleAfterCreate(payload)) void autoSchedule();
     },
   });
 }
@@ -522,15 +552,22 @@ export function useDeleteSheet() {
   });
 }
 
+export function useDuplicateSheet() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: duplicateSheet,
+    onSuccess: (sheet) => {
+      client.setQueryData(keys.sheet(sheet.id), sheet);
+      client.invalidateQueries({ queryKey: keys.sheets });
+    },
+  });
+}
+
 export function useCreateEvent() {
   const invalidate = useInvalidateAll();
-  const autoSchedule = useAutoScheduleAfterCreate();
   return useMutation({
     mutationFn: createEvent,
-    onSuccess: async () => {
-      await invalidate();
-      void autoSchedule();
-    },
+    onSuccess: invalidate,
   });
 }
 
@@ -690,6 +727,22 @@ export function usePinBlock() {
   });
 }
 
+export function useClearTaskBlocks() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (taskId: string) => clearTaskBlocks(taskId),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteBlock() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (blockId: string) => deleteBlock(blockId),
+    onSuccess: invalidate,
+  });
+}
+
 export function useSaveWorkingHours() {
   const client = useQueryClient();
   return useMutation({
@@ -780,6 +833,34 @@ export function useSetTodayFocus() {
 export function useDuplicateProject() {
   const invalidate = useInvalidateAll();
   return useMutation({ mutationFn: duplicateProject, onSuccess: invalidate });
+}
+
+export function useProjectActivityQuery(id?: string) {
+  return useQuery({
+    queryKey: keys.projectActivity(id ?? ""),
+    queryFn: () => getProjectActivity(id!),
+    enabled: Boolean(id),
+  });
+}
+
+export function useSessionsQuery() {
+  return useQuery({ queryKey: keys.sessions, queryFn: listSessions });
+}
+
+export function useRevokeSession() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: revokeSession,
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.sessions }),
+  });
+}
+
+export function useRevokeOtherSessions() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: revokeOtherSessions,
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.sessions }),
+  });
 }
 
 export function useNotificationsQuery(unread = false) {

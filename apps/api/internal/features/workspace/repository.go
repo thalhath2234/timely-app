@@ -210,6 +210,7 @@ func (r *workspaceRepository) UpdateConfig(config *models.Config) (*models.Confi
 	if result.Error == nil {
 		jsonCols := map[string]any{
 			"task_views": config.TaskViews,
+			"appearance": config.Appearance,
 		}
 		if config.ProjectTaskViews != nil {
 			jsonCols["project_task_views"] = config.ProjectTaskViews

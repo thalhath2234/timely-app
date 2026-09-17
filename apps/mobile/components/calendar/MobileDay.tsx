@@ -36,10 +36,12 @@ export default function MobileDay({
   date,
   items,
   onOpen,
+  onEmptySlot,
 }: {
   date: Date;
   items: CalendarItem[];
   onOpen: (item: CalendarItem) => void;
+  onEmptySlot?: (start: Date) => void;
 }) {
   const dayStart = startOfDay(date).getTime();
   const isToday = isSameDay(date, new Date());
@@ -69,7 +71,16 @@ export default function MobileDay({
         </View>
         <View style={styles.rail}>
           {HOURS.map((h) => (
-            <View key={h} style={styles.line} />
+            <Pressable
+              key={h}
+              onPress={() => {
+                if (!onEmptySlot) return;
+                const start = new Date(dayStart);
+                start.setHours(h, 0, 0, 0);
+                onEmptySlot(start);
+              }}
+              style={styles.line}
+            />
           ))}
           {timed.map(({ item, col, cols }) => {
             const s = new Date(item.start).getTime();

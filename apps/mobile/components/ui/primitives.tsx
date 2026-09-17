@@ -179,16 +179,16 @@ export function Dot({ color }: { color?: string | null }) {
 
 const styles = createThemedStyleSheet((colors) => ({
   primary: {
-    height: 48,
-    borderRadius: 12,
+    height: 52,
+    borderRadius: 16,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
+  primaryText: { color: colors.primaryForeground, fontSize: 16, fontWeight: "700" },
   input: {
-    minHeight: 48,
-    borderRadius: 12,
+    minHeight: 52,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.input,
     backgroundColor: colors.card,
@@ -202,8 +202,8 @@ const styles = createThemedStyleSheet((colors) => ({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -212,8 +212,8 @@ const styles = createThemedStyleSheet((colors) => ({
   chipText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
   selectTrigger: {
-    minHeight: 48,
-    borderRadius: 12,
+    minHeight: 52,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.input,
     backgroundColor: colors.card,
@@ -225,7 +225,7 @@ const styles = createThemedStyleSheet((colors) => ({
   selectValue: { flex: 1, color: colors.foreground, fontSize: 15 },
   selectPanel: {
     marginTop: 6,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.popover,
@@ -251,11 +251,11 @@ const styles = createThemedStyleSheet((colors) => ({
     letterSpacing: 0.6,
   },
   card: {
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    padding: 14,
+    padding: 16,
   },
   dot: { width: 10, height: 10, borderRadius: 5 },
 }));

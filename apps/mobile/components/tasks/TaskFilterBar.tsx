@@ -1,5 +1,5 @@
 import { ScrollView, StyleSheet, View } from "react-native";
-import type { Workspace } from "../../lib/types";
+import type { TaskViewConfig, Workspace } from "../../lib/types";
 import { Chip, Select } from "../ui/primitives";
 
 export type TaskFilter = "all" | "today" | "overdue" | "upcoming" | "nodate" | "done" | "reminders" | "board";
@@ -11,6 +11,9 @@ export default function TaskFilterBar({
   workspaceId,
   onWorkspace,
   counts,
+  views = [],
+  activeViewId,
+  onView,
 }: {
   filter: TaskFilter;
   onFilter: (f: TaskFilter) => void;
@@ -18,6 +21,9 @@ export default function TaskFilterBar({
   workspaceId: string | null;
   onWorkspace: (id: string | null) => void;
   counts: { today: number; overdue: number };
+  views?: TaskViewConfig[];
+  activeViewId?: string;
+  onView?: (id: string) => void;
 }) {
   const filters: { id: TaskFilter; label: string }[] = [
     { id: "all", label: "All" },
@@ -32,11 +38,19 @@ export default function TaskFilterBar({
 
   return (
     <View style={styles.wrap}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-        {filters.map((f) => (
-          <Chip key={f.id} label={f.label} active={filter === f.id} onPress={() => onFilter(f.id)} />
-        ))}
-      </ScrollView>
+      {views.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+          {views.map((view) => (
+            <Chip key={view.id} label={view.name} active={view.id === activeViewId} onPress={() => onView?.(view.id)} />
+          ))}
+        </ScrollView>
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+          {filters.map((f) => (
+            <Chip key={f.id} label={f.label} active={filter === f.id} onPress={() => onFilter(f.id)} />
+          ))}
+        </ScrollView>
+      )}
       {workspaces.length > 1 ? (
         <View style={styles.select}>
           <Select

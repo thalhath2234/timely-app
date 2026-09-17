@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
+import { Ban, CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
@@ -11,8 +11,9 @@ import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
 import { Dot, Chip, Field, PrimaryButton } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
+import RichTextEditor from "../../../components/editor/RichTextEditor";
 import { toCustomFieldDrafts } from "../../../lib/customFields";
-import type { CustomFieldValueInput } from "../../../lib/types";
+import type { CustomFieldValueInput, DocContent } from "../../../lib/types";
 import {
   useAddBlock,
   useAddChecklistItem,
@@ -33,15 +34,18 @@ import {
   useTaskQuery,
   useTasksQuery,
   useToggleChecklistItem,
+  useClearTaskBlocks,
+  useDeleteBlock,
+  useSplitTaskSeries,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, isOverdue, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
 import { normalizePriority } from "../../../lib/priority";
 import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
-import { richToPlain, toRichContent } from "../../../lib/richText";
+import { richToPlain, toRichContent, isRichContentEmpty } from "../../../lib/richText";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
-type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | "earliest" | null;
+type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | "earliest" | "blocked" | "scope" | null;
 
 function applyClock(day: Date, clock: Date) {
   const next = new Date(day);
@@ -64,11 +68,16 @@ export default function TaskDetailScreen() {
   const pinTask = usePinTask();
   const pinBlock = usePinBlock();
   const applySchedule = useApplySchedule();
+  const clearBlocks = useClearTaskBlocks();
+  const removeBlock = useDeleteBlock();
+  const splitSeries = useSplitTaskSeries();
   const activity = useTaskActivityQuery(id);
   const comment = useAddComment();
   const [picker, setPicker] = useState<Picker>(null);
   const [note, setNote] = useState("");
+  const [noteRich, setNoteRich] = useState<DocContent>({ type: "doc", content: [{ type: "paragraph" }] });
   const [noteReady, setNoteReady] = useState(false);
+  const [noteSync, setNoteSync] = useState(0);
   const [commentText, setCommentText] = useState("");
   const [checkTitle, setCheckTitle] = useState("");
   const [subtaskTitle, setSubtaskTitle] = useState("");
@@ -83,6 +92,8 @@ export default function TaskDetailScreen() {
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValueInput[]>([]);
   const [metaWorkspaceId, setMetaWorkspaceId] = useState("");
+  const [scope, setScope] = useState<"this" | "future" | "all">("all");
+  const [blockQuery, setBlockQuery] = useState("");
 
   const workspace = spaces.find((w) => w.id === (task?.workspaceId || metaWorkspaceId));
   const scopedProjects = projects.filter((p) => p.workspaceId === (task?.workspaceId || metaWorkspaceId));
@@ -92,7 +103,12 @@ export default function TaskDetailScreen() {
 
   useMemo(() => {
     if (task && !noteReady) {
-      setNote(richToPlain(task.descriptionRich) || task.description || "");
+      const seed = !isRichContentEmpty(task.descriptionRich)
+        ? task.descriptionRich!
+        : toRichContent(undefined, task.description || "");
+      setNote(richToPlain(seed) || task.description || "");
+      setNoteRich(seed.type ? seed : { type: "doc", content: [{ type: "paragraph" }] });
+      setNoteSync((value) => value + 1);
       setNoteReady(true);
     }
   }, [task, noteReady]);
@@ -211,6 +227,17 @@ export default function TaskDetailScreen() {
           {!isReminder ? (
             <>
               <Row icon={<ListTodo size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
+              <Row
+                icon={<Ban size={16} color={colors.mutedForeground} />}
+                label="Blocked by"
+                value={tasks.find((item) => item.id === task.blockedById)?.name ?? task.blockedBy?.name ?? "None"}
+                onPress={() => setPicker("blocked")}
+              />
+              {tasks.some((item) => item.blockedById === task.id) ? (
+                <Text style={styles.activity}>
+                  Waiting on this: {tasks.filter((item) => item.blockedById === task.id).map((item) => item.name).join(", ")}
+                </Text>
+              ) : null}
               {stages.length > 0 ? (
                 <Row
                   icon={<ListTodo size={16} color={colors.mutedForeground} />}
@@ -262,6 +289,13 @@ export default function TaskDetailScreen() {
             });
           }}
         />
+        {task.recurrence ? (
+          <Pressable onPress={() => setPicker("scope")} style={styles.block}>
+            <Text style={styles.blockText}>
+              Edits apply to {scope === "this" ? "this occurrence" : scope === "future" ? "this and following" : "the entire series"}
+            </Text>
+          </Pressable>
+        ) : null}
         <TaskMetaEditor
           workspace={workspace}
           workspaceId={task.workspaceId || metaWorkspaceId}
@@ -306,17 +340,39 @@ export default function TaskDetailScreen() {
                   {formatRelativeDay(new Date(block.start))} · {formatTimeRange(block.start, block.end)}
                   {block.locked || block.source === "manual" ? " · pinned" : ""}
                 </Text>
-                {block.source === "engine" && !block.locked ? (
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  {block.source === "engine" && !block.locked ? (
+                    <Pressable onPress={() => pinBlock.mutate({ blockId: block.id, locked: true })} hitSlop={8}>
+                      <Text style={styles.rowAction}>Pin</Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable
-                    onPress={() => pinBlock.mutate({ blockId: block.id, locked: true })}
+                    onPress={() =>
+                      Alert.alert("Delete this time?", undefined, [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Delete", style: "destructive", onPress: () => removeBlock.mutate(block.id) },
+                      ])
+                    }
                     hitSlop={8}
                   >
-                    <Text style={styles.rowAction}>Pin this time</Text>
+                    <Text style={[styles.rowAction, { color: colors.destructive }]}>Delete</Text>
                   </Pressable>
-                ) : null}
+                </View>
               </View>
             ))}
             <PrimaryButton label="+ Add time" onPress={() => setPicker("schedule")} />
+            {(task.blocks ?? []).length > 0 ? (
+              <Pressable
+                onPress={() =>
+                  Alert.alert("Clear all reserved time?", undefined, [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Clear", style: "destructive", onPress: () => clearBlocks.mutate(task.id) },
+                  ])
+                }
+              >
+                <Text style={[styles.rowAction, { color: colors.destructive }]}>Clear all time</Text>
+              </Pressable>
+            ) : null}
             {!isInbox ? (
               <>
                 <PrimaryButton
@@ -478,7 +534,7 @@ export default function TaskDetailScreen() {
                     workspaceId: task.workspaceId || task.workspace?.id || undefined,
                     projectId: task.projectId || task.project?.id || undefined,
                     statusId: task.statusId || task.status?.id || undefined,
-                    stageId: task.stageId || task.stage?.id || undefined,
+                    stageId: task.stageId || undefined,
                     priorityLevel: task.priorityLevel || undefined,
                   })
                   .then(() => setSubtaskTitle(""));
@@ -487,16 +543,19 @@ export default function TaskDetailScreen() {
           </>
         ) : null}
         <Text style={styles.section}>Notes</Text>
-        <Field
-          value={note}
-          onChangeText={setNote}
-          multiline
-          autoCapitalize="sentences"
-          placeholder="Write notes…"
+        <RichTextEditor
+          compact
+          content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
+          syncKey={noteSync}
+          placeholder="Write notes. Type '/' for blocks…"
+          onChange={({ content, plainText }) => {
+            setNoteRich(content);
+            setNote(plainText);
+          }}
         />
         <PrimaryButton
           label="Save notes"
-          onPress={() => persist({ description: note, descriptionRich: toRichContent(undefined, note) })}
+          onPress={() => persist({ description: note, descriptionRich: noteRich })}
         />
         <Text style={styles.section}>Activity</Text>
         {(activity.data ?? []).map((row) => (
@@ -613,6 +672,67 @@ export default function TaskDetailScreen() {
             {stage.name}
           </SheetOption>
         ))}
+      </BottomSheet>
+      <BottomSheet open={picker === "blocked"} onClose={() => setPicker(null)} title="Blocked by">
+        <Field value={blockQuery} onChangeText={setBlockQuery} placeholder="Search tasks" />
+        <SheetOption
+          selected={!task.blockedById}
+          onSelect={() => {
+            persist({ blockedById: null });
+            setPicker(null);
+          }}
+        >
+          None
+        </SheetOption>
+        {tasks
+          .filter((item) => item.id !== task.id && item.kind !== "inbox" && item.blockedById !== task.id)
+          .filter((item) => !task.workspaceId || item.workspaceId === task.workspaceId)
+          .filter((item) => !blockQuery.trim() || item.name.toLowerCase().includes(blockQuery.trim().toLowerCase()))
+          .slice(0, 30)
+          .map((item) => (
+            <SheetOption
+              key={item.id}
+              selected={item.id === task.blockedById}
+              onSelect={() => {
+                persist({ blockedById: item.id });
+                setPicker(null);
+                setBlockQuery("");
+              }}
+            >
+              {item.name}
+            </SheetOption>
+          ))}
+      </BottomSheet>
+      <BottomSheet open={picker === "scope"} onClose={() => setPicker(null)} title="Edit series">
+        <SheetOption
+          selected={scope === "this"}
+          onSelect={() => {
+            setScope("this");
+            setPicker(null);
+          }}
+        >
+          This occurrence
+        </SheetOption>
+        <SheetOption
+          selected={scope === "future"}
+          onSelect={() => {
+            setScope("future");
+            setPicker(null);
+            const fromStart = task.scheduledOn ?? task.recurrence?.dtstart;
+            if (fromStart) void splitSeries.mutateAsync({ id: task.id, fromStart });
+          }}
+        >
+          This and following
+        </SheetOption>
+        <SheetOption
+          selected={scope === "all"}
+          onSelect={() => {
+            setScope("all");
+            setPicker(null);
+          }}
+        >
+          Entire series
+        </SheetOption>
       </BottomSheet>
       <BottomSheet open={picker === "duration"} onClose={() => setPicker(null)} title="Duration">
         {[15, 30, 45, 60, 90, 120].map((minutes) => (

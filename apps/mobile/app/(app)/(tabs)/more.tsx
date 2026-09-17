@@ -1,13 +1,13 @@
-import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Brain, Clock, Database, FolderKanban, Inbox, KeyRound, Moon, Sun, Tag } from "lucide-react-native";
+import { Bell, Brain, Clock, Database, FolderKanban, Inbox, KeyRound, Tag } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { SectionLabel } from "../../../components/ui/primitives";
+import AppearanceCard from "../../../components/settings/AppearanceCard";
 import { useAuth } from "../../../lib/auth/AuthProvider";
-import { colors, createThemedStyleSheet, getThemeMode, setThemePreference, type ThemeMode } from "../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 function Row({
   icon: Icon,
@@ -42,8 +42,6 @@ export default function SettingsTab() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
-  const [themeMode, setThemeMode] = useState<ThemeMode>(getThemeMode);
-  const [themeChanging, setThemeChanging] = useState(false);
   const initials = (user?.name ?? user?.email ?? "T")
     .split(" ")
     .map((p) => p[0])
@@ -51,23 +49,9 @@ export default function SettingsTab() {
     .slice(0, 2)
     .toUpperCase();
 
-  const changeTheme = async (nextTheme: ThemeMode) => {
-    if (nextTheme === themeMode || themeChanging) return;
-    setThemeMode(nextTheme);
-    setThemeChanging(true);
-    try {
-      await setThemePreference(nextTheme);
-      setThemeChanging(false);
-    } catch {
-      setThemeMode(getThemeMode());
-      setThemeChanging(false);
-      Alert.alert("Theme not changed", "Timely could not save your appearance preference.");
-    }
-  };
-
   return (
     <Screen>
-      <MobileHeader title="Settings" />
+      <MobileHeader title="Settings" back="/(app)/(tabs)/home" />
       <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 24 + insets.bottom }}>
         <Pressable onPress={() => router.push("/(app)/settings/account")} style={styles.profile}>
           <View style={styles.avatar}>
@@ -79,37 +63,17 @@ export default function SettingsTab() {
           </View>
         </Pressable>
         <SectionLabel>Appearance</SectionLabel>
-        <View accessibilityLabel="Theme" style={styles.appearanceCard}>
-          <Text style={styles.appearanceTitle}>Theme</Text>
-          <Text style={styles.appearanceMeta}>Choose how Timely looks on this device.</Text>
-          <View style={styles.themeOptions}>
-            <ThemeOption
-              icon={Sun}
-              label="Light"
-              selected={themeMode === "light"}
-              disabled={themeChanging}
-              onPress={() => void changeTheme("light")}
-            />
-            <ThemeOption
-              icon={Moon}
-              label="Dark"
-              selected={themeMode === "dark"}
-              disabled={themeChanging}
-              onPress={() => void changeTheme("dark")}
-            />
-          </View>
-        </View>
-        <SectionLabel>Planning</SectionLabel>
-        <Row icon={Sun} title="Today" meta="Focus, schedule, and end of day" onPress={() => router.push("/(app)/today")} />
+        <AppearanceCard />
+        <SectionLabel>Destinations</SectionLabel>
         <Row icon={Inbox} title="Inbox" meta="Capture now, organize later" onPress={() => router.push("/(app)/inbox")} />
         <Row icon={Bell} title="Notifications" meta="Reminders, digests, and snooze" onPress={() => router.push("/(app)/notifications")} />
-        <SectionLabel>Workspace</SectionLabel>
         <Row
           icon={FolderKanban}
           title="Projects"
           meta="List, stages, and project edit"
           onPress={() => router.push("/(app)/projects")}
         />
+        <SectionLabel>Workspace</SectionLabel>
         <Row
           icon={Tag}
           title="Workspaces"
@@ -127,34 +91,6 @@ export default function SettingsTab() {
         </Pressable>
       </ScrollView>
     </Screen>
-  );
-}
-
-function ThemeOption({
-  icon: Icon,
-  label,
-  selected,
-  disabled,
-  onPress,
-}: {
-  icon: typeof Sun;
-  label: string;
-  selected: boolean;
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label} theme`}
-      accessibilityState={{ selected, disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={[styles.themeOption, selected && styles.themeOptionSelected]}
-    >
-      <Icon size={18} color={selected ? colors.primaryForeground : colors.mutedForeground} />
-      <Text style={[styles.themeOptionText, selected && styles.themeOptionTextSelected]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -179,32 +115,6 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   initials: { color: colors.primaryForeground, fontWeight: "700" },
   name: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  appearanceCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 14,
-    marginBottom: 8,
-  },
-  appearanceTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  appearanceMeta: { color: colors.mutedForeground, fontSize: 12, marginTop: 3 },
-  themeOptions: { flexDirection: "row", gap: 8, marginTop: 14 },
-  themeOption: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.muted,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-  themeOptionSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
-  themeOptionText: { color: colors.mutedForeground, fontSize: 14, fontWeight: "600" },
-  themeOptionTextSelected: { color: colors.primaryForeground },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   card: {

@@ -84,3 +84,26 @@ func TestProjectTaskViewsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAppearanceNormalize(t *testing.T) {
+	got, err := Appearance{}.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Theme != ThemeSystem || got.Accent != AccentDefault {
+		t.Fatalf("empty appearance = %+v", got)
+	}
+	got, err = Appearance{Theme: "DARK", Accent: "3e63dd"}.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Theme != ThemeDark || got.Accent != "#3E63DD" {
+		t.Fatalf("hex appearance = %+v", got)
+	}
+	if _, err := (Appearance{Theme: "sepia"}).Normalize(); err == nil {
+		t.Fatal("expected invalid theme")
+	}
+	if _, err := (Appearance{Accent: "violet"}).Normalize(); err == nil {
+		t.Fatal("expected invalid accent")
+	}
+}

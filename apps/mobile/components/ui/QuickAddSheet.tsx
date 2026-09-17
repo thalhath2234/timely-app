@@ -7,12 +7,16 @@ import DateTimeSheet from "./DateTimeSheet";
 import TaskMetaEditor from "./TaskMetaEditor";
 import RecurrenceEditor from "./RecurrenceEditor";
 import { Chip, Field, PrimaryButton, SectionLabel, Select } from "./primitives";
+import RichTextEditor from "../editor/RichTextEditor";
 import { emptyCustomFieldDrafts, filledCustomFieldValues } from "../../lib/customFields";
-import { useCreateDoc, useCreateEvent, useCreateSheet, useCreateTask, useProjectsQuery, useWorkspacesQuery } from "../../lib/hooks";
+import { isRichContentEmpty } from "../../lib/richText";
+import type { DocContent } from "../../lib/types";
+import { useCreateDoc, useCreateEvent, useCreateSheet, useCreateTask, useAddBlock, useProjectsQuery, useWorkspacesQuery } from "../../lib/hooks";
 import { buildRecurrenceInput, type RecurrenceDraft } from "../../lib/recurrence";
 import { sheetHref } from "../../lib/sheet";
 import { formatDuration, formatShortDate, formatTime, toDateInputValue } from "../../lib/format";
 import type { CustomFieldValueInput } from "../../lib/types";
+import type { QuickAddPreset } from "../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 type Kind = "inbox" | "task" | "reminder" | "event" | "doc" | "sheet";
@@ -51,7 +55,15 @@ function makeReminderTime(current: Date | null) {
   return nextRoundHour();
 }
 
-export default function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function QuickAddSheet({
+  open,
+  onClose,
+  preset,
+}: {
+  open: boolean;
+  onClose: () => void;
+  preset?: QuickAddPreset | null;
+}) {
   const router = useRouter();
   const workspaces = useWorkspacesQuery();
   const projects = useProjectsQuery();
@@ -59,10 +71,13 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
   const createEvent = useCreateEvent();
   const createDoc = useCreateDoc();
   const createSheet = useCreateSheet();
+  const addBlock = useAddBlock();
 
   const [kind, setKind] = useState<Kind>("task");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [descriptionRich, setDescriptionRich] = useState<DocContent>({ type: "doc", content: [{ type: "paragraph" }] });
+  const [noteSync, setNoteSync] = useState(0);
   const [workspaceId, setWorkspaceId] = useState("");
   const [projectId, setProjectId] = useState("");
   const [stageId, setStageId] = useState("");
@@ -128,9 +143,31 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
     if (open) setEventStart(nextRoundHour());
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !preset) return;
+    if (preset.kind) setKind(preset.kind);
+    if (preset.workspaceId) setWorkspaceId(preset.workspaceId);
+    if (preset.start) {
+      if (preset.kind === "event") setEventStart(preset.start);
+      else if (preset.kind === "reminder") {
+        setDuration(0);
+        setScheduledOn(preset.start);
+      } else {
+        setScheduledOn(preset.start);
+      }
+    }
+  }, [open, preset]);
+
+  useEffect(() => {
+    if (!open || !preset?.projectId) return;
+    setProjectId(preset.projectId);
+  }, [open, preset?.projectId, selectedWorkspace?.id]);
+
   function reset() {
     setTitle("");
     setDescription("");
+    setDescriptionRich({ type: "doc", content: [{ type: "paragraph" }] });
+    setNoteSync((value) => value + 1);
     setProjectId("");
     setStageId("");
     setPriority("Medium");
@@ -167,9 +204,10 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
       const wantsMeta = labelIds.length > 0 || filledFields.length > 0;
       if (wantsMeta && !activeWorkspaceId) return;
       const recurrence = buildRecurrenceInput(taskRecurrence, taskAnchor);
-      await createTask.mutateAsync({
+      const created = await createTask.mutateAsync({
         name,
         description: description.trim() || "",
+        descriptionRich: isRichContentEmpty(descriptionRich) ? undefined : descriptionRich,
         kind: isReminder ? "reminder" : "task",
         workspaceId: isReminder && !wantsMeta ? undefined : activeWorkspaceId,
         projectId: isReminder ? undefined : projectId || undefined,
@@ -186,6 +224,12 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
         customFieldValues: filledFields.length ? filledFields : undefined,
         recurrence: recurrence ?? undefined,
       });
+      if (!isReminder && !recurrence && scheduledOn && created?.id) {
+        await addBlock.mutateAsync({
+          taskId: created.id,
+          data: { start: scheduledOn.toISOString(), durationMinutes: duration || 30 },
+        });
+      }
       finish(isReminder ? "/(app)/(tabs)/calendar" : "/(app)/(tabs)/tasks");
       return;
     }
@@ -270,13 +314,24 @@ export default function QuickAddSheet({ open, onClose }: { open: boolean; onClos
           }
         />
 
-        {kind === "task" || kind === "reminder" || kind === "event" ? (
+        {kind === "task" || kind === "reminder" ? (
+          <RichTextEditor
+            compact
+            content={descriptionRich}
+            syncKey={noteSync}
+            placeholder="Description. Type '/' for blocks, markdown welcome…"
+            onChange={({ content, plainText }) => {
+              setDescriptionRich(content);
+              setDescription(plainText);
+            }}
+          />
+        ) : kind === "event" ? (
           <Field
             value={description}
             onChangeText={setDescription}
             multiline
             autoCapitalize="sentences"
-            placeholder={kind === "event" ? "Notes, location, links..." : "Description"}
+            placeholder="Notes, location, links..."
           />
         ) : null}
 
