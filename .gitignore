@@ -15,6 +15,7 @@ yarn-error.log*
 .DS_Store
 *.pem
 .idea/
+.cursor/mcp.json
 
 # ---- apps/web (Next.js + Electron) ----
 apps/web/.next/

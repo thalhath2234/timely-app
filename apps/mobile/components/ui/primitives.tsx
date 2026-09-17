@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Check, ChevronDown } from "lucide-react-native";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import AnimatedPressable from "./AnimatedPressable";
 
 export function PrimaryButton({
   label,
@@ -15,16 +16,17 @@ export function PrimaryButton({
   testID?: string;
 }) {
   return (
-    <Pressable
+    <AnimatedPressable
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
       disabled={disabled}
+      wrapStyle={{ alignSelf: "stretch" }}
       style={[styles.primary, disabled && { opacity: 0.4 }]}
     >
       <Text style={styles.primaryText}>{label}</Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -79,7 +81,7 @@ export function Chip({
   const tint = color && active ? `${color}33` : undefined;
   const border = color ? (active ? `${color}88` : colors.border) : undefined;
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityState={{ selected: Boolean(active) }}
       onPress={onPress}
@@ -99,7 +101,7 @@ export function Chip({
       >
         {label}
       </Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

@@ -1,5 +1,7 @@
 import type { LucideIcon } from "lucide-react-native";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text } from "react-native";
+import Animated, { useReducedMotion } from "react-native-reanimated";
+import { pageEntering } from "../../lib/motion";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function EmptyState({
@@ -13,12 +15,13 @@ export default function EmptyState({
   description: string;
   compact?: boolean;
 }) {
+  const reduceMotion = useReducedMotion();
   return (
-    <View style={[styles.wrap, compact && styles.compact]}>
+    <Animated.View entering={pageEntering(reduceMotion)} style={[styles.wrap, compact && styles.compact]}>
       <Icon size={compact ? 22 : 28} color={colors.mutedForeground} />
       <Text style={styles.title}>{title}</Text>
       {description ? <Text style={styles.desc}>{description}</Text> : null}
-    </View>
+    </Animated.View>
   );
 }
 

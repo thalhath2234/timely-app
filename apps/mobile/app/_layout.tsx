@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "../lib/auth/AuthProvider";
 import { colors, initializeTheme } from "../lib/theme";
+import { stackFadeAnimation, stackPushAnimation } from "../lib/motion";
 import ConnectivityBanner from "../components/ConnectivityBanner";
 import { requestNotificationPermission } from "../lib/notifications";
 
@@ -59,9 +60,17 @@ export default function RootLayout() {
             screenOptions={{
               headerShown: false,
               contentStyle: { backgroundColor: colors.background },
-              animation: reduceMotion ? "none" : "fade",
+              animation: stackFadeAnimation(reduceMotion),
+              animationDuration: 280,
+              gestureEnabled: !reduceMotion,
             }}
-          />
+          >
+            <Stack.Screen name="index" options={{ animation: "none" }} />
+            <Stack.Screen name="login" options={{ animation: stackFadeAnimation(reduceMotion) }} />
+            <Stack.Screen name="signup" options={{ animation: stackPushAnimation(reduceMotion) }} />
+            <Stack.Screen name="onboarding" options={{ animation: stackFadeAnimation(reduceMotion) }} />
+            <Stack.Screen name="(app)" options={{ animation: stackFadeAnimation(reduceMotion) }} />
+          </Stack>
         </AuthProvider>
       </QueryClientProvider>
     </SafeAreaProvider>

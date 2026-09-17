@@ -1,16 +1,24 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text } from "react-native";
+import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useToastStore } from "../../lib/toast";
+import { toastEntering, toastExiting } from "../../lib/motion";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function ToastHost() {
   const message = useToastStore((state) => state.message);
   const action = useToastStore((state) => state.action);
   const hide = useToastStore((state) => state.hide);
+  const reduceMotion = useReducedMotion();
   if (!message) return null;
 
   return (
-    <View pointerEvents="box-none" style={styles.wrap}>
-      <View style={styles.card}>
+    <Animated.View
+      pointerEvents="box-none"
+      entering={toastEntering(reduceMotion)}
+      exiting={toastExiting(reduceMotion)}
+      style={styles.wrap}
+    >
+      <Animated.View style={styles.card}>
         <Text style={styles.message}>{message}</Text>
         {action ? (
           <Pressable
@@ -22,8 +30,8 @@ export default function ToastHost() {
             <Text style={styles.action}>{action.label}</Text>
           </Pressable>
         ) : null}
-      </View>
-    </View>
+      </Animated.View>
+    </Animated.View>
   );
 }
 

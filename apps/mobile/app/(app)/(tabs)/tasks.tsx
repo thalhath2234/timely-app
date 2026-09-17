@@ -8,6 +8,7 @@ import EmptyState from "../../../components/ui/EmptyState";
 import TaskCard from "../../../components/tasks/TaskCard";
 import TaskFilterBar, { type TaskFilter } from "../../../components/tasks/TaskFilterBar";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import ListEnter from "../../../components/ui/ListEnter";
 import { useBulkUpdateTasks, useDeleteTask, useProjectsQuery, useSaveTask, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
 import { addDays, isSameDay, startOfDay, toDateInputValue } from "../../../lib/format";
 import { PRIORITIES, priorityRank } from "../../../lib/priority";
@@ -250,20 +251,21 @@ export default function TasksScreen() {
                 <Text style={styles.count}>{group.tasks.length}</Text>
               </View>
               <View style={{ gap: 8 }}>
-                {group.tasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    selected={selectedIds.includes(task.id)}
-                    selecting={selecting}
-                    onSelect={toggleSelect}
-                    onToggle={(t) =>
-                      save.mutate({
-                        id: t.id,
-                        data: { completedAt: t.completedAt ? null : new Date().toISOString() },
-                      })
-                    }
-                  />
+                {group.tasks.map((task, index) => (
+                  <ListEnter key={task.id} index={index}>
+                    <TaskCard
+                      task={task}
+                      selected={selectedIds.includes(task.id)}
+                      selecting={selecting}
+                      onSelect={toggleSelect}
+                      onToggle={(t) =>
+                        save.mutate({
+                          id: t.id,
+                          data: { completedAt: t.completedAt ? null : new Date().toISOString() },
+                        })
+                      }
+                    />
+                  </ListEnter>
                 ))}
               </View>
             </View>

@@ -10,6 +10,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, { useReducedMotion } from "react-native-reanimated";
+import { overlayEntering, overlayExiting, sheetEntering, sheetExiting } from "../../lib/motion";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function BottomSheet({
@@ -26,6 +28,7 @@ export default function BottomSheet({
   footer?: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
@@ -42,10 +45,18 @@ export default function BottomSheet({
   }, []);
 
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={open} transparent animationType="none" onRequestClose={onClose}>
       <View style={styles.root}>
-        <Pressable style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={onClose} />
-        <View
+        <Animated.View
+          entering={overlayEntering(reduceMotion)}
+          exiting={overlayExiting(reduceMotion)}
+          style={[StyleSheet.absoluteFill, styles.backdrop]}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
+        <Animated.View
+          entering={sheetEntering(reduceMotion)}
+          exiting={sheetExiting(reduceMotion)}
           style={[
             styles.sheet,
             { paddingBottom: Math.max(insets.bottom, 12), marginBottom: keyboardHeight },
@@ -62,7 +73,7 @@ export default function BottomSheet({
             {children}
           </ScrollView>
           {footer ? <View style={styles.footer}>{footer}</View> : null}
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );

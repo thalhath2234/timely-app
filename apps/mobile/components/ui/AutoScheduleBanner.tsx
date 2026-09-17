@@ -1,11 +1,14 @@
 import { useEffect } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Sparkles, X } from "lucide-react-native";
+import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useScheduleActivity } from "../../lib/scheduleActivity";
+import { toastEntering, toastExiting } from "../../lib/motion";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function AutoScheduleBanner() {
   const { status, message, dismiss } = useScheduleActivity();
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (status !== "done" && status !== "error") return;
@@ -16,7 +19,11 @@ export default function AutoScheduleBanner() {
   if (status === "idle" || !message) return null;
 
   return (
-    <View style={[styles.banner, status === "error" && styles.error]}>
+    <Animated.View
+      entering={toastEntering(reduceMotion)}
+      exiting={toastExiting(reduceMotion)}
+      style={[styles.banner, status === "error" && styles.error]}
+    >
       <Sparkles size={16} color={status === "error" ? colors.destructive : colors.primary} />
       <Text style={[styles.text, status === "error" && { color: colors.destructive }]}>{message}</Text>
       {status === "running" ? (
@@ -26,7 +33,7 @@ export default function AutoScheduleBanner() {
           <X size={14} color={colors.mutedForeground} />
         </Pressable>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
