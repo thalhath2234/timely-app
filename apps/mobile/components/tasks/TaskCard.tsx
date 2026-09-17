@@ -5,6 +5,7 @@ import type { Task } from "../../lib/types";
 import { formatDueDate, isOverdue, PRIORITY_META } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { Dot } from "../ui/primitives";
+import AnimatedPressable from "../ui/AnimatedPressable";
 import { taskEntityColor } from "../../lib/entityColor";
 
 export default function TaskCard({
@@ -38,7 +39,7 @@ export default function TaskCard({
       >
         <View style={[styles.box, done && styles.boxOn]}>{done ? <Check size={14} color={colors.primaryForeground} /> : null}</View>
       </Pressable>
-      <Pressable
+      <AnimatedPressable
         onPress={() => (selecting && onSelect ? onSelect(task) : router.push(`/(app)/tasks/${task.id}`))}
         onLongPress={() => onSelect?.(task)}
         style={styles.body}
@@ -69,7 +70,7 @@ export default function TaskCard({
             <Dot key={l.id} color={l.color} />
           ))}
         </View>
-      </Pressable>
+      </AnimatedPressable>
     </View>
   );
 }
