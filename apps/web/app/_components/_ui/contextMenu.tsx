@@ -11,6 +11,8 @@ import {
 import { createPortal } from "react-dom";
 import { Check, ChevronRight } from "lucide-react";
 import { cn } from "@/app/utils/cn";
+import { PopoverView, useClientGate } from "@/app/_components/_ui/motion";
+import { runViewTransition } from "@/app/utils/viewTransition";
 import {
   closeContextMenu,
   openContextMenu,
@@ -192,7 +194,7 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
 
   const closeSubmenu = useCallback(() => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    setSubmenu(null);
+    runViewTransition(() => setSubmenu(null));
     panelRef.current?.focus({ preventScroll: true });
   }, []);
 
@@ -202,13 +204,15 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
     if (!panel || !row) return;
     const panelRect = panel.getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
-    setSubmenu({
-      index,
-      items: entries,
-      itemTop: rowRect.top,
-      panelLeft: panelRect.left,
-      panelRight: panelRect.right,
-    });
+    runViewTransition(() =>
+      setSubmenu({
+        index,
+        items: entries,
+        itemTop: rowRect.top,
+        panelLeft: panelRect.left,
+        panelRight: panelRect.right,
+      }),
+    );
   }, []);
 
   const activate = useCallback(
@@ -323,6 +327,7 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
 
   return (
     <>
+      <PopoverView>
       <div
         ref={panelRef}
         role="menu"
@@ -331,15 +336,14 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
         data-context-menu="true"
         onKeyDown={onKeyDown}
         onContextMenu={(event) => event.preventDefault()}
-        className={cn(
-          "fixed z-[120] min-w-52 overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl ring-1 ring-foreground/10 outline-none",
-          placement ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
+        className="fixed z-[120] min-w-52 overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl ring-1 ring-foreground/10 outline-none"
         style={{
           top: placement?.top ?? 0,
           left: placement?.left ?? 0,
           minWidth: MIN_WIDTH,
           maxHeight: placement?.maxHeight,
+          pointerEvents: placement ? "auto" : "none",
+          visibility: placement ? "visible" : "hidden",
         }}
       >
         {title ? (
@@ -387,7 +391,10 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
                 if (isSubmenu) {
                   hoverTimer.current = setTimeout(() => openSubmenuAt(index, entry.items), 90);
                 } else if (submenu) {
-                  hoverTimer.current = setTimeout(() => setSubmenu(null), 90);
+                  hoverTimer.current = setTimeout(
+                    () => runViewTransition(() => setSubmenu(null)),
+                    90,
+                  );
                 }
               }}
               onClick={() => activate(index)}
@@ -435,23 +442,25 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
           );
         })}
       </div>
+      </PopoverView>
 
-      {submenu
-        ? createPortal(
-            <MenuPanel
-              items={submenu.items}
-              anchor={{
-                type: "row",
-                top: submenu.itemTop,
-                parentLeft: submenu.panelLeft,
-                parentRight: submenu.panelRight,
-              }}
-              onDismiss={onDismiss}
-              onCloseSelf={closeSubmenu}
-            />,
-            document.body,
-          )
-        : null}
+      {createPortal(
+        submenu ? (
+          <MenuPanel
+            key={submenu.index}
+            items={submenu.items}
+            anchor={{
+              type: "row",
+              top: submenu.itemTop,
+              parentLeft: submenu.panelLeft,
+              parentRight: submenu.panelRight,
+            }}
+            onDismiss={onDismiss}
+            onCloseSelf={closeSubmenu}
+          />
+        ) : null,
+        document.body,
+      )}
     </>
   );
 }
@@ -464,6 +473,7 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
 export default function ContextMenuHost() {
   const menu = useContextMenuStore((state) => state.menu);
   const restoreFocus = useRef<HTMLElement | null>(null);
+  const mounted = useClientGate();
 
   useEffect(() => {
     if (!menu) return;
@@ -514,16 +524,18 @@ export default function ContextMenuHost() {
     if (previous && document.contains(previous)) previous.focus({ preventScroll: true });
   }, []);
 
-  if (!menu || typeof document === "undefined") return null;
+  if (!mounted) return null;
 
   return createPortal(
-    <MenuPanel
-      key={menu.id}
-      items={menu.items}
-      title={menu.title}
-      anchor={{ type: "point", x: menu.x, y: menu.y }}
-      onDismiss={dismiss}
-    />,
+    menu ? (
+      <MenuPanel
+        key={menu.id}
+        items={menu.items}
+        title={menu.title}
+        anchor={{ type: "point", x: menu.x, y: menu.y }}
+        onDismiss={dismiss}
+      />
+    ) : null,
     document.body,
   );
 }

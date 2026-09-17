@@ -32,7 +32,6 @@
     "@tiptap/react": "^3.29.2",
     "@tiptap/starter-kit": "^3.29.2",
     "@tiptap/suggestion": "^3.29.2",
-    "framer-motion": "^12.42.2",
     "jose": "^6.2.3",
     "lucide-react": "^1.8.0",
     "motion": "^12.38.0",

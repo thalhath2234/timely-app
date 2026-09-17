@@ -10,6 +10,8 @@ import {
   useSnoozeNotification,
 } from "@/app/utils/hooks/notifications";
 import type { AppNotification } from "@/app/_types/types";
+import { motion } from "motion/react";
+import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 
 function taskIdOf(item: AppNotification) {
   const fromData = item.data?.taskId;
@@ -61,13 +63,20 @@ export default function NotificationsPage() {
             description="Due reminders and daily digests will show up here, including when the app is closed."
           />
         ) : (
-          <ul className="space-y-2">
+          <motion.ul
+            className="space-y-2"
+            variants={listContainerVariants}
+            initial="hidden"
+            animate="visible"
+          >
             {items.map((item) => {
               const taskId = taskIdOf(item);
               const unread = !item.readAt;
               return (
-                <li
+                <motion.li
                   key={item.id}
+                  variants={listItemVariants}
+                  whileHover={hoverLift}
                   className={`rounded-xl border border-border bg-card px-3 py-3 ${unread ? "border-l-2 border-l-primary bg-primary/10" : ""}`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -127,10 +136,10 @@ export default function NotificationsPage() {
                       {snooze.error instanceof Error ? snooze.error.message : "Could not snooze."}
                     </p>
                   ) : null}
-                </li>
+                </motion.li>
               );
             })}
-          </ul>
+          </motion.ul>
         )}
       </div>
     </div>

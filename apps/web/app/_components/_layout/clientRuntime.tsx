@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
+import { motion } from "motion/react";
 import {
   ACCENT_STORAGE_KEY,
   applyDocumentAppearance,
@@ -98,9 +99,15 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
   return (
     <PreferencesContext.Provider value={value}>
       {!online ? (
-        <div role="status" aria-live="polite" className="fixed inset-x-0 top-0 z-[100] bg-warning px-3 py-1.5 text-center text-xs font-medium text-black shadow">
+        <motion.div
+          role="status"
+          aria-live="polite"
+          initial={{ y: -40, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          className="fixed inset-x-0 top-0 z-[100] bg-warning px-3 py-1.5 text-center text-xs font-medium text-black shadow"
+        >
           Offline · showing saved data, which may be out of date
-        </div>
+        </motion.div>
       ) : null}
       {children}
     </PreferencesContext.Provider>

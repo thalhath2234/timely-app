@@ -23,6 +23,7 @@ import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useTasks } from "@/app/utils/hooks/tasks";
+import { runViewTransition } from "@/app/utils/viewTransition";
 import { useAddTaskBlock, useCalendarRange, useCommitCalendarBlock, useApplySchedule } from "@/app/utils/hooks/calendar";
 import {
   eventLegend,
@@ -40,6 +41,8 @@ import { cn } from "@/app/utils/cn";
 import { rankUnscheduled } from "@/app/utils/scheduleRank";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
+import { AnimatePresence, motion } from "motion/react";
+import { fadeTransition, springSoft } from "@/app/_components/_ui/motion";
 
 function CalendarContent() {
   const searchParams = useSearchParams();
@@ -93,7 +96,9 @@ function CalendarContent() {
     [events, overdueEvents, selectedEventId],
   );
   const setSelectedEvent = useCallback(
-    (event: CalendarEvent | null) => setSelectedEventId(event?.id ?? null),
+    (event: CalendarEvent | null) => {
+      runViewTransition(() => setSelectedEventId(event?.id ?? null));
+    },
     [],
   );
 
@@ -122,12 +127,16 @@ function CalendarContent() {
   };
 
   const openScheduleSlot = (day: Date, hour: number) => {
-    setScheduleSlot({ at: slotAt(day, hour), durationMinutes: 30 });
+    runViewTransition(() =>
+      setScheduleSlot({ at: slotAt(day, hour), durationMinutes: 30 }),
+    );
   };
 
   const openAutoSchedule = (taskIds?: string[]) => {
-    setScopedTaskIds(taskIds);
-    setAutoOpen(true);
+    runViewTransition(() => {
+      setScopedTaskIds(taskIds);
+      setAutoOpen(true);
+    });
   };
 
   const rerunAroundPins = useCallback(async () => {
@@ -276,10 +285,12 @@ function CalendarContent() {
           <button
             type="button"
             onClick={() =>
-              setScheduleSlot({
-                at: slotAt(selectedDate, 9),
-                durationMinutes: 30,
-              })
+              runViewTransition(() =>
+                setScheduleSlot({
+                  at: slotAt(selectedDate, 9),
+                  durationMinutes: 30,
+                }),
+              )
             }
             className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
@@ -295,13 +306,20 @@ function CalendarContent() {
                 aria-pressed={activeView === option.value}
                 onClick={() => goToView(option.value)}
                 className={cn(
-                  "h-8 min-w-8 rounded-lg border border-input px-2.5 text-sm font-medium transition-all",
+                  "relative h-8 min-w-8 rounded-lg px-2.5 text-sm font-medium transition-colors",
                   activeView === option.value
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+                    ? "text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
-                {option.label}
+                {activeView === option.value ? (
+                  <motion.span
+                    layoutId="calendar-view-pill"
+                    transition={springSoft}
+                    className="absolute inset-0 rounded-lg bg-primary"
+                  />
+                ) : null}
+                <span className="relative z-10">{option.label}</span>
               </button>
             ))}
           </div>
@@ -355,6 +373,15 @@ function CalendarContent() {
             </div>
           )}
 
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={activeView}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={fadeTransition}
+            >
           {activeView === "day" && (
             <DayView
               selectedDate={selectedDate}
@@ -403,6 +430,8 @@ function CalendarContent() {
               onEventContextMenu={onEventContextMenu}
             />
           )}
+            </motion.div>
+          </AnimatePresence>
           </div>
           <WaitingForSlotRail
             tasks={typedTasks}
@@ -415,27 +444,33 @@ function CalendarContent() {
         event={selectedEvent}
         onClose={() => setSelectedEvent(null)}
         onOpenTask={(taskId) => {
-          setSelectedEvent(null);
-          openTask(taskId);
+          runViewTransition(() => {
+            setSelectedEventId(null);
+            openTask(taskId);
+          });
         }}
       />
 
       <ScheduleDialog
         slot={scheduleSlot}
         tasks={typedTasks}
-        onClose={() => setScheduleSlot(null)}
+        onClose={() => runViewTransition(() => setScheduleSlot(null))}
       />
 
       <AutoScheduleDialog
         open={autoOpen}
         taskIds={scopedTaskIds}
         onClose={() => {
-          setAutoOpen(false);
-          setScopedTaskIds(undefined);
+          runViewTransition(() => {
+            setAutoOpen(false);
+            setScopedTaskIds(undefined);
+          });
         }}
         onOpenSettings={() => {
-          setAutoOpen(false);
-          setScopedTaskIds(undefined);
+          runViewTransition(() => {
+            setAutoOpen(false);
+            setScopedTaskIds(undefined);
+          });
           router.push("/settings?tab=schedule");
         }}
       />

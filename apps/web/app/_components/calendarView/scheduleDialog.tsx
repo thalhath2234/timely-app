@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence } from "framer-motion";
-import * as motion from "motion/react-client";
 import { CalendarDays, ListTodo, Repeat, Search, X } from "lucide-react";
 import DatePicker, { TimeField } from "@/app/_components/_ui/datePicker";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
@@ -18,6 +16,7 @@ import { buildRecurrenceInput, type RecurrenceDraft } from "@/app/utils/recurren
 import { useAddTaskBlock, useCreateEvent } from "@/app/utils/hooks/calendar";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
+import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { isUnscheduled } from "@/app/utils/scheduleRank";
 
 export { isUnscheduled };
@@ -58,19 +57,15 @@ export default function ScheduleDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [slot, onClose]);
 
-  return (
-    <AnimatePresence>
-      {slot && (
-        <ScheduleDialogPanel
-          key={slot.at.toISOString()}
-          slot={slot}
-          tasks={tasks}
-          onClose={onClose}
-          onScheduled={onScheduled}
-        />
-      )}
-    </AnimatePresence>
-  );
+  return slot ? (
+    <ScheduleDialogPanel
+      key={slot.at.toISOString()}
+      slot={slot}
+      tasks={tasks}
+      onClose={onClose}
+      onScheduled={onScheduled}
+    />
+  ) : null;
 }
 
 function ScheduleDialogPanel({
@@ -188,23 +183,16 @@ function ScheduleDialogPanel({
   };
 
   return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/10 p-4 supports-backdrop-filter:backdrop-blur-xs"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.1 }}
-      onClick={onClose}
-    >
-      <motion.div
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <OverlayScrim
+        className="bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
+        onClick={onClose}
+      />
+      <OverlayPanel
         role="dialog"
         aria-modal="true"
         aria-label="Add to calendar"
         className="relative flex w-full max-w-md flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/10"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ type: "spring", stiffness: 400, damping: 32 }}
         onClick={(event) => event.stopPropagation()}
       >
         <button
@@ -414,7 +402,7 @@ function ScheduleDialogPanel({
             {pending ? "Saving..." : mode === "task" ? "Schedule" : "Create event"}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </OverlayPanel>
+    </div>
   );
 }

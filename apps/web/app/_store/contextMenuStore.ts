@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import type { LucideIcon } from "lucide-react";
+import { runViewTransition } from "@/app/utils/viewTransition";
 
 /**
  * One row in a context menu. `action` runs something, `submenu` nests, and the
@@ -54,9 +55,9 @@ export const useContextMenuStore = create<ContextMenuState>((set) => ({
   menu: null,
   open: (request) => {
     nextId += 1;
-    set({ menu: { ...request, id: nextId } });
+    runViewTransition(() => set({ menu: { ...request, id: nextId } }));
   },
-  close: () => set({ menu: null }),
+  close: () => runViewTransition(() => set({ menu: null })),
 }));
 
 export function openContextMenu(request: ContextMenuRequest) {

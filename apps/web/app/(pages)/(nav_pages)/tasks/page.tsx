@@ -438,21 +438,22 @@ function Tasks() {
         </>
       )}
 
-      {detailTaskId && (
+      {detailTaskId ? (
         <EntityDetailPanel
+          key={`task:${detailTaskId}`}
           kind="task"
           id={detailTaskId}
           onClose={closeDetail}
         />
-      )}
-
-      {!detailTaskId && detailProjectId && (
+      ) : null}
+      {!detailTaskId && detailProjectId ? (
         <EntityDetailPanel
+          key={`project:${detailProjectId}`}
           kind="project"
           id={detailProjectId}
           onClose={closeDetail}
         />
-      )}
+      ) : null}
     </div>
   );
 }

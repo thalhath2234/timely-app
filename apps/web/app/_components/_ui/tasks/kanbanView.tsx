@@ -23,6 +23,8 @@ import { showUndoToast } from "@/app/_store/toastStore";
 import { useQueryClient } from "@tanstack/react-query";
 import { isTaskOverdue, latestTaskSchedule } from "@/app/utils/overdue";
 import { formatTaskDatePoint, nextTaskSlot, taskDateSourceLabel, taskNextDate } from "@/app/utils/taskDates";
+import { motion } from "motion/react";
+import { hoverLift, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
 
 function formatDateLabel(value?: string | null) {
   if (!value) return "No date";
@@ -276,8 +278,15 @@ export default function KanbanView({
               {column.items.map((item) => {
                 const dateMeta = cardDateMeta(item, dataMode);
                 return (
-                <article
+                <motion.article
                   key={item.id}
+                  layout
+                  variants={listItemVariants}
+                  initial="hidden"
+                  animate="visible"
+                  whileHover={hoverLift}
+                  whileTap={{ scale: 0.99 }}
+                  transition={springSoft}
                   draggable={dataMode === "task"}
                   onDragStart={() => setDraggingId(item.id)}
                   role="button"
@@ -319,7 +328,7 @@ export default function KanbanView({
                       </div>
                     </div>
                   </div>
-                </article>
+                </motion.article>
                 );
               })}
             </div>

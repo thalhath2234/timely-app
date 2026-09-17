@@ -49,7 +49,7 @@ export default function EntityDetailHost() {
     return () => window.removeEventListener("click", onClick, true);
   }, []);
 
-  if (isTasksListPath(pathname) || !kind || !id) return null;
-
-  return <EntityDetailPanel kind={kind} id={id} onClose={closeEntity} />;
+  return isTasksListPath(pathname) || !kind || !id ? null : (
+    <EntityDetailPanel key={`${kind}:${id}`} kind={kind} id={id} onClose={closeEntity} />
+  );
 }

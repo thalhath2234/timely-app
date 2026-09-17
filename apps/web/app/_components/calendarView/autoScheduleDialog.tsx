@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AnimatePresence } from "framer-motion";
-import * as motion from "motion/react-client";
 import { AlertTriangle, Sparkles, X } from "lucide-react";
 import { formatDateTime, formatDuration, formatTime, isSameDay, toDateInputValue } from "@/app/utils/calendar";
 import { useApplySchedule, usePreviewSchedule, useUndoSchedule } from "@/app/utils/hooks/calendar";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { cn } from "@/app/utils/cn";
+import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import type { PlanRequest } from "@/app/utils/api/schedule";
 
 type AutoScheduleDialogProps = {
@@ -60,17 +59,13 @@ export default function AutoScheduleDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  return (
-    <AnimatePresence>
-      {open && (
-        <AutoSchedulePanel
-          onClose={onClose}
-          onOpenSettings={onOpenSettings}
-          taskIds={taskIds}
-        />
-      )}
-    </AnimatePresence>
-  );
+  return open ? (
+    <AutoSchedulePanel
+      onClose={onClose}
+      onOpenSettings={onOpenSettings}
+      taskIds={taskIds}
+    />
+  ) : null;
 }
 
 function AutoSchedulePanel({
@@ -211,23 +206,16 @@ function AutoSchedulePanel({
   };
 
   return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/10 p-4 supports-backdrop-filter:backdrop-blur-xs"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.1 }}
-      onClick={onClose}
-    >
-      <motion.div
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <OverlayScrim
+        className="bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
+        onClick={onClose}
+      />
+      <OverlayPanel
         role="dialog"
         aria-modal="true"
         aria-label="Auto-schedule"
         className="relative flex max-h-[85vh] w-full max-w-lg flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/10"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ type: "spring", stiffness: 400, damping: 32 }}
         onClick={(event) => event.stopPropagation()}
       >
         <button
@@ -542,8 +530,8 @@ function AutoSchedulePanel({
             {apply.isPending ? "Applying..." : "Apply schedule"}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </OverlayPanel>
+    </div>
   );
 }
 

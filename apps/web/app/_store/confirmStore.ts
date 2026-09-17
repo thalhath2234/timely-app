@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { runViewTransition } from "@/app/utils/viewTransition";
 
 export type ConfirmRequest = {
   title: string;
@@ -25,9 +26,11 @@ export const useConfirmStore = create<ConfirmState>((set) => ({
   pending: false,
   ask: (request) => {
     nextId += 1;
-    set({ request: { ...request, id: nextId }, pending: false });
+    runViewTransition(() =>
+      set({ request: { ...request, id: nextId }, pending: false }),
+    );
   },
-  cancel: () => set({ request: null, pending: false }),
+  cancel: () => runViewTransition(() => set({ request: null, pending: false })),
   setPending: (pending) => set({ pending }),
 }));
 

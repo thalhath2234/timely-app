@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/app/utils/cn";
+import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 
 /** Title field shared by the detail panel and the create modals. */
 export const modalTitleClass =
@@ -39,21 +40,22 @@ export function EntityModalShell({
   }, [onClose]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-[6px] md:p-6"
-      onPointerDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        // Slash/mention menus render on document.body above this overlay.
-        // Closing here would discard the description when picking a command.
-        if (document.querySelector("[data-caret-popup]")) return;
-        onClose();
-      }}
-    >
-      <div
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6">
+      <OverlayScrim
+        className="bg-black/70 backdrop-blur-[6px]"
+        onPointerDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          // Slash/mention menus render on document.body above this overlay.
+          // Closing here would discard the description when picking a command.
+          if (document.querySelector("[data-caret-popup]")) return;
+          onClose();
+        }}
+      />
+      <OverlayPanel
         role="dialog"
         aria-modal="true"
         className={cn(
-          "flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl shadow-black/40",
+          "relative flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl shadow-black/40",
           size === "xl"
             ? "h-[min(942px,calc(100vh-2rem))] max-w-6xl"
             : "h-[min(860px,calc(100vh-2rem))] max-w-5xl",
@@ -89,7 +91,7 @@ export function EntityModalShell({
 
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">{children}</div>
         {footer}
-      </div>
+      </OverlayPanel>
     </div>
   );
 }

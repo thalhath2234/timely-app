@@ -10,6 +10,8 @@ import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useCreateTask, useInboxTasks } from "@/app/utils/hooks/tasks";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import type { Task } from "@/app/_types/types";
+import { AnimatePresence, motion } from "motion/react";
+import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 
 export default function InboxPage() {
   const inbox = useInboxTasks();
@@ -67,9 +69,14 @@ export default function InboxPage() {
           </button>
         </form>
         {capturedFlash ? (
-          <p className="mt-2 text-sm text-success" role="status">
+          <motion.p
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-2 text-sm text-success"
+            role="status"
+          >
             Captured
-          </p>
+          </motion.p>
         ) : null}
         {capture.isError ? (
           <p className="mt-2 text-sm text-destructive" role="status">
@@ -103,11 +110,19 @@ export default function InboxPage() {
             description="Press C here to capture a title, or N anywhere to create a full task. Inbox items are never auto-scheduled."
           />
         ) : (
-          <ul className="space-y-2">
+          <motion.ul
+            className="space-y-2"
+            variants={listContainerVariants}
+            initial="hidden"
+            animate="visible"
+          >
+            <AnimatePresence initial={false}>
             {items.map((task) => (
-              <li key={task.id}>
-                <button
+              <motion.li key={task.id} variants={listItemVariants} layout exit={{ opacity: 0, y: -6 }}>
+                <motion.button
                   type="button"
+                  whileHover={hoverLift}
+                  whileTap={{ scale: 0.99 }}
                   onClick={() => openTask(task.id)}
                   onContextMenu={(event) =>
                     openMenu(event, taskMenu(task), { title: task.name })
@@ -116,10 +131,11 @@ export default function InboxPage() {
                 >
                   <span className="truncate">{task.name}</span>
                   <span className="text-xs font-medium text-primary">Review</span>
-                </button>
-              </li>
+                </motion.button>
+              </motion.li>
             ))}
-          </ul>
+            </AnimatePresence>
+          </motion.ul>
         )}
         <p className="mt-6 text-xs text-muted-foreground">
           Need the full task list?{" "}

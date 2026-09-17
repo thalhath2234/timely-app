@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
-import { AnimatePresence } from "framer-motion";
-import * as motion from "motion/react-client";
+import { AnimatePresence, motion } from "motion/react";
 import { AlertTriangle, Check, Sparkles, X } from "lucide-react";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { cn } from "@/app/utils/cn";
+import { springSoft, toastVariants } from "@/app/_components/_ui/motion";
 
 /** Floating status shown while an explicit Auto-schedule apply runs and after
  * it lands, so the outcome is visible even once the dialog is closed. */
@@ -30,10 +30,11 @@ export default function AutoScheduleIndicator({
         <motion.div
           role="status"
           aria-live="polite"
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 12 }}
-          transition={{ duration: 0.16 }}
+          variants={toastVariants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          transition={springSoft}
           className={cn(
             "pointer-events-auto z-50 flex max-w-sm items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm shadow-xl",
             className ?? "fixed bottom-4 right-4",

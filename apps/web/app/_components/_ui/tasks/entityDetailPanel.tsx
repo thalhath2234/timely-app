@@ -86,6 +86,7 @@ import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import ConfirmDialog from "@/app/_components/_ui/confirmDialog";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import TaskExecution from "@/app/_components/_ui/tasks/taskExecution";
+import { runViewTransition } from "@/app/utils/viewTransition";
 
 const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Urgent"];
 const DURATION_PRESETS = [
@@ -1315,7 +1316,7 @@ function PanelShell({
       await onDelete();
     } finally {
       setDeleting(false);
-      setConfirmingDelete(false);
+      runViewTransition(() => setConfirmingDelete(false));
     }
   };
 
@@ -1413,7 +1414,7 @@ function PanelShell({
             {onDelete ? (
               <button
                 type="button"
-                onClick={() => setConfirmingDelete(true)}
+                onClick={() => runViewTransition(() => setConfirmingDelete(true))}
                 title="Delete"
                 className={`${iconButtonClass} hover:bg-destructive/10 hover:text-destructive`}
               >
@@ -1461,7 +1462,7 @@ function PanelShell({
           description={deleteDescription}
           pending={deleting}
           onCancel={() => {
-            if (!deleting) setConfirmingDelete(false);
+            if (!deleting) runViewTransition(() => setConfirmingDelete(false));
           }}
           onConfirm={() => void confirmDelete()}
         />

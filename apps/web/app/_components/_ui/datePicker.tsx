@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, X } from "lucide-react";
 import { cn } from "@/app/utils/cn";
+import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
 import {
   fromDatetimeLocalValue,
   toDateInputValue,
@@ -240,8 +241,9 @@ export default function DatePicker({
   const panelId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useViewOpen();
   const [pos, setPos] = useState<PanelPos | null>(null);
+  const mounted = useClientGate();
 
   const clock = useMemo(
     () => (mode === "time" ? parseClock(value) : null),
@@ -425,27 +427,28 @@ export default function DatePicker({
         )}
       </button>
 
-      {open &&
-        pos &&
+      {mounted &&
         createPortal(
-          <div
-            ref={panelRef}
-            id={panelId}
-            role="dialog"
-            aria-label={ariaLabel ?? (mode === "time" ? "Choose time" : "Choose date")}
-            className={cn(
-              "fixed z-[100] max-h-[calc(100vh-16px)] overflow-y-auto rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl ring-1 ring-foreground/10",
-              mode === "datetime"
-                ? "w-[300px]"
-                : mode === "time"
-                  ? "w-[240px]"
-                  : "w-[280px]",
-            )}
-            style={{
-              top: pos.top,
-              left: pos.left,
-            }}
-          >
+          open && pos ? (
+            <PopoverView>
+              <div
+                ref={panelRef}
+                id={panelId}
+                role="dialog"
+                aria-label={ariaLabel ?? (mode === "time" ? "Choose time" : "Choose date")}
+                className={cn(
+                  "fixed z-[100] max-h-[calc(100vh-16px)] overflow-y-auto rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl ring-1 ring-foreground/10",
+                  mode === "datetime"
+                    ? "w-[300px]"
+                    : mode === "time"
+                      ? "w-[240px]"
+                      : "w-[280px]",
+                )}
+                style={{
+                  top: pos.top,
+                  left: pos.left,
+                }}
+              >
             {mode !== "time" && (
               <>
                 <div className="mb-2 flex items-center justify-between gap-2">
@@ -575,7 +578,9 @@ export default function DatePicker({
               )}
             </div>
             )}
-          </div>,
+            </div>
+            </PopoverView>
+          ) : null,
           document.body,
         )}
     </>

@@ -7,8 +7,8 @@ import {
   SIDEBAR_ITEMS,
   AddNewModeOptions,
 } from "@/app/_types/types";
-import { AnimatePresence } from "framer-motion";
-import * as motion from "motion/react-client";
+import { AnimatePresence, motion } from "motion/react";
+import { springSoft } from "@/app/_components/_ui/motion";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter, usePathname } from "next/navigation";
@@ -173,20 +173,23 @@ export default function Sidebar() {
                   initial={{ opacity: 0, scale: 0.95, y: -5 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -5 }}
-                  transition={{ duration: 0.15 }}
+                  transition={springSoft}
                   className="absolute left-full ml-2 top-0 z-50 min-w-36 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg overflow-hidden"
                   role="menu"
                 >
-                  {addNewOptions.map((option) => (
-                    <button
+                  {addNewOptions.map((option, index) => (
+                    <motion.button
                       type="button"
                       role="menuitem"
                       key={option.value}
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.03, ...springSoft }}
                       className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
                       onClick={() => createItem(option.value)}
                     >
                       {option.lable}
-                    </button>
+                    </motion.button>
                   ))}
                 </motion.div>
               )}
@@ -243,11 +246,7 @@ export default function Sidebar() {
                 {isActive && (
                   <motion.div
                     layoutId="sidebar-active-pill"
-                    transition={{
-                      type: "spring",
-                      stiffness: 400,
-                      damping: 32,
-                    }}
+                    transition={springSoft}
                     className="absolute inset-0 -z-10 rounded-lg bg-primary/12"
                   />
                 )}

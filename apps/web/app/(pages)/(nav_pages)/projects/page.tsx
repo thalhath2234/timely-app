@@ -14,16 +14,18 @@ import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { resolvedColor } from "@/app/utils/entityColor";
 import { formatShortDate, projectStats } from "@/app/utils/projectStats";
 import type { Project, Task } from "@/app/_types/types";
+import { motion } from "motion/react";
+import { hoverLift, listContainerVariants, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
 
 function ProgressBar({ value, color }: { value: number; color?: string | null }) {
   return (
     <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-      <div
+      <motion.div
         className="h-full rounded-full"
-        style={{
-          width: `${Math.min(100, Math.max(0, value))}%`,
-          backgroundColor: color || "var(--primary)",
-        }}
+        initial={{ width: 0 }}
+        animate={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+        transition={springSoft}
+        style={{ backgroundColor: color || "var(--primary)" }}
       />
     </div>
   );
@@ -43,6 +45,11 @@ function ProjectCard({
   const color = resolvedColor(project.color, project.id);
 
   return (
+    <motion.div
+      variants={listItemVariants}
+      whileHover={hoverLift}
+      whileTap={{ scale: 0.99 }}
+    >
     <Link
       href={`/projects/${project.id}`}
       onContextMenu={(event) => onContextMenu(event, project)}
@@ -82,6 +89,7 @@ function ProjectCard({
         <span>Due {formatShortDate(project.deadline)}</span>
       </div>
     </Link>
+    </motion.div>
   );
 }
 
@@ -169,7 +177,12 @@ export default function ProjectsPage() {
             />
           </div>
         ) : (
-          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <motion.div
+            className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+            variants={listContainerVariants}
+            initial="hidden"
+            animate="visible"
+          >
             {list.map((project) => (
               <ProjectCard
                 key={project.id}
@@ -178,7 +191,7 @@ export default function ProjectsPage() {
                 onContextMenu={onProjectContextMenu}
               />
             ))}
-          </div>
+          </motion.div>
         )}
       </div>
     </div>
