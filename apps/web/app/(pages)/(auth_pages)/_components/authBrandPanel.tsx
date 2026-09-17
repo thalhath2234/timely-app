@@ -1,4 +1,8 @@
+"use client";
+
 import { Clock } from "lucide-react";
+import { motion } from "motion/react";
+import { listContainerVariants, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
 
 const SESSION_ROWS = [
   { title: "Q3 Financial Model Calculation", time: "09:00 AM", active: true },
@@ -23,7 +27,12 @@ export default function AuthBrandPanel() {
         </div>
       </div>
 
-      <div className="max-w-md py-12">
+      <motion.div
+        className="max-w-md py-12"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={springSoft}
+      >
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#282a30] px-2.5 py-1">
           <span className="size-1.5 rounded-full bg-[#4edea3]" />
           <span className="text-[0.6875rem] font-medium tracking-[0.02em] text-[#c7c4d7]">
@@ -46,9 +55,18 @@ export default function AuthBrandPanel() {
             </span>
             <span className="text-[#4edea3]">SYNCHRONIZED</span>
           </div>
-          <div className="space-y-3 pt-1">
+          <motion.div
+            className="space-y-3 pt-1"
+            variants={listContainerVariants}
+            initial="hidden"
+            animate="visible"
+          >
             {SESSION_ROWS.map((row) => (
-              <div key={row.title} className="flex items-center gap-3">
+              <motion.div
+                key={row.title}
+                variants={listItemVariants}
+                className="flex items-center gap-3"
+              >
                 <div
                   className={`size-1.5 rounded-full ${row.active ? "bg-[#c0c1ff]" : "bg-[#464554]"}`}
                 />
@@ -62,11 +80,11 @@ export default function AuthBrandPanel() {
                     {row.time}
                   </span>
                 </div>
-              </div>
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
 
       <div className="flex items-center justify-between border-t border-white/[0.08] pt-6">
         <div className="flex items-center gap-2">

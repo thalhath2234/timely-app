@@ -2,6 +2,7 @@
 
 import { Label } from "@/app/_types/types";
 import { cn } from "@/app/utils/cn";
+import { motion } from "motion/react";
 
 type LabelPickerProps = {
   labels: Label[];
@@ -42,9 +43,10 @@ export default function LabelPicker({
       {labels.map((label) => {
         const active = selected.has(label.id);
         return (
-          <button
+          <motion.button
             key={label.id}
             type="button"
+            whileTap={{ scale: 0.96 }}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -73,7 +75,7 @@ export default function LabelPicker({
             />
             {label.name}
             {active ? <span className="ml-0.5 text-[11px] opacity-70">×</span> : null}
-          </button>
+          </motion.button>
         );
       })}
     </div>

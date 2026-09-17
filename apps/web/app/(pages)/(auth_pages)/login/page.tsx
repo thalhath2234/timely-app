@@ -16,6 +16,8 @@ import {
 import { getMe } from "@/app/utils/api/user";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 import AuthBrandPanel from "../_components/authBrandPanel";
+import { motion } from "motion/react";
+import { springSoft } from "@/app/_components/_ui/motion";
 
 const fieldClass =
   "flex h-11 w-full items-center rounded-lg border border-white/10 bg-[#0c0e14] transition focus-within:border-[#c0c1ff] focus-within:ring-1 focus-within:ring-[#c0c1ff]";
@@ -76,7 +78,12 @@ export default function LoginPage() {
       <section className="relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12 sm:px-10">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(#282a30_1px,transparent_1px)] [background-size:24px_24px] opacity-25" />
 
-        <div className="relative z-10 w-full max-w-[420px] rounded-xl border border-white/10 bg-[#191b22] p-8 shadow-2xl sm:p-9">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={springSoft}
+          className="relative z-10 w-full max-w-[420px] rounded-xl border border-white/10 bg-[#191b22] p-8 shadow-2xl sm:p-9"
+        >
           <div className="mb-6 flex items-center justify-center gap-2.5 md:hidden">
             <div className="flex size-8 items-center justify-center rounded-lg bg-[#c0c1ff] text-[#1000a9]">
               <span className="text-sm font-bold select-none">T</span>
@@ -91,10 +98,14 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             {errorMessage ? (
-              <div className="flex items-center gap-2.5 rounded-lg border border-[#ffb4ab]/30 bg-[#93000a]/20 px-3.5 py-3 text-sm font-medium text-[#ffb4ab]">
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-2.5 rounded-lg border border-[#ffb4ab]/30 bg-[#93000a]/20 px-3.5 py-3 text-sm font-medium text-[#ffb4ab]"
+              >
                 <AlertCircle className="size-[18px] shrink-0" />
                 <span>{errorMessage}</span>
-              </div>
+              </motion.div>
             ) : null}
 
             <div>
@@ -211,7 +222,7 @@ export default function LoginPage() {
               </div>
             </>
           ) : null}
-        </div>
+        </motion.div>
 
         <footer className="relative z-10 mt-8 text-center text-xs text-[#464554]">
           © {new Date().getFullYear()} Timely Technologies Inc. All rights reserved.

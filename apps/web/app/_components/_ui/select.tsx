@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/app/utils/cn";
+import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
 
 export type SelectOption = {
   value: string;
@@ -42,9 +43,10 @@ export default function Select({
   const listId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useViewOpen();
   const [pos, setPos] = useState<PanelPos | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const mounted = useClientGate();
 
   const selected = options.find((option) => option.value === value);
   const enabledOptions = options.filter((option) => !option.disabled);
@@ -190,26 +192,30 @@ export default function Select({
         />
       </button>
 
-      {open &&
-        pos &&
+      {mounted &&
         createPortal(
-          <div
-            ref={panelRef}
-            id={listId}
-            role="listbox"
-            data-select-portal="true"
-            aria-label={ariaLabel ?? placeholder}
-            className="fixed z-[100] max-h-60 overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl ring-1 ring-foreground/10"
-            style={{
-              top: pos.top,
-              left: pos.left,
-              width: Math.max(pos.width, 160),
-              transform: pos.openUp ? "translateY(-100%)" : undefined,
-            }}
-            onMouseDown={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-            onTouchStart={(event) => event.stopPropagation()}
-          >
+          open && pos ? (
+            <PopoverView>
+              <div
+                className="fixed z-[100]"
+                style={{
+                  top: pos.top,
+                  left: pos.left,
+                  width: Math.max(pos.width, 160),
+                  transform: pos.openUp ? "translateY(-100%)" : undefined,
+                }}
+              >
+                <div
+                  ref={panelRef}
+                  id={listId}
+                  role="listbox"
+                  data-select-portal="true"
+                  aria-label={ariaLabel ?? placeholder}
+                  className="max-h-60 overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl ring-1 ring-foreground/10"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
+                >
             {options.length === 0 ? (
               <p className="px-2 py-1.5 text-sm text-muted-foreground">
                 No options
@@ -262,7 +268,10 @@ export default function Select({
                 );
               })
             )}
-          </div>,
+                </div>
+              </div>
+            </PopoverView>
+          ) : null,
           document.body,
         )}
     </>

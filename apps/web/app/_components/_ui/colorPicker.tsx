@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Pipette } from "lucide-react";
 import { cn } from "@/app/utils/cn";
+import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
 
 const PRESET_COLORS = [
   "#889096",
@@ -57,9 +58,10 @@ export default function ColorPicker({
   const panelId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useViewOpen();
   const [pos, setPos] = useState<PanelPos | null>(null);
   const [hexDraft, setHexDraft] = useState(value || "#889096");
+  const mounted = useClientGate();
 
   const current = normalizeHex(value) ?? "#889096";
 
@@ -175,21 +177,25 @@ export default function ColorPicker({
         />
       </button>
 
-      {open &&
-        pos &&
+      {mounted &&
         createPortal(
-          <div
-            ref={panelRef}
-            id={panelId}
-            role="dialog"
-            aria-label={ariaLabel ?? "Choose color"}
-            className="fixed z-[100] w-[220px] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl ring-1 ring-foreground/10"
-            style={{
-              top: pos.top,
-              left: Math.max(8, pos.left),
-              transform: pos.openUp ? "translateY(-100%)" : undefined,
-            }}
-          >
+          open && pos ? (
+            <PopoverView>
+              <div
+                className="fixed z-[100]"
+                style={{
+                  top: pos.top,
+                  left: Math.max(8, pos.left),
+                  transform: pos.openUp ? "translateY(-100%)" : undefined,
+                }}
+              >
+                <div
+                  ref={panelRef}
+                  id={panelId}
+                  role="dialog"
+                  aria-label={ariaLabel ?? "Choose color"}
+                  className="w-[220px] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl ring-1 ring-foreground/10"
+                >
             <div className="mb-3 flex items-center gap-2">
               <span
                 className="size-8 shrink-0 rounded-lg ring-1 ring-foreground/15"
@@ -256,7 +262,10 @@ export default function ColorPicker({
                 />
               </div>
             </label>
-          </div>,
+                </div>
+              </div>
+            </PopoverView>
+          ) : null,
           document.body,
         )}
     </>

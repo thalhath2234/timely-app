@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Trash2 } from "lucide-react";
+import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 
 export default function ConfirmDialog({
   title,
@@ -42,19 +43,20 @@ export default function ConfirmDialog({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4"
-      onPointerDown={(event) => {
-        if (event.target !== event.currentTarget || pending) return;
-        onCancel();
-      }}
-    >
-      <div
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <OverlayScrim
+        className="bg-black/55"
+        onPointerDown={(event) => {
+          if (event.target !== event.currentTarget || pending) return;
+          onCancel();
+        }}
+      />
+      <OverlayPanel
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
-        className="w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-2xl"
+        className="relative w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex gap-3">
@@ -91,7 +93,7 @@ export default function ConfirmDialog({
             {pending ? pendingLabel : confirmLabel}
           </button>
         </div>
-      </div>
+      </OverlayPanel>
     </div>,
     document.body,
   );

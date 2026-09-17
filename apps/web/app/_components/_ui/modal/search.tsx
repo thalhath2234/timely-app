@@ -2,13 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import * as motion from "motion/react-client";
-import { AnimatePresence } from "framer-motion";
+import { motion } from "motion/react";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useSearch } from "@/app/utils/hooks/search";
 import type { SearchHit, SearchKind } from "@/app/utils/api/search";
 import { cn } from "@/app/utils/cn";
 import { openTasksEntity } from "@/app/utils/entityDetail";
+import {
+  listItemVariants,
+  OverlayPanel,
+  OverlayScrim,
+} from "@/app/_components/_ui/motion";
 
 const KIND_LABEL: Record<string, string> = {
   task: "Task",
@@ -57,23 +61,17 @@ export default function SearchModal() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [setSearchMode, closeSearch]);
 
-  return (
-    <AnimatePresence>
-      {searchMode && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/10 pt-[20vh] supports-backdrop-filter:backdrop-blur-xs"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.01, ease: "easeOut" }}
-          onClick={closeSearch}
-        >
-          {/* Query state lives in the panel so closing (unmounting) clears it
-              without a setState-in-effect round trip. */}
-          <SearchPanel onClose={closeSearch} />
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+  return searchMode ? (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
+      <OverlayScrim
+        className="bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
+        onClick={closeSearch}
+      />
+      {/* Query state lives in the panel so closing (unmounting) clears it
+          without a setState-in-effect round trip. */}
+      <SearchPanel onClose={closeSearch} />
+    </div>
+  ) : null;
 }
 
 function SearchPanel({ onClose }: { onClose: () => void }) {
@@ -96,15 +94,11 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <motion.div
+    <OverlayPanel
       role="dialog"
       aria-modal="true"
       aria-label="Search"
-      className="flex max-h-[60vh] w-[600px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl"
-      initial={{ opacity: 0, y: -8, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -8, scale: 0.97 }}
-      transition={{ type: "spring", stiffness: 400, damping: 32 }}
+      className="relative flex max-h-[60vh] w-[600px] max-w-[90vw] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl"
       onClick={(e) => e.stopPropagation()}
     >
       <input
@@ -136,9 +130,12 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
           <p className="px-3 py-2 text-xs text-muted-foreground">No matches</p>
         )}
         {hits.map((hit) => (
-          <button
+          <motion.button
             key={`${hit.kind}:${hit.id}`}
             type="button"
+            variants={listItemVariants}
+            initial="hidden"
+            animate="visible"
             onClick={() => openHit(hit)}
             className="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted"
           >
@@ -153,10 +150,10 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
                 {hit.snippet}
               </span>
             ) : null}
-          </button>
+          </motion.button>
         ))}
       </div>
-    </motion.div>
+    </OverlayPanel>
   );
 }
 

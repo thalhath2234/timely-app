@@ -9,6 +9,8 @@ import { mergeStatusesByName, statusForWorkspace } from "@/app/utils/status";
 import { tasksKey, useBulkUpdateTasks, useDeleteTask, useUpdateTask } from "@/app/utils/hooks/tasks";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import Select from "@/app/_components/_ui/select";
+import { AnimatePresence, motion } from "motion/react";
+import { springSoft } from "@/app/_components/_ui/motion";
 
 type UndoableField = keyof Pick<
   UpdateTaskPayload,
@@ -174,10 +176,16 @@ export default function BulkActionBar({
     }
   };
 
-  if (ids.length === 0) return null;
-
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/50 px-4 py-2 text-sm">
+    <AnimatePresence>
+      {ids.length === 0 ? null : (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={springSoft}
+          className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/50 px-4 py-2 text-sm"
+        >
       <span className="font-medium text-foreground">{ids.length} selected</span>
       <button
         type="button"
@@ -290,6 +298,8 @@ export default function BulkActionBar({
       <button type="button" onClick={onClear} className="ml-auto text-xs text-muted-foreground">
         Clear
       </button>
-    </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

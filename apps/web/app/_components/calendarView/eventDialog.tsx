@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence } from "framer-motion";
-import * as motion from "motion/react-client";
 import { Check, Clock, Pin, Repeat, Sparkles, X } from "lucide-react";
 import DatePicker, { TimeField } from "@/app/_components/_ui/datePicker";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
@@ -39,6 +37,7 @@ import {
   useSplitTaskSeries,
   useUpdateTask,
 } from "@/app/utils/hooks/tasks";
+import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
 
 type EventDialogProps = {
@@ -81,27 +80,23 @@ export default function EventDialog({ event, onClose, onOpenTask }: EventDialogP
     return () => window.removeEventListener("keydown", onKey);
   }, [event, onClose]);
 
-  return (
-    <AnimatePresence>
-      {event && (
-        <DialogFrame key={event.id} event={event} onClose={onClose}>
-          {event.kind === "task" && (
-            <TaskBlockPanel event={event} onClose={onClose} onOpenTask={onOpenTask} />
-          )}
-          {event.kind === "taskOccurrence" && (
-            <TaskOccurrencePanel
-              event={event}
-              onClose={onClose}
-              onOpenTask={onOpenTask}
-            />
-          )}
-          {(event.kind === "event" || event.kind === "eventOccurrence") && (
-            <EventPanel event={event} onClose={onClose} />
-          )}
-        </DialogFrame>
+  return event ? (
+    <DialogFrame key={event.id} event={event} onClose={onClose}>
+      {event.kind === "task" && (
+        <TaskBlockPanel event={event} onClose={onClose} onOpenTask={onOpenTask} />
       )}
-    </AnimatePresence>
-  );
+      {event.kind === "taskOccurrence" && (
+        <TaskOccurrencePanel
+          event={event}
+          onClose={onClose}
+          onOpenTask={onOpenTask}
+        />
+      )}
+      {(event.kind === "event" || event.kind === "eventOccurrence") && (
+        <EventPanel event={event} onClose={onClose} />
+      )}
+    </DialogFrame>
+  ) : null;
 }
 
 function DialogFrame({
@@ -125,23 +120,16 @@ function DialogFrame({
           : null;
 
   return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.1 }}
-      onClick={onClose}
-    >
-      <motion.div
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <OverlayScrim
+        className="bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
+        onClick={onClose}
+      />
+      <OverlayPanel
         role="dialog"
         aria-modal="true"
         aria-label={event.title}
         className="relative flex w-full max-w-sm flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/10"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ type: "spring", stiffness: 400, damping: 32 }}
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -188,8 +176,8 @@ function DialogFrame({
         </div>
 
         {children}
-      </motion.div>
-    </motion.div>
+      </OverlayPanel>
+    </div>
   );
 }
 

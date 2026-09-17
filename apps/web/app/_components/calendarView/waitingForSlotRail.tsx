@@ -12,6 +12,8 @@ import { cn } from "@/app/utils/cn";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
+import { AnimatePresence, motion } from "motion/react";
+import { hoverLift, springSoft } from "@/app/_components/_ui/motion";
 
 export default function WaitingForSlotRail({
   tasks,
@@ -41,12 +43,20 @@ export default function WaitingForSlotRail({
           {waiting.length}
         </span>
       </button>
+      <AnimatePresence initial={false}>
       {open ? (
-        <ul className="min-h-0 flex-1 overflow-y-auto p-2">
+        <motion.ul
+          key="waiting-list"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={springSoft}
+          className="min-h-0 flex-1 overflow-y-auto p-2"
+        >
           {waiting.map((task) => {
             const deadline = taskDeadlineDate(task);
             return (
-              <li key={task.id}>
+              <motion.li key={task.id} layout whileHover={hoverLift}>
                 <div
                   draggable
                   onDragStart={(event) => setTaskDragData(event, task.id)}
@@ -94,11 +104,12 @@ export default function WaitingForSlotRail({
                   </button>
                   </div>
                 </div>
-              </li>
+              </motion.li>
             );
           })}
-        </ul>
+        </motion.ul>
       ) : null}
+      </AnimatePresence>
     </aside>
   );
 }

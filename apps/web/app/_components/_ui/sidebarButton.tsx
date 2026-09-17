@@ -3,7 +3,7 @@ import Link from "next/link";
 import { SidebarProps } from "../../_types/types";
 import { Brain, Bell, Calendar, FileText, FolderKanban, Inbox, ListTodo, Settings, Sheet, Sun } from "lucide-react";
 import { useSidebarStore } from "../../_store/sidebarStore";
-import * as motion from "motion/react-client";
+import { motion } from "motion/react";
 import { usePathname } from "next/navigation";
 import { useUnreadNotificationCount } from "../../utils/hooks/notifications";
 
@@ -70,8 +70,12 @@ function UnreadBadge() {
   const { data: count } = useUnreadNotificationCount();
   if (!count) return null;
   return (
-    <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground">
+    <motion.span
+      initial={{ scale: 0.5, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
+    >
       {count > 9 ? "9+" : count}
-    </span>
+    </motion.span>
   );
 }

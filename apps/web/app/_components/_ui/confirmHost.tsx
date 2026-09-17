@@ -11,9 +11,7 @@ export default function ConfirmHost() {
   const cancel = useConfirmStore((state) => state.cancel);
   const setPending = useConfirmStore((state) => state.setPending);
 
-  if (!request) return null;
-
-  return (
+  return request ? (
     <ConfirmDialog
       key={request.id}
       title={request.title}
@@ -29,5 +27,5 @@ export default function ConfirmHost() {
           .finally(() => useConfirmStore.getState().cancel());
       }}
     />
-  );
+  ) : null;
 }

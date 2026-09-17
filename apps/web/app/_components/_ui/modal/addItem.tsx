@@ -188,6 +188,11 @@ const MODE_META: Record<string, { icon: LucideIcon; label: string; action: strin
   };
 
 export default function AddItemModal() {
+  const isOpen = useSidebarStore((state) => state.isAddItemModalOpen);
+  return isOpen ? <AddItemModalInner /> : null;
+}
+
+function AddItemModalInner() {
   const {
     isAddItemModalOpen,
     setIsAddItemModalOpen,
@@ -733,8 +738,6 @@ export default function AddItemModal() {
       shouldDirty: true,
     });
   };
-
-  if (!isAddItemModalOpen) return null;
 
   const meta = MODE_META[addNewMode] ?? MODE_META.task;
 

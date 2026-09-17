@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import Sidebar from "@/app/_components/_layout/sidebar";
 import { usePreferences } from "@/app/_components/_layout/clientRuntime";
+import { PageFade, springSnappy } from "@/app/_components/_ui/motion";
 import { useContextMenuStore } from "@/app/_store/contextMenuStore";
 import { cn } from "@/app/utils/cn";
+import { motion } from "motion/react";
 
 const EDGE_WIDTH = 12;
 
@@ -54,14 +56,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         />
       ) : null}
 
-      <div
+      <motion.div
         ref={sidebarRef}
+        initial={false}
+        animate={{ x: autoHide && !showSidebar ? "-100%" : 0 }}
+        transition={springSnappy}
         className={cn(
           "flex h-full w-[68px] items-center justify-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
           autoHide
-            ? "absolute inset-y-0 left-0 z-50 shadow-xl transition-transform duration-200 ease-out"
+            ? "absolute inset-y-0 left-0 z-50 shadow-xl"
             : "shrink-0",
-          autoHide && !showSidebar && "-translate-x-full pointer-events-none",
+          autoHide && !showSidebar && "pointer-events-none",
         )}
         onFocusCapture={() => {
           if (autoHide) setRevealed(true);
@@ -76,13 +81,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         inert={autoHide && !showSidebar ? true : undefined}
       >
         <Sidebar />
-      </div>
+      </motion.div>
 
       <div
         id="main-content"
         className="m-1 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-background text-foreground shadow-sm"
       >
-        {children}
+        <PageFade>{children}</PageFade>
       </div>
     </div>
   );

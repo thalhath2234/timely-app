@@ -143,9 +143,6 @@ importers:
       '@tiptap/suggestion':
         specifier: ^3.29.2
         version: 3.29.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2)
-      framer-motion:
-        specifier: ^12.42.2
-        version: 12.42.2(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       jose:
         specifier: ^6.2.3
         version: 6.2.3

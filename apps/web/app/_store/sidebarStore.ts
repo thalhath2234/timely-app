@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { SIDEBAR_ITEMS, AddNewModeOptions } from "../_types/types";
+import { runViewTransition } from "@/app/utils/viewTransition";
 
 export type SidebarItemName = typeof SIDEBAR_ITEMS[0]["name"];
 
@@ -29,9 +30,10 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   activeItem: SIDEBAR_ITEMS[0].name,
   setActiveItem: (item) => set({ activeItem: item }),
   searchMode: false,
-  setSearchMode: (mode) => set({ searchMode: mode }),
+  setSearchMode: (mode) => runViewTransition(() => set({ searchMode: mode })),
   isAddItemModalOpen: false,
-  setIsAddItemModalOpen: (mode) => set({ isAddItemModalOpen: mode }),
+  setIsAddItemModalOpen: (mode) =>
+    runViewTransition(() => set({ isAddItemModalOpen: mode })),
   addNewMode: "task",
   setAddNewMode: (item) => set({ addNewMode: item }),
   createTaskDraft: null,

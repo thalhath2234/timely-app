@@ -10,6 +10,8 @@ import ApiKeysSettings from "@/app/_components/settings/apiKeysSettings";
 import DataSettings from "@/app/_components/settings/dataSettings";
 import AppearanceSettings from "@/app/_components/settings/appearanceSettings";
 import { cn } from "@/app/utils/cn";
+import { AnimatePresence, motion } from "motion/react";
+import { fadeTransition, springSoft } from "@/app/_components/_ui/motion";
 
 type SettingsTab = "account" | "appearance" | "schedule" | "notifications" | "workspaces" | "data" | "integrations";
 
@@ -88,14 +90,21 @@ function SettingsContent() {
                 onClick={() => setTab(item.id)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "rounded-lg px-3 py-2 text-left transition-colors",
+                  "relative rounded-lg px-3 py-2 text-left transition-colors",
                   active
-                    ? "bg-primary/12 text-foreground"
+                    ? "text-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
-                <span className="block text-sm font-medium">{item.label}</span>
-                <span className="mt-0.5 block text-[11px] opacity-80">
+                {active ? (
+                  <motion.span
+                    layoutId="settings-tab-pill"
+                    transition={springSoft}
+                    className="absolute inset-0 rounded-lg bg-primary/12"
+                  />
+                ) : null}
+                <span className="relative z-10 block text-sm font-medium">{item.label}</span>
+                <span className="relative z-10 mt-0.5 block text-[11px] opacity-80">
                   {item.description}
                 </span>
               </button>
@@ -104,13 +113,23 @@ function SettingsContent() {
         </nav>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
-          {tab === "account" && <AccountSettings />}
-          {tab === "appearance" && <AppearanceSettings />}
-          {tab === "schedule" && <WorkingHoursSettings />}
-          {tab === "notifications" && <NotificationSettings />}
-          {tab === "workspaces" && <WorkspaceSettings />}
-          {tab === "data" && <DataSettings />}
-          {tab === "integrations" && <ApiKeysSettings />}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={tab}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={fadeTransition}
+            >
+              {tab === "account" && <AccountSettings />}
+              {tab === "appearance" && <AppearanceSettings />}
+              {tab === "schedule" && <WorkingHoursSettings />}
+              {tab === "notifications" && <NotificationSettings />}
+              {tab === "workspaces" && <WorkspaceSettings />}
+              {tab === "data" && <DataSettings />}
+              {tab === "integrations" && <ApiKeysSettings />}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
     </main>

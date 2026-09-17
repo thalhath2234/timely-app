@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, GripVertical, List, X } from "lucide-react";
+import { motion } from "motion/react";
 import Select from "@/app/_components/_ui/select";
+import { springSoft } from "@/app/_components/_ui/motion";
 import type {
   CustomField,
   Project,
@@ -439,42 +441,42 @@ export function TaskToolbar({
         </div>
 
         <div className="inline-flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
-          <button
-            className={`inline-flex min-w-16 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition ${
-              viewMode === "list"
-                ? "bg-background font-medium text-foreground shadow-xs"
-                : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            onClick={() => setViewMode("list")}
-            aria-pressed={viewMode === "list"}
-          >
-            <List size={12} className={viewMode === "list" ? "text-primary" : ""} />
-            List
-          </button>
-
-          <button
-            className={`min-w-16 whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition ${
-              viewMode === "kanban"
-                ? "bg-background font-medium text-foreground shadow-xs"
-                : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            onClick={() => setViewMode("kanban")}
-            aria-pressed={viewMode === "kanban"}
-          >
-            Kanban
-          </button>
-
-          <button
-            className={`min-w-16 whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition ${
-              viewMode === "gantt"
-                ? "bg-background font-medium text-foreground shadow-xs"
-                : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-            }`}
-            onClick={() => setViewMode("gantt")}
-            aria-pressed={viewMode === "gantt"}
-          >
-            Gantt
-          </button>
+          {(
+            [
+              { id: "list", label: "List", icon: List },
+              { id: "kanban", label: "Kanban" },
+              { id: "gantt", label: "Gantt" },
+            ] as const
+          ).map((option) => {
+            const active = viewMode === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                className={`relative inline-flex min-w-16 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition ${
+                  active
+                    ? "font-medium text-foreground"
+                    : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+                }`}
+                onClick={() => setViewMode(option.id)}
+                aria-pressed={active}
+              >
+                {active ? (
+                  <motion.span
+                    layoutId="task-view-pill"
+                    transition={springSoft}
+                    className="absolute inset-0 rounded-md bg-background shadow-xs"
+                  />
+                ) : null}
+                <span className="relative z-10 inline-flex items-center gap-1">
+                  {"icon" in option ? (
+                    <option.icon size={12} className={active ? "text-primary" : ""} />
+                  ) : null}
+                  {option.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="inline-flex items-center gap-1.5">
