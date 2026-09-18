@@ -23,6 +23,8 @@ import {
   deleteLabel,
   deleteStatus,
   updateCustomField,
+  updateLabel,
+  updateStatus,
   updateWorkspace,
 } from "../../../../lib/api/workspaces";
 import { createProject } from "../../../../lib/api/projects";
@@ -48,6 +50,12 @@ export default function WorkspaceEditor() {
   const [editOptions, setEditOptions] = useState<OptionDraft[]>([]);
   const [projectName, setProjectName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
+  const [editStatusName, setEditStatusName] = useState("");
+  const [editStatusColor, setEditStatusColor] = useState(FIELD_PALETTE[0]);
+  const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
+  const [editLabelName, setEditLabelName] = useState("");
+  const [editLabelColor, setEditLabelColor] = useState(FIELD_PALETTE[0]);
 
   async function refresh() {
     await client.invalidateQueries({ queryKey: keys.workspaces });
@@ -133,15 +141,42 @@ export default function WorkspaceEditor() {
 
         <SectionLabel>Statuses</SectionLabel>
         {(workspace.status ?? []).map((s) => (
-          <View key={s.id} style={styles.row}>
-            <View style={[styles.dot, { backgroundColor: s.color }]} />
-            <Text style={styles.item}>{s.name}</Text>
-            <Pressable onPress={() => Alert.alert("Delete status?", s.name, [
-              { text: "Cancel", style: "cancel" },
-              { text: "Delete", style: "destructive", onPress: async () => { await deleteStatus(workspace.id, s.id); await refresh(); } },
-            ])}>
-              <Text style={styles.remove}>Remove</Text>
-            </Pressable>
+          <View key={s.id} style={styles.card}>
+            {editingStatusId === s.id ? (
+              <>
+                <Field value={editStatusName} onChangeText={setEditStatusName} placeholder="Status name" autoCapitalize="words" />
+                <ColorRow value={editStatusColor} onChange={setEditStatusColor} />
+                <PrimaryButton
+                  label="Save status"
+                  disabled={!editStatusName.trim()}
+                  onPress={async () => {
+                    await updateStatus(workspace.id, s.id, { name: editStatusName.trim(), color: editStatusColor });
+                    setEditingStatusId(null);
+                    await refresh();
+                  }}
+                />
+              </>
+            ) : (
+              <View style={styles.row}>
+                <View style={[styles.dot, { backgroundColor: s.color }]} />
+                <Text style={styles.item}>{s.name}</Text>
+                <Pressable
+                  onPress={() => {
+                    setEditingStatusId(s.id);
+                    setEditStatusName(s.name);
+                    setEditStatusColor(s.color || FIELD_PALETTE[0]);
+                  }}
+                >
+                  <Text style={styles.edit}>Edit</Text>
+                </Pressable>
+                <Pressable onPress={() => Alert.alert("Delete status?", s.name, [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Delete", style: "destructive", onPress: async () => { await deleteStatus(workspace.id, s.id); await refresh(); } },
+                ])}>
+                  <Text style={styles.remove}>Remove</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         ))}
         <Field value={statusName} onChangeText={setStatusName} placeholder="New status" autoCapitalize="words" />
@@ -158,12 +193,39 @@ export default function WorkspaceEditor() {
 
         <SectionLabel>Labels</SectionLabel>
         {(workspace.lables ?? []).map((l) => (
-          <View key={l.id} style={styles.row}>
-            <View style={[styles.dot, { backgroundColor: l.color }]} />
-            <Text style={styles.item}>{l.name}</Text>
-            <Pressable onPress={async () => { await deleteLabel(workspace.id, l.id); await refresh(); }}>
-              <Text style={styles.remove}>Remove</Text>
-            </Pressable>
+          <View key={l.id} style={styles.card}>
+            {editingLabelId === l.id ? (
+              <>
+                <Field value={editLabelName} onChangeText={setEditLabelName} placeholder="Label name" autoCapitalize="words" />
+                <ColorRow value={editLabelColor} onChange={setEditLabelColor} />
+                <PrimaryButton
+                  label="Save label"
+                  disabled={!editLabelName.trim()}
+                  onPress={async () => {
+                    await updateLabel(workspace.id, l.id, { name: editLabelName.trim(), color: editLabelColor });
+                    setEditingLabelId(null);
+                    await refresh();
+                  }}
+                />
+              </>
+            ) : (
+              <View style={styles.row}>
+                <View style={[styles.dot, { backgroundColor: l.color }]} />
+                <Text style={styles.item}>{l.name}</Text>
+                <Pressable
+                  onPress={() => {
+                    setEditingLabelId(l.id);
+                    setEditLabelName(l.name);
+                    setEditLabelColor(l.color || FIELD_PALETTE[0]);
+                  }}
+                >
+                  <Text style={styles.edit}>Edit</Text>
+                </Pressable>
+                <Pressable onPress={async () => { await deleteLabel(workspace.id, l.id); await refresh(); }}>
+                  <Text style={styles.remove}>Remove</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         ))}
         <LabelComposer

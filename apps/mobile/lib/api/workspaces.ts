@@ -9,6 +9,25 @@ export function getConfig() {
   return api<Config>("/config");
 }
 
+export function updateConfig(data: {
+  appearance?: Config["appearance"];
+  taskViews?: Config["taskViews"];
+  activeTaskViewId?: string;
+  isOnboardingCompleted?: boolean;
+}) {
+  return api<Config>("/config", { method: "PUT", body: data });
+}
+
+export function updateTaskViewsConfig(data: {
+  taskViews: NonNullable<Config["taskViews"]>;
+  activeTaskViewId: string;
+}) {
+  return updateConfig({
+    taskViews: data.taskViews,
+    activeTaskViewId: data.activeTaskViewId,
+  });
+}
+
 export async function createWorkspace(data: { name: string }) {
   const res = await api<Workspace | { workspace: Workspace }>("/workspaces", { method: "POST", body: data });
   return unwrap(res, "workspace");

@@ -12,6 +12,7 @@ import {
   updateCustomField,
   updateLabel,
   updateStatus,
+  updateAppearanceConfig,
   updateTaskViewsConfig,
   updateWorkspace,
   type CustomFieldPayload,
@@ -36,6 +37,16 @@ export function useConfig() {
 export function useUpdateTaskViewsConfig() {
   return useMutation({
     mutationFn: updateTaskViewsConfig,
+  });
+}
+
+export function useUpdateAppearanceConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateAppearanceConfig,
+    onSuccess: (config) => {
+      queryClient.setQueryData(["config"], config);
+    },
   });
 }
 

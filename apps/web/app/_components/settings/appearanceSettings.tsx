@@ -19,7 +19,7 @@ export default function AppearanceSettings() {
       <section>
         <h2 className="text-base font-semibold">Appearance</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Theme and layout for this browser. Changes stay on this device.
+          Theme and accent follow this account on web and mobile.
         </p>
       </section>
 

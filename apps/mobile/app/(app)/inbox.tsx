@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Text } from "react-native";
 import { useRouter } from "expo-router";
 import { Inbox } from "lucide-react-native";
 import Screen from "../../components/ui/Screen";
@@ -7,6 +7,7 @@ import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
 import { Field, PrimaryButton } from "../../components/ui/primitives";
 import { useCreateTask, useInboxQuery } from "../../lib/hooks";
+import { needsNetworkCopy } from "../../lib/queryCopy";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function InboxScreen() {
@@ -15,11 +16,21 @@ export default function InboxScreen() {
   const capture = useCreateTask();
   const [title, setTitle] = useState("");
   const items = inbox.data ?? [];
+  const networkCopy = needsNetworkCopy(inbox);
 
   return (
     <Screen>
-      <MobileHeader title="Inbox" />
-      <ScrollView contentContainerStyle={styles.body}>
+      <MobileHeader title="Inbox" back />
+      <ScrollView
+        contentContainerStyle={styles.body}
+        refreshControl={
+          <RefreshControl
+            refreshing={inbox.isRefetching && !inbox.isPending}
+            onRefresh={() => void inbox.refetch()}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <Field value={title} onChangeText={setTitle} placeholder="Capture a title…" autoCapitalize="sentences" />
         <PrimaryButton
           label={capture.isPending ? "Saving…" : "Capture"}
@@ -36,7 +47,9 @@ export default function InboxScreen() {
             {capture.error instanceof Error ? capture.error.message : "Could not capture."}
           </Text>
         ) : null}
-        {items.length === 0 ? (
+        {networkCopy && items.length === 0 ? (
+          <EmptyState icon={Inbox} title="Couldn't load inbox" description={networkCopy} compact />
+        ) : items.length === 0 ? (
           <EmptyState icon={Inbox} title="Inbox is empty" description="Capture a thought with only a title." compact />
         ) : (
           items.map((task) => (

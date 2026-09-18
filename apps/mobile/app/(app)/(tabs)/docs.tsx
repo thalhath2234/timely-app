@@ -1,17 +1,22 @@
-import { useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState, type ReactNode } from "react";
+import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { FileText, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
+import { ChevronRight, FileText, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
 import EmptyState from "../../../components/ui/EmptyState";
-import { useCreateDoc, useDocsQuery, useSheetsQuery, useWorkspacesQuery } from "../../../lib/hooks";
+import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import { useCreateDoc, useCreateSheet, useDocsQuery, useSheetsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { fromMarkdown } from "../../../lib/markdown";
+import { csvToGrid } from "../../../lib/sheetCsv";
 import { sheetHref } from "../../../lib/sheet";
+import { buildDocTree, countDocDescendants, type DocNode } from "../../../lib/docTree";
 import { timeAgo } from "../../../lib/format";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { needsNetworkCopy } from "../../../lib/queryCopy";
+import type { Doc } from "../../../lib/types";
 
 type Kind = "docs" | "sheets";
 
@@ -19,17 +24,19 @@ export default function FilesScreen() {
   const router = useRouter();
   const [kind, setKind] = useState<Kind>("docs");
   const [showArchived, setShowArchived] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [menuDoc, setMenuDoc] = useState<DocNode | null>(null);
   const docsQ = useDocsQuery();
   const sheetsQ = useSheetsQuery();
   const createDoc = useCreateDoc();
+  const updateDoc = useUpdateDoc();
+  const createSheet = useCreateSheet();
   const spaces = useWorkspacesQuery().data ?? [];
   const docs = useMemo(
-    () =>
-      (docsQ.data ?? [])
-        .filter((d) => (showArchived ? Boolean(d.archivedAt) : !d.archivedAt))
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    () => (docsQ.data ?? []).filter((d) => (showArchived ? Boolean(d.archivedAt) : !d.archivedAt)),
     [docsQ.data, showArchived],
   );
+  const tree = useMemo(() => buildDocTree(docs), [docs]);
   const sheets = useMemo(
     () =>
       (sheetsQ.data ?? [])
@@ -37,10 +44,31 @@ export default function FilesScreen() {
         .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")),
     [sheetsQ.data, showArchived],
   );
+  const networkCopy = needsNetworkCopy(kind === "docs" ? docsQ : sheetsQ);
   const wsById = useMemo(() => new Map(spaces.map((w) => [w.id, w])), [spaces]);
   const favoriteDocs = docs.filter((d) => d.isFavorite);
   const favoriteSheets = sheets.filter((s) => s.isFavorite);
   const restSheets = sheets.filter((s) => !s.isFavorite);
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function addSubpage(parent: Doc) {
+    const page = await createDoc.mutateAsync({
+      title: "Untitled",
+      parentId: parent.id,
+      workspaceId: parent.workspaceId,
+    });
+    setExpandedIds((previous) => new Set(previous).add(parent.id));
+    setMenuDoc(null);
+    router.push(`/(app)/docs/${page.id}`);
+  }
 
   async function importMarkdown() {
     try {
@@ -66,17 +94,74 @@ export default function FilesScreen() {
     }
   }
 
+  async function importCsv() {
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["text/csv", "text/comma-separated-values", "text/plain", "text/*"],
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled || !picked.assets?.[0]) return;
+      const asset = picked.assets[0];
+      const source = await (await fetch(asset.uri)).text();
+      const grid = csvToGrid(source);
+      const title = (asset.name || "Imported sheet").replace(/\.csv$/i, "").trim() || "Imported sheet";
+      const sheet = await createSheet.mutateAsync({ title, ...grid, workspaceId: spaces[0]?.id });
+      router.push(sheetHref(sheet.id) as never);
+    } catch (error) {
+      Alert.alert("Could not import CSV", error instanceof Error ? error.message : "Pick a .csv file and try again.");
+    }
+  }
+
+  function renderNode(node: DocNode, depth: number): ReactNode {
+    const expanded = expandedIds.has(node.id);
+    const hasChildren = node.children.length > 0;
+    const descendantCount = countDocDescendants(node);
+    return (
+      <View key={node.id}>
+        <Pressable
+          onPress={() => router.push(`/(app)/docs/${node.id}`)}
+          onLongPress={() => setMenuDoc(node)}
+          style={[styles.card, { paddingLeft: 12 + depth * 16 }]}
+        >
+          <Pressable
+            accessibilityLabel={expanded ? "Collapse" : "Expand"}
+            onPress={() => toggleExpanded(node.id)}
+            style={[styles.chevron, !hasChildren && { opacity: 0 }]}
+            disabled={!hasChildren}
+          >
+            <ChevronRight
+              size={16}
+              color={colors.mutedForeground}
+              style={{ transform: [{ rotate: expanded ? "90deg" : "0deg" }] }}
+            />
+          </Pressable>
+          <Text style={styles.icon}>{node.icon || "📄"}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>{node.title || "Untitled"}</Text>
+            <Text numberOfLines={1} style={styles.meta}>
+              {hasChildren ? `${descendantCount} nested · ` : ""}
+              {timeAgo(node.updatedAt)}
+            </Text>
+          </View>
+          {node.isFavorite ? <Star size={16} color={colors.warning} fill={colors.warning} /> : null}
+        </Pressable>
+        {expanded ? node.children.map((child) => renderNode(child, depth + 1)) : null}
+      </View>
+    );
+  }
+
   return (
     <Screen>
       <MobileHeader
         title="Files"
         subtitle={kind === "docs" ? `${docs.length} pages` : `${sheets.length} tables`}
         actions={
-          kind === "docs" ? (
-            <HeaderIconButton label="Import Markdown" onPress={() => void importMarkdown()}>
-              <Upload size={20} color={colors.foreground} />
-            </HeaderIconButton>
-          ) : null
+          <HeaderIconButton
+            label={kind === "docs" ? "Import Markdown" : "Import CSV"}
+            onPress={() => void (kind === "docs" ? importMarkdown() : importCsv())}
+          >
+            <Upload size={20} color={colors.foreground} />
+          </HeaderIconButton>
         }
       >
         <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
@@ -95,12 +180,21 @@ export default function FilesScreen() {
           </Pressable>
         </View>
       </MobileHeader>
-      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 110, gap: 10 }}>
-        {(kind === "docs" ? docsQ.isError : sheetsQ.isError) ? (
+      <ScrollView
+        contentContainerStyle={{ padding: 12, paddingBottom: 110, gap: 10 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={(kind === "docs" ? docsQ.isRefetching : sheetsQ.isRefetching) && !(kind === "docs" ? docsQ.isPending : sheetsQ.isPending)}
+            onRefresh={() => void (kind === "docs" ? docsQ.refetch() : sheetsQ.refetch())}
+            tintColor={colors.primary}
+          />
+        }
+      >
+        {networkCopy ? (
           <EmptyState
             icon={kind === "docs" ? FileText : SheetIcon}
             title={kind === "docs" ? "Couldn't load docs" : "Couldn't load sheets"}
-            description="Check your connection and try again."
+            description={networkCopy}
           />
         ) : kind === "docs" ? (
           docs.length === 0 ? (
@@ -109,7 +203,7 @@ export default function FilesScreen() {
             <>
               {favoriteDocs.length ? <Text style={styles.section}>Favorites</Text> : null}
               {favoriteDocs.map((doc) => (
-                <Pressable key={doc.id} onPress={() => router.push(`/(app)/docs/${doc.id}`)} style={styles.card}>
+                <Pressable key={`fav-${doc.id}`} onPress={() => router.push(`/(app)/docs/${doc.id}`)} style={styles.card}>
                   <Text style={styles.icon}>{doc.icon || "📄"}</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.title}>{doc.title || "Untitled"}</Text>
@@ -120,22 +214,12 @@ export default function FilesScreen() {
                   <Star size={16} color={colors.warning} fill={colors.warning} />
                 </Pressable>
               ))}
-              <Text style={styles.section}>Recent</Text>
-              {docs.map((doc) => (
-                <Pressable key={`r-${doc.id}`} onPress={() => router.push(`/(app)/docs/${doc.id}`)} style={styles.card}>
-                  <Text style={styles.icon}>{doc.icon || "📄"}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.title}>{doc.title || "Untitled"}</Text>
-                    <Text numberOfLines={1} style={styles.meta}>
-                      {timeAgo(doc.updatedAt)}
-                    </Text>
-                  </View>
-                </Pressable>
-              ))}
+              <Text style={styles.section}>Pages</Text>
+              {tree.map((node) => renderNode(node, 0))}
             </>
           )
         ) : sheets.length === 0 ? (
-          <EmptyState icon={SheetIcon} title="No sheets yet" description="Tap + to create a table." />
+          <EmptyState icon={SheetIcon} title="No sheets yet" description="Tap + to create a table, or import a CSV." />
         ) : (
           <>
             {favoriteSheets.length ? <Text style={styles.section}>Favorites</Text> : null}
@@ -170,6 +254,30 @@ export default function FilesScreen() {
           </>
         )}
       </ScrollView>
+      <BottomSheet open={Boolean(menuDoc)} onClose={() => setMenuDoc(null)} title={menuDoc?.title || "Page"}>
+        <SheetOption
+          onSelect={() => {
+            if (!menuDoc) return;
+            const id = menuDoc.id;
+            setMenuDoc(null);
+            router.push(`/(app)/docs/${id}`);
+          }}
+        >
+          Open
+        </SheetOption>
+        <SheetOption onSelect={() => menuDoc && void addSubpage(menuDoc)}>Add subpage</SheetOption>
+        {menuDoc?.parentId ? (
+          <SheetOption
+            onSelect={() => {
+              if (!menuDoc) return;
+              updateDoc.mutate({ id: menuDoc.id, data: { parentId: null } });
+              setMenuDoc(null);
+            }}
+          >
+            Move to top level
+          </SheetOption>
+        ) : null}
+      </BottomSheet>
     </Screen>
   );
 }
@@ -179,7 +287,7 @@ const styles = createThemedStyleSheet((colors) => ({
   card: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 8,
     minHeight: 64,
     borderRadius: 12,
     borderWidth: 1,
@@ -187,6 +295,7 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
     paddingHorizontal: 12,
   },
+  chevron: { width: 24, height: 40, alignItems: "center", justifyContent: "center" },
   icon: { fontSize: 20, width: 28, textAlign: "center", color: colors.foreground },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },

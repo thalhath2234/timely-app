@@ -290,6 +290,9 @@ func (s *workspaceService) GetConfig(userID string) (*models.Config, error) {
 	if config.ProjectTaskViews == nil {
 		config.ProjectTaskViews = models.ProjectTaskViews{}
 	}
+	if config.Appearance.Theme == "" {
+		config.Appearance = models.DefaultAppearance()
+	}
 
 	customFields, err := s.repo.GetAllCustomFields(userID)
 	if err != nil {
@@ -315,6 +318,11 @@ func (s *workspaceService) UpdateConfig(config *models.Config) (*models.Config, 
 			return nil, err
 		}
 	}
+	appearance, err := config.Appearance.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	config.Appearance = appearance
 
 	updatedConfig, err := s.repo.UpdateConfig(config)
 	if err != nil {

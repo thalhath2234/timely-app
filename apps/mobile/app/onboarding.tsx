@@ -14,7 +14,8 @@ export default function OnboardingScreen() {
   const [pending, setPending] = useState(false);
 
   if (!token) return <Redirect href="/login" />;
-  if (isOnboarded(user)) return <Redirect href="/(app)/(tabs)/calendar" />;
+  if (!user) return <Redirect href="/login" />;
+  if (isOnboarded(user)) return <Redirect href="/(app)/(tabs)/home" />;
 
   async function submit() {
     if (name.trim().length < 2) {
@@ -25,7 +26,7 @@ export default function OnboardingScreen() {
     setError("");
     try {
       await finishOnboarding(name.trim());
-      router.replace("/(app)/(tabs)/calendar");
+      router.replace("/(app)/(tabs)/home");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not finish setup");
     } finally {

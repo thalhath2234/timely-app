@@ -1,4 +1,4 @@
-import type { Sheet, SheetColumn, SheetColumnType, SheetRow } from "./types";
+import type { Sheet, SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRow, SheetTab } from "./types";
 import { columnIndexToLetter } from "./sheetFormula";
 
 export const SHEET_ICON_CHOICES = [
@@ -64,15 +64,30 @@ export function normalizeRows(rows: SheetRow[] | null | undefined): SheetRow[] {
   });
 }
 
+export function normalizeTab(tab: SheetTab, index = 0, fallbackName = "Sheet 1"): SheetTab {
+  return {
+    id: tab?.id || newSheetId("tab"),
+    name: tab?.name?.trim() || (index === 0 ? fallbackName : `Sheet ${index + 1}`),
+    columns: normalizeColumns(tab?.columns),
+    rows: normalizeRows(tab?.rows),
+    merges: tab?.merges ?? [],
+  };
+}
+
 export function normalizeSheet(sheet: Sheet): Sheet {
+  const columns = normalizeColumns(sheet.columns);
+  const rows = normalizeRows(sheet.rows);
+  const merges = sheet.merges ?? [];
   return {
     ...sheet,
     title: sheet.title ?? "",
     description: sheet.description ?? "",
-    columns: normalizeColumns(sheet.columns),
-    rows: normalizeRows(sheet.rows),
-    merges: sheet.merges ?? [],
-    tabs: sheet.tabs ?? [],
+    columns,
+    rows,
+    merges,
+    tabs: (sheet.tabs ?? []).map((tab, index) =>
+      normalizeTab(tab, index, sheet.title || "Sheet 1"),
+    ),
   };
 }
 
@@ -80,6 +95,59 @@ export function emptySheetRow(columns: SheetColumn[]): SheetRow {
   const cells: Record<string, string> = {};
   for (const column of columns) cells[column.id] = "";
   return { id: newSheetId("row"), cells };
+}
+
+export function defaultTabGrid(): { columns: SheetColumn[]; rows: SheetRow[] } {
+  const columns: SheetColumn[] = ["A", "B", "C", "D"].map((name) => ({
+    id: newSheetId("col"),
+    name,
+    width: 160,
+    type: "text",
+  }));
+  const rows = Array.from({ length: 20 }, () => emptySheetRow(columns));
+  return { columns, rows };
+}
+
+export function tabsFromSheet(sheet: Sheet): SheetTab[] {
+  if (sheet.tabs && sheet.tabs.length > 0) {
+    return sheet.tabs.map((tab, index) => normalizeTab(tab, index, sheet.title || "Sheet 1"));
+  }
+  return [
+    {
+      id: newSheetId("tab"),
+      name: sheet.title || "Sheet 1",
+      columns: normalizeColumns(sheet.columns),
+      rows: normalizeRows(sheet.rows),
+      merges: sheet.merges ?? [],
+    },
+  ];
+}
+
+export function workbookPayload(tabs: SheetTab[]) {
+  const primary = tabs[0];
+  return {
+    columns: primary?.columns ?? [],
+    rows: primary?.rows ?? [],
+    merges: primary?.merges ?? [],
+    tabs: tabs.length > 1 ? tabs : [],
+  };
+}
+
+export function addWorkbookTab(tabs: SheetTab[]): SheetTab[] {
+  const grid = defaultTabGrid();
+  return [
+    ...tabs,
+    {
+      id: newSheetId("tab"),
+      name: `Sheet ${tabs.length + 1}`,
+      columns: grid.columns.map((column, index) => ({
+        ...column,
+        name: column.name || columnIndexToLetter(index),
+      })),
+      rows: grid.rows,
+      merges: [] as SheetMerge[],
+    },
+  ];
 }
 
 export function isFormulaValue(value: string) {
@@ -111,4 +179,26 @@ export function normalizeTypedCell(type: SheetColumnType | undefined, value: str
     return "";
   }
   return value;
+}
+
+export function formatCellDisplay(
+  display: string,
+  format: SheetCellFormat | undefined,
+  columnType?: SheetColumnType,
+): string {
+  if (!format && columnType !== "currency" && columnType !== "percent") return display;
+  const parsed = Number(String(display).replace(/,/g, "").replace(/%/g, "").trim());
+  if (!Number.isFinite(parsed)) return display;
+  const kind = format?.numberFormat ?? (columnType === "currency" ? "currency" : columnType === "percent" ? "percent" : undefined);
+  const digits = format?.decimals;
+  if (kind === "currency") {
+    return parsed.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: digits ?? 2, maximumFractionDigits: digits ?? 2 });
+  }
+  if (kind === "percent") {
+    return parsed.toLocaleString(undefined, { style: "percent", minimumFractionDigits: digits ?? 0, maximumFractionDigits: digits ?? 0 });
+  }
+  if (kind === "number" || digits != null) {
+    return parsed.toLocaleString(undefined, { minimumFractionDigits: digits ?? 0, maximumFractionDigits: digits ?? 2 });
+  }
+  return display;
 }

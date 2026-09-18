@@ -40,6 +40,7 @@ func (r *userRepository) CreateUser(user *models.User) error {
 		IsOnBoardingCompleted: false,
 		TaskViews:             models.DefaultTaskViews(),
 		ActiveTaskViewId:      "view_task_list",
+		Appearance:            models.DefaultAppearance(),
 	}
 
 	if err := tx.Create(config).Error; err != nil {

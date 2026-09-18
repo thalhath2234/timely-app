@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { User } from "../types";
 import { completeOnboarding, getMe, login as loginApi, register as registerApi, logout as logoutApi, refreshSession } from "../api/auth";
 import { createWorkspace } from "../api/workspaces";
+import { unregisterServerPush } from "../notifications";
 import { ApiError, flushOfflineQueue } from "../api/client";
 import { clearToken, getRefreshToken, getToken, onSessionExpired, setSession } from "./session";
 import { setOfflineQueueUser } from "../offlineQueue";
@@ -58,6 +59,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!cancelled) setState({ ready: true, token: null, user: null });
           return;
         }
+        try {
+          const refreshToken = await getRefreshToken();
+          if (refreshToken) {
+            const session = await refreshSession(refreshToken);
+            await setSession(session.token, session.refreshToken);
+            if (!cancelled) await hydrate(session.token);
+            return;
+          }
+        } catch {
+          // fall through to keep the stored token and retry on next launch
+        }
         if (!cancelled) setState({ ready: true, token, user: null });
       }
     })();
@@ -88,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return hydrate(session.token);
       },
       logout: async () => {
+        await unregisterServerPush();
         await logoutApi();
         await clearToken();
         setOfflineQueueUser(null);

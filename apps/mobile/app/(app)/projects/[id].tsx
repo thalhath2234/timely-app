@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Check, ChevronDown, ChevronUp, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
@@ -10,9 +10,11 @@ import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import { Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
 import {
   useCreateStage,
+  useCreateTask,
   useDeleteProject,
   useDeleteStage,
   useDuplicateProject,
+  useProjectActivityQuery,
   useProjectQuery,
   useProjectsQuery,
   useReorderStages,
@@ -24,9 +26,13 @@ import {
 } from "../../../lib/hooks";
 import { PRIORITIES } from "../../../lib/priority";
 import { showUndoToast } from "../../../lib/toast";
-import { formatShortDate, toDateInputValue } from "../../../lib/format";
+import { formatShortDate, timeAgo, toDateInputValue } from "../../../lib/format";
+import { ENTITY_COLORS, resolvedColor } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
-import type { Stage, Task } from "../../../lib/types";
+import { requestQuickAdd } from "../../../lib/quickAddIntent";
+import RichTextEditor from "../../../components/editor/RichTextEditor";
+import { isRichContentEmpty, toRichContent } from "../../../lib/richText";
+import type { DocContent, Stage, Task } from "../../../lib/types";
 
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -44,11 +50,18 @@ export default function ProjectDetailScreen() {
   const deleteStage = useDeleteStage();
   const reorder = useReorderStages();
   const saveTask = useSaveTask();
+  const createTask = useCreateTask();
+  const activity = useProjectActivityQuery(id);
   const [stageName, setStageName] = useState("");
-  const [picker, setPicker] = useState<"status" | "priority" | "start" | "deadline" | null>(null);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [picker, setPicker] = useState<"status" | "priority" | "start" | "deadline" | "color" | null>(null);
   const [editingStage, setEditingStage] = useState<Stage | null>(null);
   const [stageDraft, setStageDraft] = useState("");
   const [movingTask, setMovingTask] = useState<Task | null>(null);
+  const [note, setNote] = useState("");
+  const [noteRich, setNoteRich] = useState<DocContent>({ type: "doc", content: [{ type: "paragraph" }] });
+  const [noteSync, setNoteSync] = useState(0);
+  const seededNoteId = useRef<string | null>(null);
 
   const workspace = spaces.find((space) => space.id === project?.workspaceId);
   const projectTasks = useMemo(
@@ -74,6 +87,17 @@ export default function ProjectDetailScreen() {
     ];
   }, [projectTasks, stages]);
 
+  useEffect(() => {
+    if (!project || seededNoteId.current === project.id) return;
+    seededNoteId.current = project.id;
+    const seed = !isRichContentEmpty(project.descriptionRich)
+      ? project.descriptionRich
+      : toRichContent(undefined, project.description || "");
+    setNoteRich(seed ?? { type: "doc", content: [{ type: "paragraph" }] });
+    setNote(project.description ?? "");
+    setNoteSync((value) => value + 1);
+  }, [project]);
+
   if (!project) {
     return (
       <Screen>
@@ -88,6 +112,7 @@ export default function ProjectDetailScreen() {
   }
 
   const current = project;
+  const accent = resolvedColor(current.color, current.id);
 
   function persist(data: Parameters<typeof save.mutate>[0]["data"]) {
     save.mutate({ id: current.id, data });
@@ -131,12 +156,27 @@ export default function ProjectDetailScreen() {
       />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}>
         <Field value={project.title} onChangeText={(title) => persist({ title })} autoCapitalize="words" />
-        <Field
-          value={project.description ?? ""}
-          onChangeText={(description) => persist({ description })}
-          placeholder="Description"
-          multiline
-          autoCapitalize="sentences"
+        <Pressable onPress={() => setPicker("color")} style={styles.card}>
+          <Text style={styles.label}>Color</Text>
+          <View style={styles.colorRow}>
+            <View style={[styles.swatch, { backgroundColor: accent }]} />
+            <Text style={styles.value}>{project.color?.trim() || "Auto"}</Text>
+          </View>
+        </Pressable>
+        <Text style={styles.label}>Description</Text>
+        <RichTextEditor
+          compact
+          content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
+          syncKey={noteSync}
+          placeholder="Write a description. Type '/' for blocks…"
+          onChange={({ content, plainText }) => {
+            setNoteRich(content);
+            setNote(plainText);
+          }}
+        />
+        <PrimaryButton
+          label="Save description"
+          onPress={() => persist({ description: note, descriptionRich: noteRich })}
         />
         <Pressable onPress={() => setPicker("status")} style={styles.card}>
           <Text style={styles.label}>Status</Text>
@@ -160,7 +200,34 @@ export default function ProjectDetailScreen() {
           style={styles.card}
         >
           <Text style={styles.value}>Open tasks in this project</Text>
-          <Text style={styles.meta}>{projectTasks.length} tasks</Text>
+          <Text style={styles.meta}>{projectTasks.length} tasks · same filters as Tasks</Text>
+        </Pressable>
+        <SectionLabel>New task</SectionLabel>
+        <Field value={taskTitle} onChangeText={setTaskTitle} placeholder="Task title" autoCapitalize="sentences" />
+        <PrimaryButton
+          label={createTask.isPending ? "Adding…" : "Add task"}
+          disabled={!taskTitle.trim() || createTask.isPending}
+          onPress={() => {
+            const name = taskTitle.trim();
+            if (!name) return;
+            void createTask
+              .mutateAsync({
+                name,
+                kind: "task",
+                duration: 30,
+                projectId: project.id,
+                workspaceId: project.workspaceId,
+                statusId: workspace?.status?.find((status) => status.isDefault)?.id ?? workspace?.status?.[0]?.id,
+              })
+              .then(() => setTaskTitle(""));
+          }}
+        />
+        <Pressable
+          onPress={() =>
+            requestQuickAdd({ kind: "task", projectId: project.id, workspaceId: project.workspaceId })
+          }
+        >
+          <Text style={styles.link}>Full composer</Text>
         </Pressable>
         <SectionLabel>Stages</SectionLabel>
         {stages.map((stage, index) => (
@@ -222,7 +289,7 @@ export default function ProjectDetailScreen() {
         />
         <SectionLabel>Board</SectionLabel>
         {projectTasks.length === 0 ? (
-          <EmptyState icon={ListTodo} title="No tasks" description="Assign tasks to this project from the task list." compact />
+          <EmptyState icon={ListTodo} title="No tasks" description="Add a task above or open the full composer." compact />
         ) : (
           board.map((column) => (
             <View key={column.id || "unstaged"} style={styles.column}>
@@ -250,6 +317,17 @@ export default function ProjectDetailScreen() {
             void duplicate.mutateAsync(project.id).then((copy) => router.push(`/(app)/projects/${copy.id}`))
           }
         />
+        <SectionLabel>Activity</SectionLabel>
+        <Text style={styles.meta}>Edits to the project’s own title, dates and description are not recorded yet.</Text>
+        {(activity.data ?? []).slice(0, 20).map((entry) => (
+          <View key={entry.id} style={styles.task}>
+            <Text style={styles.item}>{entry.message || `${entry.actorName} ${entry.action}`}</Text>
+            <Text style={styles.meta}>
+              {entry.taskName ? `${entry.taskName} · ` : ""}
+              {timeAgo(entry.createdAt)}
+            </Text>
+          </View>
+        ))}
         <Pressable
           onPress={() =>
             Alert.alert("Delete project", "This cannot be undone.", [
@@ -267,6 +345,30 @@ export default function ProjectDetailScreen() {
           <Text style={styles.deleteText}>Delete project</Text>
         </Pressable>
       </ScrollView>
+      <BottomSheet open={picker === "color"} onClose={() => setPicker(null)} title="Color">
+        <SheetOption
+          selected={!project.color}
+          onSelect={() => {
+            persist({ color: "" });
+            setPicker(null);
+          }}
+        >
+          Auto
+        </SheetOption>
+        {ENTITY_COLORS.map((color) => (
+          <SheetOption
+            key={color}
+            selected={project.color?.toUpperCase() === color.toUpperCase()}
+            onSelect={() => {
+              persist({ color });
+              setPicker(null);
+            }}
+            leading={<View style={[styles.swatch, { backgroundColor: color }]} />}
+          >
+            {color}
+          </SheetOption>
+        ))}
+      </BottomSheet>
       <BottomSheet open={picker === "status"} onClose={() => setPicker(null)} title="Status">
         <SheetOption
           selected={!project.statusId}
@@ -369,6 +471,8 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   label: { color: colors.mutedForeground, fontSize: 12 },
   value: { color: colors.foreground, fontSize: 15, marginTop: 4 },
+  colorRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
+  swatch: { width: 18, height: 18, borderRadius: 9 },
   meta: { color: colors.mutedForeground, fontSize: 12 },
   stage: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40 },
   item: { flex: 1, color: colors.foreground },

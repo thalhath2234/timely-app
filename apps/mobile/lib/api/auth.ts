@@ -1,4 +1,4 @@
-import type { User } from "../types";
+import type { DeviceSession, User } from "../types";
 import { api, unwrap } from "./client";
 
 export type AuthSession = {
@@ -49,6 +49,18 @@ export function completeOnboarding() {
     method: "PUT",
     body: { isOnboardingCompleted: true },
   });
+}
+
+export function listSessions() {
+  return api<DeviceSession[]>("/sessions");
+}
+
+export function revokeSession(id: string) {
+  return api<void>(`/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function revokeOtherSessions() {
+  return api<{ revoked: number }>("/sessions/others", { method: "DELETE" });
 }
 
 export { unwrap };

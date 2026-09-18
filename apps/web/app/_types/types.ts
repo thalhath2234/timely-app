@@ -701,6 +701,10 @@ export interface Config {
   activeTaskViewId?: string;
   /** One saved task-list layout per project id. */
   projectTaskViews?: Record<string, TaskViewConfig>;
+  appearance?: {
+    theme: "system" | "light" | "dark";
+    accent: "default" | `#${string}`;
+  };
   workingHours?: WorkingHours;
   createdAt?: string;
   updatedAt?: string;

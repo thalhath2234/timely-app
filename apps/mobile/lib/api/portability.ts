@@ -45,6 +45,14 @@ export async function shareExport(path: string, filename: string, mimeType: stri
   await Sharing.shareAsync(file.uri, { mimeType, dialogTitle: `Export ${filename}` });
 }
 
+export async function shareLocalText(filename: string, contents: string, mimeType: string) {
+  if (!(await Sharing.isAvailableAsync())) throw new Error("File sharing is not available on this device.");
+  const target = new File(Paths.cache, filename);
+  if (target.exists) target.delete();
+  target.write(contents);
+  await Sharing.shareAsync(target.uri, { mimeType, dialogTitle: `Export ${filename}` });
+}
+
 export async function restoreBackupJSON(contents: string) {
   let backup: unknown;
   try { backup = JSON.parse(contents); }

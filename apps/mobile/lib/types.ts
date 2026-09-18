@@ -226,6 +226,7 @@ export interface Task {
   scheduleId: string | null;
   stageId: string | null;
   blockedById: string | null;
+  blockedBy?: { id: string; name?: string } | null;
 
   project?: Project | null;
   workspace?: Workspace | null;
@@ -649,6 +650,10 @@ export interface Config {
   customFields?: CustomField[];
   taskViews?: TaskViewConfig[];
   activeTaskViewId?: string;
+  appearance?: {
+    theme: "system" | "light" | "dark";
+    accent: "default" | `#${string}`;
+  };
   workingHours?: WorkingHours;
   createdAt?: string;
   updatedAt?: string;
@@ -698,6 +703,38 @@ export interface TaskViewConfig {
   sortDirection: TaskListSortDirection;
   selectedWorkspaceIds: string[];
   selectedStatusIds: string[];
-  /** Built-in ids plus `cf:{customFieldId}`. Empty means the default order. */
+  selectedProjectIds?: string[];
+  selectedPriorityLevels?: string[];
+  selectedLabelIds?: string[];
+  selectedStageIds?: string[];
+  showCompleted?: boolean;
+  onlyOverdue?: boolean;
+  onlyScheduled?: boolean;
+  onlyRecurring?: boolean;
+  onlyDated?: boolean;
+  showReminders?: boolean;
   columnOrder: string[];
+  optionsVisible?: boolean;
 }
+
+export type DeviceSession = {
+  id: string;
+  deviceLabel: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  current: boolean;
+};
+
+export type ProjectActivityEntry = {
+  id: string;
+  taskId: string;
+  taskName: string;
+  actorName: string;
+  action: string;
+  field: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  message: string;
+  createdAt: string;
+};

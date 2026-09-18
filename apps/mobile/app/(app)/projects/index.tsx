@@ -7,6 +7,7 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import { Field, PrimaryButton, SectionLabel, Select } from "../../../components/ui/primitives";
 import { useCreateProject, useProjectsQuery, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
+import { resolvedColor } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { Project, Task } from "../../../lib/types";
 
@@ -79,7 +80,7 @@ export default function ProjectsScreen() {
                   <Pressable
                     key={project.id}
                     onPress={() => router.push(`/(app)/projects/${project.id}`)}
-                    style={styles.card}
+                    style={[styles.card, { borderLeftWidth: 3, borderLeftColor: resolvedColor(project.color, project.id) }]}
                   >
                     <Text style={styles.title}>{project.title || "Untitled project"}</Text>
                     <Text style={styles.meta}>

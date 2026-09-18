@@ -14,7 +14,10 @@ import {
   AtSign,
   Bold,
   CheckSquare,
+  Code,
   Code2,
+  Columns2,
+  Combine,
   FileText,
   FolderKanban,
   Heading1,
@@ -22,13 +25,16 @@ import {
   Heading3,
   Highlighter,
   Italic,
+  Link2,
   List,
   ListOrdered,
   ListTodo,
   Minus,
   Plus,
   Quote,
+  Rows2,
   Sheet as SheetIcon,
+  Split,
   Strikethrough,
   Table2,
   Trash2,
@@ -36,7 +42,9 @@ import {
 } from "lucide-react-native";
 import type { DocContent, MentionEntityType } from "../../lib/types";
 import { useMentionItems, useSearchQuery } from "../../lib/hooks";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { colors, createThemedStyleSheet, editorThemeVars, getThemeMode, resolvedAccentHex } from "../../lib/theme";
+import BottomSheet from "../ui/BottomSheet";
+import { Field, PrimaryButton } from "../ui/primitives";
 import { buildEditorHtml } from "./editorHtml";
 
 type Picker = { kind: "slash" | "mention"; query: string; from: number; to: number } | null;
@@ -59,7 +67,9 @@ const SLASH: {
   { title: "Code block", description: "Monospaced code", cmd: "code", shortcut: "```", keywords: ["pre"] },
   { title: "Table", description: "Insert a 3×3 table", cmd: "table", keywords: ["grid"] },
   { title: "Divider", description: "Line — type - then space", cmd: "hr", shortcut: "-", keywords: ["hr", "rule"] },
+  { title: "Link", description: "Add a URL to the selected text", cmd: "linkPrompt", shortcut: "[]", keywords: ["url", "href", "anchor"] },
   { title: "Mention", description: "Reference a doc, sheet, task or project", cmd: "mentionChar", shortcut: "@", keywords: ["@", "mention"] },
+  { title: "Page", description: "Create a nested subpage", cmd: "page", keywords: ["subpage", "child", "nested"] },
 ];
 
 const FORMAT_TOOLS = [
@@ -74,7 +84,9 @@ const FORMAT_TOOLS = [
   { label: "Numbered", Icon: ListOrdered, cmd: "ordered" },
   { label: "Todo", Icon: CheckSquare, cmd: "task" },
   { label: "Quote", Icon: Quote, cmd: "quote" },
-  { label: "Code", Icon: Code2, cmd: "code" },
+  { label: "Inline code", Icon: Code, cmd: "inlineCode" },
+  { label: "Code block", Icon: Code2, cmd: "code" },
+  { label: "Link", Icon: Link2, cmd: "linkPrompt" },
   { label: "Table", Icon: Table2, cmd: "table" },
   { label: "Divider", Icon: Minus, cmd: "hr" },
   { label: "Mention", Icon: AtSign, cmd: "mentionChar" },
@@ -87,6 +99,10 @@ const TABLE_TOOLS = [
   { label: "Add row before", caption: "⟨Row", Icon: Plus, cmd: "addRowBefore" },
   { label: "Add row after", caption: "Row⟩", Icon: Plus, cmd: "addRowAfter" },
   { label: "Delete row", caption: "−Row", Icon: Minus, cmd: "deleteRow" },
+  { label: "Header row", caption: "H-row", Icon: Rows2, cmd: "headerRow" },
+  { label: "Header column", caption: "H-col", Icon: Columns2, cmd: "headerCol" },
+  { label: "Merge cells", caption: "Merge", Icon: Combine, cmd: "merge" },
+  { label: "Split cell", caption: "Split", Icon: Split, cmd: "split" },
   { label: "Delete table", caption: "Delete", Icon: Trash2, cmd: "deleteTable" },
 ];
 
@@ -118,23 +134,30 @@ function filterMentions<T extends { label: string; hint?: string }>(items: T[], 
   return scored.sort((a, b) => a.score - b.score).slice(0, 8).map((entry) => entry.item);
 }
 
+type EditorActive = Record<string, boolean>;
+
 export default function RichTextEditor({
   content,
   onChange,
   onFocusChange,
+  onCreateSubpage,
   placeholder = "Start writing. Type '/' for blocks, '@' to mention…",
   syncKey = 0,
+  compact = false,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
   onFocusChange?: (focused: boolean) => void;
+  onCreateSubpage?: () => Promise<{ id: string; title?: string | null } | null>;
   placeholder?: string;
   /** Increment when remote content should replace the local draft. */
   syncKey?: number;
+  compact?: boolean;
 }) {
   const webRef = useRef<WebView>(null);
   const insets = useSafeAreaInsets();
-  const html = useMemo(() => buildEditorHtml(content, placeholder), []);
+  const themeKey = `${getThemeMode()}:${resolvedAccentHex()}`;
+  const html = useMemo(() => buildEditorHtml(content, placeholder, editorThemeVars()), [themeKey]);
   const focusedRef = useRef(false);
   const appliedRef = useRef(JSON.stringify(content));
   const contentRef = useRef(content);
@@ -145,6 +168,10 @@ export default function RichTextEditor({
   const [failed, setFailed] = useState(false);
   const [picker, setPicker] = useState<Picker>(null);
   const [inTable, setInTable] = useState(false);
+  const [active, setActive] = useState<EditorActive>({});
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkHref, setLinkHref] = useState("https://");
+  const [linkRange, setLinkRange] = useState<{ from: number; to: number } | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [barHeight, setBarHeight] = useState(56);
   const mentionItems = useMentionItems();
@@ -203,6 +230,7 @@ export default function RichTextEditor({
         from?: number;
         to?: number;
         inTable?: boolean;
+        active?: EditorActive;
       };
       if (msg.type === "change" && msg.content) {
         appliedRef.current = JSON.stringify(msg.content);
@@ -221,6 +249,7 @@ export default function RichTextEditor({
       }
       if (msg.type === "selection") {
         setInTable(Boolean(msg.inTable));
+        if (msg.active) setActive(msg.active);
       }
       if (msg.type === "ready") setReady(true);
       if (msg.type === "hidePickers") setPicker(null);
@@ -230,6 +259,7 @@ export default function RichTextEditor({
   }
 
   const slashItems = SLASH.filter((item) => {
+    if (item.cmd === "page" && !onCreateSubpage) return false;
     const q = (picker?.kind === "slash" ? picker.query : "").toLowerCase();
     if (!q) return true;
     return item.title.toLowerCase().includes(q) || item.keywords.some((k) => k.includes(q));
@@ -252,10 +282,54 @@ export default function RichTextEditor({
 
   const safeBottom = keyboardHeight > 0 ? 8 : Math.max(insets.bottom, 8);
 
+  function openLinkPrompt(range?: { from: number; to: number } | null) {
+    setLinkRange(range ?? null);
+    setLinkHref("https://");
+    setLinkOpen(true);
+  }
+
+  async function applySlash(item: (typeof SLASH)[number]) {
+    const range = picker ? { from: picker.from, to: picker.to } : undefined;
+    setPicker(null);
+    if (item.cmd === "linkPrompt") {
+      openLinkPrompt(range ?? null);
+      return;
+    }
+    if (item.cmd === "page") {
+      if (!onCreateSubpage) return;
+      const page = await onCreateSubpage();
+      if (!page) return;
+      run("mention", {
+        ...(range ?? {}),
+        attrs: {
+          id: page.id,
+          label: page.title || "Untitled",
+          entityType: "doc",
+          appearance: "page",
+        },
+      });
+      return;
+    }
+    run(item.cmd, range ?? {});
+  }
+
+  function applyFormat(cmd: string) {
+    if (cmd === "linkPrompt") {
+      if (active.link) {
+        run("unsetLink");
+        return;
+      }
+      openLinkPrompt(null);
+      return;
+    }
+    run(cmd);
+  }
+
   return (
-    <View style={[styles.wrap, { paddingBottom: keyboardHeight }]}>
-      <View style={styles.webWrap}>
+    <View style={[styles.wrap, compact && styles.compact, { paddingBottom: keyboardHeight }]}>
+      <View style={[styles.webWrap, compact && styles.compactWeb]}>
         <WebView
+          key={themeKey}
           ref={webRef}
           source={{ html, baseUrl: "https://localhost" }}
           originWhitelist={["*"]}
@@ -300,8 +374,7 @@ export default function RichTextEditor({
                     <Pressable
                       key={item.cmd}
                       onPress={() => {
-                        run(item.cmd, { from: picker.from, to: picker.to });
-                        setPicker(null);
+                        void applySlash(item);
                       }}
                       style={styles.pickerRow}
                     >
@@ -364,27 +437,69 @@ export default function RichTextEditor({
           </ScrollView>
         ) : null}
         <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.barWrap}>
-          {FORMAT_TOOLS.map((btn) => (
-            <Pressable
-              key={btn.label}
-              accessibilityLabel={btn.label}
-              onPress={() => {
-                run(btn.cmd);
-              }}
-              style={styles.tool}
-            >
-              <btn.Icon size={18} color={colors.foreground} />
-            </Pressable>
-          ))}
+          {FORMAT_TOOLS.map((btn) => {
+            const on =
+              btn.cmd === "linkPrompt"
+                ? Boolean(active.link)
+                : btn.cmd === "code"
+                  ? Boolean(active.codeBlock)
+                  : Boolean(active[btn.cmd]);
+            return (
+              <Pressable
+                key={btn.label}
+                accessibilityLabel={btn.label}
+                accessibilityState={{ selected: on }}
+                onPress={() => applyFormat(btn.cmd)}
+                style={[styles.tool, on && styles.toolOn]}
+              >
+                <btn.Icon size={18} color={on ? colors.accentForeground : colors.foreground} />
+              </Pressable>
+            );
+          })}
         </ScrollView>
       </View>
+
+      <BottomSheet open={linkOpen} onClose={() => setLinkOpen(false)} title="Link">
+        <Field
+          value={linkHref}
+          onChangeText={setLinkHref}
+          placeholder="https://"
+          autoCapitalize="none"
+          keyboardType="url"
+        />
+        <View style={{ height: 12 }} />
+        <PrimaryButton
+          label="Apply link"
+          onPress={() => {
+            const href = linkHref.trim();
+            if (!href) return;
+            run("setLink", { ...(linkRange ?? {}), href, label: href.replace(/^https?:\/\//, "") });
+            setLinkOpen(false);
+            setLinkRange(null);
+          }}
+        />
+        {active.link ? (
+          <Pressable
+            onPress={() => {
+              run("unsetLink");
+              setLinkOpen(false);
+            }}
+            style={{ paddingVertical: 14, alignItems: "center" }}
+          >
+            <Text style={{ color: colors.destructive, fontWeight: "600" }}>Remove link</Text>
+          </Pressable>
+        ) : null}
+      </BottomSheet>
     </View>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
   wrap: { flex: 1, minHeight: 280 },
+  compact: { flex: 0, minHeight: 220, maxHeight: 280, borderRadius: 16, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   webWrap: { flex: 1, minHeight: 160 },
+  compactWeb: { minHeight: 140, maxHeight: 180 },
+  toolOn: { backgroundColor: colors.accent },
   overlay: { ...StyleSheet.absoluteFill, justifyContent: "center", padding: 24 },
   web: { flex: 1, backgroundColor: colors.background },
   dock: {

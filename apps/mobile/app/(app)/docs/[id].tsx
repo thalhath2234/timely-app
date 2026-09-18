@@ -8,7 +8,7 @@ import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHea
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import RichTextEditor from "../../../components/editor/RichTextEditor";
-import { useDeleteDoc, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
+import { useCreateDoc, useDeleteDoc, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../../lib/autosave";
 import { showUndoToast } from "../../../lib/toast";
 import { fromMarkdown, resolveDocContent } from "../../../lib/markdown";
@@ -60,6 +60,7 @@ function DocEditor({ docId }: { docId: string }) {
   const docs = useDocsQuery().data ?? [];
   const spaces = useWorkspacesQuery().data ?? [];
   const updateDoc = useUpdateDoc();
+  const createDoc = useCreateDoc();
   const remove = useDeleteDoc();
 
   const [remoteEpoch, setRemoteEpoch] = useState(0);
@@ -174,6 +175,14 @@ function DocEditor({ docId }: { docId: string }) {
         onChange={({ content, plainText }) => {
           setWordCount(countWords(plainText));
           schedule({ content, plainText });
+        }}
+        onCreateSubpage={async () => {
+          const page = await createDoc.mutateAsync({
+            title: "Untitled",
+            parentId: docId,
+            workspaceId: doc.workspaceId,
+          });
+          return { id: page.id, title: page.title || "Untitled" };
         }}
         syncKey={editorSync}
       />

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AccessibilityInfo, ActivityIndicator, View } from "react-native";
 import { Redirect, Stack } from "expo-router";
 import ReminderNotifications from "../../components/ReminderNotifications";
+import AccountAppearanceSync from "../../components/AccountAppearanceSync";
 import ToastHost from "../../components/ui/ToastHost";
 import { isOnboarded, useAuth } from "../../lib/auth/AuthProvider";
 import { stackFadeAnimation, stackPushAnimation } from "../../lib/motion";
@@ -25,11 +26,13 @@ export default function AppLayout() {
     );
   }
   if (!token) return <Redirect href="/login" />;
+  if (!user) return <Redirect href="/login" />;
   if (!isOnboarded(user)) return <Redirect href="/onboarding" />;
 
   return (
     <>
       <ReminderNotifications />
+      <AccountAppearanceSync />
       <ToastHost />
       <Stack
         screenOptions={({ route }: { route: { name: string } }) => {

@@ -13,6 +13,7 @@ export default function Index() {
     );
   }
   if (!token) return <Redirect href="/login" />;
+  if (!user) return <Redirect href="/login" />;
   if (!isOnboarded(user)) return <Redirect href="/onboarding" />;
-  return <Redirect href="/(app)/(tabs)/calendar" />;
+  return <Redirect href="/(app)/(tabs)/home" />;
 }

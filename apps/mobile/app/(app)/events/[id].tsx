@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CalendarClock, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -7,18 +7,20 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
-import { Chip, Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Chip, Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
 import {
   useCalendarQuery,
   useDeleteEvent,
   useEditEventOccurrence,
   useEventQuery,
+  useProjectsQuery,
   useSplitEventSeries,
   useUpdateEvent,
 } from "../../../lib/hooks";
 import { addDays, formatShortDate, formatTime, startOfDay } from "../../../lib/format";
 import { buildRecurrenceInput, rruleToDraft, type RecurrenceDraft } from "../../../lib/recurrence";
+import { ENTITY_COLORS } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function EventDetailScreen() {
@@ -34,8 +36,11 @@ export default function EventDetailScreen() {
   const remove = useDeleteEvent();
   const editOcc = useEditEventOccurrence();
   const split = useSplitEventSeries();
+  const projects = useProjectsQuery().data ?? [];
   const [title, setTitle] = useState(event?.title ?? item?.title ?? "");
   const [description, setDescription] = useState(event?.description ?? "");
+  const [color, setColor] = useState(event?.color ?? "");
+  const [projectId, setProjectId] = useState(event?.projectId ?? "");
   const [start, setStart] = useState(event ? new Date(event.start) : item ? new Date(item.start) : new Date());
   const [end, setEnd] = useState(event ? new Date(event.end) : item ? new Date(item.end) : new Date());
   const [allDay, setAllDay] = useState(event?.allDay ?? item?.allDay ?? false);
@@ -50,6 +55,8 @@ export default function EventDetailScreen() {
     if (!event) return;
     setTitle(event.title);
     setDescription(event.description);
+    setColor(event.color ?? "");
+    setProjectId(event.projectId ?? "");
     setStart(new Date(event.start));
     setEnd(new Date(event.end));
     setAllDay(event.allDay);
@@ -75,9 +82,18 @@ export default function EventDetailScreen() {
   }
 
   const isOccurrence = item?.kind === "eventOccurrence";
+  const scopedProjects = projects.filter(
+    (project) => !event?.workspaceId || project.workspaceId === event.workspaceId,
+  );
 
   async function persist() {
     const nextRecurrence = buildRecurrenceInput(recurrence, start);
+    const extras = {
+      title,
+      description,
+      color: color || "",
+      projectId: projectId || null,
+    };
     if (isOccurrence && scope === "this" && item?.originalStart) {
       await editOcc.mutateAsync({
         id,
@@ -86,8 +102,13 @@ export default function EventDetailScreen() {
         newStart: start.toISOString(),
         newEnd: end.toISOString(),
       });
-      if (title !== event?.title || description !== event?.description) {
-        await save.mutateAsync({ id, data: { title, description } });
+      if (
+        title !== event?.title ||
+        description !== event?.description ||
+        (color || "") !== (event?.color ?? "") ||
+        (projectId || null) !== (event?.projectId ?? null)
+      ) {
+        await save.mutateAsync({ id, data: extras });
       }
       return;
     }
@@ -105,8 +126,7 @@ export default function EventDetailScreen() {
     save.mutate({
       id,
       data: {
-        title,
-        description,
+        ...extras,
         start: start.toISOString(),
         end: end.toISOString(),
         allDay,
@@ -120,7 +140,35 @@ export default function EventDetailScreen() {
       <MobileHeader title="Event" back large={false} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         <Field value={title} onChangeText={setTitle} placeholder="Event title" autoCapitalize="sentences" />
-        <Field value={description} onChangeText={setDescription} placeholder="Description" multiline autoCapitalize="sentences" />
+        <Field value={description} onChangeText={setDescription} placeholder="Notes, location, links..." multiline autoCapitalize="sentences" />
+        <SectionLabel>Color</SectionLabel>
+        <View style={styles.row}>
+          <Chip label="Auto" active={!color} onPress={() => setColor("")} />
+          {ENTITY_COLORS.map((swatch) => (
+            <Pressable
+              key={swatch}
+              accessibilityLabel={`Color ${swatch}`}
+              onPress={() => setColor(swatch)}
+              style={[styles.swatch, { backgroundColor: swatch }, color === swatch && styles.swatchOn]}
+            />
+          ))}
+        </View>
+        {scopedProjects.length > 0 ? (
+          <>
+            <SectionLabel>Project</SectionLabel>
+            <View style={styles.row}>
+              <Chip label="None" active={!projectId} onPress={() => setProjectId("")} />
+              {scopedProjects.map((project) => (
+                <Chip
+                  key={project.id}
+                  label={project.title}
+                  active={project.id === projectId}
+                  onPress={() => setProjectId(project.id)}
+                />
+              ))}
+            </View>
+          </>
+        ) : null}
         <Chip label={allDay ? "All day on" : "All day off"} active={allDay} onPress={() => setAllDay((v) => !v)} />
         <Pressable onPress={() => setPicking("start")} style={styles.meta}>
           <Text style={styles.label}>{recurrence && !allDay ? "Time" : "Starts"}</Text>
@@ -229,6 +277,15 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   label: { color: colors.mutedForeground, fontSize: 13 },
   value: { color: colors.foreground, fontSize: 14 },
+  row: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
+  swatch: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  swatchOn: { borderColor: colors.primary },
   delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
   deleteText: { color: colors.destructive, fontWeight: "600" },
 }));

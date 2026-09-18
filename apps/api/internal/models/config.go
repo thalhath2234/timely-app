@@ -275,6 +275,110 @@ func DefaultTaskViews() TaskViews {
 	}
 }
 
+// ---- Appearance (account-wide theme) ----
+
+const (
+	ThemeSystem   = "system"
+	ThemeLight    = "light"
+	ThemeDark     = "dark"
+	AccentDefault = "default"
+)
+
+// Appearance is the signed-in look for the account, shared across clients.
+type Appearance struct {
+	Theme  string `json:"theme"`
+	Accent string `json:"accent"`
+}
+
+func DefaultAppearance() Appearance {
+	return Appearance{Theme: ThemeSystem, Accent: AccentDefault}
+}
+
+func (a Appearance) Value() (driver.Value, error) {
+	normalized, err := a.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	b, err := json.Marshal(normalized)
+	return string(b), err
+}
+
+func (a *Appearance) Scan(src any) error {
+	if src == nil {
+		*a = DefaultAppearance()
+		return nil
+	}
+	var b []byte
+	switch v := src.(type) {
+	case string:
+		b = []byte(v)
+	case []byte:
+		b = v
+	default:
+		return errors.New("unsupported type for Appearance scan")
+	}
+	if len(b) == 0 {
+		*a = DefaultAppearance()
+		return nil
+	}
+	if err := json.Unmarshal(b, a); err != nil {
+		return err
+	}
+	normalized, err := a.Normalize()
+	if err != nil {
+		*a = DefaultAppearance()
+		return nil
+	}
+	*a = normalized
+	return nil
+}
+
+func normalizeAccentHex(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", false
+	}
+	if !strings.HasPrefix(trimmed, "#") {
+		trimmed = "#" + trimmed
+	}
+	upper := strings.ToUpper(trimmed)
+	if len(upper) == 4 {
+		return "#" + strings.Repeat(string(upper[1]), 2) + strings.Repeat(string(upper[2]), 2) + strings.Repeat(string(upper[3]), 2), hexRune(upper[1]) && hexRune(upper[2]) && hexRune(upper[3])
+	}
+	if len(upper) != 7 {
+		return "", false
+	}
+	for i := 1; i < 7; i++ {
+		if !hexRune(upper[i]) {
+			return "", false
+		}
+	}
+	return upper, true
+}
+
+func hexRune(r byte) bool {
+	return (r >= '0' && r <= '9') || (r >= 'A' && r <= 'F')
+}
+
+func (a Appearance) Normalize() (Appearance, error) {
+	theme := strings.ToLower(strings.TrimSpace(a.Theme))
+	if theme == "" {
+		theme = ThemeSystem
+	}
+	if theme != ThemeSystem && theme != ThemeLight && theme != ThemeDark {
+		return Appearance{}, errors.New("invalid theme: must be system, light, or dark")
+	}
+	accent := strings.TrimSpace(a.Accent)
+	if accent == "" || strings.EqualFold(accent, AccentDefault) {
+		return Appearance{Theme: theme, Accent: AccentDefault}, nil
+	}
+	hex, ok := normalizeAccentHex(accent)
+	if !ok {
+		return Appearance{}, errors.New("invalid accent: use default or #RRGGBB")
+	}
+	return Appearance{Theme: theme, Accent: hex}, nil
+}
+
 // ---- Config model ----
 
 type Config struct {
@@ -284,6 +388,7 @@ type Config struct {
 	TaskViews             TaskViews            `gorm:"type:jsonb;not null;default:'[]'" json:"taskViews"`
 	ActiveTaskViewId      string               `gorm:"type:text;not null;default:''" json:"activeTaskViewId"`
 	ProjectTaskViews      ProjectTaskViews     `gorm:"type:jsonb;not null;default:'{}'" json:"projectTaskViews"`
+	Appearance            Appearance           `gorm:"type:jsonb;not null;default:'{\"theme\":\"system\",\"accent\":\"default\"}'" json:"appearance"`
 	WorkingHours          WorkingHours         `gorm:"type:jsonb;not null;default:'{}'" json:"workingHours"`
 	ScheduleSettings      ScheduleSettings     `gorm:"type:jsonb;not null;default:'{}'" json:"scheduleSettings"`
 	NotificationSettings  NotificationSettings `gorm:"type:jsonb;not null;default:'{}'" json:"notificationSettings"`

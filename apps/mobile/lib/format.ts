@@ -21,6 +21,12 @@ export function startOfDay(d: Date) {
   return x;
 }
 
+export function startOfWeek(d: Date) {
+  const x = startOfDay(d);
+  x.setDate(x.getDate() - x.getDay());
+  return x;
+}
+
 export function addDays(d: Date, n: number) {
   const x = new Date(d);
   x.setDate(x.getDate() + n);

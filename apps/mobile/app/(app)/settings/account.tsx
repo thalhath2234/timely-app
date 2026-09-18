@@ -1,14 +1,21 @@
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import { Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
 import { useAuth } from "../../../lib/auth/AuthProvider";
 import { updateMe } from "../../../lib/api/auth";
+import { useRevokeOtherSessions, useRevokeSession, useSessionsQuery } from "../../../lib/hooks";
+import { formatLastUsed, humanizeDeviceLabel } from "../../../lib/deviceLabel";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function AccountSettings() {
-  const { user, refresh } = useAuth();
+  const router = useRouter();
+  const { user, refresh, logout } = useAuth();
+  const sessions = useSessionsQuery();
+  const revoke = useRevokeSession();
+  const revokeOthers = useRevokeOtherSessions();
   const [name, setName] = useState(user?.name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -37,6 +44,8 @@ export default function AccountSettings() {
     }
   }
 
+  const others = (sessions.data ?? []).filter((item) => !item.current).length;
+
   return (
     <Screen>
       <MobileHeader title="Account" back large={false} />
@@ -47,6 +56,54 @@ export default function AccountSettings() {
         <Field value={newPassword} onChangeText={setNewPassword} placeholder="New password" secure />
         {message ? <Text style={styles.msg}>{message}</Text> : null}
         <PrimaryButton label={pending ? "Saving…" : "Save account"} disabled={pending} onPress={() => void save()} />
+
+        <SectionLabel>Devices</SectionLabel>
+        <Text style={styles.msg}>Sign out a device if you no longer use it.</Text>
+        {others > 0 ? (
+          <Pressable
+            onPress={() =>
+              Alert.alert("Sign out other devices?", "This device stays signed in.", [
+                { text: "Cancel", style: "cancel" },
+                { text: "Sign out others", style: "destructive", onPress: () => revokeOthers.mutate() },
+              ])
+            }
+          >
+            <Text style={styles.destructive}>
+              {revokeOthers.isPending ? "Signing out…" : `Sign out everywhere else (${others})`}
+            </Text>
+          </Pressable>
+        ) : null}
+        {(sessions.data ?? []).map((session) => (
+          <View key={session.id} style={[styles.device, session.current && styles.current]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.deviceName}>
+                {humanizeDeviceLabel(session.deviceLabel)}
+                {session.current ? " · This device" : ""}
+              </Text>
+              <Text style={styles.msg}>Last used {formatLastUsed(session.lastUsedAt)}</Text>
+            </View>
+            <Pressable
+              onPress={() =>
+                Alert.alert(session.current ? "Sign out this device?" : "Sign out device?", undefined, [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Sign out",
+                    style: "destructive",
+                    onPress: () => {
+                      void revoke.mutateAsync(session.id).then(() => {
+                        if (session.current) {
+                          void logout().then(() => router.replace("/login"));
+                        }
+                      });
+                    },
+                  },
+                ])
+              }
+            >
+              <Text style={styles.destructive}>{revoke.isPending ? "…" : "Sign out"}</Text>
+            </Pressable>
+          </View>
+        ))}
       </View>
     </Screen>
   );
@@ -55,4 +112,17 @@ export default function AccountSettings() {
 const styles = createThemedStyleSheet((colors) => ({
   wrap: { padding: 16, gap: 12 },
   msg: { color: colors.mutedForeground, fontSize: 13 },
+  device: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 12,
+  },
+  current: { borderColor: colors.primary },
+  deviceName: { color: colors.foreground, fontWeight: "600" },
+  destructive: { color: colors.destructive, fontWeight: "600", fontSize: 13 },
 }));
