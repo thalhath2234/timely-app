@@ -45,6 +45,7 @@ export default function CalendarItemRow({
   return (
     <Pressable onPress={() => onOpen(item)} style={styles.row}>
       <View style={[styles.bar, { backgroundColor: itemColor(item) }]} />
+      {isTaskItem(item) ? <View style={[styles.check, overdue && styles.checkOverdue]} /> : null}
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text numberOfLines={1} style={[styles.title, done && styles.done]}>
           {item.title}
@@ -62,21 +63,23 @@ export default function CalendarItemRow({
 
 const styles = createThemedStyleSheet((colors) => ({
   row: {
-    minHeight: 56,
-    borderRadius: 12,
+    minHeight: 64,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    paddingVertical: 10,
-    paddingRight: 12,
-    paddingLeft: 10,
+    paddingVertical: 11,
+    paddingRight: 13,
+    paddingLeft: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
-  bar: { width: 4, alignSelf: "stretch", borderRadius: 4 },
-  title: { color: colors.cardForeground, fontSize: 15, fontWeight: "500" },
+  bar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 3 },
+  check: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: "#46566D" },
+  checkOverdue: { borderColor: "rgba(244,63,94,0.65)" },
+  title: { color: colors.cardForeground, fontSize: 14, fontWeight: "600" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },
-  metaText: { color: colors.mutedForeground, fontSize: 12 },
+  metaText: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
 }));

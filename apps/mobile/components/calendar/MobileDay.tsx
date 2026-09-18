@@ -111,7 +111,7 @@ export default function MobileDay({
               </Pressable>
             );
           })}
-          {isToday ? <View style={[styles.now, { top: nowY }]} /> : null}
+          {isToday ? <View style={[styles.now, { top: nowY }]}><View style={styles.nowDot} /></View> : null}
         </View>
       </View>
     </ScrollView>
@@ -124,10 +124,11 @@ const styles = createThemedStyleSheet((colors) => ({
   allDayText: { color: colors.foreground, fontSize: 13, fontWeight: "500" },
   dot: { width: 8, height: 8, borderRadius: 4 },
   hour: { color: colors.mutedForeground, fontSize: 11, textAlign: "right", paddingRight: 8, marginTop: -6 },
-  rail: { flex: 1, borderLeftWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  rail: { flex: 1, borderLeftWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.background },
   line: { height: HOUR_PX, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  block: { position: "absolute", paddingHorizontal: 6, paddingVertical: 4, borderLeftWidth: 3, borderRadius: 8 },
+  block: { position: "absolute", paddingHorizontal: 10, paddingVertical: 7, borderLeftWidth: 3, borderRadius: 10, borderWidth: 1, borderColor: colors.border },
   blockTitle: { color: colors.foreground, fontSize: 13, fontWeight: "500" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   now: { position: "absolute", left: 0, right: 0, height: 2, backgroundColor: colors.destructive },
+  nowDot: { position: "absolute", left: -5, top: -4, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.destructive, shadowColor: colors.destructive, shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
 }));

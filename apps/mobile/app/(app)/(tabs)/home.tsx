@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { Bell, Check, Inbox, Plus, Settings, Star, Sun, Video } from "lucide-react-native";
+import {
+  Bell,
+  ChevronRight,
+  GripVertical,
+  Inbox,
+  Moon,
+  Pause,
+  Plus,
+  Settings,
+  Star,
+  Sun,
+  Video,
+} from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet from "../../../components/ui/BottomSheet";
-import { PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
 import {
   useSaveTask,
   useSetTodayFocus,
@@ -16,7 +27,7 @@ import {
   useTodayQuery,
   useUnreadNotificationCount,
 } from "../../../lib/hooks";
-import { addCalendarDays, formatTime } from "../../../lib/format";
+import { addCalendarDays } from "../../../lib/format";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
 import { showUndoToast } from "../../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
@@ -42,22 +53,58 @@ function TaskRow({
   title,
   meta,
   onPress,
+  accent,
+  active,
+  danger,
+  onComplete,
   children,
 }: {
   title: string;
   meta?: string | null;
   onPress: () => void;
+  accent?: string;
+  active?: boolean;
+  danger?: boolean;
+  onComplete?: () => void;
   children?: ReactNode;
 }) {
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, active && styles.rowActive, danger && styles.rowDanger]}>
+      <View style={[styles.rowRail, { backgroundColor: accent ?? "#526177" }]} />
+      {onComplete ? (
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityLabel={`Complete ${title}`}
+          onPress={onComplete}
+          hitSlop={8}
+          style={[styles.checkRing, danger && styles.checkRingDanger, active && styles.checkRingActive]}
+        />
+      ) : null}
       <Pressable onPress={onPress} style={{ flex: 1, minWidth: 0 }}>
-        <Text style={styles.title}>{title}</Text>
-        {meta ? <Text style={styles.meta}>{meta}</Text> : null}
+        <Text numberOfLines={danger ? 2 : 1} style={styles.title}>{title}</Text>
+        {meta ? <Text style={[styles.meta, active && styles.metaActive, danger && styles.metaDanger]}>{meta}</Text> : null}
       </Pressable>
       {children}
     </View>
   );
+}
+
+function overdueLabel(deadline?: string | null) {
+  if (!deadline) return "Overdue";
+  const due = new Date(deadline);
+  const today = new Date();
+  due.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  const days = Math.max(1, Math.round((today.getTime() - due.getTime()) / 86_400_000));
+  return days === 1 ? "Yesterday" : `${days}d ago`;
+}
+
+function formatClock(iso: string) {
+  return new Date(iso).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 export default function HomeScreen() {
@@ -151,6 +198,7 @@ export default function HomeScreen() {
       <MobileHeader
         title="Today"
         subtitle={dateLabel}
+        statusDot
         actions={
           <>
             <HeaderIconButton label="Notifications" onPress={() => router.push("/(app)/notifications")}>
@@ -188,23 +236,37 @@ export default function HomeScreen() {
         ) : (
           <>
             <Pressable onPress={() => router.push("/(app)/inbox")} style={styles.inboxCard}>
-              <Inbox size={18} color={colors.primary} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.title}>Inbox</Text>
+              <View style={styles.inboxIcon}>
+                <Inbox size={21} color={colors.primary} strokeWidth={1.8} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={styles.inboxTitleRow}>
+                  <Text style={styles.title}>Inbox</Text>
+                  <View style={styles.countPill}>
+                    <Text style={styles.countPillText}>{data.inboxCount} active</Text>
+                  </View>
+                </View>
                 <Text style={styles.meta}>
                   {data.inboxCount === 0 ? "Clear — capture from Quick Add" : `${data.inboxCount} waiting to triage`}
                 </Text>
+              </View>
+              <View style={styles.inboxAdd}>
+                <Plus size={22} color={colors.mutedForeground} />
               </View>
             </Pressable>
 
             {data.focusing ? (
               <View style={styles.focusCard}>
-                <SectionLabel>Focusing</SectionLabel>
-                <Text style={styles.focusTimer}>{formatElapsed(elapsed)}</Text>
-                <Text style={styles.title}>{data.focusing.name}</Text>
+                <View style={styles.focusTopline}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.focusEyebrow}>FOCUS SESSION</Text>
+                  <Text style={styles.focusTimer}>{formatElapsed(elapsed)}</Text>
+                </View>
+                <Text numberOfLines={2} style={styles.focusTitle}>{data.focusing.name}</Text>
                 <View style={styles.actions}>
                   <Pressable onPress={() => void stopFocus.mutateAsync(data.focusing!.id)} style={styles.chip}>
-                    <Text style={styles.chipText}>Stop</Text>
+                    <Pause size={13} color={colors.primary} fill={colors.primary} />
+                    <Text style={styles.chipText}>Pause</Text>
                   </Pressable>
                   <Pressable
                     onPress={() => {
@@ -219,28 +281,26 @@ export default function HomeScreen() {
             ) : null}
 
             <View style={styles.sectionHead}>
-              <SectionLabel>Today focus</SectionLabel>
-              <Text style={styles.meta}>
+              <View style={styles.sectionTitleRow}>
+                <Star size={15} color={colors.warning} fill={colors.warning} />
+                <Text style={styles.sectionHeading}>Today focus</Text>
+              </View>
+              <Text style={styles.metric}>
                 {data.todayFocus.filter((task) => task.completedAt).length}/{focusCount || 0} · max {MAX_TODAY_FOCUS}
               </Text>
             </View>
-            {data.todayFocus.length === 0 ? (
-              <Text style={styles.meta}>Star up to 7 tasks for today. This is independent of deadlines.</Text>
-            ) : (
+            <Text style={styles.sectionCopy}>Star up to 7 tasks for today. This is independent of deadlines.</Text>
+            {data.todayFocus.length > 0 ? (
               data.todayFocus.map((task) => (
                 <TaskRow
                   key={task.id}
                   title={task.name}
                   meta={task.priorityLevel ?? undefined}
                   onPress={() => openTask(task.id)}
+                  accent={data.focusing?.id === task.id ? "#6366F1" : colors.warning}
+                  active={data.focusing?.id === task.id}
+                  onComplete={() => completeTask(task)}
                 >
-                  <Pressable
-                    accessibilityLabel={`Complete ${task.name}`}
-                    onPress={() => completeTask(task)}
-                    style={styles.iconChip}
-                  >
-                    <Check size={16} color={colors.success} />
-                  </Pressable>
                   {data.focusing?.id === task.id ? null : (
                     <Pressable onPress={() => void startFocus.mutateAsync(task.id)} style={styles.chip}>
                       <Text style={styles.chipText}>Start</Text>
@@ -255,7 +315,7 @@ export default function HomeScreen() {
                   </Pressable>
                 </TaskRow>
               ))
-            )}
+            ) : null}
             {remainingSlots > 0 ? (
               <Pressable onPress={() => setPickerOpen(true)} style={styles.addFocus}>
                 <Plus size={16} color={colors.primary} />
@@ -263,18 +323,33 @@ export default function HomeScreen() {
               </Pressable>
             ) : null}
 
-            <SectionLabel>Scheduled</SectionLabel>
+            <View style={styles.sectionHead}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionHeading}>Scheduled</Text>
+                <View style={styles.sectionCount}>
+                  <Text style={styles.sectionCountText}>{scheduled.length}</Text>
+                </View>
+              </View>
+              <Pressable onPress={() => router.push("/(app)/(tabs)/calendar")} style={styles.timelineLink}>
+                <Text style={styles.timelineText}>Timeline Mode</Text>
+                <ChevronRight size={14} color="#06B6D4" />
+              </Pressable>
+            </View>
             {scheduled.length === 0 ? (
               <Text style={styles.meta}>Nothing on the calendar today.</Text>
             ) : (
               scheduled.map((item) => {
                 const meet = meetingUrl(item);
+                const isFocusing = Boolean(item.taskId && item.taskId === focusingId);
                 return (
                   <TaskRow
                     key={item.id}
                     title={item.title}
-                    meta={`${item.reminder ? "Reminder · " : ""}${item.allDay ? "All day" : formatTime(item.start)}`}
+                    meta={item.allDay ? "All day" : isFocusing ? `${formatClock(item.start)} — ${formatClock(item.end)}  ·  In Focus` : `${item.reminder ? "Reminder · " : ""}${formatClock(item.start)}`}
                     onPress={() => openItem(item)}
+                    accent={isFocusing ? "#6366F1" : item.taskId ? "#06B6D4" : (item.color ?? "#526177")}
+                    active={isFocusing}
+                    onComplete={item.task ? () => completeTask(item.task!) : undefined}
                   >
                     {meet ? (
                       <Pressable
@@ -284,7 +359,17 @@ export default function HomeScreen() {
                       >
                         <Video size={16} color={colors.primary} />
                       </Pressable>
-                    ) : null}
+                    ) : isFocusing ? (
+                      <Pressable
+                        accessibilityLabel="Pause focus"
+                        onPress={() => void stopFocus.mutateAsync(item.taskId!)}
+                        hitSlop={8}
+                      >
+                        <Pause size={18} color="#818CF8" fill="#818CF8" />
+                      </Pressable>
+                    ) : (
+                      <GripVertical size={18} color="#526177" />
+                    )}
                   </TaskRow>
                 );
               })
@@ -292,19 +377,33 @@ export default function HomeScreen() {
 
             {data.overdue.length > 0 ? (
               <>
-                <SectionLabel>Overdue</SectionLabel>
+                <View style={styles.sectionHead}>
+                  <View style={styles.sectionTitleRow}>
+                    <View style={styles.dangerDot} />
+                    <Text style={styles.overdueHeading}>Overdue</Text>
+                    <View style={styles.overdueCount}>
+                      <Text style={styles.overdueCountText}>{data.overdue.length} pending</Text>
+                    </View>
+                  </View>
+                  <Pressable onPress={() => router.push("/(app)/(tabs)/calendar")}>
+                    <Text style={styles.reschedule}>Reschedule all</Text>
+                  </Pressable>
+                </View>
                 {data.overdue.map((task) => (
                   <TaskRow
                     key={task.id}
                     title={task.name}
-                    meta={task.deadline ?? undefined}
+                    meta={overdueLabel(task.deadline)}
                     onPress={() => openTask(task.id)}
+                    accent="#F43F5E"
+                    danger
+                    onComplete={() => completeTask(task)}
                   />
                 ))}
               </>
             ) : null}
 
-            <SectionLabel>End of day</SectionLabel>
+            <Text style={[styles.sectionHeading, styles.endOfDayHeading]}>End of day</Text>
             {data.unfinished.length === 0 ? (
               <Text style={styles.meta}>All of today’s focus is done.</Text>
             ) : (
@@ -312,7 +411,10 @@ export default function HomeScreen() {
                 <Text style={styles.meta}>
                   {data.unfinished.length} unfinished — move them to tomorrow’s focus.
                 </Text>
-                <PrimaryButton label="Shut down day" onPress={shutdown} />
+                <Pressable onPress={shutdown} style={styles.shutdownButton}>
+                  <Moon size={20} color="#FFFFFF" />
+                  <Text style={styles.shutdownText}>Shut down day</Text>
+                </Pressable>
               </>
             )}
           </>
@@ -342,42 +444,118 @@ export default function HomeScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  body: { padding: 16, gap: 10, paddingBottom: 48 },
+  body: { paddingHorizontal: 16, paddingTop: 16, gap: 10, paddingBottom: 72 },
   inboxCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 14,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    borderRadius: 20,
+    borderRadius: 18,
     padding: 16,
+    minHeight: 84,
+    marginBottom: 14,
+    shadowColor: "#000000",
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
   },
+  inboxIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.35)",
+    backgroundColor: "rgba(99,102,241,0.12)",
+  },
+  inboxTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  inboxAdd: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.muted,
+  },
+  countPill: { borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2, backgroundColor: "#242B3A" },
+  countPillText: { color: "#8290A7", fontSize: 10, fontFamily: "SpaceMono", fontVariant: ["tabular-nums"] },
   focusCard: {
     borderWidth: 1,
-    borderColor: colors.primary,
-    backgroundColor: colors.accent,
-    borderRadius: 20,
+    borderColor: "rgba(99,102,241,0.7)",
+    backgroundColor: colors.popover,
+    borderRadius: 16,
     padding: 16,
-    gap: 8,
+    gap: 10,
+    marginBottom: 12,
+    shadowColor: "#6366F1",
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
   },
-  focusTimer: { color: colors.primary, fontSize: 28, fontWeight: "700", fontVariant: ["tabular-nums"] },
-  sectionHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
+  focusTopline: { flexDirection: "row", alignItems: "center", gap: 7 },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#818CF8" },
+  focusEyebrow: { color: "#818CF8", fontSize: 10, fontWeight: "700", letterSpacing: 1, flex: 1 },
+  focusTimer: { color: "#A5B4FC", fontSize: 16, fontFamily: "SpaceMono", fontWeight: "700", fontVariant: ["tabular-nums"] },
+  focusTitle: { color: colors.foreground, fontSize: 16, fontWeight: "700", lineHeight: 22 },
+  sectionHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
+  sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  sectionHeading: { color: "#C7D0DD", fontSize: 12, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
+  endOfDayHeading: { color: "#8B99B0", marginTop: 22, marginBottom: -4 },
+  sectionCopy: { color: "#8B99B0", fontSize: 13, lineHeight: 19, marginBottom: 4 },
+  metric: { color: "#8290A7", fontSize: 12, fontFamily: "SpaceMono", fontVariant: ["tabular-nums"] },
+  sectionCount: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    paddingHorizontal: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.muted,
+  },
+  sectionCountText: { color: "#8290A7", fontSize: 11, fontFamily: "SpaceMono" },
+  timelineLink: { flexDirection: "row", alignItems: "center", gap: 3, minHeight: 36 },
+  timelineText: { color: "#06B6D4", fontSize: 12, fontWeight: "700" },
   row: {
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 14,
+    minHeight: 66,
+    paddingVertical: 13,
+    paddingRight: 13,
+    paddingLeft: 16,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 12,
+    overflow: "hidden",
   },
+  rowRail: { position: "absolute", left: 0, top: 0, bottom: 0, width: 3 },
+  rowActive: {
+    backgroundColor: colors.popover,
+    borderColor: "rgba(99,102,241,0.68)",
+    shadowColor: "#6366F1",
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  rowDanger: { minHeight: 58 },
+  checkRing: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: "#46566D" },
+  checkRingActive: { borderWidth: 2, borderColor: "#6366F1", backgroundColor: "rgba(99,102,241,0.14)" },
+  checkRingDanger: { width: 18, height: 18, borderColor: "rgba(244,63,94,0.55)" },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
+  meta: { color: "#8290A7", fontSize: 12, marginTop: 3 },
+  metaActive: { color: "#818CF8", fontFamily: "SpaceMono", fontWeight: "700" },
+  metaDanger: { color: "#F43F5E", fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", textTransform: "uppercase" },
   actions: { flexDirection: "row", gap: 8 },
-  chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 },
-  chipText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
+  chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 5 },
+  chipText: { color: colors.foreground, fontSize: 11, fontWeight: "700" },
   iconChip: {
     width: 32,
     height: 32,
@@ -386,8 +564,40 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
     backgroundColor: colors.muted,
   },
-  addFocus: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
-  addFocusText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  addFocus: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "rgba(99,102,241,0.62)",
+    borderRadius: 13,
+    backgroundColor: "rgba(99,102,241,0.045)",
+    marginBottom: 14,
+  },
+  addFocusText: { color: colors.primary, fontSize: 13, fontWeight: "700" },
+  dangerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#F43F5E" },
+  overdueHeading: { color: "#F43F5E", fontSize: 12, fontWeight: "800", letterSpacing: 0.7, textTransform: "uppercase" },
+  overdueCount: { borderRadius: 10, borderWidth: 1, borderColor: "rgba(244,63,94,0.25)", backgroundColor: "rgba(244,63,94,0.1)", paddingHorizontal: 8, paddingVertical: 4 },
+  overdueCountText: { color: "#F43F5E", fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700" },
+  reschedule: { color: "#8B99B0", fontSize: 12, fontWeight: "600", paddingVertical: 10 },
+  shutdownButton: {
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: "#4F46E5",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+    marginTop: 6,
+    shadowColor: "#6366F1",
+    shadowOpacity: 0.36,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  shutdownText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
   pickerRow: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   badge: {
     position: "absolute",

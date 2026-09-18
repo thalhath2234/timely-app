@@ -28,7 +28,7 @@ export default function TaskCard({
   const overdue = isOverdue(task.deadline, task.completedAt);
   const due = formatDueDate(task.deadline);
   const priority = task.priorityLevel ? PRIORITY_META[task.priorityLevel] : null;
-  const accent = taskEntityColor(task);
+  const accent = overdue ? colors.destructive : (priority?.color ?? taskEntityColor(task));
 
   return (
     <View style={[styles.card, selected && styles.selected]}>
@@ -83,7 +83,7 @@ const styles = createThemedStyleSheet((colors) => ({
   card: {
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
@@ -101,10 +101,10 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
   },
   boxOn: { backgroundColor: colors.success, borderColor: colors.success },
-  body: { flex: 1, minHeight: 56, justifyContent: "center", paddingVertical: 12, paddingRight: 12, gap: 4 },
-  name: { color: colors.cardForeground, fontSize: 15, fontWeight: "500" },
+  body: { flex: 1, minHeight: 64, justifyContent: "center", paddingVertical: 12, paddingRight: 12, gap: 5 },
+  name: { color: colors.cardForeground, fontSize: 14, fontWeight: "600" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { color: colors.mutedForeground, fontSize: 12 },
+  metaText: { color: colors.mutedForeground, fontSize: 11 },
 }));

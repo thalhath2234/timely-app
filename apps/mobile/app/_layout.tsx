@@ -3,6 +3,7 @@ import { AccessibilityInfo, useColorScheme, View } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
+import { useFonts } from "expo-font";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "../lib/auth/AuthProvider";
@@ -22,6 +23,9 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const colorScheme = useColorScheme();
+  const [fontsLoaded, fontError] = useFonts({
+    SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -32,7 +36,6 @@ export default function RootLayout() {
       if (!mounted) return;
       setReduceMotion(motionReduced);
       setReady(true);
-      SplashScreen.hideAsync().catch(() => undefined);
     });
     const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
     return () => {
@@ -42,6 +45,11 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
+    if (!ready || (!fontsLoaded && !fontError)) return;
+    SplashScreen.hideAsync().catch(() => undefined);
+  }, [ready, fontsLoaded, fontError]);
+
+  useEffect(() => {
     if (!ready) return;
     const timer = setTimeout(() => {
       requestNotificationPermission().catch(() => false);
@@ -49,7 +57,7 @@ export default function RootLayout() {
     return () => clearTimeout(timer);
   }, [ready]);
 
-  if (!ready) return null;
+  if (!ready || (!fontsLoaded && !fontError)) return null;
 
   return (
     <ThemeRoot>
@@ -86,4 +94,3 @@ export default function RootLayout() {
 const styles = createThemedStyleSheet(() => ({
   shell: { flex: 1 },
 }));
-

@@ -51,7 +51,7 @@ export default function CalendarScreen() {
   const [open, setOpen] = useState<CalendarItem | null>(null);
   const [autoOpen, setAutoOpen] = useState(false);
   const [slot, setSlot] = useState<Date | null>(null);
-  const [waitingOpen, setWaitingOpen] = useState(true);
+  const [waitingOpen, setWaitingOpen] = useState(false);
   const [scheduleTask, setScheduleTask] = useState<Task | null>(null);
 
   const monthKey = `${selected.getFullYear()}-${selected.getMonth()}`;
@@ -297,12 +297,12 @@ const styles = createThemedStyleSheet((colors) => ({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    padding: 10,
+    padding: 12,
     gap: 8,
   },
   waitingHead: { flexDirection: "row", alignItems: "center" },
   waitingTitle: { flex: 1, color: colors.foreground, fontWeight: "600" },
-  waitingCount: { color: colors.mutedForeground, fontSize: 12 },
+  waitingCount: { color: colors.primary, fontSize: 11, fontWeight: "700", borderRadius: 10, backgroundColor: colors.accent, paddingHorizontal: 7, paddingVertical: 3 },
   waitingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   waitingName: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
   waitingMeta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
