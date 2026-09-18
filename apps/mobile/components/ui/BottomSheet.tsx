@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
+import { X } from "lucide-react-native";
 import { overlayEntering, overlayExiting } from "../../lib/motion";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { useSheetInsets, useSheetLayer } from "./SheetHost";
@@ -69,7 +70,14 @@ function SheetChrome({
       </Animated.View>
       <View pointerEvents="auto" style={[styles.sheet, { paddingBottom: bottom }]}>
         <View style={styles.handle} />
-        {title ? <Text style={styles.title}>{title}</Text> : null}
+        {title ? (
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>{title}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={styles.close}>
+              <X size={18} color={colors.mutedForeground} />
+            </Pressable>
+          </View>
+        ) : null}
         <ScrollView
           keyboardShouldPersistTaps="always"
           keyboardDismissMode="on-drag"
@@ -127,8 +135,8 @@ const styles = createThemedStyleSheet((colors) => ({
     maxHeight: "92%",
     margin: 0,
     backgroundColor: colors.popover,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
     borderTopWidth: 1,
@@ -147,10 +155,12 @@ const styles = createThemedStyleSheet((colors) => ({
     marginTop: 10,
     marginBottom: 8,
   },
-  title: { color: colors.foreground, fontSize: 17, fontWeight: "600", paddingHorizontal: 20, marginBottom: 8 },
+  titleRow: { minHeight: 52, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 12 },
+  title: { flex: 1, color: colors.foreground, fontSize: 18, fontWeight: "700", letterSpacing: -0.25 },
+  close: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   body: { paddingHorizontal: 16, flexGrow: 0, flexShrink: 1 },
   bodyContent: { paddingBottom: 8 },
-  footer: { borderTopWidth: 0, borderColor: colors.border, paddingHorizontal: 16, paddingTop: 8 },
+  footer: { borderTopWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingTop: 12, backgroundColor: colors.card },
   option: {
     minHeight: 52,
     borderRadius: 12,
@@ -159,7 +169,7 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     gap: 12,
   },
-  optionOn: { backgroundColor: colors.accent },
+  optionOn: { backgroundColor: "rgba(99,102,241,0.16)" },
   optionText: { flex: 1, color: colors.foreground, fontSize: 15 },
   selected: { color: colors.accentForeground, fontSize: 12, fontWeight: "500" },
 }));

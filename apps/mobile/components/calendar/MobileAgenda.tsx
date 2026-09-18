@@ -47,8 +47,11 @@ export default function MobileAgenda({
       {overdue.length > 0 ? (
         <View>
           <View style={styles.head}>
+            <View style={styles.dangerDot} />
             <Text style={[styles.day, { color: colors.destructive }]}>Overdue</Text>
-            <Text style={styles.meta}>{overdue.length}</Text>
+            <View style={styles.countPill}>
+              <Text style={styles.countText}>{overdue.length}</Text>
+            </View>
           </View>
           <View style={{ gap: 8 }}>
             {overdue.map((item) => (
@@ -79,7 +82,10 @@ export default function MobileAgenda({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  head: { flexDirection: "row", alignItems: "baseline", gap: 8, paddingTop: 16, paddingBottom: 8, paddingHorizontal: 4 },
-  day: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
-  meta: { color: colors.mutedForeground, fontSize: 12 },
+  head: { flexDirection: "row", alignItems: "center", gap: 7, paddingTop: 18, paddingBottom: 9, paddingHorizontal: 4 },
+  day: { color: colors.foreground, fontSize: 11, fontWeight: "800", letterSpacing: 0.7, textTransform: "uppercase" },
+  meta: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
+  dangerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.destructive },
+  countPill: { minWidth: 22, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(244,63,94,0.12)", borderWidth: 1, borderColor: "rgba(244,63,94,0.25)" },
+  countText: { color: colors.destructive, fontSize: 10, fontWeight: "700" },
 }));

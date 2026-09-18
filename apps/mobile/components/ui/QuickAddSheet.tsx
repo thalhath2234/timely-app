@@ -308,6 +308,10 @@ export default function QuickAddSheet({
           </View>
         }
       >
+        <View style={styles.versionRow}>
+          <Text style={styles.version}>KINETIC V2.4</Text>
+          <Text style={styles.versionHint}>Choose what to capture</Text>
+        </View>
         <View style={styles.kinds}>
           {KINDS.map((item) => {
             const on = item.value === kind;
@@ -669,6 +673,9 @@ function Stepper({
 
 const styles = createThemedStyleSheet((colors) => ({
   fields: { gap: 14 },
+  versionRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  version: { color: "#A5B4FC", fontSize: 9, fontWeight: "800", letterSpacing: 0.8, borderWidth: 1, borderColor: "rgba(129,140,248,0.35)", backgroundColor: "rgba(99,102,241,0.12)", borderRadius: 7, paddingHorizontal: 8, paddingVertical: 4 },
+  versionHint: { color: colors.mutedForeground, fontSize: 11 },
   kinds: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
   kind: {
     width: "31%",
@@ -681,7 +688,7 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
     paddingVertical: 12,
   },
-  kindOn: { borderColor: colors.primary, backgroundColor: colors.accent },
+  kindOn: { borderColor: "#6558E8", backgroundColor: "rgba(99,102,241,0.16)", shadowColor: "#6366F1", shadowOpacity: 0.24, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
   kindText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   meta: {

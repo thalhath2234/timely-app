@@ -68,6 +68,16 @@ export default function TaskFiltersSheet({
   labels: Label[];
   stages: Stage[];
 }) {
+  const activeCount =
+    Number(value.onlyOverdue) +
+    Number(value.onlyScheduled) +
+    Number(value.onlyRecurring) +
+    Number(value.onlyDated) +
+    (value.statusKeys?.length ?? value.statusIds.length) +
+    value.priorityLevels.length +
+    value.labelIds.length +
+    value.stageIds.length;
+
   function toggleStatusGroup(group: NamedStatusGroup) {
     const ids = group.statuses.map((status) => status.id);
     const allOn =
@@ -88,7 +98,7 @@ export default function TaskFiltersSheet({
     <BottomSheet
       open={open}
       onClose={onClose}
-      title="Filters"
+      title={activeCount ? `Filters  ·  ${activeCount} active` : "Filters"}
       footer={
         <View style={styles.footer}>
           <Pressable onPress={() => onChange(EMPTY_EXTRA_FILTERS)} style={styles.reset}>
@@ -101,7 +111,7 @@ export default function TaskFiltersSheet({
       }
     >
       <View style={styles.block}>
-        <SectionLabel>Quick</SectionLabel>
+        <SectionLabel>Quick filters</SectionLabel>
         <View style={styles.row}>
           <FilterChip
             label="Overdue"
@@ -176,7 +186,7 @@ export default function TaskFiltersSheet({
 
       {stages.length > 0 ? (
         <View style={styles.block}>
-          <SectionLabel>Stage</SectionLabel>
+          <SectionLabel>Release stage</SectionLabel>
           <View style={styles.row}>
             {stages.map((stage) => (
               <FilterChip
@@ -194,24 +204,24 @@ export default function TaskFiltersSheet({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  block: { gap: 8, marginBottom: 16 },
+  block: { gap: 8, marginBottom: 18 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   footer: { flexDirection: "row", alignItems: "center", gap: 12 },
   reset: { paddingHorizontal: 12, paddingVertical: 12 },
   resetText: { color: colors.mutedForeground, fontWeight: "600" },
   chip: {
-    minHeight: 40,
-    borderRadius: 999,
+    minHeight: 38,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    paddingHorizontal: 14,
+    paddingHorizontal: 13,
     paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-  chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipOn: { backgroundColor: "#5B4FE9", borderColor: "#786CFF" },
   chipText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
 }));

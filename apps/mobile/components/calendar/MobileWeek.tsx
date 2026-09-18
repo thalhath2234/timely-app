@@ -71,20 +71,20 @@ export default function MobileWeek({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  body: { padding: 12, gap: 8, paddingBottom: 32 },
+  body: { padding: 12, gap: 10, paddingBottom: 40 },
   day: {
     borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    padding: 10,
-    gap: 6,
+    padding: 12,
+    gap: 8,
   },
-  dayOn: { borderColor: colors.primary },
+  dayOn: { borderColor: "rgba(129,140,248,0.4)" },
   head: { flexDirection: "row", alignItems: "baseline", gap: 8 },
   wd: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase" },
   num: { color: colors.foreground, fontSize: 16, fontWeight: "700" },
-  empty: { color: colors.mutedForeground, fontSize: 12 },
+  empty: { color: "#526177", fontSize: 11, textAlign: "center", paddingVertical: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, borderRadius: 9 },
   chip: {
     borderLeftWidth: 3,
     paddingVertical: 4,

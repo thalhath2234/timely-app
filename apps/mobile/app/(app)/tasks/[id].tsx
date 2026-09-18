@@ -182,7 +182,8 @@ export default function TaskDetailScreen() {
   return (
     <Screen>
       <MobileHeader
-        title={isReminder ? "Reminder" : task.project?.title || workspace?.name || "Task"}
+        title="Timely"
+        subtitle={`TASK-${task.id.slice(-4).toUpperCase()}${isReminder ? "  ·  REMINDER" : ""}`}
         back
         large={false}
         actions={
@@ -196,6 +197,7 @@ export default function TaskDetailScreen() {
         }
       />
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
+        <Text style={styles.eyebrow}>{isReminder ? "TITLE" : "TASK OBJECTIVE"}</Text>
         <Field
           value={name}
           onChangeText={(next) => {
@@ -897,16 +899,17 @@ const styles = createThemedStyleSheet((colors) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: colors.primary,
+    backgroundColor: "#6558E8",
     borderRadius: 16,
     paddingHorizontal: 10,
     height: 32,
   },
   completeText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "600" },
-  card: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: "hidden" },
-  row: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
-  rowLabel: { width: 72, color: colors.mutedForeground, fontSize: 13 },
-  rowValue: { flex: 1, color: colors.foreground, fontSize: 15 },
+  eyebrow: { color: colors.mutedForeground, fontSize: 10, fontWeight: "700", letterSpacing: 0.9, marginBottom: -8 },
+  card: { borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: "hidden" },
+  row: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  rowLabel: { width: 76, color: colors.mutedForeground, fontSize: 12 },
+  rowValue: { flex: 1, color: colors.foreground, fontSize: 13, fontWeight: "600", textAlign: "right" },
   rowAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   reminderChip: {
     flexDirection: "row",
@@ -918,9 +921,9 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingVertical: 4,
   },
   reminderChipText: { color: colors.accentForeground, fontSize: 12, fontWeight: "600" },
-  section: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase" },
+  section: { color: colors.mutedForeground, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.9, marginTop: 4 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  block: { borderRadius: 10, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 12 },
+  block: { borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 12 },
   blockText: { color: colors.foreground, fontSize: 14 },
   activity: { color: colors.mutedForeground, fontSize: 13 },
   delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },

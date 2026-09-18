@@ -88,10 +88,10 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   day: { width: 44, alignItems: "center", justifyContent: "center", gap: 2 },
   numWrap: { width: 36, height: 36, borderRadius: 18, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-  on: { backgroundColor: colors.primary },
+  on: { backgroundColor: "#6558E8", shadowColor: "#818CF8", shadowOpacity: 0.5, shadowRadius: 9, shadowOffset: { width: 0, height: 0 } },
   wd: { color: colors.mutedForeground, fontSize: 11, fontWeight: "500" },
   num: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
   onText: { color: colors.primaryForeground },
-  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.mutedForeground },
+  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#526177" },
   dotSpacer: { width: 5, height: 5 },
 }));

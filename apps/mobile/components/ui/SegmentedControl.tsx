@@ -27,12 +27,14 @@ export default function SegmentedControl<T extends string>({
 const styles = createThemedStyleSheet((colors) => ({
   wrap: {
     flexDirection: "row",
-    backgroundColor: colors.muted,
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   item: { flex: 1, height: 32, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  on: { backgroundColor: colors.card },
-  text: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
-  onText: { color: colors.foreground },
+  on: { backgroundColor: colors.secondary, borderWidth: 1, borderColor: colors.border },
+  text: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
+  onText: { color: "#F8FAFC", fontWeight: "700" },
 }));

@@ -167,7 +167,51 @@ export default function DateTimeSheet({
     title ?? (mode === "time" ? "Pick a time" : mode === "date" ? "Pick a date" : "Pick date & time");
 
   return (
-    <BottomSheet open={open} onClose={onClose} title={heading}>
+    <BottomSheet
+      open={open}
+      onClose={onClose}
+      title={heading}
+      footer={
+        <View style={styles.footerActions}>
+          <Pressable onPress={setNow} style={styles.footerGhost}>
+            <Text style={styles.ghostText}>{mode === "time" ? "Now" : "Today"}</Text>
+          </Pressable>
+          {mode !== "date" ? (
+            <Pressable onPress={apply} style={styles.done}>
+              <Text style={styles.doneText}>✓  Done</Text>
+            </Pressable>
+          ) : <View style={{ flex: 1 }} />}
+          {clearable ? (
+            <Pressable
+              onPress={() => {
+                onChange(null);
+                onClose();
+              }}
+              style={styles.footerGhost}
+            >
+              <Text style={styles.ghostText}>Clear</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      }
+    >
+      {mode === "datetime" ? (
+        <View style={styles.quickRow}>
+          <Text style={styles.timezone}>{Intl.DateTimeFormat().resolvedOptions().timeZone}</Text>
+          <Pressable onPress={setNow} style={styles.quick}><Text style={styles.quickText}>Today</Text></Pressable>
+          <Pressable
+            onPress={() => {
+              const tomorrow = new Date();
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              setMonth(startOfMonth(tomorrow));
+              setDay(startOfDay(tomorrow));
+            }}
+            style={styles.quick}
+          >
+            <Text style={styles.quickText}>Tomorrow</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {mode !== "time" ? (
         <>
           <View style={styles.monthRow}>
@@ -238,32 +282,15 @@ export default function DateTimeSheet({
         </View>
       ) : null}
 
-      <View style={styles.actions}>
-        <Pressable onPress={setNow} style={styles.ghost}>
-          <Text style={styles.ghostText}>{mode === "time" ? "Now" : "Today"}</Text>
-        </Pressable>
-        {mode !== "date" ? (
-          <Pressable onPress={apply} style={styles.ghost}>
-            <Text style={[styles.ghostText, { color: colors.foreground }]}>Done</Text>
-          </Pressable>
-        ) : null}
-        {clearable ? (
-          <Pressable
-            onPress={() => {
-              onChange(null);
-              onClose();
-            }}
-            style={styles.ghost}
-          >
-            <Text style={styles.ghostText}>Clear</Text>
-          </Pressable>
-        ) : null}
-      </View>
     </BottomSheet>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  quickRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  timezone: { flex: 1, color: colors.mutedForeground, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.7 },
+  quick: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: colors.muted },
+  quickText: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600" },
   monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   nav: {
     width: 36,
@@ -292,7 +319,7 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  dayOn: { backgroundColor: colors.primary },
+  dayOn: { backgroundColor: "#6558E8", shadowColor: "#818CF8", shadowOpacity: 0.45, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
   dayToday: { backgroundColor: colors.accent },
   dayText: { color: colors.foreground, fontSize: 14 },
   dayOnText: { color: colors.primaryForeground, fontWeight: "700" },
@@ -304,7 +331,7 @@ const styles = createThemedStyleSheet((colors) => ({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.muted,
+    backgroundColor: colors.card,
     paddingVertical: 4,
   },
   wheelLabel: {
@@ -316,7 +343,9 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   wheelBtn: { height: 28, width: "100%", alignItems: "center", justifyContent: "center" },
   wheelValue: { color: colors.foreground, fontSize: 18, fontWeight: "600", fontVariant: ["tabular-nums"] },
-  actions: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
-  ghost: { paddingHorizontal: 8, paddingVertical: 12 },
+  footerActions: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10 },
+  footerGhost: { minWidth: 48, paddingHorizontal: 8, paddingVertical: 12, alignItems: "center" },
   ghostText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "600" },
+  done: { flex: 1, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#6558E8", shadowColor: "#6366F1", shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
+  doneText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 }));

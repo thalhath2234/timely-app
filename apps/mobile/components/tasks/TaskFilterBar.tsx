@@ -76,6 +76,6 @@ export default function TaskFilterBar({
 
 const styles = StyleSheet.create({
   wrap: { paddingBottom: 10, gap: 8 },
-  row: { paddingHorizontal: 12, gap: 8 },
+  row: { paddingHorizontal: 12, gap: 8, paddingVertical: 2 },
   select: { paddingHorizontal: 12 },
 });
