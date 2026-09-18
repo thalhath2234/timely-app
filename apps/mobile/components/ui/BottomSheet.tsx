@@ -1,7 +1,6 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect } from "react";
 import {
   Keyboard,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -9,10 +8,10 @@ import {
   Text,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { useReducedMotion } from "react-native-reanimated";
-import { overlayEntering, overlayExiting, sheetEntering, sheetExiting } from "../../lib/motion";
+import { overlayEntering, overlayExiting } from "../../lib/motion";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { useSheetInsets, useSheetLayer } from "./SheetHost";
 
 export default function BottomSheet({
   open,
@@ -27,55 +26,63 @@ export default function BottomSheet({
   children: ReactNode;
   footer?: ReactNode;
 }) {
-  const insets = useSafeAreaInsets();
-  const reduceMotion = useReducedMotion();
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
   useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
-    });
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
+    if (open) Keyboard.dismiss();
+  }, [open]);
+
+  useSheetLayer(open, onClose, () => (
+    <SheetChrome onClose={onClose} title={title} footer={footer}>
+      {children}
+    </SheetChrome>
+  ));
+
+  return null;
+}
+
+function SheetChrome({
+  onClose,
+  title,
+  children,
+  footer,
+}: {
+  onClose: () => void;
+  title?: string;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  const { bottom } = useSheetInsets();
+  const reduceMotion = useReducedMotion();
 
   return (
-    <Modal visible={open} transparent animationType="none" onRequestClose={onClose}>
-      <View style={styles.root}>
-        <Animated.View
-          entering={overlayEntering(reduceMotion)}
-          exiting={overlayExiting(reduceMotion)}
-          style={[StyleSheet.absoluteFill, styles.backdrop]}
+    <View style={styles.root} collapsable={false}>
+      <Animated.View
+        entering={overlayEntering(reduceMotion)}
+        exiting={overlayExiting(reduceMotion)}
+        style={[StyleSheet.absoluteFill, styles.backdrop]}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+        />
+      </Animated.View>
+      <View pointerEvents="auto" style={[styles.sheet, { paddingBottom: bottom }]}>
+        <View style={styles.handle} />
+        {title ? <Text style={styles.title}>{title}</Text> : null}
+        <ScrollView
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="on-drag"
+          nestedScrollEnabled
+          bounces={false}
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
         >
-          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        </Animated.View>
-        <Animated.View
-          entering={sheetEntering(reduceMotion)}
-          exiting={sheetExiting(reduceMotion)}
-          style={[
-            styles.sheet,
-            { paddingBottom: Math.max(insets.bottom, 12), marginBottom: keyboardHeight },
-          ]}
-        >
-          <View style={styles.handle} />
-          {title ? <Text style={styles.title}>{title}</Text> : null}
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
-            style={styles.body}
-            contentContainerStyle={{ paddingBottom: 24 }}
-          >
-            {children}
-          </ScrollView>
-          {footer ? <View style={styles.footer}>{footer}</View> : null}
-        </Animated.View>
+          {children}
+        </ScrollView>
+        {footer ? <View style={styles.footer}>{footer}</View> : null}
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -91,24 +98,45 @@ export function SheetOption({
   leading?: ReactNode;
 }) {
   return (
-    <Pressable onPress={onSelect} style={[styles.option, selected && styles.optionOn]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: Boolean(selected) }}
+      onPress={onSelect}
+      hitSlop={8}
+      style={[styles.option, selected && styles.optionOn]}
+    >
       {leading}
-      <Text style={[styles.optionText, selected && { color: colors.accentForeground }]}>{children}</Text>
+      {typeof children === "string" ? (
+        <Text style={[styles.optionText, selected && { color: colors.accentForeground }]}>{children}</Text>
+      ) : (
+        <View style={{ flex: 1 }}>{children}</View>
+      )}
       {selected ? <Text style={styles.selected}>Selected</Text> : null}
     </Pressable>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  root: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { backgroundColor: "rgba(10,10,14,0.6)" },
+  root: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: "flex-end",
+  },
+  backdrop: { backgroundColor: "rgba(8,9,12,0.72)" },
   sheet: {
+    width: "100%",
     maxHeight: "92%",
+    margin: 0,
     backgroundColor: colors.popover,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    ...Platform.select({
+      android: { elevation: 24 },
+      default: {},
+    }),
   },
   handle: {
     alignSelf: "center",
@@ -120,10 +148,11 @@ const styles = createThemedStyleSheet((colors) => ({
     marginBottom: 8,
   },
   title: { color: colors.foreground, fontSize: 17, fontWeight: "600", paddingHorizontal: 20, marginBottom: 8 },
-  body: { paddingHorizontal: 16 },
-  footer: { borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: 16 },
+  body: { paddingHorizontal: 16, flexGrow: 0, flexShrink: 1 },
+  bodyContent: { paddingBottom: 8 },
+  footer: { borderTopWidth: 0, borderColor: colors.border, paddingHorizontal: 16, paddingTop: 8 },
   option: {
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: 12,
     paddingHorizontal: 12,
     flexDirection: "row",

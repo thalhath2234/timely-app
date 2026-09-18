@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Archive, Copy, Download, MoreHorizontal, Plus, Sheet as SheetIcon, Smile, Star, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import SheetGrid from "../../../components/sheets/SheetGrid";
 import { useDeleteSheet, useDuplicateSheet, useSheetQuery, useUpdateSheet, useWorkspacesQuery } from "../../../lib/hooks";
@@ -27,6 +29,7 @@ import { timeAgo } from "../../../lib/format";
 import type { UpdateSheetPayload } from "../../../lib/api/sheets";
 import type { Sheet, SheetTab } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { systemBottomInset } from "../../../lib/systemBottomInset";
 
 export default function SheetDetailScreen() {
   const id = routeParam(useLocalSearchParams<{ id: string | string[] }>().id);
@@ -55,6 +58,7 @@ export default function SheetDetailScreen() {
 
 function SheetEditor({ sheet }: { sheet: Sheet }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const spaces = useWorkspacesQuery().data ?? [];
   const save = useUpdateSheet();
   const remove = useDeleteSheet();
@@ -155,7 +159,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
 
       <View style={styles.metaBlock}>
         <View style={styles.titleRow}>
-          <Pressable accessibilityLabel="Change icon" onPress={() => setMenu("icon")} style={styles.iconBtn}>
+          <Pressable accessibilityLabel="Change icon" onPress={() => setMenu("icon")} hitSlop={12} style={styles.iconBtn}>
             {icon ? <Text style={styles.icon}>{icon}</Text> : <Smile size={22} color={colors.mutedForeground} />}
           </Pressable>
           <TextInput
@@ -195,7 +199,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         ) : null}
       </View>
 
-      <View style={styles.gridWrap}>
+      <View style={styles.gridWrap} collapsable={false}>
         {activeTab ? (
           <SheetGrid
             key={activeTab.id}
@@ -206,33 +210,35 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
           />
         ) : null}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
-        {tabs.map((tab) => (
+      <View style={[styles.tabBarWrap, { paddingBottom: systemBottomInset(insets.bottom) }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
+          {tabs.map((tab) => (
+            <Pressable
+              key={tab.id}
+              onPress={() => setActiveTabId(tab.id)}
+              onLongPress={() => {
+                setEditingTabId(tab.id);
+                setTabDraft(tab.name);
+                setMenu("tab");
+              }}
+              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn]}
+            >
+              <Text style={[styles.tabLabel, tab.id === activeTab?.id && styles.tabLabelOn]}>{tab.name}</Text>
+            </Pressable>
+          ))}
           <Pressable
-            key={tab.id}
-            onPress={() => setActiveTabId(tab.id)}
-            onLongPress={() => {
-              setEditingTabId(tab.id);
-              setTabDraft(tab.name);
-              setMenu("tab");
+            accessibilityLabel="Add sheet tab"
+            onPress={() => {
+              const next = addWorkbookTab(tabs);
+              setActiveTabId(next[next.length - 1]!.id);
+              persistTabs(next);
             }}
-            style={[styles.tab, tab.id === activeTab?.id && styles.tabOn]}
+            style={styles.tabAdd}
           >
-            <Text style={[styles.tabLabel, tab.id === activeTab?.id && styles.tabLabelOn]}>{tab.name}</Text>
+            <Plus size={16} color={colors.mutedForeground} />
           </Pressable>
-        ))}
-        <Pressable
-          accessibilityLabel="Add sheet tab"
-          onPress={() => {
-            const next = addWorkbookTab(tabs);
-            setActiveTabId(next[next.length - 1]!.id);
-            persistTabs(next);
-          }}
-          style={styles.tabAdd}
-        >
-          <Plus size={16} color={colors.mutedForeground} />
-        </Pressable>
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       <BottomSheet open={menu === "more"} onClose={() => setMenu(null)} title="Sheet">
         <SheetOption onSelect={() => setMenu("icon")} leading={<Smile size={18} color={colors.foreground} />}>
@@ -297,6 +303,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
                 schedule({ icon: choice });
                 setMenu(null);
               }}
+              hitSlop={6}
               style={[styles.iconChoice, choice === icon && styles.iconChoiceOn]}
             >
               <Text style={styles.icon}>{choice}</Text>
@@ -347,28 +354,20 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         ) : null}
       </BottomSheet>
 
-      <BottomSheet open={menu === "delete"} onClose={() => setMenu(null)} title="Delete this sheet?">
-        <View style={styles.deleteRow}>
-          <Pressable onPress={() => setMenu(null)} style={styles.cancelBtn}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => remove.mutate(sheet.id, { onSuccess: () => router.replace("/(app)/(tabs)/sheets") })}
-            disabled={remove.isPending}
-            style={styles.deleteBtn}
-          >
-            <Trash2 size={16} color="#fff" />
-            <Text style={styles.deleteText}>{remove.isPending ? "Deleting…" : "Delete"}</Text>
-          </Pressable>
-        </View>
-      </BottomSheet>
+      <ConfirmSheet
+        open={menu === "delete"}
+        onClose={() => setMenu(null)}
+        title="Delete this sheet?"
+        message="This workbook and its tabs will be removed."
+        onConfirm={() => remove.mutate(sheet.id, { onSuccess: () => router.replace("/(app)/(tabs)/sheets") })}
+      />
     </Screen>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
   actions: { flexDirection: "row", alignItems: "center" },
-  metaBlock: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 },
+  metaBlock: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, flexShrink: 0 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   iconBtn: {
     width: 44,
@@ -402,7 +401,14 @@ const styles = createThemedStyleSheet((colors) => ({
     fontSize: 14,
     textAlignVertical: "top",
   },
-  gridWrap: { flex: 1, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  gridWrap: { flex: 1, minHeight: 0, borderTopWidth: 1, borderTopColor: colors.border },
+  tabBarWrap: {
+    flexGrow: 0,
+    flexShrink: 0,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.background,
+  },
   iconGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   iconChoice: {
     width: 44,
@@ -421,37 +427,12 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
   },
   removeIconText: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
-  deleteRow: { flexDirection: "row", gap: 8, paddingTop: 4 },
-  cancelBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelText: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
-  deleteBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: colors.destructive,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  deleteText: { color: "#fff", fontSize: 15, fontWeight: "600" },
   tabBar: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
   },
   tab: {
     height: 36,

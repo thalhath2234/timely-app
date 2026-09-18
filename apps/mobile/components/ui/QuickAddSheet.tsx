@@ -288,7 +288,26 @@ export default function QuickAddSheet({
 
   return (
     <>
-      <BottomSheet open={open} onClose={onClose} title="New">
+      <BottomSheet
+        open={open}
+        onClose={onClose}
+        title="New"
+        footer={
+          <View style={{ gap: 8 }}>
+            <PrimaryButton
+              label={pending ? "Saving…" : kind === "reminder" ? "Add reminder" : `Add ${kind}`}
+              disabled={!title.trim() || pending || (((kind === "task" && !isReminder) || kind === "doc" || kind === "sheet") && !activeWorkspaceId)}
+              onPress={() => void submit()}
+            />
+            <View style={styles.hintRow}>
+              <Check size={14} color={colors.mutedForeground} />
+              <Text style={styles.hint}>
+                {kind === "reminder" ? "Shows on the calendar at that time" : "Creates it in your workspace immediately"}
+              </Text>
+            </View>
+          </View>
+        }
+      >
         <View style={styles.kinds}>
           {KINDS.map((item) => {
             const on = item.value === kind;
@@ -575,18 +594,6 @@ export default function QuickAddSheet({
           </View>
         ) : null}
 
-        </View>
-        <View style={{ height: 8 }} />
-        <PrimaryButton
-          label={pending ? "Saving…" : kind === "reminder" ? "Add reminder" : `Add ${kind}`}
-          disabled={!title.trim() || pending || (((kind === "task" && !isReminder) || kind === "doc" || kind === "sheet") && !activeWorkspaceId)}
-          onPress={() => void submit()}
-        />
-        <View style={styles.hintRow}>
-          <Check size={14} color={colors.mutedForeground} />
-          <Text style={styles.hint}>
-            {kind === "reminder" ? "Shows on the calendar at that time" : "Creates it in your workspace immediately"}
-          </Text>
         </View>
       </BottomSheet>
       <DateTimeSheet

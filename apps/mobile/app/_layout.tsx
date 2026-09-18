@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AccessibilityInfo, useColorScheme } from "react-native";
+import { AccessibilityInfo, useColorScheme, View } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
@@ -9,6 +9,7 @@ import { AuthProvider } from "../lib/auth/AuthProvider";
 import { colors, createThemedStyleSheet, initializeTheme, ThemeRoot } from "../lib/theme";
 import { stackFadeAnimation, stackPushAnimation } from "../lib/motion";
 import ConnectivityBanner from "../components/ConnectivityBanner";
+import { SheetHost } from "../components/ui/SheetHost";
 import { requestNotificationPermission } from "../lib/notifications";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
@@ -55,26 +56,34 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <StatusBar style={colorScheme === "light" ? "dark" : "light"} />
-          <ConnectivityBanner />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: colors.background },
-              animation: stackFadeAnimation(reduceMotion),
-              animationDuration: 280,
-              gestureEnabled: !reduceMotion,
-            }}
-          >
-            <Stack.Screen name="index" options={{ animation: "none" }} />
-            <Stack.Screen name="login" options={{ animation: stackFadeAnimation(reduceMotion) }} />
-            <Stack.Screen name="signup" options={{ animation: stackPushAnimation(reduceMotion) }} />
-            <Stack.Screen name="onboarding" options={{ animation: stackFadeAnimation(reduceMotion) }} />
-            <Stack.Screen name="(app)" options={{ animation: stackFadeAnimation(reduceMotion) }} />
-          </Stack>
+          <View style={styles.shell}>
+            <StatusBar style={colorScheme === "light" ? "dark" : "light"} />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.background },
+                animation: stackFadeAnimation(reduceMotion),
+                animationDuration: 280,
+                gestureEnabled: !reduceMotion,
+              }}
+            >
+              <Stack.Screen name="index" options={{ animation: "none" }} />
+              <Stack.Screen name="login" options={{ animation: stackFadeAnimation(reduceMotion) }} />
+              <Stack.Screen name="signup" options={{ animation: stackPushAnimation(reduceMotion) }} />
+              <Stack.Screen name="onboarding" options={{ animation: stackFadeAnimation(reduceMotion) }} />
+              <Stack.Screen name="(app)" options={{ animation: stackFadeAnimation(reduceMotion) }} />
+            </Stack>
+            <ConnectivityBanner />
+            <SheetHost />
+          </View>
         </AuthProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
     </ThemeRoot>
   );
 }
+
+const styles = createThemedStyleSheet(() => ({
+  shell: { flex: 1 },
+}));
+

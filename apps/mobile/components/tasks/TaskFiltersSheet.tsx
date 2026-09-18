@@ -1,15 +1,54 @@
 import { Pressable, Text, View } from "react-native";
 import BottomSheet from "../ui/BottomSheet";
-import { Chip, PrimaryButton, SectionLabel } from "../ui/primitives";
+import { PrimaryButton, SectionLabel } from "../ui/primitives";
 import { PRIORITIES } from "../../lib/priority";
 import type { ExtraTaskFilters } from "../../lib/taskFilters";
 import { EMPTY_EXTRA_FILTERS } from "../../lib/taskFilters";
 import type { NamedStatusGroup } from "../../lib/status";
 import type { Label, Stage } from "../../lib/types";
-import { createThemedStyleSheet } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 function toggleId(ids: string[], id: string) {
   return ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id];
+}
+
+function FilterChip({
+  label,
+  active,
+  color,
+  onPress,
+}: {
+  label: string;
+  active?: boolean;
+  color?: string | null;
+  onPress: () => void;
+}) {
+  const tint = color && active ? `${color}33` : undefined;
+  const border = color ? (active ? `${color}88` : colors.border) : undefined;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: Boolean(active) }}
+      hitSlop={8}
+      onPress={onPress}
+      style={[
+        styles.chip,
+        active && !color ? styles.chipOn : null,
+        color ? { borderColor: border, backgroundColor: tint || colors.card } : null,
+      ]}
+    >
+      {color ? <View style={[styles.chipDot, { backgroundColor: color }]} /> : null}
+      <Text
+        style={[
+          styles.chipText,
+          active && !color ? { color: colors.primaryForeground } : null,
+          active && color ? { color } : null,
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
 }
 
 export default function TaskFiltersSheet({
@@ -31,9 +70,14 @@ export default function TaskFiltersSheet({
 }) {
   function toggleStatusGroup(group: NamedStatusGroup) {
     const ids = group.statuses.map((status) => status.id);
-    const allOn = ids.every((id) => value.statusIds.includes(id));
+    const allOn =
+      (value.statusKeys ?? []).includes(group.key) ||
+      (ids.length > 0 && ids.every((id) => value.statusIds.includes(id)));
     onChange({
       ...value,
+      statusKeys: allOn
+        ? (value.statusKeys ?? []).filter((key) => key !== group.key)
+        : [...new Set([...(value.statusKeys ?? []), group.key])],
       statusIds: allOn
         ? value.statusIds.filter((id) => !ids.includes(id))
         : [...new Set([...value.statusIds, ...ids])],
@@ -59,22 +103,22 @@ export default function TaskFiltersSheet({
       <View style={styles.block}>
         <SectionLabel>Quick</SectionLabel>
         <View style={styles.row}>
-          <Chip
+          <FilterChip
             label="Overdue"
             active={value.onlyOverdue}
             onPress={() => onChange({ ...value, onlyOverdue: !value.onlyOverdue })}
           />
-          <Chip
+          <FilterChip
             label="Scheduled"
             active={value.onlyScheduled}
             onPress={() => onChange({ ...value, onlyScheduled: !value.onlyScheduled })}
           />
-          <Chip
+          <FilterChip
             label="Recurring"
             active={value.onlyRecurring}
             onPress={() => onChange({ ...value, onlyRecurring: !value.onlyRecurring })}
           />
-          <Chip
+          <FilterChip
             label="Dated"
             active={value.onlyDated}
             onPress={() => onChange({ ...value, onlyDated: !value.onlyDated })}
@@ -87,11 +131,11 @@ export default function TaskFiltersSheet({
           <SectionLabel>Status</SectionLabel>
           <View style={styles.row}>
             {statusGroups.map((group) => (
-              <Chip
+              <FilterChip
                 key={group.key}
                 label={group.name}
                 color={group.color}
-                active={group.statuses.some((status) => value.statusIds.includes(status.id))}
+                active={(value.statusKeys ?? []).includes(group.key) || group.statuses.some((status) => value.statusIds.includes(status.id))}
                 onPress={() => toggleStatusGroup(group)}
               />
             ))}
@@ -103,7 +147,7 @@ export default function TaskFiltersSheet({
         <SectionLabel>Priority</SectionLabel>
         <View style={styles.row}>
           {PRIORITIES.map((level) => (
-            <Chip
+            <FilterChip
               key={level}
               label={level}
               active={value.priorityLevels.includes(level)}
@@ -118,7 +162,7 @@ export default function TaskFiltersSheet({
           <SectionLabel>Labels</SectionLabel>
           <View style={styles.row}>
             {labels.map((label) => (
-              <Chip
+              <FilterChip
                 key={label.id}
                 label={label.name}
                 color={label.color}
@@ -135,7 +179,7 @@ export default function TaskFiltersSheet({
           <SectionLabel>Stage</SectionLabel>
           <View style={styles.row}>
             {stages.map((stage) => (
-              <Chip
+              <FilterChip
                 key={stage.id}
                 label={stage.name}
                 active={value.stageIds.includes(stage.id)}
@@ -155,4 +199,19 @@ const styles = createThemedStyleSheet((colors) => ({
   footer: { flexDirection: "row", alignItems: "center", gap: 12 },
   reset: { paddingHorizontal: 12, paddingVertical: 12 },
   resetText: { color: colors.mutedForeground, fontWeight: "600" },
+  chip: {
+    minHeight: 40,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
+  chipDot: { width: 8, height: 8, borderRadius: 4 },
 }));

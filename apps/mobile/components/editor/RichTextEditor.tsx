@@ -7,9 +7,9 @@ import {
   StyleSheet,
   Text,
   View,
+  Dimensions,
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   AtSign,
   Bold,
@@ -45,6 +45,7 @@ import { useMentionItems, useSearchQuery } from "../../lib/hooks";
 import { colors, createThemedStyleSheet, editorThemeVars, getThemeMode, resolvedAccentHex } from "../../lib/theme";
 import BottomSheet from "../ui/BottomSheet";
 import { Field, PrimaryButton } from "../ui/primitives";
+import { useKeyboardAccessory } from "../ui/SheetHost";
 import { buildEditorHtml } from "./editorHtml";
 
 type Picker = { kind: "slash" | "mention"; query: string; from: number; to: number } | null;
@@ -136,6 +137,18 @@ function filterMentions<T extends { label: string; hint?: string }>(items: T[], 
 
 type EditorActive = Record<string, boolean>;
 
+function keyboardCover(coords?: { height: number; screenY: number } | null) {
+  if (!coords) return 0;
+  const screenH = Dimensions.get("screen").height;
+  return Math.max(coords.height, Math.round(screenH - coords.screenY), 0);
+}
+
+function readKeyboardCover() {
+  const metrics = Keyboard.metrics?.();
+  if (metrics) return keyboardCover(metrics);
+  return 0;
+}
+
 export default function RichTextEditor({
   content,
   onChange,
@@ -155,7 +168,6 @@ export default function RichTextEditor({
   compact?: boolean;
 }) {
   const webRef = useRef<WebView>(null);
-  const insets = useSafeAreaInsets();
   const themeKey = `${getThemeMode()}:${resolvedAccentHex()}`;
   const html = useMemo(() => buildEditorHtml(content, placeholder, editorThemeVars()), [themeKey]);
   const focusedRef = useRef(false);
@@ -174,18 +186,23 @@ export default function RichTextEditor({
   const [linkRange, setLinkRange] = useState<{ from: number; to: number } | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [barHeight, setBarHeight] = useState(56);
+  const [focused, setFocused] = useState(false);
   const mentionItems = useMentionItems();
   const remoteMentions = useSearchQuery(picker?.kind === "mention" ? picker.query : "");
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
-    });
+    const onShow = (event: { endCoordinates: { height: number; screenY: number } }) => {
+      setKeyboardHeight(keyboardCover(event.endCoordinates));
+    };
+    const show = Keyboard.addListener(showEvent, onShow);
+    const change = Keyboard.addListener("keyboardDidChangeFrame", onShow);
     const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    setKeyboardHeight(readKeyboardCover());
     return () => {
       show.remove();
+      change.remove();
       hide.remove();
     };
   }, []);
@@ -238,10 +255,14 @@ export default function RichTextEditor({
       }
       if (msg.type === "focus") {
         focusedRef.current = true;
+        setFocused(true);
+        const cover = readKeyboardCover();
+        if (cover > 0) setKeyboardHeight(cover);
         onFocusChangeRef.current?.(true);
       }
       if (msg.type === "blur") {
         focusedRef.current = false;
+        setFocused(false);
         onFocusChangeRef.current?.(false);
       }
       if (msg.type === "slash" || msg.type === "mention") {
@@ -280,7 +301,8 @@ export default function RichTextEditor({
     return [...localMentions, ...extra].slice(0, 8);
   })();
 
-  const safeBottom = keyboardHeight > 0 ? 8 : Math.max(insets.bottom, 8);
+  const safeBottom = 8;
+  const floatBar = focused && keyboardHeight > 8;
 
   function openLinkPrompt(range?: { from: number; to: number } | null) {
     setLinkRange(range ?? null);
@@ -325,8 +347,51 @@ export default function RichTextEditor({
     run(cmd);
   }
 
+  const dock = (
+    <View
+      onLayout={(event) => setBarHeight(event.nativeEvent.layout.height)}
+      style={[styles.dock, { paddingBottom: floatBar ? 0 : safeBottom }]}
+    >
+      {inTable ? (
+        <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.tableBar}>
+          {TABLE_TOOLS.map((btn) => (
+            <Pressable key={btn.label} accessibilityLabel={btn.label} onPress={() => run(btn.cmd)} style={styles.tableTool}>
+              <btn.Icon size={16} color={btn.cmd === "deleteTable" ? colors.destructive : colors.foreground} />
+              <Text style={[styles.tableCaption, btn.cmd === "deleteTable" && { color: colors.destructive }]}>
+                {btn.caption}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
+      <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.barWrap}>
+        {FORMAT_TOOLS.map((btn) => {
+          const on =
+            btn.cmd === "linkPrompt"
+              ? Boolean(active.link)
+              : btn.cmd === "code"
+                ? Boolean(active.codeBlock)
+                : Boolean(active[btn.cmd]);
+          return (
+            <Pressable
+              key={btn.label}
+              accessibilityLabel={btn.label}
+              accessibilityState={{ selected: on }}
+              onPress={() => applyFormat(btn.cmd)}
+              style={[styles.tool, on && styles.toolOn]}
+            >
+              <btn.Icon size={18} color={on ? colors.accentForeground : colors.foreground} />
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+
+  useKeyboardAccessory(floatBar, keyboardHeight, () => dock);
+
   return (
-    <View style={[styles.wrap, compact && styles.compact, { paddingBottom: keyboardHeight }]}>
+    <View style={[styles.wrap, compact && styles.compact]}>
       <View style={[styles.webWrap, compact && styles.compactWeb]}>
         <WebView
           key={themeKey}
@@ -423,41 +488,7 @@ export default function RichTextEditor({
         </View>
       ) : null}
 
-      <View onLayout={(event) => setBarHeight(event.nativeEvent.layout.height)} style={[styles.dock, { paddingBottom: safeBottom }]}>
-        {inTable ? (
-          <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.tableBar}>
-            {TABLE_TOOLS.map((btn) => (
-              <Pressable key={btn.label} accessibilityLabel={btn.label} onPress={() => run(btn.cmd)} style={styles.tableTool}>
-                <btn.Icon size={16} color={btn.cmd === "deleteTable" ? colors.destructive : colors.foreground} />
-                <Text style={[styles.tableCaption, btn.cmd === "deleteTable" && { color: colors.destructive }]}>
-                  {btn.caption}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        ) : null}
-        <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.barWrap}>
-          {FORMAT_TOOLS.map((btn) => {
-            const on =
-              btn.cmd === "linkPrompt"
-                ? Boolean(active.link)
-                : btn.cmd === "code"
-                  ? Boolean(active.codeBlock)
-                  : Boolean(active[btn.cmd]);
-            return (
-              <Pressable
-                key={btn.label}
-                accessibilityLabel={btn.label}
-                accessibilityState={{ selected: on }}
-                onPress={() => applyFormat(btn.cmd)}
-                style={[styles.tool, on && styles.toolOn]}
-              >
-                <btn.Icon size={18} color={on ? colors.accentForeground : colors.foreground} />
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
+      {floatBar ? null : dock}
 
       <BottomSheet open={linkOpen} onClose={() => setLinkOpen(false)} title="Link">
         <Field
@@ -506,6 +537,10 @@ const styles = createThemedStyleSheet((colors) => ({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     backgroundColor: colors.card,
+    ...Platform.select({
+      android: { elevation: 24 },
+      default: {},
+    }),
   },
   tableBar: {
     maxHeight: 48,

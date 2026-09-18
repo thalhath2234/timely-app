@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Check, ChevronDown, ChevronUp, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import { Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
 import {
@@ -29,6 +30,9 @@ import { showUndoToast } from "../../../lib/toast";
 import { formatShortDate, timeAgo, toDateInputValue } from "../../../lib/format";
 import { ENTITY_COLORS, resolvedColor } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { useDraftText } from "../../../lib/draftText";
+import { useAutosave } from "../../../lib/autosave";
+import type { UpdateProjectPayload } from "../../../lib/api/projects";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import RichTextEditor from "../../../components/editor/RichTextEditor";
 import { isRichContentEmpty, toRichContent } from "../../../lib/richText";
@@ -39,10 +43,17 @@ export default function ProjectDetailScreen() {
   const router = useRouter();
   const projectQ = useProjectQuery(id);
   const listProject = (useProjectsQuery().data ?? []).find((item) => item.id === id);
-  const project = projectQ.data ?? listProject;
+  const liveProject = projectQ.data ?? listProject;
+  const lastProject = useRef(liveProject);
+  if (liveProject) lastProject.current = liveProject;
+  const project = liveProject ?? lastProject.current;
   const tasks = useTasksQuery().data ?? [];
   const spaces = useWorkspacesQuery().data ?? [];
   const save = useUpdateProject();
+  const { schedule: scheduleSave, flush: flushSave } = useAutosave<UpdateProjectPayload>(async (data) => {
+    if (!id) return;
+    await save.mutateAsync({ id, data });
+  });
   const remove = useDeleteProject();
   const duplicate = useDuplicateProject();
   const addStage = useCreateStage();
@@ -58,10 +69,12 @@ export default function ProjectDetailScreen() {
   const [editingStage, setEditingStage] = useState<Stage | null>(null);
   const [stageDraft, setStageDraft] = useState("");
   const [movingTask, setMovingTask] = useState<Task | null>(null);
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const [note, setNote] = useState("");
   const [noteRich, setNoteRich] = useState<DocContent>({ type: "doc", content: [{ type: "paragraph" }] });
   const [noteSync, setNoteSync] = useState(0);
   const seededNoteId = useRef<string | null>(null);
+  const [title, setTitle] = useDraftText(project?.title, id);
 
   const workspace = spaces.find((space) => space.id === project?.workspaceId);
   const projectTasks = useMemo(
@@ -154,8 +167,17 @@ export default function ProjectDetailScreen() {
           </Pressable>
         }
       />
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}>
-        <Field value={project.title} onChangeText={(title) => persist({ title })} autoCapitalize="words" />
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}>
+        <Field
+          value={title}
+          onChangeText={(next) => {
+            setTitle(next);
+            scheduleSave({ title: next });
+          }}
+          onBlur={() => void flushSave()}
+          placeholder="Title"
+          autoCapitalize="words"
+        />
         <Pressable onPress={() => setPicker("color")} style={styles.card}>
           <Text style={styles.label}>Color</Text>
           <View style={styles.colorRow}>
@@ -260,14 +282,11 @@ export default function ProjectDetailScreen() {
             </Pressable>
             <Pressable
               onPress={() =>
-                Alert.alert("Delete stage", "Tasks in this stage become unstaged.", [
-                  { text: "Cancel", style: "cancel" },
-                  {
-                    text: "Delete",
-                    style: "destructive",
-                    onPress: () => deleteStage.mutate({ projectId: project.id, stageId: stage.id }),
-                  },
-                ])
+                setConfirm({
+                  title: "Delete stage",
+                  message: "Tasks in this stage become unstaged.",
+                  onConfirm: () => deleteStage.mutate({ projectId: project.id, stageId: stage.id }),
+                })
               }
             >
               <Text style={styles.remove}>Delete</Text>
@@ -330,14 +349,11 @@ export default function ProjectDetailScreen() {
         ))}
         <Pressable
           onPress={() =>
-            Alert.alert("Delete project", "This cannot be undone.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Delete",
-                style: "destructive",
-                onPress: () => remove.mutate(project.id, { onSuccess: () => router.replace("/(app)/projects") }),
-              },
-            ])
+            setConfirm({
+              title: "Delete project",
+              message: "This cannot be undone.",
+              onConfirm: () => remove.mutate(project.id, { onSuccess: () => router.replace("/(app)/projects") }),
+            })
           }
           style={styles.delete}
         >
@@ -446,6 +462,14 @@ export default function ProjectDetailScreen() {
           if (picker === "start") persist({ startDate: value });
           if (picker === "deadline") persist({ deadline: value });
         }}
+      />
+      <ConfirmSheet
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirm?.title ?? ""}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        onConfirm={() => confirm?.onConfirm()}
       />
     </Screen>
   );

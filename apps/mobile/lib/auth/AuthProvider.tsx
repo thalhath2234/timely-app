@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { User } from "../types";
+import { createWorkspace, getConfig, getWorkspaces } from "../api/workspaces";
 import { completeOnboarding, getMe, login as loginApi, register as registerApi, logout as logoutApi, refreshSession } from "../api/auth";
-import { createWorkspace } from "../api/workspaces";
 import { unregisterServerPush } from "../notifications";
 import { ApiError, flushOfflineQueue } from "../api/client";
 import { clearToken, getRefreshToken, getToken, onSessionExpired, setSession } from "./session";
@@ -25,7 +25,25 @@ type AuthContextValue = AuthState & {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function onboarded(user: User | null) {
-  return Boolean(user?.is_on_boarding_completed);
+  if (!user) return false;
+  return Boolean(
+    user.is_on_boarding_completed || user.isOnBoardingCompleted,
+  );
+}
+
+async function withOnboardingState(user: User): Promise<User> {
+  if (onboarded(user)) return { ...user, is_on_boarding_completed: true };
+  try {
+    const [config, workspaces] = await Promise.all([getConfig(), getWorkspaces()]);
+    const done = Boolean(config?.isOnBoardingCompleted) || (workspaces?.length ?? 0) > 0;
+    if (!done) return user;
+    if (!config?.isOnBoardingCompleted) {
+      await completeOnboarding().catch(() => undefined);
+    }
+    return { ...user, is_on_boarding_completed: true };
+  } catch {
+    return user;
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -33,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ ready: false, token: null, user: null });
 
   async function hydrate(token: string) {
-    const user = await getMe();
+    const user = await withOnboardingState(await getMe());
     setOfflineQueueUser(user.id);
     void flushOfflineQueue().then(() => queryClient.invalidateQueries());
     queryClient.setQueryData(["me"], user);
@@ -137,9 +155,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // keep the existing access token if refresh is unavailable
           }
         }
-        const user = await getMe();
+        const user = await withOnboardingState(await getMe());
         queryClient.setQueryData(["me"], user);
-        setState((prev) => ({ ...prev, user }));
+        setState((prev) => ({ ...prev, user: { ...user, is_on_boarding_completed: true } }));
       },
     }),
     [state, queryClient],

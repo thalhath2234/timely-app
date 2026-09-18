@@ -37,6 +37,13 @@ import { needsNetworkCopy } from "../../../lib/queryCopy";
 
 type CalView = "day" | "week" | "agenda" | "month";
 
+function calendarWindow(anchor: Date) {
+  return {
+    from: new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1),
+    to: new Date(anchor.getFullYear(), anchor.getMonth() + 2, 1),
+  };
+}
+
 export default function CalendarScreen() {
   const router = useRouter();
   const [view, setView] = useState<CalView>("agenda");
@@ -47,13 +54,8 @@ export default function CalendarScreen() {
   const [waitingOpen, setWaitingOpen] = useState(true);
   const [scheduleTask, setScheduleTask] = useState<Task | null>(null);
 
-  const { from, to } = useMemo(() => {
-    const day = startOfDay(selected);
-    return {
-      from: addDays(day, -45),
-      to: addDays(day, 45),
-    };
-  }, [selected]);
+  const monthKey = `${selected.getFullYear()}-${selected.getMonth()}`;
+  const { from, to } = useMemo(() => calendarWindow(selected), [monthKey]);
 
   const query = useCalendarQuery(from, to);
   const networkCopy = needsNetworkCopy(query);

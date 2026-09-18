@@ -19,6 +19,7 @@ export function HeaderIconButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      hitSlop={6}
       onPress={onPress}
       style={[styles.iconBtn, active && { backgroundColor: colors.accent }]}
     >

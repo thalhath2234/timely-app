@@ -14,8 +14,6 @@ export default function TaskFilterBar({
   views = [],
   activeViewId,
   onView,
-  filtersActive,
-  onOpenFilters,
 }: {
   filter: TaskFilter;
   onFilter: (f: TaskFilter) => void;
@@ -26,8 +24,6 @@ export default function TaskFilterBar({
   views?: TaskViewConfig[];
   activeViewId?: string;
   onView?: (id: string) => void;
-  filtersActive?: boolean;
-  onOpenFilters?: () => void;
 }) {
   const filters: { id: TaskFilter; label: string }[] = [
     { id: "all", label: "All" },
@@ -42,7 +38,7 @@ export default function TaskFilterBar({
 
   return (
     <View style={styles.wrap}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={styles.row}>
         {views.length > 0 ? (
           <>
             {views.map((view) => (
@@ -60,13 +56,6 @@ export default function TaskFilterBar({
             <Chip key={f.id} label={f.label} active={filter === f.id} onPress={() => onFilter(f.id)} />
           ))
         )}
-        {onOpenFilters ? (
-          <Chip
-            label={filtersActive ? "Filters · on" : "Filters"}
-            active={Boolean(filtersActive)}
-            onPress={onOpenFilters}
-          />
-        ) : null}
       </ScrollView>
       {workspaces.length > 1 ? (
         <View style={styles.select}>

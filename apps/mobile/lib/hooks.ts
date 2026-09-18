@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, stopFocus, setTodayFocus } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
-import type { Doc } from "./types";
+import type { Doc, Config, MentionEntityType, NotificationSettings, Project, Sheet, Task, TaskViewConfig } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet } from "./api/sheets";
 import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject, getProjectActivity } from "./api/projects";
 import { getWorkspaces, getConfig, updateConfig, updateTaskViewsConfig } from "./api/workspaces";
@@ -41,7 +41,6 @@ import {
   updateNotificationSettings,
 } from "./api/notifications";
 import type { UpdateTaskPayload, CreateTaskPayload } from "./api/tasks";
-import type { MentionEntityType, NotificationSettings, Sheet, TaskViewConfig } from "./types";
 
 export type MentionItem = {
   id: string;
@@ -85,6 +84,19 @@ export const keys = {
   jobHealth: ["jobs", "health"] as const,
 };
 
+function cacheTask(client: QueryClient, task: Task | undefined) {
+  if (!task?.id) return;
+  client.setQueryData(keys.task(task.id), task);
+  client.setQueryData<Task[]>(keys.tasks, (list) => {
+    if (!list) return list;
+    const index = list.findIndex((item) => item.id === task.id);
+    if (index === -1) return [task, ...list];
+    const next = list.slice();
+    next[index] = { ...list[index], ...task };
+    return next;
+  });
+}
+
 export function useMeQuery() {
   return useQuery({ queryKey: keys.me, queryFn: getMe });
 }
@@ -106,6 +118,7 @@ export function useTaskQuery(id: string | undefined) {
     queryKey: keys.task(id ?? ""),
     queryFn: () => getTask(id!),
     enabled: Boolean(id),
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -150,6 +163,7 @@ export function useProjectQuery(id?: string) {
     queryKey: [...keys.projects, id],
     queryFn: () => getProject(id!),
     enabled: Boolean(id),
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -175,6 +189,17 @@ export function useUpdateTaskViews() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (data: { taskViews: TaskViewConfig[]; activeTaskViewId: string }) => updateTaskViewsConfig(data),
+    onMutate: async (data) => {
+      await client.cancelQueries({ queryKey: keys.config });
+      const previous = client.getQueryData<Config>(keys.config);
+      if (previous) {
+        client.setQueryData<Config>(keys.config, { ...previous, ...data });
+      }
+      return { previous };
+    },
+    onError: (_error, _data, context) => {
+      if (context?.previous) client.setQueryData(keys.config, context.previous);
+    },
     onSuccess: (config) => {
       client.setQueryData(keys.config, config);
     },
@@ -185,6 +210,9 @@ export function useCalendarQuery(from: Date, to: Date) {
   return useQuery({
     queryKey: keys.calendar(from.toISOString(), to.toISOString()),
     queryFn: () => getCalendarRange(from, to),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -317,9 +345,21 @@ export function useSaveTask() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateTaskPayload }) => updateTask(id, data),
-    onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.tasks });
+    onMutate: async ({ id, data }) => {
+      const previousTask = client.getQueryData<Task>(keys.task(id));
+      const previousList = client.getQueryData<Task[]>(keys.tasks);
+      const current = previousTask ?? previousList?.find((item) => item.id === id);
+      if (current) cacheTask(client, { ...current, ...data } as Task);
+      return { previousTask, previousList };
+    },
+    onError: (_error, { id }, context) => {
+      if (context?.previousTask) client.setQueryData(keys.task(id), context.previousTask);
+      if (context?.previousList) client.setQueryData(keys.tasks, context.previousList);
+    },
+    onSuccess: (task) => {
+      cacheTask(client, task);
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.today });
     },
   });
 }
@@ -337,7 +377,8 @@ export function useEditTaskOccurrence() {
       newStart?: string;
       newEnd?: string;
     }) => editTaskOccurrence(id, data),
-    onSuccess: () => {
+    onSuccess: (task) => {
+      cacheTask(client, task);
       client.invalidateQueries({ queryKey: keys.tasks });
       client.invalidateQueries({ queryKey: ["calendar"] });
     },
@@ -428,7 +469,8 @@ export function useBulkUpdateTasks() {
   return useMutation({
     mutationFn: ({ ids, update }: { ids: string[]; update: UpdateTaskPayload }) =>
       bulkUpdateTasks(ids, update),
-    onSuccess: () => {
+    onSuccess: (tasks) => {
+      tasks?.forEach((task) => cacheTask(client, task));
       client.invalidateQueries({ queryKey: keys.tasks });
       client.invalidateQueries({ queryKey: ["calendar"] });
     },
@@ -598,9 +640,25 @@ export function useUpdateProject() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateProject>[1] }) =>
       updateProject(id, data),
-    onSuccess: () => {
-      client.invalidateQueries({ queryKey: keys.projects });
-      client.invalidateQueries({ queryKey: keys.tasks });
+    onMutate: async ({ id, data }) => {
+      const previousList = client.getQueryData<Project[]>(keys.projects);
+      const previousOne = client.getQueryData<Project>([...keys.projects, id]);
+      client.setQueryData<Project[]>(keys.projects, (list) =>
+        list?.map((item) => (item.id === id ? { ...item, ...data } : item)),
+      );
+      if (previousOne) client.setQueryData([...keys.projects, id], { ...previousOne, ...data });
+      return { previousList, previousOne };
+    },
+    onError: (_error, { id }, context) => {
+      if (context?.previousList) client.setQueryData(keys.projects, context.previousList);
+      if (context?.previousOne) client.setQueryData([...keys.projects, id], context.previousOne);
+    },
+    onSuccess: (project) => {
+      if (!project?.id) return;
+      client.setQueryData([...keys.projects, project.id], project);
+      client.setQueryData<Project[]>(keys.projects, (list) =>
+        list?.map((item) => (item.id === project.id ? { ...item, ...project } : item)),
+      );
     },
   });
 }
@@ -657,11 +715,15 @@ export function useReorderStages() {
 }
 
 export function useAddBlock() {
-  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: ({ taskId, data }: { taskId: string; data: Parameters<typeof addTaskBlock>[1] }) =>
       addTaskBlock(taskId, data),
-    onSuccess: invalidate,
+    onSuccess: (task) => {
+      cacheTask(client, task);
+      client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.today });
+    },
   });
 }
 
@@ -712,10 +774,10 @@ export function useSaveScheduleSettings() {
 }
 
 export function usePinTask() {
-  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: ({ taskId, locked }: { taskId: string; locked: boolean }) => pinTask(taskId, locked),
-    onSuccess: invalidate,
+    onSuccess: (task) => cacheTask(client, task),
   });
 }
 
@@ -728,10 +790,13 @@ export function usePinBlock() {
 }
 
 export function useClearTaskBlocks() {
-  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: (taskId: string) => clearTaskBlocks(taskId),
-    onSuccess: invalidate,
+    onSuccess: (task) => {
+      cacheTask(client, task);
+      client.invalidateQueries({ queryKey: ["calendar"] });
+    },
   });
 }
 
@@ -781,15 +846,15 @@ export function useDuplicateTask() {
 }
 
 export function useAddChecklistItem() {
-  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) => addChecklistItem(id, title),
-    onSuccess: invalidate,
+    onSuccess: (task) => cacheTask(client, task),
   });
 }
 
 export function useToggleChecklistItem() {
-  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: ({
       id,
@@ -800,33 +865,48 @@ export function useToggleChecklistItem() {
       itemId: string;
       completed: boolean;
     }) => updateChecklistItem(id, itemId, { completed }),
-    onSuccess: invalidate,
+    onSuccess: (task) => cacheTask(client, task),
   });
 }
 
 export function useDeleteChecklistItem() {
-  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, itemId }: { id: string; itemId: string }) => deleteChecklistItem(id, itemId),
-    onSuccess: invalidate,
+    onSuccess: (task) => cacheTask(client, task),
   });
 }
 
 export function useStartFocus() {
-  const invalidate = useInvalidateAll();
-  return useMutation({ mutationFn: startFocus, onSuccess: invalidate });
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: startFocus,
+    onSuccess: (task) => {
+      cacheTask(client, task);
+      client.invalidateQueries({ queryKey: keys.today });
+    },
+  });
 }
 
 export function useStopFocus() {
-  const invalidate = useInvalidateAll();
-  return useMutation({ mutationFn: stopFocus, onSuccess: invalidate });
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: stopFocus,
+    onSuccess: (task) => {
+      cacheTask(client, task);
+      client.invalidateQueries({ queryKey: keys.today });
+    },
+  });
 }
 
 export function useSetTodayFocus() {
-  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, date }: { id: string; date: string | null }) => setTodayFocus(id, date),
-    onSuccess: invalidate,
+    onSuccess: (task) => {
+      cacheTask(client, task);
+      client.invalidateQueries({ queryKey: keys.today });
+    },
   });
 }
 
