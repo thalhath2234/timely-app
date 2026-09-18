@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Bell, CalendarClock, Check, FileText, Inbox, ListTodo, Sheet as SheetIcon } from "lucide-react-native";
 import BottomSheet from "./BottomSheet";
@@ -18,6 +18,7 @@ import { formatDuration, formatShortDate, formatTime, toDateInputValue } from ".
 import type { CustomFieldValueInput } from "../../lib/types";
 import type { QuickAddPreset } from "../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { ENTITY_COLORS } from "../../lib/entityColor";
 
 type Kind = "inbox" | "task" | "reminder" | "event" | "doc" | "sheet";
 const KINDS: { value: Kind; label: string; Icon: typeof ListTodo }[] = [
@@ -95,6 +96,8 @@ export default function QuickAddSheet({
   const [allDay, setAllDay] = useState(false);
   const [eventRecurrence, setEventRecurrence] = useState<RecurrenceDraft | null>(null);
   const [eventWorkspaceId, setEventWorkspaceId] = useState("");
+  const [eventColor, setEventColor] = useState("");
+  const [eventProjectId, setEventProjectId] = useState("");
   const [picking, setPicking] = useState<"due" | "startDate" | "schedule" | "eventStart" | null>(null);
 
   const list = workspaces.data ?? [];
@@ -103,6 +106,9 @@ export default function QuickAddSheet({
   const selectedWorkspace = list.find((workspace) => workspace.id === activeWorkspaceId);
   const scopedProjects = projectList.filter((project) => project.workspaceId === activeWorkspaceId);
   const selectedProject = projectList.find((project) => project.id === projectId);
+  const eventScopedProjects = projectList.filter(
+    (project) => !eventWorkspaceId || project.workspaceId === eventWorkspaceId,
+  );
   const stages = [...(selectedProject?.stages ?? [])].sort((a, b) => a.order - b.order);
   const pending = createTask.isPending || createEvent.isPending || createDoc.isPending || createSheet.isPending;
 
@@ -182,6 +188,8 @@ export default function QuickAddSheet({
     setAllDay(false);
     setEventStart(nextRoundHour());
     setEventWorkspaceId("");
+    setEventColor("");
+    setEventProjectId("");
     setKind("task");
     if (selectedWorkspace) {
       const defaultStatus = selectedWorkspace.status?.find((status) => status.isDefault) ?? selectedWorkspace.status?.[0];
@@ -240,7 +248,9 @@ export default function QuickAddSheet({
         start: eventStart.toISOString(),
         end: new Date(eventStart.getTime() + eventMinutes * 60_000).toISOString(),
         allDay,
+        color: eventColor || undefined,
         workspaceId: eventWorkspaceId || undefined,
+        projectId: eventProjectId || undefined,
         recurrence: buildRecurrenceInput(eventRecurrence, eventStart) ?? undefined,
       });
       finish("/(app)/(tabs)/calendar");
@@ -516,13 +526,47 @@ export default function QuickAddSheet({
             <SectionLabel>Workspace</SectionLabel>
             <Select
               value={eventWorkspaceId}
-              onChange={setEventWorkspaceId}
+              onChange={(id) => {
+                setEventWorkspaceId(id);
+                const stillValid = projectList.some(
+                  (project) => project.id === eventProjectId && (!id || project.workspaceId === id),
+                );
+                if (!stillValid) setEventProjectId("");
+              }}
               placeholder="None"
               options={[
                 { value: "", label: "None" },
                 ...list.map((workspace) => ({ value: workspace.id, label: workspace.name })),
               ]}
             />
+            <SectionLabel>Color</SectionLabel>
+            <View style={styles.row}>
+              <Chip label="Auto" active={!eventColor} onPress={() => setEventColor("")} />
+              {ENTITY_COLORS.map((color) => (
+                <Pressable
+                  key={color}
+                  accessibilityLabel={`Color ${color}`}
+                  onPress={() => setEventColor(color)}
+                  style={[styles.swatch, { backgroundColor: color }, eventColor === color && styles.swatchOn]}
+                />
+              ))}
+            </View>
+            {eventScopedProjects.length > 0 ? (
+              <>
+                <SectionLabel>Project</SectionLabel>
+                <View style={styles.row}>
+                  <Chip label="None" active={!eventProjectId} onPress={() => setEventProjectId("")} />
+                  {eventScopedProjects.map((project) => (
+                    <Chip
+                      key={project.id}
+                      label={project.title}
+                      active={project.id === eventProjectId}
+                      onPress={() => setEventProjectId(project.id)}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : null}
             <Text style={styles.hint}>
               {eventRecurrence && !allDay
                 ? "Each occurrence starts at this time. Dates come from the repeat rule."
@@ -662,4 +706,12 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   stepText: { color: colors.foreground, fontSize: 18, fontWeight: "600" },
   stepValue: { color: colors.foreground, fontSize: 14, fontWeight: "600", minWidth: 48 },
+  swatch: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  swatchOn: { borderColor: colors.primary },
 }));

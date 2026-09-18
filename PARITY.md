@@ -51,7 +51,7 @@ Timely is a **multi-account, single-user** personal productivity system. Web is 
 | Native (`apps/mobile`, Expo SDK 57) | Daily capture + **Home/Today** + calendar + task cards + editors + settings. Extra: Expo push, local reminder scheduling, offline mutation queue, native share |
 | API (`apps/api`) | Shared source of truth. Appearance lives on user config. Most remaining gaps below are **UI work**, not a missing endpoint |
 
-Auth, CRUD, search, auto-schedule preview/apply/undo, working hours, backups, API keys, a TipTap docs editor, sheet formulas, inbox capture, and task detail are present on both. Theme is **universal** (`appearance` on `GET`/`PUT /config`). Docs slash/toolbars, sheet formatting, task markdown create/detail, Kinetic Dark Velocity chrome (80), **saved task views (18)**, week calendar + waiting rail, blocked-by / series split / block delete, sessions, status/label edit, **nested docs**, **sheet CSV/tabs**, project color/create, and report sections shipped on native. Remaining work is leftover P1 depth (kanban drag, extra filters, event extras) plus Phase E polish.
+Auth, CRUD, search, auto-schedule preview/apply/undo, working hours, backups, API keys, a TipTap docs editor, sheet formulas, inbox capture, and task detail are present on both. Theme is **universal** (`appearance` on `GET`/`PUT /config`). Docs slash/toolbars, sheet formatting, task markdown create/detail, Kinetic Dark Velocity chrome (80), **saved task views (18)**, week calendar + waiting rail, blocked-by / series split / block delete, sessions, status/label edit, **nested docs**, **sheet CSV/tabs/filter**, project color/create, report sections, **kanban columns**, extra Filters sheet, and event extras shipped on native. Remaining work is Phase E polish (P2) plus the persisted-cache leftover of 72.
 
 ---
 
@@ -64,8 +64,8 @@ Auth, CRUD, search, auto-schedule preview/apply/undo, working hours, backups, AP
 | Forgot password / OAuth / 2FA / biometrics | No | No | Both missing (out of NextPhase scope except recovery) |
 | Today dashboard | Full (focus picker, agenda, shutdown, join-call) | Home tab from `GET /today` | Match on loop; star picker is simple list |
 | Inbox capture | Full + shortcuts | Title capture; not auto-scheduled | Mobile P1 list actions |
-| Task list | Saved views, group, columns | Card list + **saved views** + chips | Match on consume (18); kanban drag is P1 |
-| Kanban | Drag to status | Board / kanban view groups by status | Mobile P1 drag columns |
+| Task list | Saved views, group, columns | Card list + **saved views** + Filters sheet + chips | **Match (18, 21 shipped)**; create/rename views waits |
+| Kanban | Drag to status | Horizontal columns; long-press → change status | **Match (19 shipped)** |
 | Gantt | Drop-to-date (no bar resize) | None | Mobile P2 |
 | Bulk task actions | Yes (list) | Yes (long-press) | Match |
 | Task detail | Rich notes, blocked-by, occurrence split, clear/delete blocks | Same | **Match (23–26 shipped)** |
@@ -85,7 +85,7 @@ Auth, CRUD, search, auto-schedule preview/apply/undo, working hours, backups, AP
 | Docs / sheets toolbar | Full format + table (docs); full format + formula (sheets) | Docs: full format + table merge/split/headers; sheets: format ribbon | **Match (50, 77 shipped)** |
 | Task create markdown | RichTextEditor in Add Item | Compact RichTextEditor writes `descriptionRich` | **Match (75 shipped)** |
 | Sheets formulas | Yes | Yes (same function set) | Match |
-| Sheets workbook tabs, CSV, charts, format | Yes | Format ribbon + merge + **CSV** + **tabs** + sort; no charts | **Match (47–49 sort shipped)**; charts P2 |
+| Sheets workbook tabs, CSV, charts, format | Yes | Format ribbon + merge + **CSV** + **tabs** + sort + **row filter**; no charts | **Match (47–49 shipped)**; charts P2 |
 | Sheet duplicate | Yes | Editor More → Duplicate | **Match (46 shipped)** |
 | Report | Full (priority, mentions, projects) | Same sections, tappable recent | **Match (57, 58 shipped)** |
 | Search | Modal ⌘K | Tab | Match (IA differs) |
@@ -179,14 +179,14 @@ This is the largest functional gap.
 
 Web `/tasks` persists **saved views** in user config (`taskViews` + `activeTaskViewId`): list / kanban / gantt, Tasks vs Projects vs Reminders, up to 3 group-bys (including custom fields), sort, filters, column order. Deep links `?taskId=` / `?projectId=`.
 
-Mobile is a card list that **consumes desktop saved views** (filters, data mode, group field, sort). Without views, chips remain: All, Today, Overdue, Upcoming, No date, Done, Reminders, Board.
+Mobile is a card list that **consumes desktop saved views** (filters, data mode, group field, sort). Without views, chips remain: All, Today, Overdue, Upcoming, No date, Done, Reminders, Board. Extra Filters sheet overlays status, priority, labels, stage, overdue, scheduled, recurring, and only-dated. Board is always available even when saved views exist.
 
 ### Work
 
 18. **Shipped — Honor desktop saved views on mobile.** Reads `config.taskViews` / `activeTaskViewId`, switches views (persists active id), applies filters and data mode (tasks / reminders / projects). Creating/renaming views still waits.
-19. **P1 — Mobile kanban.** Horizontal status columns, drag or long-press → change status (same completing-status → `completedAt` rule as web). Reuse the Board filter as the entry point.
+19. **Shipped — Mobile kanban.** Horizontal status columns (Board chip or a saved kanban view). Long-press a card → Move to status, using the same completing-status → `completedAt` rule as web.
 20. **P2 — Mobile gantt.** Compact bars from start/blocks/deadline; tap opens detail; drop or sheet to set dates. Bar resize is not required (web does not have it either).
-21. **P1 — Filter depth.** Workspace is there if there are multiple spaces. Add status, priority, labels, stage, overdue, scheduled, recurring, only-dated to match `taskFilters.ts`. A single “Filters” sheet is enough; do not clone the desktop toolbar.
+21. **Shipped — Filter depth.** Filters sheet: status, priority, labels, stage, overdue, scheduled, recurring, only-dated. Workspace Select remains when there are multiple spaces.
 22. **Shipped — Group-by.** Saved views group by the first `groupFields` entry (project / status / priority / workspace / stage). Kanban render mode groups by status.
 
 ### 6.2 Task detail
@@ -230,7 +230,7 @@ Mobile: Day / Week / Month / Agenda. Waiting-for-slot list + Schedule this. Empt
 30. **Shipped — Week view.** Compact 7-day agenda with stacked chips; long-press a day to create.
 31. **Shipped — Waiting-for-slot.** Ranked unscheduled work with Schedule this (datetime sheet → `addTaskBlock`) and open task. Drag stays Keep.
 32. **Shipped — Create from an empty slot.** Tap a day hour (or long-press a week day) → Task / Event / Reminder Quick Add prefilled with that start.
-33. **P1 — Event extras.** Color, optional project, notes on create/edit. Payload fields already exist; Quick Add and event detail ignore them.
+33. **Shipped — Event extras.** Color chips, optional project, and notes on Quick Add and event detail.
 34. **P2 — Auto-schedule copy.** Port skip reasons, partial placement, past-deadline warnings, and a link to Schedule settings from the desktop dialog so preview/apply/undo is equally explainable.
 35. **Keep — No native drag-drop on the grid** until week view exists. Datetime sheet reschedule is the touch equivalent of drag-move.
 36. **P2 — Capacity strip.** `GET /schedule/capacity` is implemented; show a simple hours-free vs hours-placed hint on day/week.
@@ -305,7 +305,7 @@ Formula engines are aligned (`SUM`, `AVERAGE`/`AVG`, `MIN`, `MAX`, `PRODUCT`, `C
 
 Web additionally: **workbook tabs**, CSV import on the list + CSV export of evaluated values, duplicate, fill-down with relative refs, merge, undo/redo, print, paint format, zoom, number formats, fonts, colors, borders, align, wrap, rotation, links, notes, **charts**, filter, sort, column types.
 
-Mobile: grid with format ribbon, workbook tabs, CSV import on the Files list + CSV export via share, duplicate, sort A→Z/Z→A. Description is still plain text. Dedicated sheets tab is hidden. Charts remain P2.
+Mobile: grid with format ribbon, workbook tabs, CSV import on the Files list + CSV export via share, duplicate, sort A→Z/Z→A, row filter matching web `filterQuery`. Description is still plain text. Dedicated sheets tab is hidden. Charts remain P2.
 
 ### Sheets toolbar — required set
 
@@ -328,7 +328,7 @@ Web ribbon in `sheetGrid.tsx` (port all except Print):
 46. **Shipped — Duplicate sheet.** `POST /sheets/:id/duplicate` and editor More → Duplicate.
 47. **Shipped — CSV import / export.** Files → Sheets: Import CSV. Editor More → Export CSV (evaluated values, share sheet).
 48. **Shipped — Workbook tabs.** Tab bar under the grid; add / rename / delete; persists via `tabs` on the sheet payload.
-49. **Shipped — Sort.** Column menu Sort A→Z / Z→A. Filter remains P1.
+49. **Shipped — Sort + filter.** Column menu Sort A→Z / Z→A. Ribbon Filter + “Filter rows…” matches web `filterQuery` (row text haystack).
 50. **Shipped — Full sheets toolbar.** Undo/redo, bold/italic/underline, align, number/currency/percent, fill, merge. Persists `SheetCellFormat` and `merges`. Charts remain P2.
 51. **P2 — Rich sheet description + mentions** to match docs/web.
 
@@ -523,9 +523,18 @@ Order follows the daily loop, then planning depth, then knowledge, then polish. 
 
 **Exit:** Knowledge and projects are not “desktop only.”
 
+### Leftover P1 — Kanban, filters, events (P1) — **landed 18 Sep 2026**
+
+- Horizontal kanban columns + long-press change status (19)
+- Extra Filters sheet (21)
+- Sheet row filter matching web `filterQuery` (49)
+- Event color / project / notes on create and edit (33)
+
+**Exit:** Remaining P1 from the matrix is closed.
+
 ### Phase E — Polish (P2)
 
-- Kanban columns / optional gantt
+- Optional gantt
 - Preferred windows, capacity, join-call
 - Timezone picker, Hermes YAML share
 - Shared filter helpers, dead-code cleanup
@@ -577,11 +586,11 @@ A gap is done when:
 | Priority | Items | Role |
 | --- | --- | --- |
 | P0 | Persisted-cache leftover of **72** | Look |
-| P1 | Kanban drag, extra Filters sheet, sheet column filter, event extras | Feature completeness |
+| P1 | — | Closed 18 Sep 2026 |
 | P2 | Gantt, capacity, sheet charts, shared packages, dead code | Polish |
 | Keep | Shortcuts, Electron, push, FAB, no grid-drag, sheet Print | Do not copy |
 | Both missing | Workspace delete UI, comment delete, focus chart, OAuth | Separate backlog |
-| Next | Phase E — polish (kanban drag, timezone picker, persisted cache) | Polish |
+| Next | Phase E — polish (timezone picker, persisted cache) | Polish |
 
 Closing parity is **mobile UI + a small config API for appearance**, plus client wrappers. The Stitch overhaul is visual; it does not replace the functional list above. Motion baseline (81) is in the native app.
 

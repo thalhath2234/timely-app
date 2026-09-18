@@ -15,6 +15,7 @@ import {
   Combine,
   DollarSign,
   Eraser,
+  Filter,
   Hash,
   Italic,
   Minus,
@@ -64,10 +65,24 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
   const [columnMenu, setColumnMenu] = useState<number | null>(null);
   const [typeMenu, setTypeMenu] = useState<number | null>(null);
   const [fillOpen, setFillOpen] = useState(false);
+  const [filterQuery, setFilterQuery] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [past, setPast] = useState<GridSnapshot[]>([]);
   const [future, setFuture] = useState<GridSnapshot[]>([]);
 
   const evaluator = useMemo(() => createSheetEvaluator(columns, rows), [columns, rows]);
+  const showFilter = filterOpen || filterQuery.length > 0;
+  const visibleRowIndexes = useMemo(() => {
+    const query = filterQuery.trim().toLowerCase();
+    if (!query) return rows.map((_, index) => index);
+    return rows.flatMap((row, index) => {
+      const haystack = columns
+        .map((column, colIndex) => `${column.name} ${row.cells?.[column.id] ?? ""} ${evaluator.displayAt(colIndex, index)}`)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query) ? [index] : [];
+    });
+  }, [columns, evaluator, filterQuery, rows]);
 
   const snapshot = (): GridSnapshot => ({ columns, rows, merges });
 
@@ -300,6 +315,24 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
             style={styles.formula}
           />
         </View>
+        {showFilter ? (
+          <View style={styles.filterRow}>
+            <TextInput
+              value={filterQuery}
+              onChangeText={setFilterQuery}
+              placeholder="Filter rows..."
+              placeholderTextColor={colors.mutedForeground}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.filterInput}
+            />
+            {filterQuery ? (
+              <Text style={styles.filterCount}>
+                {visibleRowIndexes.length}/{rows.length}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
         <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.tableBar}>
           <Pressable accessibilityLabel="Undo" disabled={past.length === 0} onPress={undo} style={[styles.tableTool, past.length === 0 && { opacity: 0.35 }]}>
             <Undo2 size={16} color={colors.foreground} />
@@ -308,6 +341,14 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
           <Pressable accessibilityLabel="Redo" disabled={future.length === 0} onPress={redo} style={[styles.tableTool, future.length === 0 && { opacity: 0.35 }]}>
             <Redo2 size={16} color={colors.foreground} />
             <Text style={styles.tableCaption}>Redo</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Filter rows"
+            onPress={() => setFilterOpen((open) => !open)}
+            style={[styles.tableTool, showFilter && styles.toolOn]}
+          >
+            <Filter size={16} color={showFilter ? colors.accentForeground : colors.foreground} />
+            <Text style={styles.tableCaption}>Filter</Text>
           </Pressable>
           <Pressable accessibilityLabel="Bold" onPress={() => applyFormat({ bold: !selectedFormat?.bold })} style={[styles.tableTool, selectedFormat?.bold && styles.toolOn]}>
             <Bold size={16} color={selectedFormat?.bold ? colors.accentForeground : colors.foreground} />
@@ -446,7 +487,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
               </Pressable>
             </View>
 
-            {rows.map((row, rowIndex) => (
+            {visibleRowIndexes.map((rowIndex) => {
+              const row = rows[rowIndex];
+              if (!row) return null;
+              return (
               <View key={row.id} style={styles.tr}>
                 <View style={[styles.rowHead, rowIndex === selected.row && styles.selectedHead]}>
                   <Text style={styles.rowNum}>{rowIndex + 1}</Text>
@@ -522,7 +566,8 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                 })}
                 <View style={styles.addCol} />
               </View>
-            ))}
+            );
+            })}
 
             <View style={styles.tr}>
               <Pressable accessibilityLabel="Add row" onPress={() => addRow()} style={[styles.rowHead, styles.addRow]}>
@@ -568,6 +613,14 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
           }}
         >
           Sort Z → A
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setFilterOpen(true);
+            setColumnMenu(null);
+          }}
+        >
+          Filter rows…
         </SheetOption>
         <SheetOption
           onSelect={() => {
@@ -645,6 +698,25 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingHorizontal: 10,
     paddingTop: 8,
   },
+  filterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingTop: 6,
+  },
+  filterInput: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.input,
+    backgroundColor: colors.card,
+    color: colors.foreground,
+    paddingHorizontal: 8,
+    fontSize: 13,
+  },
+  filterCount: { color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },
   tableBar: {
     alignItems: "center",
     gap: 4,

@@ -14,12 +14,14 @@ export default function TaskCard({
   selected,
   selecting,
   onSelect,
+  onMove,
 }: {
   task: Task;
   onToggle: (task: Task) => void;
   selected?: boolean;
   selecting?: boolean;
   onSelect?: (task: Task) => void;
+  onMove?: (task: Task) => void;
 }) {
   const router = useRouter();
   const done = Boolean(task.completedAt);
@@ -41,7 +43,7 @@ export default function TaskCard({
       </Pressable>
       <AnimatedPressable
         onPress={() => (selecting && onSelect ? onSelect(task) : router.push(`/(app)/tasks/${task.id}`))}
-        onLongPress={() => onSelect?.(task)}
+        onLongPress={() => (onMove ? onMove(task) : onSelect?.(task))}
         style={styles.body}
       >
         <Text numberOfLines={1} style={[styles.name, done && styles.done]}>

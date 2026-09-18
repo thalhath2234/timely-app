@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ListTodo } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -7,6 +7,8 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import TaskCard from "../../../components/tasks/TaskCard";
 import TaskFilterBar, { type TaskFilter } from "../../../components/tasks/TaskFilterBar";
+import MobileKanban, { kanbanColumns } from "../../../components/tasks/MobileKanban";
+import TaskFiltersSheet from "../../../components/tasks/TaskFiltersSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ListEnter from "../../../components/ui/ListEnter";
 import {
@@ -23,10 +25,23 @@ import { addDays, isSameDay, startOfDay, toDateInputValue } from "../../../lib/f
 import { PRIORITIES, priorityRank } from "../../../lib/priority";
 import { isTaskOverdue } from "../../../lib/overdue";
 import { taskEntityColor } from "../../../lib/entityColor";
-import { mergeStatusesByName, statusNameKey } from "../../../lib/status";
+import {
+  mergeStatusesByName,
+  statusForWorkspace,
+  statusNameKey,
+  statusPatch,
+} from "../../../lib/status";
 import { showUndoToast } from "../../../lib/toast";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
-import { filterTasks, filtersFromView, isReminderTask } from "../../../lib/taskFilters";
+import {
+  applyExtraFilters,
+  EMPTY_EXTRA_FILTERS,
+  extraFiltersActive,
+  filterTasks,
+  filtersFromView,
+  isReminderTask,
+  type ExtraTaskFilters,
+} from "../../../lib/taskFilters";
 import type { Task, TaskViewConfig } from "../../../lib/types";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
@@ -127,6 +142,9 @@ export default function TasksScreen() {
   const views = configQ.data?.taskViews ?? [];
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [extraFilters, setExtraFilters] = useState<ExtraTaskFilters>(EMPTY_EXTRA_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [movingTask, setMovingTask] = useState<Task | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkPicker, setBulkPicker] = useState<
     null | "menu" | "status" | "priority" | "project" | "label" | "deadline"
@@ -154,23 +172,27 @@ export default function TasksScreen() {
     [workScoped],
   );
 
-  const groups = useMemo(() => {
-    let visible: Task[];
-    if (activeView) {
-      visible = filterTasks(tasks, filtersFromView(activeView));
-      if (activeView.dataMode === "project") {
-        visible = [];
-      }
+  const visible = useMemo(() => {
+    let next: Task[];
+    if (filter === "board") {
+      next = tasks.filter((t) => !isReminderTask(t) && t.kind !== "inbox" && !t.parentTaskId);
+    } else if (activeView) {
+      next = activeView.dataMode === "project" ? [] : filterTasks(tasks, filtersFromView(activeView));
     } else {
-      visible = tasks
+      next = tasks
         .filter((t) => (filter === "reminders" ? isReminderTask(t) : !isReminderTask(t)))
         .filter((t) => matchesFilter(t, filter));
     }
-    visible = visible
-      .filter((t) => (workspaceId ? t.workspaceId === workspaceId : true))
-      .filter((t) => (projectId ? t.projectId === projectId : true))
-      .sort((a, b) => sortTasks(a, b, activeView));
+    return applyExtraFilters(
+      next
+        .filter((t) => (workspaceId ? t.workspaceId === workspaceId : true))
+        .filter((t) => (projectId ? t.projectId === projectId : true))
+        .sort((a, b) => sortTasks(a, b, filter === "board" ? undefined : activeView)),
+      extraFilters,
+    );
+  }, [tasks, workspaceId, projectId, filter, activeView, extraFilters]);
 
+  const groups = useMemo(() => {
     const map = new Map<string, { title: string; color: string | null; tasks: Task[] }>();
     for (const t of visible) {
       const key = groupKey(t, activeView, filter);
@@ -184,7 +206,7 @@ export default function TasksScreen() {
       map.get(key)!.tasks.push(t);
     }
     return [...map.values()];
-  }, [tasks, workspaceId, projectId, filter, activeView]);
+  }, [visible, activeView, filter]);
 
   const projectRows = useMemo(() => {
     if (activeView?.dataMode !== "project") return [];
@@ -198,14 +220,30 @@ export default function TasksScreen() {
 
   const selecting = selectedIds.length > 0;
   const statuses = useMemo(
-    () => workspaces.flatMap((space) => space.status ?? []),
-    [workspaces],
+    () =>
+      workspaces
+        .filter((space) => (workspaceId ? space.id === workspaceId : true))
+        .flatMap((space) => space.status ?? []),
+    [workspaces, workspaceId],
   );
   const statusGroups = useMemo(() => mergeStatusesByName(statuses), [statuses]);
   const labels = useMemo(
-    () => workspaces.flatMap((space) => space.lables ?? []),
-    [workspaces],
+    () =>
+      workspaces
+        .filter((space) => (workspaceId ? space.id === workspaceId : true))
+        .flatMap((space) => space.lables ?? []),
+    [workspaces, workspaceId],
   );
+  const stages = useMemo(
+    () =>
+      projects
+        .filter((item) => (workspaceId ? item.workspaceId === workspaceId : true))
+        .flatMap((item) => item.stages ?? []),
+    [projects, workspaceId],
+  );
+  const boardMode =
+    filter === "board" || (activeView?.renderMode === "kanban" && activeView.dataMode !== "project");
+  const boardCols = useMemo(() => kanbanColumns(visible, statusGroups), [visible, statusGroups]);
 
   function toggleSelect(task: Task) {
     setSelectedIds((current) =>
@@ -221,28 +259,53 @@ export default function TasksScreen() {
     setBulkPicker(null);
   }
 
+  function applyStatus(task: Task, nameKey: string) {
+    const group = statusGroups.find((item) => item.key === nameKey);
+    if (!group) return;
+    const status = statusForWorkspace(group, task.workspaceId);
+    if (!status) return;
+    const patch = statusPatch(status, task.completedAt);
+    const previous = { statusId: task.statusId ?? null, completedAt: task.completedAt ?? null };
+    save.mutate({ id: task.id, data: patch });
+    showUndoToast("Status updated", () => save.mutate({ id: task.id, data: previous }));
+  }
+
   function applyNamedStatus(nameKey: string) {
     const group = statusGroups.find((item) => item.key === nameKey);
     if (!group) return;
     const ids = selectedIds;
-    const byWorkspace = new Map(group.statuses.map((status) => [status.workspaceId, status]));
+    const previous = ids.map((id) => {
+      const task = tasks.find((item) => item.id === id);
+      return { id, statusId: task?.statusId ?? null, completedAt: task?.completedAt ?? null };
+    });
     ids.forEach((id) => {
       const task = tasks.find((item) => item.id === id);
-      const status = byWorkspace.get(task?.workspaceId ?? "");
+      if (!task) return;
+      const status = statusForWorkspace(group, task.workspaceId);
       if (!status) return;
-      save.mutate({ id, data: { statusId: status.id } });
+      save.mutate({ id, data: statusPatch(status, task.completedAt) });
     });
     showUndoToast("Status updated", () => {
-      ids.forEach((id) => save.mutate({ id, data: { statusId: null } }));
+      previous.forEach((item) =>
+        save.mutate({ id: item.id, data: { statusId: item.statusId, completedAt: item.completedAt } }),
+      );
     });
     setSelectedIds([]);
     setBulkPicker(null);
   }
 
   function selectView(id: string) {
+    setFilter("all");
+    setSelectedIds([]);
     if (!id || id === activeViewId) return;
     saveViews.mutate({ taskViews: views, activeTaskViewId: id });
-    setSelectedIds([]);
+  }
+
+  function toggleComplete(task: Task) {
+    save.mutate({
+      id: task.id,
+      data: { completedAt: task.completedAt ? null : new Date().toISOString() },
+    });
   }
 
   const openCount = activeView
@@ -253,11 +316,13 @@ export default function TasksScreen() {
     <Screen>
       <MobileHeader
         title={
-          activeView?.dataMode === "project"
+          activeView?.dataMode === "project" && filter !== "board"
             ? activeView.name
             : filter === "reminders"
               ? "Reminders"
-              : project?.title || activeView?.name || "Tasks"
+              : filter === "board"
+                ? "Board"
+                : project?.title || (filter === "all" ? activeView?.name : undefined) || "Tasks"
         }
         subtitle={project ? "Filtered by project" : `${openCount} open`}
       >
@@ -279,6 +344,8 @@ export default function TasksScreen() {
           views={views}
           activeViewId={activeViewId}
           onView={selectView}
+          filtersActive={extraFiltersActive(extraFilters)}
+          onOpenFilters={() => setFiltersOpen(true)}
         />
       </MobileHeader>
       {selecting ? (
@@ -330,6 +397,23 @@ export default function TasksScreen() {
           </Pressable>
         </View>
       ) : null}
+      {boardMode && !networkCopy && visible.length > 0 ? (
+        <MobileKanban
+          columns={boardCols}
+          selectedIds={selectedIds}
+          selecting={selecting}
+          onSelect={toggleSelect}
+          onMove={setMovingTask}
+          onToggle={toggleComplete}
+          refreshControl={
+            <RefreshControl
+              refreshing={tasksQ.isRefetching && !tasksQ.isPending}
+              onRefresh={() => void tasksQ.refetch()}
+              tintColor={colors.primary}
+            />
+          }
+        />
+      ) : (
       <ScrollView
         contentContainerStyle={{ paddingBottom: 110 }}
         refreshControl={
@@ -342,7 +426,7 @@ export default function TasksScreen() {
       >
         {networkCopy ? (
           <EmptyState icon={ListTodo} title="Couldn't load tasks" description={networkCopy} />
-        ) : activeView?.dataMode === "project" ? (
+        ) : activeView?.dataMode === "project" && filter !== "board" ? (
           projectRows.length === 0 ? (
             <EmptyState icon={ListTodo} title="No projects in this view" description="Switch views or create a project." />
           ) : (
@@ -357,6 +441,12 @@ export default function TasksScreen() {
               ))}
             </View>
           )
+        ) : boardMode ? (
+          <EmptyState
+            icon={ListTodo}
+            title="All clear"
+            description="Tap the + button to capture something new, then long-press a card to change status."
+          />
         ) : groups.length === 0 ? (
           <EmptyState
             icon={ListTodo}
@@ -379,12 +469,7 @@ export default function TasksScreen() {
                       selected={selectedIds.includes(task.id)}
                       selecting={selecting}
                       onSelect={toggleSelect}
-                      onToggle={(t) =>
-                        save.mutate({
-                          id: t.id,
-                          data: { completedAt: t.completedAt ? null : new Date().toISOString() },
-                        })
-                      }
+                      onToggle={toggleComplete}
                     />
                   </ListEnter>
                 ))}
@@ -393,6 +478,34 @@ export default function TasksScreen() {
           ))
         )}
       </ScrollView>
+      )}
+      <TaskFiltersSheet
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        value={extraFilters}
+        onChange={setExtraFilters}
+        statusGroups={statusGroups}
+        labels={labels}
+        stages={stages}
+      />
+      <BottomSheet
+        open={Boolean(movingTask)}
+        onClose={() => setMovingTask(null)}
+        title="Move to status"
+      >
+        {statusGroups.map((group) => (
+          <SheetOption
+            key={group.key}
+            selected={statusNameKey(movingTask?.status?.name) === group.key}
+            onSelect={() => {
+              if (movingTask) applyStatus(movingTask, group.key);
+              setMovingTask(null);
+            }}
+          >
+            {group.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
       <BottomSheet open={bulkPicker === "menu"} onClose={() => setBulkPicker(null)} title="Bulk edit">
         <SheetOption onSelect={() => setBulkPicker("status")}>Status</SheetOption>
         <SheetOption onSelect={() => setBulkPicker("priority")}>Priority</SheetOption>

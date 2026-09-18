@@ -14,6 +14,8 @@ export default function TaskFilterBar({
   views = [],
   activeViewId,
   onView,
+  filtersActive,
+  onOpenFilters,
 }: {
   filter: TaskFilter;
   onFilter: (f: TaskFilter) => void;
@@ -24,6 +26,8 @@ export default function TaskFilterBar({
   views?: TaskViewConfig[];
   activeViewId?: string;
   onView?: (id: string) => void;
+  filtersActive?: boolean;
+  onOpenFilters?: () => void;
 }) {
   const filters: { id: TaskFilter; label: string }[] = [
     { id: "all", label: "All" },
@@ -38,19 +42,32 @@ export default function TaskFilterBar({
 
   return (
     <View style={styles.wrap}>
-      {views.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-          {views.map((view) => (
-            <Chip key={view.id} label={view.name} active={view.id === activeViewId} onPress={() => onView?.(view.id)} />
-          ))}
-        </ScrollView>
-      ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-          {filters.map((f) => (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+        {views.length > 0 ? (
+          <>
+            {views.map((view) => (
+              <Chip
+                key={view.id}
+                label={view.name}
+                active={filter !== "board" && view.id === activeViewId}
+                onPress={() => onView?.(view.id)}
+              />
+            ))}
+            <Chip label="Board" active={filter === "board"} onPress={() => onFilter("board")} />
+          </>
+        ) : (
+          filters.map((f) => (
             <Chip key={f.id} label={f.label} active={filter === f.id} onPress={() => onFilter(f.id)} />
-          ))}
-        </ScrollView>
-      )}
+          ))
+        )}
+        {onOpenFilters ? (
+          <Chip
+            label={filtersActive ? "Filters · on" : "Filters"}
+            active={Boolean(filtersActive)}
+            onPress={onOpenFilters}
+          />
+        ) : null}
+      </ScrollView>
       {workspaces.length > 1 ? (
         <View style={styles.select}>
           <Select

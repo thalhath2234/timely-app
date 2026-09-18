@@ -60,6 +60,77 @@ function hasAny(values: string[]) {
   return values.length > 0;
 }
 
+export type ExtraTaskFilters = {
+  statusIds: string[];
+  priorityLevels: string[];
+  labelIds: string[];
+  stageIds: string[];
+  onlyOverdue: boolean;
+  onlyScheduled: boolean;
+  onlyRecurring: boolean;
+  onlyDated: boolean;
+};
+
+export const EMPTY_EXTRA_FILTERS: ExtraTaskFilters = {
+  statusIds: [],
+  priorityLevels: [],
+  labelIds: [],
+  stageIds: [],
+  onlyOverdue: false,
+  onlyScheduled: false,
+  onlyRecurring: false,
+  onlyDated: false,
+};
+
+export function extraFiltersActive(filters: ExtraTaskFilters) {
+  return (
+    filters.statusIds.length > 0 ||
+    filters.priorityLevels.length > 0 ||
+    filters.labelIds.length > 0 ||
+    filters.stageIds.length > 0 ||
+    filters.onlyOverdue ||
+    filters.onlyScheduled ||
+    filters.onlyRecurring ||
+    filters.onlyDated
+  );
+}
+
+/** Overlay status/priority/label/stage/flag filters without re-applying reminder/inbox rules. */
+export function applyExtraFilters(tasks: Task[], filters: ExtraTaskFilters): Task[] {
+  if (!extraFiltersActive(filters)) return tasks;
+  const wantedStatuses = new Set(filters.statusIds);
+  const wantedPriorities = new Set(filters.priorityLevels);
+  const wantedLabels = new Set(filters.labelIds);
+  const wantedStages = new Set(filters.stageIds);
+
+  return tasks.filter((task) => {
+    if (filters.onlyOverdue && !isTaskOverdue(task)) return false;
+    if (filters.onlyScheduled && !task.scheduledOn && !(task.blocks && task.blocks.length > 0)) {
+      return false;
+    }
+    if (filters.onlyRecurring && !task.recurrence) return false;
+    if (filters.onlyDated && !taskHasDate(task)) return false;
+    if (hasAny(filters.statusIds)) {
+      const statusId = task.status?.id || task.statusId;
+      if (!statusId || !wantedStatuses.has(statusId)) return false;
+    }
+    if (hasAny(filters.priorityLevels)) {
+      if (!task.priorityLevel || !wantedPriorities.has(task.priorityLevel)) return false;
+    }
+    if (hasAny(filters.labelIds)) {
+      const ids = [
+        ...(task.labels ?? []).map((label) => label.id),
+        ...(task.labelIds ?? []).map((label) => label.id),
+      ];
+      if (!ids.some((id) => wantedLabels.has(id))) return false;
+    }
+    if (hasAny(filters.stageIds)) {
+      if (!task.stageId || !wantedStages.has(task.stageId)) return false;
+    }
+    return true;
+  });
+}
+
 export function filterTasks(tasks: Task[], filters: TaskListFilters): Task[] {
   const wantedWorkspaces = new Set(filters.workspaceIds);
   const wantedStatuses = new Set(filters.statusIds);

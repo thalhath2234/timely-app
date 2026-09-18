@@ -20,9 +20,9 @@ export type UpdateEventPayload = {
   start?: string;
   end?: string;
   allDay?: boolean;
-  color?: string;
+  color?: string | null;
   workspaceId?: string;
-  projectId?: string;
+  projectId?: string | null;
   taskId?: string;
   recurrence?: RecurrenceInput | null;
 };
