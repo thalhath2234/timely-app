@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ListTodo } from "lucide-react-native";
+import { ListTodo, SlidersHorizontal } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
@@ -10,6 +10,7 @@ import TaskFilterBar, { type TaskFilter } from "../../../components/tasks/TaskFi
 import MobileKanban, { kanbanColumns } from "../../../components/tasks/MobileKanban";
 import TaskFiltersSheet from "../../../components/tasks/TaskFiltersSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import ListEnter from "../../../components/ui/ListEnter";
 import {
   useBulkUpdateTasks,
@@ -144,6 +145,7 @@ export default function TasksScreen() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [extraFilters, setExtraFilters] = useState<ExtraTaskFilters>(EMPTY_EXTRA_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [movingTask, setMovingTask] = useState<Task | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkPicker, setBulkPicker] = useState<
@@ -212,11 +214,12 @@ export default function TasksScreen() {
     if (activeView?.dataMode !== "project") return [];
     const wanted = new Set(activeView.selectedWorkspaceIds ?? []);
     return projects.filter((item) => {
+      if (workspaceId && item.workspaceId !== workspaceId) return false;
       if (wanted.size > 0 && !wanted.has(item.workspaceId)) return false;
       if (projectId && item.id !== projectId) return false;
       return true;
     });
-  }, [activeView, projects, projectId]);
+  }, [activeView, projects, projectId, workspaceId]);
 
   const selecting = selectedIds.length > 0;
   const statuses = useMemo(
@@ -311,6 +314,7 @@ export default function TasksScreen() {
   const openCount = activeView
     ? filterTasks(tasks, { ...filtersFromView(activeView), showCompleted: false }).length
     : workScoped.filter((t) => !t.completedAt).length;
+  const filtersOn = extraFiltersActive(extraFilters);
 
   return (
     <Screen>
@@ -325,6 +329,19 @@ export default function TasksScreen() {
                 : project?.title || (filter === "all" ? activeView?.name : undefined) || "Tasks"
         }
         subtitle={project ? "Filtered by project" : `${openCount} open`}
+        actions={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Filters"
+            onPress={() => setFiltersOpen(true)}
+            style={[styles.filterBtn, filtersOn && styles.filterBtnOn]}
+          >
+            <SlidersHorizontal size={16} color={filtersOn ? colors.primaryForeground : colors.foreground} />
+            <Text style={[styles.filterBtnText, filtersOn && styles.filterBtnTextOn]}>
+              {filtersOn ? "Filters · on" : "Filters"}
+            </Text>
+          </Pressable>
+        }
       >
         {projectId ? (
           <Pressable onPress={() => router.replace("/(app)/(tabs)/tasks")} style={{ paddingHorizontal: 12, paddingBottom: 8 }}>
@@ -344,8 +361,6 @@ export default function TasksScreen() {
           views={views}
           activeViewId={activeViewId}
           onView={selectView}
-          filtersActive={extraFiltersActive(extraFilters)}
-          onOpenFilters={() => setFiltersOpen(true)}
         />
       </MobileHeader>
       {selecting ? (
@@ -378,13 +393,7 @@ export default function TasksScreen() {
           <Pressable onPress={() => setBulkPicker("menu")}>
             <Text style={styles.bulkAction}>More</Text>
           </Pressable>
-          <Pressable
-            onPress={() => {
-              selectedIds.forEach((id) => remove.mutate(id));
-              setSelectedIds([]);
-              setBulkPicker(null);
-            }}
-          >
+          <Pressable onPress={() => setConfirmBulkDelete(true)}>
             <Text style={[styles.bulkAction, { color: colors.destructive }]}>Delete</Text>
           </Pressable>
           <Pressable
@@ -576,6 +585,17 @@ export default function TasksScreen() {
           Clear deadline
         </SheetOption>
       </BottomSheet>
+      <ConfirmSheet
+        open={confirmBulkDelete}
+        onClose={() => setConfirmBulkDelete(false)}
+        title="Delete selected tasks?"
+        message={`${selectedIds.length} task${selectedIds.length === 1 ? "" : "s"} will be removed. This cannot be undone.`}
+        onConfirm={() => {
+          selectedIds.forEach((id) => remove.mutate(id));
+          setSelectedIds([]);
+          setBulkPicker(null);
+        }}
+      />
     </Screen>
   );
 }
@@ -605,4 +625,21 @@ const styles = createThemedStyleSheet((colors) => ({
     gap: 4,
   },
   projectTitle: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
+  filterBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterBtnOn: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterBtnText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
+  filterBtnTextOn: { color: colors.primaryForeground },
 }));

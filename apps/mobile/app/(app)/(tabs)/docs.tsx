@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronRight, FileText, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
+import { ChevronRight, FileText, MoreVertical, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -117,15 +117,12 @@ export default function FilesScreen() {
     const hasChildren = node.children.length > 0;
     const descendantCount = countDocDescendants(node);
     return (
-      <View key={node.id}>
-        <Pressable
-          onPress={() => router.push(`/(app)/docs/${node.id}`)}
-          onLongPress={() => setMenuDoc(node)}
-          style={[styles.card, { paddingLeft: 12 + depth * 16 }]}
-        >
+      <View key={node.id} style={{ gap: 8 }}>
+        <View style={[styles.card, { marginLeft: depth * 16 }]}>
           <Pressable
             accessibilityLabel={expanded ? "Collapse" : "Expand"}
             onPress={() => toggleExpanded(node.id)}
+            hitSlop={8}
             style={[styles.chevron, !hasChildren && { opacity: 0 }]}
             disabled={!hasChildren}
           >
@@ -135,16 +132,29 @@ export default function FilesScreen() {
               style={{ transform: [{ rotate: expanded ? "90deg" : "0deg" }] }}
             />
           </Pressable>
-          <Text style={styles.icon}>{node.icon || "📄"}</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>{node.title || "Untitled"}</Text>
-            <Text numberOfLines={1} style={styles.meta}>
-              {hasChildren ? `${descendantCount} nested · ` : ""}
-              {timeAgo(node.updatedAt)}
-            </Text>
-          </View>
+          <Pressable
+            onPress={() => router.push(`/(app)/docs/${node.id}`)}
+            style={styles.cardBody}
+          >
+            <Text style={styles.icon}>{node.icon || "📄"}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>{node.title || "Untitled"}</Text>
+              <Text numberOfLines={1} style={styles.meta}>
+                {hasChildren ? `${descendantCount} nested · ` : ""}
+                {timeAgo(node.updatedAt)}
+              </Text>
+            </View>
+          </Pressable>
           {node.isFavorite ? <Star size={16} color={colors.warning} fill={colors.warning} /> : null}
-        </Pressable>
+          <Pressable
+            accessibilityLabel="Page menu"
+            onPress={() => setMenuDoc(node)}
+            hitSlop={8}
+            style={styles.menuBtn}
+          >
+            <MoreVertical size={18} color={colors.mutedForeground} />
+          </Pressable>
+        </View>
         {expanded ? node.children.map((child) => renderNode(child, depth + 1)) : null}
       </View>
     );
@@ -287,15 +297,25 @@ const styles = createThemedStyleSheet((colors) => ({
   card: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 4,
     minHeight: 64,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
   },
-  chevron: { width: 24, height: 40, alignItems: "center", justifyContent: "center" },
+  cardBody: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 64,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 8,
+  },
+  chevron: { width: 32, height: 44, alignItems: "center", justifyContent: "center" },
+  menuBtn: { width: 36, height: 44, alignItems: "center", justifyContent: "center" },
   icon: { fontSize: 20, width: 28, textAlign: "center", color: colors.foreground },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },

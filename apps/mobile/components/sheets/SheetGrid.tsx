@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
+  type LayoutChangeEvent,
 } from "react-native";
 import {
   AlignCenter,
@@ -42,7 +42,10 @@ import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRo
 
 const MIN_WIDTH = 88;
 const MAX_WIDTH = 240;
-const ROW_HEAD = 40;
+const ROW_HEAD = 44;
+const CELL_H = 40;
+const HEADER_H = 40;
+const GHOST_COL_W = 112;
 const FILL_SWATCHES = ["#3A3558", "#8B7CF7", "#3E63DD", "#12A594", "#E8B54A", "#EF6B5C", "#E93D82"];
 
 type Address = { col: number; row: number };
@@ -69,6 +72,14 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
   const [filterOpen, setFilterOpen] = useState(false);
   const [past, setPast] = useState<GridSnapshot[]>([]);
   const [future, setFuture] = useState<GridSnapshot[]>([]);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+
+  function onGridLayout(event: LayoutChangeEvent) {
+    const { width, height } = event.nativeEvent.layout;
+    const next = { width: Math.round(width), height: Math.round(height) };
+    if (next.width === viewport.width && next.height === viewport.height) return;
+    if (next.width > 0 && next.height > 0) setViewport(next);
+  }
 
   const evaluator = useMemo(() => createSheetEvaluator(columns, rows), [columns, rows]);
   const showFilter = filterOpen || filterQuery.length > 0;
@@ -83,6 +94,20 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
       return haystack.includes(query) ? [index] : [];
     });
   }, [columns, evaluator, filterQuery, rows]);
+
+  const colWidth = (column: SheetColumn) =>
+    Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, column.width || 140));
+
+  const filtering = filterQuery.trim().length > 0;
+  const ghostColCount = Math.max(
+    1,
+    Math.ceil(Math.max(viewport.width - ROW_HEAD, GHOST_COL_W) / GHOST_COL_W) - columns.length,
+  );
+  const neededRows = Math.max(
+    visibleRowIndexes.length + 1,
+    Math.ceil(Math.max(viewport.height - HEADER_H, CELL_H) / CELL_H),
+  );
+  const ghostRowCount = filtering ? 0 : Math.max(1, neededRows - visibleRowIndexes.length);
 
   const snapshot = (): GridSnapshot => ({ columns, rows, merges });
 
@@ -107,9 +132,6 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     setPast((prev) => [...prev, snapshot()]);
     onChange(next);
   }
-
-  const colWidth = (column: SheetColumn) =>
-    Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, column.width || 140));
 
   const rawAt = (address: Address) => {
     const column = columns[address.col];
@@ -137,13 +159,17 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     });
   }
 
-  function addColumn(atIndex = columns.length) {
-    const column: SheetColumn = {
+  function makeColumn(index: number): SheetColumn {
+    return {
       id: newSheetId("col"),
-      name: columnIndexToLetter(atIndex),
+      name: columnIndexToLetter(index),
       width: 140,
       type: "text",
     };
+  }
+
+  function addColumn(atIndex = columns.length) {
+    const column = makeColumn(atIndex);
     const nextColumns = [...columns];
     nextColumns.splice(atIndex, 0, column);
     commit({
@@ -182,6 +208,32 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
       col: prev.col,
       row: Math.max(0, Math.min(prev.row, rows.length - 2)),
     }));
+  }
+
+  function materialize(address: Address) {
+    let nextColumns = columns;
+    let nextRows = rows;
+    if (address.col >= nextColumns.length) {
+      const extra: SheetColumn[] = [];
+      for (let i = nextColumns.length; i <= address.col; i += 1) extra.push(makeColumn(i));
+      nextColumns = [...nextColumns, ...extra];
+      nextRows = nextRows.map((row) => {
+        const cells = { ...row.cells };
+        for (const column of extra) cells[column.id] = "";
+        return { ...row, cells };
+      });
+    }
+    if (address.row >= nextRows.length) {
+      const extraRows: SheetRow[] = [];
+      for (let i = nextRows.length; i <= address.row; i += 1) extraRows.push(emptySheetRow(nextColumns));
+      nextRows = [...nextRows, ...extraRows];
+    }
+    if (nextColumns !== columns || nextRows !== rows) {
+      commit({
+        columns: nextColumns !== columns ? nextColumns : undefined,
+        rows: nextRows !== rows ? nextRows : undefined,
+      });
+    }
   }
 
   function renameColumn(index: number, name: string) {
@@ -226,6 +278,11 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
 
   function tapCell(address: Address) {
     if (editing) commitEdit();
+    if (address.col >= columns.length || address.row >= rows.length) {
+      materialize(address);
+      setSelected(address);
+      return;
+    }
     const same = selected.col === address.col && selected.row === address.row;
     if (same) startEditing(address, "cell");
     else setSelected(address);
@@ -291,8 +348,11 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     ? `${columnIndexToLetter(selected.col)}${selected.row + 1}`
     : "—";
 
+  const displayCols = columns.length + ghostColCount;
+  const ghostRowIndexes = Array.from({ length: ghostRowCount }, (_, i) => rows.length + i);
+
   return (
-    <View style={styles.root}>
+    <View style={styles.root} collapsable={false}>
       <View style={styles.toolbar}>
         <View style={styles.formulaRow}>
           <Text style={styles.addr}>{selectedAddress}</Text>
@@ -334,249 +394,188 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
           </View>
         ) : null}
         <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.tableBar}>
-          <Pressable accessibilityLabel="Undo" disabled={past.length === 0} onPress={undo} style={[styles.tableTool, past.length === 0 && { opacity: 0.35 }]}>
-            <Undo2 size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>Undo</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Redo" disabled={future.length === 0} onPress={redo} style={[styles.tableTool, future.length === 0 && { opacity: 0.35 }]}>
-            <Redo2 size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>Redo</Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Filter rows"
+          <Tool icon={<Undo2 size={16} color={colors.foreground} />} caption="Undo" disabled={past.length === 0} onPress={undo} />
+          <Tool icon={<Redo2 size={16} color={colors.foreground} />} caption="Redo" disabled={future.length === 0} onPress={redo} />
+          <Tool
+            icon={<Filter size={16} color={showFilter ? colors.accentForeground : colors.foreground} />}
+            caption="Filter"
+            active={showFilter}
             onPress={() => setFilterOpen((open) => !open)}
-            style={[styles.tableTool, showFilter && styles.toolOn]}
-          >
-            <Filter size={16} color={showFilter ? colors.accentForeground : colors.foreground} />
-            <Text style={styles.tableCaption}>Filter</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Bold" onPress={() => applyFormat({ bold: !selectedFormat?.bold })} style={[styles.tableTool, selectedFormat?.bold && styles.toolOn]}>
-            <Bold size={16} color={selectedFormat?.bold ? colors.accentForeground : colors.foreground} />
-            <Text style={styles.tableCaption}>B</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Italic" onPress={() => applyFormat({ italic: !selectedFormat?.italic })} style={[styles.tableTool, selectedFormat?.italic && styles.toolOn]}>
-            <Italic size={16} color={selectedFormat?.italic ? colors.accentForeground : colors.foreground} />
-            <Text style={styles.tableCaption}>I</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Underline" onPress={() => applyFormat({ underline: !selectedFormat?.underline })} style={[styles.tableTool, selectedFormat?.underline && styles.toolOn]}>
-            <Underline size={16} color={selectedFormat?.underline ? colors.accentForeground : colors.foreground} />
-            <Text style={styles.tableCaption}>U</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Align left" onPress={() => applyFormat({ align: "left" })} style={[styles.tableTool, selectedFormat?.align === "left" && styles.toolOn]}>
-            <AlignLeft size={16} color={colors.foreground} />
-          </Pressable>
-          <Pressable accessibilityLabel="Align center" onPress={() => applyFormat({ align: "center" })} style={[styles.tableTool, selectedFormat?.align === "center" && styles.toolOn]}>
-            <AlignCenter size={16} color={colors.foreground} />
-          </Pressable>
-          <Pressable accessibilityLabel="Align right" onPress={() => applyFormat({ align: "right" })} style={[styles.tableTool, selectedFormat?.align === "right" && styles.toolOn]}>
-            <AlignRight size={16} color={colors.foreground} />
-          </Pressable>
-          <Pressable accessibilityLabel="Number" onPress={() => applyFormat({ numberFormat: selectedFormat?.numberFormat === "number" ? undefined : "number" })} style={[styles.tableTool, selectedFormat?.numberFormat === "number" && styles.toolOn]}>
-            <Hash size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>123</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Currency" onPress={() => applyFormat({ numberFormat: selectedFormat?.numberFormat === "currency" ? undefined : "currency" })} style={[styles.tableTool, selectedFormat?.numberFormat === "currency" && styles.toolOn]}>
-            <DollarSign size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>$</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Percent" onPress={() => applyFormat({ numberFormat: selectedFormat?.numberFormat === "percent" ? undefined : "percent" })} style={[styles.tableTool, selectedFormat?.numberFormat === "percent" && styles.toolOn]}>
-            <Percent size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>%</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Fill color" onPress={() => setFillOpen(true)} style={styles.tableTool}>
-            <PaintBucket size={16} color={selectedFormat?.fillColor || colors.foreground} />
-            <Text style={styles.tableCaption}>Fill</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Merge right" onPress={mergeRight} style={styles.tableTool}>
-            <Combine size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>Merge</Text>
-          </Pressable>
-        </ScrollView>
-        <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.tableBar}>
-          <Pressable accessibilityLabel="Add column before" onPress={() => addColumn(selected.col)} style={styles.tableTool}>
-            <Plus size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>⟨Col</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Add column after" onPress={() => addColumn(selected.col + 1)} style={styles.tableTool}>
-            <Plus size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>Col⟩</Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Delete column"
-            onPress={() => deleteColumn(selected.col)}
-            disabled={columns.length <= 1}
-            style={[styles.tableTool, columns.length <= 1 && { opacity: 0.35 }]}
-          >
-            <Minus size={16} color={colors.destructive} />
-            <Text style={[styles.tableCaption, { color: colors.destructive }]}>−Col</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Add row before" onPress={() => addRow(selected.row)} style={styles.tableTool}>
-            <Plus size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>⟨Row</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Add row after" onPress={() => addRow(selected.row + 1)} style={styles.tableTool}>
-            <Plus size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>Row⟩</Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Delete row"
-            onPress={() => deleteRow(selected.row)}
-            disabled={rows.length <= 1}
-            style={[styles.tableTool, rows.length <= 1 && { opacity: 0.35 }]}
-          >
-            <Minus size={16} color={colors.destructive} />
-            <Text style={[styles.tableCaption, { color: colors.destructive }]}>−Row</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Clear cell" onPress={() => setCellValue(selected, "")} style={styles.tableTool}>
-            <Eraser size={16} color={colors.foreground} />
-            <Text style={styles.tableCaption}>Clear</Text>
-          </Pressable>
+          />
+          <Tool
+            icon={<Bold size={16} color={selectedFormat?.bold ? colors.accentForeground : colors.foreground} />}
+            caption="B"
+            active={Boolean(selectedFormat?.bold)}
+            onPress={() => applyFormat({ bold: !selectedFormat?.bold })}
+          />
+          <Tool
+            icon={<Italic size={16} color={selectedFormat?.italic ? colors.accentForeground : colors.foreground} />}
+            caption="I"
+            active={Boolean(selectedFormat?.italic)}
+            onPress={() => applyFormat({ italic: !selectedFormat?.italic })}
+          />
+          <Tool
+            icon={<Underline size={16} color={selectedFormat?.underline ? colors.accentForeground : colors.foreground} />}
+            caption="U"
+            active={Boolean(selectedFormat?.underline)}
+            onPress={() => applyFormat({ underline: !selectedFormat?.underline })}
+          />
+          <Tool icon={<AlignLeft size={16} color={colors.foreground} />} onPress={() => applyFormat({ align: "left" })} active={selectedFormat?.align === "left"} />
+          <Tool icon={<AlignCenter size={16} color={colors.foreground} />} onPress={() => applyFormat({ align: "center" })} active={selectedFormat?.align === "center"} />
+          <Tool icon={<AlignRight size={16} color={colors.foreground} />} onPress={() => applyFormat({ align: "right" })} active={selectedFormat?.align === "right"} />
+          <Tool icon={<Hash size={16} color={colors.foreground} />} caption="123" onPress={() => applyFormat({ numberFormat: selectedFormat?.numberFormat === "number" ? undefined : "number" })} active={selectedFormat?.numberFormat === "number"} />
+          <Tool icon={<DollarSign size={16} color={colors.foreground} />} caption="$" onPress={() => applyFormat({ numberFormat: selectedFormat?.numberFormat === "currency" ? undefined : "currency" })} active={selectedFormat?.numberFormat === "currency"} />
+          <Tool icon={<Percent size={16} color={colors.foreground} />} caption="%" onPress={() => applyFormat({ numberFormat: selectedFormat?.numberFormat === "percent" ? undefined : "percent" })} active={selectedFormat?.numberFormat === "percent"} />
+          <Tool icon={<PaintBucket size={16} color={selectedFormat?.fillColor || colors.foreground} />} caption="Fill" onPress={() => setFillOpen(true)} />
+          <Tool icon={<Combine size={16} color={colors.foreground} />} caption="Merge" onPress={mergeRight} />
+          <Tool icon={<Plus size={16} color={colors.foreground} />} caption="Col" onPress={() => addColumn(selected.col + 1)} />
+          <Tool icon={<Minus size={16} color={colors.destructive} />} caption="Col" disabled={columns.length <= 1} onPress={() => deleteColumn(selected.col)} />
+          <Tool icon={<Plus size={16} color={colors.foreground} />} caption="Row" onPress={() => addRow(selected.row + 1)} />
+          <Tool icon={<Minus size={16} color={colors.destructive} />} caption="Row" disabled={rows.length <= 1} onPress={() => deleteRow(selected.row)} />
+          <Tool icon={<Eraser size={16} color={colors.foreground} />} caption="Clear" onPress={() => setCellValue(selected, "")} />
         </ScrollView>
       </View>
 
-      <ScrollView horizontal nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
-        <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
-          <View>
-            <View style={styles.tr}>
-              <View style={[styles.rowHead, styles.headCell]} />
-              {columns.map((column, index) => (
-                <Pressable
-                  key={column.id}
-                  onPress={() => setSelected({ col: index, row: selected.row })}
-                  onLongPress={() => setColumnMenu(index)}
-                  style={[
-                    styles.headCell,
-                    { width: colWidth(column) },
-                    index === selected.col && styles.selectedHead,
-                  ]}
-                >
-                  <Text style={styles.letter}>{columnIndexToLetter(index)}</Text>
-                  {renaming === index ? (
-                    <TextInput
-                      autoFocus
-                      value={renameDraft}
-                      onChangeText={setRenameDraft}
-                      onBlur={() => {
-                        renameColumn(index, renameDraft);
-                        setRenaming(null);
-                      }}
-                      onSubmitEditing={() => {
-                        renameColumn(index, renameDraft);
-                        setRenaming(null);
-                      }}
-                      style={styles.rename}
-                    />
-                  ) : (
-                    <Pressable
-                      onPress={() => {
-                        setRenameDraft(column.name);
-                        setRenaming(index);
-                      }}
-                      style={{ flex: 1 }}
-                    >
-                      <Text numberOfLines={1} style={styles.headName}>{column.name}</Text>
-                    </Pressable>
-                  )}
-                  <Pressable onPress={() => setTypeMenu(index)} style={styles.typeBadge}>
-                    <Text style={styles.typeText}>{column.type[0]?.toUpperCase()}</Text>
-                  </Pressable>
-                </Pressable>
-              ))}
-              <Pressable accessibilityLabel="Add column" onPress={() => addColumn()} style={styles.addCol}>
-                <Plus size={16} color={colors.mutedForeground} />
-              </Pressable>
-            </View>
-
-            {visibleRowIndexes.map((rowIndex) => {
-              const row = rows[rowIndex];
-              if (!row) return null;
-              return (
-              <View key={row.id} style={styles.tr}>
-                <View style={[styles.rowHead, rowIndex === selected.row && styles.selectedHead]}>
-                  <Text style={styles.rowNum}>{rowIndex + 1}</Text>
+      <View style={styles.gridViewport} onLayout={onGridLayout} collapsable={false}>
+        {viewport.width > 0 && viewport.height > 0 ? (
+          <ScrollView
+            style={{ width: viewport.width, height: viewport.height }}
+            contentContainerStyle={{ minHeight: viewport.height }}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="always"
+            removeClippedSubviews={false}
+            bounces={false}
+          >
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="always"
+              removeClippedSubviews={false}
+              bounces={false}
+            >
+              <View collapsable={false}>
+                <View style={styles.tr} collapsable={false}>
+                  <View style={[styles.rowHead, styles.headCell]} />
+                  {Array.from({ length: displayCols }, (_, index) => {
+                    const column = columns[index];
+                    const width = column ? colWidth(column) : GHOST_COL_W;
+                    return (
+                      <Pressable
+                        key={column?.id ?? `ghost-col-${index}`}
+                        onPress={() => {
+                          if (column) setSelected({ col: index, row: selected.row });
+                          else {
+                            materialize({ col: index, row: Math.max(0, selected.row) });
+                            setSelected({ col: index, row: Math.max(0, selected.row) });
+                          }
+                        }}
+                        onLongPress={() => {
+                          if (column) setColumnMenu(index);
+                        }}
+                        style={[
+                          styles.headCell,
+                          { width },
+                          index === selected.col && styles.selectedHead,
+                        ]}
+                      >
+                        <Text style={styles.letter}>{columnIndexToLetter(index)}</Text>
+                        {column && renaming === index ? (
+                          <TextInput
+                            autoFocus
+                            value={renameDraft}
+                            onChangeText={setRenameDraft}
+                            onBlur={() => {
+                              renameColumn(index, renameDraft);
+                              setRenaming(null);
+                            }}
+                            onSubmitEditing={() => {
+                              renameColumn(index, renameDraft);
+                              setRenaming(null);
+                            }}
+                            style={styles.rename}
+                          />
+                        ) : column ? (
+                          <Pressable
+                            onPress={() => {
+                              setRenameDraft(column.name);
+                              setRenaming(index);
+                            }}
+                            style={styles.headNameHit}
+                          >
+                            <Text numberOfLines={1} style={styles.headName}>{column.name}</Text>
+                          </Pressable>
+                        ) : null}
+                        {column ? (
+                          <Pressable onPress={() => setTypeMenu(index)} style={styles.typeBadge}>
+                            <Text style={styles.typeText}>{column.type[0]?.toUpperCase()}</Text>
+                          </Pressable>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
                 </View>
-                {columns.map((column, colIndex) => {
-                  const address = { col: colIndex, row: rowIndex };
-                  const merge = merges.find(
-                    (item) =>
-                      colIndex >= item.startCol &&
-                      colIndex < item.startCol + item.colSpan &&
-                      rowIndex >= item.startRow &&
-                      rowIndex < item.startRow + item.rowSpan,
-                  );
-                  if (merge && (merge.startCol !== colIndex || merge.startRow !== rowIndex)) return null;
-                  const isSelected = selected.col === colIndex && selected.row === rowIndex;
-                  const isEditing = editing?.col === colIndex && editing?.row === rowIndex;
-                  const result = evaluator.valueAt(colIndex, rowIndex);
-                  const format = row.formats?.[column.id];
-                  const display = formatCellDisplay(evaluator.displayAt(colIndex, rowIndex), format, column.type);
-                  const booleanCol = column.type === "boolean" && !rawAt(address).startsWith("=");
-                  const spanWidth = merge
-                    ? columns
-                        .slice(merge.startCol, merge.startCol + merge.colSpan)
-                        .reduce((sum, item) => sum + colWidth(item), 0)
-                    : colWidth(column);
-                  const align = format?.align ?? (result.type === "number" ? "right" : "left");
 
+                {visibleRowIndexes.map((rowIndex) => {
+                  const row = rows[rowIndex];
+                  if (!row) return null;
                   return (
-                    <Pressable
-                      key={column.id}
-                      onPress={() => (booleanCol ? toggleBoolean(address) : tapCell(address))}
-                      style={[
-                        styles.cell,
-                        { width: spanWidth, backgroundColor: format?.fillColor || colors.card },
-                        isSelected && styles.selectedCell,
-                        result.type === "error" && styles.errorCell,
-                      ]}
-                    >
-                      {isEditing && editSource === "cell" ? (
-                        <TextInput
-                          autoFocus
-                          value={draft}
-                          onChangeText={setDraft}
-                          onBlur={commitEdit}
-                          onSubmitEditing={commitEdit}
-                          keyboardType={column.type === "number" ? "decimal-pad" : "default"}
-                          style={styles.cellInput}
-                        />
-                      ) : booleanCol ? (
-                        <Text style={[styles.cellText, styles.boolText]}>
-                          {display.trim().toUpperCase() === "TRUE" ? "☑" : "☐"}
-                        </Text>
-                      ) : (
-                        <Text
-                          numberOfLines={format?.wrap ? 4 : 1}
-                          style={[
-                            styles.cellText,
-                            result.type === "number" && styles.numText,
-                            result.type === "error" && { color: colors.destructive },
-                            format?.bold && { fontWeight: "700" },
-                            format?.italic && { fontStyle: "italic" },
-                            format?.underline && { textDecorationLine: "underline" },
-                            format?.strikethrough && { textDecorationLine: "line-through" },
-                            format?.textColor ? { color: format.textColor } : null,
-                            { textAlign: align },
-                          ]}
-                        >
-                          {display}
-                        </Text>
+                    <View key={row.id} style={styles.tr} collapsable={false}>
+                      <View style={[styles.rowHead, rowIndex === selected.row && styles.selectedHead]}>
+                        <Text style={styles.rowNum}>{rowIndex + 1}</Text>
+                      </View>
+                      {Array.from({ length: displayCols }, (_, colIndex) =>
+                        renderCell({
+                          colIndex,
+                          rowIndex,
+                          row,
+                          selected,
+                          editing,
+                          editSource,
+                          draft,
+                          setDraft,
+                          commitEdit,
+                          tapCell,
+                          toggleBoolean,
+                          evaluator,
+                          columns,
+                          merges,
+                          colWidth,
+                          rawAt,
+                        }),
                       )}
-                    </Pressable>
+                    </View>
                   );
                 })}
-                <View style={styles.addCol} />
-              </View>
-            );
-            })}
 
-            <View style={styles.tr}>
-              <Pressable accessibilityLabel="Add row" onPress={() => addRow()} style={[styles.rowHead, styles.addRow]}>
-                <Plus size={14} color={colors.mutedForeground} />
-              </Pressable>
-            </View>
-          </View>
-        </ScrollView>
-      </ScrollView>
+                {ghostRowIndexes.map((rowIndex) => (
+                  <View key={`ghost-row-${rowIndex}`} style={styles.tr} collapsable={false}>
+                    <Pressable
+                      onPress={() => {
+                        materialize({ col: Math.max(0, selected.col), row: rowIndex });
+                        setSelected({ col: Math.max(0, selected.col), row: rowIndex });
+                      }}
+                      style={styles.rowHead}
+                    >
+                      <Text style={styles.rowNum}>{rowIndex + 1}</Text>
+                    </Pressable>
+                    {Array.from({ length: displayCols }, (_, colIndex) => (
+                      <Pressable
+                        key={`ghost-${rowIndex}-${colIndex}`}
+                        onPress={() => tapCell({ col: colIndex, row: rowIndex })}
+                        style={[
+                          styles.cell,
+                          { width: columns[colIndex] ? colWidth(columns[colIndex]) : GHOST_COL_W },
+                          selected.col === colIndex && selected.row === rowIndex && styles.selectedCell,
+                        ]}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </ScrollView>
+        ) : null}
+      </View>
 
       <BottomSheet open={columnMenu !== null} onClose={() => setColumnMenu(null)} title="Column">
         <SheetOption
@@ -684,10 +683,154 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
   );
 }
 
+function Tool({
+  icon,
+  caption,
+  onPress,
+  active,
+  disabled,
+}: {
+  icon: ReactNode;
+  caption?: string;
+  onPress: () => void;
+  active?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={caption}
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.tableTool, active && styles.toolOn, disabled && { opacity: 0.35 }]}
+    >
+      {icon}
+      {caption ? <Text style={styles.tableCaption}>{caption}</Text> : null}
+    </Pressable>
+  );
+}
+
+function renderCell({
+  colIndex,
+  rowIndex,
+  row,
+  selected,
+  editing,
+  editSource,
+  draft,
+  setDraft,
+  commitEdit,
+  tapCell,
+  toggleBoolean,
+  evaluator,
+  columns,
+  merges,
+  colWidth,
+  rawAt,
+}: {
+  colIndex: number;
+  rowIndex: number;
+  row: SheetRow;
+  selected: Address;
+  editing: Address | null;
+  editSource: "formula" | "cell" | null;
+  draft: string;
+  setDraft: (value: string) => void;
+  commitEdit: () => void;
+  tapCell: (address: Address) => void;
+  toggleBoolean: (address: Address) => void;
+  evaluator: ReturnType<typeof createSheetEvaluator>;
+  columns: SheetColumn[];
+  merges: SheetMerge[];
+  colWidth: (column: SheetColumn) => number;
+  rawAt: (address: Address) => string;
+}) {
+  const column = columns[colIndex];
+  const address = { col: colIndex, row: rowIndex };
+  if (!column) {
+    return (
+      <Pressable
+        key={`ghost-cell-${rowIndex}-${colIndex}`}
+        onPress={() => tapCell(address)}
+        style={[
+          styles.cell,
+          { width: GHOST_COL_W },
+          selected.col === colIndex && selected.row === rowIndex && styles.selectedCell,
+        ]}
+      />
+    );
+  }
+  const merge = merges.find(
+    (item) =>
+      colIndex >= item.startCol &&
+      colIndex < item.startCol + item.colSpan &&
+      rowIndex >= item.startRow &&
+      rowIndex < item.startRow + item.rowSpan,
+  );
+  if (merge && (merge.startCol !== colIndex || merge.startRow !== rowIndex)) return null;
+  const isSelected = selected.col === colIndex && selected.row === rowIndex;
+  const isEditing = editing?.col === colIndex && editing?.row === rowIndex;
+  const result = evaluator.valueAt(colIndex, rowIndex);
+  const format = row.formats?.[column.id];
+  const display = formatCellDisplay(evaluator.displayAt(colIndex, rowIndex), format, column.type);
+  const booleanCol = column.type === "boolean" && !rawAt(address).startsWith("=");
+  const spanWidth = merge
+    ? columns.slice(merge.startCol, merge.startCol + merge.colSpan).reduce((sum, item) => sum + colWidth(item), 0)
+    : colWidth(column);
+  const align = format?.align ?? (result.type === "number" ? "right" : "left");
+
+  return (
+    <Pressable
+      key={column.id}
+      onPress={() => (booleanCol ? toggleBoolean(address) : tapCell(address))}
+      style={[
+        styles.cell,
+        { width: spanWidth },
+        format?.fillColor ? { backgroundColor: format.fillColor } : null,
+        isSelected && styles.selectedCell,
+        result.type === "error" && styles.errorCell,
+      ]}
+    >
+      {isEditing && editSource === "cell" ? (
+        <TextInput
+          autoFocus
+          value={draft}
+          onChangeText={setDraft}
+          onBlur={commitEdit}
+          onSubmitEditing={commitEdit}
+          keyboardType={column.type === "number" ? "decimal-pad" : "default"}
+          style={styles.cellInput}
+        />
+      ) : booleanCol ? (
+        <Text style={[styles.cellText, styles.boolText]}>
+          {display.trim().toUpperCase() === "TRUE" ? "☑" : "☐"}
+        </Text>
+      ) : (
+        <Text
+          numberOfLines={format?.wrap ? 4 : 1}
+          style={[
+            styles.cellText,
+            result.type === "number" && styles.numText,
+            result.type === "error" && { color: colors.destructive },
+            format?.bold && { fontWeight: "700" },
+            format?.italic && { fontStyle: "italic" },
+            format?.underline && { textDecorationLine: "underline" },
+            format?.strikethrough && { textDecorationLine: "line-through" },
+            format?.textColor ? { color: format.textColor } : null,
+            { textAlign: align },
+          ]}
+        >
+          {display}
+        </Text>
+      )}
+    </Pressable>
+  );
+}
+
 const styles = createThemedStyleSheet((colors) => ({
-  root: { flex: 1, minHeight: 280 },
+  root: { flex: 1, minHeight: 0 },
   toolbar: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexShrink: 0,
+    borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.card,
   },
@@ -724,7 +867,7 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingVertical: 6,
   },
   tableTool: {
-    minWidth: 48,
+    minWidth: 44,
     height: 40,
     borderRadius: 10,
     alignItems: "center",
@@ -752,30 +895,39 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingHorizontal: 8,
     fontSize: 13,
   },
+  gridViewport: {
+    flex: 1,
+    minHeight: 0,
+    overflow: "hidden",
+    backgroundColor: colors.background,
+  },
   tr: { flexDirection: "row" },
   rowHead: {
     width: ROW_HEAD,
-    minHeight: 38,
+    height: CELL_H,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.muted,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
     borderColor: colors.border,
   },
   headCell: {
-    minHeight: 38,
+    height: HEADER_H,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 6,
     backgroundColor: colors.muted,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
     borderColor: colors.border,
   },
   selectedHead: { backgroundColor: colors.accent },
   letter: { color: colors.mutedForeground, fontSize: 10, fontVariant: ["tabular-nums"] },
+  headNameHit: { flex: 1, minWidth: 0 },
   headName: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
   rename: {
     flex: 1,
@@ -792,26 +944,17 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
   },
   typeText: { color: colors.mutedForeground, fontSize: 9, fontWeight: "700" },
-  addCol: {
-    width: 40,
-    minHeight: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  addRow: { minHeight: 36 },
   rowNum: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
   cell: {
-    minHeight: 38,
+    height: CELL_H,
     justifyContent: "center",
     paddingHorizontal: 8,
     backgroundColor: colors.card,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
     borderColor: colors.border,
   },
-  selectedCell: { borderWidth: 2, borderColor: colors.ring, paddingHorizontal: 6 },
+  selectedCell: { borderWidth: 2, borderColor: colors.ring, zIndex: 1, margin: -1 },
   errorCell: { backgroundColor: "rgba(239,107,92,0.08)" },
   cellText: { color: colors.foreground, fontSize: 13 },
   numText: { textAlign: "right", fontVariant: ["tabular-nums"] },

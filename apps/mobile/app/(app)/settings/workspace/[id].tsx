@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import Screen from "../../../../components/ui/Screen";
@@ -14,6 +14,7 @@ import CustomFieldBuilder, {
   type OptionDraft,
 } from "../../../../components/ui/CustomFieldBuilder";
 import { Field, PrimaryButton, SectionLabel } from "../../../../components/ui/primitives";
+import ConfirmSheet, { type ConfirmRequest } from "../../../../components/ui/ConfirmSheet";
 import { keys, useProjectsQuery, useWorkspacesQuery } from "../../../../lib/hooks";
 import {
   createCustomField,
@@ -30,6 +31,7 @@ import {
 import { createProject } from "../../../../lib/api/projects";
 import type { CustomField, CustomFieldType } from "../../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../../lib/theme";
+import { useDraftText } from "../../../../lib/draftText";
 
 export default function WorkspaceEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -37,7 +39,7 @@ export default function WorkspaceEditor() {
   const client = useQueryClient();
   const workspace = (useWorkspacesQuery().data ?? []).find((w) => w.id === id);
   const projects = useProjectsQuery();
-  const [name, setName] = useState(workspace?.name ?? "");
+  const [name, setName] = useDraftText(workspace?.name, id);
   const [statusName, setStatusName] = useState("");
   const [labelName, setLabelName] = useState("");
   const [color, setColor] = useState(FIELD_PALETTE[0]);
@@ -56,6 +58,7 @@ export default function WorkspaceEditor() {
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
   const [editLabelName, setEditLabelName] = useState("");
   const [editLabelColor, setEditLabelColor] = useState(FIELD_PALETTE[0]);
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
 
   async function refresh() {
     await client.invalidateQueries({ queryKey: keys.workspaces });
@@ -130,7 +133,7 @@ export default function WorkspaceEditor() {
     <Screen>
       <MobileHeader title={workspace.name} back large={false} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}>
-        <Field value={name || workspace.name} onChangeText={setName} placeholder="Workspace name" autoCapitalize="words" />
+        <Field value={name} onChangeText={setName} placeholder="Workspace name" autoCapitalize="words" />
         <PrimaryButton
           label="Rename"
           onPress={async () => {
@@ -169,10 +172,18 @@ export default function WorkspaceEditor() {
                 >
                   <Text style={styles.edit}>Edit</Text>
                 </Pressable>
-                <Pressable onPress={() => Alert.alert("Delete status?", s.name, [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Delete", style: "destructive", onPress: async () => { await deleteStatus(workspace.id, s.id); await refresh(); } },
-                ])}>
+                <Pressable
+                  onPress={() =>
+                    setConfirm({
+                      title: "Delete status?",
+                      message: s.name,
+                      onConfirm: async () => {
+                        await deleteStatus(workspace.id, s.id);
+                        await refresh();
+                      },
+                    })
+                  }
+                >
                   <Text style={styles.remove}>Remove</Text>
                 </Pressable>
               </View>
@@ -221,7 +232,18 @@ export default function WorkspaceEditor() {
                 >
                   <Text style={styles.edit}>Edit</Text>
                 </Pressable>
-                <Pressable onPress={async () => { await deleteLabel(workspace.id, l.id); await refresh(); }}>
+                <Pressable
+                  onPress={() =>
+                    setConfirm({
+                      title: "Delete label?",
+                      message: l.name,
+                      onConfirm: async () => {
+                        await deleteLabel(workspace.id, l.id);
+                        await refresh();
+                      },
+                    })
+                  }
+                >
                   <Text style={styles.remove}>Remove</Text>
                 </Pressable>
               </View>
@@ -271,7 +293,18 @@ export default function WorkspaceEditor() {
                   <Pressable onPress={() => startEdit(field)}>
                     <Text style={styles.edit}>Edit</Text>
                   </Pressable>
-                  <Pressable onPress={async () => { await deleteCustomField(workspace.id, field.id); await refresh(); }}>
+                  <Pressable
+                    onPress={() =>
+                      setConfirm({
+                        title: "Delete custom field?",
+                        message: field.name,
+                        onConfirm: async () => {
+                          await deleteCustomField(workspace.id, field.id);
+                          await refresh();
+                        },
+                      })
+                    }
+                  >
                     <Text style={styles.remove}>Remove</Text>
                   </Pressable>
                 </View>
@@ -317,6 +350,14 @@ export default function WorkspaceEditor() {
           }}
         />
       </ScrollView>
+      <ConfirmSheet
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirm?.title ?? ""}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        onConfirm={() => confirm?.onConfirm()}
+      />
     </Screen>
   );
 }

@@ -6,6 +6,7 @@ import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import RichTextEditor from "../../../components/editor/RichTextEditor";
 import { useCreateDoc, useDeleteDoc, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
@@ -144,7 +145,12 @@ function DocEditor({ docId }: { docId: string }) {
       />
 
       <View style={styles.head}>
-        <Pressable accessibilityLabel="Change icon" onPress={() => setMenu("icon")} style={styles.iconBtn}>
+        <Pressable
+          accessibilityLabel="Change icon"
+          onPress={() => setMenu("icon")}
+          hitSlop={12}
+          style={styles.iconBtn}
+        >
           {icon ? <Text style={styles.icon}>{icon}</Text> : <Smile size={22} color={colors.mutedForeground} />}
         </Pressable>
         <TextInput
@@ -251,6 +257,7 @@ function DocEditor({ docId }: { docId: string }) {
                 schedule({ icon: choice });
                 setMenu(null);
               }}
+              hitSlop={6}
               style={[styles.iconPick, choice === icon && styles.iconOn]}
             >
               <Text style={styles.icon}>{choice}</Text>
@@ -293,29 +300,17 @@ function DocEditor({ docId }: { docId: string }) {
         ))}
       </BottomSheet>
 
-      <BottomSheet open={menu === "delete"} onClose={() => setMenu(null)} title="Delete this doc?">
-        <Text style={styles.warn}>
-          {descendantCount > 0
+      <ConfirmSheet
+        open={menu === "delete"}
+        onClose={() => setMenu(null)}
+        title="Delete this doc?"
+        message={
+          descendantCount > 0
             ? `This doc and ${descendantCount} subpage${descendantCount === 1 ? "" : "s"} will be removed.`
-            : "This doc will be removed."}
-        </Text>
-        <Pressable
-          onPress={() =>
-            Alert.alert("Delete doc", "This cannot be undone.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Delete",
-                style: "destructive",
-                onPress: () => remove.mutate(docId, { onSuccess: () => router.replace("/(app)/(tabs)/docs") }),
-              },
-            ])
-          }
-          style={styles.delete}
-        >
-          <Trash2 size={16} color={colors.destructive} />
-          <Text style={styles.deleteText}>Delete</Text>
-        </Pressable>
-      </BottomSheet>
+            : "This doc will be removed."
+        }
+        onConfirm={() => remove.mutate(docId, { onSuccess: () => router.replace("/(app)/(tabs)/docs") })}
+      />
     </Screen>
   );
 }
@@ -330,11 +325,11 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  icon: { fontSize: 26, lineHeight: 32 },
+  icon: { fontSize: 26, lineHeight: 32, textAlign: "center" },
   title: { flex: 1, color: colors.foreground, fontSize: 24, fontWeight: "600", paddingTop: 6 },
   words: { color: colors.mutedForeground, fontSize: 12, paddingHorizontal: 20, marginTop: 8, marginBottom: 8 },
   icons: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 4 },
-  iconPick: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  iconPick: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   iconOn: { backgroundColor: colors.accent },
   removeIcon: {
     marginTop: 12,
@@ -345,7 +340,4 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
   },
   removeIconText: { color: colors.foreground, fontWeight: "500" },
-  warn: { color: colors.mutedForeground, fontSize: 14, paddingHorizontal: 4, paddingBottom: 12 },
-  delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
-  deleteText: { color: colors.destructive, fontWeight: "600" },
 }));

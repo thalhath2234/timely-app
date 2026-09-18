@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CalendarClock, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
 import { Chip, Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
@@ -50,6 +51,7 @@ export default function EventDetailScreen() {
   const [scope, setScope] = useState<"this" | "future" | "all">("all");
   const [picking, setPicking] = useState<"start" | "end" | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!event) return;
@@ -205,16 +207,7 @@ export default function EventDetailScreen() {
           onPress={() => void persist()}
         />
         <Pressable
-          onPress={() =>
-            Alert.alert("Delete event", "Remove this event?", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Delete",
-                style: "destructive",
-                onPress: () => remove.mutate(id, { onSuccess: () => router.replace("/(app)/(tabs)/calendar") }),
-              },
-            ])
-          }
+          onPress={() => setConfirmDelete(true)}
           style={styles.delete}
         >
           <Trash2 size={16} color={colors.destructive} />
@@ -259,6 +252,13 @@ export default function EventDetailScreen() {
           </SheetOption>
         ))}
       </BottomSheet>
+      <ConfirmSheet
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Delete event"
+        message="Remove this event?"
+        onConfirm={() => remove.mutate(id, { onSuccess: () => router.replace("/(app)/(tabs)/calendar") })}
+      />
     </Screen>
   );
 }

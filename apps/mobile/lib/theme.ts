@@ -14,10 +14,11 @@ export type AppearanceConfig = {
 const APPEARANCE_CACHE_KEY = "timely.appearance";
 const THEME_PREFERENCE_KEY = "timely.theme.preference";
 
-export const DEFAULT_ACCENT_HEX = "#6E56CF";
+export const DEFAULT_ACCENT_HEX = "#00F0FF";
 
 export const ACCENT_PRESETS: { id: AccentPreference; label: string; hex: string }[] = [
-  { id: "default", label: "Violet", hex: DEFAULT_ACCENT_HEX },
+  { id: "default", label: "Cyan", hex: DEFAULT_ACCENT_HEX },
+  { id: "#6E56CF", label: "Violet", hex: "#6E56CF" },
   { id: "#3E63DD", label: "Indigo", hex: "#3E63DD" },
   { id: "#0090FF", label: "Blue", hex: "#0090FF" },
   { id: "#12A594", label: "Teal", hex: "#12A594" },
@@ -28,19 +29,19 @@ export const ACCENT_PRESETS: { id: AccentPreference; label: string; hex: string 
 ];
 
 const darkNeutral = {
-  background: "#111319",
-  foreground: "#e2e2eb",
-  card: "#1d1f26",
-  cardForeground: "#e2e2eb",
-  popover: "#282a30",
-  secondary: "#33343b",
-  muted: "#33343b",
-  mutedForeground: "#908fa0",
-  destructive: "#ffb4ab",
-  success: "#4edea3",
-  warning: "#ffb95f",
-  border: "rgba(199,196,215,0.12)",
-  input: "rgba(199,196,215,0.18)",
+  background: "#08090C",
+  foreground: "#F8FAFC",
+  card: "#0E1117",
+  cardForeground: "#F8FAFC",
+  popover: "#161B26",
+  secondary: "#1F2636",
+  muted: "#161B26",
+  mutedForeground: "#94A3B8",
+  destructive: "#EF4444",
+  success: "#10B981",
+  warning: "#F59E0B",
+  border: "rgba(255,255,255,0.08)",
+  input: "rgba(255,255,255,0.12)",
 } as const;
 
 const lightNeutral = {
@@ -60,11 +61,11 @@ const lightNeutral = {
 } as const;
 
 const darkDefaultAccent = {
-  primary: "#8b7cf7",
-  primaryForeground: "#f7f5ff",
-  accent: "#3a3558",
-  accentForeground: "#d4cff5",
-  ring: "#8b7cf7",
+  primary: "#00F0FF",
+  primaryForeground: "#08090C",
+  accent: "#1F2636",
+  accentForeground: "#00F0FF",
+  ring: "#00F0FF",
 } as const;
 
 const lightDefaultAccent = {

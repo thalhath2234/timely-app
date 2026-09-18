@@ -39,7 +39,9 @@ export default function TaskCard({
         onPress={() => onToggle(task)}
         style={styles.check}
       >
-        <View style={[styles.box, done && styles.boxOn]}>{done ? <Check size={14} color={colors.primaryForeground} /> : null}</View>
+        <View style={[styles.box, done && styles.boxOn]}>
+          {done ? <Check size={12} color="#fff" /> : null}
+        </View>
       </Pressable>
       <AnimatedPressable
         onPress={() => (selecting && onSelect ? onSelect(task) : router.push(`/(app)/tasks/${task.id}`))}
@@ -87,19 +89,19 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
   },
   selected: { borderColor: colors.primary },
-  bar: { width: 4, alignSelf: "stretch", borderRadius: 4, marginVertical: 8, marginLeft: 8 },
+  bar: { width: 3, alignSelf: "stretch", borderRadius: 2, marginVertical: 10, marginLeft: 8 },
   check: { width: 48, alignItems: "center", justifyContent: "center" },
   box: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.35)",
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#475569",
     alignItems: "center",
     justifyContent: "center",
   },
-  boxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  body: { flex: 1, minHeight: 56, justifyContent: "center", paddingVertical: 10, paddingRight: 12, gap: 4 },
+  boxOn: { backgroundColor: colors.success, borderColor: colors.success },
+  body: { flex: 1, minHeight: 56, justifyContent: "center", paddingVertical: 12, paddingRight: 12, gap: 4 },
   name: { color: colors.cardForeground, fontSize: 15, fontWeight: "500" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },

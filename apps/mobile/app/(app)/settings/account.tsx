@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
+import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import { useAuth } from "../../../lib/auth/AuthProvider";
 import { updateMe } from "../../../lib/api/auth";
 import { useRevokeOtherSessions, useRevokeSession, useSessionsQuery } from "../../../lib/hooks";
@@ -22,6 +23,7 @@ export default function AccountSettings() {
   const [newPassword, setNewPassword] = useState("");
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
 
   async function save() {
     setPending(true);
@@ -62,10 +64,12 @@ export default function AccountSettings() {
         {others > 0 ? (
           <Pressable
             onPress={() =>
-              Alert.alert("Sign out other devices?", "This device stays signed in.", [
-                { text: "Cancel", style: "cancel" },
-                { text: "Sign out others", style: "destructive", onPress: () => revokeOthers.mutate() },
-              ])
+              setConfirm({
+                title: "Sign out other devices?",
+                message: "This device stays signed in.",
+                confirmLabel: "Sign out others",
+                onConfirm: () => revokeOthers.mutate(),
+              })
             }
           >
             <Text style={styles.destructive}>
@@ -84,20 +88,17 @@ export default function AccountSettings() {
             </View>
             <Pressable
               onPress={() =>
-                Alert.alert(session.current ? "Sign out this device?" : "Sign out device?", undefined, [
-                  { text: "Cancel", style: "cancel" },
-                  {
-                    text: "Sign out",
-                    style: "destructive",
-                    onPress: () => {
-                      void revoke.mutateAsync(session.id).then(() => {
-                        if (session.current) {
-                          void logout().then(() => router.replace("/login"));
-                        }
-                      });
-                    },
+                setConfirm({
+                  title: session.current ? "Sign out this device?" : "Sign out device?",
+                  confirmLabel: "Sign out",
+                  onConfirm: () => {
+                    void revoke.mutateAsync(session.id).then(() => {
+                      if (session.current) {
+                        void logout().then(() => router.replace("/login"));
+                      }
+                    });
                   },
-                ])
+                })
               }
             >
               <Text style={styles.destructive}>{revoke.isPending ? "…" : "Sign out"}</Text>
@@ -105,6 +106,14 @@ export default function AccountSettings() {
           </View>
         ))}
       </View>
+      <ConfirmSheet
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirm?.title ?? ""}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        onConfirm={() => confirm?.onConfirm()}
+      />
     </Screen>
   );
 }

@@ -17,7 +17,7 @@ export default function TabLayout() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const hideFab = pathname.endsWith("/more") || pathname.endsWith("/search");
-  const bottomInset = Math.max(insets.bottom, 8);
+  const bottomInset = Math.max(insets.bottom, 12);
   const tabHeight = 56 + bottomInset;
 
   useEffect(() => {
@@ -40,23 +40,17 @@ export default function TabLayout() {
           headerShown: false,
           animation: tabAnimation(reduceMotion),
           tabBarStyle: {
-            backgroundColor: colors.card,
-            borderTopColor: "transparent",
-            borderTopWidth: 0,
+            backgroundColor: "rgba(8,9,12,0.94)",
+            borderTopColor: "rgba(255,255,255,0.08)",
+            borderTopWidth: 1,
             height: tabHeight,
             paddingBottom: bottomInset,
             paddingTop: 8,
-            marginHorizontal: 12,
-            marginBottom: 8,
-            borderRadius: 22,
-            elevation: 12,
-            shadowColor: "#000",
-            shadowOpacity: 0.28,
-            shadowRadius: 18,
-            shadowOffset: { width: 0, height: 8 },
+            elevation: 0,
+            shadowOpacity: 0,
           },
           tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: colors.mutedForeground,
+          tabBarInactiveTintColor: "#475569",
           tabBarLabelStyle: { fontSize: 11, fontWeight: "500" },
           sceneStyle: { backgroundColor: colors.background },
         }}
@@ -114,21 +108,21 @@ const styles = createThemedStyleSheet((colors) => ({
   fab: {
     position: "absolute",
     right: 18,
-    width: 60,
-    height: 60,
-    borderRadius: 22,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
     elevation: 10,
     shadowColor: colors.primary,
-    shadowOpacity: 0.45,
+    shadowOpacity: 0.4,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
   },
   fabHit: {
-    width: 60,
-    height: 60,
+    width: 56,
+    height: 56,
     alignItems: "center",
     justifyContent: "center",
   },

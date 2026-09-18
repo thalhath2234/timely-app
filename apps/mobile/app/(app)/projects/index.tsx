@@ -27,6 +27,7 @@ export default function ProjectsScreen() {
   const [title, setTitle] = useState("");
   const [workspaceId, setWorkspaceId] = useState("");
   const chosenWorkspace = workspaceId || spaces[0]?.id || "";
+  const visibleProjects = projects.filter((project) => !chosenWorkspace || project.workspaceId === chosenWorkspace);
 
   return (
     <Screen>
@@ -67,14 +68,14 @@ export default function ProjectsScreen() {
                 />
               </>
             )}
-            {projects.length === 0 ? (
+            {visibleProjects.length === 0 ? (
               <EmptyState
                 icon={FolderKanban}
                 title="No projects yet"
                 description="Create a project to group tasks, stages, and deadlines."
               />
             ) : (
-              projects.map((project) => {
+              visibleProjects.map((project) => {
                 const stats = statsFor(project, tasks);
                 return (
                   <Pressable

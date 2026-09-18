@@ -13,6 +13,6 @@ export default function Screen({ children, padded = false }: { children: ReactNo
 
 const styles = createThemedStyleSheet((colors) => ({
   safe: { flex: 1, backgroundColor: colors.background },
-  body: { flex: 1, backgroundColor: colors.background },
+  body: { flex: 1, minHeight: 0, backgroundColor: colors.background },
   padded: { paddingHorizontal: 16 },
 }));

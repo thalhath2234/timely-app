@@ -8,6 +8,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { springSnappy, springSoft } from "../../lib/motion";
 
+const AnimatedPressableView = Animated.createAnimatedComponent(Pressable);
+
 type Props = Omit<PressableProps, "style" | "children"> & {
   style?: StyleProp<ViewStyle>;
   wrapStyle?: StyleProp<ViewStyle>;
@@ -31,24 +33,23 @@ export default function AnimatedPressable({
   }));
 
   return (
-    <Animated.View style={[wrapStyle, animatedStyle]}>
-      <Pressable
-        disabled={disabled}
-        style={style}
-        onPressIn={(event) => {
-          if (!disabled && !reduceMotion) {
-            scale.value = withSpring(0.97, springSnappy);
-          }
-          onPressIn?.(event);
-        }}
-        onPressOut={(event) => {
-          scale.value = withSpring(1, springSoft);
-          onPressOut?.(event);
-        }}
-        {...rest}
-      >
-        {children}
-      </Pressable>
-    </Animated.View>
+    <AnimatedPressableView
+      collapsable={false}
+      disabled={disabled}
+      style={[wrapStyle, style, animatedStyle]}
+      onPressIn={(event) => {
+        if (!disabled && !reduceMotion) {
+          scale.value = withSpring(0.97, springSnappy);
+        }
+        onPressIn?.(event);
+      }}
+      onPressOut={(event) => {
+        scale.value = withSpring(1, springSoft);
+        onPressOut?.(event);
+      }}
+      {...rest}
+    >
+      {children}
+    </AnimatedPressableView>
   );
 }

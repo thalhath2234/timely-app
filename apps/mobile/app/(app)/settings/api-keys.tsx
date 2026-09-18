@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { Field, PrimaryButton } from "../../../components/ui/primitives";
+import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import { useApiKeysQuery, useCreateApiKey, useRevokeApiKey } from "../../../lib/hooks";
 import { timeAgo } from "../../../lib/format";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
@@ -13,6 +14,7 @@ export default function ApiKeysSettings() {
   const revoke = useRevokeApiKey();
   const [name, setName] = useState("");
   const [secret, setSecret] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
 
   return (
     <Screen>
@@ -32,10 +34,12 @@ export default function ApiKeysSettings() {
             </View>
             <Pressable
               onPress={() =>
-                Alert.alert("Revoke key?", key.name, [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Revoke", style: "destructive", onPress: () => revoke.mutate(key.id) },
-                ])
+                setConfirm({
+                  title: "Revoke key?",
+                  message: key.name,
+                  confirmLabel: "Revoke",
+                  onConfirm: () => revoke.mutate(key.id),
+                })
               }
             >
               <Text style={styles.revoke}>Revoke</Text>
@@ -56,6 +60,14 @@ export default function ApiKeysSettings() {
           }
         />
       </ScrollView>
+      <ConfirmSheet
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirm?.title ?? ""}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        onConfirm={() => confirm?.onConfirm()}
+      />
     </Screen>
   );
 }

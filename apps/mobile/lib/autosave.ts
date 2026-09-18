@@ -6,7 +6,7 @@ export type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
 
 export function useAutosave<T extends object>(
   save: (patch: Partial<T>) => Promise<unknown>,
-  delay = 800,
+  delay = 2000,
 ) {
   const saveRef = useRef(save);
   const pendingRef = useRef<Partial<T> | null>(null);

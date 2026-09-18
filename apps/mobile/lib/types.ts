@@ -628,6 +628,7 @@ export interface User {
   email: string;
   name?: string;
   is_on_boarding_completed?: boolean;
+  isOnBoardingCompleted?: boolean;
 }
 
 export interface ApiKey {

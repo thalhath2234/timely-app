@@ -6,6 +6,7 @@ import { CalendarDays, Database, Download, FileSpreadsheet, RefreshCw, Trash2, U
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { Card, Chip, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
+import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { createBackup, deleteBackup, getBackupSettings, listBackups, restoreBackupJSON, shareExport, updateBackupSettings, type BackupSettings } from "../../../lib/api/portability";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,6 +17,7 @@ export default function DataSettingsScreen() {
   const backupsQ = useQuery({ queryKey: ["backups"], queryFn: listBackups });
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const current: BackupSettings = settingsQ.data ?? { enabled: false, intervalDays: 1, retentionCount: 7 };
   const save = useMutation({ mutationFn: updateBackupSettings, onSuccess: (next) => client.setQueryData(["backup-settings"], next) });
   const create = useMutation({ mutationFn: createBackup, onSuccess: () => client.invalidateQueries({ queryKey: ["backups"] }) });
@@ -31,16 +33,18 @@ export default function DataSettingsScreen() {
   async function restore() {
     const result = await DocumentPicker.getDocumentAsync({ type: "application/json", copyToCacheDirectory: true });
     if (result.canceled) return;
-    Alert.alert("Replace account data?", "This replaces all tasks, projects, calendar items, docs, sheets, and settings. Your login and devices remain unchanged.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Restore", style: "destructive", onPress: () => void run("restore", async () => {
+    setConfirm({
+      title: "Replace account data?",
+      message: "This replaces all tasks, projects, calendar items, docs, sheets, and settings. Your login and devices remain unchanged.",
+      confirmLabel: "Restore",
+      onConfirm: () => void run("restore", async () => {
         const contents = await new File(result.assets[0].uri).text();
         const restored = await restoreBackupJSON(contents);
         await client.invalidateQueries();
         const count = Object.values(restored.counts).reduce((sum, value) => sum + value, 0);
         setMessage(`Restore complete · ${count} records loaded.`);
-      }) },
-    ]);
+      }),
+    });
   }
 
   return (
@@ -70,7 +74,7 @@ export default function DataSettingsScreen() {
           <View key={backup.id} style={styles.backup}>
             <View style={styles.grow}><Text style={styles.title}>{new Date(backup.createdAt).toLocaleString()}</Text><Text style={styles.meta}>{Math.max(1, Math.round(backup.byteSize / 1024))} KB</Text></View>
             <Pressable accessibilityRole="button" accessibilityLabel="Download backup" onPress={() => run(backup.id, () => shareExport(`/backups/${backup.id}`, "timely-backup.json", "application/json"))} style={styles.icon}><Download size={18} color={colors.foreground} /></Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Delete backup" onPress={() => Alert.alert("Delete backup?", "This encrypted copy will be permanently removed.", [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => remove.mutate(backup.id) }])} style={styles.icon}><Trash2 size={18} color={colors.destructive} /></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Delete backup" onPress={() => setConfirm({ title: "Delete backup?", message: "This encrypted copy will be permanently removed.", onConfirm: () => remove.mutate(backup.id) })} style={styles.icon}><Trash2 size={18} color={colors.destructive} /></Pressable>
           </View>
         ))}
 
@@ -78,6 +82,14 @@ export default function DataSettingsScreen() {
         <Pressable accessibilityRole="button" onPress={() => void restore()} style={styles.restore}><Upload size={18} color={colors.foreground} /><View><Text style={styles.title}>Choose JSON backup</Text><Text style={styles.meta}>Replaces this account&apos;s current data.</Text></View></Pressable>
         {message ? <Text accessibilityLiveRegion="polite" style={styles.success}>{message}</Text> : null}
       </ScrollView>
+      <ConfirmSheet
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirm?.title ?? ""}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        onConfirm={() => confirm?.onConfirm()}
+      />
     </Screen>
   );
 }

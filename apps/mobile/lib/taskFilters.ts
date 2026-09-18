@@ -1,5 +1,6 @@
 import type { Task, TaskViewConfig } from "./types";
 import { isTaskOverdue } from "./overdue";
+import { statusNameKey } from "./status";
 import { taskHasDate } from "./taskDates";
 
 export type TaskListFilters = {
@@ -62,6 +63,7 @@ function hasAny(values: string[]) {
 
 export type ExtraTaskFilters = {
   statusIds: string[];
+  statusKeys: string[];
   priorityLevels: string[];
   labelIds: string[];
   stageIds: string[];
@@ -73,6 +75,7 @@ export type ExtraTaskFilters = {
 
 export const EMPTY_EXTRA_FILTERS: ExtraTaskFilters = {
   statusIds: [],
+  statusKeys: [],
   priorityLevels: [],
   labelIds: [],
   stageIds: [],
@@ -85,6 +88,7 @@ export const EMPTY_EXTRA_FILTERS: ExtraTaskFilters = {
 export function extraFiltersActive(filters: ExtraTaskFilters) {
   return (
     filters.statusIds.length > 0 ||
+    (filters.statusKeys?.length ?? 0) > 0 ||
     filters.priorityLevels.length > 0 ||
     filters.labelIds.length > 0 ||
     filters.stageIds.length > 0 ||
@@ -99,7 +103,8 @@ export function extraFiltersActive(filters: ExtraTaskFilters) {
 export function applyExtraFilters(tasks: Task[], filters: ExtraTaskFilters): Task[] {
   if (!extraFiltersActive(filters)) return tasks;
   const wantedStatuses = new Set(filters.statusIds);
-  const wantedPriorities = new Set(filters.priorityLevels);
+  const wantedStatusKeys = new Set(filters.statusKeys ?? []);
+  const wantedPriorities = new Set(filters.priorityLevels.map((level) => level.toLowerCase()));
   const wantedLabels = new Set(filters.labelIds);
   const wantedStages = new Set(filters.stageIds);
 
@@ -110,12 +115,16 @@ export function applyExtraFilters(tasks: Task[], filters: ExtraTaskFilters): Tas
     }
     if (filters.onlyRecurring && !task.recurrence) return false;
     if (filters.onlyDated && !taskHasDate(task)) return false;
-    if (hasAny(filters.statusIds)) {
+    if (hasAny(filters.statusIds) || hasAny(filters.statusKeys ?? [])) {
       const statusId = task.status?.id || task.statusId;
-      if (!statusId || !wantedStatuses.has(statusId)) return false;
+      const key = statusNameKey(task.status?.name);
+      const idOk = Boolean(statusId && wantedStatuses.has(statusId));
+      const keyOk = Boolean(key && wantedStatusKeys.has(key));
+      if (!idOk && !keyOk) return false;
     }
     if (hasAny(filters.priorityLevels)) {
-      if (!task.priorityLevel || !wantedPriorities.has(task.priorityLevel)) return false;
+      const level = (task.priorityLevel ?? "").toLowerCase();
+      if (!level || !wantedPriorities.has(level)) return false;
     }
     if (hasAny(filters.labelIds)) {
       const ids = [

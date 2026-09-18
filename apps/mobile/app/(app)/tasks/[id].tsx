@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ban, CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import TaskMetaEditor from "../../../components/ui/TaskMetaEditor";
 import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
@@ -44,6 +45,9 @@ import { normalizePriority } from "../../../lib/priority";
 import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent, isRichContentEmpty } from "../../../lib/richText";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { useDraftText } from "../../../lib/draftText";
+import { useAutosave } from "../../../lib/autosave";
+import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 
 type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | "earliest" | "blocked" | "scope" | null;
 
@@ -63,6 +67,20 @@ export default function TaskDetailScreen() {
   const spaces = useWorkspacesQuery().data ?? [];
   const projects = useProjectsQuery().data ?? [];
   const save = useSaveTask();
+  const metaRef = useRef({ taskWorkspaceId: "", metaWorkspaceId: "" });
+  const { schedule: scheduleSave, flush: flushSave } = useAutosave<UpdateTaskPayload>(async (data) => {
+    if (!id) return;
+    const assigningMeta = Boolean(data.labelIds || data.customFieldValues);
+    await save.mutateAsync({
+      id,
+      data: {
+        ...data,
+        ...(!metaRef.current.taskWorkspaceId && assigningMeta && metaRef.current.metaWorkspaceId
+          ? { workspaceId: metaRef.current.metaWorkspaceId }
+          : {}),
+      },
+    });
+  });
   const remove = useDeleteTask();
   const addBlock = useAddBlock();
   const pinTask = usePinTask();
@@ -74,6 +92,7 @@ export default function TaskDetailScreen() {
   const activity = useTaskActivityQuery(id);
   const comment = useAddComment();
   const [picker, setPicker] = useState<Picker>(null);
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const [note, setNote] = useState("");
   const [noteRich, setNoteRich] = useState<DocContent>({ type: "doc", content: [{ type: "paragraph" }] });
   const [noteReady, setNoteReady] = useState(false);
@@ -94,6 +113,10 @@ export default function TaskDetailScreen() {
   const [metaWorkspaceId, setMetaWorkspaceId] = useState("");
   const [scope, setScope] = useState<"this" | "future" | "all">("all");
   const [blockQuery, setBlockQuery] = useState("");
+  const [name, setName] = useDraftText(task?.name, id);
+  const [preferStart, setPreferStart] = useDraftText(task?.preferredWindows?.[0]?.start, id);
+  const [preferEnd, setPreferEnd] = useDraftText(task?.preferredWindows?.[0]?.end, id);
+  metaRef.current = { taskWorkspaceId: task?.workspaceId ?? "", metaWorkspaceId };
 
   const workspace = spaces.find((w) => w.id === (task?.workspaceId || metaWorkspaceId));
   const scopedProjects = projects.filter((p) => p.workspaceId === (task?.workspaceId || metaWorkspaceId));
@@ -172,8 +195,17 @@ export default function TaskDetailScreen() {
           </Pressable>
         }
       />
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
-        <Field value={task.name} onChangeText={(name) => persist({ name })} autoCapitalize="sentences" />
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
+        <Field
+          value={name}
+          onChangeText={(next) => {
+            setName(next);
+            scheduleSave({ name: next });
+          }}
+          onBlur={() => void flushSave()}
+          placeholder="Title"
+          autoCapitalize="sentences"
+        />
         <View style={{ gap: 8 }}>
           <SegmentedControl
             options={[
@@ -307,7 +339,7 @@ export default function TaskDetailScreen() {
           values={customFieldValues}
           onValues={(next) => {
             setCustomFieldValues(next);
-            persist({ customFieldValues: next });
+            scheduleSave({ customFieldValues: next });
           }}
         />
         <Text style={styles.section}>{isReminder ? "Reminder" : "Schedule"}</Text>
@@ -348,10 +380,11 @@ export default function TaskDetailScreen() {
                   ) : null}
                   <Pressable
                     onPress={() =>
-                      Alert.alert("Delete this time?", undefined, [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Delete", style: "destructive", onPress: () => removeBlock.mutate(block.id) },
-                      ])
+                      setConfirm({
+                        title: "Delete this time?",
+                        message: "This reserved block will be removed.",
+                        onConfirm: () => removeBlock.mutate(block.id),
+                      })
                     }
                     hitSlop={8}
                   >
@@ -364,10 +397,12 @@ export default function TaskDetailScreen() {
             {(task.blocks ?? []).length > 0 ? (
               <Pressable
                 onPress={() =>
-                  Alert.alert("Clear all reserved time?", undefined, [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Clear", style: "destructive", onPress: () => clearBlocks.mutate(task.id) },
-                  ])
+                  setConfirm({
+                    title: "Clear all reserved time?",
+                    message: "Every work block on this task will be removed.",
+                    confirmLabel: "Clear",
+                    onConfirm: () => clearBlocks.mutate(task.id),
+                  })
                 }
               >
                 <Text style={[styles.rowAction, { color: colors.destructive }]}>Clear all time</Text>
@@ -429,21 +464,27 @@ export default function TaskDetailScreen() {
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <View style={{ flex: 1 }}>
                     <Field
-                      value={task.preferredWindows?.[0]?.start ?? ""}
+                      value={preferStart}
                       onChangeText={(start) => {
-                        const end = task.preferredWindows?.[0]?.end ?? "";
-                        persist({ preferredWindows: start && end ? [{ start, end }] : start ? [{ start, end: start }] : [] });
+                        setPreferStart(start);
+                        const end = preferEnd;
+                        scheduleSave({
+                          preferredWindows: start && end ? [{ start, end }] : start ? [{ start, end: start }] : [],
+                        });
                       }}
+                      onBlur={() => void flushSave()}
                       placeholder="Prefer from (09:00)"
                     />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Field
-                      value={task.preferredWindows?.[0]?.end ?? ""}
+                      value={preferEnd}
                       onChangeText={(end) => {
-                        const start = task.preferredWindows?.[0]?.start ?? "";
-                        persist({ preferredWindows: start && end ? [{ start, end }] : [] });
+                        setPreferEnd(end);
+                        const start = preferStart;
+                        scheduleSave({ preferredWindows: start && end ? [{ start, end }] : [] });
                       }}
+                      onBlur={() => void flushSave()}
                       placeholder="Prefer to (12:00)"
                     />
                   </View>
@@ -574,14 +615,11 @@ export default function TaskDetailScreen() {
         />
         <Pressable
           onPress={() =>
-            Alert.alert("Delete task", "This cannot be undone.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Delete",
-                style: "destructive",
-                onPress: () => remove.mutate(task.id, { onSuccess: () => router.replace("/(app)/(tabs)/tasks") }),
-              },
-            ])
+            setConfirm({
+              title: "Delete task",
+              message: "This cannot be undone.",
+              onConfirm: () => remove.mutate(task.id, { onSuccess: () => router.replace("/(app)/(tabs)/tasks") }),
+            })
           }
           style={styles.delete}
         >
@@ -813,6 +851,14 @@ export default function TaskDetailScreen() {
             }
           }
         }}
+      />
+      <ConfirmSheet
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirm?.title ?? ""}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        onConfirm={() => confirm?.onConfirm()}
       />
     </Screen>
   );
