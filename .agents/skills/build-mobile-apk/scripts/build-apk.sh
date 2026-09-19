@@ -21,7 +21,7 @@ JAVA_HOME=/home/thalhath/.local/jdk-17
 ANDROID_HOME=/home/thalhath/.local/android-sdk
 UNIT=timely-apk-build
 LOG=/tmp/timely-apk-build.log
-APK_OUT="${TIMELY_APK_OUT:-$(cd "$APP_DIR/../.." && pwd)/apps/mobile/timely-release-arm64.apk}"
+APK_OUT="${TIMELY_APK_OUT:-$APP_DIR/timely-release-arm64.apk}"
 API_URL="${1:-}"
 
 if [[ -z "$API_URL" && -f "$APP_DIR/.env" ]]; then

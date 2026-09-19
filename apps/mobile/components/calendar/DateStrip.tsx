@@ -15,6 +15,7 @@ export default function DateStrip({
 }) {
   const scrollRef = useRef<ScrollView>(null);
   const ignoreScroll = useRef(true);
+  const skipMomentum = useRef(false);
   const [pageWidth, setPageWidth] = useState(Dimensions.get("window").width);
   const today = new Date();
   const selectedWeekStart = addDays(startOfDay(selected), -selected.getDay());
@@ -46,6 +47,15 @@ export default function DateStrip({
   function onDragEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
     const velocity = event.nativeEvent.velocity?.x ?? 0;
     if (Math.abs(velocity) > 0.05) return;
+    skipMomentum.current = true;
+    onPage(event);
+  }
+
+  function onMomentumEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (skipMomentum.current) {
+      skipMomentum.current = false;
+      return;
+    }
     onPage(event);
   }
 
@@ -56,7 +66,7 @@ export default function DateStrip({
       pagingEnabled
       decelerationRate="fast"
       showsHorizontalScrollIndicator={false}
-      onMomentumScrollEnd={onPage}
+      onMomentumScrollEnd={onMomentumEnd}
       onScrollEndDrag={onDragEnd}
       onLayout={(event) => {
         const width = event.nativeEvent.layout.width;
