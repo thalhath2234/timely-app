@@ -7,6 +7,7 @@ import { unregisterServerPush } from "../notifications";
 import { ApiError, flushOfflineQueue } from "../api/client";
 import { clearToken, getRefreshToken, getToken, onSessionExpired, setSession } from "./session";
 import { setOfflineQueueUser } from "../offlineQueue";
+import { prefetchStartupData } from "../prefetch";
 
 type AuthState = {
   ready: boolean;
@@ -50,11 +51,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [state, setState] = useState<AuthState>({ ready: false, token: null, user: null });
 
-  async function hydrate(token: string) {
+  async function hydrate(token: string, prefetch = false) {
     const user = await withOnboardingState(await getMe());
     setOfflineQueueUser(user.id);
     void flushOfflineQueue().then(() => queryClient.invalidateQueries());
     queryClient.setQueryData(["me"], user);
+    if (prefetch && onboarded(user)) await prefetchStartupData(queryClient);
     setState({ ready: true, token, user });
     return user;
   }
@@ -69,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        if (!cancelled) await hydrate(token);
+        if (!cancelled) await hydrate(token, true);
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
           await clearToken();
@@ -82,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (refreshToken) {
             const session = await refreshSession(refreshToken);
             await setSession(session.token, session.refreshToken);
-            if (!cancelled) await hydrate(session.token);
+            if (!cancelled) await hydrate(session.token, true);
             return;
           }
         } catch {

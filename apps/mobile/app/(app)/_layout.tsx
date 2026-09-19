@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, View } from "react-native";
+import { AccessibilityInfo } from "react-native";
 import { Redirect, Stack } from "expo-router";
 import ReminderNotifications from "../../components/ReminderNotifications";
 import AccountAppearanceSync from "../../components/AccountAppearanceSync";
+import StartupLoader from "../../components/ui/StartupLoader";
 import ToastHost from "../../components/ui/ToastHost";
 import { isOnboarded, useAuth } from "../../lib/auth/AuthProvider";
 import { stackFadeAnimation, stackPushAnimation } from "../../lib/motion";
@@ -18,13 +19,7 @@ export default function AppLayout() {
     return () => subscription.remove();
   }, []);
 
-  if (!ready) {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color={colors.primary} />
-      </View>
-    );
-  }
+  if (!ready) return <StartupLoader />;
   if (!token) return <Redirect href="/login" />;
   if (!user) return <Redirect href="/login" />;
   if (!isOnboarded(user)) return <Redirect href="/onboarding" />;
