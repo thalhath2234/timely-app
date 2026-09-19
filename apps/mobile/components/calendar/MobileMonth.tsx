@@ -3,7 +3,6 @@ import {
   Dimensions,
   NativeScrollEvent,
   NativeSyntheticEvent,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +14,7 @@ import { addDays, addMonths, dayKey, isSameDay, startOfDay } from "../../lib/for
 import CalendarItemRow, { itemColor } from "./CalendarItemRow";
 import EmptyState from "../ui/EmptyState";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import AnimatedPressable from "../ui/AnimatedPressable";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
@@ -57,7 +57,7 @@ function MonthGrid({
             const isToday = isSameDay(d, today);
             const dayItems = byDay.get(dayKey(d)) ?? [];
             return (
-              <Pressable key={d.toISOString()} onPress={() => onSelect(d)} style={styles.cell}>
+              <AnimatedPressable key={d.toISOString()} onPress={() => onSelect(d)} style={styles.cell}>
                 <View style={[styles.numWrap, on && styles.numOn]}>
                   <Text
                     style={[
@@ -78,7 +78,7 @@ function MonthGrid({
                     />
                   ))}
                 </View>
-              </Pressable>
+              </AnimatedPressable>
             );
           })}
         </View>
@@ -204,7 +204,7 @@ const styles = createThemedStyleSheet((colors) => ({
   wd: { flex: 1, textAlign: "center", color: colors.mutedForeground, fontSize: 11, paddingVertical: 8 },
   cell: { flex: 1, minHeight: 52, alignItems: "center", paddingVertical: 4 },
   numWrap: { width: 32, height: 32, borderRadius: 16, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-  numOn: { backgroundColor: "#6558E8", shadowColor: "#818CF8", shadowOpacity: 0.45, shadowRadius: 7, shadowOffset: { width: 0, height: 0 } },
+  numOn: { backgroundColor: colors.primary, shadowColor: colors.primary, shadowOpacity: 0.45, shadowRadius: 7, shadowOffset: { width: 0, height: 0 } },
   num: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
   numOnText: { color: colors.primaryForeground, fontWeight: "700" },
   dots: { flexDirection: "row", justifyContent: "center", gap: 3, height: 8, marginTop: 2 },

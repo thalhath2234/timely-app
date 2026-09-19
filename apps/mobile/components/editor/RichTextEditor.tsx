@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Keyboard,
   Platform,
   Pressable,
@@ -221,8 +222,8 @@ export default function RichTextEditor({
 
   useEffect(() => {
     if (!ready) return;
-    run("setChrome", { bottomPad: barHeight + 32 });
-  }, [ready, barHeight, run]);
+    run("setChrome", { bottomPad: focused && keyboardHeight > 8 ? 12 : barHeight + 32 });
+  }, [ready, barHeight, focused, keyboardHeight, run]);
 
   const applyRemoteIfIdle = useCallback(() => {
     if (!ready) return;
@@ -391,7 +392,7 @@ export default function RichTextEditor({
   useKeyboardAccessory(floatBar, keyboardHeight, () => dock);
 
   return (
-    <View style={[styles.wrap, compact && styles.compact]}>
+    <View style={[styles.wrap, compact && styles.compact, compact && floatBar && styles.compactFloating]}>
       <View style={[styles.webWrap, compact && styles.compactWeb]}>
         <WebView
           key={themeKey}
@@ -411,11 +412,13 @@ export default function RichTextEditor({
         />
         {!ready ? (
           <View pointerEvents="none" style={styles.overlay}>
-            <Text style={styles.empty}>
-              {failed
-                ? "Could not load the editor. Check that the emulator can reach the internet."
-                : "Loading editor…"}
-            </Text>
+            {failed ? (
+              <Text style={styles.empty}>
+                Could not load the editor. Check that the emulator can reach the internet.
+              </Text>
+            ) : (
+              <ActivityIndicator color={colors.mutedForeground} />
+            )}
           </View>
         ) : null}
       </View>
@@ -528,10 +531,11 @@ export default function RichTextEditor({
 const styles = createThemedStyleSheet((colors) => ({
   wrap: { flex: 1, minHeight: 280 },
   compact: { flex: 0, minHeight: 220, maxHeight: 280, borderRadius: 16, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  compactFloating: { minHeight: 140, maxHeight: 180 },
   webWrap: { flex: 1, minHeight: 160 },
   compactWeb: { minHeight: 140, maxHeight: 180 },
   toolOn: { backgroundColor: colors.accent },
-  overlay: { ...StyleSheet.absoluteFill, justifyContent: "center", padding: 24 },
+  overlay: { ...StyleSheet.absoluteFill, justifyContent: "center", alignItems: "center", backgroundColor: colors.card },
   web: { flex: 1, backgroundColor: colors.background },
   dock: {
     borderTopWidth: StyleSheet.hairlineWidth,

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Text, View } from "react-native";
 import { Monitor, Moon, Sun } from "lucide-react-native";
 import { Field } from "../ui/primitives";
+import AnimatedPressable from "../ui/AnimatedPressable";
 import { useUpdateAppearance } from "../../lib/hooks";
 import {
   ACCENT_PRESETS,
@@ -56,7 +57,7 @@ export default function AppearanceCard() {
           const selected = theme === option.value;
           const Icon = option.icon;
           return (
-            <Pressable
+            <AnimatedPressable
               key={option.value}
               accessibilityRole="button"
               accessibilityLabel={`${option.label} theme`}
@@ -67,7 +68,7 @@ export default function AppearanceCard() {
             >
               <Icon size={16} color={selected ? colors.primaryForeground : colors.mutedForeground} />
               <Text style={[styles.themeOptionText, selected && styles.themeOptionTextSelected]}>{option.label}</Text>
-            </Pressable>
+            </AnimatedPressable>
           );
         })}
       </View>
@@ -76,7 +77,7 @@ export default function AppearanceCard() {
         {ACCENT_PRESETS.map((preset) => {
           const selected = accent === preset.id;
           return (
-            <Pressable
+            <AnimatedPressable
               key={preset.id}
               accessibilityRole="button"
               accessibilityLabel={preset.label}
@@ -94,7 +95,7 @@ export default function AppearanceCard() {
         placeholder="#6E56CF"
         autoCapitalize="none"
       />
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         disabled={busy}
         onPress={() => {
@@ -108,7 +109,7 @@ export default function AppearanceCard() {
         style={styles.hexButton}
       >
         <Text style={styles.hexButtonText}>Use custom hex</Text>
-      </Pressable>
+      </AnimatedPressable>
     </View>
   );
 }

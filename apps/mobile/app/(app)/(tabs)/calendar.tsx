@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -15,19 +15,25 @@ import AutoScheduleSheet from "../../../components/calendar/AutoScheduleSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
+import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import {
   useAddBlock,
   useCalendarQuery,
   useEditTaskOccurrence,
   useMoveBlock,
   useMoveEventTimes,
+  useProjectsQuery,
   useSaveTask,
   useTasksQuery,
+  useWorkingHoursQuery,
+  useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { isReminderItem } from "../../../components/calendar/CalendarItemRow";
+import { isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
+import { Select } from "../../../components/ui/primitives";
 import { mergeCalendarItems } from "../../../lib/calendarMerge";
 import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
 import { rankUnscheduled } from "../../../lib/scheduleRank";
+import { calendarBusy, findNextFreeSlot, type BusyInterval } from "../../../lib/nextFreeSlot";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import { addDays, dayKey, formatDuration, formatMonthYear, formatTime, isSameDay, startOfDay } from "../../../lib/format";
 import { taskDeadlineDate } from "../../../lib/taskDates";
@@ -53,16 +59,54 @@ export default function CalendarScreen() {
   const [slot, setSlot] = useState<Date | null>(null);
   const [waitingOpen, setWaitingOpen] = useState(false);
   const [scheduleTask, setScheduleTask] = useState<Task | null>(null);
+  const [heldSlots, setHeldSlots] = useState<BusyInterval[]>([]);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   const monthKey = `${selected.getFullYear()}-${selected.getMonth()}`;
   const { from, to } = useMemo(() => calendarWindow(selected), [monthKey]);
 
   const query = useCalendarQuery(from, to);
   const networkCopy = needsNetworkCopy(query);
-  const items = mergeCalendarItems(query.data?.items ?? []);
+  const workspaces = useWorkspacesQuery().data ?? [];
+  const projects = useProjectsQuery().data ?? [];
+  const scopedProjects = useMemo(
+    () => projects.filter((project) => (workspaceId ? project.workspaceId === workspaceId : true)),
+    [projects, workspaceId],
+  );
+  const items = useMemo(
+    () => mergeCalendarItems(query.data?.items ?? []).filter((item) => matchesCalendarScope(item, workspaceId, projectId)),
+    [query.data?.items, workspaceId, projectId],
+  );
   const tasks = useTasksQuery().data ?? [];
-  const overdue = useMemo(() => overdueAgendaTasks(tasks).map(taskToCalendarItem), [tasks]);
-  const waiting = useMemo(() => rankUnscheduled(tasks).slice(0, 8), [tasks]);
+  const hoursQ = useWorkingHoursQuery();
+  const overdue = useMemo(
+    () =>
+      overdueAgendaTasks(tasks)
+        .map(taskToCalendarItem)
+        .filter((item) => matchesCalendarScope(item, workspaceId, projectId)),
+    [tasks, workspaceId, projectId],
+  );
+  const waiting = useMemo(
+    () =>
+      rankUnscheduled(tasks)
+        .filter((task) => {
+          if (workspaceId && (task.workspace?.id || task.workspaceId) !== workspaceId) return false;
+          if (projectId && (task.project?.id || task.projectId) !== projectId) return false;
+          return true;
+        })
+        .slice(0, 8),
+    [tasks, workspaceId, projectId],
+  );
+  const nextSlot = useMemo(
+    () =>
+      findNextFreeSlot({
+        durationMinutes: scheduleTask?.duration || 30,
+        hours: hoursQ.data,
+        busy: [...calendarBusy(items), ...heldSlots],
+      }),
+    [hoursQ.data, items, heldSlots, scheduleTask?.duration],
+  );
   const save = useSaveTask();
   const moveBlk = useMoveBlock();
   const moveEvt = useMoveEventTimes();
@@ -143,13 +187,13 @@ export default function CalendarScreen() {
             <HeaderIconButton label="Next" onPress={() => step(1)}>
               <ChevronRight size={22} color={colors.foreground} />
             </HeaderIconButton>
-            <Pressable onPress={() => setSelected(startOfDay(new Date()))} disabled={isToday} style={[styles.today, isToday && { opacity: 0.4 }]}>
+            <AnimatedPressable onPress={() => setSelected(startOfDay(new Date()))} disabled={isToday} style={[styles.today, isToday && { opacity: 0.4 }]}>
               <Text style={styles.todayText}>Today</Text>
-            </Pressable>
+            </AnimatedPressable>
           </>
         }
       >
-        <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
+        <View style={{ paddingHorizontal: 12, paddingBottom: 10, gap: 8 }}>
           <SegmentedControl
             options={[
               { label: "Day", value: "day" },
@@ -160,6 +204,45 @@ export default function CalendarScreen() {
             value={view}
             onChange={setView}
           />
+          {workspaces.length > 0 || scopedProjects.length > 0 ? (
+            <View style={styles.filters}>
+              {workspaces.length > 0 ? (
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Select
+                    value={workspaceId ?? ""}
+                    onChange={(id) => {
+                      setWorkspaceId(id || null);
+                      if (projectId && !projects.some((project) => project.id === projectId && (!id || project.workspaceId === id))) {
+                        setProjectId(null);
+                      }
+                    }}
+                    placeholder="All spaces"
+                    options={[
+                      { value: "", label: "All spaces" },
+                      ...workspaces.map((space) => ({ value: space.id, label: space.name, color: space.color ?? undefined })),
+                    ]}
+                  />
+                </View>
+              ) : null}
+              {scopedProjects.length > 0 ? (
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Select
+                    value={projectId ?? ""}
+                    onChange={(id) => setProjectId(id || null)}
+                    placeholder="All projects"
+                    options={[
+                      { value: "", label: "All projects" },
+                      ...scopedProjects.map((project) => ({
+                        value: project.id,
+                        label: project.title || "Untitled project",
+                        color: project.color ?? undefined,
+                      })),
+                    ]}
+                  />
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </View>
         {view !== "month" ? <DateStrip selected={selected} onSelect={setSelected} busyDays={busyDays} /> : null}
       </MobileHeader>
@@ -170,26 +253,26 @@ export default function CalendarScreen() {
           <>
             {waiting.length > 0 ? (
               <View style={styles.waiting}>
-                <Pressable onPress={() => setWaitingOpen((open) => !open)} style={styles.waitingHead}>
+                <AnimatedPressable onPress={() => setWaitingOpen((open) => !open)} style={styles.waitingHead}>
                   <Text style={styles.waitingTitle}>Waiting for a slot</Text>
                   <Text style={styles.waitingCount}>{waiting.length}</Text>
-                </Pressable>
+                </AnimatedPressable>
                 {waitingOpen
                   ? waiting.map((task) => {
                       const due = taskDeadlineDate(task);
                       return (
                         <View key={task.id} style={styles.waitingRow}>
-                          <Pressable onPress={() => router.push(`/(app)/tasks/${task.id}`)} style={{ flex: 1 }}>
-                            <Text style={styles.waitingName}>{task.name}</Text>
+                          <AnimatedPressable onPress={() => router.push(`/(app)/tasks/${task.id}`)} style={{ flex: 1 }}>
+                            <Text style={[styles.waitingName, task.completedAt ? styles.waitingDone : null]}>{task.name}</Text>
                             <Text style={styles.waitingMeta}>
                               {formatDuration(task.duration) ?? "No estimate"}
                               {due ? ` · due ${due.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
                               {task.blockedById ? " · waiting on another task" : ""}
                             </Text>
-                          </Pressable>
-                          <Pressable onPress={() => setScheduleTask(task)}>
+                          </AnimatedPressable>
+                          <AnimatedPressable onPress={() => setScheduleTask(task)}>
                             <Text style={styles.waitingAction}>Schedule</Text>
-                          </Pressable>
+                          </AnimatedPressable>
                         </View>
                       );
                     })
@@ -199,7 +282,7 @@ export default function CalendarScreen() {
             {view === "agenda" ? (
               <ScrollView
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingBottom: 24 }}
+                contentContainerStyle={{ paddingBottom: 110 }}
                 keyboardShouldPersistTaps="handled"
                 refreshControl={
                   <RefreshControl
@@ -260,8 +343,9 @@ export default function CalendarScreen() {
         </SheetOption>
       </BottomSheet>
       <DateTimeSheet
+        key={scheduleTask?.id ?? "closed"}
         open={Boolean(scheduleTask)}
-        value={selected}
+        value={nextSlot}
         title={scheduleTask ? `Schedule ${scheduleTask.name}` : "Schedule"}
         onClose={() => setScheduleTask(null)}
         onChange={(start) => {
@@ -269,9 +353,12 @@ export default function CalendarScreen() {
             setScheduleTask(null);
             return;
           }
+          const duration = scheduleTask.duration || 30;
+          const end = new Date(start.getTime() + duration * 60_000);
+          setHeldSlots((current) => [...current, { start: start.toISOString(), end: end.toISOString() }]);
           void addBlock.mutateAsync({
             taskId: scheduleTask.id,
-            data: { start: start.toISOString(), durationMinutes: scheduleTask.duration || 30 },
+            data: { start: start.toISOString(), durationMinutes: duration },
           });
           setScheduleTask(null);
         }}
@@ -305,6 +392,8 @@ const styles = createThemedStyleSheet((colors) => ({
   waitingCount: { color: colors.primary, fontSize: 11, fontWeight: "700", borderRadius: 10, backgroundColor: colors.accent, paddingHorizontal: 7, paddingVertical: 3 },
   waitingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   waitingName: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
+  waitingDone: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   waitingMeta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   waitingAction: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  filters: { flexDirection: "row", gap: 8 },
 }));

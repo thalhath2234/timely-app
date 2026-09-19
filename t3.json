@@ -1,0 +1,10 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "scripts": [
+    {
+      "name": "Build & Install APK",
+      "command": "make install-apk",
+      "icon": "build"
+    }
+  ]
+}

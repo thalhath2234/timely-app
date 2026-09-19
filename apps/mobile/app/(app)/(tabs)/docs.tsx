@@ -1,6 +1,12 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import Animated, {
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { ChevronRight, FileText, MoreVertical, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
@@ -15,13 +21,52 @@ import { sheetHref } from "../../../lib/sheet";
 import { buildDocTree, countDocDescendants, type DocNode } from "../../../lib/docTree";
 import { timeAgo } from "../../../lib/format";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { easeOut, expandEntering, expandExiting, listLayout, overlayDuration } from "../../../lib/motion";
+import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
 import type { Doc } from "../../../lib/types";
 
 type Kind = "docs" | "sheets";
 
+function DocsExpandButton({
+  expanded,
+  hasChildren,
+  onPress,
+}: {
+  expanded: boolean;
+  hasChildren: boolean;
+  onPress: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+  const rotation = useSharedValue(expanded ? 90 : 0);
+
+  useEffect(() => {
+    const next = expanded ? 90 : 0;
+    rotation.value = reduceMotion ? next : withTiming(next, { duration: overlayDuration, easing: easeOut });
+  }, [expanded, reduceMotion, rotation]);
+
+  const arrowStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
+  return (
+    <Pressable
+      accessibilityLabel={expanded ? "Collapse" : "Expand"}
+      onPress={onPress}
+      hitSlop={8}
+      disabled={!hasChildren}
+      style={[styles.chevron, !hasChildren && { opacity: 0 }]}
+    >
+      <Animated.View pointerEvents="none" collapsable={false} style={[styles.chevronGlyph, arrowStyle]}>
+        <ChevronRight size={16} color={colors.mutedForeground} />
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 export default function FilesScreen() {
   const router = useRouter();
+  const reduceMotion = Boolean(useReducedMotion());
   const [kind, setKind] = useState<Kind>("docs");
   const [showArchived, setShowArchived] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -117,22 +162,14 @@ export default function FilesScreen() {
     const hasChildren = node.children.length > 0;
     const descendantCount = countDocDescendants(node);
     return (
-      <View key={node.id} style={{ gap: 8 }}>
+      <Animated.View key={node.id} layout={listLayout(reduceMotion)} style={{ gap: 8 }}>
         <View style={[styles.card, { marginLeft: depth * 16 }]}>
-          <Pressable
-            accessibilityLabel={expanded ? "Collapse" : "Expand"}
+          <DocsExpandButton
+            expanded={expanded}
+            hasChildren={hasChildren}
             onPress={() => toggleExpanded(node.id)}
-            hitSlop={8}
-            style={[styles.chevron, !hasChildren && { opacity: 0 }]}
-            disabled={!hasChildren}
-          >
-            <ChevronRight
-              size={16}
-              color={colors.mutedForeground}
-              style={{ transform: [{ rotate: expanded ? "90deg" : "0deg" }] }}
-            />
-          </Pressable>
-          <Pressable
+          />
+          <AnimatedPressable
             onPress={() => router.push(`/(app)/docs/${node.id}`)}
             style={styles.cardBody}
           >
@@ -144,7 +181,7 @@ export default function FilesScreen() {
                 {timeAgo(node.updatedAt)}
               </Text>
             </View>
-          </Pressable>
+          </AnimatedPressable>
           {node.isFavorite ? <Star size={16} color={colors.warning} fill={colors.warning} /> : null}
           <Pressable
             accessibilityLabel="Page menu"
@@ -155,8 +192,16 @@ export default function FilesScreen() {
             <MoreVertical size={18} color={colors.mutedForeground} />
           </Pressable>
         </View>
-        {expanded ? node.children.map((child) => renderNode(child, depth + 1)) : null}
-      </View>
+        {expanded ? (
+          <Animated.View
+            entering={expandEntering(reduceMotion)}
+            exiting={expandExiting(reduceMotion)}
+            style={{ gap: 8 }}
+          >
+            {node.children.map((child) => renderNode(child, depth + 1))}
+          </Animated.View>
+        ) : null}
+      </Animated.View>
     );
   }
 
@@ -183,11 +228,11 @@ export default function FilesScreen() {
             value={kind}
             onChange={setKind}
           />
-          <Pressable onPress={() => setShowArchived((previous) => !previous)} style={{ paddingTop: 8 }}>
+          <AnimatedPressable onPress={() => setShowArchived((previous) => !previous)} style={{ paddingTop: 8 }}>
             <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
               {showArchived ? "Showing archived · tap for active" : "Show archived"}
             </Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
       </MobileHeader>
       <ScrollView
@@ -213,7 +258,7 @@ export default function FilesScreen() {
             <>
               {favoriteDocs.length ? <Text style={styles.section}>Favorites</Text> : null}
               {favoriteDocs.map((doc) => (
-                <Pressable key={`fav-${doc.id}`} onPress={() => router.push(`/(app)/docs/${doc.id}`)} style={styles.card}>
+                <AnimatedPressable key={`fav-${doc.id}`} onPress={() => router.push(`/(app)/docs/${doc.id}`)} style={styles.card}>
                   <Text style={styles.icon}>{doc.icon || "📄"}</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.title}>{doc.title || "Untitled"}</Text>
@@ -222,7 +267,7 @@ export default function FilesScreen() {
                     </Text>
                   </View>
                   <Star size={16} color={colors.warning} fill={colors.warning} />
-                </Pressable>
+                </AnimatedPressable>
               ))}
               <Text style={styles.section}>Pages</Text>
               {tree.map((node) => renderNode(node, 0))}
@@ -234,7 +279,7 @@ export default function FilesScreen() {
           <>
             {favoriteSheets.length ? <Text style={styles.section}>Favorites</Text> : null}
             {favoriteSheets.map((sheet) => (
-              <Pressable key={sheet.id} onPress={() => router.push(sheetHref(sheet.id))} style={styles.card}>
+              <AnimatedPressable key={sheet.id} onPress={() => router.push(sheetHref(sheet.id))} style={styles.card}>
                 <Text style={styles.icon}>{sheet.icon || "▦"}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.title}>{sheet.title || "Untitled"}</Text>
@@ -245,11 +290,11 @@ export default function FilesScreen() {
                   </Text>
                 </View>
                 <Star size={16} color={colors.warning} fill={colors.warning} />
-              </Pressable>
+              </AnimatedPressable>
             ))}
             {restSheets.length ? <Text style={styles.section}>All sheets</Text> : null}
             {restSheets.map((sheet) => (
-              <Pressable key={`a-${sheet.id}`} onPress={() => router.push(sheetHref(sheet.id))} style={styles.card}>
+              <AnimatedPressable key={`a-${sheet.id}`} onPress={() => router.push(sheetHref(sheet.id))} style={styles.card}>
                 <Text style={styles.icon}>{sheet.icon || "▦"}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.title}>{sheet.title || "Untitled"}</Text>
@@ -259,7 +304,7 @@ export default function FilesScreen() {
                     {wsById.get(sheet.workspaceId) ? ` · ${wsById.get(sheet.workspaceId)?.name}` : ""}
                   </Text>
                 </View>
-              </Pressable>
+              </AnimatedPressable>
             ))}
           </>
         )}
@@ -299,6 +344,7 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     gap: 4,
     minHeight: 64,
+    overflow: "visible",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
@@ -314,7 +360,8 @@ const styles = createThemedStyleSheet((colors) => ({
     gap: 8,
     paddingVertical: 8,
   },
-  chevron: { width: 32, height: 44, alignItems: "center", justifyContent: "center" },
+  chevron: { width: 32, height: 44, alignItems: "center", justifyContent: "center", overflow: "visible" },
+  chevronGlyph: { width: 20, height: 20, alignItems: "center", justifyContent: "center" },
   menuBtn: { width: 36, height: 44, alignItems: "center", justifyContent: "center" },
   icon: { fontSize: 20, width: 28, textAlign: "center", color: colors.foreground },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },

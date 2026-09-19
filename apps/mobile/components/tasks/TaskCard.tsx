@@ -1,14 +1,15 @@
+import { memo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { CalendarDays, Check, Flag } from "lucide-react-native";
+import { CalendarDays, Check } from "lucide-react-native";
 import type { Task } from "../../lib/types";
-import { formatDueDate, isOverdue, PRIORITY_META } from "../../lib/format";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { formatDueDate, formatDuration, formatTime, isOverdue, PRIORITY_META } from "../../lib/format";
+import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
 import { Dot } from "../ui/primitives";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { taskEntityColor } from "../../lib/entityColor";
 
-export default function TaskCard({
+function TaskCard({
   task,
   onToggle,
   selected,
@@ -27,6 +28,9 @@ export default function TaskCard({
   const done = Boolean(task.completedAt);
   const overdue = isOverdue(task.deadline, task.completedAt);
   const due = formatDueDate(task.deadline);
+  const scheduled = task.scheduledOn || task.blocks?.[0]?.start;
+  const timeLabel = overdue ? due : scheduled ? formatTime(scheduled) : due;
+  const durationLabel = !done && task.duration > 0 ? formatDuration(task.duration) : null;
   const priority = task.priorityLevel ? PRIORITY_META[task.priorityLevel] : null;
   const accent = overdue ? colors.destructive : (priority?.color ?? taskEntityColor(task));
 
@@ -48,26 +52,28 @@ export default function TaskCard({
         onLongPress={() => (onMove ? onMove(task) : onSelect?.(task))}
         style={styles.body}
       >
-        <Text numberOfLines={1} style={[styles.name, done && styles.done]}>
-          {task.name}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text numberOfLines={2} style={[styles.name, done && styles.done]}>
+            {task.name}
+          </Text>
+          {durationLabel ? <Text style={styles.duration}>{durationLabel}</Text> : null}
+        </View>
         <View style={styles.meta}>
+          {priority && !done ? (
+            <View style={[styles.priorityPill, { borderColor: `${priority.color}66`, backgroundColor: `${priority.color}22` }]}>
+              <Text style={[styles.priorityText, { color: priority.color }]}>{priority.label}</Text>
+            </View>
+          ) : null}
           {task.status ? (
             <View style={styles.metaItem}>
               <Dot color={task.status.color} />
               <Text style={styles.metaText}>{task.status.name}</Text>
             </View>
           ) : null}
-          {priority && !done ? (
-            <View style={styles.metaItem}>
-              <Flag size={11} color={priority.color} />
-              <Text style={[styles.metaText, { color: priority.color }]}>{priority.label}</Text>
-            </View>
-          ) : null}
-          {due ? (
+          {timeLabel ? (
             <View style={styles.metaItem}>
               <CalendarDays size={11} color={overdue ? colors.destructive : colors.mutedForeground} />
-              <Text style={[styles.metaText, overdue && { color: colors.destructive, fontWeight: "600" }]}>{due}</Text>
+              <Text style={[styles.metaText, overdue && { color: colors.destructive, fontWeight: "600" }]}>{timeLabel}</Text>
             </View>
           ) : null}
           {(task.labels ?? []).slice(0, 4).map((l) => (
@@ -79,11 +85,13 @@ export default function TaskCard({
   );
 }
 
+export default memo(TaskCard);
+
 const styles = createThemedStyleSheet((colors) => ({
   card: {
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: 14,
+    borderRadius: radius,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
@@ -96,15 +104,19 @@ const styles = createThemedStyleSheet((colors) => ({
     height: 20,
     borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: "#475569",
+    borderColor: colors.mutedForeground,
     alignItems: "center",
     justifyContent: "center",
   },
   boxOn: { backgroundColor: colors.success, borderColor: colors.success },
-  body: { flex: 1, minHeight: 64, justifyContent: "center", paddingVertical: 12, paddingRight: 12, gap: 5 },
-  name: { color: colors.cardForeground, fontSize: 14, fontWeight: "600" },
+  body: { flex: 1, minHeight: 64, justifyContent: "center", paddingVertical: 12, paddingRight: 12, gap: 6 },
+  titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  name: { flex: 1, color: colors.cardForeground, fontSize: 14, fontWeight: "600", lineHeight: 19 },
+  duration: { color: colors.foreground, fontFamily: "SpaceMono", fontSize: 12, fontWeight: "700", marginTop: 1 },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   metaText: { color: colors.mutedForeground, fontSize: 11 },
+  priorityPill: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
+  priorityText: { fontSize: 9, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
 }));

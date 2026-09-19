@@ -1,30 +1,21 @@
 import { useEffect, useState } from "react";
-import { AccessibilityInfo } from "react-native";
 import { Tabs, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Calendar, FileText, Home, ListTodo, Plus, Search } from "lucide-react-native";
 import QuickAddSheet from "../../../components/ui/QuickAddSheet";
 import AutoScheduleBanner from "../../../components/ui/AutoScheduleBanner";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
-import { tabAnimation } from "../../../lib/motion";
+import FloatingTabBar, { floatingTabBarInset } from "../../../components/ui/FloatingTabBar";
 import { subscribeQuickAdd, type QuickAddPreset } from "../../../lib/quickAddIntent";
-import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { colors, createThemedStyleSheet, radius } from "../../../lib/theme";
 
 export default function TabLayout() {
   const [addOpen, setAddOpen] = useState(false);
   const [addPreset, setAddPreset] = useState<QuickAddPreset | null>(null);
-  const [reduceMotion, setReduceMotion] = useState(false);
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const hideFab = pathname.endsWith("/more") || pathname.endsWith("/search");
-  const bottomInset = Math.max(insets.bottom, 12);
-  const tabHeight = 56 + bottomInset;
-
-  useEffect(() => {
-    void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
-    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
-    return () => subscription.remove();
-  }, []);
+  const tabOffset = floatingTabBarInset(insets.bottom);
 
   useEffect(() => {
     return subscribeQuickAdd((preset) => {
@@ -36,22 +27,20 @@ export default function TabLayout() {
   return (
     <>
       <Tabs
+        tabBar={(props) => <FloatingTabBar {...props} />}
         screenOptions={{
           headerShown: false,
-          animation: tabAnimation(reduceMotion),
+          animation: "none",
+          freezeOnBlur: true,
           tabBarStyle: {
-            backgroundColor: "rgba(17,19,25,0.96)",
-            borderTopColor: "rgba(255,255,255,0.08)",
-            borderTopWidth: 1,
-            height: tabHeight,
-            paddingBottom: bottomInset,
-            paddingTop: 8,
+            position: "absolute",
+            backgroundColor: "transparent",
+            borderTopWidth: 0,
             elevation: 0,
-            shadowOpacity: 0,
+            height: 0,
           },
           tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: "#475569",
-          tabBarLabelStyle: { fontSize: 11, fontWeight: "500" },
+          tabBarInactiveTintColor: colors.mutedForeground,
           sceneStyle: { backgroundColor: colors.background },
         }}
       >
@@ -81,11 +70,15 @@ export default function TabLayout() {
       {!hideFab ? (
         <AnimatedPressable
           accessibilityLabel="Add"
+          onPressIn={() => {
+            setAddPreset(null);
+            setAddOpen(true);
+          }}
           onPress={() => {
             setAddPreset(null);
             setAddOpen(true);
           }}
-          wrapStyle={[styles.fab, { bottom: tabHeight + 12 }]}
+          wrapStyle={[styles.fab, { bottom: tabOffset + 12 }]}
           style={styles.fabHit}
         >
           <Plus size={26} color={colors.primaryForeground} />
@@ -110,8 +103,8 @@ const styles = createThemedStyleSheet((colors) => ({
     right: 18,
     width: 56,
     height: 56,
-    borderRadius: 18,
-    backgroundColor: "#6558E8",
+    borderRadius: radius,
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
     elevation: 10,

@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { ScrollView, type RefreshControlProps, Text, View } from "react-native";
+import { FlatList, ScrollView, type RefreshControlProps, Text, View } from "react-native";
 import type { Task } from "../../lib/types";
 import type { NamedStatusGroup } from "../../lib/status";
 import { statusNameKey } from "../../lib/status";
@@ -68,28 +68,29 @@ export default function MobileKanban({
             </Text>
             <Text style={styles.count}>{column.tasks.length}</Text>
           </View>
-          <ScrollView
+          <FlatList
+            data={column.tasks}
+            keyExtractor={(item) => item.id}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
             style={styles.list}
             contentContainerStyle={styles.cards}
-          >
-            {column.tasks.length === 0 ? (
-              <Text style={styles.empty}>Long-press a card to move it here</Text>
-            ) : (
-              column.tasks.map((task) => (
+            initialNumToRender={8}
+            windowSize={5}
+            ListEmptyComponent={<Text style={styles.empty}>Long-press a card to move it here</Text>}
+            renderItem={({ item }) => (
+              <View style={styles.cardWrap}>
                 <TaskCard
-                  key={task.id}
-                  task={task}
-                  selected={selectedIds.includes(task.id)}
+                  task={item}
+                  selected={selectedIds.includes(item.id)}
                   selecting={selecting}
                   onSelect={onSelect}
                   onMove={onMove}
                   onToggle={onToggle}
                 />
-              ))
+              </View>
             )}
-          </ScrollView>
+          />
         </View>
       ))}
     </ScrollView>
@@ -124,6 +125,7 @@ const styles = createThemedStyleSheet((colors) => ({
   title: { color: colors.foreground, fontSize: 13, fontWeight: "700", flex: 1 },
   count: { color: colors.mutedForeground, fontSize: 12 },
   list: { flex: 1 },
-  cards: { paddingHorizontal: 8, paddingBottom: 110, gap: 8 },
+  cards: { paddingHorizontal: 8, paddingBottom: 110 },
+  cardWrap: { marginBottom: 8 },
   empty: { color: colors.mutedForeground, fontSize: 12, paddingHorizontal: 4, paddingVertical: 8 },
 }));

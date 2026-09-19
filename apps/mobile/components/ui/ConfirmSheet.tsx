@@ -1,6 +1,7 @@
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { Trash2 } from "lucide-react-native";
 import BottomSheet from "./BottomSheet";
+import AnimatedPressable from "./AnimatedPressable";
 import { createThemedStyleSheet } from "../../lib/theme";
 
 export type ConfirmRequest = {
@@ -34,10 +35,10 @@ export default function ConfirmSheet({
       title={title}
       footer={
         <View style={styles.row}>
-          <Pressable accessibilityRole="button" onPress={onClose} style={styles.cancel}>
+          <AnimatedPressable accessibilityRole="button" onPress={onClose} style={styles.cancel}>
             <Text style={styles.cancelText}>{cancelLabel}</Text>
-          </Pressable>
-          <Pressable
+          </AnimatedPressable>
+          <AnimatedPressable
             accessibilityRole="button"
             onPress={() => {
               onClose();
@@ -47,7 +48,7 @@ export default function ConfirmSheet({
           >
             {/delete|remove|revoke|clear/.test(confirmLabel.toLowerCase()) ? <Trash2 size={16} color="#fff" /> : null}
             <Text style={styles.confirmText}>{confirmLabel}</Text>
-          </Pressable>
+          </AnimatedPressable>
         </View>
       }
     >

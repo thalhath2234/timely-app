@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Search as SearchIcon } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { Field } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
+import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { useSearchQuery } from "../../../lib/hooks";
 import type { SearchKind } from "../../../lib/api/search";
 import { sheetHref } from "../../../lib/sheet";
@@ -53,7 +54,7 @@ export default function SearchTab() {
           <EmptyState icon={SearchIcon} title="No matches" description="Try a different phrase." />
         ) : (
           hits.map((hit) => (
-            <Pressable
+            <AnimatedPressable
               key={`${hit.kind}-${hit.id}`}
               onPress={() => router.push(hrefFor(hit.kind, hit.id) as never)}
               style={styles.card}
@@ -65,7 +66,7 @@ export default function SearchTab() {
                   {hit.snippet}
                 </Text>
               ) : null}
-            </Pressable>
+            </AnimatedPressable>
           ))
         )}
       </ScrollView>

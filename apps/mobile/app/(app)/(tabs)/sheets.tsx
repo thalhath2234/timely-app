@@ -6,6 +6,7 @@ import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import { Field } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
+import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { useSheetsQuery, useWorkspacesQuery } from "../../../lib/hooks";
 import { sheetHref } from "../../../lib/sheet";
 import { timeAgo } from "../../../lib/format";
@@ -102,14 +103,14 @@ function SheetCard({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.card}>
+    <AnimatedPressable onPress={onPress} style={styles.card}>
       <Text style={styles.icon}>{icon || "▦"}</Text>
       <View style={{ flex: 1 }}>
         <Text style={styles.title}>{title || "Untitled"}</Text>
         <Text style={styles.meta}>{meta}</Text>
       </View>
       {favorite ? <Star size={16} color={colors.warning} fill={colors.warning} /> : null}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

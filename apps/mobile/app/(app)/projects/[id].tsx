@@ -9,6 +9,7 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import { Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
+import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import {
   useCreateStage,
   useCreateTask,
@@ -317,15 +318,15 @@ export default function ProjectDetailScreen() {
                 <Text style={styles.meta}>{column.tasks.length}</Text>
               </View>
               {column.tasks.map((task) => (
-                <Pressable
+                <AnimatedPressable
                   key={task.id}
                   onPress={() => router.push(`/(app)/tasks/${task.id}`)}
                   onLongPress={() => setMovingTask(task)}
                   style={styles.task}
                 >
-                  <Text style={styles.item}>{task.name}</Text>
+                  <Text style={[styles.item, task.completedAt ? styles.itemDone : null]}>{task.name}</Text>
                   <Text style={styles.meta}>{task.status?.name || "Hold to move stage"}</Text>
-                </Pressable>
+                </AnimatedPressable>
               ))}
             </View>
           ))
@@ -500,6 +501,7 @@ const styles = createThemedStyleSheet((colors) => ({
   meta: { color: colors.mutedForeground, fontSize: 12 },
   stage: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40 },
   item: { flex: 1, color: colors.foreground },
+  itemDone: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   link: { color: colors.mutedForeground, fontWeight: "600" },
   remove: { color: colors.destructive, fontSize: 13 },
   column: { gap: 8 },

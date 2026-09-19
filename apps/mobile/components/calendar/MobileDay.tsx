@@ -1,11 +1,14 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarItem } from "../../lib/types";
 import { HOURS, formatHour } from "../../lib/types";
 import { isSameDay, startOfDay } from "../../lib/format";
 import { itemColor } from "./CalendarItemRow";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import AnimatedPressable from "../ui/AnimatedPressable";
+import { floatingTabBarInset } from "../ui/FloatingTabBar";
 
-const HOUR_PX = 56;
+const HOUR_PX = 64;
 
 function layout(items: CalendarItem[]) {
   const sorted = [...items].sort((a, b) => a.start.localeCompare(b.start));
@@ -43,6 +46,7 @@ export default function MobileDay({
   onOpen: (item: CalendarItem) => void;
   onEmptySlot?: (start: Date) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const dayStart = startOfDay(date).getTime();
   const isToday = isSameDay(date, new Date());
   const nowY = ((Date.now() - dayStart) / 3_600_000) * HOUR_PX;
@@ -50,14 +54,17 @@ export default function MobileDay({
   const timed = layout(items.filter((i) => !i.allDay));
 
   return (
-    <ScrollView contentOffset={{ x: 0, y: isToday ? Math.max(0, nowY - 160) : 7 * HOUR_PX }}>
+    <ScrollView
+      contentOffset={{ x: 0, y: isToday ? Math.max(0, nowY - 160) : 7 * HOUR_PX }}
+      contentContainerStyle={{ paddingBottom: floatingTabBarInset(insets.bottom) }}
+    >
       {allDay.length ? (
         <View style={styles.allDay}>
           {allDay.map((item) => (
-            <Pressable key={item.id} onPress={() => onOpen(item)} style={[styles.allDayItem, { backgroundColor: itemColor(item) + "33" }]}>
+            <AnimatedPressable key={item.id} onPress={() => onOpen(item)} style={[styles.allDayItem, { backgroundColor: itemColor(item) + "33" }]}>
               <View style={[styles.dot, { backgroundColor: itemColor(item) }]} />
-              <Text style={styles.allDayText}>{item.title}</Text>
-            </Pressable>
+              <Text style={[styles.allDayText, Boolean(item.completedAt) && styles.done]}>{item.title}</Text>
+            </AnimatedPressable>
           ))}
         </View>
       ) : null}
@@ -86,15 +93,18 @@ export default function MobileDay({
             const s = new Date(item.start).getTime();
             const e = new Date(item.end).getTime();
             const top = ((s - dayStart) / 3_600_000) * HOUR_PX;
-            const height = Math.max(26, ((e - s) / 3_600_000) * HOUR_PX - 2);
+            const height = Math.max(22, ((e - s) / 3_600_000) * HOUR_PX - 2);
             const width = `${100 / cols}%` as const;
             const done = Boolean(item.completedAt);
+            const compact = height < 40;
+            const lines = height >= 52 ? 3 : height >= 40 ? 2 : 1;
             return (
-              <Pressable
+              <AnimatedPressable
                 key={item.id}
                 onPress={() => onOpen(item)}
                 style={[
                   styles.block,
+                  compact && styles.blockCompact,
                   {
                     top,
                     height,
@@ -105,10 +115,14 @@ export default function MobileDay({
                   },
                 ]}
               >
-                <Text numberOfLines={1} style={[styles.blockTitle, done && styles.done]}>
+                <Text
+                  numberOfLines={lines}
+                  ellipsizeMode="tail"
+                  style={[styles.blockTitle, compact && styles.blockTitleCompact, done && styles.done]}
+                >
                   {item.title}
                 </Text>
-              </Pressable>
+              </AnimatedPressable>
             );
           })}
           {isToday ? <View style={[styles.now, { top: nowY }]}><View style={styles.nowDot} /></View> : null}
@@ -126,8 +140,26 @@ const styles = createThemedStyleSheet((colors) => ({
   hour: { color: colors.mutedForeground, fontSize: 11, textAlign: "right", paddingRight: 8, marginTop: -6 },
   rail: { flex: 1, borderLeftWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.background },
   line: { height: HOUR_PX, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  block: { position: "absolute", paddingHorizontal: 10, paddingVertical: 7, borderLeftWidth: 3, borderRadius: 10, borderWidth: 1, borderColor: colors.border },
-  blockTitle: { color: colors.foreground, fontSize: 13, fontWeight: "500" },
+  block: {
+    position: "absolute",
+    overflow: "hidden",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderLeftWidth: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  blockCompact: { paddingHorizontal: 8, paddingVertical: 1, borderRadius: 8 },
+  blockTitle: {
+    color: colors.foreground,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 16,
+    includeFontPadding: false,
+  },
+  blockTitleCompact: { fontSize: 12, lineHeight: 15, fontWeight: "600" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   now: { position: "absolute", left: 0, right: 0, height: 2, backgroundColor: colors.destructive },
   nowDot: { position: "absolute", left: -5, top: -4, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.destructive, shadowColor: colors.destructive, shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },

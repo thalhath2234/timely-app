@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { FolderKanban } from "lucide-react-native";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import { Field, PrimaryButton, SectionLabel, Select } from "../../../components/ui/primitives";
+import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { useCreateProject, useProjectsQuery, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
 import { resolvedColor } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
@@ -78,7 +79,7 @@ export default function ProjectsScreen() {
               visibleProjects.map((project) => {
                 const stats = statsFor(project, tasks);
                 return (
-                  <Pressable
+                  <AnimatedPressable
                     key={project.id}
                     onPress={() => router.push(`/(app)/projects/${project.id}`)}
                     style={[styles.card, { borderLeftWidth: 3, borderLeftColor: resolvedColor(project.color, project.id) }]}
@@ -102,7 +103,7 @@ export default function ProjectsScreen() {
                         ? ` · ${project.startDate || "—"} → ${project.deadline || "—"}`
                         : ""}
                     </Text>
-                  </Pressable>
+                  </AnimatedPressable>
                 );
               })
             )}
