@@ -147,7 +147,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
           />
           <View style={styles.headerMeta}>
             <Text numberOfLines={1} style={styles.scopeChip}>{workspace?.name || "Personal"}</Text>
-            {status !== "error" ? <CheckCircle2 size={11} color="#38BDF8" /> : null}
+            {status === "saved" ? <CheckCircle2 size={11} color="#38BDF8" /> : null}
             <Text numberOfLines={1} style={styles.savedText}>
               {saveStatusLabel(status) || (sheet.updatedAt ? `Edited ${timeAgo(sheet.updatedAt)}` : "Saved")}
             </Text>
@@ -363,7 +363,7 @@ const styles = createThemedStyleSheet((colors) => ({
     borderBottomWidth: 1,
     borderBottomColor: "#282C37",
   },
-  headerIcon: { width: 34, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  headerIcon: { width: 44, height: 44, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   headerIdentity: { flex: 1, minWidth: 0 },
   headerTitle: { color: "#F1F3F9", fontSize: 14, fontWeight: "700", padding: 0, minHeight: 22 },
   headerMeta: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
@@ -439,7 +439,7 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingVertical: 5,
   },
   tab: {
-    height: 30,
+    height: 44,
     paddingHorizontal: 12,
     borderRadius: 6,
     backgroundColor: "transparent",
@@ -451,8 +451,8 @@ const styles = createThemedStyleSheet((colors) => ({
   tabLabel: { color: "#949AA8", fontSize: 11, fontWeight: "500" },
   tabLabelOn: { color: "#F1F3F9" },
   tabAdd: {
-    width: 36,
-    height: 30,
+    width: 44,
+    height: 44,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: "#282C37",

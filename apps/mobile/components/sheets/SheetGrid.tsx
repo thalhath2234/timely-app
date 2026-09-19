@@ -363,9 +363,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
 
   function insertFunction(name: "SUM" | "AVERAGE" | "COUNT" | "MAX" | "MIN") {
     const letter = columnIndexToLetter(selected.col);
-    const endRow = selected.row > 0 ? selected.row : Math.min(rows.length, 6);
-    const startRow = selected.row > 0 ? Math.max(1, endRow - 4) : Math.min(rows.length, 2);
-    setCellValue(selected, `=${name}(${letter}${startRow}:${letter}${endRow})`);
+    const startIndex = selected.row > 0 ? Math.max(0, selected.row - 5) : 1;
+    const endIndex = selected.row > 0 ? selected.row - 1 : Math.min(rows.length - 1, 5);
+    if (startIndex > endIndex) return;
+    setCellValue(selected, `=${name}(${letter}${startIndex + 1}:${letter}${endIndex + 1})`);
   }
 
   const selectedFormat = formatAt(selected);
@@ -931,8 +932,13 @@ function renderCell({
             result.type === "error" && { color: colors.destructive },
             format?.bold && { fontWeight: "700" },
             format?.italic && { fontStyle: "italic" },
-            format?.underline && { textDecorationLine: "underline" },
-            format?.strikethrough && { textDecorationLine: "line-through" },
+            (format?.underline || format?.strikethrough) && {
+              textDecorationLine: format.underline && format.strikethrough
+                ? "underline line-through"
+                : format.underline
+                  ? "underline"
+                  : "line-through",
+            },
             format?.textColor ? { color: format.textColor } : null,
             format?.fontSize ? { fontSize: format.fontSize } : null,
             format?.fontFamily === "mono" ? { fontFamily: "monospace" } : null,
@@ -1016,7 +1022,7 @@ const styles = createThemedStyleSheet((colors) => ({
     fontSize: 12,
     fontFamily: "monospace",
   },
-  formulaAction: { width: 30, height: 30, borderRadius: 7, alignItems: "center", justifyContent: "center", backgroundColor: KINETIC.card },
+  formulaAction: { width: 44, height: 44, borderRadius: 7, alignItems: "center", justifyContent: "center", backgroundColor: KINETIC.card },
   formulaActionOn: { backgroundColor: KINETIC.accent },
   gridViewport: {
     flex: 1,
@@ -1084,11 +1090,11 @@ const styles = createThemedStyleSheet((colors) => ({
   boolText: { textAlign: "center", fontSize: 16 },
   cellInput: { color: colors.foreground, fontSize: 13, padding: 0 },
   drawer: { flexShrink: 0, height: 260, backgroundColor: KINETIC.surface, borderTopWidth: 1, borderTopColor: KINETIC.divider },
-  drawerCollapsed: { height: 61 },
-  drawerHandleHit: { height: 18, alignItems: "center", justifyContent: "center" },
+  drawerCollapsed: { height: 88 },
+  drawerHandleHit: { height: 44, alignItems: "center", justifyContent: "center" },
   drawerHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: KINETIC.muted },
-  drawerTabs: { minWidth: "100%", height: 42, alignItems: "stretch", borderBottomWidth: 1, borderBottomColor: KINETIC.border },
-  drawerTab: { paddingHorizontal: 14, justifyContent: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
+  drawerTabs: { minWidth: "100%", height: 44, alignItems: "stretch", borderBottomWidth: 1, borderBottomColor: KINETIC.border },
+  drawerTab: { minHeight: 44, paddingHorizontal: 14, justifyContent: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
   drawerTabOn: { borderBottomColor: KINETIC.accentHover },
   drawerTabText: { color: KINETIC.secondary, fontSize: 10, fontWeight: "600" },
   drawerTabTextOn: { color: KINETIC.text },
@@ -1097,12 +1103,12 @@ const styles = createThemedStyleSheet((colors) => ({
   sectionLabel: { color: KINETIC.muted, fontSize: 9, fontWeight: "700", letterSpacing: 0.8, marginTop: 10, marginBottom: 6 },
   actionStrip: { flexDirection: "row", gap: 7 },
   controlRow: { flexDirection: "row", gap: 6, alignItems: "center" },
-  wideControl: { flex: 1, height: 34, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
-  stepControl: { width: 34, height: 34, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center" },
+  wideControl: { flex: 1, height: 44, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  stepControl: { width: 44, height: 44, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center" },
   sizeReadout: { width: 38, height: 34, alignItems: "center", justifyContent: "center", borderTopWidth: 1, borderBottomWidth: 1, borderColor: KINETIC.border },
   controlOn: { borderColor: KINETIC.accentHover, backgroundColor: "#2A2445" },
   controlText: { color: KINETIC.text, fontSize: 11, fontFamily: "monospace" },
   functionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  functionButton: { width: "31%", height: 40, flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card },
+  functionButton: { width: "31%", height: 44, flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card },
   functionText: { color: KINETIC.text, fontSize: 10, fontWeight: "700", fontFamily: "monospace" },
 }));
