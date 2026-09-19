@@ -30,7 +30,7 @@ GOOSE_DBSTRING ?= "host=$(DB_HOST) port=$(DB_PORT) user=$(DB_USER) password=$(DB
 GOOSE_MIGRATIONS := goose -dir $(API)/migrations postgres $(GOOSE_DBSTRING)
 GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING)
 
-.PHONY: help setup install tools install-air install-goose \
+.PHONY: help setup setup-mobile-env install tools install-air install-goose \
         dev dev-api dev-web dev-mobile dev-mobile-device dev-desktop launch-electron \
         build build-api build-web build-desktop dist-desktop build-apk install-apk apk-status \
         lint lint-api lint-web typecheck typecheck-web typecheck-mobile test test-api check \
@@ -44,11 +44,14 @@ help: ## Show this help
 	  /^[a-zA-Z_-]+:.*?##/ { printf "  $(GREEN)%-18s$(RESET) %s\n", $$1, $$2 } \
 	  /^##@/ { printf "\n$(CYAN)%s$(RESET)\n", substr($$0, 5) }' $(MAKEFILE_LIST)
 
-setup: install tools ## First-time setup: install JS deps, Go modules, and CLI tools
+setup: install tools setup-mobile-env ## First-time setup: install dependencies, tools, and local env files
 	@for app in $(API) $(WEB); do \
 	  if [ ! -f $$app/.env ] && [ -f $$app/.env.example ]; then cp $$app/.env.example $$app/.env; echo "created $$app/.env from example"; fi; \
 	done
-	@echo "$(GREEN)✓ Setup complete. Set EXPO_PUBLIC_API_URL in $(MOBILE)/.env before running the mobile app.$(RESET)"
+	@echo "$(GREEN)✓ Setup complete. Mobile development config: $(MOBILE)/.env.local$(RESET)"
+
+setup-mobile-env: ## Copy/create the ignored mobile .env.local for this worktree
+	@scripts/setup-mobile-env.sh
 
 install: ## Install workspace JS dependencies (pnpm) and Go modules
 	@pnpm install
@@ -89,17 +92,27 @@ audit-index: ## Rebuild and validate the portable screenshot gallery
 	@python audit/scripts/build_index.py
 	@python audit/scripts/build_inventory.py
 
-dev-mobile: ## Start the Expo dev server (Metro on :8082; leave :8081 for the worktree API)
+dev-mobile: setup-mobile-env ## Start the Expo dev server (Metro on :8082; leave :8081 for the worktree API)
 	@pnpm --filter @timely/mobile exec expo start --lan --port 8082 --go
 
-dev-mobile-device: ## Metro + Expo Go on a USB phone (adb reverse :8082)
+dev-mobile-device: setup-mobile-env ## Metro + Expo Go on a USB phone (adb reverse :8082)
 	@ANDROID_HOME=$${ANDROID_HOME:-$${ANDROID_SDK_ROOT:-/home/thalhath/.local/android-sdk}}; \
+	export ANDROID_HOME; \
+	export ANDROID_SDK_ROOT="$$ANDROID_HOME"; \
+	export PATH="$$ANDROID_HOME/platform-tools:$$PATH"; \
 	ADB="$$ANDROID_HOME/platform-tools/adb"; \
 	if [ ! -x "$$ADB" ]; then echo "adb not found at $$ADB (set ANDROID_HOME)" >&2; exit 1; fi; \
+	if ! $$ADB devices | awk 'NR>1 && $$2=="device"{found=1} END{exit !found}'; then \
+	  echo "No authorized Android device found. Plug in the phone, enable USB debugging, and accept the RSA prompt." >&2; \
+	  $$ADB devices -l >&2 || true; \
+	  exit 1; \
+	fi; \
 	$$ADB reverse tcp:8082 tcp:8082; \
 	$$ADB reverse --list; \
 	echo "Open Expo Go on the phone (not the Timely icon) after Metro is up."; \
-	NODE_OPTIONS='--dns-result-order=ipv4first' pnpm --filter @timely/mobile exec expo start --localhost --port 8082 --go --android
+	ANDROID_HOME="$$ANDROID_HOME" ANDROID_SDK_ROOT="$$ANDROID_HOME" PATH="$$ANDROID_HOME/platform-tools:$$PATH" \
+	NODE_OPTIONS='--dns-result-order=ipv4first' \
+	pnpm --filter @timely/mobile exec expo start --localhost --port 8082 --go --android
 
 dev-desktop: ## Run API, Next.js, and the Electron desktop shell
 	@$(MAKE) -j3 --no-print-directory dev-api dev-web launch-electron

@@ -21,7 +21,7 @@ function bundledApiUrl() {
   ) {
     return fromEnv;
   }
-  return BUNDLED_API_URL || fromEnv || extra?.apiUrl || "";
+  return fromEnv || extra?.apiUrl || BUNDLED_API_URL || "";
 }
 
 function fallbackApiUrl() {

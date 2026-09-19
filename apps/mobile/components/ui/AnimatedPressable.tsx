@@ -28,8 +28,10 @@ export default function AnimatedPressable({
 }: Props) {
   const reduceMotion = useReducedMotion();
   const scale = useSharedValue(1);
+  const pressed = useSharedValue(0);
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
+    opacity: 1 - pressed.value * 0.16,
   }));
 
   return (
@@ -38,12 +40,14 @@ export default function AnimatedPressable({
       disabled={disabled}
       style={[wrapStyle, style, animatedStyle]}
       onPressIn={(event) => {
+        pressed.value = 1;
         if (!disabled && !reduceMotion) {
           scale.value = withSpring(0.97, springSnappy);
         }
         onPressIn?.(event);
       }}
       onPressOut={(event) => {
+        pressed.value = 0;
         scale.value = withSpring(1, springSoft);
         onPressOut?.(event);
       }}

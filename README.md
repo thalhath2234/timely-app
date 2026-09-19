@@ -32,7 +32,11 @@ make dev-desktop      # API + web + Electron window
 make dev-mobile       # Expo/Metro dev server
 ```
 
-Edit `apps/api/.env` (DB credentials, JWT secret), `apps/web/.env`, and `apps/mobile/.env` (`EXPO_PUBLIC_API_URL`) as needed. Migrations run automatically when the API starts.
+Edit `apps/api/.env` (DB credentials, JWT secret), `apps/web/.env`, and
+`apps/mobile/.env.local` (`EXPO_PUBLIC_API_URL`) as needed. The mobile file is
+copied into compatible managed worktrees via `.worktreeinclude`; run
+`make setup-mobile-env` to seed it explicitly. Migrations run automatically
+when the API starts.
 
 ## Common tasks
 

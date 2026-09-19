@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import { Bell, CalendarClock, Check, FileText, Inbox, ListTodo, Sheet as SheetIcon } from "lucide-react-native";
 import BottomSheet from "./BottomSheet";
@@ -20,7 +21,7 @@ import type { CustomFieldValueInput } from "../../lib/types";
 import type { QuickAddPreset } from "../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { ENTITY_COLORS } from "../../lib/entityColor";
-import { pageDuration } from "../../lib/motion";
+import { expandEntering, listLayout, pageDuration } from "../../lib/motion";
 
 function runWhenIdle(callback: () => void, timeout: number) {
   const timer = setTimeout(callback, timeout);
@@ -80,6 +81,7 @@ export default function QuickAddSheet({
   const createDoc = useCreateDoc();
   const createSheet = useCreateSheet();
   const addBlock = useAddBlock();
+  const reduceMotion = useReducedMotion();
 
   const [kind, setKind] = useState<Kind>("task");
   const [title, setTitle] = useState("");
@@ -107,6 +109,7 @@ export default function QuickAddSheet({
   const [eventProjectId, setEventProjectId] = useState("");
   const [picking, setPicking] = useState<"due" | "startDate" | "schedule" | "eventStart" | null>(null);
   const [phase, setPhase] = useState<"menu" | "form">("menu");
+  const [selectedKind, setSelectedKind] = useState<Kind | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailsReady, setDetailsReady] = useState(false);
 
@@ -175,18 +178,15 @@ export default function QuickAddSheet({
   }, [open, preset]);
 
   useEffect(() => {
-    if (!open) {
-      setPhase("menu");
-      setEditorOpen(false);
-      setDetailsReady(false);
-      return;
-    }
+    if (!open) return;
     setPhase(preset?.kind ? "form" : "menu");
+    setSelectedKind(null);
     setEditorOpen(false);
   }, [open, preset?.kind]);
 
   useEffect(() => {
-    if (!open || phase !== "form") {
+    if (!open) return;
+    if (phase !== "form") {
       setDetailsReady(false);
       return;
     }
@@ -194,17 +194,22 @@ export default function QuickAddSheet({
   }, [open, phase]);
 
   function closeSheet() {
+    onClose();
+  }
+
+  function finishClose() {
     setPhase("menu");
+    setSelectedKind(null);
     setEditorOpen(false);
     setDetailsReady(false);
-    onClose();
   }
 
   function pickKind(value: Kind) {
     if (value === "reminder") turnIntoReminder();
     else if (value === "task" && isReminder) addDuration();
     else setKind(value);
-    setPhase("form");
+    setSelectedKind(value);
+    startTransition(() => setPhase("form"));
   }
 
   useEffect(() => {
@@ -334,6 +339,7 @@ export default function QuickAddSheet({
       <BottomSheet
         open={open}
         onClose={closeSheet}
+        onClosed={finishClose}
         title={phase === "menu" ? "New" : `New ${kind}`}
         footer={
           phase === "form" ? (
@@ -353,23 +359,24 @@ export default function QuickAddSheet({
           ) : undefined
         }
       >
+        <Animated.View layout={listLayout(Boolean(reduceMotion))}>
         {phase === "menu" ? (
-        <View style={styles.kinds}>
+        <Animated.View key="menu" entering={expandEntering(Boolean(reduceMotion))} style={styles.kinds}>
           {KINDS.map((item) => (
               <AnimatedPressable
                 key={item.value}
                 onPress={() => pickKind(item.value)}
                 android_ripple={{ color: `${colors.primary}22` }}
-                style={styles.kind}
+                style={[styles.kind, selectedKind === item.value && styles.kindSelected]}
               >
-                <item.Icon size={20} color={colors.mutedForeground} />
-                <Text style={styles.kindText}>{item.label}</Text>
+                <item.Icon size={20} color={selectedKind === item.value ? colors.primary : colors.mutedForeground} />
+                <Text style={[styles.kindText, selectedKind === item.value && styles.kindTextSelected]}>{item.label}</Text>
               </AnimatedPressable>
           ))}
-        </View>
+        </Animated.View>
         ) : (
-        <View style={styles.fields}>
-        <AnimatedPressable onPress={() => { setPhase("menu"); setEditorOpen(false); }} style={styles.changeType}>
+        <Animated.View key={`form-${kind}`} entering={expandEntering(Boolean(reduceMotion))} style={styles.fields}>
+        <AnimatedPressable onPress={() => { setSelectedKind(null); setPhase("menu"); setEditorOpen(false); }} style={styles.changeType}>
           <Text style={styles.changeTypeText}>← Change type</Text>
         </AnimatedPressable>
         <View style={styles.objectiveCard}>
@@ -688,8 +695,9 @@ export default function QuickAddSheet({
           </View>
         ) : null}
 
-        </View>
+        </Animated.View>
         )}
+        </Animated.View>
       </BottomSheet>
       <DateTimeSheet
         key={picking ?? "closed"}
@@ -783,7 +791,9 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
     paddingVertical: 14,
   },
+  kindSelected: { borderColor: colors.primary, backgroundColor: colors.accent },
   kindText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
+  kindTextSelected: { color: colors.primary, fontWeight: "700" },
   changeType: { alignSelf: "flex-start", paddingVertical: 4, paddingRight: 12 },
   changeTypeText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

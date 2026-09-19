@@ -20,7 +20,7 @@ The mobile app lives at `apps/mobile` in the `timely` monorepo (`/home/thalhath/
 3. **Always** stop existing `GradleDaemon` processes first (`./gradlew --stop`) so a new daemon starts **inside** the cgroup. A daemon outside the cap bypasses it.
 4. Use **JDK 17** at `/home/thalhath/.local/jdk-17`. System Java 26 breaks Android `jlink`.
 5. Build **arm64-v8a only** (`-PreactNativeArchitectures=arm64-v8a --max-workers=2`).
-6. Bake the API URL with **no trailing slash** into `apps/mobile/.env` (`EXPO_PUBLIC_API_URL`) and `apps/mobile/lib/api/bundledUrl.ts` before building.
+6. Bake the API URL with **no trailing slash** into `apps/mobile/.env.local` (`EXPO_PUBLIC_API_URL`) and `apps/mobile/lib/api/bundledUrl.ts` before building.
 
 ## Build
 
@@ -34,7 +34,7 @@ scripts/build-apk.sh --no-wait [API_URL] # launch only
 
 `make build-apk` / `scripts/build-apk.sh` call this skill's `scripts/build-apk.sh`.
 `make install-apk` runs `scripts/install-apk.sh` after the capped build.
-If `API_URL` is omitted, `EXPO_PUBLIC_API_URL` from `apps/mobile/.env` is used.
+If `API_URL` is omitted, `EXPO_PUBLIC_API_URL` from `apps/mobile/.env.local` is used, with `apps/mobile/.env` retained as a legacy fallback.
 The script finds the app relative to the repo; set `TIMELY_MOBILE_DIR` to override.
 
 T3 Code action: `t3.json` script **Build & Install APK** runs `make install-apk`. Import it from the actions menu (**From t3.json**) if it is not already in the toolbar.

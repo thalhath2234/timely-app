@@ -102,6 +102,8 @@ export default function FloatingTabBar({ state, descriptors, navigation }: TabBa
                   accessibilityLabel={options.tabBarAccessibilityLabel ?? String(label)}
                   android_ripple={{ color: "transparent", borderless: false, foreground: false }}
                   onPress={() => {
+                    const nextLayout = layouts.current[route.key];
+                    if (nextLayout) movePill(nextLayout.x, nextLayout.width, true);
                     const event = navigation.emit({
                       type: "tabPress",
                       target: route.key,
@@ -109,6 +111,9 @@ export default function FloatingTabBar({ state, descriptors, navigation }: TabBa
                     });
                     if (!focused && !event.defaultPrevented) {
                       navigation.navigate(route.name, route.params);
+                    } else if (event.defaultPrevented) {
+                      const currentLayout = activeKey ? layouts.current[activeKey] : undefined;
+                      if (currentLayout) movePill(currentLayout.x, currentLayout.width, true);
                     }
                   }}
                   style={styles.tabHit}

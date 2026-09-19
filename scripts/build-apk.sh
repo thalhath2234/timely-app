@@ -6,7 +6,7 @@
 #   scripts/build-apk.sh --no-wait [API_URL]
 #   make build-apk [API_URL=...]
 #
-# If API_URL is omitted, EXPO_PUBLIC_API_URL from apps/mobile/.env is used.
+# If API_URL is omitted, EXPO_PUBLIC_API_URL from apps/mobile/.env.local (then .env) is used.
 # The Gradle build runs under systemd-run (12G cap), not in this shell.
 set -euo pipefail
 

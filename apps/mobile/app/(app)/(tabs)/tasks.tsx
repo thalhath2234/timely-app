@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Platform, RefreshControl, SectionList, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ListTodo, SlidersHorizontal } from "lucide-react-native";
@@ -143,6 +143,7 @@ export default function TasksScreen() {
   const networkCopy = needsNetworkCopy(tasksQ);
   const views = configQ.data?.taskViews ?? [];
   const [viewOverride, setViewOverride] = useState<string | null>(null);
+  const latestViewSelection = useRef<string | null>(null);
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [barProjectId, setBarProjectId] = useState<string | null>(null);
@@ -151,7 +152,6 @@ export default function TasksScreen() {
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [movingTask, setMovingTask] = useState<Task | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [syncedViewId, setSyncedViewId] = useState("");
   const [bulkPicker, setBulkPicker] = useState<
     null | "menu" | "status" | "priority" | "project" | "label" | "deadline"
   >(null);
@@ -168,12 +168,11 @@ export default function TasksScreen() {
     () => ({ ...EMPTY_EXTRA_FILTERS, showCompleted: viewShowCompleted }),
     [viewShowCompleted],
   );
-  if (syncedViewId !== activeViewId) {
-    setSyncedViewId(activeViewId);
+  useEffect(() => {
     setExtraFilters((current) =>
       current.showCompleted === viewShowCompleted ? current : { ...current, showCompleted: viewShowCompleted },
     );
-  }
+  }, [activeViewId, viewShowCompleted]);
   const projectId = routeProjectId ?? barProjectId;
   const project = projects.find((item) => item.id === projectId);
   const barProjects = useMemo(
@@ -183,6 +182,7 @@ export default function TasksScreen() {
 
   useEffect(() => {
     if (viewOverride && configQ.data?.activeTaskViewId === viewOverride) {
+      latestViewSelection.current = null;
       setViewOverride(null);
     }
   }, [configQ.data?.activeTaskViewId, viewOverride]);
@@ -346,12 +346,26 @@ export default function TasksScreen() {
 
   function selectView(id: string) {
     setFilter("all");
-    setSelectedIds([]);
+    setSelectedIds((current) => (current.length > 0 ? [] : current));
     if (!id || id === activeViewId) return;
+    const nextView = views.find((view) => view.id === id);
+    const nextShowCompleted = nextView ? resolveViewShowCompleted(nextView) : true;
+    setExtraFilters((current) =>
+      current.showCompleted === nextShowCompleted
+        ? current
+        : { ...current, showCompleted: nextShowCompleted },
+    );
+    latestViewSelection.current = id;
     setViewOverride(id);
     saveViews.mutate(
       { taskViews: views, activeTaskViewId: id },
-      { onError: () => setViewOverride(null) },
+      {
+        onError: () => {
+          if (latestViewSelection.current !== id) return;
+          latestViewSelection.current = null;
+          setViewOverride(null);
+        },
+      },
     );
   }
 
@@ -445,7 +459,7 @@ export default function TasksScreen() {
           filter={filter}
           onFilter={(next) => {
             setFilter(next);
-            setSelectedIds([]);
+            setSelectedIds((current) => (current.length > 0 ? [] : current));
           }}
           workspaces={workspaces}
           workspaceId={workspaceId}

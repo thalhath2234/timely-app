@@ -6,13 +6,19 @@ Part of the `timely` monorepo: install dependencies with `pnpm install` from the
 
 ## API URL
 
-Set `EXPO_PUBLIC_API_URL` in `.env` (this directory). Current tunnel:
+Run `make setup-mobile-env` from the repository root, then set
+`EXPO_PUBLIC_API_URL` in `.env.local` (this directory):
 
 ```
 EXPO_PUBLIC_API_URL=https://4ee3-2405-1204-c198-100-7d39-2a83-390d-65b3.ngrok-free.app
 ```
 
-Fallbacks if `.env` is omitted (also used as comments in `.env`):
+`.env.local` is ignored by Git and listed in the repository's
+`.worktreeinclude`, so compatible worktree tools copy it automatically. The
+setup target provides the same behavior in T3 Code worktrees. The legacy
+`.env` file remains a fallback.
+
+Fallbacks if the local env file is omitted:
 
 - Android emulator: `http://10.0.2.2:8080` (this maps to the host machine’s `localhost`)
 - Physical phone on the same Wi-Fi: `http://<your-pc-lan-ip>:8080`

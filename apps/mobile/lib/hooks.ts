@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClie
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, stopFocus, setTodayFocus } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
-import type { Doc, Config, MentionEntityType, NotificationSettings, Project, Sheet, Task, TaskViewConfig } from "./types";
+import type { Doc, MentionEntityType, NotificationSettings, Project, Sheet, Task, TaskViewConfig } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet } from "./api/sheets";
 import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject, getProjectActivity } from "./api/projects";
 import { getWorkspaces, getConfig, updateConfig, updateTaskViewsConfig } from "./api/workspaces";
@@ -193,18 +193,8 @@ export function useUpdateAppearance() {
 export function useUpdateTaskViews() {
   const client = useQueryClient();
   return useMutation({
+    scope: { id: "task-view-config" },
     mutationFn: (data: { taskViews: TaskViewConfig[]; activeTaskViewId: string }) => updateTaskViewsConfig(data),
-    onMutate: async (data) => {
-      await client.cancelQueries({ queryKey: keys.config });
-      const previous = client.getQueryData<Config>(keys.config);
-      if (previous) {
-        client.setQueryData<Config>(keys.config, { ...previous, ...data });
-      }
-      return { previous };
-    },
-    onError: (_error, _data, context) => {
-      if (context?.previous) client.setQueryData(keys.config, context.previous);
-    },
     onSuccess: (config) => {
       client.setQueryData(keys.config, config);
     },

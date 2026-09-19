@@ -24,12 +24,17 @@ LOG=/tmp/timely-apk-build.log
 APK_OUT="${TIMELY_APK_OUT:-$APP_DIR/timely-release-arm64.apk}"
 API_URL="${1:-}"
 
-if [[ -z "$API_URL" && -f "$APP_DIR/.env" ]]; then
-  API_URL=$(awk -F= '/^EXPO_PUBLIC_API_URL=/{print $2; exit}' "$APP_DIR/.env")
+if [[ -z "$API_URL" ]]; then
+  for env_file in "$APP_DIR/.env.local" "$APP_DIR/.env"; do
+    if [[ -f "$env_file" ]]; then
+      API_URL=$(awk -F= '/^EXPO_PUBLIC_API_URL=/{sub(/^[^=]*=/, ""); print; exit}' "$env_file")
+      [[ -n "$API_URL" ]] && break
+    fi
+  done
 fi
 API_URL="${API_URL%/}"
 if [[ -z "$API_URL" ]]; then
-  echo "missing API URL (pass as arg or set EXPO_PUBLIC_API_URL in $APP_DIR/.env)" >&2
+  echo "missing API URL (pass as arg or set EXPO_PUBLIC_API_URL in $APP_DIR/.env.local)" >&2
   exit 1
 fi
 
@@ -39,7 +44,7 @@ if [[ ! -x "$ANDROID_DIR/gradlew" ]]; then
 fi
 
 mkdir -p "$APP_DIR/lib/api"
-cat > "$APP_DIR/.env" <<EOF
+cat > "$APP_DIR/.env.local" <<EOF
 # Local API fallback (emulator): http://10.0.2.2:8080
 # Local API fallback (iOS / web): http://localhost:8080
 EXPO_PUBLIC_API_URL=$API_URL
