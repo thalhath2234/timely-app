@@ -45,6 +45,7 @@ import {
   type CellRange,
   clampAddress,
   findMerge,
+  formulaOutputAddress,
   hasMergeInRange,
   isInRange,
   mergeAll,
@@ -159,15 +160,21 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     if (next.width > 0 && next.height > 0) setViewport(next);
   }
 
-  function setSelection(next: CellAddress | CellRange, extend = false) {
+  function setSelection(
+    next: CellAddress | CellRange,
+    extend = false,
+    grown?: { cols?: number; rows?: number },
+  ) {
+    const colCount = Math.max(columns.length, grown?.cols ?? 0, 1);
+    const rowCount = Math.max(rows.length, grown?.rows ?? 0, 1);
     if ("anchor" in next) {
       setRange({
-        anchor: clampAddress(next.anchor, Math.max(columns.length, 1), Math.max(rows.length, 1)),
-        focus: clampAddress(next.focus, Math.max(columns.length, 1), Math.max(rows.length, 1)),
+        anchor: clampAddress(next.anchor, colCount, rowCount),
+        focus: clampAddress(next.focus, colCount, rowCount),
       });
       return;
     }
-    const focus = clampAddress(next, Math.max(columns.length, 1), Math.max(rows.length, 1));
+    const focus = clampAddress(next, colCount, rowCount);
     setRange((previous) => (extend ? { ...previous, focus } : { anchor: focus, focus }));
   }
 
@@ -231,6 +238,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
       && current.focus.row === row;
     if (isEditingFormula()) return;
     if (pressWasSelectedRef.current) return;
+    if (col >= columns.length || row >= rows.length) {
+      selectGrown({ col, row });
+      return;
+    }
     const mergeAt = findMerge(merges, { col, row });
     if (mergeAt) setSelection(rangeFromMerge(mergeAt));
     else setSelection({ col, row });
@@ -410,6 +421,11 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     }
   }
 
+  function selectGrown(address: Address) {
+    materialize(address);
+    setSelection(address, false, { cols: address.col + 1, rows: address.row + 1 });
+  }
+
   function renameColumn(index: number, name: string) {
     commit({
       columns: columns.map((column, i) =>
@@ -540,7 +556,12 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
       });
     }
     const source = normalizedRange(from);
-    const target = normalizedRange({ anchor: from.anchor, focus: to });
+    const target = {
+      minCol: Math.min(source.minCol, to.col),
+      maxCol: Math.max(source.maxCol, to.col),
+      minRow: Math.min(source.minRow, to.row),
+      maxRow: Math.max(source.maxRow, to.row),
+    };
     const spanCol = source.maxCol - source.minCol + 1;
     const spanRow = source.maxRow - source.minRow + 1;
 
@@ -580,7 +601,14 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
         formats: Object.keys(row.formats).length ? row.formats : undefined,
       })),
     });
-    setSelection({ anchor: from.anchor, focus: to });
+    setSelection(
+      {
+        anchor: { col: target.minCol, row: target.minRow },
+        focus: { col: target.maxCol, row: target.maxRow },
+      },
+      false,
+      { cols: nextColumns.length, rows: nextRows.length },
+    );
   }
 
   function tapCell(address: Address) {
@@ -594,8 +622,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     }
     if (editing) commitEdit();
     if (address.col >= columns.length || address.row >= rows.length) {
-      materialize(address);
-      setSelection(address);
+      selectGrown(address);
       return;
     }
     const mergeAt = findMerge(merges, address);
@@ -665,7 +692,9 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
   function insertFunction(name: "SUM" | "AVERAGE" | "COUNT" | "MAX" | "MIN") {
     const span = normalizedRange(range);
     if (span.minCol !== span.maxCol || span.minRow !== span.maxRow) {
-      setCellValue(selected, `=${name}(${rangeAddressLabel(range)})`);
+      const output = formulaOutputAddress(range, columns.length, rows.length);
+      setCellValue(output, `=${name}(${rangeAddressLabel(range)})`);
+      setSelection(output);
       return;
     }
     const letter = columnIndexToLetter(selected.col);
@@ -975,10 +1004,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                           );
                           if (!isEditingFormula()) {
                             if (column) setSelection({ col: index, row: selected.row });
-                            else {
-                              materialize({ col: index, row: Math.max(0, selected.row) });
-                              setSelection({ col: index, row: Math.max(0, selected.row) });
-                            }
+                            else selectGrown({ col: index, row: Math.max(0, selected.row) });
                           }
                         }}
                         onPress={() => {
@@ -1113,11 +1139,6 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                           merges,
                           colWidth,
                           rawAt,
-                          showFillHandle:
-                            colIndex === bounds.maxCol
-                            && rowIndex === bounds.maxRow
-                            && !editing
-                            && !isEditingFormula(),
                         }),
                       )}
                     </View>
@@ -1132,8 +1153,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                           beginFormulaPick({ col: 0, row: rowIndex }, "formula-row");
                           return;
                         }
-                        materialize({ col: Math.max(0, selected.col), row: rowIndex });
-                        setSelection({ col: Math.max(0, selected.col), row: rowIndex });
+                        selectGrown({ col: Math.max(0, selected.col), row: rowIndex });
                       }}
                       style={styles.rowHead}
                     >
@@ -1467,7 +1487,6 @@ function renderCell({
   merges,
   colWidth,
   rawAt,
-  showFillHandle,
 }: {
   colIndex: number;
   rowIndex: number;
@@ -1489,7 +1508,6 @@ function renderCell({
   merges: SheetMerge[];
   colWidth: (column: SheetColumn) => number;
   rawAt: (address: Address) => string;
-  showFillHandle: boolean;
 }) {
   const column = columns[colIndex];
   const address = { col: colIndex, row: rowIndex };
