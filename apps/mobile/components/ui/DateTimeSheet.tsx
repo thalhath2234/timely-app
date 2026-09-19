@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react-native";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3 } from "lucide-react-native";
 import BottomSheet from "./BottomSheet";
 import { formatMonthYear, isSameDay, startOfDay } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import AnimatedPressable from "./AnimatedPressable";
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
@@ -177,9 +178,9 @@ export default function DateTimeSheet({
             <Text style={styles.ghostText}>{mode === "time" ? "Now" : "Today"}</Text>
           </Pressable>
           {mode !== "date" ? (
-            <Pressable onPress={apply} style={styles.done}>
+            <AnimatedPressable onPress={apply} style={styles.done}>
               <Text style={styles.doneText}>✓  Done</Text>
-            </Pressable>
+            </AnimatedPressable>
           ) : <View style={{ flex: 1 }} />}
           {clearable ? (
             <Pressable
@@ -260,7 +261,15 @@ export default function DateTimeSheet({
       ) : null}
 
       {mode === "datetime" || mode === "time" ? (
-        <View style={[styles.wheels, mode === "datetime" && styles.wheelsBorder]}>
+        <>
+        <View style={[styles.timeHeading, mode === "datetime" && styles.wheelsBorder]}>
+          <View style={styles.timeHeadingLeft}>
+            <Clock3 size={15} color={colors.primary} />
+            <Text style={styles.timeHeadingText}>Set time</Text>
+          </View>
+          <Text style={styles.timeFormat}>12-hour format</Text>
+        </View>
+        <View style={styles.wheels}>
           <WheelColumn
             label="Hour"
             value={pad(hour12(hour))}
@@ -280,6 +289,7 @@ export default function DateTimeSheet({
             onDown={() => commitTime(toHour24(hour12(hour), hour < 12), minute)}
           />
         </View>
+        </>
       ) : null}
 
     </BottomSheet>
@@ -287,11 +297,11 @@ export default function DateTimeSheet({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  quickRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
-  timezone: { flex: 1, color: colors.mutedForeground, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.7 },
-  quick: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: colors.muted },
+  quickRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 18 },
+  timezone: { flex: 1, color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.7 },
+  quick: { borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: colors.muted, borderWidth: 1, borderColor: colors.border },
   quickText: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600" },
-  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, marginBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   nav: {
     width: 36,
     height: 36,
@@ -302,9 +312,9 @@ const styles = createThemedStyleSheet((colors) => ({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  month: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  month: { color: colors.foreground, fontSize: 17, fontWeight: "700" },
   weekdays: { flexDirection: "row", marginBottom: 4 },
-  weekday: { flex: 1, textAlign: "center", color: colors.mutedForeground, fontSize: 11, fontWeight: "600" },
+  weekday: { flex: 1, textAlign: "center", color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 10, fontWeight: "600", textTransform: "uppercase" },
   cell: {
     flex: 1,
     aspectRatio: 1,
@@ -312,40 +322,46 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
   },
   day: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 13,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  dayOn: { backgroundColor: "#6558E8", shadowColor: "#818CF8", shadowOpacity: 0.45, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+  dayOn: { backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.ring, shadowColor: colors.primary, shadowOpacity: 0.5, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } },
   dayToday: { backgroundColor: colors.accent },
-  dayText: { color: colors.foreground, fontSize: 14 },
+  dayText: { color: colors.foreground, fontSize: 14, fontFamily: "SpaceMono" },
   dayOnText: { color: colors.primaryForeground, fontWeight: "700" },
   wheels: { flexDirection: "row", gap: 8 },
-  wheelsBorder: { marginTop: 12, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  wheelsBorder: { marginTop: 16, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  timeHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  timeHeadingLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  timeHeadingText: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 },
+  timeFormat: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 10, textTransform: "uppercase" },
   wheel: {
     flex: 1,
     alignItems: "center",
-    borderRadius: 12,
+    minHeight: 112,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    paddingVertical: 4,
+    paddingVertical: 8,
   },
   wheelLabel: {
     color: colors.mutedForeground,
+    fontFamily: "SpaceMono",
     fontSize: 10,
     fontWeight: "600",
     letterSpacing: 0.6,
     textTransform: "uppercase",
   },
-  wheelBtn: { height: 28, width: "100%", alignItems: "center", justifyContent: "center" },
-  wheelValue: { color: colors.foreground, fontSize: 18, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  wheelBtn: { height: 30, width: "100%", alignItems: "center", justifyContent: "center" },
+  wheelValue: { color: colors.foreground, fontFamily: "SpaceMono", fontSize: 28, fontWeight: "700", fontVariant: ["tabular-nums"] },
   footerActions: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10 },
   footerGhost: { minWidth: 48, paddingHorizontal: 8, paddingVertical: 12, alignItems: "center" },
   ghostText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "600" },
-  done: { flex: 1, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#6558E8", shadowColor: "#6366F1", shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
-  doneText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  done: { flex: 1, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary, shadowColor: colors.primary, shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
+  doneText: { color: colors.primaryForeground, fontSize: 14, fontWeight: "700" },
 }));

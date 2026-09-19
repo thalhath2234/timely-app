@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Ban, CalendarDays, Check, CircleDot, Clock, Flag, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
+import { Ban, CalendarDays, Check, CircleDot, Clock, Copy, Flag, FolderKanban, ListTodo, Play, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
@@ -13,6 +13,7 @@ import SegmentedControl from "../../../components/ui/SegmentedControl";
 import { Dot, Chip, Field, PrimaryButton } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
 import RichTextEditor from "../../../components/editor/RichTextEditor";
+import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { toCustomFieldDrafts } from "../../../lib/customFields";
 import type { CustomFieldValueInput, DocContent } from "../../../lib/types";
 import {
@@ -49,12 +50,49 @@ import { useDraftText } from "../../../lib/draftText";
 import { useAutosave } from "../../../lib/autosave";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 
-type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | "earliest" | "blocked" | "scope" | null;
+type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | "earliest" | "blocked" | "scope" | "preferStart" | "preferEnd" | null;
 
 function applyClock(day: Date, clock: Date) {
   const next = new Date(day);
   next.setHours(clock.getHours(), clock.getMinutes(), 0, 0);
   return next;
+}
+
+function padClock(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function formatClockValue(date: Date) {
+  return `${padClock(date.getHours())}:${padClock(date.getMinutes())}`;
+}
+
+function parseClockDate(value: string, fallbackHour: number) {
+  const next = new Date();
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) {
+    next.setHours(fallbackHour, 0, 0, 0);
+    return next;
+  }
+  next.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return next;
+}
+
+function clockLabel(value: string) {
+  if (!value.trim()) return "Any";
+  return formatTime(parseClockDate(value, 9).toISOString());
+}
+
+function clockMinutes(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function preferredWindowsPayload(start: string, end: string) {
+  const startMin = clockMinutes(start);
+  const endMin = clockMinutes(end);
+  if (startMin == null || endMin == null || endMin <= startMin) return [];
+  return [{ start, end }];
 }
 
 export default function TaskDetailScreen() {
@@ -98,8 +136,7 @@ export default function TaskDetailScreen() {
   const [noteReady, setNoteReady] = useState(false);
   const [noteSync, setNoteSync] = useState(0);
   const [commentText, setCommentText] = useState("");
-  const [checkTitle, setCheckTitle] = useState("");
-  const [subtaskTitle, setSubtaskTitle] = useState("");
+  const [childTitle, setChildTitle] = useState("");
   const addCheck = useAddChecklistItem();
   const toggleCheck = useToggleChecklistItem();
   const removeCheck = useDeleteChecklistItem();
@@ -167,6 +204,13 @@ export default function TaskDetailScreen() {
         : new Date();
 
   const overdue = isOverdue(task.deadline, task.completedAt);
+  const checklist = task.checklist ?? [];
+  const subtasks = task.parentTaskId ? [] : (task.subtasks ?? []);
+  const checklistDone = checklist.filter((item) => item.completedAt).length;
+  const subtaskDone = subtasks.filter((item) => item.completedAt).length;
+  const combinedDone = checklistDone + subtaskDone;
+  const combinedTotal = checklist.length + subtasks.length;
+  const combinedProgress = combinedTotal ? combinedDone / combinedTotal : 0;
 
   function persist(data: Parameters<typeof save.mutate>[0]["data"]) {
     const assigningMeta = Boolean(data.labelIds || data.customFieldValues);
@@ -186,6 +230,7 @@ export default function TaskDetailScreen() {
         subtitle={`TASK-${task.id.slice(-4).toUpperCase()}${isReminder ? "  ·  REMINDER" : ""}`}
         back
         large={false}
+        statusDot
         actions={
           <Pressable
             onPress={() => persist({ completedAt: task.completedAt ? null : new Date().toISOString() })}
@@ -196,18 +241,38 @@ export default function TaskDetailScreen() {
           </Pressable>
         }
       />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 14 }}>
-        <Text style={styles.eyebrow}>{isReminder ? "TITLE" : "TASK OBJECTIVE"}</Text>
-        <Field
-          value={name}
-          onChangeText={(next) => {
-            setName(next);
-            scheduleSave({ name: next });
-          }}
-          onBlur={() => void flushSave()}
-          placeholder="Title"
-          autoCapitalize="sentences"
-        />
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+        <View style={styles.objectiveCard}>
+          <Text style={styles.eyebrow}>{isReminder ? "TITLE" : "TASK OBJECTIVE"}</Text>
+          <Field
+            bare
+            value={name}
+            onChangeText={(next) => {
+              setName(next);
+              scheduleSave({ name: next });
+            }}
+            onBlur={() => void flushSave()}
+            placeholder="Title"
+            autoCapitalize="sentences"
+          />
+        </View>
+        <View style={styles.descriptionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.section}>Description</Text>
+            <Text style={styles.sectionMeta}>Markdown enabled</Text>
+          </View>
+          <RichTextEditor
+            compact
+            content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
+            syncKey={noteSync}
+            placeholder="Add context, links, acceptance criteria, or notes…"
+            onChange={({ content, plainText }) => {
+              setNoteRich(content);
+              setNote(plainText);
+            }}
+          />
+          <PrimaryButton label="Save description" onPress={() => persist({ description: note, descriptionRich: noteRich })} />
+        </View>
         <View style={{ gap: 8 }}>
           <SegmentedControl
             options={[
@@ -264,7 +329,11 @@ export default function TaskDetailScreen() {
               <Row
                 icon={<Ban size={16} color={colors.mutedForeground} />}
                 label="Blocked by"
-                value={tasks.find((item) => item.id === task.blockedById)?.name ?? task.blockedBy?.name ?? "None"}
+                value={
+                  task.blockedById
+                    ? (tasks.find((item) => item.id === task.blockedById)?.name ?? task.blockedBy?.name ?? "None")
+                    : "None"
+                }
                 onPress={() => setPicker("blocked")}
               />
               {tasks.some((item) => item.blockedById === task.id) ? (
@@ -330,21 +399,8 @@ export default function TaskDetailScreen() {
             </Text>
           </Pressable>
         ) : null}
-        <TaskMetaEditor
-          workspace={workspace}
-          workspaceId={task.workspaceId || metaWorkspaceId}
-          labelIds={labelIds}
-          onLabelIds={(next) => {
-            setLabelIds(next);
-            persist({ labelIds: next.map((id) => ({ id })) });
-          }}
-          values={customFieldValues}
-          onValues={(next) => {
-            setCustomFieldValues(next);
-            scheduleSave({ customFieldValues: next });
-          }}
-        />
         <Text style={styles.section}>{isReminder ? "Reminder" : "Schedule"}</Text>
+        <View style={styles.sectionCard}>
         {isReminder || task.recurrence ? (
           <>
             <Pressable onPress={() => setPicker("schedule")} style={styles.block}>
@@ -463,50 +519,73 @@ export default function TaskDetailScreen() {
                       : "Earliest start · any time"}
                   </Text>
                 </Pressable>
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <View style={{ flex: 1 }}>
-                    <Field
-                      value={preferStart}
-                      onChangeText={(start) => {
-                        setPreferStart(start);
-                        const end = preferEnd;
-                        scheduleSave({
-                          preferredWindows: start && end ? [{ start, end }] : start ? [{ start, end: start }] : [],
-                        });
-                      }}
-                      onBlur={() => void flushSave()}
-                      placeholder="Prefer from (09:00)"
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Field
-                      value={preferEnd}
-                      onChangeText={(end) => {
-                        setPreferEnd(end);
-                        const start = preferStart;
-                        scheduleSave({ preferredWindows: start && end ? [{ start, end }] : [] });
-                      }}
-                      onBlur={() => void flushSave()}
-                      placeholder="Prefer to (12:00)"
-                    />
-                  </View>
+                <View style={styles.preferRow}>
+                  <Pressable onPress={() => setPicker("preferStart")} style={styles.preferBtn}>
+                    <Text style={styles.preferLabel}>Prefer from</Text>
+                    <Text style={styles.preferValue}>{clockLabel(preferStart)}</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setPicker("preferEnd")} style={styles.preferBtn}>
+                    <Text style={styles.preferLabel}>Prefer to</Text>
+                    <Text style={styles.preferValue}>{clockLabel(preferEnd)}</Text>
+                  </Pressable>
                 </View>
               </>
             ) : null}
           </>
         )}
-        <Text style={styles.section}>Focus</Text>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          <PrimaryButton
+        </View>
+        {!isReminder ? (
+          <>
+            <View style={styles.editorCard}>
+              <TaskMetaEditor
+                workspace={workspace}
+                workspaceId={task.workspaceId || metaWorkspaceId}
+                labelIds={labelIds}
+                onLabelIds={(next) => {
+                  setLabelIds(next);
+                  persist({ labelIds: next.map((id) => ({ id })) });
+                }}
+                values={customFieldValues}
+                onValues={(next) => {
+                  setCustomFieldValues(next);
+                  scheduleSave({ customFieldValues: next });
+                }}
+                showCustomFields={false}
+              />
+            </View>
+            <View style={styles.editorCard}>
+              <TaskMetaEditor
+                workspace={workspace}
+                workspaceId={task.workspaceId || metaWorkspaceId}
+                labelIds={labelIds}
+                onLabelIds={setLabelIds}
+                values={customFieldValues}
+                onValues={(next) => {
+                  setCustomFieldValues(next);
+                  scheduleSave({ customFieldValues: next });
+                }}
+                showLabels={false}
+              />
+            </View>
+          </>
+        ) : null}
+        {!isReminder ? <>
+        <Text style={styles.section}>Focus orchestration</Text>
+        <View style={styles.actionGrid}>
+          <ActionTile
+            icon={<Play size={17} color={colors.foreground} fill={task.focusStartedAt ? colors.foreground : "transparent"} />}
             label={task.focusStartedAt ? "Stop focus" : "Start focus"}
+            active={Boolean(task.focusStartedAt)}
             onPress={() =>
               task.focusStartedAt
                 ? void stopFocus.mutateAsync(task.id)
                 : void startFocus.mutateAsync(task.id)
             }
           />
-          <PrimaryButton
-            label={onToday ? "Remove from Today" : "Add to Today"}
+          <ActionTile
+            icon={<CalendarDays size={17} color={colors.foreground} />}
+            label={onToday ? "Remove today" : "Add to Today"}
+            active={onToday}
             onPress={() =>
               void setTodayFocus.mutateAsync({
                 id: task.id,
@@ -514,7 +593,8 @@ export default function TaskDetailScreen() {
               })
             }
           />
-          <PrimaryButton
+          <ActionTile
+            icon={<Copy size={17} color={colors.foreground} />}
             label="Duplicate"
             onPress={() =>
               void duplicate.mutateAsync(task.id).then((copy) => router.push(`/(app)/tasks/${copy.id}`))
@@ -524,8 +604,15 @@ export default function TaskDetailScreen() {
         {(task.actualMinutes ?? 0) > 0 ? (
           <Text style={styles.activity}>{task.actualMinutes}m actually focused</Text>
         ) : null}
-        <Text style={styles.section}>Checklist</Text>
-        {(task.checklist ?? []).map((item) => (
+        <View style={styles.sectionHeader}>
+          <Text style={styles.section}>Subtasks & checklist</Text>
+          <Text style={styles.progressText}>{combinedDone} of {combinedTotal}</Text>
+        </View>
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${Math.round(combinedProgress * 100)}%` }]} />
+        </View>
+        <View style={styles.sectionCard}>
+        {checklist.map((item) => (
           <Pressable
             key={item.id}
             onPress={() =>
@@ -536,37 +623,45 @@ export default function TaskDetailScreen() {
               })
             }
             onLongPress={() => void removeCheck.mutateAsync({ id: task.id, itemId: item.id })}
-            style={{ paddingVertical: 6 }}
+            style={styles.checkRow}
           >
-            <Text style={{ color: item.completedAt ? colors.mutedForeground : colors.foreground }}>
-              {item.completedAt ? "☑" : "☐"} {item.title}
+            <View style={[styles.checkbox, item.completedAt && styles.checkboxDone]}>
+              {item.completedAt ? <Check size={11} color="#07130d" strokeWidth={3} /> : null}
+            </View>
+            <Text style={[styles.checkText, item.completedAt && styles.checkTextDone]}>
+              {item.title}
             </Text>
           </Pressable>
         ))}
-        <Field value={checkTitle} onChangeText={setCheckTitle} placeholder="Add checklist item" />
-        <PrimaryButton
-          label="Add item"
-          onPress={() => {
-            const title = checkTitle.trim();
-            if (!title) return;
-            void addCheck.mutateAsync({ id: task.id, title }).then(() => setCheckTitle(""));
-          }}
+        {!task.parentTaskId
+          ? subtasks.map((child) => (
+              <AnimatedPressable key={child.id} onPress={() => router.push(`/(app)/tasks/${child.id}`)} style={styles.checkRow}>
+                <ListTodo size={16} color={child.completedAt ? colors.mutedForeground : colors.foreground} />
+                <Text style={[styles.checkText, child.completedAt && styles.checkTextDone]}>{child.name}</Text>
+              </AnimatedPressable>
+            ))
+          : null}
+        <Field
+          value={childTitle}
+          onChangeText={setChildTitle}
+          placeholder={task.parentTaskId ? "Add checklist item" : "Add a checklist item or subtask"}
+          autoCapitalize="sentences"
         />
-        {!task.parentTaskId ? (
-          <>
-            <Text style={styles.section}>
-              Subtasks{task.openSubtaskCount ? ` (${task.openSubtaskCount} open)` : ""}
-            </Text>
-            {(task.subtasks ?? []).map((child) => (
-              <Pressable key={child.id} onPress={() => router.push(`/(app)/tasks/${child.id}`)} style={{ paddingVertical: 6 }}>
-                <Text style={{ color: colors.foreground }}>{child.completedAt ? "☑" : "☐"} {child.name}</Text>
-              </Pressable>
-            ))}
-            <Field value={subtaskTitle} onChangeText={setSubtaskTitle} placeholder="Add subtask" />
-            <PrimaryButton
-              label="Add subtask"
+        <View style={styles.addActions}>
+          <Pressable
+            onPress={() => {
+              const title = childTitle.trim();
+              if (!title) return;
+              void addCheck.mutateAsync({ id: task.id, title }).then(() => setChildTitle(""));
+            }}
+            style={[styles.addBtn, !childTitle.trim() && styles.addBtnDisabled]}
+          >
+            <Text style={styles.addBtnText}>Add item</Text>
+          </Pressable>
+          {!task.parentTaskId ? (
+            <Pressable
               onPress={() => {
-                const name = subtaskTitle.trim();
+                const name = childTitle.trim();
                 if (!name) return;
                 void createSubtask
                   .mutateAsync({
@@ -580,31 +675,26 @@ export default function TaskDetailScreen() {
                     stageId: task.stageId || undefined,
                     priorityLevel: task.priorityLevel || undefined,
                   })
-                  .then(() => setSubtaskTitle(""));
+                  .then(() => setChildTitle(""));
               }}
-            />
-          </>
-        ) : null}
-        <Text style={styles.section}>Notes</Text>
-        <RichTextEditor
-          compact
-          content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
-          syncKey={noteSync}
-          placeholder="Write notes. Type '/' for blocks…"
-          onChange={({ content, plainText }) => {
-            setNoteRich(content);
-            setNote(plainText);
-          }}
-        />
-        <PrimaryButton
-          label="Save notes"
-          onPress={() => persist({ description: note, descriptionRich: noteRich })}
-        />
-        <Text style={styles.section}>Activity</Text>
+              style={[styles.addBtn, styles.addBtnSecondary, !childTitle.trim() && styles.addBtnDisabled]}
+            >
+              <Text style={styles.addBtnSecondaryText}>Add subtask</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        </View>
+        </> : null}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.section}>Audit activity log</Text>
+          <Text style={styles.sectionMeta}>Latest {(activity.data ?? []).length} events</Text>
+        </View>
+        <View style={styles.sectionCard}>
         {(activity.data ?? []).map((row) => (
-          <Text key={row.id} style={styles.activity}>
-            {row.actorName} · {row.message}
-          </Text>
+          <View key={row.id} style={styles.activityRow}>
+            <View style={styles.activityDot} />
+            <Text style={styles.activity}><Text style={styles.activityActor}>{row.actorName}</Text> · {row.message}</Text>
+          </View>
         ))}
         <Field value={commentText} onChangeText={setCommentText} placeholder="Add a comment" autoCapitalize="sentences" />
         <PrimaryButton
@@ -615,6 +705,7 @@ export default function TaskDetailScreen() {
             setCommentText("");
           }}
         />
+        </View>
         <Pressable
           onPress={() =>
             setConfirm({
@@ -718,7 +809,7 @@ export default function TaskDetailScreen() {
         <SheetOption
           selected={!task.blockedById}
           onSelect={() => {
-            persist({ blockedById: null });
+            persist({ blockedById: "" });
             setPicker(null);
           }}
         >
@@ -789,7 +880,8 @@ export default function TaskDetailScreen() {
         ))}
       </BottomSheet>
       <DateTimeSheet
-        open={picker === "due" || picker === "start" || picker === "schedule" || picker === "earliest"}
+        key={picker ?? "closed"}
+        open={picker === "due" || picker === "start" || picker === "schedule" || picker === "earliest" || picker === "preferStart" || picker === "preferEnd"}
         value={
           picker === "due" && task.deadline
             ? new Date(task.deadline)
@@ -797,6 +889,10 @@ export default function TaskDetailScreen() {
               ? new Date(task.startDate)
               : picker === "earliest" && task.earliestStartAt
                 ? new Date(task.earliestStartAt)
+              : picker === "preferStart"
+                ? parseClockDate(preferStart, 9)
+              : picker === "preferEnd"
+                ? parseClockDate(preferEnd, 12)
               : picker === "schedule" && (task.scheduledOn || task.recurrence?.dtstart)
                 ? new Date(task.scheduledOn ?? task.recurrence!.dtstart)
                 : new Date()
@@ -806,6 +902,8 @@ export default function TaskDetailScreen() {
             ? "date"
             : picker === "earliest"
               ? "datetime"
+              : picker === "preferStart" || picker === "preferEnd"
+                ? "time"
               : picker === "schedule" && isReminder && !task.recurrence
                 ? "datetime"
               : isReminder || Boolean(task.recurrence)
@@ -819,6 +917,10 @@ export default function TaskDetailScreen() {
               ? "Start date"
               : picker === "earliest"
                 ? "Earliest start"
+                : picker === "preferStart"
+                  ? "Prefer from"
+                : picker === "preferEnd"
+                  ? "Prefer to"
                 : isReminder
                   ? "Notify at"
                   : task.recurrence
@@ -838,6 +940,16 @@ export default function TaskDetailScreen() {
             });
           }
           if (picker === "earliest") persist({ earliestStartAt: next ? next.toISOString() : null });
+          if (picker === "preferStart") {
+            const start = next ? formatClockValue(next) : "";
+            setPreferStart(start);
+            persist({ preferredWindows: preferredWindowsPayload(start, preferEnd) });
+          }
+          if (picker === "preferEnd") {
+            const end = next ? formatClockValue(next) : "";
+            setPreferEnd(end);
+            persist({ preferredWindows: preferredWindowsPayload(preferStart, end) });
+          }
           if (picker === "schedule" && next) {
             if (isReminder && !task.recurrence) {
               persist({ scheduledOn: next.toISOString() });
@@ -866,6 +978,15 @@ export default function TaskDetailScreen() {
   );
 }
 
+function ActionTile({ icon, label, active, onPress }: { icon: ReactNode; label: string; active?: boolean; onPress: () => void }) {
+  return (
+    <AnimatedPressable onPress={onPress} style={[styles.actionTile, active && styles.actionTileActive]}>
+      {icon}
+      <Text style={styles.actionTileText}>{label}</Text>
+    </AnimatedPressable>
+  );
+}
+
 function Row({
   icon,
   label,
@@ -884,30 +1005,33 @@ function Row({
   action?: ReactNode;
 }) {
   return (
-    <Pressable onPress={onPress} disabled={!onPress} style={styles.row}>
+    <AnimatedPressable onPress={onPress} disabled={!onPress} style={styles.row}>
       {icon}
       <Text style={styles.rowLabel}>{label}</Text>
       {swatch ? <Dot color={swatch} /> : null}
       <Text style={[styles.rowValue, tone ? { color: tone } : null]}>{value}</Text>
       {action}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  content: { padding: 16, paddingBottom: 40, gap: 12 },
   complete: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#6558E8",
+    backgroundColor: colors.primary,
     borderRadius: 16,
     paddingHorizontal: 10,
     height: 32,
   },
   completeText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "600" },
-  eyebrow: { color: colors.mutedForeground, fontSize: 10, fontWeight: "700", letterSpacing: 0.9, marginBottom: -8 },
+  objectiveCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, gap: 7 },
+  descriptionCard: { gap: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, minHeight: 170 },
+  eyebrow: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", letterSpacing: 0.9 },
   card: { borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: "hidden" },
-  row: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  row: { minHeight: 45, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   rowLabel: { width: 76, color: colors.mutedForeground, fontSize: 12 },
   rowValue: { flex: 1, color: colors.foreground, fontSize: 13, fontWeight: "600", textAlign: "right" },
   rowAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
@@ -921,11 +1045,40 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingVertical: 4,
   },
   reminderChipText: { color: colors.accentForeground, fontSize: 12, fontWeight: "600" },
-  section: { color: colors.mutedForeground, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.9, marginTop: 4 },
+  section: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.9, marginTop: 4 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
+  sectionMeta: { color: colors.mutedForeground, fontSize: 9, fontFamily: "SpaceMono" },
+  progressText: { color: colors.success, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700" },
+  progressTrack: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden", width: "100%" },
+  progressFill: { height: "100%", borderRadius: 999, backgroundColor: colors.success },
+  sectionCard: { gap: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
+  editorCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
+  actionGrid: { flexDirection: "row", gap: 8 },
+  actionTile: { flex: 1, minHeight: 66, alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 6 },
+  actionTileActive: { borderColor: colors.primary, backgroundColor: colors.accent },
+  actionTileText: { color: colors.foreground, fontSize: 10, fontWeight: "700", textAlign: "center" },
+  checkRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 5 },
+  checkbox: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: colors.mutedForeground, alignItems: "center", justifyContent: "center" },
+  checkboxDone: { borderColor: colors.success, backgroundColor: colors.success },
+  checkText: { flex: 1, color: colors.foreground, fontSize: 12 },
+  checkTextDone: { color: colors.mutedForeground, textDecorationLine: "line-through" },
+  addActions: { flexDirection: "row", gap: 8 },
+  addBtn: { flex: 1, minHeight: 44, borderRadius: 12, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  addBtnSecondary: { backgroundColor: colors.secondary },
+  addBtnDisabled: { opacity: 0.4 },
+  addBtnText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "700" },
+  addBtnSecondaryText: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  preferRow: { flexDirection: "row", gap: 8 },
+  preferBtn: { flex: 1, minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.muted, paddingHorizontal: 12, paddingVertical: 8, justifyContent: "center", gap: 2 },
+  preferLabel: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
+  preferValue: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   block: { borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 12 },
   blockText: { color: colors.foreground, fontSize: 14 },
-  activity: { color: colors.mutedForeground, fontSize: 13 },
+  activity: { flex: 1, color: colors.mutedForeground, fontSize: 12, lineHeight: 17 },
+  activityRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  activityDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary, marginTop: 6 },
+  activityActor: { color: colors.foreground, fontWeight: "700" },
   delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
   deleteText: { color: colors.destructive, fontWeight: "600" },
 }));

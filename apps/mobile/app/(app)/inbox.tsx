@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Pressable, RefreshControl, ScrollView, Text } from "react-native";
+import { RefreshControl, ScrollView, Text } from "react-native";
 import { useRouter } from "expo-router";
 import { Inbox } from "lucide-react-native";
 import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
 import { Field, PrimaryButton } from "../../components/ui/primitives";
+import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import { useCreateTask, useInboxQuery } from "../../lib/hooks";
 import { needsNetworkCopy } from "../../lib/queryCopy";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -53,14 +54,14 @@ export default function InboxScreen() {
           <EmptyState icon={Inbox} title="Inbox is empty" description="Capture a thought with only a title." compact />
         ) : (
           items.map((task) => (
-            <Pressable
+            <AnimatedPressable
               key={task.id}
               onPress={() => router.push(`/(app)/tasks/${task.id}`)}
               style={styles.row}
             >
-              <Text style={styles.title}>{task.name}</Text>
+              <Text style={[styles.title, task.completedAt ? styles.done : null]}>{task.name}</Text>
               <Text style={styles.meta}>Review</Text>
-            </Pressable>
+            </AnimatedPressable>
           ))
         )}
       </ScrollView>
@@ -82,5 +83,6 @@ const styles = createThemedStyleSheet((colors) => ({
     gap: 8,
   },
   title: { color: colors.foreground, fontSize: 15, flex: 1 },
+  done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { color: colors.mutedForeground, fontSize: 12 },
 }));

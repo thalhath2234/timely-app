@@ -1,8 +1,10 @@
 import { type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronLeft } from "lucide-react-native";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { Bell, ChevronLeft, Settings } from "lucide-react-native";
+import { useUnreadNotificationCount } from "../../lib/hooks";
+import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
+import AnimatedPressable from "./AnimatedPressable";
 
 export function HeaderIconButton({
   label,
@@ -16,7 +18,7 @@ export function HeaderIconButton({
   children: ReactNode;
 }) {
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityLabel={label}
       hitSlop={6}
@@ -24,7 +26,29 @@ export function HeaderIconButton({
       style={[styles.iconBtn, active && { backgroundColor: colors.accent }]}
     >
       {children}
-    </Pressable>
+    </AnimatedPressable>
+  );
+}
+
+function HeaderAccountActions() {
+  const router = useRouter();
+  const unreadCount = useUnreadNotificationCount().data ?? 0;
+  return (
+    <>
+      <HeaderIconButton label="Notifications" onPress={() => router.push("/(app)/notifications")}>
+        <View>
+          <Bell size={20} color={colors.foreground} />
+          {unreadCount > 0 ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
+            </View>
+          ) : null}
+        </View>
+      </HeaderIconButton>
+      <HeaderIconButton label="Settings" onPress={() => router.push("/(app)/settings")}>
+        <Settings size={20} color={colors.foreground} />
+      </HeaderIconButton>
+    </>
   );
 }
 
@@ -35,6 +59,7 @@ export default function MobileHeader({
   large = true,
   back,
   actions,
+  accountActions,
   children,
 }: {
   title: string;
@@ -43,21 +68,23 @@ export default function MobileHeader({
   large?: boolean;
   back?: boolean | string;
   actions?: ReactNode;
+  accountActions?: boolean;
   children?: ReactNode;
 }) {
   const router = useRouter();
+  const showAccountActions = accountActions ?? !back;
   return (
     <View style={styles.wrap}>
       <View style={[styles.row, !large && styles.rowCompact]}>
         {back ? (
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
             onPress={() => (typeof back === "string" ? router.replace(back as never) : router.back())}
             style={styles.iconBtn}
             accessibilityLabel="Back"
           >
             <ChevronLeft size={22} color={colors.foreground} />
-          </Pressable>
+          </AnimatedPressable>
         ) : null}
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={styles.titleRow}>
@@ -68,7 +95,10 @@ export default function MobileHeader({
           </View>
           {subtitle ? <Text style={styles.sub}>{subtitle}</Text> : null}
         </View>
-        <View style={styles.actions}>{actions}</View>
+        <View style={styles.actions}>
+          {actions}
+          {showAccountActions ? <HeaderAccountActions /> : null}
+        </View>
       </View>
       {children}
     </View>
@@ -108,11 +138,24 @@ const styles = createThemedStyleSheet((colors) => ({
   iconBtn: {
     width: 40,
     height: 40,
-    borderRadius: 14,
+    borderRadius: radius,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
   },
+  badge: {
+    position: "absolute",
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  badgeText: { color: colors.primaryForeground, fontSize: 9, fontWeight: "700" },
 }));

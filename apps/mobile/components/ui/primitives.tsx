@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 import { ChevronDown } from "lucide-react-native";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
 import AnimatedPressable from "./AnimatedPressable";
 import BottomSheet, { SheetOption } from "./BottomSheet";
 
@@ -42,6 +42,7 @@ export function Field({
   testID,
   onFocus,
   onBlur,
+  bare,
 }: {
   value: string;
   onChangeText: (v: string) => void;
@@ -53,6 +54,7 @@ export function Field({
   testID?: string;
   onFocus?: () => void;
   onBlur?: () => void;
+  bare?: boolean;
 }) {
   return (
     <TextInput
@@ -69,7 +71,7 @@ export function Field({
       autoCorrect={false}
       keyboardType={keyboardType}
       multiline={multiline}
-      style={[styles.input, multiline && styles.area]}
+      style={[styles.input, bare && styles.inputBare, multiline && styles.area]}
     />
   );
 }
@@ -79,32 +81,40 @@ export function Chip({
   active,
   onPress,
   color,
+  bare,
+  fill,
 }: {
   label: string;
   active?: boolean;
   onPress: () => void;
   color?: string | null;
+  bare?: boolean;
+  fill?: boolean;
 }) {
-  const tint = color && active ? `${color}33` : undefined;
+  const tint = color && active && !bare ? `${color}33` : undefined;
   const border = color ? (active ? `${color}88` : colors.border) : undefined;
   return (
     <AnimatedPressable
       accessibilityRole="button"
       accessibilityState={{ selected: Boolean(active) }}
-      hitSlop={6}
+      hitSlop={bare || fill ? 0 : 6}
       onPress={onPress}
+      android_ripple={{ color: bare ? "transparent" : `${colors.primary}33`, borderless: false }}
       style={[
         styles.chip,
-        active && !color ? styles.chipOn : null,
-        color ? { borderColor: border, backgroundColor: tint || colors.card } : null,
+        bare ? styles.chipBare : null,
+        fill ? styles.chipFill : null,
+        active && !bare && !color ? styles.chipOn : null,
+        color && !bare ? { borderColor: border, backgroundColor: tint || colors.card } : null,
       ]}
     >
       {color ? <View style={[styles.chipDot, { backgroundColor: color }]} /> : null}
       <Text
+        numberOfLines={1}
         style={[
           styles.chipText,
-          active && !color ? { color: colors.primaryForeground } : null,
-          active && color ? { color } : null,
+          active && (!color || bare) ? { color: colors.primaryForeground, fontWeight: "600" } : null,
+          active && color && !bare ? { color } : null,
         ]}
       >
         {label}
@@ -130,7 +140,7 @@ export function Select({
   const selected = options.find((option) => option.value === value);
   return (
     <View>
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         accessibilityLabel={selected?.label ?? placeholder}
         accessibilityState={{ expanded: open }}
@@ -142,7 +152,7 @@ export function Select({
           {selected?.label ?? placeholder}
         </Text>
         <ChevronDown size={16} color={colors.mutedForeground} />
-      </Pressable>
+      </AnimatedPressable>
       <BottomSheet open={open} onClose={() => setOpen(false)} title={placeholder}>
         {options.map((option) => (
           <SheetOption
@@ -162,16 +172,22 @@ export function Select({
   );
 }
 
-export function SectionLabel({ children }: { children: ReactNode }) {
-  return <Text style={styles.section}>{children}</Text>;
+export function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  if (!action) return <Text style={styles.section}>{children}</Text>;
+  return (
+    <View style={styles.sectionRow}>
+      <Text style={styles.sectionInRow}>{children}</Text>
+      {action}
+    </View>
+  );
 }
 
 export function Card({ children, onPress }: { children: ReactNode; onPress?: () => void }) {
   if (onPress) {
     return (
-      <Pressable accessibilityRole="button" onPress={onPress} style={styles.card}>
+      <AnimatedPressable accessibilityRole="button" onPress={onPress} style={styles.card}>
         {children}
-      </Pressable>
+      </AnimatedPressable>
     );
   }
   return <View style={styles.card}>{children}</View>;
@@ -184,19 +200,19 @@ export function Dot({ color }: { color?: string | null }) {
 const styles = createThemedStyleSheet((colors) => ({
   primary: {
     height: 52,
-    borderRadius: 13,
-    backgroundColor: "#4F46E5",
+    borderRadius: radius,
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#6366F1",
+    shadowColor: colors.primary,
     shadowOpacity: 0.32,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 7 },
   },
-  primaryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  primaryText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "700" },
   input: {
     minHeight: 52,
-    borderRadius: 12,
+    borderRadius: radius,
     borderWidth: 1,
     borderColor: colors.input,
     backgroundColor: colors.card,
@@ -204,10 +220,11 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingHorizontal: 16,
     fontSize: 16,
   },
+  inputBare: { minHeight: 30, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0 },
   area: { minHeight: 120, textAlignVertical: "top", paddingTop: 12 },
   chip: {
     minHeight: 36,
-    borderRadius: 10,
+    borderRadius: radius,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
@@ -217,12 +234,14 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     gap: 6,
   },
-  chipOn: { backgroundColor: "#5B4FE9", borderColor: "#7165FF" },
+  chipOn: { backgroundColor: colors.primary, borderColor: colors.ring },
+  chipBare: { backgroundColor: "transparent", borderColor: "transparent" },
+  chipFill: { alignSelf: "stretch", justifyContent: "center" },
   chipText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
   selectTrigger: {
     minHeight: 52,
-    borderRadius: 12,
+    borderRadius: radius,
     borderWidth: 1,
     borderColor: colors.input,
     backgroundColor: colors.card,
@@ -242,8 +261,25 @@ const styles = createThemedStyleSheet((colors) => ({
     textTransform: "uppercase",
     letterSpacing: 0.8,
   },
+  sectionRow: {
+    marginTop: 16,
+    marginBottom: 8,
+    marginLeft: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  sectionInRow: {
+    flex: 1,
+    color: colors.mutedForeground,
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
   card: {
-    borderRadius: 14,
+    borderRadius: radius,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,

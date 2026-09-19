@@ -38,7 +38,7 @@ export default function LoginScreen() {
     <Screen padded>
       <View style={styles.wrap}>
         <Text style={styles.title}>Timely</Text>
-        <Text style={styles.sub}>Sign in to your kinetic day</Text>
+        <Text style={styles.sub}>Sign in to plan your day</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Field
           testID="login-email"

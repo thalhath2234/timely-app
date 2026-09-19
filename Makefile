@@ -31,8 +31,8 @@ GOOSE_MIGRATIONS := goose -dir $(API)/migrations postgres $(GOOSE_DBSTRING)
 GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING)
 
 .PHONY: help setup install tools install-air install-goose \
-        dev dev-api dev-web dev-mobile dev-desktop launch-electron \
-        build build-api build-web build-desktop dist-desktop build-apk apk-status \
+        dev dev-api dev-web dev-mobile dev-mobile-device dev-desktop launch-electron \
+        build build-api build-web build-desktop dist-desktop build-apk install-apk apk-status \
         lint lint-api lint-web typecheck typecheck-web typecheck-mobile test test-api check \
         migrate-up migrate-down migrate-status migrate-create migrate-reset migrate-fix migrate-seed migrate-unseed \
         reset-password clean
@@ -89,8 +89,17 @@ audit-index: ## Rebuild and validate the portable screenshot gallery
 	@python audit/scripts/build_index.py
 	@python audit/scripts/build_inventory.py
 
-dev-mobile: ## Start the Expo dev server (Metro)
-	@pnpm --filter @timely/mobile start
+dev-mobile: ## Start the Expo dev server (Metro on :8082; leave :8081 for the worktree API)
+	@pnpm --filter @timely/mobile exec expo start --lan --port 8082 --go
+
+dev-mobile-device: ## Metro + Expo Go on a USB phone (adb reverse :8082)
+	@ANDROID_HOME=$${ANDROID_HOME:-$${ANDROID_SDK_ROOT:-/home/thalhath/.local/android-sdk}}; \
+	ADB="$$ANDROID_HOME/platform-tools/adb"; \
+	if [ ! -x "$$ADB" ]; then echo "adb not found at $$ADB (set ANDROID_HOME)" >&2; exit 1; fi; \
+	$$ADB reverse tcp:8082 tcp:8082; \
+	$$ADB reverse --list; \
+	echo "Open Expo Go on the phone (not the Timely icon) after Metro is up."; \
+	NODE_OPTIONS='--dns-result-order=ipv4first' pnpm --filter @timely/mobile exec expo start --localhost --port 8082 --go --android
 
 dev-desktop: ## Run API, Next.js, and the Electron desktop shell
 	@$(MAKE) -j3 --no-print-directory dev-api dev-web launch-electron
@@ -118,6 +127,9 @@ dist-desktop: ## Build a distributable Electron installer for this OS (AppImage 
 
 build-apk: ## Build the Android release APK (memory-capped, detached). Usage: make build-apk [API_URL=https://...]
 	@scripts/build-apk.sh $(API_URL)
+
+install-apk: ## Build the Android release APK and install it on a connected phone. Usage: make install-apk [API_URL=https://...]
+	@scripts/install-apk.sh $(API_URL)
 
 apk-status: ## Show status of the detached APK build
 	@systemctl --user status timely-apk-build.service --no-pager || true

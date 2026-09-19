@@ -11,10 +11,12 @@ export default function CustomFieldEditor({
   fields,
   values,
   onChange,
+  hideTitle = false,
 }: {
   fields: CustomField[];
   values: CustomFieldValueInput[];
   onChange: (next: CustomFieldValueInput[]) => void;
+  hideTitle?: boolean;
 }) {
   const [dateFieldId, setDateFieldId] = useState<string | null>(null);
 
@@ -30,7 +32,7 @@ export default function CustomFieldEditor({
 
   return (
     <View style={styles.root}>
-      <SectionLabel>Custom fields</SectionLabel>
+      {hideTitle ? null : <SectionLabel>Custom fields</SectionLabel>}
       {fields.map((field) => {
         const draft = findCustomFieldDraft(values, field.id);
         const stringValue = draft?.stringValue ?? "";

@@ -46,6 +46,7 @@ apps/mobile/expo-env.d.ts
 apps/mobile/.metro-health-check*
 apps/mobile/android/
 apps/mobile/ios/
+apps/mobile/*.apk
 apps/mobile/.verify*
 apps/mobile/.kotlin/
 *.orig.*

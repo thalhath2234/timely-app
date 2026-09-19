@@ -8,6 +8,7 @@ import TaskMetaEditor from "./TaskMetaEditor";
 import RecurrenceEditor from "./RecurrenceEditor";
 import { Chip, Field, PrimaryButton, SectionLabel, Select } from "./primitives";
 import RichTextEditor from "../editor/RichTextEditor";
+import AnimatedPressable from "./AnimatedPressable";
 import { emptyCustomFieldDrafts, filledCustomFieldValues } from "../../lib/customFields";
 import { isRichContentEmpty } from "../../lib/richText";
 import type { DocContent } from "../../lib/types";
@@ -19,6 +20,12 @@ import type { CustomFieldValueInput } from "../../lib/types";
 import type { QuickAddPreset } from "../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { ENTITY_COLORS } from "../../lib/entityColor";
+import { pageDuration } from "../../lib/motion";
+
+function runWhenIdle(callback: () => void, timeout: number) {
+  const timer = setTimeout(callback, timeout);
+  return () => clearTimeout(timer);
+}
 
 type Kind = "inbox" | "task" | "reminder" | "event" | "doc" | "sheet";
 const KINDS: { value: Kind; label: string; Icon: typeof ListTodo }[] = [
@@ -99,6 +106,9 @@ export default function QuickAddSheet({
   const [eventColor, setEventColor] = useState("");
   const [eventProjectId, setEventProjectId] = useState("");
   const [picking, setPicking] = useState<"due" | "startDate" | "schedule" | "eventStart" | null>(null);
+  const [phase, setPhase] = useState<"menu" | "form">("menu");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [detailsReady, setDetailsReady] = useState(false);
 
   const list = workspaces.data ?? [];
   const projectList = projects.data ?? [];
@@ -163,6 +173,39 @@ export default function QuickAddSheet({
       }
     }
   }, [open, preset]);
+
+  useEffect(() => {
+    if (!open) {
+      setPhase("menu");
+      setEditorOpen(false);
+      setDetailsReady(false);
+      return;
+    }
+    setPhase(preset?.kind ? "form" : "menu");
+    setEditorOpen(false);
+  }, [open, preset?.kind]);
+
+  useEffect(() => {
+    if (!open || phase !== "form") {
+      setDetailsReady(false);
+      return;
+    }
+    return runWhenIdle(() => setDetailsReady(true), pageDuration);
+  }, [open, phase]);
+
+  function closeSheet() {
+    setPhase("menu");
+    setEditorOpen(false);
+    setDetailsReady(false);
+    onClose();
+  }
+
+  function pickKind(value: Kind) {
+    if (value === "reminder") turnIntoReminder();
+    else if (value === "task" && isReminder) addDuration();
+    else setKind(value);
+    setPhase("form");
+  }
 
   useEffect(() => {
     if (!open || !preset?.projectId) return;
@@ -290,9 +333,10 @@ export default function QuickAddSheet({
     <>
       <BottomSheet
         open={open}
-        onClose={onClose}
-        title="New"
+        onClose={closeSheet}
+        title={phase === "menu" ? "New" : `New ${kind}`}
         footer={
+          phase === "form" ? (
           <View style={{ gap: 8 }}>
             <PrimaryButton
               label={pending ? "Saving…" : kind === "reminder" ? "Add reminder" : `Add ${kind}`}
@@ -306,66 +350,90 @@ export default function QuickAddSheet({
               </Text>
             </View>
           </View>
+          ) : undefined
         }
       >
-        <View style={styles.versionRow}>
-          <Text style={styles.version}>KINETIC V2.4</Text>
-          <Text style={styles.versionHint}>Choose what to capture</Text>
-        </View>
+        {phase === "menu" ? (
         <View style={styles.kinds}>
-          {KINDS.map((item) => {
-            const on = item.value === kind;
-            return (
-              <Pressable
+          {KINDS.map((item) => (
+              <AnimatedPressable
                 key={item.value}
-                onPress={() => {
-                  if (item.value === "reminder") turnIntoReminder();
-                  else if (item.value === "task" && isReminder) addDuration();
-                  else setKind(item.value);
-                }}
-                style={[styles.kind, on && styles.kindOn]}
+                onPress={() => pickKind(item.value)}
+                android_ripple={{ color: `${colors.primary}22` }}
+                style={styles.kind}
               >
-                <item.Icon size={20} color={on ? colors.accentForeground : colors.mutedForeground} />
-                <Text style={[styles.kindText, on && { color: colors.accentForeground }]}>{item.label}</Text>
-              </Pressable>
-            );
-          })}
+                <item.Icon size={20} color={colors.mutedForeground} />
+                <Text style={styles.kindText}>{item.label}</Text>
+              </AnimatedPressable>
+          ))}
         </View>
+        ) : (
         <View style={styles.fields}>
-        <Field
-          value={title}
-          onChangeText={setTitle}
-          autoCapitalize="sentences"
-          placeholder={
-            kind === "task"
-              ? "Task name"
-              : kind === "reminder"
-                ? "Reminder"
-                : kind === "event"
-                  ? "Event title"
-                  : `Untitled ${kind}`
-          }
-        />
+        <AnimatedPressable onPress={() => { setPhase("menu"); setEditorOpen(false); }} style={styles.changeType}>
+          <Text style={styles.changeTypeText}>← Change type</Text>
+        </AnimatedPressable>
+        <View style={styles.objectiveCard}>
+          <Text style={styles.cardEyebrow}>
+            {kind === "task" ? "TASK OBJECTIVE" : kind === "event" ? "EVENT TITLE" : kind === "reminder" ? "REMINDER" : `${kind.toUpperCase()} TITLE`}
+          </Text>
+          <Field
+            bare
+            value={title}
+            onChangeText={setTitle}
+            autoCapitalize="sentences"
+            placeholder={
+              kind === "task"
+                ? "What needs to be done?"
+                : kind === "reminder"
+                  ? "What should Timely remind you about?"
+                  : kind === "event"
+                    ? "Event title"
+                    : `Untitled ${kind}`
+            }
+          />
+        </View>
 
         {kind === "task" || kind === "reminder" ? (
-          <RichTextEditor
-            compact
-            content={descriptionRich}
-            syncKey={noteSync}
-            placeholder="Description. Type '/' for blocks, markdown welcome…"
-            onChange={({ content, plainText }) => {
-              setDescriptionRich(content);
-              setDescription(plainText);
-            }}
-          />
+          <View style={styles.descriptionCard}>
+            <View style={styles.descriptionHeader}>
+              <Text style={styles.cardEyebrow}>DESCRIPTION</Text>
+              {editorOpen ? <Text style={styles.markdownLabel}>Markdown enabled</Text> : null}
+            </View>
+          {editorOpen ? (
+            <RichTextEditor
+              compact
+              content={descriptionRich}
+              syncKey={noteSync}
+              placeholder="Description. Type '/' for blocks, markdown welcome…"
+              onChange={({ content, plainText }) => {
+                setDescriptionRich(content);
+                setDescription(plainText);
+              }}
+            />
+          ) : (
+            <Field
+              bare
+              multiline
+              value={description}
+              onChangeText={setDescription}
+              onFocus={() => setEditorOpen(true)}
+              autoCapitalize="sentences"
+              placeholder="Add a description…"
+            />
+          )}
+          </View>
         ) : kind === "event" ? (
-          <Field
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            autoCapitalize="sentences"
-            placeholder="Notes, location, links..."
-          />
+          <View style={styles.descriptionCard}>
+            <Text style={styles.cardEyebrow}>DESCRIPTION</Text>
+            <Field
+              bare
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              autoCapitalize="sentences"
+              placeholder="Notes, location, links…"
+            />
+          </View>
         ) : null}
 
         {(kind === "doc" || kind === "sheet" || kind === "task" || kind === "reminder") &&
@@ -445,12 +513,12 @@ export default function QuickAddSheet({
             </View>
 
             {isReminder ? (
-              <Pressable onPress={() => setPicking("schedule")} style={styles.meta}>
+              <AnimatedPressable onPress={() => setPicking("schedule")} style={styles.meta}>
                 <Text style={styles.metaLabel}>Notify at</Text>
                 <Text style={styles.metaValue}>
                   {scheduledOn ? formatDateValue(scheduledOn, true) : "Pick a time"}
                 </Text>
-              </Pressable>
+              </AnimatedPressable>
             ) : (
               <>
                 <SectionLabel>Duration</SectionLabel>
@@ -470,15 +538,15 @@ export default function QuickAddSheet({
 
             {!isReminder ? (
               <>
-            <Pressable onPress={() => setPicking("startDate")} style={styles.meta}>
+            <AnimatedPressable onPress={() => setPicking("startDate")} style={styles.meta}>
               <Text style={styles.metaLabel}>Start date</Text>
               <Text style={styles.metaValue}>{formatDateValue(startDate)}</Text>
-            </Pressable>
-            <Pressable onPress={() => setPicking("due")} style={styles.meta}>
+            </AnimatedPressable>
+            <AnimatedPressable onPress={() => setPicking("due")} style={styles.meta}>
               <Text style={styles.metaLabel}>Deadline</Text>
               <Text style={styles.metaValue}>{formatDateValue(deadline)}</Text>
-            </Pressable>
-            <Pressable onPress={() => setPicking("schedule")} style={styles.meta}>
+            </AnimatedPressable>
+            <AnimatedPressable onPress={() => setPicking("schedule")} style={styles.meta}>
               <Text style={styles.metaLabel}>{taskTimeOnly ? "Time" : "Schedule"}</Text>
               <Text style={styles.metaValue}>
                 {taskTimeOnly
@@ -487,18 +555,20 @@ export default function QuickAddSheet({
                     : "None"
                   : formatDateValue(scheduledOn, true)}
               </Text>
-            </Pressable>
+            </AnimatedPressable>
               </>
             ) : null}
 
-            <RecurrenceEditor
-              value={taskRecurrence}
-              onChange={(next) => {
-                setTaskRecurrence(next);
-                if (next && !scheduledOn) setScheduledOn(nextRoundHour());
-              }}
-              anchor={taskAnchor}
-            />
+            {detailsReady ? (
+              <RecurrenceEditor
+                value={taskRecurrence}
+                onChange={(next) => {
+                  setTaskRecurrence(next);
+                  if (next && !scheduledOn) setScheduledOn(nextRoundHour());
+                }}
+                anchor={taskAnchor}
+              />
+            ) : null}
             <Text style={styles.hint}>
               {isReminder
                 ? taskRecurrence
@@ -509,20 +579,38 @@ export default function QuickAddSheet({
                   : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}
             </Text>
 
-            <TaskMetaEditor
-              workspace={selectedWorkspace}
-              workspaceId={activeWorkspaceId}
-              labelIds={labelIds}
-              onLabelIds={setLabelIds}
-              values={customFieldValues}
-              onValues={setCustomFieldValues}
-            />
+            {detailsReady && !isReminder ? (
+              <>
+                <View style={styles.metaPanel}>
+                  <TaskMetaEditor
+                    workspace={selectedWorkspace}
+                    workspaceId={activeWorkspaceId}
+                    labelIds={labelIds}
+                    onLabelIds={setLabelIds}
+                    values={customFieldValues}
+                    onValues={setCustomFieldValues}
+                    showCustomFields={false}
+                  />
+                </View>
+                <View style={styles.metaPanel}>
+                  <TaskMetaEditor
+                    workspace={selectedWorkspace}
+                    workspaceId={activeWorkspaceId}
+                    labelIds={labelIds}
+                    onLabelIds={setLabelIds}
+                    values={customFieldValues}
+                    onValues={setCustomFieldValues}
+                    showLabels={false}
+                  />
+                </View>
+              </>
+            ) : null}
           </View>
         ) : null}
 
         {kind === "event" ? (
           <View style={{ gap: 10 }}>
-            <Pressable onPress={() => setPicking("eventStart")} style={styles.meta}>
+            <AnimatedPressable onPress={() => setPicking("eventStart")} style={styles.meta}>
               <Text style={styles.metaLabel}>
                 {eventRecurrence && !allDay ? "Time" : "Starts"}
               </Text>
@@ -531,7 +619,7 @@ export default function QuickAddSheet({
                   ? formatTime(eventStart.toISOString())
                   : formatDateValue(eventStart, !allDay)}
               </Text>
-            </Pressable>
+            </AnimatedPressable>
             <SectionLabel>Duration</SectionLabel>
             <View style={styles.row}>
               {DURATION_PRESETS.filter((minutes) => minutes > 0).map((minutes) => (
@@ -545,7 +633,9 @@ export default function QuickAddSheet({
             </View>
             <Stepper value={eventDuration} suffix={formatDuration(eventMinutes) ?? "min"} step={15} min={15} onChange={setEventDuration} />
             <Chip label={allDay ? "All day on" : "All day off"} active={allDay} onPress={() => setAllDay((value) => !value)} />
-            <RecurrenceEditor value={eventRecurrence} onChange={setEventRecurrence} anchor={eventStart} />
+            {detailsReady ? (
+              <RecurrenceEditor value={eventRecurrence} onChange={setEventRecurrence} anchor={eventStart} />
+            ) : null}
             <SectionLabel>Workspace</SectionLabel>
             <Select
               value={eventWorkspaceId}
@@ -566,7 +656,7 @@ export default function QuickAddSheet({
             <View style={styles.row}>
               <Chip label="Auto" active={!eventColor} onPress={() => setEventColor("")} />
               {ENTITY_COLORS.map((color) => (
-                <Pressable
+                <AnimatedPressable
                   key={color}
                   accessibilityLabel={`Color ${color}`}
                   onPress={() => setEventColor(color)}
@@ -599,8 +689,10 @@ export default function QuickAddSheet({
         ) : null}
 
         </View>
+        )}
       </BottomSheet>
       <DateTimeSheet
+        key={picking ?? "closed"}
         open={picking !== null}
         value={pickerValue}
         mode={
@@ -672,28 +764,32 @@ function Stepper({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  fields: { gap: 14 },
-  versionRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  version: { color: "#A5B4FC", fontSize: 9, fontWeight: "800", letterSpacing: 0.8, borderWidth: 1, borderColor: "rgba(129,140,248,0.35)", backgroundColor: "rgba(99,102,241,0.12)", borderRadius: 7, paddingHorizontal: 8, paddingVertical: 4 },
-  versionHint: { color: colors.mutedForeground, fontSize: 11 },
-  kinds: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  fields: { gap: 16 },
+  objectiveCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, gap: 7 },
+  descriptionCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, gap: 10 },
+  descriptionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  cardEyebrow: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 10, fontWeight: "700", letterSpacing: 0.8 },
+  markdownLabel: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 9 },
+  kinds: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   kind: {
     width: "31%",
     flexGrow: 1,
     alignItems: "center",
     gap: 6,
-    borderRadius: 12,
+    minHeight: 72,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
-  kindOn: { borderColor: "#6558E8", backgroundColor: "rgba(99,102,241,0.16)", shadowColor: "#6366F1", shadowOpacity: 0.24, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
   kindText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
+  changeType: { alignSelf: "flex-start", paddingVertical: 4, paddingRight: 12 },
+  changeTypeText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   meta: {
     minHeight: 48,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.input,
     backgroundColor: colors.card,
@@ -702,12 +798,13 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  metaPanel: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
   metaLabel: { color: colors.mutedForeground, fontSize: 13 },
   metaValue: { color: colors.foreground, fontSize: 14 },
   metaAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   hintRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 10 },
   hint: { color: colors.mutedForeground, fontSize: 12 },
-  stepper: { flexDirection: "row", alignItems: "center", gap: 10 },
+  stepper: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 8 },
   step: {
     width: 32,
     height: 32,
@@ -719,7 +816,7 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
   },
   stepText: { color: colors.foreground, fontSize: 18, fontWeight: "600" },
-  stepValue: { color: colors.foreground, fontSize: 14, fontWeight: "600", minWidth: 48 },
+  stepValue: { color: colors.foreground, fontFamily: "SpaceMono", fontSize: 14, fontWeight: "700", minWidth: 80, textAlign: "center" },
   swatch: {
     width: 28,
     height: 28,

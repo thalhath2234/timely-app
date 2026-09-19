@@ -17,7 +17,7 @@ const THEME_PREFERENCE_KEY = "timely.theme.preference";
 export const DEFAULT_ACCENT_HEX = "#6366F1";
 
 export const ACCENT_PRESETS: { id: AccentPreference; label: string; hex: string }[] = [
-  { id: "default", label: "Kinetic violet", hex: DEFAULT_ACCENT_HEX },
+  { id: "default", label: "Default violet", hex: DEFAULT_ACCENT_HEX },
   { id: "#6E56CF", label: "Violet", hex: "#6E56CF" },
   { id: "#3E63DD", label: "Indigo", hex: "#3E63DD" },
   { id: "#0090FF", label: "Blue", hex: "#0090FF" },
@@ -77,6 +77,9 @@ const lightDefaultAccent = {
 } as const;
 
 export type ThemeColors = Record<keyof typeof darkNeutral | keyof typeof darkDefaultAccent, string>;
+
+/** Shared corner radius for cards, bars, buttons, and sheets. */
+export const radius = 16;
 
 let activeTheme: ThemeMode = Appearance.getColorScheme() === "light" ? "light" : "dark";
 let themePreference: ThemePreference = "system";

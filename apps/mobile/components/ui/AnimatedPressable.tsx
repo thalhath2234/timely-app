@@ -13,7 +13,7 @@ const AnimatedPressableView = Animated.createAnimatedComponent(Pressable);
 type Props = Omit<PressableProps, "style" | "children"> & {
   style?: StyleProp<ViewStyle>;
   wrapStyle?: StyleProp<ViewStyle>;
-  children: ReactNode;
+  children?: ReactNode;
 };
 
 /** Tap scale equivalent of web `tapPress` / hover lift. */

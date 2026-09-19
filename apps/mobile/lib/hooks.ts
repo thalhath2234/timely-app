@@ -102,7 +102,12 @@ export function useMeQuery() {
 }
 
 export function useTasksQuery() {
-  return useQuery({ queryKey: keys.tasks, queryFn: () => getTasks() });
+  return useQuery({
+    queryKey: keys.tasks,
+    queryFn: () => getTasks(),
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useInboxQuery() {
@@ -123,7 +128,7 @@ export function useTaskQuery(id: string | undefined) {
 }
 
 export function useDocsQuery() {
-  return useQuery({ queryKey: keys.docs, queryFn: getDocs });
+  return useQuery({ queryKey: keys.docs, queryFn: getDocs, staleTime: 30_000, placeholderData: keepPreviousData });
 }
 
 export function useDocQuery(id: string) {
@@ -139,7 +144,7 @@ export function useDocQuery(id: string) {
 }
 
 export function useSheetsQuery() {
-  return useQuery({ queryKey: keys.sheets, queryFn: getSheets });
+  return useQuery({ queryKey: keys.sheets, queryFn: getSheets, staleTime: 30_000, placeholderData: keepPreviousData });
 }
 
 export function useSheetQuery(id: string) {
@@ -155,7 +160,7 @@ export function useSheetQuery(id: string) {
 }
 
 export function useProjectsQuery() {
-  return useQuery({ queryKey: keys.projects, queryFn: getProjects });
+  return useQuery({ queryKey: keys.projects, queryFn: getProjects, staleTime: 30_000, placeholderData: keepPreviousData });
 }
 
 export function useProjectQuery(id?: string) {
@@ -168,11 +173,11 @@ export function useProjectQuery(id?: string) {
 }
 
 export function useWorkspacesQuery() {
-  return useQuery({ queryKey: keys.workspaces, queryFn: getWorkspaces });
+  return useQuery({ queryKey: keys.workspaces, queryFn: getWorkspaces, staleTime: 30_000, placeholderData: keepPreviousData });
 }
 
 export function useConfigQuery() {
-  return useQuery({ queryKey: keys.config, queryFn: getConfig });
+  return useQuery({ queryKey: keys.config, queryFn: getConfig, staleTime: 30_000, placeholderData: keepPreviousData });
 }
 
 export function useUpdateAppearance() {
@@ -217,7 +222,12 @@ export function useCalendarQuery(from: Date, to: Date) {
 }
 
 export function useWorkingHoursQuery() {
-  return useQuery({ queryKey: keys.hours, queryFn: getWorkingHours });
+  return useQuery({
+    queryKey: keys.hours,
+    queryFn: getWorkingHours,
+    staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useTaskActivityQuery(id: string) {
@@ -349,7 +359,14 @@ export function useSaveTask() {
       const previousTask = client.getQueryData<Task>(keys.task(id));
       const previousList = client.getQueryData<Task[]>(keys.tasks);
       const current = previousTask ?? previousList?.find((item) => item.id === id);
-      if (current) cacheTask(client, { ...current, ...data } as Task);
+      if (current) {
+        const next = { ...current, ...data } as Task;
+        if (Object.prototype.hasOwnProperty.call(data, "blockedById") && !data.blockedById) {
+          next.blockedById = null;
+          next.blockedBy = null;
+        }
+        cacheTask(client, next);
+      }
       return { previousTask, previousList };
     },
     onError: (_error, { id }, context) => {

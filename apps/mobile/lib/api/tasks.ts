@@ -73,7 +73,8 @@ export async function createTask(data: CreateTaskPayload) {
 
 export async function updateTask(id: string, data: UpdateTaskPayload) {
   const safeOffline = Object.keys(data).every((key) => key === "completedAt" || key === "todayFocusOn" || key === "scheduleLocked");
-  const res = await api<Task | { task: Task }>(`/tasks/${id}`, { method: "PUT", body: data, queueIfOffline: safeOffline });
+  const body = data.blockedById === null ? { ...data, blockedById: "" } : data;
+  const res = await api<Task | { task: Task }>(`/tasks/${id}`, { method: "PUT", body, queueIfOffline: safeOffline });
   return unwrap(res, "task");
 }
 

@@ -1,9 +1,10 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
 import { formatRelativeDay, formatTime, formatTimeRange } from "../../lib/format";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
 import { taskEntityColor } from "../../lib/entityColor";
+import AnimatedPressable from "../ui/AnimatedPressable";
 
 export function itemColor(item: CalendarItem) {
   if (item.task) return taskEntityColor(item.task);
@@ -20,6 +21,24 @@ export function isReminderItem(item: CalendarItem) {
       item.id.endsWith("@reminder") ||
       (isTaskItem(item) && (item.task?.duration ?? 1) <= 0),
   );
+}
+
+export function calendarItemWorkspaceId(item: CalendarItem) {
+  return item.task?.workspace?.id || item.task?.workspaceId || item.event?.workspaceId || null;
+}
+
+export function calendarItemProjectId(item: CalendarItem) {
+  return item.task?.project?.id || item.task?.projectId || item.event?.projectId || null;
+}
+
+export function matchesCalendarScope(
+  item: CalendarItem,
+  workspaceId: string | null,
+  projectId: string | null,
+) {
+  if (workspaceId && calendarItemWorkspaceId(item) !== workspaceId) return false;
+  if (projectId && calendarItemProjectId(item) !== projectId) return false;
+  return true;
 }
 
 export default function CalendarItemRow({
@@ -43,7 +62,7 @@ export default function CalendarItemRow({
       : `${formatTimeRange(item.start, item.end)}${overdue ? ` · ${formatRelativeDay(new Date(item.start))}` : ""}`;
 
   return (
-    <Pressable onPress={() => onOpen(item)} style={styles.row}>
+    <AnimatedPressable onPress={() => onOpen(item)} style={styles.row}>
       <View style={[styles.bar, { backgroundColor: itemColor(item) }]} />
       {isTaskItem(item) ? <View style={[styles.check, overdue && styles.checkOverdue]} /> : null}
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -57,14 +76,14 @@ export default function CalendarItemRow({
         </View>
       </View>
       {done ? <Check size={16} color={colors.primary} /> : null}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
   row: {
     minHeight: 64,
-    borderRadius: 14,
+    borderRadius: radius,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
@@ -76,7 +95,7 @@ const styles = createThemedStyleSheet((colors) => ({
     gap: 10,
   },
   bar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 3 },
-  check: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: "#46566D" },
+  check: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: colors.mutedForeground },
   checkOverdue: { borderColor: "rgba(244,63,94,0.65)" },
   title: { color: colors.cardForeground, fontSize: 14, fontWeight: "600" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },

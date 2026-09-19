@@ -1,9 +1,10 @@
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Bell } from "lucide-react-native";
 import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
+import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import {
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
@@ -60,13 +61,13 @@ export default function NotificationsScreen() {
           />
         }
       >
-        <Pressable
+        <AnimatedPressable
           onPress={() => void markAll.mutateAsync()}
           disabled={markAll.isPending || items.every((item) => item.readAt)}
           style={styles.markAll}
         >
           <Text style={styles.markAllText}>Mark all read</Text>
-        </Pressable>
+        </AnimatedPressable>
         {networkCopy && items.length === 0 ? (
           <EmptyState
             icon={Bell}
@@ -86,7 +87,7 @@ export default function NotificationsScreen() {
             const href = routeFor(item);
             return (
               <View key={item.id} style={[styles.row, !item.readAt && styles.unread]}>
-                <Pressable
+                <AnimatedPressable
                   onPress={() => {
                     if (!item.readAt) void markRead.mutateAsync(item.id);
                     if (href) router.push(href as never);
@@ -97,21 +98,21 @@ export default function NotificationsScreen() {
                   <Text style={styles.stamp}>
                     {item.category} · {new Date(item.createdAt).toLocaleString()}
                   </Text>
-                </Pressable>
+                </AnimatedPressable>
                 {item.category === "reminder" ? (
                   <View style={styles.actions}>
-                    <Pressable onPress={() => void snooze.mutateAsync({ id: item.id, minutes: 15 })} style={styles.chip}>
+                    <AnimatedPressable onPress={() => void snooze.mutateAsync({ id: item.id, minutes: 15 })} style={styles.chip}>
                       <Text style={styles.chipText}>15m</Text>
-                    </Pressable>
-                    <Pressable onPress={() => void snooze.mutateAsync({ id: item.id, minutes: 60 })} style={styles.chip}>
+                    </AnimatedPressable>
+                    <AnimatedPressable onPress={() => void snooze.mutateAsync({ id: item.id, minutes: 60 })} style={styles.chip}>
                       <Text style={styles.chipText}>1h</Text>
-                    </Pressable>
-                    <Pressable
+                    </AnimatedPressable>
+                    <AnimatedPressable
                       onPress={() => void snooze.mutateAsync({ id: item.id, until: tomorrowNine() })}
                       style={styles.chip}
                     >
                       <Text style={styles.chipText}>Tomorrow 9:00</Text>
-                    </Pressable>
+                    </AnimatedPressable>
                   </View>
                 ) : null}
               </View>

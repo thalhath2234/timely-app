@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Dimensions, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Dimensions, NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Text, View } from "react-native";
 import { addDays, dayKey, isSameDay, startOfDay } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import AnimatedPressable from "../ui/AnimatedPressable";
 
 export default function DateStrip({
   selected,
@@ -14,10 +15,18 @@ export default function DateStrip({
 }) {
   const scrollRef = useRef<ScrollView>(null);
   const ignoreScroll = useRef(true);
+  const skipMomentum = useRef(false);
   const [pageWidth, setPageWidth] = useState(Dimensions.get("window").width);
   const today = new Date();
-  const weekStart = addDays(startOfDay(selected), -selected.getDay());
+  const selectedWeekStart = addDays(startOfDay(selected), -selected.getDay());
+  const [weekStart, setWeekStart] = useState(selectedWeekStart);
   const days = Array.from({ length: 21 }, (_, i) => addDays(weekStart, i - 7));
+
+  useEffect(() => {
+    setWeekStart((current) =>
+      current.getTime() === selectedWeekStart.getTime() ? current : selectedWeekStart,
+    );
+  }, [selectedWeekStart.getTime()]);
 
   useEffect(() => {
     ignoreScroll.current = true;
@@ -32,7 +41,22 @@ export default function DateStrip({
     if (ignoreScroll.current || pageWidth <= 0) return;
     const page = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
     if (page === 1) return;
-    onSelect(addDays(selected, (page - 1) * 7));
+    setWeekStart((current) => addDays(current, (page - 1) * 7));
+  }
+
+  function onDragEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const velocity = event.nativeEvent.velocity?.x ?? 0;
+    if (Math.abs(velocity) > 0.05) return;
+    skipMomentum.current = true;
+    onPage(event);
+  }
+
+  function onMomentumEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (skipMomentum.current) {
+      skipMomentum.current = false;
+      return;
+    }
+    onPage(event);
   }
 
   return (
@@ -42,11 +66,8 @@ export default function DateStrip({
       pagingEnabled
       decelerationRate="fast"
       showsHorizontalScrollIndicator={false}
-      onMomentumScrollEnd={onPage}
-      onScrollEndDrag={(event) => {
-        const velocity = event.nativeEvent.velocity?.x ?? 0;
-        if (Math.abs(velocity) < 0.05) onPage(event);
-      }}
+      onMomentumScrollEnd={onMomentumEnd}
+      onScrollEndDrag={onDragEnd}
       onLayout={(event) => {
         const width = event.nativeEvent.layout.width;
         if (width > 0 && width !== pageWidth) setPageWidth(width);
@@ -58,7 +79,7 @@ export default function DateStrip({
             const on = isSameDay(d, selected);
             const isToday = isSameDay(d, today);
             return (
-              <Pressable key={d.toISOString()} onPress={() => onSelect(d)} style={styles.day}>
+              <AnimatedPressable key={d.toISOString()} onPress={() => onSelect(d)} style={styles.day}>
                 <Text style={[styles.wd, on && styles.onText]}>{d.toLocaleDateString(undefined, { weekday: "narrow" })}</Text>
                 <View style={[styles.numWrap, on && styles.on]}>
                   <Text style={[styles.num, on && styles.onText, isToday && !on && { color: colors.primary }]}>
@@ -66,11 +87,11 @@ export default function DateStrip({
                   </Text>
                 </View>
                 {busyDays.has(dayKey(d)) ? (
-                  <View style={[styles.dot, on && { backgroundColor: colors.primary }]} />
+                  <View style={[styles.dot, on && { backgroundColor: colors.primaryForeground }]} />
                 ) : (
                   <View style={styles.dotSpacer} />
                 )}
-              </Pressable>
+              </AnimatedPressable>
             );
           })}
         </View>
@@ -88,10 +109,10 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   day: { width: 44, alignItems: "center", justifyContent: "center", gap: 2 },
   numWrap: { width: 36, height: 36, borderRadius: 18, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-  on: { backgroundColor: "#6558E8", shadowColor: "#818CF8", shadowOpacity: 0.5, shadowRadius: 9, shadowOffset: { width: 0, height: 0 } },
+  on: { backgroundColor: colors.primary, shadowColor: colors.primary, shadowOpacity: 0.5, shadowRadius: 9, shadowOffset: { width: 0, height: 0 } },
   wd: { color: colors.mutedForeground, fontSize: 11, fontWeight: "500" },
   num: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
   onText: { color: colors.primaryForeground },
-  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#526177" },
+  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.mutedForeground },
   dotSpacer: { width: 5, height: 5 },
 }));

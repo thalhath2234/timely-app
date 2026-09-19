@@ -1,8 +1,11 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarItem } from "../../lib/types";
 import { addDays, dayKey, formatTime, isSameDay, startOfDay, startOfWeek } from "../../lib/format";
 import { itemColor } from "./CalendarItemRow";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import AnimatedPressable from "../ui/AnimatedPressable";
+import { floatingTabBarInset } from "../ui/FloatingTabBar";
 
 export default function MobileWeek({
   selected,
@@ -17,6 +20,7 @@ export default function MobileWeek({
   onOpen: (item: CalendarItem) => void;
   onEmptyDay?: (date: Date) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const weekStart = startOfWeek(selected);
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const byDay = new Map<string, CalendarItem[]>();
@@ -28,14 +32,14 @@ export default function MobileWeek({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.body}>
+    <ScrollView contentContainerStyle={[styles.body, { paddingBottom: floatingTabBarInset(insets.bottom) }]}>
       {days.map((day) => {
         const key = dayKey(day);
         const dayItems = (byDay.get(key) ?? []).sort((a, b) => a.start.localeCompare(b.start));
         const on = isSameDay(day, selected);
         const today = isSameDay(day, new Date());
         return (
-          <Pressable
+          <AnimatedPressable
             key={key}
             onPress={() => onSelect(day)}
             onLongPress={() => onEmptyDay?.(day)}
@@ -51,19 +55,19 @@ export default function MobileWeek({
               <Text style={styles.empty}>Tap and hold to add</Text>
             ) : (
               dayItems.slice(0, 6).map((item) => (
-                <Pressable
+                <AnimatedPressable
                   key={item.id}
                   onPress={() => onOpen(item)}
                   style={[styles.chip, { borderLeftColor: itemColor(item) }]}
                 >
-                  <Text numberOfLines={1} style={styles.chipText}>
+                  <Text numberOfLines={1} style={[styles.chipText, Boolean(item.completedAt) && styles.done]}>
                     {item.allDay ? item.title : `${formatTime(item.start)} ${item.title}`}
                   </Text>
-                </Pressable>
+                </AnimatedPressable>
               ))
             )}
             {dayItems.length > 6 ? <Text style={styles.more}>+{dayItems.length - 6} more</Text> : null}
-          </Pressable>
+          </AnimatedPressable>
         );
       })}
     </ScrollView>
@@ -80,11 +84,11 @@ const styles = createThemedStyleSheet((colors) => ({
     padding: 12,
     gap: 8,
   },
-  dayOn: { borderColor: "rgba(129,140,248,0.4)" },
+  dayOn: { borderColor: colors.primary },
   head: { flexDirection: "row", alignItems: "baseline", gap: 8 },
   wd: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase" },
   num: { color: colors.foreground, fontSize: 16, fontWeight: "700" },
-  empty: { color: "#526177", fontSize: 11, textAlign: "center", paddingVertical: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, borderRadius: 9 },
+  empty: { color: colors.mutedForeground, fontSize: 11, textAlign: "center", paddingVertical: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, borderRadius: 9 },
   chip: {
     borderLeftWidth: 3,
     paddingVertical: 4,
@@ -93,5 +97,6 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.background,
   },
   chipText: { color: colors.foreground, fontSize: 13 },
+  done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   more: { color: colors.mutedForeground, fontSize: 12 },
 }));

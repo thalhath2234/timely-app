@@ -25,8 +25,9 @@ export const springSnappy: WithSpringConfig = {
   mass: 0.7,
 };
 
-export const overlayDuration = 180;
-export const pageDuration = 280;
+export const overlayDuration = 280;
+export const pageDuration = 400;
+export const sheetExitDuration = 280;
 
 export const easeOut = Easing.bezier(0.22, 1, 0.36, 1);
 
@@ -82,10 +83,20 @@ export function sheetEntering(reduceMotion = false) {
 
 export function sheetExiting(reduceMotion = false) {
   if (reduceMotion) return undefined;
-  return SlideOutDown.duration(220).easing(easeOut);
+  return SlideOutDown.duration(sheetExitDuration).easing(easeOut);
 }
 
 export function listLayout(reduceMotion = false) {
   if (reduceMotion) return undefined;
   return LinearTransition.springify().damping(32).stiffness(420);
+}
+
+export function expandEntering(reduceMotion = false) {
+  if (reduceMotion) return undefined;
+  return FadeInDown.duration(overlayDuration).easing(easeOut);
+}
+
+export function expandExiting(reduceMotion = false) {
+  if (reduceMotion) return undefined;
+  return FadeOut.duration(140).easing(easeOut);
 }

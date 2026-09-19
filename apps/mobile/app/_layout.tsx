@@ -16,7 +16,7 @@ import { requestNotificationPermission } from "../lib/notifications";
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 15_000 } },
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
 });
 
 export default function RootLayout() {
@@ -71,7 +71,7 @@ export default function RootLayout() {
                 headerShown: false,
                 contentStyle: { backgroundColor: colors.background },
                 animation: stackFadeAnimation(reduceMotion),
-                animationDuration: 280,
+                animationDuration: 400,
                 gestureEnabled: !reduceMotion,
               }}
             >

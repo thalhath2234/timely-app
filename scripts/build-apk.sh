@@ -56,7 +56,7 @@ fi
 
 UNIT=timely-apk-build.service
 LOG=/tmp/timely-apk-build.log
-APK_OUT=/home/thalhath/timely-release-arm64.apk
+APK_OUT="${TIMELY_APK_OUT:-$REPO_ROOT/apps/mobile/timely-release-arm64.apk}"
 
 echo
 echo "Watch with:"

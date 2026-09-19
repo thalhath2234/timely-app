@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
@@ -6,6 +6,7 @@ import { useDocsQuery, useProjectsQuery, useSheetsQuery, useTasksQuery, useWorks
 import { buildReportData, formatReportDate } from "../../lib/report";
 import { sheetHref } from "../../lib/sheet";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import AnimatedPressable from "../../components/ui/AnimatedPressable";
 
 function entityPath(kind: string, id: string) {
   if (kind === "task") return `/(app)/tasks/${id}`;
@@ -47,17 +48,17 @@ export default function ReportScreen() {
         <Text style={styles.section}>Overdue</Text>
         {data.overdue.length === 0 ? <Text style={styles.hint}>All clear</Text> : null}
         {data.overdue.map((item) => (
-          <Pressable key={item.id} onPress={() => router.push(`/(app)/tasks/${item.id}`)} style={styles.row}>
+          <AnimatedPressable key={item.id} onPress={() => router.push(`/(app)/tasks/${item.id}`)} style={styles.row}>
             <Text style={styles.title}>{item.name}</Text>
             <Text style={[styles.hint, { color: colors.destructive }]}>{formatReportDate(item.deadline)}</Text>
-          </Pressable>
+          </AnimatedPressable>
         ))}
         <Text style={styles.section}>Upcoming</Text>
         {data.upcoming.map((item) => (
-          <Pressable key={item.id} onPress={() => router.push(`/(app)/tasks/${item.id}`)} style={styles.row}>
+          <AnimatedPressable key={item.id} onPress={() => router.push(`/(app)/tasks/${item.id}`)} style={styles.row}>
             <Text style={styles.title}>{item.name}</Text>
             <Text style={styles.hint}>{formatReportDate(item.deadline)}</Text>
-          </Pressable>
+          </AnimatedPressable>
         ))}
         <Text style={styles.section}>Priority</Text>
         {data.priorities.length === 0 ? <Text style={styles.hint}>No open work</Text> : null}
@@ -75,10 +76,10 @@ export default function ReportScreen() {
         <Text style={styles.section}>Projects with open work</Text>
         {data.byProject.length === 0 ? <Text style={styles.hint}>No project-scoped tasks</Text> : null}
         {data.byProject.map((project) => (
-          <Pressable key={project.id} onPress={() => router.push(`/(app)/projects/${project.id}`)} style={styles.row}>
+          <AnimatedPressable key={project.id} onPress={() => router.push(`/(app)/projects/${project.id}`)} style={styles.row}>
             <Text style={styles.title}>{project.name}</Text>
             <Text style={styles.hint}>{project.count} open</Text>
-          </Pressable>
+          </AnimatedPressable>
         ))}
         <Text style={styles.section}>By workspace</Text>
         {data.byWorkspace.map((w) => (
@@ -93,24 +94,24 @@ export default function ReportScreen() {
         ) : (
           data.mentions.map((link, index) => (
             <View key={`${link.from.id}-${link.to.id}-${index}`} style={styles.mention}>
-              <Pressable onPress={() => open(link.from.kind, link.from.id)} style={{ flex: 1 }}>
+              <AnimatedPressable onPress={() => open(link.from.kind, link.from.id)} style={{ flex: 1 }}>
                 <Text style={styles.title}>{link.from.label}</Text>
                 <Text style={styles.hint}>{link.from.kind}</Text>
-              </Pressable>
+              </AnimatedPressable>
               <Text style={styles.hint}>→</Text>
-              <Pressable onPress={() => open(link.to.entityType, link.to.id)} style={{ flex: 1 }}>
+              <AnimatedPressable onPress={() => open(link.to.entityType, link.to.id)} style={{ flex: 1 }}>
                 <Text style={styles.title}>{link.to.label}</Text>
                 <Text style={styles.hint}>{link.to.entityType}</Text>
-              </Pressable>
+              </AnimatedPressable>
             </View>
           ))
         )}
         <Text style={styles.section}>Recent</Text>
         {data.recent.map((item) => (
-          <Pressable key={`${item.kind}-${item.id}`} onPress={() => open(item.kind, item.id)} style={styles.row}>
+          <AnimatedPressable key={`${item.kind}-${item.id}`} onPress={() => open(item.kind, item.id)} style={styles.row}>
             <Text style={styles.title}>{item.label}</Text>
             <Text style={styles.hint}>{item.kind}</Text>
-          </Pressable>
+          </AnimatedPressable>
         ))}
       </ScrollView>
     </Screen>

@@ -2,9 +2,9 @@
 name: build-mobile-apk
 description: >-
   Builds the Timely mobile (apps/mobile) Android APK under systemd-run with a
-  12GB memory cap. Use whenever the user asks to build the mobile app, APK,
-  Android release, Expo local production build, or to bake in a new API/ngrok
-  URL.
+  12GB memory cap, and optionally installs it on a connected phone. Use when
+  the user asks to build the mobile app, APK, Android release, Expo local
+  production build, bake in a new API/ngrok URL, or install the APK on a phone.
 ---
 
 # Build mobile APK (memory-capped)
@@ -28,11 +28,16 @@ From the repo root, use the Makefile (preferred) or the wrapper script; do not h
 
 ```bash
 make build-apk [API_URL=https://...]     # detached build + waits on the log
+make install-apk [API_URL=https://...]   # build, then adb install + launch
 scripts/build-apk.sh --no-wait [API_URL] # launch only
 ```
 
-Both call this skill's `scripts/build-apk.sh`. If `API_URL` is omitted, `EXPO_PUBLIC_API_URL` from `apps/mobile/.env` is used.
+`make build-apk` / `scripts/build-apk.sh` call this skill's `scripts/build-apk.sh`.
+`make install-apk` runs `scripts/install-apk.sh` after the capped build.
+If `API_URL` is omitted, `EXPO_PUBLIC_API_URL` from `apps/mobile/.env` is used.
 The script finds the app relative to the repo; set `TIMELY_MOBILE_DIR` to override.
+
+T3 Code action: `t3.json` script **Build & Install APK** runs `make install-apk`. Import it from the actions menu (**From t3.json**) if it is not already in the toolbar.
 
 Logs: `/tmp/timely-apk-build.log`  
 Unit: `timely-apk-build.service`  
@@ -58,3 +63,13 @@ ls -lh /home/thalhath/timely-release-arm64.apk
 ```
 
 The JS bundle must contain the https ngrok URL, not `10.0.2.2`.
+
+## Install on a phone
+
+After a successful build:
+
+```bash
+make install-apk
+```
+
+Requires USB debugging. One authorized device is used automatically; if several are attached, set `ANDROID_SERIAL`. Package: `com.timely.mobile`.
