@@ -23,9 +23,12 @@ import {
   Percent,
   Plus,
   Redo2,
+  Sigma,
+  Strikethrough,
   Trash2,
   Underline,
   Undo2,
+  WrapText,
 } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -40,13 +43,27 @@ import {
 } from "../../lib/sheet";
 import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRow } from "../../lib/types";
 
-const MIN_WIDTH = 88;
+const MIN_WIDTH = 82;
 const MAX_WIDTH = 240;
-const ROW_HEAD = 44;
-const CELL_H = 40;
-const HEADER_H = 40;
-const GHOST_COL_W = 112;
+const ROW_HEAD = 38;
+const CELL_H = 32;
+const HEADER_H = 34;
+const GHOST_COL_W = 104;
 const FILL_SWATCHES = ["#3A3558", "#8B7CF7", "#3E63DD", "#12A594", "#E8B54A", "#EF6B5C", "#E93D82"];
+const KINETIC = {
+  base: "#111319",
+  surface: "#191B22",
+  card: "#1F222B",
+  border: "#282C37",
+  divider: "#2B2F3D",
+  accent: "#6E56CF",
+  accentHover: "#7C66DC",
+  text: "#F1F3F9",
+  secondary: "#949AA8",
+  muted: "#5E6573",
+};
+
+type DrawerTab = "format" | "numbers" | "insert" | "functions";
 
 type Address = { col: number; row: number };
 type GridSnapshot = { columns: SheetColumn[]; rows: SheetRow[]; merges: SheetMerge[] };
@@ -73,6 +90,8 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
   const [past, setPast] = useState<GridSnapshot[]>([]);
   const [future, setFuture] = useState<GridSnapshot[]>([]);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("format");
 
   function onGridLayout(event: LayoutChangeEvent) {
     const { width, height } = event.nativeEvent.layout;
@@ -342,6 +361,14 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     });
   }
 
+  function insertFunction(name: "SUM" | "AVERAGE" | "COUNT" | "MAX" | "MIN") {
+    const letter = columnIndexToLetter(selected.col);
+    const startIndex = selected.row > 0 ? Math.max(0, selected.row - 5) : 1;
+    const endIndex = selected.row > 0 ? selected.row - 1 : Math.min(rows.length - 1, 5);
+    if (startIndex > endIndex) return;
+    setCellValue(selected, `=${name}(${letter}${startIndex + 1}:${letter}${endIndex + 1})`);
+  }
+
   const selectedFormat = formatAt(selected);
   const selectedRaw = rawAt(selected);
   const selectedAddress = columns.length && rows.length
@@ -356,6 +383,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
       <View style={styles.toolbar}>
         <View style={styles.formulaRow}>
           <Text style={styles.addr}>{selectedAddress}</Text>
+          <Text style={styles.fx}>fx</Text>
           <TextInput
             value={editing ? draft : selectedRaw}
             onFocus={() => {
@@ -374,6 +402,23 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
             placeholderTextColor={colors.mutedForeground}
             style={styles.formula}
           />
+          <Pressable
+            accessibilityLabel="Functions"
+            onPress={() => {
+              setDrawerTab("functions");
+              setDrawerOpen(true);
+            }}
+            style={styles.formulaAction}
+          >
+            <Sigma size={16} color={KINETIC.secondary} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Filter rows"
+            onPress={() => setFilterOpen((open) => !open)}
+            style={[styles.formulaAction, showFilter && styles.formulaActionOn]}
+          >
+            <Filter size={15} color={showFilter ? KINETIC.text : KINETIC.secondary} />
+          </Pressable>
         </View>
         {showFilter ? (
           <View style={styles.filterRow}>
@@ -393,47 +438,6 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
             ) : null}
           </View>
         ) : null}
-        <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.tableBar}>
-          <Tool icon={<Undo2 size={16} color={colors.foreground} />} caption="Undo" disabled={past.length === 0} onPress={undo} />
-          <Tool icon={<Redo2 size={16} color={colors.foreground} />} caption="Redo" disabled={future.length === 0} onPress={redo} />
-          <Tool
-            icon={<Filter size={16} color={showFilter ? colors.accentForeground : colors.foreground} />}
-            caption="Filter"
-            active={showFilter}
-            onPress={() => setFilterOpen((open) => !open)}
-          />
-          <Tool
-            icon={<Bold size={16} color={selectedFormat?.bold ? colors.accentForeground : colors.foreground} />}
-            caption="B"
-            active={Boolean(selectedFormat?.bold)}
-            onPress={() => applyFormat({ bold: !selectedFormat?.bold })}
-          />
-          <Tool
-            icon={<Italic size={16} color={selectedFormat?.italic ? colors.accentForeground : colors.foreground} />}
-            caption="I"
-            active={Boolean(selectedFormat?.italic)}
-            onPress={() => applyFormat({ italic: !selectedFormat?.italic })}
-          />
-          <Tool
-            icon={<Underline size={16} color={selectedFormat?.underline ? colors.accentForeground : colors.foreground} />}
-            caption="U"
-            active={Boolean(selectedFormat?.underline)}
-            onPress={() => applyFormat({ underline: !selectedFormat?.underline })}
-          />
-          <Tool icon={<AlignLeft size={16} color={colors.foreground} />} onPress={() => applyFormat({ align: "left" })} active={selectedFormat?.align === "left"} />
-          <Tool icon={<AlignCenter size={16} color={colors.foreground} />} onPress={() => applyFormat({ align: "center" })} active={selectedFormat?.align === "center"} />
-          <Tool icon={<AlignRight size={16} color={colors.foreground} />} onPress={() => applyFormat({ align: "right" })} active={selectedFormat?.align === "right"} />
-          <Tool icon={<Hash size={16} color={colors.foreground} />} caption="123" onPress={() => applyFormat({ numberFormat: selectedFormat?.numberFormat === "number" ? undefined : "number" })} active={selectedFormat?.numberFormat === "number"} />
-          <Tool icon={<DollarSign size={16} color={colors.foreground} />} caption="$" onPress={() => applyFormat({ numberFormat: selectedFormat?.numberFormat === "currency" ? undefined : "currency" })} active={selectedFormat?.numberFormat === "currency"} />
-          <Tool icon={<Percent size={16} color={colors.foreground} />} caption="%" onPress={() => applyFormat({ numberFormat: selectedFormat?.numberFormat === "percent" ? undefined : "percent" })} active={selectedFormat?.numberFormat === "percent"} />
-          <Tool icon={<PaintBucket size={16} color={selectedFormat?.fillColor || colors.foreground} />} caption="Fill" onPress={() => setFillOpen(true)} />
-          <Tool icon={<Combine size={16} color={colors.foreground} />} caption="Merge" onPress={mergeRight} />
-          <Tool icon={<Plus size={16} color={colors.foreground} />} caption="Col" onPress={() => addColumn(selected.col + 1)} />
-          <Tool icon={<Minus size={16} color={colors.destructive} />} caption="Col" disabled={columns.length <= 1} onPress={() => deleteColumn(selected.col)} />
-          <Tool icon={<Plus size={16} color={colors.foreground} />} caption="Row" onPress={() => addRow(selected.row + 1)} />
-          <Tool icon={<Minus size={16} color={colors.destructive} />} caption="Row" disabled={rows.length <= 1} onPress={() => deleteRow(selected.row)} />
-          <Tool icon={<Eraser size={16} color={colors.foreground} />} caption="Clear" onPress={() => setCellValue(selected, "")} />
-        </ScrollView>
       </View>
 
       <View style={styles.gridViewport} onLayout={onGridLayout} collapsable={false}>
@@ -577,6 +581,102 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
         ) : null}
       </View>
 
+      <View style={[styles.drawer, !drawerOpen && styles.drawerCollapsed]}>
+        <Pressable
+          accessibilityLabel={drawerOpen ? "Collapse formatting drawer" : "Open formatting drawer"}
+          onPress={() => setDrawerOpen((open) => !open)}
+          style={styles.drawerHandleHit}
+        >
+          <View style={styles.drawerHandle} />
+        </Pressable>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.drawerTabs}>
+          <DrawerTabButton label="Format" tab="format" active={drawerTab} onPress={setDrawerTab} />
+          <DrawerTabButton label="123 Numbers & Data" tab="numbers" active={drawerTab} onPress={setDrawerTab} />
+          <DrawerTabButton label="+ Insert & Tools" tab="insert" active={drawerTab} onPress={setDrawerTab} />
+          <DrawerTabButton label="Σ Functions" tab="functions" active={drawerTab} onPress={setDrawerTab} />
+        </ScrollView>
+        {drawerOpen ? (
+          <ScrollView style={styles.drawerBody} contentContainerStyle={styles.drawerContent} showsVerticalScrollIndicator={false}>
+            {drawerTab === "format" ? (
+              <>
+                <View style={styles.actionStrip}>
+                  <Tool icon={<Undo2 size={16} color={KINETIC.text} />} caption="Undo" disabled={past.length === 0} onPress={undo} />
+                  <Tool icon={<Redo2 size={16} color={KINETIC.text} />} caption="Redo" disabled={future.length === 0} onPress={redo} />
+                  <Tool icon={<Eraser size={16} color={KINETIC.text} />} caption="Clear" onPress={() => setCellValue(selected, "")} />
+                  <Tool icon={<PaintBucket size={16} color={selectedFormat?.fillColor || KINETIC.text} />} caption="Fill" onPress={() => setFillOpen(true)} />
+                </View>
+                <Text style={styles.sectionLabel}>FONT & STYLE</Text>
+                <View style={styles.controlRow}>
+                  <Pressable onPress={() => applyFormat({ fontFamily: selectedFormat?.fontFamily === "mono" ? undefined : "mono" })} style={[styles.wideControl, selectedFormat?.fontFamily === "mono" && styles.controlOn]}>
+                    <Text style={styles.controlText}>{selectedFormat?.fontFamily === "mono" ? "JetBrains Mono" : "Inter"}</Text>
+                  </Pressable>
+                  <Pressable onPress={() => applyFormat({ fontSize: Math.max(8, (selectedFormat?.fontSize ?? 13) - 1) })} style={styles.stepControl}><Minus size={14} color={KINETIC.text} /></Pressable>
+                  <View style={styles.sizeReadout}><Text style={styles.controlText}>{selectedFormat?.fontSize ?? 13}</Text></View>
+                  <Pressable onPress={() => applyFormat({ fontSize: Math.min(28, (selectedFormat?.fontSize ?? 13) + 1) })} style={styles.stepControl}><Plus size={14} color={KINETIC.text} /></Pressable>
+                </View>
+                <View style={styles.actionStrip}>
+                  <Tool icon={<Bold size={16} color={KINETIC.text} />} caption="Bold" active={Boolean(selectedFormat?.bold)} onPress={() => applyFormat({ bold: !selectedFormat?.bold })} />
+                  <Tool icon={<Italic size={16} color={KINETIC.text} />} caption="Italic" active={Boolean(selectedFormat?.italic)} onPress={() => applyFormat({ italic: !selectedFormat?.italic })} />
+                  <Tool icon={<Underline size={16} color={KINETIC.text} />} caption="Underline" active={Boolean(selectedFormat?.underline)} onPress={() => applyFormat({ underline: !selectedFormat?.underline })} />
+                  <Tool icon={<Strikethrough size={16} color={KINETIC.text} />} caption="Strike" active={Boolean(selectedFormat?.strikethrough)} onPress={() => applyFormat({ strikethrough: !selectedFormat?.strikethrough })} />
+                </View>
+                <Text style={styles.sectionLabel}>ALIGNMENT & WRAP</Text>
+                <View style={styles.actionStrip}>
+                  <Tool icon={<AlignLeft size={16} color={KINETIC.text} />} caption="Left" active={selectedFormat?.align === "left"} onPress={() => applyFormat({ align: "left" })} />
+                  <Tool icon={<AlignCenter size={16} color={KINETIC.text} />} caption="Center" active={selectedFormat?.align === "center"} onPress={() => applyFormat({ align: "center" })} />
+                  <Tool icon={<AlignRight size={16} color={KINETIC.text} />} caption="Right" active={selectedFormat?.align === "right"} onPress={() => applyFormat({ align: "right" })} />
+                  <Tool icon={<WrapText size={16} color={KINETIC.text} />} caption="Wrap" active={Boolean(selectedFormat?.wrap)} onPress={() => applyFormat({ wrap: !selectedFormat?.wrap })} />
+                </View>
+              </>
+            ) : drawerTab === "numbers" ? (
+              <>
+                <Text style={styles.sectionLabel}>NUMBER FORMAT</Text>
+                <View style={styles.actionStrip}>
+                  <Tool icon={<Hash size={16} color={KINETIC.text} />} caption="Number" active={selectedFormat?.numberFormat === "number"} onPress={() => applyFormat({ numberFormat: "number" })} />
+                  <Tool icon={<DollarSign size={16} color={KINETIC.text} />} caption="Currency" active={selectedFormat?.numberFormat === "currency"} onPress={() => applyFormat({ numberFormat: "currency" })} />
+                  <Tool icon={<Percent size={16} color={KINETIC.text} />} caption="Percent" active={selectedFormat?.numberFormat === "percent"} onPress={() => applyFormat({ numberFormat: "percent" })} />
+                  <Tool icon={<Eraser size={16} color={KINETIC.text} />} caption="Plain" active={!selectedFormat?.numberFormat} onPress={() => applyFormat({ numberFormat: undefined, decimals: undefined })} />
+                </View>
+                <Text style={styles.sectionLabel}>DECIMAL PLACES</Text>
+                <View style={styles.controlRow}>
+                  <Pressable onPress={() => applyFormat({ decimals: Math.max(0, (selectedFormat?.decimals ?? 2) - 1) })} style={styles.wideControl}><Text style={styles.controlText}>Decrease .0</Text></Pressable>
+                  <View style={styles.sizeReadout}><Text style={styles.controlText}>{selectedFormat?.decimals ?? 2}</Text></View>
+                  <Pressable onPress={() => applyFormat({ decimals: Math.min(10, (selectedFormat?.decimals ?? 2) + 1) })} style={styles.wideControl}><Text style={styles.controlText}>Increase .00</Text></Pressable>
+                </View>
+              </>
+            ) : drawerTab === "insert" ? (
+              <>
+                <Text style={styles.sectionLabel}>INSERT</Text>
+                <View style={styles.actionStrip}>
+                  <Tool icon={<Plus size={16} color={KINETIC.text} />} caption="Row above" onPress={() => addRow(selected.row)} />
+                  <Tool icon={<Plus size={16} color={KINETIC.text} />} caption="Row below" onPress={() => addRow(selected.row + 1)} />
+                  <Tool icon={<Plus size={16} color={KINETIC.text} />} caption="Col left" onPress={() => addColumn(selected.col)} />
+                  <Tool icon={<Plus size={16} color={KINETIC.text} />} caption="Col right" onPress={() => addColumn(selected.col + 1)} />
+                </View>
+                <Text style={styles.sectionLabel}>TOOLS</Text>
+                <View style={styles.actionStrip}>
+                  <Tool icon={<Combine size={16} color={KINETIC.text} />} caption="Merge" onPress={mergeRight} />
+                  <Tool icon={<Trash2 size={16} color="#EF6B5C" />} caption="Delete row" disabled={rows.length <= 1} onPress={() => deleteRow(selected.row)} />
+                  <Tool icon={<Trash2 size={16} color="#EF6B5C" />} caption="Delete col" disabled={columns.length <= 1} onPress={() => deleteColumn(selected.col)} />
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.sectionLabel}>QUICK FUNCTIONS</Text>
+                <View style={styles.functionGrid}>
+                  {(["SUM", "AVERAGE", "COUNT", "MAX", "MIN"] as const).map((name) => (
+                    <Pressable key={name} onPress={() => insertFunction(name)} style={styles.functionButton}>
+                      <Sigma size={15} color={KINETIC.accentHover} />
+                      <Text style={styles.functionText}>{name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            )}
+          </ScrollView>
+        ) : null}
+      </View>
+
       <BottomSheet open={columnMenu !== null} onClose={() => setColumnMenu(null)} title="Column">
         <SheetOption
           onSelect={() => {
@@ -680,6 +780,25 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
         ))}
       </BottomSheet>
     </View>
+  );
+}
+
+function DrawerTabButton({
+  label,
+  tab,
+  active,
+  onPress,
+}: {
+  label: string;
+  tab: DrawerTab;
+  active: DrawerTab;
+  onPress: (tab: DrawerTab) => void;
+}) {
+  const selected = tab === active;
+  return (
+    <Pressable onPress={() => onPress(tab)} style={[styles.drawerTab, selected && styles.drawerTabOn]}>
+      <Text style={[styles.drawerTabText, selected && styles.drawerTabTextOn]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -813,9 +932,17 @@ function renderCell({
             result.type === "error" && { color: colors.destructive },
             format?.bold && { fontWeight: "700" },
             format?.italic && { fontStyle: "italic" },
-            format?.underline && { textDecorationLine: "underline" },
-            format?.strikethrough && { textDecorationLine: "line-through" },
+            (format?.underline || format?.strikethrough) && {
+              textDecorationLine: format.underline && format.strikethrough
+                ? "underline line-through"
+                : format.underline
+                  ? "underline"
+                  : "line-through",
+            },
             format?.textColor ? { color: format.textColor } : null,
+            format?.fontSize ? { fontSize: format.fontSize } : null,
+            format?.fontFamily === "mono" ? { fontFamily: "monospace" } : null,
+            format?.fontFamily === "serif" ? { fontFamily: "serif" } : null,
             { textAlign: align },
           ]}
         >
@@ -827,26 +954,27 @@ function renderCell({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  root: { flex: 1, minHeight: 0 },
+  root: { flex: 1, minHeight: 0, backgroundColor: KINETIC.base },
   toolbar: {
     flexShrink: 0,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.card,
+    borderBottomColor: KINETIC.border,
+    backgroundColor: KINETIC.surface,
   },
   formulaRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 10,
-    paddingTop: 8,
+    minHeight: 44,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   filterRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 10,
-    paddingTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   filterInput: {
     flex: 1,
@@ -860,46 +988,47 @@ const styles = createThemedStyleSheet((colors) => ({
     fontSize: 13,
   },
   filterCount: { color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },
-  tableBar: {
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
   tableTool: {
-    minWidth: 44,
-    height: 40,
-    borderRadius: 10,
+    flex: 1,
+    minWidth: 58,
+    height: 48,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 8,
-    backgroundColor: colors.popover,
+    backgroundColor: KINETIC.card,
   },
-  tableCaption: { color: colors.mutedForeground, fontSize: 10, fontWeight: "600" },
-  toolOn: { backgroundColor: colors.accent },
+  tableCaption: { color: KINETIC.secondary, fontSize: 9, fontWeight: "600", marginTop: 2 },
+  toolOn: { backgroundColor: KINETIC.accent },
   addr: {
-    width: 40,
+    minWidth: 42,
+    borderRadius: 6,
+    overflow: "hidden",
+    paddingHorizontal: 7,
+    paddingVertical: 5,
     textAlign: "center",
-    color: colors.mutedForeground,
-    fontSize: 11,
+    color: KINETIC.text,
+    backgroundColor: KINETIC.accent,
+    fontSize: 10,
+    fontWeight: "700",
     fontVariant: ["tabular-nums"],
   },
+  fx: { color: KINETIC.secondary, fontSize: 12, fontStyle: "italic", fontWeight: "700" },
   formula: {
     flex: 1,
-    minHeight: 36,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.input,
-    backgroundColor: colors.card,
-    color: colors.foreground,
-    paddingHorizontal: 8,
-    fontSize: 13,
+    minHeight: 30,
+    color: KINETIC.text,
+    paddingHorizontal: 4,
+    fontSize: 12,
+    fontFamily: "monospace",
   },
+  formulaAction: { width: 44, height: 44, borderRadius: 7, alignItems: "center", justifyContent: "center", backgroundColor: KINETIC.card },
+  formulaActionOn: { backgroundColor: KINETIC.accent },
   gridViewport: {
     flex: 1,
     minHeight: 0,
     overflow: "hidden",
-    backgroundColor: colors.background,
+    backgroundColor: KINETIC.base,
   },
   tr: { flexDirection: "row" },
   rowHead: {
@@ -907,11 +1036,11 @@ const styles = createThemedStyleSheet((colors) => ({
     height: CELL_H,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.muted,
+    backgroundColor: KINETIC.surface,
     borderLeftWidth: 1,
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderColor: KINETIC.border,
   },
   headCell: {
     height: HEADER_H,
@@ -919,14 +1048,14 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 6,
-    backgroundColor: colors.muted,
+    backgroundColor: KINETIC.surface,
     borderTopWidth: 1,
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderColor: KINETIC.border,
   },
-  selectedHead: { backgroundColor: colors.accent },
-  letter: { color: colors.mutedForeground, fontSize: 10, fontVariant: ["tabular-nums"] },
+  selectedHead: { backgroundColor: KINETIC.card },
+  letter: { color: KINETIC.muted, fontSize: 9, fontVariant: ["tabular-nums"] },
   headNameHit: { flex: 1, minWidth: 0 },
   headName: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
   rename: {
@@ -949,15 +1078,37 @@ const styles = createThemedStyleSheet((colors) => ({
     height: CELL_H,
     justifyContent: "center",
     paddingHorizontal: 8,
-    backgroundColor: colors.card,
+    backgroundColor: KINETIC.base,
     borderRightWidth: 1,
     borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderColor: KINETIC.border,
   },
-  selectedCell: { borderWidth: 2, borderColor: colors.ring, zIndex: 1, margin: -1 },
+  selectedCell: { borderWidth: 2, borderColor: KINETIC.accentHover, backgroundColor: "#251F3E", zIndex: 1, margin: -1 },
   errorCell: { backgroundColor: "rgba(239,107,92,0.08)" },
-  cellText: { color: colors.foreground, fontSize: 13 },
+  cellText: { color: KINETIC.text, fontSize: 12 },
   numText: { textAlign: "right", fontVariant: ["tabular-nums"] },
   boolText: { textAlign: "center", fontSize: 16 },
   cellInput: { color: colors.foreground, fontSize: 13, padding: 0 },
+  drawer: { flexShrink: 0, height: 260, backgroundColor: KINETIC.surface, borderTopWidth: 1, borderTopColor: KINETIC.divider },
+  drawerCollapsed: { height: 88 },
+  drawerHandleHit: { height: 44, alignItems: "center", justifyContent: "center" },
+  drawerHandle: { width: 38, height: 4, borderRadius: 2, backgroundColor: KINETIC.muted },
+  drawerTabs: { minWidth: "100%", height: 44, alignItems: "stretch", borderBottomWidth: 1, borderBottomColor: KINETIC.border },
+  drawerTab: { minHeight: 44, paddingHorizontal: 14, justifyContent: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
+  drawerTabOn: { borderBottomColor: KINETIC.accentHover },
+  drawerTabText: { color: KINETIC.secondary, fontSize: 10, fontWeight: "600" },
+  drawerTabTextOn: { color: KINETIC.text },
+  drawerBody: { flex: 1 },
+  drawerContent: { paddingHorizontal: 12, paddingBottom: 14 },
+  sectionLabel: { color: KINETIC.muted, fontSize: 9, fontWeight: "700", letterSpacing: 0.8, marginTop: 10, marginBottom: 6 },
+  actionStrip: { flexDirection: "row", gap: 7 },
+  controlRow: { flexDirection: "row", gap: 6, alignItems: "center" },
+  wideControl: { flex: 1, height: 44, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  stepControl: { width: 44, height: 44, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center" },
+  sizeReadout: { width: 38, height: 34, alignItems: "center", justifyContent: "center", borderTopWidth: 1, borderBottomWidth: 1, borderColor: KINETIC.border },
+  controlOn: { borderColor: KINETIC.accentHover, backgroundColor: "#2A2445" },
+  controlText: { color: KINETIC.text, fontSize: 11, fontFamily: "monospace" },
+  functionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  functionButton: { width: "31%", height: 44, flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card },
+  functionText: { color: KINETIC.text, fontSize: 10, fontWeight: "700", fontFamily: "monospace" },
 }));

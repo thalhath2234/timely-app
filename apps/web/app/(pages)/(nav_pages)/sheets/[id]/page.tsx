@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -40,6 +40,26 @@ const ICON_CHOICES = [
   "📊", "📈", "📉", "🧮", "💰", "📋", "🗓️", "⚙️",
   "🎯", "🔢", "📦", "🏷️", "⏱️", "✅", "⭐", "🧾",
 ];
+
+const KINETIC_THEME = {
+  "--background": "#111319",
+  "--foreground": "#F1F3F9",
+  "--card": "#1F222B",
+  "--card-foreground": "#F1F3F9",
+  "--popover": "#191B22",
+  "--popover-foreground": "#F1F3F9",
+  "--primary": "#6E56CF",
+  "--primary-foreground": "#FFFFFF",
+  "--secondary": "#20242E",
+  "--secondary-foreground": "#F1F3F9",
+  "--muted": "#191B22",
+  "--muted-foreground": "#949AA8",
+  "--accent": "#2A2445",
+  "--accent-foreground": "#F1F3F9",
+  "--border": "#282C37",
+  "--input": "#282C37",
+  "--ring": "#7C66DC",
+} as CSSProperties;
 
 export default function SheetPage() {
   const params = useParams<{ id: string }>();
@@ -143,13 +163,13 @@ function SheetView({ sheet }: { sheet: Sheet }) {
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex items-center gap-2 border-b border-border bg-background px-6 py-2.5">
+    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground" style={KINETIC_THEME}>
+      <header className="flex min-h-14 items-center gap-2 border-b border-border bg-background px-4 py-2">
         <ExpandCollapsedListButton
           storageKey="timely.sheetsListCollapsed"
           label="sheets list"
         />
-        <nav className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
+        <nav className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           <Link
             href="/sheets"
             className="shrink-0 transition-colors hover:text-foreground"
@@ -157,8 +177,67 @@ function SheetView({ sheet }: { sheet: Sheet }) {
             Sheets
           </Link>
           <ChevronRight className="size-3 shrink-0" />
-          <span className="truncate text-foreground">{sheet.title}</span>
+          <span className="max-w-24 truncate text-foreground">{activeTab?.name || "Sheet"}</span>
         </nav>
+
+        <div className="ml-2 flex min-w-0 flex-1 items-center gap-2 border-l border-border pl-3">
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsIconPickerOpen((previous) => !previous)}
+              title="Change icon"
+              className="flex size-7 items-center justify-center rounded-md bg-card text-sm"
+            >
+              {sheet.icon ?? <Smile className="size-4 text-muted-foreground" />}
+            </button>
+            {isIconPickerOpen && (
+              <div className="absolute left-0 top-9 z-50 w-64 rounded-lg border border-border bg-card p-2 shadow-xl">
+                <div className="grid grid-cols-8 gap-1">
+                  {ICON_CHOICES.map((icon) => (
+                    <button
+                      key={icon}
+                      type="button"
+                      onClick={() => {
+                        schedule({ icon });
+                        setIsIconPickerOpen(false);
+                      }}
+                      className="flex size-7 items-center justify-center rounded hover:bg-accent"
+                    >
+                      {icon}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    schedule({ icon: "" });
+                    setIsIconPickerOpen(false);
+                  }}
+                  className="mt-2 w-full rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground hover:bg-accent"
+                >
+                  Remove icon
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <input
+              value={title}
+              onChange={(event) => {
+                setTitle(event.target.value);
+                schedule({ title: event.target.value });
+              }}
+              onBlur={() => void flush()}
+              placeholder="Untitled"
+              className="block w-full min-w-0 bg-transparent text-sm font-semibold leading-5 text-foreground outline-none placeholder:text-muted-foreground/50"
+            />
+            <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+              <span className="rounded bg-[#2A2445] px-1.5 py-0.5 font-semibold text-[#C4B5FD]">Workbook</span>
+              <span className="size-1.5 rounded-full bg-[#38BDF8]" />
+              <span>Cloud sync</span>
+            </div>
+          </div>
+        </div>
 
         <SaveStatusBadge status={status} onRetry={() => void flush()} />
 
@@ -256,61 +335,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
         </button>
       </header>
 
-      <div className="flex items-start gap-3 px-6 pb-2 pt-4">
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setIsIconPickerOpen((previous) => !previous)}
-            title="Change icon"
-            className="flex size-9 cursor-pointer items-center justify-center rounded-xl border border-border bg-card text-xl text-primary transition-colors hover:border-primary/30"
-          >
-            {sheet.icon ?? <Smile className="size-5 text-muted-foreground" />}
-          </button>
-
-          {isIconPickerOpen && (
-            <div className="absolute left-0 top-11 z-50 w-64 rounded-lg border border-border bg-card p-2 shadow-xl">
-              <div className="grid grid-cols-8 gap-1">
-                {ICON_CHOICES.map((icon) => (
-                  <button
-                    key={icon}
-                    type="button"
-                    onClick={() => {
-                      schedule({ icon });
-                      setIsIconPickerOpen(false);
-                    }}
-                    className="flex size-7 cursor-pointer items-center justify-center rounded transition-colors hover:bg-accent"
-                  >
-                    {icon}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  schedule({ icon: "" });
-                  setIsIconPickerOpen(false);
-                }}
-                className="mt-2 w-full cursor-pointer rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition-colors hover:bg-accent"
-              >
-                Remove icon
-              </button>
-            </div>
-          )}
-        </div>
-
-        <input
-          value={title}
-          onChange={(event) => {
-            setTitle(event.target.value);
-            schedule({ title: event.target.value });
-          }}
-          onBlur={() => void flush()}
-          placeholder="Untitled"
-          className="min-w-0 flex-1 bg-transparent pt-0.5 text-xl font-bold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
-        />
-      </div>
-
-      <div className="mx-6 mb-3 rounded-lg border border-border bg-card px-3 py-2">
+      <div className="mx-4 my-2 max-h-20 overflow-auto rounded-md border border-border bg-card/60 px-3 py-1.5">
         <RichTextEditor
           variant="compact"
           toolbar="fixed"

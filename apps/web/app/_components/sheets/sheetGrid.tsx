@@ -236,15 +236,18 @@ export default function SheetGrid({
   const formulaPickingRef = useRef(false);
   const caretRef = useRef(0);
   const draftRef = useRef(draft);
-  draftRef.current = draft;
   const editingRef = useRef(editing);
-  editingRef.current = editing;
   const clipboardRef = useRef<string[][]>([]);
   const resizeStateRef = useRef<{
     index: number;
     startX: number;
     startWidth: number;
   } | null>(null);
+
+  useEffect(() => {
+    draftRef.current = draft;
+    editingRef.current = editing;
+  }, [draft, editing]);
   const showContextMenu = useContextMenu();
 
   const evaluator = useMemo(
@@ -1263,8 +1266,8 @@ export default function SheetGrid({
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-popover px-2 py-1">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
+      <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-[#191B22] px-2 py-1">
         <button type="button" title="Undo (⌘Z)" disabled={history.past.length === 0} onClick={undo} className={toolClass()}>
           <Undo2 className="size-4" />
         </button>
@@ -1820,8 +1823,8 @@ export default function SheetGrid({
         </button>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-border bg-popover/60 px-3 py-1.5" data-formula-bar>
-        <span className="w-16 shrink-0 rounded-md border border-border bg-muted px-2 py-1 text-center font-mono text-xs font-semibold text-primary">
+      <div className="flex items-center gap-2 border-b border-border bg-[#191B22] px-3 py-1.5" data-formula-bar>
+        <span className="w-16 shrink-0 rounded-md border border-[#7C66DC] bg-[#6E56CF] px-2 py-1 text-center font-mono text-xs font-semibold text-white shadow-[0_0_12px_rgba(110,86,207,0.2)]">
           {selectedAddress}
         </span>
         <div className="flex min-w-0 flex-1 items-center rounded-md border border-border bg-input/30 px-2 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
@@ -2180,8 +2183,8 @@ export default function SheetGrid({
                           ? "items-end"
                           : "items-center"
                     } ${
-                      inRange && !format?.fillColor ? "bg-primary/10" : ""
-                    } ${isSelected ? "z-10 ring-2 ring-inset ring-ring" : ""} ${
+                      inRange && !format?.fillColor ? "bg-[#6E56CF]/10" : ""
+                    } ${isSelected ? "z-10 bg-[#251F3E] ring-2 ring-inset ring-[#7C66DC]" : ""} ${
                       inFormulaRange ? "outline outline-dashed outline-1 outline-primary" : ""
                     } ${
                       result.type === "error" ? "text-destructive" : ""
@@ -2346,7 +2349,7 @@ export default function SheetGrid({
         </div>
       </div>
 
-      <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-popover px-3 text-[11px]">
+      <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-[#191B22] px-3 text-[11px]">
         <div className="flex min-w-0 items-end gap-1 pt-1">
           {(tabs ?? []).map((tab) => {
             const active = tab.id === activeTabId;
@@ -2355,7 +2358,7 @@ export default function SheetGrid({
                 key={tab.id}
                 className={`flex items-center gap-1 rounded-t border border-b-0 px-2 py-1 ${
                   active
-                    ? "border-border bg-background text-foreground"
+                    ? "border-[#7C66DC] bg-[#1F222B] text-foreground"
                     : "border-transparent text-muted-foreground hover:bg-accent/60"
                 }`}
               >

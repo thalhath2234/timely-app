@@ -2,9 +2,9 @@ import { useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Archive, Copy, Download, MoreHorizontal, Plus, Sheet as SheetIcon, Smile, Star, Trash2 } from "lucide-react-native";
+import { Archive, CheckCircle2, ChevronLeft, Copy, Download, MoreHorizontal, Plus, Sheet as SheetIcon, Smile, Star, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
-import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
+import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import EmptyState from "../../../components/ui/EmptyState";
@@ -128,75 +128,47 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
 
   return (
     <Screen>
-      <MobileHeader
-        title={workspace?.name || "Sheet"}
-        subtitle={saveStatusLabel(status) || (sheet.updatedAt ? `Edited ${timeAgo(sheet.updatedAt)}` : undefined)}
-        back
-        large={false}
-        actions={
-          <View style={styles.actions}>
-            {status === "error" ? (
-              <Pressable onPress={() => void flush()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
-                <Text style={{ color: colors.primary, fontWeight: "600" }}>Retry</Text>
-              </Pressable>
-            ) : null}
-            <HeaderIconButton
-              label={favorite ? "Remove from favorites" : "Add to favorites"}
-              active={favorite}
-              onPress={() => {
-                setFavorite(!favorite);
-                schedule({ isFavorite: !favorite });
-              }}
-            >
-              <Star size={20} color={favorite ? colors.warning : colors.mutedForeground} fill={favorite ? colors.warning : "transparent"} />
-            </HeaderIconButton>
-            <HeaderIconButton label="More" onPress={() => setMenu("more")}>
-              <MoreHorizontal size={22} color={colors.foreground} />
-            </HeaderIconButton>
-          </View>
-        }
-      />
-
-      <View style={styles.metaBlock}>
-        <View style={styles.titleRow}>
-          <Pressable accessibilityLabel="Change icon" onPress={() => setMenu("icon")} hitSlop={12} style={styles.iconBtn}>
-            {icon ? <Text style={styles.icon}>{icon}</Text> : <Smile size={22} color={colors.mutedForeground} />}
-          </Pressable>
+      <View style={styles.kineticHeader}>
+        <Pressable accessibilityLabel="Back" onPress={() => router.back()} hitSlop={10} style={styles.headerIcon}>
+          <ChevronLeft size={22} color="#F1F3F9" />
+        </Pressable>
+        <View style={styles.headerIdentity}>
           <TextInput
             value={title}
             placeholder="Untitled"
-            placeholderTextColor={colors.mutedForeground}
+            placeholderTextColor="#5E6573"
             onChangeText={(value) => {
               setTitle(value);
               schedule({ title: value });
             }}
             onBlur={() => void flush()}
-            style={styles.title}
+            numberOfLines={1}
+            style={styles.headerTitle}
           />
-        </View>
-        <Text style={styles.count}>
-          {(activeTab?.rows.length ?? 0)} rows · {(activeTab?.columns.length ?? 0)} columns
-          {tabs.length > 1 ? ` · ${tabs.length} tabs` : ""}
-          {!showDescription ? (
-            <Text style={styles.addDesc} onPress={() => setShowDescription(true)}>
-              {" · "}Add description
+          <View style={styles.headerMeta}>
+            <Text numberOfLines={1} style={styles.scopeChip}>{workspace?.name || "Personal"}</Text>
+            {status === "saved" ? <CheckCircle2 size={11} color="#38BDF8" /> : null}
+            <Text numberOfLines={1} style={styles.savedText}>
+              {saveStatusLabel(status) || (sheet.updatedAt ? `Edited ${timeAgo(sheet.updatedAt)}` : "Saved")}
             </Text>
-          ) : null}
-        </Text>
-        {showDescription ? (
-          <TextInput
-            value={description}
-            onChangeText={(value) => {
-              setDescription(value);
-              schedule({ description: value });
-            }}
-            onBlur={() => void flush()}
-            placeholder="Add a description…"
-            placeholderTextColor={colors.mutedForeground}
-            multiline
-            style={styles.description}
-          />
+          </View>
+        </View>
+        {status === "error" ? (
+          <Pressable onPress={() => void flush()} style={styles.retryButton}><Text style={styles.retryText}>Retry</Text></Pressable>
         ) : null}
+        <Pressable
+          accessibilityLabel={favorite ? "Remove from favorites" : "Add to favorites"}
+          onPress={() => {
+            setFavorite(!favorite);
+            schedule({ isFavorite: !favorite });
+          }}
+          style={styles.headerIcon}
+        >
+          <Star size={18} color={favorite ? colors.warning : "#949AA8"} fill={favorite ? colors.warning : "transparent"} />
+        </Pressable>
+        <Pressable accessibilityLabel="More" onPress={() => setMenu("more")} style={styles.headerIcon}>
+          <MoreHorizontal size={20} color="#F1F3F9" />
+        </Pressable>
       </View>
 
       <View style={styles.gridWrap} collapsable={false}>
@@ -241,6 +213,20 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
       </View>
 
       <BottomSheet open={menu === "more"} onClose={() => setMenu(null)} title="Sheet">
+        {showDescription ? (
+          <TextInput
+            value={description}
+            onChangeText={(value) => {
+              setDescription(value);
+              schedule({ description: value });
+            }}
+            onBlur={() => void flush()}
+            placeholder="Add a description…"
+            placeholderTextColor={colors.mutedForeground}
+            multiline
+            style={styles.description}
+          />
+        ) : null}
         <SheetOption onSelect={() => setMenu("icon")} leading={<Smile size={18} color={colors.foreground} />}>
           Change icon
         </SheetOption>
@@ -366,7 +352,25 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  actions: { flexDirection: "row", alignItems: "center" },
+  kineticHeader: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    backgroundColor: "#111319",
+    borderBottomWidth: 1,
+    borderBottomColor: "#282C37",
+  },
+  headerIcon: { width: 44, height: 44, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  headerIdentity: { flex: 1, minWidth: 0 },
+  headerTitle: { color: "#F1F3F9", fontSize: 14, fontWeight: "700", padding: 0, minHeight: 22 },
+  headerMeta: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
+  scopeChip: { maxWidth: 90, color: "#C4B5FD", backgroundColor: "#2A2445", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1, fontSize: 9, fontWeight: "700" },
+  savedText: { flexShrink: 1, color: "#5E6573", fontSize: 9 },
+  retryButton: { paddingHorizontal: 7, paddingVertical: 5, borderRadius: 6, backgroundColor: "#2A2445" },
+  retryText: { color: "#C4B5FD", fontSize: 10, fontWeight: "700" },
   metaBlock: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, flexShrink: 0 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   iconBtn: {
@@ -401,13 +405,13 @@ const styles = createThemedStyleSheet((colors) => ({
     fontSize: 14,
     textAlignVertical: "top",
   },
-  gridWrap: { flex: 1, minHeight: 0, borderTopWidth: 1, borderTopColor: colors.border },
+  gridWrap: { flex: 1, minHeight: 0, backgroundColor: "#111319" },
   tabBarWrap: {
     flexGrow: 0,
     flexShrink: 0,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.background,
+    borderTopColor: "#282C37",
+    backgroundColor: "#191B22",
   },
   iconGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   iconChoice: {
@@ -430,28 +434,28 @@ const styles = createThemedStyleSheet((colors) => ({
   tabBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 4,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 5,
   },
   tab: {
-    height: 36,
+    height: 44,
     paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: 6,
+    backgroundColor: "transparent",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
     justifyContent: "center",
   },
-  tabOn: { borderColor: colors.primary, backgroundColor: colors.accent },
-  tabLabel: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
-  tabLabelOn: { color: colors.foreground },
+  tabOn: { borderBottomColor: "#7C66DC", backgroundColor: "#1F222B" },
+  tabLabel: { color: "#949AA8", fontSize: 11, fontWeight: "500" },
+  tabLabelOn: { color: "#F1F3F9" },
   tabAdd: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#282C37",
     alignItems: "center",
     justifyContent: "center",
   },
