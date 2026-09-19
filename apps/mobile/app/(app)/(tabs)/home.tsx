@@ -287,7 +287,7 @@ export default function HomeScreen() {
                   done={Boolean(task.completedAt)}
                   onComplete={() => completeTask(task)}
                 >
-                  {data.focusing?.id === task.id ? null : (
+                  {data.focusing?.id === task.id || task.completedAt ? null : (
                     <AnimatedPressable onPress={() => void startFocus.mutateAsync(task.id)} style={styles.chip}>
                       <Text style={styles.chipText}>Start</Text>
                     </AnimatedPressable>

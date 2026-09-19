@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { cloneElement } from "react";
 import { FlatList, ScrollView, type RefreshControlProps, Text, View } from "react-native";
 import type { Task } from "../../lib/types";
 import type { NamedStatusGroup } from "../../lib/status";
@@ -57,7 +58,6 @@ export default function MobileKanban({
       style={styles.scroller}
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.board}
-      refreshControl={refreshControl}
     >
       {columns.map((column) => (
         <View key={column.key} style={styles.column}>
@@ -77,6 +77,7 @@ export default function MobileKanban({
             contentContainerStyle={styles.cards}
             initialNumToRender={8}
             windowSize={5}
+            refreshControl={refreshControl ? cloneElement(refreshControl, { key: column.key }) : undefined}
             ListEmptyComponent={<Text style={styles.empty}>Long-press a card to move it here</Text>}
             renderItem={({ item }) => (
               <View style={styles.cardWrap}>

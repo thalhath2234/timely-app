@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -74,9 +74,13 @@ export default function CalendarScreen() {
     () => projects.filter((project) => (workspaceId ? project.workspaceId === workspaceId : true)),
     [projects, workspaceId],
   );
+  const occupancy = useMemo(
+    () => mergeCalendarItems(query.data?.items ?? []),
+    [query.data?.items],
+  );
   const items = useMemo(
-    () => mergeCalendarItems(query.data?.items ?? []).filter((item) => matchesCalendarScope(item, workspaceId, projectId)),
-    [query.data?.items, workspaceId, projectId],
+    () => occupancy.filter((item) => matchesCalendarScope(item, workspaceId, projectId)),
+    [occupancy, workspaceId, projectId],
   );
   const tasks = useTasksQuery().data ?? [];
   const hoursQ = useWorkingHoursQuery();
@@ -103,9 +107,9 @@ export default function CalendarScreen() {
       findNextFreeSlot({
         durationMinutes: scheduleTask?.duration || 30,
         hours: hoursQ.data,
-        busy: [...calendarBusy(items), ...heldSlots],
+        busy: [...calendarBusy(occupancy), ...heldSlots],
       }),
-    [hoursQ.data, items, heldSlots, scheduleTask?.duration],
+    [hoursQ.data, occupancy, heldSlots, scheduleTask?.duration],
   );
   const save = useSaveTask();
   const moveBlk = useMoveBlock();
@@ -355,11 +359,19 @@ export default function CalendarScreen() {
           }
           const duration = scheduleTask.duration || 30;
           const end = new Date(start.getTime() + duration * 60_000);
-          setHeldSlots((current) => [...current, { start: start.toISOString(), end: end.toISOString() }]);
-          void addBlock.mutateAsync({
-            taskId: scheduleTask.id,
-            data: { start: start.toISOString(), durationMinutes: duration },
-          });
+          const interval = { start: start.toISOString(), end: end.toISOString() };
+          setHeldSlots((current) => [...current, interval]);
+          void addBlock
+            .mutateAsync({
+              taskId: scheduleTask.id,
+              data: { start: start.toISOString(), durationMinutes: duration },
+            })
+            .catch((error: unknown) => {
+              setHeldSlots((current) =>
+                current.filter((item) => item.start !== interval.start || item.end !== interval.end),
+              );
+              Alert.alert("Could not schedule", error instanceof Error ? error.message : "Try again.");
+            });
           setScheduleTask(null);
         }}
       />

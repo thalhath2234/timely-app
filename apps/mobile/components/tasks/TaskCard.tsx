@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { CalendarDays, Check } from "lucide-react-native";
 import type { Task } from "../../lib/types";
-import { formatDueDate, formatDuration, formatTime, isOverdue, PRIORITY_META } from "../../lib/format";
+import { formatDueDate, formatDuration, formatRelativeDay, formatTime, isOverdue, PRIORITY_META } from "../../lib/format";
 import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
 import { Dot } from "../ui/primitives";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -29,7 +29,12 @@ function TaskCard({
   const overdue = isOverdue(task.deadline, task.completedAt);
   const due = formatDueDate(task.deadline);
   const scheduled = task.scheduledOn || task.blocks?.[0]?.start;
-  const timeLabel = overdue ? due : scheduled ? formatTime(scheduled) : due;
+  const scheduledLabel = scheduled
+    ? /^\d{4}-\d{2}-\d{2}$/.test(scheduled)
+      ? formatRelativeDay(new Date(Number(scheduled.slice(0, 4)), Number(scheduled.slice(5, 7)) - 1, Number(scheduled.slice(8, 10))))
+      : formatTime(scheduled)
+    : null;
+  const timeLabel = overdue ? due : scheduledLabel ?? due;
   const durationLabel = !done && task.duration > 0 ? formatDuration(task.duration) : null;
   const priority = task.priorityLevel ? PRIORITY_META[task.priorityLevel] : null;
   const accent = overdue ? colors.destructive : (priority?.color ?? taskEntityColor(task));

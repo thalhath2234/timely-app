@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-APK_OUT=/home/thalhath/timely-release-arm64.apk
+APK_OUT="${TIMELY_APK_OUT:-$REPO_ROOT/apps/mobile/timely-release-arm64.apk}"
 PACKAGE=com.timely.mobile
 ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/home/thalhath/.local/android-sdk}}"
 ADB="${ADB:-$ANDROID_HOME/platform-tools/adb}"
@@ -75,8 +75,10 @@ if ! "$ADB" -s "$SERIAL" install -r -d "$APK_OUT"; then
   exit 1
 fi
 
-"$ADB" -s "$SERIAL" shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 \
-  || "$ADB" -s "$SERIAL" shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "$PACKAGE" >/dev/null 2>&1 \
-  || true
-
-echo "Installed and launched $PACKAGE on ${MODEL:-device}"
+if "$ADB" -s "$SERIAL" shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 \
+  || "$ADB" -s "$SERIAL" shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "$PACKAGE" >/dev/null 2>&1; then
+  echo "Installed and launched $PACKAGE on ${MODEL:-device}"
+else
+  echo "Installed $PACKAGE on ${MODEL:-device}, but launching failed" >&2
+  exit 1
+fi

@@ -43,6 +43,12 @@ export default function DateStrip({
     setWeekStart((current) => addDays(current, (page - 1) * 7));
   }
 
+  function onDragEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const velocity = event.nativeEvent.velocity?.x ?? 0;
+    if (Math.abs(velocity) > 0.05) return;
+    onPage(event);
+  }
+
   return (
     <ScrollView
       ref={scrollRef}
@@ -51,6 +57,7 @@ export default function DateStrip({
       decelerationRate="fast"
       showsHorizontalScrollIndicator={false}
       onMomentumScrollEnd={onPage}
+      onScrollEndDrag={onDragEnd}
       onLayout={(event) => {
         const width = event.nativeEvent.layout.width;
         if (width > 0 && width !== pageWidth) setPageWidth(width);

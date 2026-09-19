@@ -362,12 +362,10 @@ export default function TasksScreen() {
     });
   }, [save]);
 
-  const openCount = useMemo(
-    () =>
-      activeView
-        ? filterTasks(tasks, { ...filtersFromView(activeView), showCompleted: false }).length
-        : workScoped.filter((t) => !t.completedAt).length,
-    [activeView, tasks, workScoped],
+  const openCount = useMemo(() => visible.filter((task) => !task.completedAt).length, [visible]);
+  const overdueCount = useMemo(
+    () => visible.filter((task) => matchesFilter(task, "overdue")).length,
+    [visible],
   );
   const filtersOn = extraFiltersActive(extraFilters, viewShowCompleted);
   const listRefreshing = tasksQ.isRefetching && !tasksQ.isPending;
@@ -420,8 +418,8 @@ export default function TasksScreen() {
         subtitle={
           project
             ? "Filtered by project"
-            : counts.overdue
-              ? `${openCount} open · ${counts.overdue} overdue`
+            : overdueCount
+              ? `${openCount} open · ${overdueCount} overdue`
               : `${openCount} open`
         }
         actions={

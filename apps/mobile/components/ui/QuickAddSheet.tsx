@@ -23,14 +23,6 @@ import { ENTITY_COLORS } from "../../lib/entityColor";
 import { pageDuration } from "../../lib/motion";
 
 function runWhenIdle(callback: () => void, timeout: number) {
-  const idle = globalThis as typeof globalThis & {
-    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-    cancelIdleCallback?: (id: number) => void;
-  };
-  if (typeof idle.requestIdleCallback === "function") {
-    const id = idle.requestIdleCallback(callback, { timeout });
-    return () => idle.cancelIdleCallback?.(id);
-  }
   const timer = setTimeout(callback, timeout);
   return () => clearTimeout(timer);
 }

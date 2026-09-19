@@ -29,11 +29,12 @@ export default function AutoScheduleSheet({ open, onClose }: { open: boolean; on
   const total = (plan?.proposals.length ?? 0) + skipped.length;
   const matched = total ? Math.round(((plan?.proposals.length ?? 0) / total) * 100) : 0;
 
+  const busy = apply.isPending || undo.isPending;
   const footer = plan ? (
     <View style={styles.footerActions}>
       {plan.canUndo || applied ? (
         <Pressable
-          disabled={undo.isPending}
+          disabled={busy}
           onPress={() => {
             undo.mutate(undefined, {
               onSuccess: () => {
@@ -42,16 +43,16 @@ export default function AutoScheduleSheet({ open, onClose }: { open: boolean; on
               },
             });
           }}
-          style={[styles.footerButton, styles.undoButton, undo.isPending && styles.disabled]}
+          style={[styles.footerButton, styles.undoButton, busy && styles.disabled]}
         >
           <RotateCcw size={16} color="#FFFFFF" />
           <Text style={styles.footerPrimaryText}>{undo.isPending ? "Undoing…" : "Undo last apply"}</Text>
         </Pressable>
       ) : null}
       <Pressable
-        disabled={apply.isPending || applied}
+        disabled={busy || applied}
         onPress={() => apply.mutate({}, { onSuccess: () => setApplied(true) })}
-        style={[styles.footerButton, styles.applyButton, (apply.isPending || applied) && styles.disabled]}
+        style={[styles.footerButton, styles.applyButton, (busy || applied) && styles.disabled]}
       >
         <Check size={16} color={applied ? colors.success : colors.foreground} strokeWidth={2.5} />
         <Text style={styles.footerSecondaryText}>
