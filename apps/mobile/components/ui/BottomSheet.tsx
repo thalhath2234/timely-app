@@ -1,11 +1,18 @@
-import { type ReactNode, useLayoutEffect } from "react";
-import { Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Animated, { useReducedMotion } from "react-native-reanimated";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import Animated, {
+  cancelAnimation,
+  runOnJS,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { X } from "lucide-react-native";
 import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
 import { AccessoryLayer, overlayBottomPad } from "./SheetHost";
-import { overlayEntering, sheetEntering } from "../../lib/motion";
+import { easeOut, pageDuration, sheetExitDuration } from "../../lib/motion";
 import AnimatedPressable from "./AnimatedPressable";
 
 export default function BottomSheet({
@@ -14,16 +21,76 @@ export default function BottomSheet({
   title,
   children,
   footer,
+  onClosed,
 }: {
   open: boolean;
   onClose: () => void;
   title?: string;
   children: ReactNode;
   footer?: ReactNode;
+  onClosed?: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const bottom = overlayBottomPad(insets.bottom);
   const reduceMotion = useReducedMotion();
+  const [mounted, setMounted] = useState(open);
+  const progress = useSharedValue(open && reduceMotion ? 1 : 0);
+  const openRef = useRef(open);
+  const onClosedRef = useRef(onClosed);
+  const contentRef = useRef({ title, children, footer });
+
+  useLayoutEffect(() => {
+    openRef.current = open;
+    if (open) contentRef.current = { title, children, footer };
+  }, [children, footer, open, title]);
+
+  const presented = open ? { title, children, footer } : contentRef.current;
+
+  useEffect(() => {
+    onClosedRef.current = onClosed;
+  }, [onClosed]);
+
+  const finishClose = useCallback(() => {
+    if (openRef.current) return;
+    setMounted(false);
+    onClosedRef.current?.();
+  }, []);
+
+  useEffect(() => {
+    cancelAnimation(progress);
+    if (open) {
+      if (!mounted) {
+        progress.value = 0;
+        setMounted(true);
+        return;
+      }
+      progress.value = reduceMotion
+        ? 1
+        : withTiming(1, { duration: pageDuration, easing: easeOut });
+      return;
+    }
+    if (!mounted) return;
+    if (reduceMotion) {
+      progress.value = 0;
+      finishClose();
+      return;
+    }
+    progress.value = withTiming(
+      0,
+      { duration: sheetExitDuration, easing: easeOut },
+      (finished) => {
+        if (finished) runOnJS(finishClose)();
+      },
+    );
+  }, [finishClose, mounted, open, progress, reduceMotion]);
+
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+  }));
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: (1 - progress.value) * windowHeight }],
+  }));
 
   useLayoutEffect(() => {
     if (open && Keyboard.isVisible()) Keyboard.dismiss();
@@ -31,7 +98,7 @@ export default function BottomSheet({
 
   return (
     <Modal
-      visible={open}
+      visible={mounted}
       transparent
       animationType="none"
       statusBarTranslucent
@@ -41,20 +108,20 @@ export default function BottomSheet({
       onRequestClose={onClose}
     >
       <View style={styles.root}>
-        <Animated.View entering={overlayEntering(Boolean(reduceMotion))} style={styles.backdrop}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-          style={StyleSheet.absoluteFill}
-          onPress={onClose}
-        />
+        <Animated.View style={[styles.backdrop, backdropStyle]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            style={StyleSheet.absoluteFill}
+            onPress={onClose}
+          />
         </Animated.View>
         <View pointerEvents="box-none" style={styles.foreground}>
-          <Animated.View entering={sheetEntering(Boolean(reduceMotion))} style={[styles.sheet, { paddingBottom: bottom }]}>
+          <Animated.View style={[styles.sheet, { paddingBottom: bottom }, sheetStyle]}>
             <View style={styles.handle} />
-            {title ? (
+            {presented.title ? (
               <View style={styles.titleRow}>
-                <Text style={styles.title}>{title}</Text>
+                <Text style={styles.title}>{presented.title}</Text>
                 <AnimatedPressable
                   accessibilityRole="button"
                   accessibilityLabel="Close"
@@ -74,9 +141,9 @@ export default function BottomSheet({
               style={styles.body}
               contentContainerStyle={styles.bodyContent}
             >
-              {children}
+              {presented.children}
             </ScrollView>
-            {footer ? <View style={styles.footer}>{footer}</View> : null}
+            {presented.footer ? <View style={styles.footer}>{presented.footer}</View> : null}
           </Animated.View>
         </View>
         <AccessoryLayer />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Tabs, usePathname } from "expo-router";
+import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Calendar, FileText, Home, ListTodo, Plus, Search } from "lucide-react-native";
 import QuickAddSheet from "../../../components/ui/QuickAddSheet";
@@ -8,12 +9,14 @@ import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import FloatingTabBar, { floatingTabBarInset } from "../../../components/ui/FloatingTabBar";
 import { subscribeQuickAdd, type QuickAddPreset } from "../../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet, radius } from "../../../lib/theme";
+import { tabAnimation } from "../../../lib/motion";
 
 export default function TabLayout() {
   const [addOpen, setAddOpen] = useState(false);
   const [addPreset, setAddPreset] = useState<QuickAddPreset | null>(null);
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
   const hideFab = pathname.endsWith("/more") || pathname.endsWith("/search");
   const tabOffset = floatingTabBarInset(insets.bottom);
 
@@ -30,7 +33,7 @@ export default function TabLayout() {
         tabBar={(props) => <FloatingTabBar {...props} />}
         screenOptions={{
           headerShown: false,
-          animation: "none",
+          animation: tabAnimation(Boolean(reduceMotion)),
           freezeOnBlur: true,
           tabBarStyle: {
             position: "absolute",
@@ -70,10 +73,6 @@ export default function TabLayout() {
       {!hideFab ? (
         <AnimatedPressable
           accessibilityLabel="Add"
-          onPressIn={() => {
-            setAddPreset(null);
-            setAddOpen(true);
-          }}
           onPress={() => {
             setAddPreset(null);
             setAddOpen(true);
