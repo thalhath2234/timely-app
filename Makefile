@@ -99,7 +99,7 @@ dev-mobile-device: ## Metro + Expo Go on a USB phone (adb reverse :8082)
 	$$ADB reverse tcp:8082 tcp:8082; \
 	$$ADB reverse --list; \
 	echo "Open Expo Go on the phone (not the Timely icon) after Metro is up."; \
-	NODE_OPTIONS='--dns-result-order=ipv4first' pnpm --filter @timely/mobile exec expo start --lan --port 8082 --go --android
+	NODE_OPTIONS='--dns-result-order=ipv4first' pnpm --filter @timely/mobile exec expo start --localhost --port 8082 --go --android
 
 dev-desktop: ## Run API, Next.js, and the Electron desktop shell
 	@$(MAKE) -j3 --no-print-directory dev-api dev-web launch-electron
