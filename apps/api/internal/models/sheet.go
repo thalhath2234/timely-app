@@ -641,16 +641,20 @@ func CloneTabs(tabs SheetTabs) SheetTabs {
 	}
 	out := make(SheetTabs, len(tabs))
 	for i, tab := range tabs {
-		columns, rows := CloneGrid(tab.Columns, tab.Rows)
-		out[i] = SheetTab{
-			ID:      utils.PrefixedUUID("tab"),
-			Name:    tab.Name,
-			Columns: columns,
-			Rows:    rows,
-			Merges:  CloneMerges(tab.Merges),
-		}
+		out[i] = CloneTab(tab)
 	}
 	return out
+}
+
+func CloneTab(tab SheetTab) SheetTab {
+	columns, rows := CloneGrid(tab.Columns, tab.Rows)
+	return SheetTab{
+		ID:      utils.PrefixedUUID("tab"),
+		Name:    tab.Name,
+		Columns: columns,
+		Rows:    rows,
+		Merges:  CloneMerges(tab.Merges),
+	}
 }
 
 // CloneSheetContents copies grid data with new ids so a duplicate is independent.
@@ -660,4 +664,127 @@ func CloneSheetContents(src *Sheet) (SheetColumns, SheetRows, SheetMerges, Sheet
 	}
 	columns, rows := CloneGrid(src.Columns, src.Rows)
 	return columns, rows, CloneMerges(src.Merges), CloneTabs(src.Tabs)
+}
+
+// SheetTemplate is a reusable snapshot of a workbook: formulas, values, formats,
+// merges, and tabs. Applying it always clones ids so instances stay independent.
+type SheetTemplate struct {
+	ID     string  `gorm:"type:text;primaryKey" json:"id"`
+	UserID string  `gorm:"type:text;not null" json:"userId"`
+	Name   string  `gorm:"not null" json:"name"`
+	Icon   *string `gorm:"type:text" json:"icon"`
+
+	Columns SheetColumns `gorm:"type:jsonb;not null;default:'[]'" json:"columns"`
+	Rows    SheetRows    `gorm:"type:jsonb;not null;default:'[]'" json:"rows"`
+	Merges  SheetMerges  `gorm:"type:jsonb;not null;default:'[]'" json:"merges"`
+	Tabs    SheetTabs    `gorm:"type:jsonb;not null;default:'[]'" json:"tabs"`
+
+	SourceSheetID *string `gorm:"type:text" json:"sourceSheetId"`
+
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+func (SheetTemplate) TableName() string { return "sheet_templates" }
+
+func (t *SheetTemplate) BeforeCreate(tx *gorm.DB) error {
+	now := utils.GetCurrentTimestamp()
+	if t.CreatedAt == "" {
+		t.CreatedAt = now
+	}
+	t.UpdatedAt = now
+	return nil
+}
+
+func (t *SheetTemplate) BeforeUpdate(tx *gorm.DB) error {
+	t.UpdatedAt = utils.GetCurrentTimestamp()
+	return nil
+}
+
+func CopyGrid(columns SheetColumns, rows SheetRows) (SheetColumns, SheetRows) {
+	nextColumns := append(SheetColumns{}, columns...)
+	nextRows := make(SheetRows, len(rows))
+	for i, row := range rows {
+		cells := make(map[string]string, len(row.Cells))
+		for key, value := range row.Cells {
+			cells[key] = value
+		}
+		var formats map[string]SheetCellFormat
+		if len(row.Formats) > 0 {
+			formats = make(map[string]SheetCellFormat, len(row.Formats))
+			for key, format := range row.Formats {
+				formats[key] = format
+			}
+		}
+		nextRows[i] = SheetRow{ID: row.ID, Cells: cells, Formats: formats}
+	}
+	return nextColumns, nextRows
+}
+
+func SnapshotSheet(src *Sheet, tabID string) (SheetColumns, SheetRows, SheetMerges, SheetTabs, error) {
+	if src == nil {
+		return nil, nil, nil, nil, errors.New("sheet not found")
+	}
+	if tabID != "" {
+		for _, tab := range src.Tabs {
+			if tab.ID == tabID {
+				columns, rows := CopyGrid(tab.Columns, tab.Rows)
+				return columns, rows, CloneMerges(tab.Merges), SheetTabs{}, nil
+			}
+		}
+		if len(src.Tabs) == 0 && tabID != "" {
+			columns, rows := CopyGrid(src.Columns, src.Rows)
+			return columns, rows, CloneMerges(src.Merges), SheetTabs{}, nil
+		}
+		return nil, nil, nil, nil, errors.New("tab not found")
+	}
+	columns, rows := CopyGrid(src.Columns, src.Rows)
+	tabs := make(SheetTabs, len(src.Tabs))
+	for i, tab := range src.Tabs {
+		tabColumns, tabRows := CopyGrid(tab.Columns, tab.Rows)
+		tabs[i] = SheetTab{
+			ID:      tab.ID,
+			Name:    tab.Name,
+			Columns: tabColumns,
+			Rows:    tabRows,
+			Merges:  CloneMerges(tab.Merges),
+		}
+	}
+	return columns, rows, CloneMerges(src.Merges), tabs, nil
+}
+
+func CloneTemplateContents(src *SheetTemplate) (SheetColumns, SheetRows, SheetMerges, SheetTabs) {
+	if src == nil {
+		return nil, nil, nil, nil
+	}
+	columns, rows := CloneGrid(src.Columns, src.Rows)
+	return columns, rows, CloneMerges(src.Merges), CloneTabs(src.Tabs)
+}
+
+func TabFromTemplate(src *SheetTemplate, tabID string) (SheetTab, error) {
+	if src == nil {
+		return SheetTab{}, errors.New("template not found")
+	}
+	if tabID != "" {
+		for _, tab := range src.Tabs {
+			if tab.ID == tabID {
+				return CloneTab(tab), nil
+			}
+		}
+	}
+	if len(src.Tabs) > 0 {
+		return CloneTab(src.Tabs[0]), nil
+	}
+	columns, rows := CloneGrid(src.Columns, src.Rows)
+	name := strings.TrimSpace(src.Name)
+	if name == "" {
+		name = "Sheet 1"
+	}
+	return SheetTab{
+		ID:      utils.PrefixedUUID("tab"),
+		Name:    name,
+		Columns: columns,
+		Rows:    rows,
+		Merges:  CloneMerges(src.Merges),
+	}, nil
 }

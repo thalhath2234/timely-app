@@ -1,11 +1,15 @@
 "use client";
 
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FileText, Plus, Upload } from "lucide-react";
-import { useCreateDoc, useDocs } from "@/app/utils/hooks/docs";
+import { useCreateDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
+import type { Doc } from "@/app/_types/types";
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value);
@@ -23,6 +27,10 @@ export default function DocsPage() {
   const router = useRouter();
   const { data: docs, isLoading } = useDocs();
   const createDoc = useCreateDoc();
+  const updateDoc = useUpdateDoc();
+  const openMenu = useContextMenu();
+  const docMenu = useDocContextMenu();
+  const [renamingId, setRenamingId] = useState<string | null>(null);
 
   const recentDocs = (docs ?? []).filter((doc) => !doc.archivedAt).slice(0, 12);
 
@@ -39,6 +47,22 @@ export default function DocsPage() {
       plainText: imported.plainText,
     });
     router.push(`/docs/${doc.id}`);
+  };
+
+  const onDocContextMenu = (event: ReactMouseEvent, doc: Doc) =>
+    openMenu(
+      event,
+      docMenu(doc, {
+        onRename: () => setRenamingId(doc.id),
+      }),
+      { title: doc.title },
+    );
+
+  const commitRename = (doc: Doc, next: string) => {
+    const title = next.trim();
+    setRenamingId(null);
+    if (!title || title === doc.title) return;
+    void updateDoc.mutateAsync({ id: doc.id, title });
   };
 
   return (
@@ -92,16 +116,12 @@ export default function DocsPage() {
           </div>
         </div>
 
-        <h2 className="mt-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Recently edited
-        </h2>
-
         {isLoading && (
-          <p className="mt-3 text-sm text-muted-foreground">Loading docs...</p>
+          <p className="mt-6 text-sm text-muted-foreground">Loading docs...</p>
         )}
 
         {!isLoading && recentDocs.length === 0 && (
-          <div className="mt-3 flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-card px-6 py-10">
+          <div className="mt-6 flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-card px-6 py-10">
             <p className="text-sm text-muted-foreground">
               Nothing here yet. Your pages will show up once you create one.
             </p>
@@ -109,36 +129,97 @@ export default function DocsPage() {
         )}
 
         {recentDocs.length > 0 && (
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {recentDocs.map((doc) => (
-              <Link
+              <DocCard
                 key={doc.id}
-                href={`/docs/${doc.id}`}
-                className="group rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-accent/50"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-base leading-none">
-                    {doc.icon ?? (
-                      <FileText className="size-4 text-muted-foreground" />
-                    )}
-                  </span>
-                  <span className="truncate font-medium text-foreground">
-                    {doc.title}
-                  </span>
-                </div>
-
-                <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                  {doc.plainText.trim() || "Empty page"}
-                </p>
-
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {formatUpdatedAt(doc.updatedAt)}
-                </p>
-              </Link>
+                doc={doc}
+                renaming={renamingId === doc.id}
+                onContextMenu={onDocContextMenu}
+                onCommitRename={commitRename}
+                onCancelRename={() => setRenamingId(null)}
+              />
             ))}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function DocCard({
+  doc,
+  renaming,
+  onContextMenu,
+  onCommitRename,
+  onCancelRename,
+}: {
+  doc: Doc;
+  renaming: boolean;
+  onContextMenu: (event: ReactMouseEvent, doc: Doc) => void;
+  onCommitRename: (doc: Doc, next: string) => void;
+  onCancelRename: () => void;
+}) {
+  const icon = (
+    <span className="text-base leading-none">
+      {doc.icon ?? <FileText className="size-4 text-muted-foreground" />}
+    </span>
+  );
+
+  if (renaming) {
+    return (
+      <div className="rounded-xl border border-ring bg-card p-4">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const title = new FormData(event.currentTarget).get("title");
+            onCommitRename(doc, typeof title === "string" ? title : "");
+          }}
+        >
+          <div className="flex items-center gap-2">
+            {icon}
+            <input
+              name="title"
+              autoFocus
+              defaultValue={doc.title}
+              aria-label="Rename doc"
+              onBlur={(event) => onCommitRename(doc, event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  onCancelRename();
+                }
+              }}
+              className="min-w-0 flex-1 rounded border border-ring bg-input/40 px-1 py-0.5 font-medium outline-none"
+            />
+          </div>
+        </form>
+        <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+          {doc.plainText.trim() || "Empty page"}
+        </p>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {formatUpdatedAt(doc.updatedAt)}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={`/docs/${doc.id}`}
+      onContextMenu={(event) => onContextMenu(event, doc)}
+      className="group rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-accent/50"
+    >
+      <div className="flex items-center gap-2">
+        {icon}
+        <span className="truncate font-medium text-foreground">{doc.title}</span>
+      </div>
+      <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+        {doc.plainText.trim() || "Empty page"}
+      </p>
+      <p className="mt-3 text-xs text-muted-foreground">
+        {formatUpdatedAt(doc.updatedAt)}
+      </p>
+    </Link>
   );
 }

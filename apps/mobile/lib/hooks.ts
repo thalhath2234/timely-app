@@ -4,7 +4,7 @@ import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/a
 import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, stopFocus, setTodayFocus } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
 import type { Doc, MentionEntityType, NotificationSettings, Project, Sheet, Task, TaskViewConfig } from "./types";
-import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet } from "./api/sheets";
+import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, materializeTemplateTab } from "./api/sheets";
 import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject, getProjectActivity } from "./api/projects";
 import { getWorkspaces, getConfig, updateConfig, updateTaskViewsConfig } from "./api/workspaces";
 import {
@@ -64,6 +64,7 @@ export const keys = {
   doc: (id: string) => ["docs", id] as const,
   sheets: ["sheets"] as const,
   sheet: (id: string) => ["sheets", id] as const,
+  sheetTemplates: ["sheet-templates"] as const,
   projects: ["projects"] as const,
   workspaces: ["workspaces"] as const,
   config: ["config"] as const,
@@ -611,6 +612,25 @@ export function useDuplicateSheet() {
       client.setQueryData(keys.sheet(sheet.id), sheet);
       client.invalidateQueries({ queryKey: keys.sheets });
     },
+  });
+}
+
+export function useSheetTemplatesQuery() {
+  return useQuery({ queryKey: keys.sheetTemplates, queryFn: getSheetTemplates });
+}
+
+export function useCreateSheetTemplate() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: createSheetTemplate,
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.sheetTemplates }),
+  });
+}
+
+export function useMaterializeTemplateTab() {
+  return useMutation({
+    mutationFn: ({ templateId, tabId }: { templateId: string; tabId?: string }) =>
+      materializeTemplateTab(templateId, tabId),
   });
 }
 

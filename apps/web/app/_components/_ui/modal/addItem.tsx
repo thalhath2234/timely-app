@@ -14,6 +14,7 @@ import {
   Flag,
   FolderKanban,
   GitBranch,
+  LayoutTemplate,
   ListTodo,
   Palette,
   Plus,
@@ -24,7 +25,7 @@ import type { LucideIcon } from "lucide-react";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { useCreateDoc } from "@/app/utils/hooks/docs";
-import { useCreateSheet } from "@/app/utils/hooks/sheets";
+import { useCreateSheet, useSheetTemplates } from "@/app/utils/hooks/sheets";
 import { createProject } from "@/app/utils/api/projects";
 import { useCreateTask } from "@/app/utils/hooks/tasks";
 import { useCreateEvent } from "@/app/utils/hooks/calendar";
@@ -229,6 +230,7 @@ function AddItemModalInner() {
   const [eventRecurrence, setEventRecurrence] = useState<RecurrenceDraft | null>(
     null,
   );
+  const [sheetTemplateId, setSheetTemplateId] = useState("");
 
   // Form for Workspace
   const {
@@ -519,11 +521,13 @@ function AddItemModalInner() {
   };
 
   const createSheetMutation = useCreateSheet();
+  const templatesQuery = useSheetTemplates();
 
   const onSheetSubmit = async (data: AddPageForm) => {
     const sheet = await createSheetMutation.mutateAsync({
       title: data.title,
       workspaceId: data.workspaceId,
+      templateId: sheetTemplateId || undefined,
     });
 
     closeModal();
@@ -546,6 +550,7 @@ function AddItemModalInner() {
     setEventAllDay(false);
     setEventWorkspaceId("");
     setEventRecurrence(null);
+    setSheetTemplateId("");
     setCreateTaskDraft(null);
     setIsAddItemModalOpen(false);
   };
@@ -1545,6 +1550,25 @@ function AddItemModalInner() {
                 }))}
               />
             </PropertyRow>
+
+            {addNewMode === "sheet" && (templatesQuery.data?.length ?? 0) > 0 && (
+              <PropertyRow icon={LayoutTemplate} label="Template">
+                <Select
+                  size="sm"
+                  value={sheetTemplateId}
+                  onChange={setSheetTemplateId}
+                  placeholder="Blank sheet"
+                  className="border-0 bg-transparent px-0 shadow-none"
+                  options={[
+                    { value: "", label: "Blank sheet" },
+                    ...(templatesQuery.data ?? []).map((template) => ({
+                      value: template.id,
+                      label: template.name || "Untitled",
+                    })),
+                  ]}
+                />
+              </PropertyRow>
+            )}
 
             {pageErrors.workspaceId && (
               <p className="mt-2 px-1 text-xs text-destructive">

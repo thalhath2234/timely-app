@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import AlignCenter from "lucide-react/dist/esm/icons/align-center.mjs";
 import AlignLeft from "lucide-react/dist/esm/icons/align-left.mjs";
 import AlignRight from "lucide-react/dist/esm/icons/align-right.mjs";
@@ -181,7 +181,7 @@ export interface SheetGridProps {
   tabs?: SheetTabItem[];
   activeTabId?: string;
   onSelectTab?: (id: string) => void;
-  onAddTab?: () => void;
+  onAddTab?: (event: ReactMouseEvent) => void;
   onRenameTab?: (id: string, name: string) => void;
   onDeleteTab?: (id: string) => void;
 }

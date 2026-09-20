@@ -617,6 +617,20 @@ export interface Sheet {
   updatedAt: string;
 }
 
+export interface SheetTemplate {
+  id: string;
+  userId: string;
+  name: string;
+  icon: string | null;
+  columns: SheetColumn[];
+  rows: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
+  sourceSheetId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface User {
   id: string;
   email: string;

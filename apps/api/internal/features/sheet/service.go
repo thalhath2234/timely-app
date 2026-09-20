@@ -40,6 +40,7 @@ type SheetFilter struct {
 
 type SheetService interface {
 	Create(sheet *models.Sheet) (*models.Sheet, error)
+	CreateFromTemplate(userID, templateID, title, workspaceID string) (*models.Sheet, error)
 	GetAllByUser(userID string) ([]models.Sheet, error)
 	List(userID string, filter SheetFilter) ([]models.Sheet, error)
 	GetByID(userID string, sheetID string) (*models.Sheet, error)
@@ -52,6 +53,13 @@ type SheetService interface {
 	AddColumn(userID, sheetID, name, colType string) (*models.Sheet, error)
 	UpdateColumn(userID, sheetID, columnID, name, colType string, width *int) (*models.Sheet, error)
 	DeleteColumn(userID, sheetID, columnID string) (*models.Sheet, error)
+
+	ListTemplates(userID string) ([]models.SheetTemplate, error)
+	GetTemplate(userID, templateID string) (*models.SheetTemplate, error)
+	CreateTemplate(userID, sheetID, name, tabID string) (*models.SheetTemplate, error)
+	RenameTemplate(userID, templateID, name string) (*models.SheetTemplate, error)
+	DeleteTemplate(userID, templateID string) error
+	MaterializeTemplateTab(userID, templateID, tabID string) (models.SheetTab, error)
 }
 
 type sheetService struct {
@@ -86,7 +94,7 @@ func (s *sheetService) Create(sheet *models.Sheet) (*models.Sheet, error) {
 		}
 	}
 
-	if len(sheet.Columns) == 0 {
+	if len(sheet.Columns) == 0 && len(sheet.Tabs) == 0 {
 		sheet.Columns = models.DefaultSheetColumns()
 		sheet.Rows = models.DefaultSheetRows(sheet.Columns, defaultRows)
 	}
@@ -246,6 +254,113 @@ func (s *sheetService) Duplicate(userID, sheetID string) (*models.Sheet, error) 
 		UserID:      userID,
 	}
 	return s.Create(clone)
+}
+
+const maxTemplates = 50
+
+func (s *sheetService) CreateFromTemplate(userID, templateID, title, workspaceID string) (*models.Sheet, error) {
+	template, err := s.GetTemplate(userID, templateID)
+	if err != nil {
+		return nil, err
+	}
+	columns, rows, merges, tabs := models.CloneTemplateContents(template)
+	name := strings.TrimSpace(title)
+	if name == "" {
+		name = template.Name
+	}
+	return s.Create(&models.Sheet{
+		Title:       name,
+		Icon:        template.Icon,
+		Columns:     columns,
+		Rows:        rows,
+		Merges:      merges,
+		Tabs:        tabs,
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+	})
+}
+
+func (s *sheetService) ListTemplates(userID string) ([]models.SheetTemplate, error) {
+	if userID == "" {
+		return nil, errors.New("user not authenticated")
+	}
+	return s.repo.ListTemplates(userID)
+}
+
+func (s *sheetService) GetTemplate(userID, templateID string) (*models.SheetTemplate, error) {
+	if userID == "" {
+		return nil, errors.New("user not authenticated")
+	}
+	if templateID == "" {
+		return nil, errors.New("invalid template id")
+	}
+	return s.repo.GetTemplateByID(userID, templateID)
+}
+
+func (s *sheetService) CreateTemplate(userID, sheetID, name, tabID string) (*models.SheetTemplate, error) {
+	if userID == "" {
+		return nil, errors.New("user not authenticated")
+	}
+	count, err := s.repo.CountTemplates(userID)
+	if err != nil {
+		return nil, err
+	}
+	if count >= maxTemplates {
+		return nil, errors.New("too many templates")
+	}
+
+	src, err := s.GetByID(userID, sheetID)
+	if err != nil {
+		return nil, err
+	}
+
+	columns, rows, merges, tabs, err := models.SnapshotSheet(src, tabID)
+	if err != nil {
+		return nil, err
+	}
+
+	title := normalizeTitle(name)
+	if strings.TrimSpace(name) == "" {
+		title = normalizeTitle(src.Title)
+	}
+
+	template := &models.SheetTemplate{
+		ID:            utils.NewSheetTemplateID(),
+		UserID:        userID,
+		Name:          title,
+		Icon:          src.Icon,
+		Columns:       columns,
+		Rows:          rows,
+		Merges:        merges,
+		Tabs:          tabs,
+		SourceSheetID: &src.ID,
+	}
+	return s.repo.CreateTemplate(template)
+}
+
+func (s *sheetService) RenameTemplate(userID, templateID, name string) (*models.SheetTemplate, error) {
+	if _, err := s.GetTemplate(userID, templateID); err != nil {
+		return nil, err
+	}
+	return s.repo.UpdateTemplate(userID, templateID, map[string]any{
+		"name":       normalizeTitle(name),
+		"updated_at": utils.GetCurrentTimestamp(),
+	})
+}
+
+func (s *sheetService) DeleteTemplate(userID, templateID string) error {
+	if _, err := s.GetTemplate(userID, templateID); err != nil {
+		return err
+	}
+	return s.repo.DeleteTemplate(userID, templateID)
+}
+
+func (s *sheetService) MaterializeTemplateTab(userID, templateID, tabID string) (models.SheetTab, error) {
+	template, err := s.GetTemplate(userID, templateID)
+	if err != nil {
+		return models.SheetTab{}, err
+	}
+	return models.TabFromTemplate(template, tabID)
 }
 
 func (s *sheetService) Delete(userID string, sheetID string) error {

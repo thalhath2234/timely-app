@@ -15,12 +15,14 @@ import {
   useCreateSheet,
   useDeleteSheet,
   useSheets,
+  useSheetTemplates,
   useUpdateSheet,
 } from "@/app/utils/hooks/sheets";
 import { sheetMetaLabel } from "@/app/utils/sheetWorkbook";
 import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
+import { newSheetMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
 import type { Sheet } from "@/app/_types/types";
 
 export default function SheetList() {
@@ -29,6 +31,7 @@ export default function SheetList() {
   const activeId = params?.id;
 
   const { data: sheets, isLoading } = useSheets();
+  const templatesQuery = useSheetTemplates();
   const createSheet = useCreateSheet();
   const deleteSheet = useDeleteSheet();
   const updateSheet = useUpdateSheet();
@@ -66,9 +69,26 @@ export default function SheetList() {
     return all.filter((sheet) => sheet.title.toLowerCase().includes(query));
   }, [sheets, search, showArchived]);
 
-  const handleCreate = async () => {
-    const sheet = await createSheet.mutateAsync({});
+  const handleCreate = async (templateId?: string) => {
+    const sheet = await createSheet.mutateAsync(templateId ? { templateId } : {});
     router.push(`/sheets/${sheet.id}`);
+  };
+
+  const onNewSheetClick = (event: React.MouseEvent) => {
+    const templates = templatesQuery.data ?? [];
+    if (templates.length === 0) {
+      void handleCreate();
+      return;
+    }
+    openMenu(
+      event,
+      newSheetMenuItems({
+        templates,
+        onBlank: () => void handleCreate(),
+        onTemplate: (templateId) => void handleCreate(templateId),
+      }),
+      { title: "New sheet" },
+    );
   };
 
   const handleDelete = async (id: string) => {
@@ -122,7 +142,7 @@ export default function SheetList() {
           <button
             type="button"
             title="New sheet"
-            onClick={handleCreate}
+            onClick={onNewSheetClick}
             disabled={createSheet.isPending}
             className="flex size-7 cursor-pointer items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >

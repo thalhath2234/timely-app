@@ -51,7 +51,18 @@ export function workbookPayload(tabs: SheetTab[]) {
   };
 }
 
-export function addWorkbookTab(tabs: SheetTab[]): SheetTab[] {
+export function addWorkbookTab(tabs: SheetTab[], from?: SheetTab): SheetTab[] {
+  if (from) {
+    return [
+      ...tabs,
+      {
+        ...from,
+        id: from.id || newTabId(),
+        name: from.name?.trim() || `Sheet ${tabs.length + 1}`,
+        merges: from.merges ?? [],
+      },
+    ];
+  }
   const grid = defaultTabGrid();
   return [
     ...tabs,
@@ -66,6 +77,19 @@ export function addWorkbookTab(tabs: SheetTab[]): SheetTab[] {
       merges: [],
     },
   ];
+}
+
+export function templateTabChoices(template: {
+  name: string;
+  tabs?: SheetTab[] | null;
+}): { id: string; name: string }[] {
+  if (template.tabs && template.tabs.length > 0) {
+    return template.tabs.map((tab) => ({
+      id: tab.id,
+      name: tab.name?.trim() || template.name || "Sheet",
+    }));
+  }
+  return [{ id: "", name: template.name?.trim() || "Sheet 1" }];
 }
 
 export function sheetMetaLabel(sheet: Pick<Sheet, "columns" | "rows" | "updatedAt">) {
