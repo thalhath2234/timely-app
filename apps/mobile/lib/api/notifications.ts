@@ -21,7 +21,7 @@ export function markAllNotificationsRead() {
 }
 
 export function clearNotifications() {
-  return api<{ ok: boolean }>("/notifications/clear", { method: "POST" });
+  return api<{ ok: boolean }>("/notifications/clear", { method: "POST", body: {} });
 }
 
 export function snoozeNotification(id: string, payload: { minutes?: number; until?: string }) {

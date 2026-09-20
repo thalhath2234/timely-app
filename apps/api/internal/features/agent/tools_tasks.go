@@ -49,10 +49,10 @@ func (in listTasksIn) filter() task.TaskFilter {
 		DueAfter:      in.DueAfter,
 		Scheduled:     in.Scheduled,
 		HasRecurrence: in.Recurring,
-		Reminders:       in.Reminders,
-		Kind:            in.Kind,
-		Inbox:           in.Inbox,
-		Text:            in.Text,
+		Reminders:     in.Reminders,
+		Kind:          in.Kind,
+		Inbox:         in.Inbox,
+		Text:          in.Text,
 		Sort:          in.Sort,
 		Limit:         in.Limit,
 		Offset:        in.Offset,
@@ -110,6 +110,7 @@ type createTaskIn struct {
 	PriorityLevel string      `json:"priorityLevel,omitempty"`
 	StageID       string      `json:"stageId,omitempty"`
 	BlockedByID   string      `json:"blockedById,omitempty"`
+	ParentTaskID  *string     `json:"parentTaskId,omitempty" jsonschema:"-"`
 	LabelIDs      []string    `json:"labelIds,omitempty"`
 	CustomFields  []cfValueIn `json:"customFields,omitempty"`
 	Recurrence    *recIn      `json:"recurrence,omitempty"`
@@ -119,6 +120,9 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
+	}
+	if in.ParentTaskID != nil {
+		return fail(fmt.Errorf("parentTaskId is no longer supported; nested tasks were removed"))
 	}
 	if in.Duration > 0 && in.WorkspaceID == "" && in.Kind != models.KindInbox {
 		return fail(fmt.Errorf("workspaceId is required"))
@@ -165,32 +169,33 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 }
 
 type updateTaskIn struct {
-	TaskID          string      `json:"taskId"`
-	Name            *string     `json:"name,omitempty"`
-	Description     *string     `json:"description,omitempty" jsonschema:"markdown"`
-	Duration        *int        `json:"duration,omitempty"`
-	Deadline        *string     `json:"deadline,omitempty"`
-	StartDate       *string     `json:"startDate,omitempty"`
-	ScheduledOn     *string     `json:"scheduledOn,omitempty"`
-	ScheduleAt      *string     `json:"scheduleAt,omitempty" jsonschema:"alias for scheduledOn"`
-	CompletedAt     *string     `json:"completedAt,omitempty"`
-	WorkspaceID     *string     `json:"workspaceId,omitempty"`
-	ProjectID       *string     `json:"projectId,omitempty"`
-	StatusID        *string     `json:"statusId,omitempty"`
-	PriorityLevel   *string     `json:"priorityLevel,omitempty"`
-	StageID         *string     `json:"stageId,omitempty"`
-	BlockedByID     *string     `json:"blockedById,omitempty"`
-	Kind            *string     `json:"kind,omitempty" jsonschema:"task, reminder, or inbox"`
-	TodayFocusOn    *string     `json:"todayFocusOn,omitempty"`
-	MinChunkMinutes       *int                      `json:"minChunkMinutes,omitempty"`
-	PreferredChunkMinutes *int                      `json:"preferredChunkMinutes,omitempty"`
-	Contiguous            *bool                     `json:"contiguous,omitempty"`
-	EarliestStartAt       *string                   `json:"earliestStartAt,omitempty"`
-	ScheduleLocked        *bool                     `json:"scheduleLocked,omitempty"`
-	LabelIDs        []string    `json:"labelIds,omitempty"`
-	CustomFields    []cfValueIn `json:"customFields,omitempty"`
-	Recurrence      *recIn      `json:"recurrence,omitempty"`
-	ClearRecurrence bool        `json:"clearRecurrence,omitempty"`
+	TaskID                string      `json:"taskId"`
+	Name                  *string     `json:"name,omitempty"`
+	Description           *string     `json:"description,omitempty" jsonschema:"markdown"`
+	Duration              *int        `json:"duration,omitempty"`
+	Deadline              *string     `json:"deadline,omitempty"`
+	StartDate             *string     `json:"startDate,omitempty"`
+	ScheduledOn           *string     `json:"scheduledOn,omitempty"`
+	ScheduleAt            *string     `json:"scheduleAt,omitempty" jsonschema:"alias for scheduledOn"`
+	CompletedAt           *string     `json:"completedAt,omitempty"`
+	WorkspaceID           *string     `json:"workspaceId,omitempty"`
+	ProjectID             *string     `json:"projectId,omitempty"`
+	StatusID              *string     `json:"statusId,omitempty"`
+	PriorityLevel         *string     `json:"priorityLevel,omitempty"`
+	StageID               *string     `json:"stageId,omitempty"`
+	BlockedByID           *string     `json:"blockedById,omitempty"`
+	ParentTaskID          *string     `json:"parentTaskId,omitempty" jsonschema:"-"`
+	Kind                  *string     `json:"kind,omitempty" jsonschema:"task, reminder, or inbox"`
+	TodayFocusOn          *string     `json:"todayFocusOn,omitempty"`
+	MinChunkMinutes       *int        `json:"minChunkMinutes,omitempty"`
+	PreferredChunkMinutes *int        `json:"preferredChunkMinutes,omitempty"`
+	Contiguous            *bool       `json:"contiguous,omitempty"`
+	EarliestStartAt       *string     `json:"earliestStartAt,omitempty"`
+	ScheduleLocked        *bool       `json:"scheduleLocked,omitempty"`
+	LabelIDs              []string    `json:"labelIds,omitempty"`
+	CustomFields          []cfValueIn `json:"customFields,omitempty"`
+	Recurrence            *recIn      `json:"recurrence,omitempty"`
+	ClearRecurrence       bool        `json:"clearRecurrence,omitempty"`
 }
 
 func (in updateTaskIn) toUpdate() task.TaskUpdate {
@@ -199,20 +204,20 @@ func (in updateTaskIn) toUpdate() task.TaskUpdate {
 		scheduledOn = in.ScheduleAt
 	}
 	update := task.TaskUpdate{
-		Name:          in.Name,
-		Duration:      in.Duration,
-		Deadline:      in.Deadline,
-		StartDate:     in.StartDate,
-		ScheduledOn:   scheduledOn,
-		CompletedAt:   in.CompletedAt,
-		WorkspaceID:   in.WorkspaceID,
-		ProjectID:     in.ProjectID,
-		StatusID:      in.StatusID,
-		PriorityLevel: in.PriorityLevel,
-		StageID:       in.StageID,
-		BlockedByID:   in.BlockedByID,
-		Kind:          in.Kind,
-		TodayFocusOn:  in.TodayFocusOn,
+		Name:                  in.Name,
+		Duration:              in.Duration,
+		Deadline:              in.Deadline,
+		StartDate:             in.StartDate,
+		ScheduledOn:           scheduledOn,
+		CompletedAt:           in.CompletedAt,
+		WorkspaceID:           in.WorkspaceID,
+		ProjectID:             in.ProjectID,
+		StatusID:              in.StatusID,
+		PriorityLevel:         in.PriorityLevel,
+		StageID:               in.StageID,
+		BlockedByID:           in.BlockedByID,
+		Kind:                  in.Kind,
+		TodayFocusOn:          in.TodayFocusOn,
 		MinChunkMinutes:       in.MinChunkMinutes,
 		PreferredChunkMinutes: in.PreferredChunkMinutes,
 		Contiguous:            in.Contiguous,
@@ -243,6 +248,9 @@ func (in updateTaskIn) toUpdate() task.TaskUpdate {
 }
 
 func (s *Server) updateTask(ctx context.Context, req *mcp.CallToolRequest, in updateTaskIn) (*mcp.CallToolResult, any, error) {
+	if in.ParentTaskID != nil {
+		return fail(fmt.Errorf("parentTaskId is no longer supported; nested tasks were removed"))
+	}
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)

@@ -148,6 +148,7 @@ export default function TaskScheduleSection({
     const windows = preferredWindowsPayload(start, end);
     if (windows === undefined) {
       if (start && end) setError("Preferred end must be after start.");
+      else if (start || end) setError("Set both a start and an end time.");
       return;
     }
     void run(

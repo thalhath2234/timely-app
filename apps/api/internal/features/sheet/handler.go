@@ -20,6 +20,7 @@ func NewHandler(sheetService SheetService) *Handler {
 type createSheetRequest struct {
 	Title       string              `json:"title"`
 	Icon        *string             `json:"icon"`
+	Description *string             `json:"description"`
 	Columns     models.SheetColumns `json:"columns"`
 	Rows        models.SheetRows    `json:"rows"`
 	Merges      models.SheetMerges  `json:"merges"`
@@ -29,15 +30,16 @@ type createSheetRequest struct {
 }
 
 type updateSheetRequest struct {
-	Title      *string              `json:"title"`
-	Icon       *string              `json:"icon"`
-	Columns    *models.SheetColumns `json:"columns"`
-	Rows       *models.SheetRows    `json:"rows"`
-	Merges     *models.SheetMerges  `json:"merges"`
-	Tabs       *models.SheetTabs    `json:"tabs"`
-	ProjectID  *string              `json:"projectId"`
-	IsFavorite *bool                `json:"isFavorite"`
-	Archived   *bool                `json:"archived"`
+	Title       *string              `json:"title"`
+	Icon        *string              `json:"icon"`
+	Description *string              `json:"description"`
+	Columns     *models.SheetColumns `json:"columns"`
+	Rows        *models.SheetRows    `json:"rows"`
+	Merges      *models.SheetMerges  `json:"merges"`
+	Tabs        *models.SheetTabs    `json:"tabs"`
+	ProjectID   *string              `json:"projectId"`
+	IsFavorite  *bool                `json:"isFavorite"`
+	Archived    *bool                `json:"archived"`
 }
 
 func (h *Handler) Create(c *echo.Context) error {
@@ -49,6 +51,9 @@ func (h *Handler) Create(c *echo.Context) error {
 	var req createSheetRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
+	}
+	if err := rejectRemovedSheetDescription(req.Description != nil); err != nil {
+		return err
 	}
 
 	createdSheet, err := h.sheetService.Create(&models.Sheet{
@@ -133,6 +138,9 @@ func (h *Handler) Update(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
 	}
+	if err := rejectRemovedSheetDescription(req.Description != nil); err != nil {
+		return err
+	}
 
 	updatedSheet, err := h.sheetService.Update(userID, c.Param("id"), SheetUpdate{
 		Title:      req.Title,
@@ -175,6 +183,13 @@ func sheetError(err error) error {
 		return echo.NewHTTPError(http.StatusNotFound, "sheet not found")
 	}
 	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+}
+
+func rejectRemovedSheetDescription(present bool) error {
+	if !present {
+		return nil
+	}
+	return echo.NewHTTPError(http.StatusBadRequest, "sheet description is no longer supported")
 }
 
 func parseBoolQuery(raw string) *bool {

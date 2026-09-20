@@ -202,9 +202,15 @@ export default function TaskExecution({
               const title = checkTitle.trim();
               if (!title || submittingRef.current) return;
               submittingRef.current = true;
-              void addItem.mutateAsync(title).then(() => setCheckTitle("")).finally(() => {
-                submittingRef.current = false;
-              });
+              void addItem
+                .mutateAsync(title)
+                .then(() => setCheckTitle(""))
+                .catch(() => {
+                  // addItem.isError already renders the failure.
+                })
+                .finally(() => {
+                  submittingRef.current = false;
+                });
             }}
           >
             <Plus className="size-3.5 shrink-0" />

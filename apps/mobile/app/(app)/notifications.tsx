@@ -82,6 +82,9 @@ export default function NotificationsScreen() {
             <Text style={styles.clearText}>Clear all</Text>
           </AnimatedPressable>
         </View>
+        {clearAll.isError ? (
+          <Text style={styles.meta}>Couldn't clear notifications. Try again.</Text>
+        ) : null}
         {networkCopy && items.length === 0 ? (
           <EmptyState
             icon={Bell}
@@ -140,7 +143,7 @@ export default function NotificationsScreen() {
         title="Clear all notifications?"
         message="This removes them from the list. It cannot be undone."
         confirmLabel="Clear all"
-        onConfirm={() => void clearAll.mutateAsync()}
+        onConfirm={() => void clearAll.mutateAsync().catch(() => undefined)}
       />
     </Screen>
   );

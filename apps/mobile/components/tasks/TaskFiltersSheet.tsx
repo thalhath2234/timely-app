@@ -178,13 +178,7 @@ export default function TaskFiltersSheet({
         <Field value={view.name} onChangeText={(name) => onPatch({ name })} placeholder="View name" autoCapitalize="words" />
         <View style={styles.row}>
           <FilterChip label="Add view" onPress={onAdd} />
-          <FilterChip
-            label="Delete view"
-            active={canDelete}
-            onPress={() => {
-              if (canDelete) onDelete();
-            }}
-          />
+          {canDelete ? <FilterChip label="Delete view" onPress={onDelete} /> : null}
         </View>
       </View>
 

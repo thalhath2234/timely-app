@@ -284,13 +284,17 @@ func (s *Server) getSheet(ctx context.Context, req *mcp.CallToolRequest, in shee
 }
 
 type createSheetIn struct {
-	Title       string `json:"title"`
-	WorkspaceID string `json:"workspaceId,omitempty"`
-	ProjectID   string `json:"projectId,omitempty"`
-	Icon        string `json:"icon,omitempty"`
+	Title       string  `json:"title"`
+	WorkspaceID string  `json:"workspaceId,omitempty"`
+	ProjectID   string  `json:"projectId,omitempty"`
+	Icon        string  `json:"icon,omitempty"`
+	Description *string `json:"description,omitempty" jsonschema:"-"`
 }
 
 func (s *Server) createSheet(ctx context.Context, req *mcp.CallToolRequest, in createSheetIn) (*mcp.CallToolResult, any, error) {
+	if in.Description != nil {
+		return fail(fmt.Errorf("sheet description is no longer supported"))
+	}
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
@@ -310,15 +314,19 @@ func (s *Server) createSheet(ctx context.Context, req *mcp.CallToolRequest, in c
 }
 
 type updateSheetIn struct {
-	SheetID    string  `json:"sheetId"`
-	Title      *string `json:"title,omitempty"`
-	Icon       *string `json:"icon,omitempty"`
-	ProjectID  *string `json:"projectId,omitempty"`
-	IsFavorite *bool   `json:"isFavorite,omitempty"`
-	Archived   *bool   `json:"archived,omitempty"`
+	SheetID     string  `json:"sheetId"`
+	Title       *string `json:"title,omitempty"`
+	Icon        *string `json:"icon,omitempty"`
+	Description *string `json:"description,omitempty" jsonschema:"-"`
+	ProjectID   *string `json:"projectId,omitempty"`
+	IsFavorite  *bool   `json:"isFavorite,omitempty"`
+	Archived    *bool   `json:"archived,omitempty"`
 }
 
 func (s *Server) updateSheet(ctx context.Context, req *mcp.CallToolRequest, in updateSheetIn) (*mcp.CallToolResult, any, error) {
+	if in.Description != nil {
+		return fail(fmt.Errorf("sheet description is no longer supported"))
+	}
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)

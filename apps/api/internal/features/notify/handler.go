@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
 
@@ -85,6 +86,9 @@ func (h *Handler) MarkAllRead(c *echo.Context) error {
 }
 
 func (h *Handler) ClearAll(c *echo.Context) error {
+	if err := requireJSONIfCookie(c); err != nil {
+		return err
+	}
 	uid, err := userID(c)
 	if err != nil {
 		return err
@@ -93,6 +97,18 @@ func (h *Handler) ClearAll(c *echo.Context) error {
 		return notifyError(err)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func requireJSONIfCookie(c *echo.Context) error {
+	header := c.Request().Header.Get("Authorization")
+	if len(header) >= 8 && header[:7] == "Bearer " {
+		return nil
+	}
+	ct := strings.ToLower(c.Request().Header.Get(echo.HeaderContentType))
+	if strings.HasPrefix(ct, "application/json") {
+		return nil
+	}
+	return echo.NewHTTPError(http.StatusForbidden, "JSON content type required")
 }
 
 func (h *Handler) Snooze(c *echo.Context) error {

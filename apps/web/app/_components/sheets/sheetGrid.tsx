@@ -105,6 +105,7 @@ import {
 } from "@/app/utils/sheetRange";
 import {
   closeOpenParens,
+  formulaAcceptsAnotherRange,
   insertFormulaRange,
   type FormulaRefSpan,
 } from "@/app/utils/sheetFormulaInput";
@@ -323,6 +324,7 @@ export default function SheetGrid({
       return haystack.includes(query) ? [index] : [];
     });
   }, [columns, filterQuery, rows]);
+  const filtering = filterQuery.trim().length > 0;
 
   useEffect(() => {
     if (editing && editSourceRef.current === "cell") cellInputRef.current?.focus();
@@ -740,7 +742,7 @@ export default function SheetGrid({
     address: CellAddress,
     mode: "formula" | "formula-col" | "formula-row",
   ) => {
-    const shouldAppend = formulaSpanRef.current != null;
+    const shouldAppend = formulaAcceptsAnotherRange(draftRef.current, formulaSpanRef.current);
     formulaPickingRef.current = true;
     dragRef.current = mode;
     formulaPickOriginRef.current = address;
@@ -2090,9 +2092,9 @@ export default function SheetGrid({
           </div>
 
           {visibleRows.map((rowIndex) => {
-            const rowHasVerticalMerge = merges.some(
-              (merge) => merge.startRow === rowIndex && merge.rowSpan > 1,
-            );
+            const rowHasVerticalMerge =
+              !filtering &&
+              merges.some((merge) => merge.startRow === rowIndex && merge.rowSpan > 1);
             return (
             <div
               key={rows[rowIndex].id}
@@ -2138,42 +2140,57 @@ export default function SheetGrid({
                 const address = { col: colIndex, row: rowIndex };
                 if (coveredByMerge(merges, address)) {
                   const covered = findMerge(merges, address);
-                  if (covered && address.col === covered.startCol) {
-                    return (
-                      <div
-                        key={column.id}
-                        className="h-8 min-w-0"
-                        style={{
-                          gridColumn: `span ${covered.colSpan}`,
-                          height: ROW_HEIGHT,
-                        }}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          window.getSelection()?.removeAllRanges();
-                          gridRef.current?.focus();
-                          if (event.shiftKey) setSelection(address, true);
-                          else setSelection(rangeFromMerge(covered));
-                          dragRef.current = "select";
-                        }}
-                        onMouseEnter={() => {
-                          if (dragRef.current?.startsWith("formula")) {
-                            extendFormulaPick(address);
-                            return;
-                          }
-                          if (dragRef.current === "select") setSelection(address, true);
-                        }}
-                      />
-                    );
+                  const ignoreVerticalCover = Boolean(
+                    filtering && covered && covered.rowSpan > 1,
+                  );
+                  if (ignoreVerticalCover && covered && address.row === covered.startRow && address.col !== covered.startCol) {
+                    return null;
                   }
-                  return null;
+                  if (!ignoreVerticalCover) {
+                    if (covered && address.col === covered.startCol) {
+                      return (
+                        <div
+                          key={column.id}
+                          className="h-8 min-w-0"
+                          style={{
+                            gridColumn: `span ${covered.colSpan}`,
+                            height: ROW_HEIGHT,
+                          }}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            window.getSelection()?.removeAllRanges();
+                            gridRef.current?.focus();
+                            if (isEditingFormula) {
+                              beginFormulaPick(
+                                { col: covered.startCol, row: covered.startRow },
+                                "formula",
+                              );
+                              return;
+                            }
+                            if (event.shiftKey) setSelection(address, true);
+                            else setSelection(rangeFromMerge(covered));
+                            dragRef.current = "select";
+                          }}
+                          onMouseEnter={() => {
+                            if (dragRef.current?.startsWith("formula")) {
+                              extendFormulaPick(address);
+                              return;
+                            }
+                            if (dragRef.current === "select") setSelection(address, true);
+                          }}
+                        />
+                      );
+                    }
+                    return null;
+                  }
                 }
 
                 const merge = findMerge(merges, address);
                 const isVerticalOrigin = Boolean(
-                  merge && isMergeOrigin(merge, address) && merge.rowSpan > 1,
+                  !filtering && merge && isMergeOrigin(merge, address) && merge.rowSpan > 1,
                 );
                 const mergeRowSpan =
-                  merge && isMergeOrigin(merge, address) ? merge.rowSpan : 1;
+                  !filtering && merge && isMergeOrigin(merge, address) ? merge.rowSpan : 1;
                 const isSelected = sameAddress(selected, address);
                 const inRange = isInRange(address, range);
                 const isEditing = editing?.col === colIndex && editing?.row === rowIndex;

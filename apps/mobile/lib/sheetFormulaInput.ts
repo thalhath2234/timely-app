@@ -155,6 +155,33 @@ function appendInsertSite(
   return { start: at, end: at, prefix, suffix: "" };
 }
 
+const VARIADIC_RANGE_FUNCS = new Set([
+  "SUM",
+  "AVERAGE",
+  "AVG",
+  "MIN",
+  "MAX",
+  "PRODUCT",
+  "COUNT",
+  "COUNTA",
+  "AND",
+  "OR",
+]);
+
+/** True when another picked range should be appended (SUM) rather than replacing (ROUND). */
+export function formulaAcceptsAnotherRange(
+  formula: string,
+  span?: FormulaRefSpan | null,
+): boolean {
+  if (!span) return false;
+  const pair = findParenPairAt(formula, span.start);
+  if (!pair) return false;
+  const before = formula.slice(0, pair.open);
+  const name = TRAILING_NAME_RE.exec(before);
+  if (!name || A1_REF_RE.test(name[0])) return false;
+  return VARIADIC_RANGE_FUNCS.has(name[0].toUpperCase());
+}
+
 /** Insert or replace an A1 range at the caret, spreadsheet-style. */
 export function insertFormulaRange(
   formula: string,

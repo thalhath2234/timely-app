@@ -135,7 +135,11 @@ async function loadStored(userId: string): Promise<StoredNativeViews> {
 async function saveStored(userId: string, payload: StoredNativeViews) {
   const uri = fileUri(userId);
   if (!uri) return;
-  await FileSystem.writeAsStringAsync(uri, JSON.stringify(payload));
+  try {
+    await FileSystem.writeAsStringAsync(uri, JSON.stringify(payload));
+  } catch {
+    // Local view layout only; a failed write should not surface as an unhandled rejection.
+  }
 }
 
 export function groupFieldLabel(field: TaskListGroupField, customFields: CustomField[] = []) {

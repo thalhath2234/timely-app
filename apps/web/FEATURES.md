@@ -175,7 +175,7 @@ Deep links: `?taskId=`, `?projectId=`.
 
 **Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks`, and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete).
 
-**Checklists** are items on the task, not nested tasks. Completing a task does not auto-complete its checklist.
+**Checklists** are items on the task, not nested tasks. Completing a task does not auto-complete its checklist. `parentTaskId` is rejected on create/update (REST and MCP); nested-task creation has no replacement. Sheet `description` is also rejected.
 
 ### Inbox and Today
 
@@ -448,7 +448,7 @@ Picker → Name / Statuses / Labels / Custom fields (including Yes/No).
 
 ### Data & privacy
 
-- Full JSON backup, tasks CSV, calendar ICS.
+- Full JSON backup, tasks CSV, calendar ICS. Current backups use `schemaVersion` 2. Version 1 restores unless it still contains nested `parent_task_id` rows; export a new backup after upgrading.
 - Restore (replace-mode, transactional).
 - Encrypted server backups: create, list, download, delete; schedule + retention.
 

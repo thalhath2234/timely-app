@@ -39,7 +39,7 @@ import {
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { columnIndexToLetter, createSheetEvaluator, shiftFormula } from "../../lib/sheetFormula";
-import { closeOpenParens, insertFormulaRange, type FormulaRefSpan } from "../../lib/sheetFormulaInput";
+import { closeOpenParens, formulaAcceptsAnotherRange, insertFormulaRange, type FormulaRefSpan } from "../../lib/sheetFormulaInput";
 import {
   type CellAddress,
   type CellRange,
@@ -595,7 +595,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
   }
 
   function beginFormulaPick(address: Address, mode: "formula" | "formula-col" | "formula-row") {
-    const shouldAppend = formulaSpanRef.current != null;
+    const shouldAppend = formulaAcceptsAnotherRange(draftRef.current, formulaSpanRef.current);
     formulaPickingRef.current = true;
     dragModeRef.current = mode;
     formulaPickOriginRef.current = address;
@@ -1287,6 +1287,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                           merges,
                           colWidth,
                           rawAt,
+                          filtering,
                         }),
                       )}
                     </View>
@@ -1686,6 +1687,7 @@ function renderCell({
   merges: SheetMerge[];
   colWidth: (column: SheetColumn) => number;
   rawAt: (address: Address) => string;
+  filtering: boolean;
 }) {
   const column = columns[colIndex];
   const address = { col: colIndex, row: rowIndex };
@@ -1713,7 +1715,16 @@ function renderCell({
       rowIndex >= item.startRow &&
       rowIndex < item.startRow + item.rowSpan,
   );
-  if (merge && (merge.startCol !== colIndex || merge.startRow !== rowIndex)) {
+  const collapseVertical = Boolean(filtering && merge && merge.rowSpan > 1);
+  if (
+    collapseVertical &&
+    merge &&
+    rowIndex === merge.startRow &&
+    colIndex !== merge.startCol
+  ) {
+    return null;
+  }
+  if (merge && (merge.startCol !== colIndex || merge.startRow !== rowIndex) && !collapseVertical) {
     if (rowIndex === merge.startRow) return null;
     if (colIndex !== merge.startCol) return null;
     const spacerWidth = columns
@@ -1730,6 +1741,12 @@ function renderCell({
       />
     );
   }
+  const displayMerge =
+    merge && merge.startCol === colIndex && merge.startRow === rowIndex
+      ? collapseVertical
+        ? { ...merge, rowSpan: 1 }
+        : merge
+      : null;
   const isSelected = selected.col === colIndex && selected.row === rowIndex;
   const inRange = isInRange(address, range);
   const inFormulaRange = isInAnyRange(address, formulaRanges);
@@ -1738,20 +1755,20 @@ function renderCell({
   const format = row.formats?.[column.id];
   const display = formatCellDisplay(evaluator.displayAt(colIndex, rowIndex), format, column.type);
   const booleanCol = column.type === "boolean" && !rawAt(address).startsWith("=");
-  const spanWidth = merge
-    ? columns.slice(merge.startCol, merge.startCol + merge.colSpan).reduce((sum, item) => sum + colWidth(item), 0)
+  const spanWidth = displayMerge
+    ? columns.slice(displayMerge.startCol, displayMerge.startCol + displayMerge.colSpan).reduce((sum, item) => sum + colWidth(item), 0)
     : colWidth(column);
-  const spanHeight = merge ? CELL_H * merge.rowSpan : CELL_H;
+  const spanHeight = displayMerge ? CELL_H * displayMerge.rowSpan : CELL_H;
   const align = format?.align ?? (result.type === "number" ? "right" : "left");
   const multiCell = range.anchor.col !== range.focus.col || range.anchor.row !== range.focus.row;
-  const mergeFullySelected = Boolean(merge && isExactMergeSelection(range, merge));
+  const mergeFullySelected = Boolean(displayMerge && isExactMergeSelection(range, displayMerge));
 
   return (
     <View
       key={column.id}
       style={[
         { width: spanWidth, height: CELL_H },
-        merge && merge.rowSpan > 1 ? { zIndex: 8, overflow: "visible" } : null,
+        displayMerge && displayMerge.rowSpan > 1 ? { zIndex: 8, overflow: "visible" } : null,
       ]}
     >
     <Pressable
@@ -1761,7 +1778,7 @@ function renderCell({
       onPress={() => (booleanCol ? toggleBoolean(address) : tapCell(address))}
       style={[
         styles.cell,
-        merge && merge.rowSpan > 1
+        displayMerge && displayMerge.rowSpan > 1
           ? { position: "absolute", top: 0, left: 0, width: spanWidth, height: spanHeight, zIndex: 8 }
           : { width: spanWidth },
         format?.fillColor ? { backgroundColor: format.fillColor } : null,

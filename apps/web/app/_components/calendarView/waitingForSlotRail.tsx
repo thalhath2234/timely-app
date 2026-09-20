@@ -62,9 +62,21 @@ export default function WaitingForSlotRail({
               <motion.li key={task.id} layout whileHover={hoverLift}>
                 <div
                   draggable
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open ${task.name}`}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    onOpen(task.id);
+                  }}
                   onDragStart={(event) => {
                     dragged.current = true;
                     setTaskDragData(event, task.id);
+                  }}
+                  onDragEnd={() => {
+                    dragged.current = false;
                   }}
                   onClick={() => {
                     if (dragged.current) {

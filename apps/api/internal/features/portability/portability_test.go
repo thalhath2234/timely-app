@@ -27,6 +27,20 @@ func TestValidateBackupRejectsUnknownAndOversizedSchemas(t *testing.T) {
 	if err := validateBackup(&wrongVersion); err == nil || !strings.Contains(err.Error(), "unsupported") {
 		t.Fatalf("expected schema error, got %v", err)
 	}
+
+	legacy := *valid
+	legacy.SchemaVersion = 1
+	if err := validateBackup(&legacy); err != nil {
+		t.Fatalf("version 1 without nested tasks rejected: %v", err)
+	}
+
+	nested := legacy
+	nested.Rows = map[string][]json.RawMessage{
+		"tasks": {json.RawMessage(`{"id":"tsk_child","parent_task_id":"tsk_parent"}`)},
+	}
+	if err := validateBackup(&nested); err == nil || !strings.Contains(err.Error(), "nested tasks") {
+		t.Fatalf("expected nested-task backup error, got %v", err)
+	}
 }
 
 func TestEncryptedBackupRoundTripAndTamperDetection(t *testing.T) {

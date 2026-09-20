@@ -61,6 +61,8 @@ export async function clearNotifications(): Promise<void> {
   const response = await apiFetch("/notifications/clear", {
     method: "POST",
     credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
   });
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to clear notifications"));
