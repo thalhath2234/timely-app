@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -9,7 +9,7 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import SheetGrid from "../../../components/sheets/SheetGrid";
-import { useDeleteSheet, useDuplicateSheet, useSheetQuery, useUpdateSheet, useWorkspacesQuery } from "../../../lib/hooks";
+import { useDeleteSheet, useDuplicateSheet, useCreateSheetTemplate, useMaterializeTemplateTab, useSheetQuery, useSheetTemplatesQuery, useUpdateSheet, useWorkspacesQuery } from "../../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../../lib/autosave";
 import { showUndoToast } from "../../../lib/toast";
 import { shareLocalText } from "../../../lib/api/portability";
@@ -63,6 +63,9 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   const save = useUpdateSheet();
   const remove = useDeleteSheet();
   const duplicate = useDuplicateSheet();
+  const createTemplate = useCreateSheetTemplate();
+  const templatesQ = useSheetTemplatesQuery();
+  const materializeTab = useMaterializeTemplateTab();
   const initialTabs = tabsFromSheet(sheet);
 
   const [title, setTitle] = useState(sheet.title);
@@ -70,7 +73,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   const [favorite, setFavorite] = useState(sheet.isFavorite);
   const [tabs, setTabs] = useState<SheetTab[]>(initialTabs);
   const [activeTabId, setActiveTabId] = useState(initialTabs[0]?.id ?? "");
-  const [menu, setMenu] = useState<"more" | "icon" | "delete" | "tab" | null>(null);
+  const [menu, setMenu] = useState<"more" | "icon" | "delete" | "tab" | "template-tab" | null>(null);
   const [tabDraft, setTabDraft] = useState("");
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
 
@@ -78,11 +81,13 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
     save.mutateAsync({ id: sheet.id, data: patch }),
   );
   useUnsavedLeaveGuard(hasUnsavedChanges);
+  const tabsRef = useRef(tabs);
 
   const workspace = spaces.find((w) => w.id === sheet.workspaceId);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 
   function persistTabs(nextTabs: SheetTab[]) {
+    tabsRef.current = nextTabs;
     setTabs(nextTabs);
     if (!nextTabs.some((tab) => tab.id === activeTabId) && nextTabs[0]) {
       setActiveTabId(nextTabs[0].id);
@@ -197,6 +202,10 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
           <Pressable
             accessibilityLabel="Add sheet tab"
             onPress={() => {
+              if ((templatesQ.data ?? []).length > 0) {
+                setMenu("template-tab");
+                return;
+              }
               const next = addWorkbookTab(tabs);
               setActiveTabId(next[next.length - 1]!.id);
               persistTabs(next);
@@ -220,6 +229,29 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
           leading={<Download size={18} color={colors.foreground} />}
         >
           Export CSV
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setMenu(null);
+            void (async () => {
+              if (!(await flush())) {
+                Alert.alert("Could not save template", "Save the sheet and try again.");
+                return;
+              }
+              try {
+                const template = await createTemplate.mutateAsync({
+                  sheetId: sheet.id,
+                  name: title || sheet.title,
+                });
+                showUndoToast(`Saved template “${template.name}”`);
+              } catch (error: unknown) {
+                Alert.alert("Could not save template", error instanceof Error ? error.message : "Try again.");
+              }
+            })();
+          }}
+          leading={<Copy size={18} color={colors.foreground} />}
+        >
+          Save as template
         </SheetOption>
         <SheetOption
           onSelect={() => {
@@ -249,6 +281,47 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         >
           Delete sheet
         </SheetOption>
+      </BottomSheet>
+
+      <BottomSheet open={menu === "template-tab"} onClose={() => setMenu(null)} title="New tab">
+        <SheetOption
+          onSelect={() => {
+            const next = addWorkbookTab(tabs);
+            setActiveTabId(next[next.length - 1]!.id);
+            persistTabs(next);
+            setMenu(null);
+          }}
+          leading={<Plus size={18} color={colors.foreground} />}
+        >
+          Blank tab
+        </SheetOption>
+        {(templatesQ.data ?? []).flatMap((template) => {
+          const tabsInTemplate = template.tabs && template.tabs.length > 0
+            ? template.tabs
+            : [{ id: "", name: template.name }];
+          return tabsInTemplate.map((tab) => (
+            <SheetOption
+              key={`${template.id}:${tab.id}`}
+              onSelect={() => {
+                setMenu(null);
+                void materializeTab
+                  .mutateAsync({ templateId: template.id, tabId: tab.id || undefined })
+                  .then((copy) => {
+                    const next = addWorkbookTab(tabsRef.current, copy);
+                    setActiveTabId(next[next.length - 1]!.id);
+                    persistTabs(next);
+                  })
+                  .catch((error: unknown) => {
+                    setMenu(null);
+                    Alert.alert("Could not add tab", error instanceof Error ? error.message : "Try again.");
+                  });
+              }}
+              leading={<SheetIcon size={18} color={colors.foreground} />}
+            >
+              {tabsInTemplate.length > 1 ? `${template.name} · ${tab.name}` : template.name}
+            </SheetOption>
+          ));
+        })}
       </BottomSheet>
 
       <BottomSheet open={menu === "icon"} onClose={() => setMenu(null)} title="Icon">

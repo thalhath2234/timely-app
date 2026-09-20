@@ -7,6 +7,7 @@ import {
   ArchiveRestore,
   Copy,
   ExternalLink,
+  LayoutTemplate,
   Link2,
   Pencil,
   Sheet as SheetIcon,
@@ -15,10 +16,16 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Sheet } from "@/app/_types/types";
-import { useDeleteSheet, useDuplicateSheet, useUpdateSheet } from "@/app/utils/hooks/sheets";
+import {
+  useCreateSheetTemplate,
+  useDeleteSheet,
+  useDuplicateSheet,
+  useUpdateSheet,
+} from "@/app/utils/hooks/sheets";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
+import { flushOpenSheet } from "@/app/utils/sheetFlush";
 
 export type SheetMenuOptions = {
   onRename?: () => void;
@@ -38,6 +45,7 @@ export function useSheetContextMenu() {
   const deleteSheet = useDeleteSheet();
   const updateSheet = useUpdateSheet();
   const duplicateSheet = useDuplicateSheet();
+  const createTemplate = useCreateSheetTemplate();
 
   return useCallback(
     (sheet: Sheet, options: SheetMenuOptions = {}): ContextMenuEntry[] => {
@@ -79,6 +87,30 @@ export function useSheetContextMenu() {
                 router.push(`/sheets/${copy.id}`);
               })
               .catch(() => useToastStore.getState().show("Could not duplicate sheet"));
+          },
+        },
+        {
+          kind: "action",
+          label: "Save as template",
+          icon: LayoutTemplate,
+          onSelect: () => {
+            void (async () => {
+              if (!(await flushOpenSheet(sheet.id))) {
+                useToastStore.getState().show("Could not save changes");
+                return;
+              }
+              try {
+                const template = await createTemplate.mutateAsync({
+                  sheetId: sheet.id,
+                  name: title,
+                });
+                useToastStore.getState().show(`Saved template “${template.name}”`);
+              } catch (error: unknown) {
+                useToastStore
+                  .getState()
+                  .show(error instanceof Error ? error.message : "Could not save template");
+              }
+            })();
           },
         },
         {
@@ -139,6 +171,6 @@ export function useSheetContextMenu() {
         },
       ]);
     },
-    [deleteSheet, duplicateSheet, router, updateSheet],
+    [createTemplate, deleteSheet, duplicateSheet, router, updateSheet],
   );
 }

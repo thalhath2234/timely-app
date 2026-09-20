@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Copy,
   Download,
+  LayoutTemplate,
   Share2,
   Smile,
   Star,
@@ -18,9 +19,12 @@ import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedList
 import { Sheet, SheetTab } from "@/app/_types/types";
 import { UpdateSheetPayload } from "@/app/utils/api/sheets";
 import {
+  useCreateSheetTemplate,
   useDeleteSheet,
   useDuplicateSheet,
+  useMaterializeTemplateTab,
   useSheet,
+  useSheetTemplates,
   useUpdateSheet,
 } from "@/app/utils/hooks/sheets";
 import { useAutosave } from "@/app/utils/hooks/useAutosave";
@@ -33,6 +37,9 @@ import {
   tabsFromSheet,
   workbookPayload,
 } from "@/app/utils/sheetWorkbook";
+import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { addTabMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
+import { registerSheetFlush } from "@/app/utils/sheetFlush";
 
 const ICON_CHOICES = [
   "📊", "📈", "📉", "🧮", "💰", "📋", "🗓️", "⚙️",
@@ -97,6 +104,10 @@ function SheetView({ sheet }: { sheet: Sheet }) {
   const updateSheet = useUpdateSheet();
   const deleteSheet = useDeleteSheet();
   const duplicateSheet = useDuplicateSheet();
+  const createTemplate = useCreateSheetTemplate();
+  const templatesQuery = useSheetTemplates();
+  const materializeTab = useMaterializeTemplateTab();
+  const openMenu = useContextMenu();
 
   const [title, setTitle] = useState(sheet.title);
   const [tabs, setTabs] = useState<SheetTab[]>(() => tabsFromSheet(sheet));
@@ -107,10 +118,14 @@ function SheetView({ sheet }: { sheet: Sheet }) {
   const { schedule, flush, status } = useAutosave<UpdateSheetPayload>((patch) =>
     updateSheet.mutateAsync({ id: sheet.id, ...patch }),
   );
+  const tabsRef = useRef(tabs);
+
+  useEffect(() => registerSheetFlush(sheet.id, flush), [sheet.id, flush]);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 
   const persistTabs = (nextTabs: SheetTab[]) => {
+    tabsRef.current = nextTabs;
     setTabs(nextTabs);
     if (!nextTabs.some((tab) => tab.id === activeTabId) && nextTabs[0]) {
       setActiveTabId(nextTabs[0].id);
@@ -252,6 +267,34 @@ function SheetView({ sheet }: { sheet: Sheet }) {
 
         <button
           type="button"
+          title="Save as template"
+          disabled={createTemplate.isPending}
+          onClick={() => {
+            void (async () => {
+              if (!(await flush())) {
+                useToastStore.getState().show("Could not save changes");
+                return;
+              }
+              try {
+                const template = await createTemplate.mutateAsync({
+                  sheetId: sheet.id,
+                  name: title || sheet.title,
+                });
+                useToastStore.getState().show(`Saved template “${template.name}”`);
+              } catch (error: unknown) {
+                useToastStore
+                  .getState()
+                  .show(error instanceof Error ? error.message : "Could not save template");
+              }
+            })();
+          }}
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
+        >
+          <LayoutTemplate className="size-4" />
+        </button>
+
+        <button
+          type="button"
           title="Duplicate"
           disabled={duplicateSheet.isPending}
           onClick={() => {
@@ -343,10 +386,41 @@ function SheetView({ sheet }: { sheet: Sheet }) {
             tabs={tabItems}
             activeTabId={activeTab.id}
             onSelectTab={setActiveTabId}
-            onAddTab={() => {
-              const next = addWorkbookTab(tabs);
-              setActiveTabId(next[next.length - 1]!.id);
-              persistTabs(next);
+            onAddTab={(event) => {
+              const templates = templatesQuery.data ?? [];
+              const addBlank = () => {
+                const next = addWorkbookTab(tabs);
+                setActiveTabId(next[next.length - 1]!.id);
+                persistTabs(next);
+              };
+              if (templates.length === 0) {
+                addBlank();
+                return;
+              }
+              openMenu(
+                event,
+                addTabMenuItems({
+                  templates,
+                  onBlank: addBlank,
+                  onTemplate: (templateId, tabId) => {
+                    void materializeTab
+                      .mutateAsync({ templateId, tabId })
+                      .then((tab) => {
+                        const next = addWorkbookTab(tabsRef.current, tab);
+                        setActiveTabId(next[next.length - 1]!.id);
+                        persistTabs(next);
+                      })
+                      .catch((error: unknown) =>
+                        useToastStore
+                          .getState()
+                          .show(
+                            error instanceof Error ? error.message : "Could not add tab",
+                          ),
+                      );
+                  },
+                }),
+                { title: "New tab" },
+              );
             }}
             onRenameTab={(id, name) =>
               persistTabs(

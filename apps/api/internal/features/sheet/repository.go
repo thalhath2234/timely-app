@@ -15,6 +15,13 @@ type SheetRepository interface {
 	DeleteSheet(userID string, sheetID string) error
 	WorkspaceBelongsToUser(userID string, workspaceID string) (bool, error)
 	DefaultWorkspaceID(userID string) (string, error)
+
+	CreateTemplate(template *models.SheetTemplate) (*models.SheetTemplate, error)
+	ListTemplates(userID string) ([]models.SheetTemplate, error)
+	GetTemplateByID(userID, templateID string) (*models.SheetTemplate, error)
+	UpdateTemplate(userID, templateID string, updates map[string]any) (*models.SheetTemplate, error)
+	DeleteTemplate(userID, templateID string) error
+	CountTemplates(userID string) (int64, error)
 }
 
 type sheetRepository struct {
@@ -160,4 +167,64 @@ func (r *sheetRepository) DefaultWorkspaceID(userID string) (string, error) {
 	}
 
 	return workspace.ID, nil
+}
+
+func (r *sheetRepository) CreateTemplate(template *models.SheetTemplate) (*models.SheetTemplate, error) {
+	if err := r.db.Create(template).Error; err != nil {
+		return nil, err
+	}
+	return r.GetTemplateByID(template.UserID, template.ID)
+}
+
+func (r *sheetRepository) ListTemplates(userID string) ([]models.SheetTemplate, error) {
+	var templates []models.SheetTemplate
+	err := r.db.
+		Where("user_id = ?", userID).
+		Order("updated_at DESC").
+		Find(&templates).Error
+	if err != nil {
+		return nil, err
+	}
+	if templates == nil {
+		templates = []models.SheetTemplate{}
+	}
+	return templates, nil
+}
+
+func (r *sheetRepository) GetTemplateByID(userID, templateID string) (*models.SheetTemplate, error) {
+	var template models.SheetTemplate
+	err := r.db.
+		Where("id = ?", templateID).
+		Where("user_id = ?", userID).
+		First(&template).Error
+	if err != nil {
+		return nil, err
+	}
+	return &template, nil
+}
+
+func (r *sheetRepository) UpdateTemplate(userID, templateID string, updates map[string]any) (*models.SheetTemplate, error) {
+	template, err := r.GetTemplateByID(userID, templateID)
+	if err != nil {
+		return nil, err
+	}
+	if len(updates) > 0 {
+		if err := r.db.Model(template).Updates(updates).Error; err != nil {
+			return nil, err
+		}
+	}
+	return r.GetTemplateByID(userID, templateID)
+}
+
+func (r *sheetRepository) DeleteTemplate(userID, templateID string) error {
+	return r.db.
+		Where("id = ?", templateID).
+		Where("user_id = ?", userID).
+		Delete(&models.SheetTemplate{}).Error
+}
+
+func (r *sheetRepository) CountTemplates(userID string) (int64, error) {
+	var count int64
+	err := r.db.Model(&models.SheetTemplate{}).Where("user_id = ?", userID).Count(&count).Error
+	return count, err
 }

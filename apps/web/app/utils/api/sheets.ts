@@ -1,4 +1,4 @@
-import { Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab } from "@/app/_types/types";
+import { Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab, SheetTemplate } from "@/app/_types/types";
 import { apiFetch } from "./client";
 
 
@@ -11,6 +11,7 @@ export interface CreateSheetPayload {
   tabs?: SheetTab[];
   workspaceId?: string;
   projectId?: string | null;
+  templateId?: string;
 }
 
 export interface UpdateSheetPayload {
@@ -116,4 +117,75 @@ export async function duplicateSheet(id: string): Promise<Sheet> {
 
   const resData = await response.json();
   return resData.sheet ?? resData;
+}
+
+export async function getSheetTemplates(): Promise<SheetTemplate[]> {
+  const response = await apiFetch("/sheet-templates", { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to fetch templates"));
+  }
+  const data = await response.json();
+  return Array.isArray(data) ? data : data.templates ?? [];
+}
+
+export async function createSheetTemplate(data: {
+  sheetId: string;
+  name?: string;
+  tabId?: string;
+}): Promise<SheetTemplate> {
+  const response = await apiFetch("/sheet-templates", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to save template"));
+  }
+  const resData = await response.json();
+  return resData.template ?? resData;
+}
+
+export async function updateSheetTemplate(
+  id: string,
+  data: { name: string },
+): Promise<SheetTemplate> {
+  const response = await apiFetch(`/sheet-templates/${id}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to update template"));
+  }
+  const resData = await response.json();
+  return resData.template ?? resData;
+}
+
+export async function deleteSheetTemplate(id: string): Promise<void> {
+  const response = await apiFetch(`/sheet-templates/${id}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to delete template"));
+  }
+}
+
+export async function materializeTemplateTab(
+  templateId: string,
+  tabId?: string,
+): Promise<SheetTab> {
+  const response = await apiFetch(`/sheet-templates/${templateId}/tab`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tabId: tabId ?? "" }),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to copy template tab"));
+  }
+  const resData = await response.json();
+  return resData.tab ?? resData;
 }

@@ -73,6 +73,11 @@ func NewSheetID() string {
 	return PrefixedUUID("sht")
 }
 
+// NewSheetTemplateID generates a sheet template ID with shtpl_ prefix
+func NewSheetTemplateID() string {
+	return PrefixedUUID("shtpl")
+}
+
 // NewActivityID generates a task activity ID with act_ prefix
 func NewActivityID() string {
 	return PrefixedUUID("act")

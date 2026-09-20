@@ -1,4 +1,4 @@
-import type { Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab } from "../types";
+import type { Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab, SheetTemplate } from "../types";
 import { api, unwrap } from "./client";
 
 export type CreateSheetPayload = {
@@ -10,6 +10,7 @@ export type CreateSheetPayload = {
   tabs?: SheetTab[];
   workspaceId?: string;
   projectId?: string | null;
+  templateId?: string;
 };
 
 export type UpdateSheetPayload = {
@@ -52,4 +53,30 @@ export function deleteSheet(id: string) {
 export async function duplicateSheet(id: string) {
   const res = await api<Sheet | { sheet: Sheet }>(`/sheets/${id}/duplicate`, { method: "POST" });
   return normalizeSheet(unwrap(res, "sheet"));
+}
+
+export async function getSheetTemplates() {
+  const res = await api<SheetTemplate[] | { templates: SheetTemplate[] }>("/sheet-templates");
+  const list = Array.isArray(res) ? res : unwrap(res, "templates");
+  return Array.isArray(list) ? list : [];
+}
+
+export async function createSheetTemplate(data: { sheetId: string; name?: string; tabId?: string }) {
+  const res = await api<SheetTemplate | { template: SheetTemplate }>("/sheet-templates", {
+    method: "POST",
+    body: data,
+  });
+  return unwrap(res, "template");
+}
+
+export async function deleteSheetTemplate(id: string) {
+  return api<void>(`/sheet-templates/${id}`, { method: "DELETE" });
+}
+
+export async function materializeTemplateTab(templateId: string, tabId?: string) {
+  const res = await api<SheetTab | { tab: SheetTab }>(`/sheet-templates/${templateId}/tab`, {
+    method: "POST",
+    body: { tabId: tabId ?? "" },
+  });
+  return unwrap(res, "tab");
 }

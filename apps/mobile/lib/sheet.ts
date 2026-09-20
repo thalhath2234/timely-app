@@ -132,7 +132,18 @@ export function workbookPayload(tabs: SheetTab[]) {
   };
 }
 
-export function addWorkbookTab(tabs: SheetTab[]): SheetTab[] {
+export function addWorkbookTab(tabs: SheetTab[], from?: SheetTab): SheetTab[] {
+  if (from) {
+    return [
+      ...tabs,
+      {
+        ...from,
+        id: from.id || newSheetId("tab"),
+        name: from.name?.trim() || `Sheet ${tabs.length + 1}`,
+        merges: from.merges ?? [],
+      },
+    ];
+  }
   const grid = defaultTabGrid();
   return [
     ...tabs,

@@ -3,16 +3,22 @@ import {
   CreateSheetPayload,
   UpdateSheetPayload,
   createSheet,
+  createSheetTemplate,
   deleteSheet,
+  deleteSheetTemplate,
   duplicateSheet,
   getSheet,
   getSheets,
+  getSheetTemplates,
+  materializeTemplateTab,
   updateSheet,
+  updateSheetTemplate,
 } from "@/app/utils/api/sheets";
-import { Sheet } from "@/app/_types/types";
+import { Sheet, SheetTemplate } from "@/app/_types/types";
 
 export const sheetsKey = ["sheets"] as const;
 export const sheetKey = (id: string) => ["sheets", id] as const;
+export const sheetTemplatesKey = ["sheet-templates"] as const;
 
 export function useSheets() {
   return useQuery({
@@ -77,5 +83,58 @@ export function useDuplicateSheet() {
       queryClient.setQueryData(sheetKey(sheet.id), sheet);
       queryClient.invalidateQueries({ queryKey: sheetsKey });
     },
+  });
+}
+
+export function useSheetTemplates() {
+  return useQuery({
+    queryKey: sheetTemplatesKey,
+    queryFn: getSheetTemplates,
+  });
+}
+
+export function useCreateSheetTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: { sheetId: string; name?: string; tabId?: string }) =>
+      createSheetTemplate(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sheetTemplatesKey });
+    },
+  });
+}
+
+export function useUpdateSheetTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      updateSheetTemplate(id, { name }),
+    onSuccess: (template) => {
+      queryClient.setQueryData<SheetTemplate[]>(sheetTemplatesKey, (list) =>
+        list?.map((item) => (item.id === template.id ? template : item)),
+      );
+    },
+  });
+}
+
+export function useDeleteSheetTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => deleteSheetTemplate(id),
+    onSuccess: (_data, id) => {
+      queryClient.setQueryData<SheetTemplate[]>(sheetTemplatesKey, (list) =>
+        list?.filter((item) => item.id !== id),
+      );
+    },
+  });
+}
+
+export function useMaterializeTemplateTab() {
+  return useMutation({
+    mutationFn: ({ templateId, tabId }: { templateId: string; tabId?: string }) =>
+      materializeTemplateTab(templateId, tabId),
   });
 }

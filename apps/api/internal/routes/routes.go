@@ -215,6 +215,12 @@ func setupDocumentRoutes(g *echo.Group, documentHandler *doc.Handler) {
 func setupSheetRoutes(g *echo.Group, sheetHandler *sheet.Handler) {
 	g.POST("/sheets", sheetHandler.Create)
 	g.GET("/sheets", sheetHandler.GetAllSheetsByUser)
+	g.GET("/sheet-templates", sheetHandler.ListTemplates)
+	g.POST("/sheet-templates", sheetHandler.CreateTemplate)
+	g.GET("/sheet-templates/:id", sheetHandler.GetTemplate)
+	g.PUT("/sheet-templates/:id", sheetHandler.UpdateTemplate)
+	g.DELETE("/sheet-templates/:id", sheetHandler.DeleteTemplate)
+	g.POST("/sheet-templates/:id/tab", sheetHandler.MaterializeTemplateTab)
 	g.GET("/sheets/:id", sheetHandler.GetSheetById)
 	g.POST("/sheets/:id/duplicate", sheetHandler.Duplicate)
 	g.PUT("/sheets/:id", sheetHandler.Update)
