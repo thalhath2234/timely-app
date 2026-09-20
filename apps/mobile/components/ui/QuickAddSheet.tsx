@@ -1,13 +1,13 @@
 import { startTransition, useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useRouter } from "expo-router";
-import { Bell, CalendarClock, Check, FileText, Inbox, ListTodo, Sheet as SheetIcon } from "lucide-react-native";
-import BottomSheet from "./BottomSheet";
+import { Bell, CalendarClock, CalendarDays, Check, CircleDot, Clock, FileText, Flag, FolderKanban, Inbox, ListTodo, Palette, Sheet as SheetIcon } from "lucide-react-native";
+import BottomSheet, { SheetOption } from "./BottomSheet";
 import DateTimeSheet from "./DateTimeSheet";
 import TaskMetaEditor from "./TaskMetaEditor";
 import RecurrenceEditor from "./RecurrenceEditor";
-import { Chip, Field, PrimaryButton, SectionLabel, Select } from "./primitives";
+import { Dot, Field, PrimaryButton, PropertyGroup, PropertyRow } from "./primitives";
 import RichTextEditor from "../editor/RichTextEditor";
 import AnimatedPressable from "./AnimatedPressable";
 import { emptyCustomFieldDrafts, filledCustomFieldValues } from "../../lib/customFields";
@@ -16,7 +16,7 @@ import type { DocContent } from "../../lib/types";
 import { useCreateDoc, useCreateEvent, useCreateSheet, useCreateTask, useAddBlock, useProjectsQuery, useWorkspacesQuery } from "../../lib/hooks";
 import { buildRecurrenceInput, type RecurrenceDraft } from "../../lib/recurrence";
 import { sheetHref } from "../../lib/sheet";
-import { formatDuration, formatShortDate, formatTime, toDateInputValue } from "../../lib/format";
+import { formatDuration, formatShortDate, formatTime, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../lib/format";
 import type { CustomFieldValueInput } from "../../lib/types";
 import type { QuickAddPreset } from "../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -107,7 +107,23 @@ export default function QuickAddSheet({
   const [eventWorkspaceId, setEventWorkspaceId] = useState("");
   const [eventColor, setEventColor] = useState("");
   const [eventProjectId, setEventProjectId] = useState("");
-  const [picking, setPicking] = useState<"due" | "startDate" | "schedule" | "eventStart" | null>(null);
+  const [picking, setPicking] = useState<
+    | "due"
+    | "startDate"
+    | "schedule"
+    | "eventStart"
+    | "workspace"
+    | "project"
+    | "status"
+    | "stage"
+    | "priority"
+    | "duration"
+    | "eventDuration"
+    | "eventWorkspace"
+    | "eventProject"
+    | "eventColor"
+    | null
+  >(null);
   const [phase, setPhase] = useState<"menu" | "form">("menu");
   const [selectedKind, setSelectedKind] = useState<Kind | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -443,128 +459,88 @@ export default function QuickAddSheet({
           </View>
         ) : null}
 
-        {(kind === "doc" || kind === "sheet" || kind === "task" || kind === "reminder") &&
-        list.length > 1 ? (
-            <View>
-              <SectionLabel>Workspace</SectionLabel>
-              <Select
-                value={activeWorkspaceId}
-                onChange={setWorkspaceId}
-                placeholder="Workspace"
-                options={list.map((workspace) => ({ value: workspace.id, label: workspace.name }))}
-              />
-            </View>
+        {(kind === "doc" || kind === "sheet") && list.length > 0 ? (
+          <PropertyGroup>
+            <PropertyRow
+              icon={<FolderKanban size={16} color={colors.mutedForeground} />}
+              label="Workspace"
+              value={selectedWorkspace?.name ?? "Select workspace"}
+              onPress={() => setPicking("workspace")}
+            />
+          </PropertyGroup>
         ) : null}
 
         {kind === "task" || kind === "reminder" ? (
           <View style={{ gap: 10 }}>
-            {!isReminder && scopedProjects.length > 0 ? (
-              <>
-                <SectionLabel>Project</SectionLabel>
-                <View style={styles.row}>
-                  <Chip label="No project" active={!projectId} onPress={() => { setProjectId(""); setStageId(""); }} />
-                  {scopedProjects.map((project) => (
-                    <Chip
-                      key={project.id}
-                      label={project.title}
-                      active={project.id === projectId}
-                      onPress={() => {
-                        setProjectId(project.id);
-                        setStageId("");
-                      }}
-                    />
-                  ))}
-                </View>
-              </>
-            ) : null}
-
-            {!isReminder && stages.length > 0 ? (
-              <>
-                <SectionLabel>Stage</SectionLabel>
-                <View style={styles.row}>
-                  <Chip label="None" active={!stageId} onPress={() => setStageId("")} />
-                  {stages.map((stage) => (
-                    <Chip
-                      key={stage.id}
-                      label={stage.name}
-                      active={stage.id === stageId}
-                      onPress={() => setStageId(stage.id)}
-                    />
-                  ))}
-                </View>
-              </>
-            ) : null}
-
-            {!isReminder && (selectedWorkspace?.status ?? []).length > 0 ? (
-              <>
-                <SectionLabel>Status</SectionLabel>
-                <View style={styles.row}>
-                  {(selectedWorkspace?.status ?? []).map((status) => (
-                    <Chip
-                      key={status.id}
-                      label={status.name}
-                      color={status.color}
-                      active={status.id === statusId}
-                      onPress={() => setStatusId(status.id)}
-                    />
-                  ))}
-                </View>
-              </>
-            ) : null}
-
-            <SectionLabel>Priority</SectionLabel>
-            <View style={styles.row}>
-              {PRIORITIES.map((level) => (
-                <Chip key={level} label={level} active={priority === level} onPress={() => setPriority(level)} />
-              ))}
-            </View>
-
-            {isReminder ? (
-              <AnimatedPressable onPress={() => setPicking("schedule")} style={styles.meta}>
-                <Text style={styles.metaLabel}>Notify at</Text>
-                <Text style={styles.metaValue}>
-                  {scheduledOn ? formatDateValue(scheduledOn, true) : "Pick a time"}
-                </Text>
-              </AnimatedPressable>
-            ) : (
-              <>
-                <SectionLabel>Duration</SectionLabel>
-                <View style={styles.row}>
-                  {DURATION_PRESETS.filter((minutes) => minutes > 0).map((minutes) => (
-                    <Chip
-                      key={minutes}
-                      label={formatDuration(minutes) ?? `${minutes}m`}
-                      active={duration === minutes}
-                      onPress={() => setDuration(minutes)}
-                    />
-                  ))}
-                </View>
-                <Stepper value={Math.max(duration, 15)} suffix="min" step={15} min={15} onChange={setDuration} />
-              </>
-            )}
-
-            {!isReminder ? (
-              <>
-            <AnimatedPressable onPress={() => setPicking("startDate")} style={styles.meta}>
-              <Text style={styles.metaLabel}>Start date</Text>
-              <Text style={styles.metaValue}>{formatDateValue(startDate)}</Text>
-            </AnimatedPressable>
-            <AnimatedPressable onPress={() => setPicking("due")} style={styles.meta}>
-              <Text style={styles.metaLabel}>Deadline</Text>
-              <Text style={styles.metaValue}>{formatDateValue(deadline)}</Text>
-            </AnimatedPressable>
-            <AnimatedPressable onPress={() => setPicking("schedule")} style={styles.meta}>
-              <Text style={styles.metaLabel}>{taskTimeOnly ? "Time" : "Schedule"}</Text>
-              <Text style={styles.metaValue}>
-                {taskTimeOnly
-                  ? scheduledOn
-                    ? formatTime(scheduledOn.toISOString())
-                    : "None"
-                  : formatDateValue(scheduledOn, true)}
-              </Text>
-            </AnimatedPressable>
-              </>
-            ) : null}
+            <PropertyGroup>
+              {!isReminder ? (
+                <PropertyRow
+                  icon={<FolderKanban size={16} color={colors.mutedForeground} />}
+                  label="Workspace"
+                  value={selectedWorkspace?.name ?? "Select workspace"}
+                  onPress={() => setPicking("workspace")}
+                />
+              ) : null}
+              {!isReminder && (selectedWorkspace?.status ?? []).length > 0 ? (
+                <PropertyRow
+                  icon={<CircleDot size={16} color={selectedWorkspace?.status?.find((status) => status.id === statusId)?.color || colors.mutedForeground} />}
+                  label="Status"
+                  value={selectedWorkspace?.status?.find((status) => status.id === statusId)?.name ?? "None"}
+                  swatch={selectedWorkspace?.status?.find((status) => status.id === statusId)?.color}
+                  onPress={() => setPicking("status")}
+                />
+              ) : null}
+              <PropertyRow
+                icon={<Flag size={16} color={colors.mutedForeground} />}
+                label="Priority"
+                value={PRIORITY_META[priority]?.label ?? priority}
+                onPress={() => setPicking("priority")}
+              />
+              {!isReminder && scopedProjects.length > 0 ? (
+                <PropertyRow
+                  icon={<ListTodo size={16} color={colors.mutedForeground} />}
+                  label="Project"
+                  value={selectedProject?.title ?? "None"}
+                  onPress={() => setPicking("project")}
+                />
+              ) : null}
+              {!isReminder && stages.length > 0 ? (
+                <PropertyRow
+                  icon={<ListTodo size={16} color={colors.mutedForeground} />}
+                  label="Stage"
+                  value={stages.find((stage) => stage.id === stageId)?.name ?? "None"}
+                  onPress={() => setPicking("stage")}
+                />
+              ) : null}
+              {isReminder && list.length > 0 ? (
+                <PropertyRow
+                  icon={<FolderKanban size={16} color={colors.mutedForeground} />}
+                  label="Workspace"
+                  value={selectedWorkspace?.name ?? "None"}
+                  onPress={() => setPicking("workspace")}
+                />
+              ) : null}
+              {!isReminder ? (
+                <PropertyRow
+                  icon={<Clock size={16} color={colors.mutedForeground} />}
+                  label="Duration"
+                  value={formatDuration(duration) ?? `${duration}m`}
+                  onPress={() => setPicking("duration")}
+                />
+              ) : null}
+              <PropertyRow
+                icon={<CalendarDays size={16} color={colors.mutedForeground} />}
+                label="Start date"
+                value={formatDateValue(startDate)}
+                onPress={() => setPicking("startDate")}
+              />
+              <PropertyRow
+                icon={<CalendarDays size={16} color={colors.mutedForeground} />}
+                label="Deadline"
+                value={formatDateValue(deadline)}
+                onPress={() => setPicking("due")}
+              />
+            </PropertyGroup>
 
             {detailsReady ? (
               <RecurrenceEditor
@@ -576,6 +552,37 @@ export default function QuickAddSheet({
                 anchor={taskAnchor}
               />
             ) : null}
+
+            <Text style={styles.section}>{isReminder ? "Reminder" : "Schedule"}</Text>
+            <PropertyGroup>
+              {isReminder ? (
+                <PropertyRow
+                  icon={<Clock size={16} color={colors.mutedForeground} />}
+                  label={taskTimeOnly ? "Time" : "Notify at"}
+                  value={
+                    scheduledOn
+                      ? taskTimeOnly
+                        ? formatTime(scheduledOn.toISOString())
+                        : formatDateValue(scheduledOn, true)
+                      : "Pick a time"
+                  }
+                  onPress={() => setPicking("schedule")}
+                />
+              ) : (
+                <PropertyRow
+                  icon={<CalendarDays size={16} color={colors.mutedForeground} />}
+                  label={taskTimeOnly ? "Time" : "Schedule"}
+                  value={
+                    taskTimeOnly
+                      ? scheduledOn
+                        ? formatTime(scheduledOn.toISOString())
+                        : "None"
+                      : formatDateValue(scheduledOn, true)
+                  }
+                  onPress={() => setPicking("schedule")}
+                />
+              )}
+            </PropertyGroup>
             <Text style={styles.hint}>
               {isReminder
                 ? taskRecurrence
@@ -617,75 +624,53 @@ export default function QuickAddSheet({
 
         {kind === "event" ? (
           <View style={{ gap: 10 }}>
-            <AnimatedPressable onPress={() => setPicking("eventStart")} style={styles.meta}>
-              <Text style={styles.metaLabel}>
-                {eventRecurrence && !allDay ? "Time" : "Starts"}
-              </Text>
-              <Text style={styles.metaValue}>
-                {eventRecurrence && !allDay
-                  ? formatTime(eventStart.toISOString())
-                  : formatDateValue(eventStart, !allDay)}
-              </Text>
-            </AnimatedPressable>
-            <SectionLabel>Duration</SectionLabel>
-            <View style={styles.row}>
-              {DURATION_PRESETS.filter((minutes) => minutes > 0).map((minutes) => (
-                <Chip
-                  key={minutes}
-                  label={formatDuration(minutes) ?? `${minutes}m`}
-                  active={eventDuration === minutes}
-                  onPress={() => setEventDuration(minutes)}
+            <PropertyGroup>
+              <PropertyRow
+                icon={<CalendarDays size={16} color={colors.mutedForeground} />}
+                label={eventRecurrence && !allDay ? "Time" : "Starts"}
+                value={
+                  eventRecurrence && !allDay
+                    ? formatTime(eventStart.toISOString())
+                    : formatDateValue(eventStart, !allDay)
+                }
+                onPress={() => setPicking("eventStart")}
+              />
+              <PropertyRow
+                icon={<Clock size={16} color={colors.mutedForeground} />}
+                label="Duration"
+                value={formatDuration(eventMinutes) ?? `${eventMinutes}m`}
+                onPress={() => setPicking("eventDuration")}
+              />
+              <PropertyRow
+                icon={<CalendarClock size={16} color={colors.mutedForeground} />}
+                label="All day"
+                value={allDay ? "On" : "Off"}
+                onPress={() => setAllDay((value) => !value)}
+              />
+              <PropertyRow
+                icon={<FolderKanban size={16} color={colors.mutedForeground} />}
+                label="Workspace"
+                value={list.find((workspace) => workspace.id === eventWorkspaceId)?.name ?? "None"}
+                onPress={() => setPicking("eventWorkspace")}
+              />
+              <PropertyRow
+                icon={<Palette size={16} color={eventColor || colors.mutedForeground} />}
+                label="Color"
+                value={eventColor ? "Custom" : "Auto"}
+                swatch={eventColor || undefined}
+                onPress={() => setPicking("eventColor")}
+              />
+              {eventScopedProjects.length > 0 ? (
+                <PropertyRow
+                  icon={<ListTodo size={16} color={colors.mutedForeground} />}
+                  label="Project"
+                  value={projectList.find((project) => project.id === eventProjectId)?.title ?? "None"}
+                  onPress={() => setPicking("eventProject")}
                 />
-              ))}
-            </View>
-            <Stepper value={eventDuration} suffix={formatDuration(eventMinutes) ?? "min"} step={15} min={15} onChange={setEventDuration} />
-            <Chip label={allDay ? "All day on" : "All day off"} active={allDay} onPress={() => setAllDay((value) => !value)} />
+              ) : null}
+            </PropertyGroup>
             {detailsReady ? (
               <RecurrenceEditor value={eventRecurrence} onChange={setEventRecurrence} anchor={eventStart} />
-            ) : null}
-            <SectionLabel>Workspace</SectionLabel>
-            <Select
-              value={eventWorkspaceId}
-              onChange={(id) => {
-                setEventWorkspaceId(id);
-                const stillValid = projectList.some(
-                  (project) => project.id === eventProjectId && (!id || project.workspaceId === id),
-                );
-                if (!stillValid) setEventProjectId("");
-              }}
-              placeholder="None"
-              options={[
-                { value: "", label: "None" },
-                ...list.map((workspace) => ({ value: workspace.id, label: workspace.name })),
-              ]}
-            />
-            <SectionLabel>Color</SectionLabel>
-            <View style={styles.row}>
-              <Chip label="Auto" active={!eventColor} onPress={() => setEventColor("")} />
-              {ENTITY_COLORS.map((color) => (
-                <AnimatedPressable
-                  key={color}
-                  accessibilityLabel={`Color ${color}`}
-                  onPress={() => setEventColor(color)}
-                  style={[styles.swatch, { backgroundColor: color }, eventColor === color && styles.swatchOn]}
-                />
-              ))}
-            </View>
-            {eventScopedProjects.length > 0 ? (
-              <>
-                <SectionLabel>Project</SectionLabel>
-                <View style={styles.row}>
-                  <Chip label="None" active={!eventProjectId} onPress={() => setEventProjectId("")} />
-                  {eventScopedProjects.map((project) => (
-                    <Chip
-                      key={project.id}
-                      label={project.title}
-                      active={project.id === eventProjectId}
-                      onPress={() => setEventProjectId(project.id)}
-                    />
-                  ))}
-                </View>
-              </>
             ) : null}
             <Text style={styles.hint}>
               {eventRecurrence && !allDay
@@ -699,9 +684,185 @@ export default function QuickAddSheet({
         )}
         </Animated.View>
       </BottomSheet>
+      <BottomSheet open={picking === "workspace"} onClose={() => setPicking(null)} title="Workspace">
+        {list.map((workspace) => (
+          <SheetOption
+            key={workspace.id}
+            selected={workspace.id === activeWorkspaceId}
+            onSelect={() => {
+              setWorkspaceId(workspace.id);
+              setPicking(null);
+            }}
+          >
+            {workspace.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picking === "project"} onClose={() => setPicking(null)} title="Project">
+        <SheetOption
+          selected={!projectId}
+          onSelect={() => {
+            setProjectId("");
+            setStageId("");
+            setPicking(null);
+          }}
+        >
+          No project
+        </SheetOption>
+        {scopedProjects.map((project) => (
+          <SheetOption
+            key={project.id}
+            selected={project.id === projectId}
+            onSelect={() => {
+              setProjectId(project.id);
+              setStageId("");
+              setPicking(null);
+            }}
+          >
+            {project.title}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picking === "status"} onClose={() => setPicking(null)} title="Status">
+        {(selectedWorkspace?.status ?? []).map((status) => (
+          <SheetOption
+            key={status.id}
+            selected={status.id === statusId}
+            leading={<Dot color={status.color} />}
+            onSelect={() => {
+              setStatusId(status.id);
+              setPicking(null);
+            }}
+          >
+            {status.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picking === "stage"} onClose={() => setPicking(null)} title="Stage">
+        <SheetOption selected={!stageId} onSelect={() => { setStageId(""); setPicking(null); }}>
+          No stage
+        </SheetOption>
+        {stages.map((stage) => (
+          <SheetOption
+            key={stage.id}
+            selected={stage.id === stageId}
+            onSelect={() => {
+              setStageId(stage.id);
+              setPicking(null);
+            }}
+          >
+            {stage.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picking === "priority"} onClose={() => setPicking(null)} title="Priority">
+        {PRIORITY_ORDER.map((level) => (
+          <SheetOption
+            key={level}
+            selected={priority === level}
+            onSelect={() => {
+              setPriority(level as (typeof PRIORITIES)[number]);
+              setPicking(null);
+            }}
+          >
+            {PRIORITY_META[level].label}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picking === "duration"} onClose={() => setPicking(null)} title="Duration">
+        {DURATION_PRESETS.filter((minutes) => minutes > 0).map((minutes) => (
+          <SheetOption
+            key={minutes}
+            selected={duration === minutes}
+            onSelect={() => {
+              setDuration(minutes);
+              setPicking(null);
+            }}
+          >
+            {formatDuration(minutes) ?? `${minutes}m`}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picking === "eventDuration"} onClose={() => setPicking(null)} title="Duration">
+        {DURATION_PRESETS.filter((minutes) => minutes > 0).map((minutes) => (
+          <SheetOption
+            key={minutes}
+            selected={eventDuration === minutes}
+            onSelect={() => {
+              setEventDuration(minutes);
+              setPicking(null);
+            }}
+          >
+            {formatDuration(minutes) ?? `${minutes}m`}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picking === "eventWorkspace"} onClose={() => setPicking(null)} title="Workspace">
+        <SheetOption
+          selected={!eventWorkspaceId}
+          onSelect={() => {
+            setEventWorkspaceId("");
+            setEventProjectId("");
+            setPicking(null);
+          }}
+        >
+          None
+        </SheetOption>
+        {list.map((workspace) => (
+          <SheetOption
+            key={workspace.id}
+            selected={workspace.id === eventWorkspaceId}
+            onSelect={() => {
+              setEventWorkspaceId(workspace.id);
+              const stillValid = projectList.some(
+                (project) => project.id === eventProjectId && project.workspaceId === workspace.id,
+              );
+              if (!stillValid) setEventProjectId("");
+              setPicking(null);
+            }}
+          >
+            {workspace.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picking === "eventProject"} onClose={() => setPicking(null)} title="Project">
+        <SheetOption selected={!eventProjectId} onSelect={() => { setEventProjectId(""); setPicking(null); }}>
+          None
+        </SheetOption>
+        {eventScopedProjects.map((project) => (
+          <SheetOption
+            key={project.id}
+            selected={project.id === eventProjectId}
+            onSelect={() => {
+              setEventProjectId(project.id);
+              setPicking(null);
+            }}
+          >
+            {project.title}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={picking === "eventColor"} onClose={() => setPicking(null)} title="Color">
+        <SheetOption selected={!eventColor} onSelect={() => { setEventColor(""); setPicking(null); }}>
+          Auto
+        </SheetOption>
+        {ENTITY_COLORS.map((color) => (
+          <SheetOption
+            key={color}
+            selected={eventColor === color}
+            leading={<Dot color={color} />}
+            onSelect={() => {
+              setEventColor(color);
+              setPicking(null);
+            }}
+          >
+            {color}
+          </SheetOption>
+        ))}
+      </BottomSheet>
       <DateTimeSheet
         key={picking ?? "closed"}
-        open={picking !== null}
+        open={picking === "due" || picking === "startDate" || picking === "schedule" || picking === "eventStart"}
         value={pickerValue}
         mode={
           picking === "due" || picking === "startDate" || (picking === "eventStart" && allDay)
@@ -742,35 +903,6 @@ export default function QuickAddSheet({
   );
 }
 
-function Stepper({
-  value,
-  onChange,
-  min = 0,
-  step = 1,
-  suffix,
-}: {
-  value: number;
-  onChange: (next: number) => void;
-  min?: number;
-  step?: number;
-  suffix?: string;
-}) {
-  return (
-    <View style={styles.stepper}>
-      <Pressable onPress={() => onChange(Math.max(min, value - step))} style={styles.step}>
-        <Text style={styles.stepText}>−</Text>
-      </Pressable>
-      <Text style={styles.stepValue}>
-        {value}
-        {suffix ? ` ${suffix}` : ""}
-      </Text>
-      <Pressable onPress={() => onChange(value + step)} style={styles.step}>
-        <Text style={styles.stepText}>+</Text>
-      </Pressable>
-    </View>
-  );
-}
-
 const styles = createThemedStyleSheet((colors) => ({
   fields: { gap: 16 },
   objectiveCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, gap: 7 },
@@ -796,43 +928,8 @@ const styles = createThemedStyleSheet((colors) => ({
   kindTextSelected: { color: colors.primary, fontWeight: "700" },
   changeType: { alignSelf: "flex-start", paddingVertical: 4, paddingRight: 12 },
   changeTypeText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  meta: {
-    minHeight: 48,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.input,
-    backgroundColor: colors.card,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
   metaPanel: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
-  metaLabel: { color: colors.mutedForeground, fontSize: 13 },
-  metaValue: { color: colors.foreground, fontSize: 14 },
-  metaAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
+  section: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.9, marginTop: 4 },
   hintRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 10 },
   hint: { color: colors.mutedForeground, fontSize: 12 },
-  stepper: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 8 },
-  step: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepText: { color: colors.foreground, fontSize: 18, fontWeight: "600" },
-  stepValue: { color: colors.foreground, fontFamily: "SpaceMono", fontSize: 14, fontWeight: "700", minWidth: 80, textAlign: "center" },
-  swatch: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  swatchOn: { borderColor: colors.primary },
 }));

@@ -215,7 +215,7 @@ function StarPicker({
       .filter((task) => {
         if (excludeIds.has(task.id)) return false;
         if (task.completedAt) return false;
-        if (isInboxTask(task) || isReminderTask(task) || task.parentTaskId) return false;
+        if (isInboxTask(task) || isReminderTask(task)) return false;
         if (needle && !task.name.toLowerCase().includes(needle)) return false;
         return true;
       })
@@ -392,7 +392,7 @@ function FocusTaskRow({
             ) : null}
             {!completed && due ? <span>{due}</span> : null}
             {!completed && estimate != null ? <span>Estimate: {formatDuration(estimate)}</span> : null}
-            {!completed && progress ? <span>Subtasks: {progress}</span> : null}
+            {!completed && progress ? <span>Checklist: {progress}</span> : null}
           </div>
         </div>
       </div>

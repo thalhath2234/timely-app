@@ -67,7 +67,7 @@ func (r *sheetRepository) ListSheets(userID string, filter SheetFilter) ([]model
 	}
 	if filter.Text != "" {
 		like := "%" + filter.Text + "%"
-		query = query.Where("title ILIKE ? OR description ILIKE ?", like, like)
+		query = query.Where("title ILIKE ?", like)
 	}
 	var sheets []models.Sheet
 	err := query.Order("updated_at DESC").Find(&sheets).Error
@@ -100,7 +100,7 @@ func (r *sheetRepository) UpdateSheet(userID string, sheetID string, updates map
 		return nil, err
 	}
 
-	jsonCols := takeJSONB(updates, "description_rich", "columns", "rows", "merges", "tabs")
+	jsonCols := takeJSONB(updates, "columns", "rows", "merges", "tabs")
 
 	if len(updates) > 0 {
 		if err := r.db.Model(sheet).Updates(updates).Error; err != nil {

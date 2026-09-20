@@ -163,14 +163,14 @@ func (s *service) docs(userID, like string, limit int) []Hit {
 
 func (s *service) sheets(userID, like string, limit int) []Hit {
 	var rows []models.Sheet
-	_ = s.db.Select("id", "title", "description").
+	_ = s.db.Select("id", "title").
 		Where("user_id = ?", userID).
-		Where("title ILIKE ? OR description ILIKE ?", like, like).
+		Where("title ILIKE ?", like).
 		Limit(limit).
 		Find(&rows)
 	out := make([]Hit, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Hit{Kind: "sheet", ID: row.ID, Title: row.Title, Snippet: snippet(row.Description)})
+		out = append(out, Hit{Kind: "sheet", ID: row.ID, Title: row.Title, Snippet: snippet(row.Title)})
 	}
 	return out
 }

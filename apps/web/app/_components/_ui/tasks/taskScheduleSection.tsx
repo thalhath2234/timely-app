@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CalendarDays, Clock, Pin, Plus, Repeat, Sparkles, X } from "lucide-react";
 import { DateTimeField, TimeField } from "@/app/_components/_ui/datePicker";
 import { SidebarSectionTitle } from "@/app/_components/_ui/modal/entityModal";
@@ -92,7 +92,15 @@ export default function TaskScheduleSection({
   const updateTask = useUpdateTask();
 
   const [adding, setAdding] = useState(false);
+  const [pickAt, setPickAt] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [preferStart, setPreferStart] = useState(preferredWindows?.[0]?.start ?? "");
+  const [preferEnd, setPreferEnd] = useState(preferredWindows?.[0]?.end ?? "");
+
+  useEffect(() => {
+    setPreferStart(preferredWindows?.[0]?.start ?? "");
+    setPreferEnd(preferredWindows?.[0]?.end ?? "");
+  }, [preferredWindows?.[0]?.start, preferredWindows?.[0]?.end]);
 
   const reminder = duration <= 0;
   const anchor = recurrence
@@ -134,7 +142,20 @@ export default function TaskScheduleSection({
     pinBlock.isPending ||
     updateTask.isPending;
 
-  const preferred = preferredWindows?.[0];
+  const persistPreferred = (start: string, end: string) => {
+    setPreferStart(start);
+    setPreferEnd(end);
+    const windows = preferredWindowsPayload(start, end);
+    if (windows === undefined) {
+      if (start && end) setError("Preferred end must be after start.");
+      else if (start || end) setError("Set both a start and an end time.");
+      return;
+    }
+    void run(
+      () => updateTask.mutateAsync({ id: taskId, preferredWindows: windows }),
+      "Could not update preferred window.",
+    );
+  };
 
   const setClock = (hhmm: string) => {
     if (recurrence && draft) {
@@ -278,24 +299,31 @@ export default function TaskScheduleSection({
           )}
 
           {adding && (
-            <div className="mt-2 px-1">
+            <div className="mt-2 flex items-center gap-1 px-1">
               <DateTimeField
-                value={null}
+                className="min-w-0 flex-1"
+                value={pickAt || null}
                 clearable={false}
-                onChange={(iso) => {
-                  if (!iso) return;
-                  setAdding(false);
-                  run(
-                    () =>
-                      addBlock.mutateAsync({
-                        taskId,
-                        start: iso,
-                        durationMinutes: Math.max(15, duration || 30),
-                      }),
-                    "Could not add block.",
-                  );
-                }}
+                onChange={setPickAt}
               />
+              <button
+                type="button"
+                disabled={pending || !pickAt}
+                onClick={() =>
+                  run(async () => {
+                    await addBlock.mutateAsync({
+                      taskId,
+                      start: pickAt,
+                      durationMinutes: Math.max(15, duration || 30),
+                    });
+                    setAdding(false);
+                    setPickAt("");
+                  }, "Could not add block.")
+                }
+                className={cn(smallButton, "bg-primary text-primary-foreground hover:bg-primary/90")}
+              >
+                Add
+              </button>
             </div>
           )}
 
@@ -305,10 +333,16 @@ export default function TaskScheduleSection({
                 type="button"
                 disabled={pending}
                 onClick={() =>
-                  run(
-                    () => applySchedule.mutateAsync({ taskIds: [taskId] }),
-                    "Could not auto-schedule.",
-                  )
+                  run(async () => {
+                    const plan = await applySchedule.mutateAsync({ taskIds: [taskId] });
+                    const skipped = plan.skipped?.find((item) => item.taskId === taskId);
+                    if (skipped) {
+                      throw new Error(skipped.message || "Could not auto-schedule this task.");
+                    }
+                    if (!plan.proposals?.some((item) => item.taskId === taskId)) {
+                      throw new Error("The engine did not place this task.");
+                    }
+                  }, "Could not auto-schedule.")
                 }
                 className={cn(smallButton, "bg-primary text-primary-foreground hover:bg-primary/90")}
               >
@@ -318,7 +352,16 @@ export default function TaskScheduleSection({
               <button
                 type="button"
                 disabled={pending}
-                onClick={() => setAdding((open) => !open)}
+                onClick={() =>
+                  setAdding((open) => {
+                    if (open) {
+                      setPickAt("");
+                      return false;
+                    }
+                    setPickAt(nextRoundHour().toISOString());
+                    return true;
+                  })
+                }
                 className={cn(smallButton, "bg-secondary text-secondary-foreground hover:bg-accent")}
               >
                 {adding ? <X className="size-3" /> : <Plus className="size-3" />}
@@ -343,7 +386,7 @@ export default function TaskScheduleSection({
       )}
 
       {!reminder && !completed && (
-        <div className="mt-3 flex min-w-0 flex-col gap-2 overflow-hidden rounded-lg border border-border px-2 py-2">
+        <div className="mt-3 flex min-w-0 flex-col gap-2 rounded-lg border border-border px-2 py-2">
               <p className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 Engine
               </p>
@@ -382,7 +425,7 @@ export default function TaskScheduleSection({
                   <span className="text-[11px] text-muted-foreground">Min chunk (min)</span>
                   <input
                     type="number"
-                    min={5}
+                    min={15}
                     max={480}
                     defaultValue={minChunkMinutes || 15}
                     disabled={pending}
@@ -390,7 +433,11 @@ export default function TaskScheduleSection({
                       const value = Number(event.target.value);
                       if (!Number.isFinite(value) || value === minChunkMinutes) return;
                       void run(
-                        () => updateTask.mutateAsync({ id: taskId, minChunkMinutes: Math.max(5, Math.round(value)) }),
+                        () =>
+                          updateTask.mutateAsync({
+                            id: taskId,
+                            minChunkMinutes: Math.max(15, Math.round(value)),
+                          }),
                         "Could not update min chunk.",
                       );
                     }}
@@ -442,34 +489,19 @@ export default function TaskScheduleSection({
                 <div className="flex min-w-0 items-center gap-2">
                   <div className="min-w-0 flex-1">
                     <TimeField
-                      value={preferred?.start ?? ""}
+                      value={preferStart}
                       clearable
                       aria-label="Preferred start"
-                      onChange={(start) => {
-                        const end = preferred?.end || "";
-                        const windows =
-                          start && end ? [{ start, end }] : start ? [{ start, end: start }] : [];
-                        void run(
-                          () => updateTask.mutateAsync({ id: taskId, preferredWindows: windows }),
-                          "Could not update preferred window.",
-                        );
-                      }}
+                      onChange={(start) => persistPreferred(start, preferEnd)}
                     />
                   </div>
                   <span className="shrink-0 text-xs text-muted-foreground">to</span>
                   <div className="min-w-0 flex-1">
                     <TimeField
-                      value={preferred?.end ?? ""}
+                      value={preferEnd}
                       clearable
                       aria-label="Preferred end"
-                      onChange={(end) => {
-                        const start = preferred?.start || "";
-                        const windows = start && end ? [{ start, end }] : [];
-                        void run(
-                          () => updateTask.mutateAsync({ id: taskId, preferredWindows: windows }),
-                          "Could not update preferred window.",
-                        );
-                      }}
+                      onChange={(end) => persistPreferred(preferStart, end)}
                     />
                   </div>
                 </div>
@@ -487,6 +519,25 @@ function nextRoundHour(): Date {
   next.setMinutes(0, 0, 0);
   next.setHours(next.getHours() + 1);
   return next;
+}
+
+function clockMinutes(value: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+/** `undefined` means the clocks are incomplete or inverted — do not persist yet. */
+function preferredWindowsPayload(
+  start: string,
+  end: string,
+): PreferredWindow[] | undefined {
+  if (!start && !end) return [];
+  if (!start || !end) return undefined;
+  const startMin = clockMinutes(start);
+  const endMin = clockMinutes(end);
+  if (startMin == null || endMin == null || endMin <= startMin) return undefined;
+  return [{ start, end }];
 }
 
 function endOfDay(date: Date): Date {

@@ -1,12 +1,10 @@
-import { DocContent, Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab } from "@/app/_types/types";
+import { Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab } from "@/app/_types/types";
 import { apiFetch } from "./client";
 
 
 export interface CreateSheetPayload {
   title?: string;
   icon?: string;
-  description?: string;
-  descriptionRich?: DocContent;
   columns?: SheetColumn[];
   rows?: SheetRow[];
   merges?: SheetMerge[];
@@ -18,8 +16,6 @@ export interface CreateSheetPayload {
 export interface UpdateSheetPayload {
   title?: string;
   icon?: string;
-  description?: string;
-  descriptionRich?: DocContent;
   columns?: SheetColumn[];
   rows?: SheetRow[];
   merges?: SheetMerge[];

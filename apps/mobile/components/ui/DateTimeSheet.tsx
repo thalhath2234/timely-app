@@ -161,7 +161,7 @@ export default function DateTimeSheet({
       onChange(next);
       return;
     }
-    onChange(new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), snapped));
+    // datetime: keep the local preview; Done is the commit.
   }
 
   const heading =

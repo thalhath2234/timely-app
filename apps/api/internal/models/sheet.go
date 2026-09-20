@@ -164,12 +164,8 @@ func jsonBytes(src any) ([]byte, error) {
 type Sheet struct {
 	ID string `gorm:"type:text;primaryKey" json:"id"`
 
-	Title       string  `gorm:"not null;default:'Untitled'" json:"title"`
-	Icon        *string `gorm:"type:text" json:"icon"`
-	Description string  `gorm:"type:text;not null;default:''" json:"description"`
-
-	// DescriptionRich is the editor document; Description holds its plain text.
-	DescriptionRich JSONMap `gorm:"type:jsonb;not null;default:'{}'" json:"descriptionRich"`
+	Title string  `gorm:"not null;default:'Untitled'" json:"title"`
+	Icon  *string `gorm:"type:text" json:"icon"`
 
 	Columns SheetColumns `gorm:"type:jsonb;not null;default:'[]'" json:"columns"`
 	Rows    SheetRows    `gorm:"type:jsonb;not null;default:'[]'" json:"rows"`

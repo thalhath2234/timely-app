@@ -68,12 +68,8 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   const [title, setTitle] = useState(sheet.title);
   const [icon, setIcon] = useState(sheet.icon ?? "");
   const [favorite, setFavorite] = useState(sheet.isFavorite);
-  const [description, setDescription] = useState(sheet.description ?? "");
   const [tabs, setTabs] = useState<SheetTab[]>(initialTabs);
   const [activeTabId, setActiveTabId] = useState(initialTabs[0]?.id ?? "");
-  const [showDescription, setShowDescription] = useState(
-    Boolean(sheet.description?.trim()) || Boolean(sheet.descriptionRich),
-  );
   const [menu, setMenu] = useState<"more" | "icon" | "delete" | "tab" | null>(null);
   const [tabDraft, setTabDraft] = useState("");
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
@@ -213,33 +209,9 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
       </View>
 
       <BottomSheet open={menu === "more"} onClose={() => setMenu(null)} title="Sheet">
-        {showDescription ? (
-          <TextInput
-            value={description}
-            onChangeText={(value) => {
-              setDescription(value);
-              schedule({ description: value });
-            }}
-            onBlur={() => void flush()}
-            placeholder="Add a description…"
-            placeholderTextColor={colors.mutedForeground}
-            multiline
-            style={styles.description}
-          />
-        ) : null}
         <SheetOption onSelect={() => setMenu("icon")} leading={<Smile size={18} color={colors.foreground} />}>
           Change icon
         </SheetOption>
-        {!showDescription ? (
-          <SheetOption
-            onSelect={() => {
-              setShowDescription(true);
-              setMenu(null);
-            }}
-          >
-            Add description
-          </SheetOption>
-        ) : null}
         <SheetOption
           onSelect={() => {
             setMenu(null);
@@ -391,20 +363,6 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingBottom: 4,
   },
   count: { color: colors.mutedForeground, fontSize: 12, marginTop: 8 },
-  addDesc: { color: colors.primary, fontWeight: "600" },
-  description: {
-    marginTop: 10,
-    minHeight: 72,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    color: colors.foreground,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    textAlignVertical: "top",
-  },
   gridWrap: { flex: 1, minHeight: 0, backgroundColor: "#111319" },
   tabBarWrap: {
     flexGrow: 0,

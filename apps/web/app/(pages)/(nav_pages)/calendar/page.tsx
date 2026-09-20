@@ -435,6 +435,7 @@ function CalendarContent() {
           </div>
           <WaitingForSlotRail
             tasks={typedTasks}
+            onOpen={(taskId) => openTask(taskId)}
             onSchedule={(taskId) => openAutoSchedule([taskId])}
           />
         </div>

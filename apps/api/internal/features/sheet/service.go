@@ -19,17 +19,15 @@ const (
 // SheetUpdate carries only the fields a client may change. Nil means
 // "leave untouched" so autosave can send partial payloads.
 type SheetUpdate struct {
-	Title           *string
-	Icon            *string
-	Description     *string
-	DescriptionRich *models.JSONMap
-	Columns         *models.SheetColumns
-	Rows            *models.SheetRows
-	Merges          *models.SheetMerges
-	Tabs            *models.SheetTabs
-	ProjectID       *string
-	IsFavorite      *bool
-	Archived        *bool
+	Title      *string
+	Icon       *string
+	Columns    *models.SheetColumns
+	Rows       *models.SheetRows
+	Merges     *models.SheetMerges
+	Tabs       *models.SheetTabs
+	ProjectID  *string
+	IsFavorite *bool
+	Archived   *bool
 }
 
 type SheetFilter struct {
@@ -149,16 +147,6 @@ func (s *sheetService) Update(userID string, sheetID string, update SheetUpdate)
 	if update.Icon != nil {
 		updates["icon"] = *update.Icon
 	}
-	if update.Description != nil {
-		updates["description"] = *update.Description
-	}
-	if update.DescriptionRich != nil {
-		rich := models.NormalizeDocumentContent(*update.DescriptionRich)
-		if update.Description != nil && strings.TrimSpace(*update.Description) != "" && models.IsDocumentContentEmpty(rich) {
-			rich = models.DocumentFromPlainText(*update.Description)
-		}
-		updates["description_rich"] = rich
-	}
 	if update.ProjectID != nil {
 		if *update.ProjectID == "" {
 			updates["project_id"] = nil
@@ -247,17 +235,15 @@ func (s *sheetService) Duplicate(userID, sheetID string) (*models.Sheet, error) 
 
 	columns, rows, merges, tabs := models.CloneSheetContents(src)
 	clone := &models.Sheet{
-		Title:           "Copy of " + src.Title,
-		Icon:            src.Icon,
-		Description:     src.Description,
-		DescriptionRich: src.DescriptionRich,
-		Columns:         columns,
-		Rows:            rows,
-		Merges:          merges,
-		Tabs:            tabs,
-		WorkspaceID:     src.WorkspaceID,
-		ProjectID:       src.ProjectID,
-		UserID:          userID,
+		Title:       "Copy of " + src.Title,
+		Icon:        src.Icon,
+		Columns:     columns,
+		Rows:        rows,
+		Merges:      merges,
+		Tabs:        tabs,
+		WorkspaceID: src.WorkspaceID,
+		ProjectID:   src.ProjectID,
+		UserID:      userID,
 	}
 	return s.Create(clone)
 }

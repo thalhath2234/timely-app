@@ -98,6 +98,10 @@ func (r *repository) MarkAllRead(userID string) error {
 		Update("read_at", now).Error
 }
 
+func (r *repository) ClearAll(userID string) error {
+	return r.db.Where("user_id = ?", userID).Delete(&models.Notification{}).Error
+}
+
 func (r *repository) SetSnoozed(userID, id string, until time.Time) error {
 	now := time.Now().UTC()
 	return r.db.Model(&models.Notification{}).

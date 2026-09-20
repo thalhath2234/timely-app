@@ -54,6 +54,20 @@ func (s *Server) markNotificationRead(ctx context.Context, req *mcp.CallToolRequ
 	return reply("notification marked read", row)
 }
 
+func (s *Server) clearNotifications(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	if s.Notify == nil {
+		return fail(errors.New("notifications are not available"))
+	}
+	if err := s.Notify.ClearAll(uid); err != nil {
+		return fail(err)
+	}
+	return reply("notifications cleared", map[string]any{"ok": true})
+}
+
 type snoozeIn struct {
 	ID      string `json:"id" jsonschema:"notification id"`
 	Minutes int    `json:"minutes,omitempty"`
@@ -91,10 +105,10 @@ func (s *Server) getNotificationSettings(ctx context.Context, req *mcp.CallToolR
 }
 
 type notificationSettingsIn struct {
-	Reminders       *bool  `json:"reminders,omitempty"`
-	DigestMorning   *bool  `json:"digestMorning,omitempty"`
-	DigestEvening   *bool  `json:"digestEvening,omitempty"`
-	Planning        *bool  `json:"planning,omitempty"`
+	Reminders       *bool   `json:"reminders,omitempty"`
+	DigestMorning   *bool   `json:"digestMorning,omitempty"`
+	DigestEvening   *bool   `json:"digestEvening,omitempty"`
+	Planning        *bool   `json:"planning,omitempty"`
 	QuietHoursStart *string `json:"quietHoursStart,omitempty"`
 	QuietHoursEnd   *string `json:"quietHoursEnd,omitempty"`
 	Timezone        *string `json:"timezone,omitempty"`

@@ -83,7 +83,9 @@ function findParenPairAt(formula: string, caret: number): { open: number; close:
     const pair = { open, close: index };
     lastClosed = pair;
     if (caret >= open && caret <= index + 1) {
-      containing = pair;
+      if (!containing || open > containing.open) {
+        containing = pair;
+      }
     }
   }
 
@@ -131,13 +133,75 @@ function findInsertSite(formula: string, caret: number): InsertSite {
   return { start: clamped, end: clamped, prefix: "", suffix: "" };
 }
 
+function appendInsertSite(
+  formula: string,
+  caret: number,
+  afterSpan?: FormulaRefSpan | null,
+): InsertSite {
+  const at = Math.max(
+    0,
+    Math.min(
+      afterSpan && afterSpan.end >= afterSpan.start ? afterSpan.end : caret,
+      formula.length,
+    ),
+  );
+  const probe = at > 0 ? at - 1 : at;
+  const pair = findParenPairAt(formula, probe);
+  if (pair) {
+    const insertAt = Math.min(Math.max(at, pair.open + 1), pair.close);
+    const prefix = needsCommaBefore(formula, pair.open + 1, insertAt) ? "," : "";
+    return { start: insertAt, end: insertAt, prefix, suffix: "" };
+  }
+  const before = formula.slice(0, at).trimEnd();
+  const prefix = before.length > 1 && !ARG_BREAK_RE.test(before) ? "," : "";
+  return { start: at, end: at, prefix, suffix: "" };
+}
+
+const VARIADIC_RANGE_FUNCS = new Set([
+  "SUM",
+  "AVERAGE",
+  "AVG",
+  "MIN",
+  "MAX",
+  "PRODUCT",
+  "COUNT",
+  "COUNTA",
+  "AND",
+  "OR",
+]);
+
+/** True when another picked range should be appended (SUM) rather than replacing (ROUND). */
+export function formulaAcceptsAnotherRange(
+  formula: string,
+  span?: FormulaRefSpan | null,
+): boolean {
+  if (!span) return false;
+  const pair = findParenPairAt(formula, span.start);
+  if (!pair) return false;
+  const before = formula.slice(0, pair.open);
+  const name = TRAILING_NAME_RE.exec(before);
+  if (!name || A1_REF_RE.test(name[0])) return false;
+  return VARIADIC_RANGE_FUNCS.has(name[0].toUpperCase());
+}
+
 /** Insert or replace an A1 range at the caret, spreadsheet-style. */
 export function insertFormulaRange(
   formula: string,
   caret: number,
   rangeLabel: string,
   activeSpan?: FormulaRefSpan | null,
+  mode: "replace" | "append" = "replace",
 ): { value: string; caret: number; span: FormulaRefSpan } {
+  if (mode === "append") {
+    const site = appendInsertSite(formula, caret, activeSpan);
+    const inserted = site.prefix + rangeLabel + site.suffix;
+    const raw = formula.slice(0, site.start) + inserted + formula.slice(site.end);
+    const value = closeOpenParens(raw);
+    const labelStart = site.start + site.prefix.length;
+    const nextSpan = { start: labelStart, end: labelStart + rangeLabel.length };
+    return { value, caret: nextSpan.end, span: nextSpan };
+  }
+
   const span =
     activeSpan && activeSpan.end >= activeSpan.start
       ? activeSpan

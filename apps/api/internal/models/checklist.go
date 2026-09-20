@@ -30,15 +30,9 @@ func NormalizeKind(raw string) (string, error) {
 // ResolveCreateKind decides whether a new row is work, a reminder, or inbox.
 // Explicit kind wins. Otherwise duration > 0 is work, a ping time / recurrence
 // is a reminder, and a title-only capture lands in the inbox.
-func ResolveCreateKind(kind string, duration int, scheduledOn *string, hasRecurrence bool, parentTaskID *string) string {
+func ResolveCreateKind(kind string, duration int, scheduledOn *string, hasRecurrence bool) string {
 	if normalized, err := NormalizeKind(kind); err == nil && kind != "" {
 		return normalized
-	}
-	if parentTaskID != nil && strings.TrimSpace(*parentTaskID) != "" {
-		if duration <= 0 {
-			return KindReminder
-		}
-		return KindTask
 	}
 	if duration > 0 {
 		return KindTask

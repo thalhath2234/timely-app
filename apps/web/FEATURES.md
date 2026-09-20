@@ -15,7 +15,7 @@ Timely is a **multi-account, single-user personal productivity system**. Multipl
 | **Desktop web** | Full product: sidebar, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors |
 | **Native app** | Expo Android/iOS: tabs, Inbox/Today, local reminder notifications (permission on first launch), search, working hours, API keys, export |
 | **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue |
-| **Hermes / MCP** | 121 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can through Phase 4 |
+| **Hermes / MCP** | 119 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can through Phase 4 |
 
 Ownership is always “this user owns this row.” No members, roles, invites, or resource ACLs.
 
@@ -117,7 +117,7 @@ Title, rich description, workspace, status, priority, start date, deadline, comp
 
 ## 4. Tasks (core work items)
 
-Work tasks require `duration > 0`, `kind=task`, and a workspace. Duration is minutes of work the scheduler can place. Title-only capture is `kind=inbox` and is **not** auto-scheduled until clarified. Reminders are `kind=reminder` (timed pings). Subtasks nest one level (`parentTaskId`); schedulable children replace the parent in the engine. Checklist items are lightweight completion text on the parent. `actualMinutes` is focused time, separate from estimated `duration`.
+Work tasks require `duration > 0`, `kind=task`, and a workspace. Duration is minutes of work the scheduler can place. Title-only capture is `kind=inbox` and is **not** auto-scheduled until clarified. Reminders are `kind=reminder` (timed pings). Checklist items are lightweight completion text on the task and are not scheduled. `actualMinutes` is focused time, separate from estimated `duration`.
 
 ### Fields
 
@@ -138,7 +138,6 @@ Work tasks require `duration > 0`, `kind=task`, and a workspace. Duration is min
 | Recurrence | RFC 5545 series |
 | Blocks | Manual or engine time chunks on the calendar |
 | Kind | `task`, `reminder`, or `inbox` — kind is the source of truth |
-| Parent | One-level subtask (`parentTaskId`) |
 | Checklist | `{id, title, completedAt, order}` items; not scheduled |
 | Actual minutes | Focused time from start/stop focus |
 | Today focus | Optional `todayFocusOn` date; max 7 per day |
@@ -176,7 +175,7 @@ Deep links: `?taskId=`, `?projectId=`.
 
 **Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks`, and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete).
 
-**No nested subtasks beyond one level.** Completing a parent does not auto-complete children; `openSubtaskCount` is shown on the parent.
+**Checklists** are items on the task, not nested tasks. Completing a task does not auto-complete its checklist. `parentTaskId` is rejected on create/update (REST and MCP); nested-task creation has no replacement. Sheet `description` is also rejected.
 
 ### Inbox and Today
 
@@ -185,11 +184,15 @@ Deep links: `?taskId=`, `?projectId=`.
 
 ### Filters on API (also used by agent)
 
-workspace(s), project(s), status(es), label(s), priority, stage, completed, overdue, dueBefore/After, scheduled, recurring, reminders, kind, inbox, parentId, includeSubtasks, text `q`, sort, limit/offset (default 200).
+workspace(s), project(s), status(es), label(s), priority, stage, completed, overdue, dueBefore/After, scheduled, recurring, reminders, kind, inbox, text `q`, sort, limit/offset (default 200).
 
 ### Native task UX
 
-Filters: All, Today, Overdue, Upcoming (14 days), No date, Done; workspace chips; search by name; grouped by project; card complete checkbox; dedicated detail screen with Work/Reminder.
+Saved **native task views** are stored only on the device (`native-task-views-{userId}.json`). They do **not** write `taskViews` / `activeTaskViewId`, so desktop web layouts stay unchanged.
+
+The Tasks tab is a view switcher (create / rename / delete). **View** opens the customizer: list or board, tasks / reminders / projects, group by (up to 3, including custom fields), sort, and the same filters as desktop (workspace, project, status, priority, labels, stage, completed, overdue, scheduled, recurring, dated).
+
+Default native views: Task List, My Deadlines, Overview, Board. Gantt stays desktop-only.
 
 ---
 
@@ -206,7 +209,7 @@ A reminder is a **first-class timed ping**, not a work block and not a duration-
 **Awareness**
 
 - Due reminders are claimed by a Postgres job (`send_reminder`) even when the UI is closed.
-- Desktop and native have an in-app notification center (read/unread, snooze 15m / 1h / tomorrow). Snooze updates `scheduledOn` or a moved occurrence and enqueues the next ping.
+- Desktop and native have an in-app notification center (read/unread, clear all, snooze 15m / 1h / tomorrow). Snooze updates `scheduledOn` or a moved occurrence and enqueues the next ping.
 - Settings control category prefs, quiet hours (in-app still writes; push is delayed), digest times, and timezone.
 - **Native local OS schedules are the device ping.** Permission is requested after the first interactive frame (Android 13+ `POST_NOTIFICATIONS`). Local schedules keep running even if Expo push token registration succeeds. Horizon 60 days, max 60 scheduled, Android channel `reminders`.
 - Exact-alarm access on Android 14+ may still need a system Settings grant; that deep-link is not in the UI yet.
@@ -287,12 +290,12 @@ This is one of the product’s distinctive features.
 
 ### Engine behavior
 
-- Places incomplete **work** into **free working hours minus busy time** (events + existing **incomplete** blocks). Completed tasks are not candidates, do not appear in the change list, and do not consume free capacity. Inbox items, reminders, and parents with schedulable subtasks are skipped.
+- Places incomplete **work** into **free working hours minus busy time** (events + existing **incomplete** blocks). Completed tasks are not candidates, do not appear in the change list, and do not consume free capacity. Inbox items and reminders are skipped.
 - Recurring work is scheduled as blocks on the parent task with `occurrenceStart`. One occurrence failing to fit does not change later ones. Skip/move/complete exceptions are respected.
 - Shared ranking with `what_next`: deadline slack, duration, priority, Today focus, dependency readiness, partial progress. Scores are ordering hints, never presented as certainty.
 - Blockers are hoisted. Earliest fit respects min/preferred chunk, contiguous single-slot, preferred-window intersection, and freeze.
 - Horizon default **14 days**, max **90**.
-- Skip reasons include: `no_capacity`, `blocked`, `manual`, `no_duration`, `reminder`, `recurring` (repeating **reminders**), `completed`, `inbox`, `parent_has_subtasks`, `locked`, `frozen`, `workspace_excluded`, `contiguous_no_fit`, `before_earliest`. Each skip has a plain-language `message`.
+- Skip reasons include: `no_capacity`, `blocked`, `manual`, `no_duration`, `reminder`, `recurring` (repeating **reminders**), `completed`, `inbox`, `locked`, `frozen`, `workspace_excluded`, `contiguous_no_fit`, `before_earliest`. Each skip has a plain-language `message`.
 - Optional include-manual. Deadline-risk and capacity flags (`overCapacity`, `atRisk`) appear before apply.
 - Preview change rows use **task titles**, never raw `tsk_…` ids.
 
@@ -370,7 +373,7 @@ Nested notes (parentId + order), Notion-like.
 
 Lightweight grids, not Airtable.
 
-**Fields:** title, emoji icon, rich description, columns, rows, workspace, project, favorite, archivedAt.
+**Fields:** title, emoji icon, columns, rows, workspace, project, favorite, archivedAt.
 
 Default new sheet: columns A–D + empty rows.
 
@@ -445,7 +448,7 @@ Picker → Name / Statuses / Labels / Custom fields (including Yes/No).
 
 ### Data & privacy
 
-- Full JSON backup, tasks CSV, calendar ICS.
+- Full JSON backup, tasks CSV, calendar ICS. Current backups use `schemaVersion` 2. Version 1 restores unless it still contains nested `parent_task_id` rows; export a new backup after upgrading.
 - Restore (replace-mode, transactional).
 - Encrypted server backups: create, list, download, delete; schedule + retention.
 
@@ -460,7 +463,7 @@ Picker → Name / Statuses / Labels / Custom fields (including Yes/No).
 
 ### Notifications
 
-Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread and reminder snooze. Settings → Notifications: category prefs, quiet hours, digest times, failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
+Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread, clear all, and reminder snooze. Settings → Notifications: category prefs, quiet hours, digest times, failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
 
 **No** language picker, billing, or connected-account screens.
 
@@ -486,7 +489,7 @@ Workspaces, statuses, labels, custom fields (including boolean), projects, stage
 
 Destructive deletes of a workspace, project, or document require `confirm=true`. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
 
-### Complete MCP tool list (121)
+### Complete MCP tool list (119)
 
 **Context / intelligence:** `get_context`, `search`, `semantic_search`, `reindex_search`, `get_agenda`, `get_free_time`, `what_next`
 
@@ -494,7 +497,7 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 
 **Projects:** `list_projects`, `get_project`, `create_project`, `update_project`, `complete_project`, `reopen_project`, `delete_project`, `create_stage`, `update_stage`, `delete_stage`, `reorder_stages`, `duplicate_project`
 
-**Tasks:** `list_tasks`, `get_task`, `create_task`, `update_task`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `list_subtasks`, `create_subtask`, `add_checklist_item`, `toggle_checklist_item`, `delete_checklist_item`, `start_focus`, `stop_focus`, `get_today`, `set_today_focus`, `duplicate_task`
+**Tasks:** `list_tasks`, `get_task`, `create_task`, `update_task`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `add_checklist_item`, `toggle_checklist_item`, `delete_checklist_item`, `start_focus`, `stop_focus`, `get_today`, `set_today_focus`, `duplicate_task`
 
 **Events:** `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `edit_event_occurrence`, `split_event_series`
 
@@ -506,7 +509,7 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 
 **Saved views / profile:** `list_task_views`, `create_task_view`, `update_task_view`, `delete_task_view`, `set_active_task_view`, `get_profile`, `update_profile`
 
-**Notifications / jobs:** `list_notifications`, `mark_notification_read`, `snooze_reminder`, `get_notification_settings`, `update_notification_settings`, `list_jobs`, `retry_job`, `get_job_health`
+**Notifications / jobs:** `list_notifications`, `mark_notification_read`, `clear_notifications`, `snooze_reminder`, `get_notification_settings`, `update_notification_settings`, `list_jobs`, `retry_job`, `get_job_health`
 
 ---
 
@@ -555,7 +558,7 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 - JWT + refresh token in SecureStore
 - Notification permission on first launch; Android `POST_NOTIFICATIONS`, reminder channel, exact-alarm permissions declared
 - Local reminder schedules (horizon 60 days, max 60) plus optional Expo push registration — locals are **not** cancelled when push registers
-- In-app notification center and snooze
+- In-app notification center, clear all, and snooze
 - Dedicated Search tab
 - Combined Files tab (Docs | Sheets) with Markdown import
 - Hidden sheets route (duplicate of Files → Sheets)
@@ -653,7 +656,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 **Docs / sheets:** CRUD; archive flag; `GET /docs/:id/watch` (SSE); doc export `?format=markdown` (PDF still accepted by the exporter, unused in UI)
 
-**API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications list/read/snooze; `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
+**API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications list/read/clear/snooze; `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
 
 **Portability:** full versioned JSON export + replace-mode transactional restore; task CSV; calendar ICS; document Markdown; encrypted server backup create/list/download/delete; backup schedule + retention settings
 
@@ -688,7 +691,7 @@ Grouped so you can pick from real holes, not imagined ones. See also `NextPhase.
 - Saved views that encode intent (My Deadlines = has deadline **or** next block)
 - Kanban/Gantt/report using next scheduled block when dates are empty
 - Inbox **Make task** still needs to write duration, default status, and stay off the board until clarified
-- Stop auto-applying the engine on every task/subtask create
+- Stop auto-applying the engine on every task create
 - Comment delete; richer project activity (not only recently updated tasks)
 - Gantt drag-resize
 - Full task/project template manager (duplicate is the current entry point)
@@ -732,10 +735,10 @@ Grouped so you can pick from real holes, not imagined ones. See also `NextPhase.
 | Calendar D/W/M/Agenda | D W M A | D M A | Range + agenda |
 | Auto-schedule (skip completed) | Full preview/apply/undo | Preview/apply/undo | Full |
 | Manual blocks | Full | Reschedule + pin/chunk | Full |
-| Task list/kanban/gantt + saved views | Yes | Card list | Views CRUD + filters |
+| Task list/kanban/gantt + saved views | Yes | Native-only saved views (list/board; no gantt) | Views CRUD + filters |
 | Task comments/activity | Yes | Yes | Yes |
 | Inbox / Today / focus | Yes | Yes | Yes |
-| Subtasks / checklists | Yes | Yes | Yes |
+| Checklists | Yes | Yes | Yes |
 | Reminders as a type | Work \| Reminder + Notify at | Kind + segmented control + local push | Yes + snooze |
 | Notification center / prefs | Yes | Yes + OS permission | Yes |
 | Working hours / engine | Multi-window + freeze | Hours + freeze | Yes |

@@ -63,11 +63,7 @@ export default function SheetList() {
     );
     if (!query) return all;
 
-    return all.filter(
-      (sheet) =>
-        sheet.title.toLowerCase().includes(query) ||
-        sheet.description.toLowerCase().includes(query),
-    );
+    return all.filter((sheet) => sheet.title.toLowerCase().includes(query));
   }, [sheets, search, showArchived]);
 
   const handleCreate = async () => {

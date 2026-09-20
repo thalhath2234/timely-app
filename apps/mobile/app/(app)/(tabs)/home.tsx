@@ -145,7 +145,6 @@ export default function HomeScreen() {
     return (tasks.data ?? []).filter((task) => {
       if (starred.has(task.id) || task.completedAt) return false;
       if (task.kind === "inbox" || task.kind === "reminder") return false;
-      if (task.parentTaskId) return false;
       return (task.duration ?? 0) > 0;
     });
   }, [data?.todayFocus, tasks.data]);

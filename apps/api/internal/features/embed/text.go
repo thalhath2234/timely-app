@@ -84,10 +84,6 @@ func FlattenSheet(sheet *models.Sheet) string {
 		return ""
 	}
 	var b strings.Builder
-	desc := strings.TrimSpace(sheet.Description)
-	if desc != "" {
-		b.WriteString(desc)
-	}
 
 	names := make(map[string]string, len(sheet.Columns))
 	for _, col := range sheet.Columns {

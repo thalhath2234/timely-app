@@ -191,7 +191,6 @@ export interface Task {
   timeChunks?: number;
   duration: number;
   kind?: TaskKind;
-  parentTaskId?: string | null;
   checklist?: ChecklistItem[];
   actualMinutes?: number;
   focusStartedAt?: string | null;
@@ -202,13 +201,10 @@ export interface Task {
   earliestStartAt?: string | null;
   preferredWindows?: PreferredWindow[];
   scheduleLocked?: boolean;
-  openSubtaskCount?: number;
-  subtaskCount?: number;
   checklistDone?: number;
   checklistTotal?: number;
   progressDone?: number;
   progressTotal?: number;
-  subtasks?: Task[];
 
   deadline: string | null;
   startDate: string | null;
@@ -608,8 +604,6 @@ export interface Sheet {
   id: string;
   title: string;
   icon: string | null;
-  description: string;
-  descriptionRich?: DocContent | null;
   columns: SheetColumn[];
   rows: SheetRow[];
   merges?: SheetMerge[];

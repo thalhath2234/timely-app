@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"timely-api/internal/models"
@@ -14,9 +15,10 @@ import (
 )
 
 const (
-	backupFormat  = "timely-backup"
-	schemaVersion = 1
-	maxRows       = 250000
+	backupFormat     = "timely-backup"
+	schemaVersion    = 2
+	minSchemaVersion = 1
+	maxRows          = 250000
 )
 
 type SourceAccount struct {
@@ -102,7 +104,7 @@ func validateBackup(backup *Backup) error {
 	if backup == nil || backup.Format != backupFormat {
 		return errors.New("not a Timely backup")
 	}
-	if backup.SchemaVersion != schemaVersion {
+	if backup.SchemaVersion < minSchemaVersion || backup.SchemaVersion > schemaVersion {
 		return fmt.Errorf("unsupported backup schema %d", backup.SchemaVersion)
 	}
 	total := 0
@@ -124,6 +126,24 @@ func validateBackup(backup *Backup) error {
 				return fmt.Errorf("backup contains an invalid %s row", table)
 			}
 		}
+	}
+	return rejectNestedTaskBackup(backup)
+}
+
+func rejectNestedTaskBackup(backup *Backup) error {
+	for _, raw := range backup.Rows["tasks"] {
+		var row map[string]any
+		if json.Unmarshal(raw, &row) != nil {
+			continue
+		}
+		parent, ok := row["parent_task_id"]
+		if !ok || parent == nil {
+			continue
+		}
+		if text, ok := parent.(string); ok && strings.TrimSpace(text) == "" {
+			continue
+		}
+		return errors.New("this backup contains nested tasks; export a new backup after upgrading past the subtask removal")
 	}
 	return nil
 }
@@ -185,7 +205,7 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 func deferredColumns(table string) []string {
 	switch table {
 	case "tasks":
-		return []string{"parent_task_id", "blocked_by_id"}
+		return []string{"blocked_by_id"}
 	case "documents":
 		return []string{"parent_id"}
 	default:

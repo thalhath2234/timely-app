@@ -244,6 +244,7 @@ func setupNotifyRoutes(g *echo.Group, h *notify.Handler) {
 	g.GET("/notifications/settings", h.GetSettings)
 	g.PUT("/notifications/settings", h.UpdateSettings)
 	g.POST("/notifications/read-all", h.MarkAllRead)
+	g.POST("/notifications/clear", h.ClearAll)
 	g.POST("/notifications/:id/read", h.MarkRead)
 	g.POST("/notifications/:id/snooze", h.Snooze)
 	g.POST("/notifications/:id/reschedule", h.Reschedule)

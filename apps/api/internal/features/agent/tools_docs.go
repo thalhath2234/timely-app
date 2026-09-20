@@ -284,14 +284,17 @@ func (s *Server) getSheet(ctx context.Context, req *mcp.CallToolRequest, in shee
 }
 
 type createSheetIn struct {
-	Title       string `json:"title"`
-	WorkspaceID string `json:"workspaceId,omitempty"`
-	ProjectID   string `json:"projectId,omitempty"`
-	Description string `json:"description,omitempty" jsonschema:"markdown"`
-	Icon        string `json:"icon,omitempty"`
+	Title       string  `json:"title"`
+	WorkspaceID string  `json:"workspaceId,omitempty"`
+	ProjectID   string  `json:"projectId,omitempty"`
+	Icon        string  `json:"icon,omitempty"`
+	Description *string `json:"description,omitempty" jsonschema:"-"`
 }
 
 func (s *Server) createSheet(ctx context.Context, req *mcp.CallToolRequest, in createSheetIn) (*mcp.CallToolResult, any, error) {
+	if in.Description != nil {
+		return fail(fmt.Errorf("sheet description is no longer supported"))
+	}
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
@@ -303,11 +306,6 @@ func (s *Server) createSheet(ctx context.Context, req *mcp.CallToolRequest, in c
 		ProjectID:   strPtr(in.ProjectID),
 		Icon:        strPtr(in.Icon),
 	}
-	if in.Description != "" {
-		rich, plain := md(in.Description)
-		sh.DescriptionRich = rich
-		sh.Description = plain
-	}
 	created, err := s.Sheets.Create(sh)
 	if err != nil {
 		return fail(err)
@@ -318,14 +316,17 @@ func (s *Server) createSheet(ctx context.Context, req *mcp.CallToolRequest, in c
 type updateSheetIn struct {
 	SheetID     string  `json:"sheetId"`
 	Title       *string `json:"title,omitempty"`
-	Description *string `json:"description,omitempty"`
 	Icon        *string `json:"icon,omitempty"`
+	Description *string `json:"description,omitempty" jsonschema:"-"`
 	ProjectID   *string `json:"projectId,omitempty"`
 	IsFavorite  *bool   `json:"isFavorite,omitempty"`
 	Archived    *bool   `json:"archived,omitempty"`
 }
 
 func (s *Server) updateSheet(ctx context.Context, req *mcp.CallToolRequest, in updateSheetIn) (*mcp.CallToolResult, any, error) {
+	if in.Description != nil {
+		return fail(fmt.Errorf("sheet description is no longer supported"))
+	}
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
@@ -336,11 +337,6 @@ func (s *Server) updateSheet(ctx context.Context, req *mcp.CallToolRequest, in u
 		ProjectID:  in.ProjectID,
 		IsFavorite: in.IsFavorite,
 		Archived:   in.Archived,
-	}
-	if in.Description != nil {
-		rich, plain := md(*in.Description)
-		update.Description = &plain
-		update.DescriptionRich = &rich
 	}
 	sh, err := s.Sheets.Update(uid, in.SheetID, update)
 	if err != nil {

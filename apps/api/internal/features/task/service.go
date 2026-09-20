@@ -40,7 +40,6 @@ type TaskUpdate struct {
 	StageID         *string
 	BlockedByID     *string
 	Kind            *string
-	ParentTaskID    *string
 	TodayFocusOn    *string
 	MinChunkMinutes       *int
 	PreferredChunkMinutes *int
@@ -126,8 +125,6 @@ type TaskFilter struct {
 	// Kind filters by task | reminder | inbox. Inbox is also accepted via Inbox=true.
 	Kind string
 	Inbox *bool
-	ParentID string
-	IncludeSubtasks bool
 }
 
 type workspaceOwner interface {
@@ -187,11 +184,8 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 	}
 
 	userID := deref(task.UserID)
-	if err := s.prepareParent(userID, task); err != nil {
-		return nil, err
-	}
 	hasRecurrence := rec != nil && rec.RRule != ""
-	task.Kind = models.ResolveCreateKind(task.Kind, task.Duration, task.ScheduledOn, hasRecurrence, task.ParentTaskID)
+	task.Kind = models.ResolveCreateKind(task.Kind, task.Duration, task.ScheduledOn, hasRecurrence)
 	if task.Kind == models.KindTask && task.Duration <= 0 {
 		return nil, errors.New("work tasks need a duration greater than 0")
 	}
@@ -483,7 +477,7 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		}
 	}
 
-	if len(updates) == 0 && update.LabelIDs == nil && update.CustomFieldValues == nil && !update.RecurrenceSet && update.Kind == nil && update.ParentTaskID == nil {
+	if len(updates) == 0 && update.LabelIDs == nil && update.CustomFieldValues == nil && !update.RecurrenceSet && update.Kind == nil {
 		return s.taskRepo.GetTaskByIdForUser(userID, taskID)
 	}
 
@@ -515,9 +509,6 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		return nil, err
 	}
 	if err := assertReminderPing(before, update, updates); err != nil {
-		return nil, err
-	}
-	if err := s.applyParentUpdate(userID, before, update, updates); err != nil {
 		return nil, err
 	}
 
@@ -1087,12 +1078,7 @@ func (s *taskService) GetForUser(userID, taskID string) (*models.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	all, err := s.taskRepo.GetAllTaskByUser(userID)
-	if err == nil {
-		annotateProgressOne(task, all)
-	} else {
-		annotateProgressOne(task, nil)
-	}
+	annotateProgressOne(task)
 	return task, nil
 }
 
@@ -1161,13 +1147,6 @@ func applyTaskFilter(tasks []models.Task, filter TaskFilter) []models.Task {
 	for i := range tasks {
 		t := tasks[i]
 		if !matchTaskKind(t, filter) {
-			continue
-		}
-		if filter.ParentID != "" {
-			if deref(t.ParentTaskID) != filter.ParentID {
-				continue
-			}
-		} else if !filter.IncludeSubtasks && t.IsSubtask() {
 			continue
 		}
 		if len(wantedWorkspaces) > 0 && (t.WorkspaceID == nil || !wantedWorkspaces[*t.WorkspaceID]) {

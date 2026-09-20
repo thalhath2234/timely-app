@@ -58,9 +58,9 @@ Reminders fire as server jobs even when the UI is closed. snooze_reminder moves 
 
 Projects can have ordered stages (stg_). Move cards with move_task_to_stage (empty stageId = Unstaged) or move_task_to_status for kanban.
 Reminders are duration 0 with kind=reminder; list them with list_tasks reminders=true. Title-only capture is inbox (kind=inbox) and is not auto-scheduled until clarify_inbox_item.
-Subtasks nest one level (parentTaskId). Schedulable subtasks replace the parent in auto-schedule (skip reason parent_has_subtasks). Checklist items are lightweight and are not scheduled.
+Checklist items are lightweight completion text on a task and are not scheduled.
 Today: get_today, set_today_focus, start_focus/stop_focus (actualMinutes is focused time, separate from duration).
-Duplicate with duplicate_task / duplicate_project (checklist + subtasks; no blocks/completion).
+Duplicate with duplicate_task / duplicate_project (checklist copied; no blocks/completion).
 Auto-schedule v2: preview shows add/move/remove/pin, skip messages, capacity, and deadline risk. Recurring work occurrences in the horizon are placed without creating extra task rows. Frozen hours, locked tasks, and manual pins stay put. undo_schedule reverts the last apply. Scores from what_next and the engine are ordering hints, not certainty.
 bulk_update_tasks applies one patch to many tasks: complete/reopen, status, priority, project, stage, deadline, and labelIds (replaces the full set; [] clears).
 Archive docs/sheets with archive_doc / archive_sheet (archived=false unarchives). list_docs/list_sheets archived=true lists the archive. Prefer archive over delete.
@@ -117,9 +117,9 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_stage", Description: "Delete a stage."}, s.deleteStage)
 	mcp.AddTool(server, &mcp.Tool{Name: "reorder_stages", Description: "Set stage order by id list."}, s.reorderStages)
 
-	mcp.AddTool(server, &mcp.Tool{Name: "list_tasks", Description: "List work tasks. Reminders and inbox items are hidden unless reminders=true, kind=inbox, or inbox=true. Filters: workspace, project, status, labels, priority, stage, completed, overdue, scheduled, recurring, parentId, includeSubtasks, text."}, s.listTasks)
-	mcp.AddTool(server, &mcp.Tool{Name: "get_task", Description: "Get a task with blocks, recurrence, checklist, subtasks, progress, and recent activity."}, s.getTask)
-	mcp.AddTool(server, &mcp.Tool{Name: "create_task", Description: "Create a task. Title-only (no duration, no ping time) captures to inbox. Duration 0 with scheduleAt/recurrence is a reminder. Work tasks (duration > 0) require workspaceId. Optional parentTaskId creates a one-level subtask. Description is markdown."}, s.createTask)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_tasks", Description: "List work tasks. Reminders and inbox items are hidden unless reminders=true, kind=inbox, or inbox=true. Filters: workspace, project, status, labels, priority, stage, completed, overdue, scheduled, recurring, text."}, s.listTasks)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_task", Description: "Get a task with blocks, recurrence, checklist, progress, and recent activity."}, s.getTask)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_task", Description: "Create a task. Title-only (no duration, no ping time) captures to inbox. Duration 0 with scheduleAt/recurrence is a reminder. Work tasks (duration > 0) require workspaceId. Description is markdown."}, s.createTask)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_task", Description: "Partial-update a task, including statusId (kanban) and stageId (project board; empty unstages)."}, s.updateTask)
 	mcp.AddTool(server, &mcp.Tool{Name: "bulk_update_tasks", Description: "Apply the same patch to many tasks: completedAt (set or empty to reopen), statusId, priorityLevel, projectId, stageId, deadline, and labelIds (replaces the full set; [] clears)."}, s.bulkUpdateTasks)
 	mcp.AddTool(server, &mcp.Tool{Name: "complete_task", Description: "Mark a one-off task complete."}, s.completeTask)
@@ -139,8 +139,6 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "capture_inbox_item", Description: "Capture a thought with only a title. It stays in Inbox and is not auto-scheduled until clarified."}, s.captureInboxItem)
 	mcp.AddTool(server, &mcp.Tool{Name: "list_inbox", Description: "List unprocessed inbox items."}, s.listInbox)
 	mcp.AddTool(server, &mcp.Tool{Name: "clarify_inbox_item", Description: "Turn an inbox item into a work task (workspaceId + duration) or a reminder (scheduleAt)."}, s.clarifyInboxItem)
-	mcp.AddTool(server, &mcp.Tool{Name: "list_subtasks", Description: "List one-level subtasks of a parent task."}, s.listSubtasks)
-	mcp.AddTool(server, &mcp.Tool{Name: "create_subtask", Description: "Create a one-level subtask under a parent. Inherits workspace/project. Schedulable subtasks replace the parent in the engine."}, s.createSubtask)
 	mcp.AddTool(server, &mcp.Tool{Name: "add_checklist_item", Description: "Add a lightweight checklist item on a task. Checklist items are not scheduled."}, s.addChecklistItem)
 	mcp.AddTool(server, &mcp.Tool{Name: "toggle_checklist_item", Description: "Complete or reopen a checklist item."}, s.toggleChecklistItem)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_checklist_item", Description: "Remove a checklist item."}, s.deleteChecklistItem)
@@ -148,8 +146,8 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "stop_focus", Description: "Stop the focus session and add elapsed minutes to actualMinutes."}, s.stopFocus)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_today", Description: "Today view: scheduled items, overdue, inbox count, today-focus set, active focus, completed today, and unfinished scheduled work."}, s.getToday)
 	mcp.AddTool(server, &mcp.Tool{Name: "set_today_focus", Description: "Add or remove a task from the Today focus set (max 7). date is YYYY-MM-DD; omit/empty clears."}, s.setTodayFocus)
-	mcp.AddTool(server, &mcp.Tool{Name: "duplicate_task", Description: "Duplicate a task with checklist and subtasks. Skips blocks, completion, and focus time."}, s.duplicateTask)
-	mcp.AddTool(server, &mcp.Tool{Name: "duplicate_project", Description: "Duplicate a project with stages and tasks (including checklists and subtasks)."}, s.duplicateProject)
+	mcp.AddTool(server, &mcp.Tool{Name: "duplicate_task", Description: "Duplicate a task with its checklist. Skips blocks, completion, and focus time."}, s.duplicateTask)
+	mcp.AddTool(server, &mcp.Tool{Name: "duplicate_project", Description: "Duplicate a project with stages and tasks (including checklists)."}, s.duplicateProject)
 
 	mcp.AddTool(server, &mcp.Tool{Name: "list_events", Description: "List all calendar events (no date filter). Use get_calendar for a date range."}, s.listEvents)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_event", Description: "Get one event."}, s.getEvent)
@@ -186,7 +184,7 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "list_sheets", Description: "List active sheets by default. archived=true lists the archive."}, s.listSheets)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_sheet", Description: "Get a sheet as a markdown table plus raw grid."}, s.getSheet)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_sheet", Description: "Create a sheet."}, s.createSheet)
-	mcp.AddTool(server, &mcp.Tool{Name: "update_sheet", Description: "Update sheet title/description/project/favorite/archived."}, s.updateSheet)
+	mcp.AddTool(server, &mcp.Tool{Name: "update_sheet", Description: "Update sheet title/project/favorite/archived."}, s.updateSheet)
 	mcp.AddTool(server, &mcp.Tool{Name: "archive_sheet", Description: "Archive a sheet (archived=false unarchives). Prefer this over delete."}, s.archiveSheet)
 	mcp.AddTool(server, &mcp.Tool{Name: "add_sheet_column", Description: "Add a column. Type is text, number, date, or boolean (default text)."}, s.addSheetColumn)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_sheet_column", Description: "Rename or retype a column (text, number, date, boolean)."}, s.updateSheetColumn)
@@ -207,6 +205,7 @@ func (s *Server) register(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "list_notifications", Description: "In-app notifications, newest first. unread=true lists only unread."}, s.listNotifications)
 	mcp.AddTool(server, &mcp.Tool{Name: "mark_notification_read", Description: "Mark one notification read. Empty id marks all unread as read."}, s.markNotificationRead)
+	mcp.AddTool(server, &mcp.Tool{Name: "clear_notifications", Description: "Delete all in-app notifications for this account."}, s.clearNotifications)
 	mcp.AddTool(server, &mcp.Tool{Name: "snooze_reminder", Description: "Snooze a reminder notification. Updates the underlying reminder time and enqueues the next ping. minutes or until (RFC3339)."}, s.snoozeReminder)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_notification_settings", Description: "Reminder, digest, planning, and quiet-hours preferences."}, s.getNotificationSettings)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_notification_settings", Description: "Update reminder/digest/planning toggles, quiet hours, and digest times."}, s.updateNotificationSettings)

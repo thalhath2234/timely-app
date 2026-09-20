@@ -47,10 +47,10 @@ type createTaskRequest struct {
 	WorkspaceID   *string `json:"workspaceId"`
 	StageID       *string `json:"stageId"`
 
-	BlockedByID *string `json:"blockedById"`
-
-	Kind         string  `json:"kind"`
+	BlockedByID  *string `json:"blockedById"`
 	ParentTaskID *string `json:"parentTaskId"`
+
+	Kind string `json:"kind"`
 
 	LabelIDs []models.LabelInput `json:"labelIds"`
 
@@ -69,12 +69,12 @@ func (h *Handler) Create(c *echo.Context) error {
 			"invalid request payload",
 		)
 	}
+	if err := rejectRemovedParentTaskID(req.ParentTaskID != nil); err != nil {
+		return err
+	}
 	req.WorkspaceID = nonemptyID(req.WorkspaceID)
-	req.ParentTaskID = nonemptyID(req.ParentTaskID)
-	kind := models.ResolveCreateKind(req.Kind, req.Duration, req.ScheduledOn, req.Recurrence != nil && req.Recurrence.RRule != "", req.ParentTaskID)
-	// Subtasks inherit workspace/project from the parent in the service.
-	// Requiring workspaceId here rejected that path before inherit ran.
-	if kind == models.KindTask && req.WorkspaceID == nil && req.ParentTaskID == nil {
+	kind := models.ResolveCreateKind(req.Kind, req.Duration, req.ScheduledOn, req.Recurrence != nil && req.Recurrence.RRule != "")
+	if kind == models.KindTask && req.WorkspaceID == nil {
 		return echo.NewHTTPError(
 			http.StatusBadRequest,
 			"workspaceId is required",
@@ -115,10 +115,9 @@ func (h *Handler) Create(c *echo.Context) error {
 		WorkspaceID:   req.WorkspaceID,
 		StageID:       req.StageID,
 
-		BlockedByID:  req.BlockedByID,
-		Kind:         kind,
-		ParentTaskID: nonemptyID(req.ParentTaskID),
-		LabelIDs:     models.LabelInputs(req.LabelIDs),
+		BlockedByID: req.BlockedByID,
+		Kind:        kind,
+		LabelIDs:    models.LabelInputs(req.LabelIDs),
 	}
 
 	createdTask, err := h.taskService.Create(task, customFieldValues, req.Recurrence)
@@ -182,6 +181,9 @@ func (h *Handler) BulkUpdate(c *echo.Context) error {
 	if updateRaw, ok := raw["update"]; ok {
 		_ = json.Unmarshal(updateRaw, &updateKeys)
 	}
+	if _, ok := updateKeys["parentTaskId"]; ok {
+		return rejectRemovedParentTaskID(true)
+	}
 
 	var labelIDs *models.LabelInputs
 	if labelRaw, ok := updateKeys["labelIds"]; ok {
@@ -215,7 +217,6 @@ func (h *Handler) BulkUpdate(c *echo.Context) error {
 		StageID:         req.Update.StageID,
 		BlockedByID:     req.Update.BlockedByID,
 		Kind:            req.Update.Kind,
-		ParentTaskID:    req.Update.ParentTaskID,
 		LabelIDs:        labelIDs,
 	}
 	if _, ok := updateKeys["recurrence"]; ok {
@@ -244,12 +245,10 @@ func parseTaskFilter(c *echo.Context) TaskFilter {
 		DueAfter:      c.QueryParam("dueAfter"),
 		Scheduled:     parseBoolQuery(c.QueryParam("scheduled")),
 		HasRecurrence: parseBoolQuery(c.QueryParam("recurring")),
-		Reminders:       parseBoolQuery(c.QueryParam("reminders")),
-		Kind:            c.QueryParam("kind"),
-		Inbox:           parseBoolQuery(c.QueryParam("inbox")),
-		ParentID:        c.QueryParam("parentId"),
-		IncludeSubtasks: parseBoolQuery(c.QueryParam("includeSubtasks")) != nil && *parseBoolQuery(c.QueryParam("includeSubtasks")),
-		Text:            c.QueryParam("q"),
+		Reminders:     parseBoolQuery(c.QueryParam("reminders")),
+		Kind:          c.QueryParam("kind"),
+		Inbox:         parseBoolQuery(c.QueryParam("inbox")),
+		Text:          c.QueryParam("q"),
 		Sort:          c.QueryParam("sort"),
 		Limit:         parseIntQuery(c.QueryParam("limit")),
 		Offset:        parseIntQuery(c.QueryParam("offset")),
@@ -304,32 +303,31 @@ func (h *Handler) GetTaskById(c *echo.Context) error {
 }
 
 type updateTaskRequest struct {
-	Name              *string                   `json:"name"`
-	Description       *string                   `json:"description"`
-	DescriptionRich   *models.JSONMap           `json:"descriptionRich"`
-	Duration          *int                      `json:"duration"`
-	Deadline          *string                   `json:"deadline"`
-	StartDate         *string                   `json:"startDate"`
-	ScheduledOn       *string                   `json:"scheduledOn"`
-	CompletedAt       *string                   `json:"completedAt"`
-	WorkspaceID       *string                   `json:"workspaceId"`
-	ProjectID         *string                   `json:"projectId"`
-	StatusID          *string                   `json:"statusId"`
-	PriorityLevel     *string                   `json:"priorityLevel"`
-	StageID           *string                   `json:"stageId"`
-	BlockedByID       *string                   `json:"blockedById"`
-	Kind              *string                   `json:"kind"`
-	ParentTaskID      *string                   `json:"parentTaskId"`
-	TodayFocusOn      *string                   `json:"todayFocusOn"`
+	Name                  *string                   `json:"name"`
+	Description           *string                   `json:"description"`
+	DescriptionRich       *models.JSONMap           `json:"descriptionRich"`
+	Duration              *int                      `json:"duration"`
+	Deadline              *string                   `json:"deadline"`
+	StartDate             *string                   `json:"startDate"`
+	ScheduledOn           *string                   `json:"scheduledOn"`
+	CompletedAt           *string                   `json:"completedAt"`
+	WorkspaceID           *string                   `json:"workspaceId"`
+	ProjectID             *string                   `json:"projectId"`
+	StatusID              *string                   `json:"statusId"`
+	PriorityLevel         *string                   `json:"priorityLevel"`
+	StageID               *string                   `json:"stageId"`
+	BlockedByID           *string                   `json:"blockedById"`
+	Kind                  *string                   `json:"kind"`
+	TodayFocusOn          *string                   `json:"todayFocusOn"`
 	MinChunkMinutes       *int                      `json:"minChunkMinutes"`
 	PreferredChunkMinutes *int                      `json:"preferredChunkMinutes"`
 	Contiguous            *bool                     `json:"contiguous"`
 	EarliestStartAt       *string                   `json:"earliestStartAt"`
 	PreferredWindows      *models.PreferredWindows  `json:"preferredWindows"`
 	ScheduleLocked        *bool                     `json:"scheduleLocked"`
-	LabelIDs          *models.LabelInputs       `json:"labelIds"`
-	CustomFieldValues []customFieldValueRequest `json:"customFieldValues"`
-	Recurrence        *models.RecurrenceInput   `json:"recurrence"`
+	LabelIDs              *models.LabelInputs       `json:"labelIds"`
+	CustomFieldValues     []customFieldValueRequest `json:"customFieldValues"`
+	Recurrence            *models.RecurrenceInput   `json:"recurrence"`
 }
 
 func (h *Handler) Update(c *echo.Context) error {
@@ -356,6 +354,9 @@ func (h *Handler) Update(c *echo.Context) error {
 	// Detect whether labelIds was present (including [] / null).
 	var rawKeys map[string]json.RawMessage
 	_ = json.Unmarshal(body, &rawKeys)
+	if _, ok := rawKeys["parentTaskId"]; ok {
+		return rejectRemovedParentTaskID(true)
+	}
 
 	var labelIDs *models.LabelInputs
 	if labelRaw, ok := rawKeys["labelIds"]; ok {
@@ -392,33 +393,32 @@ func (h *Handler) Update(c *echo.Context) error {
 	_, recurrenceSet := rawKeys["recurrence"]
 
 	task, err := h.taskService.Update(userID, taskID, TaskUpdate{
-		Name:              req.Name,
-		Description:       req.Description,
-		DescriptionRich:   req.DescriptionRich,
-		Duration:          req.Duration,
-		Deadline:          req.Deadline,
-		StartDate:         req.StartDate,
-		ScheduledOn:       req.ScheduledOn,
-		CompletedAt:       req.CompletedAt,
-		WorkspaceID:       req.WorkspaceID,
-		ProjectID:         req.ProjectID,
-		StatusID:          req.StatusID,
-		PriorityLevel:     req.PriorityLevel,
-		StageID:           req.StageID,
-		BlockedByID:       req.BlockedByID,
-		Kind:              req.Kind,
-		ParentTaskID:      req.ParentTaskID,
-		TodayFocusOn:      req.TodayFocusOn,
+		Name:                  req.Name,
+		Description:           req.Description,
+		DescriptionRich:       req.DescriptionRich,
+		Duration:              req.Duration,
+		Deadline:              req.Deadline,
+		StartDate:             req.StartDate,
+		ScheduledOn:           req.ScheduledOn,
+		CompletedAt:           req.CompletedAt,
+		WorkspaceID:           req.WorkspaceID,
+		ProjectID:             req.ProjectID,
+		StatusID:              req.StatusID,
+		PriorityLevel:         req.PriorityLevel,
+		StageID:               req.StageID,
+		BlockedByID:           req.BlockedByID,
+		Kind:                  req.Kind,
+		TodayFocusOn:          req.TodayFocusOn,
 		MinChunkMinutes:       req.MinChunkMinutes,
 		PreferredChunkMinutes: req.PreferredChunkMinutes,
 		Contiguous:            req.Contiguous,
 		EarliestStartAt:       req.EarliestStartAt,
 		PreferredWindows:      req.PreferredWindows,
 		ScheduleLocked:        req.ScheduleLocked,
-		LabelIDs:          labelIDs,
-		CustomFieldValues: customFieldValues,
-		RecurrenceSet:     recurrenceSet,
-		Recurrence:        req.Recurrence,
+		LabelIDs:              labelIDs,
+		CustomFieldValues:     customFieldValues,
+		RecurrenceSet:         recurrenceSet,
+		Recurrence:            req.Recurrence,
 	})
 	if err != nil {
 		return taskError(err)
@@ -507,6 +507,13 @@ func taskError(err error) error {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
 	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+}
+
+func rejectRemovedParentTaskID(present bool) error {
+	if !present {
+		return nil
+	}
+	return echo.NewHTTPError(http.StatusBadRequest, "parentTaskId is no longer supported; nested tasks were removed")
 }
 
 func (h *Handler) ListActivity(c *echo.Context) error {

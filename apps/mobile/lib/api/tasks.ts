@@ -7,7 +7,6 @@ export type CreateTaskPayload = {
   descriptionRich?: DocContent;
   duration?: number;
   kind?: "task" | "reminder" | "inbox";
-  parentTaskId?: string;
   deadline?: string;
   startDate?: string;
   scheduledOn?: string;
@@ -28,7 +27,6 @@ export type UpdateTaskPayload = {
   descriptionRich?: DocContent;
   duration?: number;
   kind?: "task" | "reminder" | "inbox";
-  parentTaskId?: string | null;
   todayFocusOn?: string | null;
   minChunkMinutes?: number;
   preferredChunkMinutes?: number | null;
@@ -53,10 +51,9 @@ export type UpdateTaskPayload = {
 
 export type TaskOccurrenceAction = "complete" | "uncomplete" | "skip" | "restore" | "move";
 
-export function getTasks(query: { inbox?: boolean; parentId?: string; kind?: string } = {}) {
+export function getTasks(query: { inbox?: boolean; kind?: string } = {}) {
   const params = new URLSearchParams();
   if (query.inbox) params.set("inbox", "true");
-  if (query.parentId) params.set("parentId", query.parentId);
   if (query.kind) params.set("kind", query.kind);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return api<Task[]>(`/tasks${suffix}`);

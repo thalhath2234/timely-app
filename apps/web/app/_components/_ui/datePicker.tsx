@@ -395,6 +395,7 @@ export default function DatePicker({
         aria-expanded={open}
         aria-controls={panelId}
         aria-label={ariaLabel}
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={() => (open ? setOpen(false) : openPanel())}
         className={cn(
           triggerClass,
@@ -448,6 +449,9 @@ export default function DatePicker({
                   top: pos.top,
                   left: pos.left,
                 }}
+                onMouseDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+                onTouchStart={(event) => event.stopPropagation()}
               >
             {mode !== "time" && (
               <>

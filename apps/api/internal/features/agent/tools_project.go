@@ -296,7 +296,7 @@ func projectSummary(p models.Project, tasks []models.Task) map[string]any {
 	open, done, scheduled := 0, 0, 0
 	nextDeadline := deref(p.Deadline)
 	for _, t := range tasks {
-		if deref(t.ProjectID) != p.ID || t.IsReminder() || t.IsInbox() || t.IsSubtask() {
+		if deref(t.ProjectID) != p.ID || t.IsReminder() || t.IsInbox() {
 			continue
 		}
 		if t.IsCompleted() {
@@ -354,7 +354,7 @@ func projectBoard(p *models.Project, tasks []models.Task) []map[string]any {
 		}
 	}
 	for _, t := range tasks {
-		if t.IsReminder() || t.IsInbox() || t.IsSubtask() {
+		if t.IsReminder() || t.IsInbox() {
 			continue
 		}
 		idx := 0

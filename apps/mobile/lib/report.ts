@@ -132,7 +132,6 @@ export function buildReportData(input: {
     }
   };
   for (const doc of docs) push("doc", doc.id, doc.title, doc.content);
-  for (const sheet of sheets) push("sheet", sheet.id, sheet.title, sheet.descriptionRich);
   for (const task of tasks) push("task", task.id, task.name, task.descriptionRich);
   for (const project of projects) push("project", project.id, project.title, project.descriptionRich);
 

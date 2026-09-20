@@ -39,19 +39,28 @@ import {
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { columnIndexToLetter, createSheetEvaluator, shiftFormula } from "../../lib/sheetFormula";
-import { closeOpenParens, insertFormulaRange, type FormulaRefSpan } from "../../lib/sheetFormulaInput";
+import { closeOpenParens, formulaAcceptsAnotherRange, insertFormulaRange, type FormulaRefSpan } from "../../lib/sheetFormulaInput";
 import {
   type CellAddress,
   type CellRange,
+  activeCellInRange,
   clampAddress,
   findMerge,
   formulaOutputAddress,
+  guessAggregateRange,
   hasMergeInRange,
+  isExactMergeSelection,
+  isInAnyRange,
   isInRange,
   mergeAll,
   normalizedRange,
   rangeAddressLabel,
   rangeFromMerge,
+  rangeTouchesCol,
+  rangeTouchesRow,
+  sameAddress,
+  sameRange,
+  selectionAddressLabel,
   unmergeRange,
   visitRange,
 } from "../../lib/sheetRange";
@@ -90,6 +99,52 @@ type DragMode = "select" | "fill" | "formula" | "formula-col" | "formula-row";
 type Address = CellAddress;
 type GridSnapshot = { columns: SheetColumn[]; rows: SheetRow[]; merges: SheetMerge[] };
 type HitZone = { zone: "cell" | "col" | "row"; col: number; row: number };
+type FormulaInsert = { label: string; template: (range: string) => string };
+
+const FORMULA_GROUPS: { title: string; items: FormulaInsert[] }[] = [
+  {
+    title: "MATH",
+    items: [
+      { label: "SUM", template: (range) => `=SUM(${range})` },
+      { label: "AVERAGE", template: (range) => `=AVERAGE(${range})` },
+      { label: "MIN", template: (range) => `=MIN(${range})` },
+      { label: "MAX", template: (range) => `=MAX(${range})` },
+      { label: "PRODUCT", template: (range) => `=PRODUCT(${range})` },
+      { label: "COUNT", template: (range) => `=COUNT(${range})` },
+      { label: "COUNTA", template: (range) => `=COUNTA(${range})` },
+    ],
+  },
+  {
+    title: "NUMBER",
+    items: [
+      { label: "ABS", template: (range) => `=ABS(${range || "A1"})` },
+      { label: "SQRT", template: (range) => `=SQRT(${range || "A1"})` },
+      { label: "ROUND", template: (range) => `=ROUND(${range || "A1"},0)` },
+      { label: "FLOOR", template: (range) => `=FLOOR(${range || "A1"})` },
+      { label: "CEILING", template: (range) => `=CEILING(${range || "A1"})` },
+      { label: "POWER", template: (range) => `=POWER(${range || "A1"},2)` },
+    ],
+  },
+  {
+    title: "LOGIC",
+    items: [
+      { label: "IF", template: (range) => `=IF(${range || "A1"}>0,"yes","no")` },
+      { label: "AND", template: (range) => `=AND(${range})` },
+      { label: "OR", template: (range) => `=OR(${range})` },
+      { label: "NOT", template: (range) => `=NOT(${range || "A1"})` },
+    ],
+  },
+  {
+    title: "TEXT",
+    items: [
+      { label: "CONCAT", template: (range) => `=CONCAT(${range || "A1"},"")` },
+      { label: "LEN", template: (range) => `=LEN(${range || "A1"})` },
+      { label: "UPPER", template: (range) => `=UPPER(${range || "A1"})` },
+      { label: "LOWER", template: (range) => `=LOWER(${range || "A1"})` },
+      { label: "TRIM", template: (range) => `=TRIM(${range || "A1"})` },
+    ],
+  },
+];
 
 export type SheetGridProps = {
   columns: SheetColumn[];
@@ -118,10 +173,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("format");
-  const [formulaRange, setFormulaRange] = useState<CellRange | null>(null);
+  const [formulaRanges, setFormulaRanges] = useState<CellRange[]>([]);
   const [gridLocked, setGridLocked] = useState(false);
 
-  const selected = range.focus;
+  const selected = activeCellInRange(range, merges);
   const bounds = normalizedRange(range);
   const dragModeRef = useRef<DragMode | null>(null);
   const fillOriginRef = useRef<CellRange | null>(null);
@@ -175,7 +230,16 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
       return;
     }
     const focus = clampAddress(next, colCount, rowCount);
-    setRange((previous) => (extend ? { ...previous, focus } : { anchor: focus, focus }));
+    if (extend) {
+      setRange((previous) => ({ ...previous, focus }));
+      return;
+    }
+    const merge = findMerge(merges, focus);
+    if (merge) {
+      setRange(rangeFromMerge(merge));
+      return;
+    }
+    setRange({ anchor: focus, focus });
   }
 
   function lockGrid(lock: boolean) {
@@ -215,15 +279,36 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     return physical && ratio > 1 ? ratio : 1;
   }
 
+  function colFromDelta(originCol: number, locationX: number, dx: number) {
+    let x = locationX + dx;
+    let col = originCol;
+    const maxCol = Math.max(columns.length, 1);
+    if (x >= 0) {
+      while (col < maxCol) {
+        const width = columns[col] ? colWidth(columns[col]) : GHOST_COL_W;
+        if (x < width) break;
+        x -= width;
+        col += 1;
+      }
+    } else {
+      while (col > 0 && x < 0) {
+        col -= 1;
+        const width = columns[col] ? colWidth(columns[col]) : GHOST_COL_W;
+        x += width;
+      }
+    }
+    return Math.max(0, col);
+  }
+
   function addressFromPage(pageX: number, pageY: number): HitZone | null {
     const origin = dragOriginRef.current;
     if (!origin) return null;
     const scale = dragScale(origin.pageX, origin.pageY, pageX, pageY);
     const dx = (pageX - origin.pageX) / scale;
     const dy = (pageY - origin.pageY) / scale;
-    const colW = columns[origin.hit.col] ? colWidth(columns[origin.hit.col]) : GHOST_COL_W;
-    const col = Math.max(0, origin.hit.col + Math.floor((origin.locationX + dx) / colW));
-    const row = Math.max(0, origin.hit.row + Math.floor((origin.locationY + dy) / CELL_H));
+    const col = colFromDelta(origin.hit.col, origin.locationX, dx);
+    const rowStep = origin.hit.zone === "col" ? HEADER_H : CELL_H;
+    const row = Math.max(0, origin.hit.row + Math.floor((origin.locationY + dy) / rowStep));
     return { zone: origin.hit.zone, col, row };
   }
 
@@ -231,18 +316,22 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     const { pageX, pageY, locationX, locationY } = event.nativeEvent;
     noteTouch({ zone: "cell", col, row }, pageX, pageY, locationX, locationY);
     const current = rangeRef.current;
-    pressWasSelectedRef.current =
-      current.anchor.col === col
-      && current.anchor.row === row
-      && current.focus.col === col
-      && current.focus.row === row;
-    if (isEditingFormula()) return;
+    const mergeAt = findMerge(merges, { col, row });
+    pressWasSelectedRef.current = mergeAt
+      ? sameRange(current, rangeFromMerge(mergeAt))
+      : current.anchor.col === col
+        && current.anchor.row === row
+        && current.focus.col === col
+        && current.focus.row === row;
+    if (isEditingFormula()) {
+      beginFormulaFromHit({ zone: "cell", col, row });
+      return;
+    }
     if (pressWasSelectedRef.current) return;
     if (col >= columns.length || row >= rows.length) {
       selectGrown({ col, row });
       return;
     }
-    const mergeAt = findMerge(merges, { col, row });
     if (mergeAt) setSelection(rangeFromMerge(mergeAt));
     else setSelection({ col, row });
   }
@@ -259,7 +348,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     formulaPickingRef.current = false;
     formulaPickOriginRef.current = null;
     formulaSpanRef.current = null;
-    setFormulaRange(null);
+    setFormulaRanges([]);
   }
 
   function isEditingFormula() {
@@ -457,7 +546,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     setEditing(address);
     setEditSource(source);
     formulaSpanRef.current = null;
-    setFormulaRange(null);
+    setFormulaRanges([]);
   }
 
   function commitEdit() {
@@ -481,22 +570,32 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     });
   }
 
-  function applyFormulaRange(picked: CellRange) {
+  function applyFormulaRange(
+    picked: CellRange,
+    mode: "replace" | "append" = "replace",
+    focus = false,
+  ) {
     const label = rangeAddressLabel(picked);
     const result = insertFormulaRange(
       draftRef.current,
       caretRef.current,
       label,
       formulaSpanRef.current,
+      mode,
     );
     formulaSpanRef.current = result.span;
     caretRef.current = result.caret;
     setDraft(result.value);
-    setFormulaRange(picked);
-    focusFormulaBar(result.caret);
+    setFormulaRanges((previous) => {
+      if (mode === "append") return [...previous, picked];
+      if (previous.length === 0) return [picked];
+      return [...previous.slice(0, -1), picked];
+    });
+    if (focus) focusFormulaBar(result.caret);
   }
 
   function beginFormulaPick(address: Address, mode: "formula" | "formula-col" | "formula-row") {
+    const shouldAppend = formulaAcceptsAnotherRange(draftRef.current, formulaSpanRef.current);
     formulaPickingRef.current = true;
     dragModeRef.current = mode;
     formulaPickOriginRef.current = address;
@@ -508,7 +607,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
         : mode === "formula-row"
           ? { anchor: { col: 0, row: address.row }, focus: { col: lastCol, row: address.row } }
           : { anchor: address, focus: address };
-    applyFormulaRange(picked);
+    applyFormulaRange(picked, shouldAppend ? "append" : "replace", false);
   }
 
   function extendFormulaPick(address: Address) {
@@ -614,6 +713,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
   function tapCell(address: Address) {
     if (skipTapRef.current) {
       skipTapRef.current = false;
+      if (dragModeRef.current?.startsWith("formula")) endDrag();
       return;
     }
     if (isEditingFormula()) {
@@ -627,6 +727,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     }
     const mergeAt = findMerge(merges, address);
     if (mergeAt) {
+      if (pressWasSelectedRef.current) {
+        startEditing({ col: mergeAt.startCol, row: mergeAt.startRow }, "cell");
+        return;
+      }
       setSelection(rangeFromMerge(mergeAt));
       return;
     }
@@ -689,19 +793,39 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     commit({ merges: unmergeRange(merges, range) });
   }
 
-  function insertFunction(name: "SUM" | "AVERAGE" | "COUNT" | "MAX" | "MIN") {
-    const span = normalizedRange(range);
-    if (span.minCol !== span.maxCol || span.minRow !== span.maxRow) {
-      const output = formulaOutputAddress(range, columns.length, rows.length);
-      setCellValue(output, `=${name}(${rangeAddressLabel(range)})`);
-      setSelection(output);
-      return;
+  function insertFormula(template: (rangeLabel: string) => string) {
+    const multi = !sameAddress(range.anchor, range.focus);
+    const guessed =
+      !multi && rawAt(selected).trim() === ""
+        ? guessAggregateRange(
+            selected,
+            columns.length,
+            rows.length,
+            (address) => evaluator.valueAt(address.col, address.row).type === "number",
+          )
+        : null;
+    const picked = multi ? range : guessed;
+    const label = picked ? rangeAddressLabel(picked) : "";
+    const value = template(label);
+    const target =
+      picked && isInRange(selected, picked)
+        ? formulaOutputAddress(picked, columns.length, rows.length)
+        : selected;
+    startEditing(target, "formula", value);
+    if (picked && label) {
+      const start = value.indexOf(label);
+      if (start >= 0) {
+        formulaSpanRef.current = { start, end: start + label.length };
+        caretRef.current = start + label.length;
+        setFormulaRanges([picked]);
+      }
+    } else {
+      const open = value.lastIndexOf("(");
+      const close = value.indexOf(")", Math.max(open, 0));
+      caretRef.current = close >= 0 ? close : value.length;
     }
-    const letter = columnIndexToLetter(selected.col);
-    const startIndex = selected.row > 0 ? Math.max(0, selected.row - 5) : 1;
-    const endIndex = selected.row > 0 ? selected.row - 1 : Math.min(rows.length - 1, 5);
-    if (startIndex > endIndex) return;
-    setCellValue(selected, `=${name}(${letter}${startIndex + 1}:${letter}${endIndex + 1})`);
+    focusFormulaBar(caretRef.current);
+    setDrawerOpen(false);
   }
 
   function colLeft(index: number) {
@@ -718,6 +842,20 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
       x: colLeft(maxCol) + width - 12,
       y: HEADER_H + (maxRow + 1) * CELL_H - 12,
       width,
+    };
+  }
+
+  function selectionBox() {
+    const { minCol, maxCol, minRow, maxRow } = bounds;
+    let width = 0;
+    for (let col = minCol; col <= maxCol; col += 1) {
+      width += columns[col] ? colWidth(columns[col]) : GHOST_COL_W;
+    }
+    return {
+      left: colLeft(minCol),
+      top: HEADER_H + minRow * CELL_H,
+      width,
+      height: (maxRow - minRow + 1) * CELL_H,
     };
   }
 
@@ -761,6 +899,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
 
   function endDrag(pageX?: number, pageY?: number) {
     const mode = dragModeRef.current;
+    if (!mode) return;
     if (mode === "fill" && fillOriginRef.current && pageX != null && pageY != null) {
       const hit = addressFromPage(pageX, pageY);
       if (hit) fillRange(fillOriginRef.current, { col: hit.col, row: hit.row });
@@ -770,9 +909,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
       if (current.anchor.col !== current.focus.col || current.anchor.row !== current.focus.row) {
         skipTapRef.current = true;
       }
-    } else if (mode && mode.startsWith("formula")) {
+    } else if (mode.startsWith("formula")) {
       skipTapRef.current = true;
     }
+    const wasFormula = mode.startsWith("formula");
     dragModeRef.current = null;
     fillOriginRef.current = null;
     selectKindRef.current = null;
@@ -783,6 +923,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
     }, 0);
     touchStartRef.current = null;
     dragOriginRef.current = null;
+    if (wasFormula) focusFormulaBar(caretRef.current);
   }
 
   function onGridTouchMove(event: GestureResponderEvent) {
@@ -832,12 +973,12 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
   });
 
   touchHandlersRef.current = {
-    shouldCaptureStart: () => false,
+    shouldCaptureStart: () => Boolean(dragModeRef.current),
     shouldCaptureMove: (_event, gesture) => {
       if (dragModeRef.current || gridLockedRef.current) return true;
       const dx = gesture.dx;
       const dy = gesture.dy;
-      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return false;
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return false;
       if (editingFormulaRef.current) {
         const origin = dragOriginRef.current?.hit;
         if (origin) beginFormulaFromHit(origin);
@@ -873,7 +1014,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
 
   const selectedFormat = formatAt(selected);
   const selectedRaw = rawAt(selected);
-  const selectedAddress = columns.length && rows.length ? rangeAddressLabel(range) : "—";
+  const selectedAddress = columns.length && rows.length ? selectionAddressLabel(range, merges) : "—";
   const mergeActive = hasMergeInRange(merges, range);
   const canMerge = bounds.minCol !== bounds.maxCol || bounds.minRow !== bounds.maxRow;
   const formulaEditActive = Boolean(editing && isFormulaValue(draft));
@@ -899,7 +1040,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
             }}
             onChangeText={(value) => {
               formulaSpanRef.current = null;
-              setFormulaRange(null);
+              setFormulaRanges([]);
               if (!editing) startEditing(selected, "formula", value);
               else setDraft(value);
             }}
@@ -959,7 +1100,6 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
         {viewport.width > 0 && viewport.height > 0 ? (
           <View
             collapsable={false}
-            pointerEvents="box-none"
             style={{ width: viewport.width, height: viewport.height }}
             {...gridPan.panHandlers}
           >
@@ -1002,19 +1142,17 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                             event.nativeEvent.locationX,
                             event.nativeEvent.locationY,
                           );
-                          if (!isEditingFormula()) {
-                            if (column) setSelection({ col: index, row: selected.row });
-                            else selectGrown({ col: index, row: Math.max(0, selected.row) });
+                          if (isEditingFormula()) {
+                            beginFormulaFromHit({ zone: "col", col: index, row: 0 });
+                            return;
                           }
+                          if (column) setSelection({ col: index, row: selected.row });
+                          else selectGrown({ col: index, row: Math.max(0, selected.row) });
                         }}
                         onPress={() => {
                           if (skipTapRef.current) {
                             skipTapRef.current = false;
-                            return;
-                          }
-                          if (isEditingFormula()) {
-                            beginFormulaPick({ col: index, row: 0 }, "formula-col");
-                            return;
+                            if (dragModeRef.current?.startsWith("formula")) endDrag();
                           }
                         }}
                         onLongPress={() => {
@@ -1025,14 +1163,11 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                           styles.headCell,
                           { width },
                           index >= bounds.minCol && index <= bounds.maxCol && styles.selectedHead,
-                          formulaRange
-                            && index >= normalizedRange(formulaRange).minCol
-                            && index <= normalizedRange(formulaRange).maxCol
-                            && styles.formulaHead,
+                          formulaRanges.some((picked) => rangeTouchesCol(picked, index)) && styles.formulaHead,
                         ]}
                       >
                         <Text style={styles.letter}>{columnIndexToLetter(index)}</Text>
-                        {column && renaming === index ? (
+                        {column && renaming === index && !formulaEditActive ? (
                           <TextInput
                             autoFocus
                             value={renameDraft}
@@ -1048,20 +1183,28 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                             style={styles.rename}
                           />
                         ) : column ? (
-                          <Pressable
-                            onPress={() => {
-                              setRenameDraft(column.name);
-                              setRenaming(index);
-                            }}
-                            style={styles.headNameHit}
-                          >
+                          formulaEditActive ? (
                             <Text numberOfLines={1} style={styles.headName}>{column.name}</Text>
-                          </Pressable>
+                          ) : (
+                            <Pressable
+                              onPress={() => {
+                                setRenameDraft(column.name);
+                                setRenaming(index);
+                              }}
+                              style={styles.headNameHit}
+                            >
+                              <Text numberOfLines={1} style={styles.headName}>{column.name}</Text>
+                            </Pressable>
+                          )
                         ) : null}
-                        {column ? (
+                        {column && !formulaEditActive ? (
                           <Pressable onPress={() => setTypeMenu(index)} style={styles.typeBadge}>
                             <Text style={styles.typeText}>{column.type[0]?.toUpperCase()}</Text>
                           </Pressable>
+                        ) : column ? (
+                          <View style={styles.typeBadge}>
+                            <Text style={styles.typeText}>{column.type[0]?.toUpperCase()}</Text>
+                          </View>
                         ) : null}
                       </Pressable>
                     );
@@ -1071,8 +1214,15 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                 {visibleRowIndexes.map((rowIndex) => {
                   const row = rows[rowIndex];
                   if (!row) return null;
+                  const rowHasVerticalMerge = merges.some(
+                    (item) => item.startRow === rowIndex && item.rowSpan > 1,
+                  );
                   return (
-                    <View key={row.id} style={styles.tr} collapsable={false}>
+                    <View
+                      key={row.id}
+                      style={[styles.tr, rowHasVerticalMerge && styles.mergeOriginRow]}
+                      collapsable={false}
+                    >
                       <Pressable
                         onPressIn={(event) => {
                           noteTouch(
@@ -1086,7 +1236,11 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                           pressWasSelectedRef.current =
                             current.anchor.row === rowIndex && current.focus.row === rowIndex
                             && current.anchor.col === 0 && current.focus.col === Math.max(columns.length - 1, 0);
-                          if (!isEditingFormula() && !pressWasSelectedRef.current) {
+                          if (isEditingFormula()) {
+                            beginFormulaFromHit({ zone: "row", col: 0, row: rowIndex });
+                            return;
+                          }
+                          if (!pressWasSelectedRef.current) {
                             setSelection({ col: selected.col, row: rowIndex });
                           }
                         }}
@@ -1098,10 +1252,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                         onPress={() => {
                           if (skipTapRef.current) {
                             skipTapRef.current = false;
-                            return;
-                          }
-                          if (isEditingFormula()) {
-                            beginFormulaPick({ col: 0, row: rowIndex }, "formula-row");
+                            if (dragModeRef.current?.startsWith("formula")) endDrag();
                             return;
                           }
                           setSelection({ col: selected.col, row: rowIndex });
@@ -1109,10 +1260,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                         style={[
                           styles.rowHead,
                           rowIndex >= bounds.minRow && rowIndex <= bounds.maxRow && styles.selectedHead,
-                          formulaRange
-                            && rowIndex >= normalizedRange(formulaRange).minRow
-                            && rowIndex <= normalizedRange(formulaRange).maxRow
-                            && styles.formulaHead,
+                          formulaRanges.some((picked) => rangeTouchesRow(picked, rowIndex)) && styles.formulaHead,
                         ]}
                       >
                         <Text style={styles.rowNum}>{rowIndex + 1}</Text>
@@ -1124,7 +1272,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                           row,
                           selected,
                           range,
-                          formulaRange,
+                          formulaRanges,
                           editing,
                           editSource,
                           draft,
@@ -1139,6 +1287,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                           merges,
                           colWidth,
                           rawAt,
+                          filtering,
                         }),
                       )}
                     </View>
@@ -1148,7 +1297,24 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                 {ghostRowIndexes.map((rowIndex) => (
                   <View key={`ghost-row-${rowIndex}`} style={styles.tr} collapsable={false}>
                     <Pressable
+                      onPressIn={(event) => {
+                        noteTouch(
+                          { zone: "row", col: 0, row: rowIndex },
+                          event.nativeEvent.pageX,
+                          event.nativeEvent.pageY,
+                          event.nativeEvent.locationX,
+                          event.nativeEvent.locationY,
+                        );
+                        if (isEditingFormula()) {
+                          beginFormulaFromHit({ zone: "row", col: 0, row: rowIndex });
+                        }
+                      }}
                       onPress={() => {
+                        if (skipTapRef.current) {
+                          skipTapRef.current = false;
+                          if (dragModeRef.current?.startsWith("formula")) endDrag();
+                          return;
+                        }
                         if (isEditingFormula()) {
                           beginFormulaPick({ col: 0, row: rowIndex }, "formula-row");
                           return;
@@ -1194,6 +1360,12 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
                       styles.fillHandle,
                       { left: fillHandleBox().x, top: fillHandleBox().y },
                     ]}
+                  />
+                ) : null}
+                {bounds.minCol !== bounds.maxCol || bounds.minRow !== bounds.maxRow ? (
+                  <View
+                    pointerEvents="none"
+                    style={[styles.selectionOverlay, selectionBox()]}
                   />
                 ) : null}
               </View>
@@ -1300,15 +1472,22 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
               </>
             ) : (
               <>
-                <Text style={styles.sectionLabel}>QUICK FUNCTIONS</Text>
-                <View style={styles.functionGrid}>
-                  {(["SUM", "AVERAGE", "COUNT", "MAX", "MIN"] as const).map((name) => (
-                    <Pressable key={name} onPress={() => insertFunction(name)} style={styles.functionButton}>
-                      <Sigma size={15} color={KINETIC.accentHover} />
-                      <Text style={styles.functionText}>{name}</Text>
-                    </Pressable>
-                  ))}
-                </View>
+                {FORMULA_GROUPS.map((group) => (
+                  <View key={group.title} style={{ gap: 8 }}>
+                    <Text style={styles.sectionLabel}>{group.title}</Text>
+                    <View style={styles.functionGrid}>
+                      {group.items.map((item) => (
+                        <Pressable
+                          key={item.label}
+                          onPress={() => insertFormula(item.template)}
+                          style={styles.functionButton}
+                        >
+                          <Text style={styles.functionText}>{item.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ))}
               </>
             )}
           </ScrollView>
@@ -1472,7 +1651,7 @@ function renderCell({
   row,
   selected,
   range,
-  formulaRange,
+  formulaRanges,
   editing,
   editSource,
   draft,
@@ -1487,13 +1666,14 @@ function renderCell({
   merges,
   colWidth,
   rawAt,
+  filtering,
 }: {
   colIndex: number;
   rowIndex: number;
   row: SheetRow;
   selected: Address;
   range: CellRange;
-  formulaRange: CellRange | null;
+  formulaRanges: CellRange[];
   editing: Address | null;
   editSource: "formula" | "cell" | null;
   draft: string;
@@ -1508,6 +1688,7 @@ function renderCell({
   merges: SheetMerge[];
   colWidth: (column: SheetColumn) => number;
   rawAt: (address: Address) => string;
+  filtering: boolean;
 }) {
   const column = columns[colIndex];
   const address = { col: colIndex, row: rowIndex };
@@ -1535,33 +1716,76 @@ function renderCell({
       rowIndex >= item.startRow &&
       rowIndex < item.startRow + item.rowSpan,
   );
-  if (merge && (merge.startCol !== colIndex || merge.startRow !== rowIndex)) return null;
+  const collapseVertical = Boolean(filtering && merge && merge.rowSpan > 1);
+  if (
+    collapseVertical &&
+    merge &&
+    rowIndex === merge.startRow &&
+    colIndex !== merge.startCol
+  ) {
+    return null;
+  }
+  if (merge && (merge.startCol !== colIndex || merge.startRow !== rowIndex) && !collapseVertical) {
+    if (rowIndex === merge.startRow) return null;
+    if (colIndex !== merge.startCol) return null;
+    const spacerWidth = columns
+      .slice(merge.startCol, merge.startCol + merge.colSpan)
+      .reduce((sum, item) => sum + colWidth(item), 0);
+    return (
+      <Pressable
+        key={`merge-cover-${rowIndex}-${colIndex}`}
+        onPressIn={(event) => onCellPressIn(merge.startCol, merge.startRow, event)}
+        onLongPress={() => onCellLongPress(merge.startCol, merge.startRow)}
+        delayLongPress={450}
+        onPress={() => tapCell({ col: merge.startCol, row: merge.startRow })}
+        style={[styles.mergeSpacer, { width: spacerWidth }]}
+      />
+    );
+  }
+  const displayMerge =
+    merge && merge.startCol === colIndex && merge.startRow === rowIndex
+      ? collapseVertical
+        ? { ...merge, rowSpan: 1 }
+        : merge
+      : null;
   const isSelected = selected.col === colIndex && selected.row === rowIndex;
   const inRange = isInRange(address, range);
-  const inFormulaRange = Boolean(formulaRange && isInRange(address, formulaRange));
+  const inFormulaRange = isInAnyRange(address, formulaRanges);
   const isEditing = editing?.col === colIndex && editing?.row === rowIndex;
   const result = evaluator.valueAt(colIndex, rowIndex);
   const format = row.formats?.[column.id];
   const display = formatCellDisplay(evaluator.displayAt(colIndex, rowIndex), format, column.type);
   const booleanCol = column.type === "boolean" && !rawAt(address).startsWith("=");
-  const spanWidth = merge
-    ? columns.slice(merge.startCol, merge.startCol + merge.colSpan).reduce((sum, item) => sum + colWidth(item), 0)
+  const spanWidth = displayMerge
+    ? columns.slice(displayMerge.startCol, displayMerge.startCol + displayMerge.colSpan).reduce((sum, item) => sum + colWidth(item), 0)
     : colWidth(column);
+  const spanHeight = displayMerge ? CELL_H * displayMerge.rowSpan : CELL_H;
   const align = format?.align ?? (result.type === "number" ? "right" : "left");
+  const multiCell = range.anchor.col !== range.focus.col || range.anchor.row !== range.focus.row;
+  const mergeFullySelected = Boolean(displayMerge && isExactMergeSelection(range, displayMerge));
 
   return (
-    <Pressable
+    <View
       key={column.id}
+      style={[
+        { width: spanWidth, height: CELL_H },
+        displayMerge && displayMerge.rowSpan > 1 ? { zIndex: 8, overflow: "visible" } : null,
+      ]}
+    >
+    <Pressable
       onPressIn={(event) => onCellPressIn(colIndex, rowIndex, event)}
       onLongPress={() => onCellLongPress(colIndex, rowIndex)}
       delayLongPress={450}
       onPress={() => (booleanCol ? toggleBoolean(address) : tapCell(address))}
       style={[
         styles.cell,
-        { width: spanWidth },
+        displayMerge && displayMerge.rowSpan > 1
+          ? { position: "absolute", top: 0, left: 0, width: spanWidth, height: spanHeight, zIndex: 8 }
+          : { width: spanWidth },
         format?.fillColor ? { backgroundColor: format.fillColor } : null,
         inRange && !format?.fillColor && styles.rangeCell,
-        isSelected && styles.selectedCell,
+        isSelected && !multiCell && styles.selectedCell,
+        mergeFullySelected && styles.rangeCell,
         inFormulaRange && styles.formulaCell,
         result.type === "error" && styles.errorCell,
       ]}
@@ -1607,6 +1831,7 @@ function renderCell({
         </Text>
       )}
     </Pressable>
+    </View>
   );
 }
 
@@ -1687,7 +1912,16 @@ const styles = createThemedStyleSheet((colors) => ({
     overflow: "hidden",
     backgroundColor: KINETIC.base,
   },
-  tr: { flexDirection: "row" },
+  tr: { flexDirection: "row", overflow: "visible" },
+  mergeOriginRow: { zIndex: 8, overflow: "visible" },
+  mergeSpacer: { height: CELL_H },
+  selectionOverlay: {
+    position: "absolute",
+    borderWidth: 2,
+    borderColor: KINETIC.accentHover,
+    backgroundColor: "transparent",
+    zIndex: 6,
+  },
   rowHead: {
     width: ROW_HEAD,
     height: CELL_H,
@@ -1778,6 +2012,6 @@ const styles = createThemedStyleSheet((colors) => ({
   controlOn: { borderColor: KINETIC.accentHover, backgroundColor: "#2A2445" },
   controlText: { color: KINETIC.text, fontSize: 11, fontFamily: "monospace" },
   functionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  functionButton: { width: "31%", height: 44, flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card },
+  functionButton: { width: "31%", minHeight: 40, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card },
   functionText: { color: KINETIC.text, fontSize: 10, fontWeight: "700", fontFamily: "monospace" },
 }));

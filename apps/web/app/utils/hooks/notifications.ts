@@ -6,6 +6,7 @@ import {
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  clearNotifications,
   retryJob,
   snoozeNotification,
   unreadNotificationCount,
@@ -55,6 +56,14 @@ export function useMarkAllNotificationsRead() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: markAllNotificationsRead,
+    onSuccess: () => invalidateNotifications(queryClient),
+  });
+}
+
+export function useClearNotifications() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: clearNotifications,
     onSuccess: () => invalidateNotifications(queryClient),
   });
 }

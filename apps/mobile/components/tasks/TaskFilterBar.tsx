@@ -1,72 +1,24 @@
-import { ScrollView, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
-import type { Project, TaskViewConfig, Workspace } from "../../lib/types";
-import { createThemedStyleSheet, radius } from "../../lib/theme";
-import { Chip, Select } from "../ui/primitives";
+import { Plus } from "lucide-react-native";
+import type { TaskViewConfig } from "../../lib/types";
+import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
+import { Chip } from "../ui/primitives";
+import AnimatedPressable from "../ui/AnimatedPressable";
 import { useSlidingPill } from "../ui/useSlidingPill";
 
-export type TaskFilter = "all" | "today" | "overdue" | "upcoming" | "nodate" | "done" | "reminders" | "board";
-
 export default function TaskFilterBar({
-  filter,
-  onFilter,
-  workspaces,
-  workspaceId,
-  onWorkspace,
-  projects = [],
-  projectId,
-  onProject,
-  counts,
-  views = [],
+  views,
   activeViewId,
   onView,
+  onAdd,
 }: {
-  filter: TaskFilter;
-  onFilter: (f: TaskFilter) => void;
-  workspaces: Workspace[];
-  workspaceId: string | null;
-  onWorkspace: (id: string | null) => void;
-  projects?: Project[];
-  projectId?: string | null;
-  onProject?: (id: string | null) => void;
-  counts: { today: number; overdue: number };
-  views?: TaskViewConfig[];
-  activeViewId?: string;
-  onView?: (id: string) => void;
+  views: TaskViewConfig[];
+  activeViewId: string;
+  onView: (id: string) => void;
+  onAdd?: () => void;
 }) {
-  const filters: { id: TaskFilter; label: string }[] = [
-    { id: "all", label: "All" },
-    { id: "today", label: counts.today ? `Today ${counts.today}` : "Today" },
-    { id: "overdue", label: counts.overdue ? `Overdue ${counts.overdue}` : "Overdue" },
-    { id: "upcoming", label: "Upcoming" },
-    { id: "nodate", label: "No date" },
-    { id: "done", label: "Done" },
-    { id: "reminders", label: "Reminders" },
-    { id: "board", label: "Board" },
-  ];
-  const chips =
-    views.length > 0
-      ? [
-          ...views.map((view) => ({
-            id: view.id,
-            label: view.name,
-            active: filter !== "board" && view.id === activeViewId,
-            onPress: () => onView?.(view.id),
-          })),
-          {
-            id: "board",
-            label: "Board",
-            active: filter === "board",
-            onPress: () => onFilter("board"),
-          },
-        ]
-      : filters.map((item) => ({
-          id: item.id,
-          label: item.label,
-          active: filter === item.id,
-          onPress: () => onFilter(item.id),
-        }));
-  const activeChipId = chips.find((chip) => chip.active)?.id;
+  const activeChipId = views.some((view) => view.id === activeViewId) ? activeViewId : views[0]?.id;
   const { onItemLayout, pillStyle } = useSlidingPill(activeChipId);
 
   return (
@@ -80,59 +32,36 @@ export default function TaskFilterBar({
         <View style={styles.track}>
           <View style={styles.row}>
             <Animated.View pointerEvents="none" style={[styles.pill, pillStyle]} />
-            {chips.map((chip) => (
+            {views.map((view) => (
               <View
-                key={chip.id}
+                key={view.id}
                 collapsable={false}
                 style={styles.chipSlot}
-                onLayout={(event) => onItemLayout(chip.id, event)}
+                onLayout={(event) => onItemLayout(view.id, event)}
               >
-                <Chip bare fill label={chip.label} active={chip.active} onPress={chip.onPress} />
+                <Chip bare fill label={view.name} active={view.id === activeChipId} onPress={() => onView(view.id)} />
               </View>
             ))}
+            {onAdd ? (
+              <AnimatedPressable
+                accessibilityRole="button"
+                accessibilityLabel="Add view"
+                onPress={onAdd}
+                style={styles.add}
+              >
+                <Plus size={16} color={colors.mutedForeground} />
+                <Text style={styles.addText}>Add</Text>
+              </AnimatedPressable>
+            ) : null}
           </View>
         </View>
       </ScrollView>
-      {workspaces.length > 1 || (onProject && projects.length > 0) ? (
-        <View style={styles.selects}>
-          {workspaces.length > 1 ? (
-            <View style={styles.select}>
-              <Select
-                value={workspaceId ?? ""}
-                onChange={(id) => onWorkspace(id || null)}
-                placeholder="All spaces"
-                options={[
-                  { value: "", label: "All spaces" },
-                  ...workspaces.map((w) => ({ value: w.id, label: w.name, color: w.color ?? undefined })),
-                ]}
-              />
-            </View>
-          ) : null}
-          {onProject && projects.length > 0 ? (
-            <View style={styles.select}>
-              <Select
-                value={projectId ?? ""}
-                onChange={(id) => onProject(id || null)}
-                placeholder="All projects"
-                options={[
-                  { value: "", label: "All projects" },
-                  ...projects.map((project) => ({
-                    value: project.id,
-                    label: project.title || "Untitled project",
-                    color: project.color ?? undefined,
-                  })),
-                ]}
-              />
-            </View>
-          ) : null}
-        </View>
-      ) : null}
     </View>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  wrap: { paddingBottom: 10, gap: 8 },
+  wrap: { paddingBottom: 10 },
   scroller: { flexGrow: 1, paddingHorizontal: 12, paddingVertical: 2 },
   track: {
     flexGrow: 1,
@@ -158,6 +87,12 @@ const styles = createThemedStyleSheet((colors) => ({
     borderWidth: 1,
     borderColor: colors.ring,
   },
-  selects: { paddingHorizontal: 12, flexDirection: "row", gap: 8 },
-  select: { flex: 1, minWidth: 0 },
+  add: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    minHeight: 32,
+  },
+  addText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "600" },
 }));

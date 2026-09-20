@@ -67,8 +67,6 @@ type Task struct {
 	// inbox items also have duration 0 but must not appear as calendar pings.
 	Kind string `gorm:"type:text;not null;default:task" json:"kind"`
 
-	ParentTaskID *string `json:"parentTaskId"`
-
 	Checklist Checklist `gorm:"type:jsonb;not null;default:'[]'" json:"checklist"`
 
 	// ActualMinutes is focused time, independent of estimated Duration.
@@ -119,16 +117,11 @@ type Task struct {
 	// Self References
 	BlockedBy *Task `gorm:"foreignKey:BlockedByID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"blockedBy,omitempty"`
 
-	Parent   *Task  `gorm:"foreignKey:ParentTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"parent,omitempty"`
-	Subtasks []Task `gorm:"foreignKey:ParentTaskID" json:"subtasks,omitempty"`
-
-	// Progress is computed on read from subtasks + checklist items.
-	OpenSubtaskCount int `gorm:"-" json:"openSubtaskCount"`
-	SubtaskCount     int `gorm:"-" json:"subtaskCount"`
-	ChecklistDone    int `gorm:"-" json:"checklistDone"`
-	ChecklistTotal   int `gorm:"-" json:"checklistTotal"`
-	ProgressDone     int `gorm:"-" json:"progressDone"`
-	ProgressTotal    int `gorm:"-" json:"progressTotal"`
+	// Progress is computed on read from checklist items.
+	ChecklistDone  int `gorm:"-" json:"checklistDone"`
+	ChecklistTotal int `gorm:"-" json:"checklistTotal"`
+	ProgressDone   int `gorm:"-" json:"progressDone"`
+	ProgressTotal  int `gorm:"-" json:"progressTotal"`
 
 	CustomFieldValues []*CustomFieldValue `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"customFieldValues,omitempty"`
 
@@ -193,10 +186,6 @@ func (t *Task) IsReminder() bool {
 		return false
 	}
 	return t.Duration <= 0
-}
-
-func (t *Task) IsSubtask() bool {
-	return t.ParentTaskID != nil && *t.ParentTaskID != ""
 }
 
 func (t *Task) IsFocusing() bool {

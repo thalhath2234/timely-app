@@ -11,72 +11,24 @@ import (
 const maxTodayFocus = 7
 
 func annotateProgress(tasks []models.Task) {
-	children := map[string][]int{}
 	for i := range tasks {
-		parentID := deref(tasks[i].ParentTaskID)
-		if parentID != "" {
-			children[parentID] = append(children[parentID], i)
-		}
-	}
-	for i := range tasks {
-		applyProgress(&tasks[i], childTasks(tasks, children[tasks[i].ID]))
+		applyProgress(&tasks[i])
 	}
 }
 
-func annotateProgressOne(task *models.Task, siblings []models.Task) {
+func annotateProgressOne(task *models.Task) {
 	if task == nil {
 		return
 	}
-	var kids []models.Task
-	if len(task.Subtasks) > 0 {
-		kids = task.Subtasks
-	} else {
-		for i := range siblings {
-			if deref(siblings[i].ParentTaskID) == task.ID {
-				kids = append(kids, siblings[i])
-			}
-		}
-	}
-	applyProgress(task, kids)
-	for i := range task.Subtasks {
-		applyProgress(&task.Subtasks[i], nil)
-	}
+	applyProgress(task)
 }
 
-func childTasks(tasks []models.Task, indexes []int) []models.Task {
-	out := make([]models.Task, 0, len(indexes))
-	for _, i := range indexes {
-		out = append(out, tasks[i])
-	}
-	return out
-}
-
-func applyProgress(task *models.Task, kids []models.Task) {
-	open := 0
-	for _, kid := range kids {
-		if !kid.IsCompleted() {
-			open++
-		}
-	}
+func applyProgress(task *models.Task) {
 	doneChk, totalChk := task.Checklist.Progress()
-	task.SubtaskCount = len(kids)
-	task.OpenSubtaskCount = open
 	task.ChecklistDone = doneChk
 	task.ChecklistTotal = totalChk
-	task.ProgressDone = (len(kids) - open) + doneChk
-	task.ProgressTotal = len(kids) + totalChk
-}
-
-func parentsWithSchedulableSubtasks(tasks []models.Task) map[string]bool {
-	out := map[string]bool{}
-	for i := range tasks {
-		t := &tasks[i]
-		if !t.IsSubtask() || !t.IsSchedulableWork() {
-			continue
-		}
-		out[*t.ParentTaskID] = true
-	}
-	return out
+	task.ProgressDone = doneChk
+	task.ProgressTotal = totalChk
 }
 
 func (s *taskService) Duplicate(userID, taskID string) (*models.Task, error) {
@@ -84,10 +36,9 @@ func (s *taskService) Duplicate(userID, taskID string) (*models.Task, error) {
 }
 
 type duplicateOpts struct {
-	namePrefix   string
-	projectID    *string
-	stageID      *string
-	parentTaskID *string
+	namePrefix string
+	projectID  *string
+	stageID    *string
 }
 
 func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (*models.Task, error) {
@@ -109,7 +60,6 @@ func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (
 		PriorityLevel:   src.PriorityLevel,
 		WorkspaceID:     src.WorkspaceID,
 		StageID:         firstNonEmpty(opts.stageID, src.StageID),
-		ParentTaskID:    opts.parentTaskID,
 		LabelIDs:        src.LabelIDs,
 		Checklist:       src.Checklist.Clone(),
 		MinChunkMinutes:       src.MinChunkMinutes,
@@ -138,23 +88,6 @@ func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (
 		}
 	}
 
-	all, err := s.taskRepo.GetAllTaskByUser(userID)
-	if err != nil {
-		return nil, err
-	}
-	for i := range all {
-		child := all[i]
-		if deref(child.ParentTaskID) != src.ID {
-			continue
-		}
-		if _, err := s.duplicateTree(userID, child.ID, duplicateOpts{
-			projectID:    created.ProjectID,
-			stageID:      created.StageID,
-			parentTaskID: &created.ID,
-		}); err != nil {
-			return nil, err
-		}
-	}
 	return s.GetForUser(userID, created.ID)
 }
 
@@ -172,7 +105,7 @@ func (s *taskService) CopyProjectTasks(userID, fromProjectID, toProjectID string
 	}
 	for i := range tasks {
 		t := tasks[i]
-		if deref(t.ProjectID) != fromProjectID || t.IsSubtask() {
+		if deref(t.ProjectID) != fromProjectID {
 			continue
 		}
 		var stage *string
@@ -501,58 +434,4 @@ func (s *taskService) defaultStatusID(workspaceID string) string {
 		return statuses[0].ID
 	}
 	return ""
-}
-
-func (s *taskService) applyParentUpdate(userID string, before *models.Task, update TaskUpdate, updates map[string]any) error {
-	if update.ParentTaskID == nil {
-		return nil
-	}
-	if strings.TrimSpace(*update.ParentTaskID) == "" {
-		updates["parent_task_id"] = nil
-		return nil
-	}
-	if *update.ParentTaskID == before.ID {
-		return errors.New("a task cannot be its own parent")
-	}
-	if before.SubtaskCount > 0 || len(before.Subtasks) > 0 {
-		return errors.New("move or remove subtasks before nesting this task")
-	}
-	draft := *before
-	draft.ParentTaskID = update.ParentTaskID
-	if err := s.prepareParent(userID, &draft); err != nil {
-		return err
-	}
-	updates["parent_task_id"] = *update.ParentTaskID
-	if draft.WorkspaceID != nil && before.WorkspaceID == nil {
-		updates["workspace_id"] = *draft.WorkspaceID
-	}
-	if draft.ProjectID != nil && before.ProjectID == nil {
-		updates["project_id"] = *draft.ProjectID
-	}
-	return nil
-}
-
-func (s *taskService) prepareParent(userID string, task *models.Task) error {
-	parentID := deref(task.ParentTaskID)
-	if parentID == "" {
-		task.ParentTaskID = nil
-		return nil
-	}
-	parent, err := s.taskRepo.GetTaskByIdForUser(userID, parentID)
-	if err != nil {
-		return errors.New("parent task not found")
-	}
-	if parent.IsSubtask() {
-		return errors.New("subtasks can only nest one level")
-	}
-	if parent.IsInbox() {
-		return errors.New("clarify the inbox item before adding subtasks")
-	}
-	if task.WorkspaceID == nil {
-		task.WorkspaceID = parent.WorkspaceID
-	}
-	if task.ProjectID == nil {
-		task.ProjectID = parent.ProjectID
-	}
-	return nil
 }

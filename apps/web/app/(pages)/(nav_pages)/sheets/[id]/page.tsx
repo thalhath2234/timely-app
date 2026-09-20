@@ -13,7 +13,6 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
-import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import SheetGrid from "@/app/_components/sheets/sheetGrid";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Sheet, SheetTab } from "@/app/_types/types";
@@ -25,7 +24,6 @@ import {
   useUpdateSheet,
 } from "@/app/utils/hooks/sheets";
 import { useAutosave } from "@/app/utils/hooks/useAutosave";
-import { toRichContent } from "@/app/utils/richText";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { createSheetEvaluator } from "@/app/utils/sheetFormula";
@@ -334,18 +332,6 @@ function SheetView({ sheet }: { sheet: Sheet }) {
           Share
         </button>
       </header>
-
-      <div className="mx-4 my-2 max-h-20 overflow-auto rounded-md border border-border bg-card/60 px-3 py-1.5">
-        <RichTextEditor
-          variant="compact"
-          toolbar="fixed"
-          content={toRichContent(sheet.descriptionRich, sheet.description)}
-          placeholder="Add a description. Type '@' to mention docs, tasks, or projects..."
-          onChange={({ content, plainText }) =>
-            schedule({ descriptionRich: content, description: plainText })
-          }
-        />
-      </div>
 
       <div className="min-h-0 flex-1">
         {activeTab && (

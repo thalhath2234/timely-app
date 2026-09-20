@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { Check, Copy, ListTodo, Play, Plus, Square, Star } from "lucide-react";
+import { Check, Copy, Play, Plus, Square, Star } from "lucide-react";
 import type { Task } from "@/app/_types/types";
 import { dateOnly, localDateStamp } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
 import {
   useAddChecklistItem,
-  useCreateTask,
   useDeleteChecklistItem,
   useDuplicateTask,
   useSetTodayFocus,
@@ -17,7 +15,6 @@ import {
   useToggleChecklistItem,
 } from "@/app/utils/hooks/tasks";
 import { showUndoToast } from "@/app/_store/toastStore";
-import { isInboxTask, isReminderTask } from "@/app/utils/taskFilters";
 
 function todayStamp() {
   return localDateStamp();
@@ -36,34 +33,23 @@ export default function TaskExecution({
   const addItem = useAddChecklistItem(task.id);
   const toggleItem = useToggleChecklistItem(task.id);
   const removeItem = useDeleteChecklistItem(task.id);
-  const createSubtask = useCreateTask();
   const duplicate = useDuplicateTask();
   const startFocus = useStartFocus();
   const stopFocus = useStopFocus();
   const setFocus = useSetTodayFocus();
   const [checkTitle, setCheckTitle] = useState("");
-  const [composeSubtask, setComposeSubtask] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
 
-  const canAddSubtask = !task.parentTaskId && !compact && !isInboxTask(task) && !isReminderTask(task);
   const focusing = Boolean(task.focusStartedAt);
   const onToday = dateOnly(task.todayFocusOn) === todayStamp();
   const checklist = useMemo(
     () => [...(task.checklist ?? [])].sort((a, b) => a.order - b.order),
     [task.checklist],
   );
-  const subtasks = task.subtasks ?? [];
-  const doneCount =
-    checklist.filter((item) => item.completedAt).length +
-    subtasks.filter((child) => child.completedAt).length;
-  const totalCount = checklist.length + subtasks.length;
+  const doneCount = checklist.filter((item) => item.completedAt).length;
+  const totalCount = checklist.length;
   const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
-
-  useEffect(() => {
-    if (!composeSubtask) return;
-    addInputRef.current?.focus();
-  }, [composeSubtask]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -134,21 +120,6 @@ export default function TaskExecution({
         >
           <Copy className="size-3.5" /> Duplicate
         </button>
-        {canAddSubtask ? (
-          <button
-            type="button"
-            onClick={() => {
-              setComposeSubtask(true);
-              addInputRef.current?.focus();
-            }}
-            className={cn(
-              actionClass,
-              "border-dashed border-border bg-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Plus className="size-3.5" /> Add Subtask
-          </button>
-        ) : null}
         {(task.actualMinutes ?? 0) > 0 ? (
           <span className="text-xs text-muted-foreground">{task.actualMinutes}m focused</span>
         ) : null}
@@ -159,7 +130,7 @@ export default function TaskExecution({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Subtasks &amp; Validation
+                Checklist
               </h3>
               {totalCount > 0 ? (
                 <span className="rounded-full border border-success/20 bg-success/10 px-2 py-0.5 font-mono text-[11px] font-medium text-success">
@@ -222,35 +193,6 @@ export default function TaskExecution({
                 </button>
               </li>
             ))}
-            {subtasks.map((child) => (
-              <li key={child.id}>
-                <Link
-                  href={`/tasks?taskId=${encodeURIComponent(child.id)}`}
-                  className="group flex items-center gap-3 rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2.5 hover:bg-muted/40"
-                >
-                  {child.completedAt ? (
-                    <span className="flex size-4 items-center justify-center rounded border border-success/40 bg-success/20 text-success">
-                      <Check className="size-3" />
-                    </span>
-                  ) : (
-                    <ListTodo className="size-4 text-muted-foreground" />
-                  )}
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 text-xs",
-                      child.completedAt ? "text-muted-foreground line-through" : "font-medium text-foreground",
-                    )}
-                  >
-                    {child.name}
-                  </span>
-                  {child.status?.name ? (
-                    <span className="rounded border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {child.status.name}
-                    </span>
-                  ) : null}
-                </Link>
-              </li>
-            ))}
           </ul>
 
           <form
@@ -260,30 +202,15 @@ export default function TaskExecution({
               const title = checkTitle.trim();
               if (!title || submittingRef.current) return;
               submittingRef.current = true;
-              const done = () => {
-                submittingRef.current = false;
-              };
-              if (composeSubtask && canAddSubtask) {
-                const workspaceId = task.workspaceId || task.workspace?.id || undefined;
-                void createSubtask
-                  .mutateAsync({
-                    name: title,
-                    parentTaskId: task.id,
-                    duration: task.duration > 0 ? task.duration : 30,
-                    kind: "task",
-                    workspaceId,
-                    projectId: task.projectId || task.project?.id || undefined,
-                    statusId: task.statusId || task.status?.id || undefined,
-                    stageId: task.stageId || task.stage?.id || undefined,
-                    priorityLevel: task.priorityLevel || undefined,
-                  })
-                  .then(() => {
-                    setCheckTitle("");
-                  })
-                  .finally(done);
-                return;
-              }
-              void addItem.mutateAsync(title).then(() => setCheckTitle("")).finally(done);
+              void addItem
+                .mutateAsync(title)
+                .then(() => setCheckTitle(""))
+                .catch(() => {
+                  // addItem.isError already renders the failure.
+                })
+                .finally(() => {
+                  submittingRef.current = false;
+                });
             }}
           >
             <Plus className="size-3.5 shrink-0" />
@@ -291,19 +218,15 @@ export default function TaskExecution({
               ref={addInputRef}
               value={checkTitle}
               onChange={(event) => setCheckTitle(event.target.value)}
-              placeholder={
-                composeSubtask
-                  ? "Add subtask... (Press Enter)"
-                  : "Add subtask or checklist item... (Press Enter)"
-              }
+              placeholder="Add checklist item... (Press Enter)"
               className="flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
             />
           </form>
-          {createSubtask.isError ? (
+          {addItem.isError ? (
             <p className="px-1 text-xs text-destructive">
-              {createSubtask.error instanceof Error
-                ? createSubtask.error.message
-                : "Could not add subtask."}
+              {addItem.error instanceof Error
+                ? addItem.error.message
+                : "Could not add checklist item."}
             </p>
           ) : null}
         </section>
