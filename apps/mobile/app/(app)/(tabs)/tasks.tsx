@@ -51,31 +51,40 @@ function groupField(view?: TaskViewConfig): TaskListGroupField | undefined {
   return view?.groupFields?.[0];
 }
 
-function groupKey(task: Task, view?: TaskViewConfig) {
-  const field = groupField(view);
+function groupValue(task: Task, field: TaskListGroupField, stageNames: Record<string, string>) {
   if (field === "status") return statusNameKey(task.status?.name) || "none";
   if (field === "priority") return task.priorityLevel || "none";
   if (field === "workspace") return task.workspaceId || "none";
+  if (field === "project") return task.projectId || "none";
   if (field === "stage") return task.stageId || "none";
   if (field?.startsWith("cf:")) {
     const fieldId = field.slice(3);
     return `cf:${fieldId}:${customFieldGroupLabel(task, fieldId)}`;
   }
-  return task.projectId ?? `ws:${task.workspaceId}`;
+  return "none";
 }
 
-function groupTitle(
-  task: Task,
-  view?: TaskViewConfig,
-  stageNames: Record<string, string> = {},
-) {
-  const field = groupField(view);
+function groupValueTitle(task: Task, field: TaskListGroupField, stageNames: Record<string, string>) {
   if (field === "status") return task.status?.name ?? "No status";
   if (field === "priority") return task.priorityLevel ?? "No priority";
   if (field === "workspace") return task.workspace?.name ?? "No workspace";
+  if (field === "project") return task.project?.title ?? "No project";
   if (field === "stage") return (task.stageId && stageNames[task.stageId]) || "No stage";
   if (field?.startsWith("cf:")) return customFieldGroupLabel(task, field.slice(3));
-  return task.project?.title ?? `${task.workspace?.name ?? "Tasks"} · no project`;
+  return "Other";
+}
+
+function groupFields(view?: TaskViewConfig): TaskListGroupField[] {
+  if (view?.renderMode === "kanban") return ["status"];
+  return view?.groupFields?.length ? view.groupFields.slice(0, 3) : ["project"];
+}
+
+function groupKey(task: Task, view: TaskViewConfig | undefined, stageNames: Record<string, string>) {
+  return groupFields(view).map((field) => `${field}:${groupValue(task, field, stageNames)}`).join("|");
+}
+
+function groupTitle(task: Task, view: TaskViewConfig | undefined, stageNames: Record<string, string>) {
+  return groupFields(view).map((field) => groupValueTitle(task, field, stageNames)).join(" › ");
 }
 
 function groupColor(task: Task, view?: TaskViewConfig) {
@@ -189,7 +198,7 @@ export default function TasksScreen() {
   const groups = useMemo(() => {
     const map = new Map<string, { title: string; color: string | null; tasks: Task[] }>();
     for (const task of visible) {
-      const key = groupKey(task, activeView);
+      const key = groupKey(task, activeView, stageNames);
       if (!map.has(key)) {
         map.set(key, {
           title: groupTitle(task, activeView, stageNames),

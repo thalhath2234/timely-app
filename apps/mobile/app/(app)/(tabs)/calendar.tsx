@@ -43,6 +43,14 @@ import { needsNetworkCopy } from "../../../lib/queryCopy";
 
 type CalView = "day" | "week" | "agenda" | "month";
 
+function nextQuarterOn(day: Date) {
+  const now = new Date();
+  const next = new Date(day);
+  const minutes = Math.ceil((now.getMinutes() + 1) / 15) * 15;
+  next.setHours(now.getHours(), minutes, 0, 0);
+  return next;
+}
+
 function calendarWindow(anchor: Date) {
   return {
     from: new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1),
@@ -306,11 +314,7 @@ export default function CalendarScreen() {
                 items={items}
                 onSelect={setSelected}
                 onOpen={setOpen}
-                onEmptyDay={(day) => {
-                  const start = new Date(day);
-                  start.setHours(9, 0, 0, 0);
-                  setSlot(start);
-                }}
+                onEmptyDay={(day) => setSlot(nextQuarterOn(day))}
               />
             ) : (
               <MobileMonth month={selected} selected={selected} onSelect={setSelected} items={items} onOpen={setOpen} />

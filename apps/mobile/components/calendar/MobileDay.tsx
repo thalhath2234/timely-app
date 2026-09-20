@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View, type GestureResponderEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarItem } from "../../lib/types";
 import { HOURS, formatHour } from "../../lib/types";
@@ -9,6 +9,11 @@ import AnimatedPressable from "../ui/AnimatedPressable";
 import { floatingTabBarInset } from "../ui/FloatingTabBar";
 
 const HOUR_PX = 64;
+
+function minuteFromPress(event: GestureResponderEvent) {
+  const quarter = Math.floor((event.nativeEvent.locationY / HOUR_PX) * 4);
+  return Math.max(0, Math.min(45, quarter * 15));
+}
 
 function layout(items: CalendarItem[]) {
   const sorted = [...items].sort((a, b) => a.start.localeCompare(b.start));
@@ -80,10 +85,10 @@ export default function MobileDay({
           {HOURS.map((h) => (
             <Pressable
               key={h}
-              onPress={() => {
+              onPress={(event) => {
                 if (!onEmptySlot) return;
                 const start = new Date(dayStart);
-                start.setHours(h, 0, 0, 0);
+                start.setHours(h, minuteFromPress(event), 0, 0);
                 onEmptySlot(start);
               }}
               style={styles.line}

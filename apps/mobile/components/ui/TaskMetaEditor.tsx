@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
+import Animated, { useReducedMotion } from "react-native-reanimated";
 import { Plus, X } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import CustomFieldBuilder, {
@@ -17,6 +18,7 @@ import { emptyCustomFieldDrafts, withCustomFieldDraft } from "../../lib/customFi
 import { keys } from "../../lib/hooks";
 import type { CustomField, CustomFieldType, CustomFieldValueInput, Workspace } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { expandEntering, expandExiting, listLayout } from "../../lib/motion";
 
 function SubtlePlus({
   label,
@@ -74,6 +76,7 @@ export default function TaskMetaEditor({
   showCustomFields?: boolean;
 }) {
   const client = useQueryClient();
+  const reduceMotion = useReducedMotion();
   const labels = workspace?.lables ?? [];
   const fields = workspace?.customFields ?? [];
   const [labelName, setLabelName] = useState("");
@@ -198,14 +201,20 @@ export default function TaskMetaEditor({
             </View>
           ) : null}
           {addingLabel ? (
-            <LabelComposer
-              name={labelName}
-              onName={setLabelName}
-              color={labelColor}
-              onColor={setLabelColor}
-              disabled={!workspaceId || !labelName.trim() || busy}
-              onSubmit={() => void addLabel()}
-            />
+            <Animated.View
+              entering={expandEntering(reduceMotion)}
+              exiting={expandExiting(reduceMotion)}
+              layout={listLayout(reduceMotion)}
+            >
+              <LabelComposer
+                name={labelName}
+                onName={setLabelName}
+                color={labelColor}
+                onColor={setLabelColor}
+                disabled={!workspaceId || !labelName.trim() || busy}
+                onSubmit={() => void addLabel()}
+              />
+            </Animated.View>
           ) : null}
         </>
       ) : null}
@@ -217,17 +226,23 @@ export default function TaskMetaEditor({
           </SectionLabel>
           <CustomFieldEditor hideTitle fields={fields} values={values} onChange={onValues} />
           {addingField ? (
-            <CustomFieldBuilder
-              name={fieldName}
-              onName={setFieldName}
-              type={fieldType}
-              onType={setFieldType}
-              options={options}
-              onOptions={setOptions}
-              submitLabel={busy ? "Adding…" : "Add field"}
-              disabled={!workspaceId || !fieldName.trim() || busy}
-              onSubmit={() => void addField()}
-            />
+            <Animated.View
+              entering={expandEntering(reduceMotion)}
+              exiting={expandExiting(reduceMotion)}
+              layout={listLayout(reduceMotion)}
+            >
+              <CustomFieldBuilder
+                name={fieldName}
+                onName={setFieldName}
+                type={fieldType}
+                onType={setFieldType}
+                options={options}
+                onOptions={setOptions}
+                submitLabel={busy ? "Adding…" : "Add field"}
+                disabled={!workspaceId || !fieldName.trim() || busy}
+                onSubmit={() => void addField()}
+              />
+            </Animated.View>
           ) : null}
         </>
       ) : null}
