@@ -542,16 +542,14 @@ export default function QuickAddSheet({
               />
             </PropertyGroup>
 
-            {detailsReady ? (
-              <RecurrenceEditor
-                value={taskRecurrence}
-                onChange={(next) => {
-                  setTaskRecurrence(next);
-                  if (next && !scheduledOn) setScheduledOn(nextRoundHour());
-                }}
-                anchor={taskAnchor}
-              />
-            ) : null}
+            <RecurrenceEditor
+              value={taskRecurrence}
+              onChange={(next) => {
+                setTaskRecurrence(next);
+                if (next && !scheduledOn) setScheduledOn(nextRoundHour());
+              }}
+              anchor={taskAnchor}
+            />
 
             <Text style={styles.section}>{isReminder ? "Reminder" : "Schedule"}</Text>
             <PropertyGroup>
@@ -669,9 +667,7 @@ export default function QuickAddSheet({
                 />
               ) : null}
             </PropertyGroup>
-            {detailsReady ? (
-              <RecurrenceEditor value={eventRecurrence} onChange={setEventRecurrence} anchor={eventStart} />
-            ) : null}
+            <RecurrenceEditor value={eventRecurrence} onChange={setEventRecurrence} anchor={eventStart} />
             <Text style={styles.hint}>
               {eventRecurrence && !allDay
                 ? "Each occurrence starts at this time. Dates come from the repeat rule."

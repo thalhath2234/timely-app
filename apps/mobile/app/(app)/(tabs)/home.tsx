@@ -4,7 +4,6 @@ import { useRouter } from "expo-router";
 import {
   Check,
   ChevronRight,
-  GripVertical,
   Inbox,
   Moon,
   Pause,
@@ -353,9 +352,7 @@ export default function HomeScreen() {
                       >
                         <Pause size={18} color={colors.primary} fill={colors.primary} />
                       </AnimatedPressable>
-                    ) : (
-                      <GripVertical size={18} color={colors.mutedForeground} />
-                    )}
+                    ) : null}
                   </TaskRow>
                 );
               })

@@ -193,6 +193,11 @@ export default function TaskDetailScreen() {
 
   const isInbox = task.kind === "inbox";
   const isReminder = task.kind === "reminder" || ((task.duration ?? 0) <= 0 && !isInbox && task.kind !== "task");
+  const isInactive = Boolean(
+    task.completedAt ||
+      task.blockedById ||
+      /done|complete|blocked|cancelled|canceled/i.test(task.status?.name ?? ""),
+  );
   const onToday = dateOnly(task.todayFocusOn) === localDateStamp();
   const recAnchor = task.scheduledOn
     ? new Date(task.scheduledOn)
@@ -427,7 +432,7 @@ export default function TaskDetailScreen() {
                   {formatRelativeDay(new Date(block.start))} · {formatTimeRange(block.start, block.end)}
                   {block.locked || block.source === "manual" ? " · pinned" : ""}
                 </Text>
-                <View style={{ flexDirection: "row", gap: 12 }}>
+                {!isInactive ? <View style={{ flexDirection: "row", gap: 12 }}>
                   {block.source === "engine" && !block.locked ? (
                     <Pressable onPress={() => pinBlock.mutate({ blockId: block.id, locked: true })} hitSlop={8}>
                       <Text style={styles.rowAction}>Pin</Text>
@@ -445,11 +450,11 @@ export default function TaskDetailScreen() {
                   >
                     <Text style={[styles.rowAction, { color: colors.destructive }]}>Delete</Text>
                   </Pressable>
-                </View>
+                </View> : null}
               </View>
             ))}
-            <PrimaryButton label="+ Add time" onPress={() => setPicker("schedule")} />
-            {(task.blocks ?? []).length > 0 ? (
+            {!isInactive ? <PrimaryButton label="+ Add time" onPress={() => setPicker("schedule")} /> : null}
+            {!isInactive && (task.blocks ?? []).length > 0 ? (
               <Pressable
                 onPress={() =>
                   setConfirm({
@@ -463,7 +468,7 @@ export default function TaskDetailScreen() {
                 <Text style={[styles.rowAction, { color: colors.destructive }]}>Clear all time</Text>
               </Pressable>
             ) : null}
-            {!isInbox ? (
+            {!isInbox && !isInactive ? (
               <>
                 <PrimaryButton
                   label={applySchedule.isPending ? "Scheduling…" : "Auto-schedule this task"}
@@ -585,8 +590,10 @@ export default function TaskDetailScreen() {
           </>
         ) : null}
         {!isReminder ? <>
-        <Text style={styles.section}>Focus orchestration</Text>
+        <Text style={styles.section}>{isInactive ? "Actions" : "Focus orchestration"}</Text>
         <View style={styles.actionGrid}>
+          {!isInactive ? (
+          <>
           <ActionTile
             icon={<Play size={17} color={colors.foreground} fill={task.focusStartedAt ? colors.foreground : "transparent"} />}
             label={task.focusStartedAt ? "Stop focus" : "Start focus"}
@@ -608,6 +615,8 @@ export default function TaskDetailScreen() {
               })
             }
           />
+          </>
+          ) : null}
           <ActionTile
             icon={<Copy size={17} color={colors.foreground} />}
             label="Duplicate"
@@ -669,16 +678,22 @@ export default function TaskDetailScreen() {
         </View>
         </> : null}
         <View style={styles.sectionHeader}>
-          <Text style={styles.section}>Audit activity log</Text>
+          <Text style={styles.section}>Activity Log</Text>
           <Text style={styles.sectionMeta}>Latest {(activity.data ?? []).length} events</Text>
         </View>
         <View style={styles.sectionCard}>
-        {(activity.data ?? []).map((row) => (
-          <View key={row.id} style={styles.activityRow}>
-            <View style={styles.activityDot} />
-            <Text style={styles.activity}><Text style={styles.activityActor}>{row.actorName}</Text> · {row.message}</Text>
-          </View>
-        ))}
+        <ScrollView
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={(activity.data ?? []).length > 4}
+          style={(activity.data ?? []).length > 4 ? styles.activityLog : undefined}
+        >
+          {(activity.data ?? []).map((row) => (
+            <View key={row.id} style={styles.activityRow}>
+              <View style={styles.activityDot} />
+              <Text style={styles.activity}><Text style={styles.activityActor}>{row.actorName}</Text> · {row.message}</Text>
+            </View>
+          ))}
+        </ScrollView>
         <Field value={commentText} onChangeText={setCommentText} placeholder="Add a comment" autoCapitalize="sentences" />
         <PrimaryButton
           label="Comment"
@@ -1030,7 +1045,8 @@ const styles = createThemedStyleSheet((colors) => ({
   block: { borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 12 },
   blockText: { color: colors.foreground, fontSize: 14 },
   activity: { flex: 1, color: colors.mutedForeground, fontSize: 12, lineHeight: 17 },
-  activityRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  activityLog: { maxHeight: 156 },
+  activityRow: { minHeight: 39, flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 3 },
   activityDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary, marginTop: 6 },
   activityActor: { color: colors.foreground, fontWeight: "700" },
   delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
