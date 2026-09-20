@@ -33,6 +33,7 @@ The app stores the JWT in SecureStore and sends `Authorization: Bearer <token>`.
 ```bash
 make dev-mobile              # from the repo root, or:
 pnpm --filter @timely/mobile start --android
+make emu-start               # memory-capped AVD (3G cgroup); make emu-stop when done
 ```
 
 Release APK (memory-capped, detached): `make build-apk [API_URL=https://...]` from the repo root.

@@ -1,4 +1,5 @@
 import type { Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab, SheetTemplate } from "../types";
+import { normalizeSheet } from "../sheet";
 import { api, unwrap } from "./client";
 
 export type CreateSheetPayload = {
