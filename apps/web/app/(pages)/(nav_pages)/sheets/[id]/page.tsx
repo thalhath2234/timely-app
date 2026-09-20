@@ -119,13 +119,13 @@ function SheetView({ sheet }: { sheet: Sheet }) {
     updateSheet.mutateAsync({ id: sheet.id, ...patch }),
   );
   const tabsRef = useRef(tabs);
-  tabsRef.current = tabs;
 
   useEffect(() => registerSheetFlush(sheet.id, flush), [sheet.id, flush]);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 
   const persistTabs = (nextTabs: SheetTab[]) => {
+    tabsRef.current = nextTabs;
     setTabs(nextTabs);
     if (!nextTabs.some((tab) => tab.id === activeTabId) && nextTabs[0]) {
       setActiveTabId(nextTabs[0].id);

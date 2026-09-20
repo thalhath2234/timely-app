@@ -82,12 +82,12 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   );
   useUnsavedLeaveGuard(hasUnsavedChanges);
   const tabsRef = useRef(tabs);
-  tabsRef.current = tabs;
 
   const workspace = spaces.find((w) => w.id === sheet.workspaceId);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 
   function persistTabs(nextTabs: SheetTab[]) {
+    tabsRef.current = nextTabs;
     setTabs(nextTabs);
     if (!nextTabs.some((tab) => tab.id === activeTabId) && nextTabs[0]) {
       setActiveTabId(nextTabs[0].id);
