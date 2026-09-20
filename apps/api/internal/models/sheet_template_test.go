@@ -69,3 +69,16 @@ func TestTabFromTemplateUsesFirstTab(t *testing.T) {
 		t.Fatalf("formula not copied onto the new tab: %#v", tab.Rows[0].Cells)
 	}
 }
+
+func TestTabFromTemplateUnknownTab(t *testing.T) {
+	tpl := &SheetTemplate{
+		Name: "Budget",
+		Tabs: SheetTabs{
+			{ID: "tab_income", Name: "Income"},
+		},
+	}
+
+	if _, err := TabFromTemplate(tpl, "tab_missing"); err == nil || err.Error() != "tab not found" {
+		t.Fatalf("err = %v", err)
+	}
+}

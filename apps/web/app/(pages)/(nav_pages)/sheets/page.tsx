@@ -82,9 +82,18 @@ export default function SheetsPage() {
 
   const commitRename = (sheet: Sheet, next: string) => {
     const title = next.trim();
-    setRenamingKey(null);
-    if (!title || title === sheet.title) return;
-    void updateSheet.mutateAsync({ id: sheet.id, title });
+    if (!title || title === sheet.title) {
+      setRenamingKey(null);
+      return;
+    }
+    void updateSheet
+      .mutateAsync({ id: sheet.id, title })
+      .then(() => setRenamingKey(null))
+      .catch((error: unknown) =>
+        useToastStore
+          .getState()
+          .show(error instanceof Error ? error.message : "Could not rename"),
+      );
   };
 
   return (
@@ -258,9 +267,18 @@ export default function SheetsPage() {
                   }
                   onCommitRename={(next) => {
                     const name = next.trim();
-                    setRenamingKey(null);
-                    if (!name || name === template.name) return;
-                    void updateTemplate.mutateAsync({ id: template.id, name });
+                    if (!name || name === template.name) {
+                      setRenamingKey(null);
+                      return;
+                    }
+                    void updateTemplate
+                      .mutateAsync({ id: template.id, name })
+                      .then(() => setRenamingKey(null))
+                      .catch((error: unknown) =>
+                        useToastStore
+                          .getState()
+                          .show(error instanceof Error ? error.message : "Could not rename"),
+                      );
                   }}
                   onCancelRename={() => setRenamingKey(null)}
                 />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -81,6 +81,8 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
     save.mutateAsync({ id: sheet.id, data: patch }),
   );
   useUnsavedLeaveGuard(hasUnsavedChanges);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
 
   const workspace = spaces.find((w) => w.id === sheet.workspaceId);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
@@ -230,16 +232,22 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         </SheetOption>
         <SheetOption
           onSelect={() => {
-            void createTemplate
-              .mutateAsync({ sheetId: sheet.id, name: title || sheet.title })
-              .then((template) => {
-                setMenu(null);
+            setMenu(null);
+            void (async () => {
+              if (!(await flush())) {
+                Alert.alert("Could not save template", "Save the sheet and try again.");
+                return;
+              }
+              try {
+                const template = await createTemplate.mutateAsync({
+                  sheetId: sheet.id,
+                  name: title || sheet.title,
+                });
                 showUndoToast(`Saved template “${template.name}”`);
-              })
-              .catch((error: unknown) => {
-                setMenu(null);
+              } catch (error: unknown) {
                 Alert.alert("Could not save template", error instanceof Error ? error.message : "Try again.");
-              });
+              }
+            })();
           }}
           leading={<Copy size={18} color={colors.foreground} />}
         >
@@ -295,13 +303,13 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
             <SheetOption
               key={`${template.id}:${tab.id}`}
               onSelect={() => {
+                setMenu(null);
                 void materializeTab
                   .mutateAsync({ templateId: template.id, tabId: tab.id || undefined })
                   .then((copy) => {
-                    const next = addWorkbookTab(tabs, copy);
+                    const next = addWorkbookTab(tabsRef.current, copy);
                     setActiveTabId(next[next.length - 1]!.id);
                     persistTabs(next);
-                    setMenu(null);
                   })
                   .catch((error: unknown) => {
                     setMenu(null);

@@ -9,6 +9,7 @@ import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
+import { useToastStore } from "@/app/_store/toastStore";
 import type { Doc } from "@/app/_types/types";
 
 function formatUpdatedAt(value: string) {
@@ -60,9 +61,18 @@ export default function DocsPage() {
 
   const commitRename = (doc: Doc, next: string) => {
     const title = next.trim();
-    setRenamingId(null);
-    if (!title || title === doc.title) return;
-    void updateDoc.mutateAsync({ id: doc.id, title });
+    if (!title || title === doc.title) {
+      setRenamingId(null);
+      return;
+    }
+    void updateDoc
+      .mutateAsync({ id: doc.id, title })
+      .then(() => setRenamingId(null))
+      .catch((error: unknown) =>
+        useToastStore
+          .getState()
+          .show(error instanceof Error ? error.message : "Could not rename"),
+      );
   };
 
   return (

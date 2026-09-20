@@ -771,6 +771,7 @@ func TabFromTemplate(src *SheetTemplate, tabID string) (SheetTab, error) {
 				return CloneTab(tab), nil
 			}
 		}
+		return SheetTab{}, errors.New("tab not found")
 	}
 	if len(src.Tabs) > 0 {
 		return CloneTab(src.Tabs[0]), nil

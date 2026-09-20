@@ -25,6 +25,7 @@ import {
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
+import { flushOpenSheet } from "@/app/utils/sheetFlush";
 
 export type SheetMenuOptions = {
   onRename?: () => void;
@@ -93,16 +94,23 @@ export function useSheetContextMenu() {
           label: "Save as template",
           icon: LayoutTemplate,
           onSelect: () => {
-            void createTemplate
-              .mutateAsync({ sheetId: sheet.id, name: title })
-              .then((template) =>
-                useToastStore.getState().show(`Saved template “${template.name}”`),
-              )
-              .catch((error: unknown) =>
+            void (async () => {
+              if (!(await flushOpenSheet(sheet.id))) {
+                useToastStore.getState().show("Could not save changes");
+                return;
+              }
+              try {
+                const template = await createTemplate.mutateAsync({
+                  sheetId: sheet.id,
+                  name: title,
+                });
+                useToastStore.getState().show(`Saved template “${template.name}”`);
+              } catch (error: unknown) {
                 useToastStore
                   .getState()
-                  .show(error instanceof Error ? error.message : "Could not save template"),
-              );
+                  .show(error instanceof Error ? error.message : "Could not save template");
+              }
+            })();
           },
         },
         {

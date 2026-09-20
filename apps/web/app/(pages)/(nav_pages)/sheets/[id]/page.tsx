@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -39,6 +39,7 @@ import {
 } from "@/app/utils/sheetWorkbook";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { addTabMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
+import { registerSheetFlush } from "@/app/utils/sheetFlush";
 
 const ICON_CHOICES = [
   "📊", "📈", "📉", "🧮", "💰", "📋", "🗓️", "⚙️",
@@ -117,6 +118,10 @@ function SheetView({ sheet }: { sheet: Sheet }) {
   const { schedule, flush, status } = useAutosave<UpdateSheetPayload>((patch) =>
     updateSheet.mutateAsync({ id: sheet.id, ...patch }),
   );
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+
+  useEffect(() => registerSheetFlush(sheet.id, flush), [sheet.id, flush]);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 
@@ -265,16 +270,23 @@ function SheetView({ sheet }: { sheet: Sheet }) {
           title="Save as template"
           disabled={createTemplate.isPending}
           onClick={() => {
-            void createTemplate
-              .mutateAsync({ sheetId: sheet.id, name: title || sheet.title })
-              .then((template) =>
-                useToastStore.getState().show(`Saved template “${template.name}”`),
-              )
-              .catch((error: unknown) =>
+            void (async () => {
+              if (!(await flush())) {
+                useToastStore.getState().show("Could not save changes");
+                return;
+              }
+              try {
+                const template = await createTemplate.mutateAsync({
+                  sheetId: sheet.id,
+                  name: title || sheet.title,
+                });
+                useToastStore.getState().show(`Saved template “${template.name}”`);
+              } catch (error: unknown) {
                 useToastStore
                   .getState()
-                  .show(error instanceof Error ? error.message : "Could not save template"),
-              );
+                  .show(error instanceof Error ? error.message : "Could not save template");
+              }
+            })();
           }}
           className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
         >
@@ -394,7 +406,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
                     void materializeTab
                       .mutateAsync({ templateId, tabId })
                       .then((tab) => {
-                        const next = addWorkbookTab(tabs, tab);
+                        const next = addWorkbookTab(tabsRef.current, tab);
                         setActiveTabId(next[next.length - 1]!.id);
                         persistTabs(next);
                       })

@@ -40,7 +40,7 @@ type SheetFilter struct {
 
 type SheetService interface {
 	Create(sheet *models.Sheet) (*models.Sheet, error)
-	CreateFromTemplate(userID, templateID, title, workspaceID string) (*models.Sheet, error)
+	CreateFromTemplate(userID, templateID, title, workspaceID string, projectID *string) (*models.Sheet, error)
 	GetAllByUser(userID string) ([]models.Sheet, error)
 	List(userID string, filter SheetFilter) ([]models.Sheet, error)
 	GetByID(userID string, sheetID string) (*models.Sheet, error)
@@ -258,7 +258,7 @@ func (s *sheetService) Duplicate(userID, sheetID string) (*models.Sheet, error) 
 
 const maxTemplates = 50
 
-func (s *sheetService) CreateFromTemplate(userID, templateID, title, workspaceID string) (*models.Sheet, error) {
+func (s *sheetService) CreateFromTemplate(userID, templateID, title, workspaceID string, projectID *string) (*models.Sheet, error) {
 	template, err := s.GetTemplate(userID, templateID)
 	if err != nil {
 		return nil, err
@@ -276,6 +276,7 @@ func (s *sheetService) CreateFromTemplate(userID, templateID, title, workspaceID
 		Merges:      merges,
 		Tabs:        tabs,
 		WorkspaceID: workspaceID,
+		ProjectID:   projectID,
 		UserID:      userID,
 	})
 }

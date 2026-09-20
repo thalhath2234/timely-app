@@ -58,9 +58,9 @@ func (h *Handler) Create(c *echo.Context) error {
 	}
 
 	if req.TemplateID != "" {
-		createdSheet, err := h.sheetService.CreateFromTemplate(userID, req.TemplateID, req.Title, req.WorkspaceID)
+		createdSheet, err := h.sheetService.CreateFromTemplate(userID, req.TemplateID, req.Title, req.WorkspaceID, req.ProjectID)
 		if err != nil {
-			return sheetError(err)
+			return templateError(err)
 		}
 		return c.JSON(http.StatusCreated, map[string]any{
 			"message": "sheet created successfully",
@@ -226,7 +226,7 @@ func (h *Handler) GetTemplate(c *echo.Context) error {
 
 	template, err := h.sheetService.GetTemplate(userID, c.Param("id"))
 	if err != nil {
-		return sheetError(err)
+		return templateError(err)
 	}
 
 	return c.JSON(http.StatusOK, template)
@@ -273,7 +273,7 @@ func (h *Handler) UpdateTemplate(c *echo.Context) error {
 
 	template, err := h.sheetService.RenameTemplate(userID, c.Param("id"), *req.Name)
 	if err != nil {
-		return sheetError(err)
+		return templateError(err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -289,7 +289,7 @@ func (h *Handler) DeleteTemplate(c *echo.Context) error {
 	}
 
 	if err := h.sheetService.DeleteTemplate(userID, c.Param("id")); err != nil {
-		return sheetError(err)
+		return templateError(err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -310,7 +310,7 @@ func (h *Handler) MaterializeTemplateTab(c *echo.Context) error {
 
 	tab, err := h.sheetService.MaterializeTemplateTab(userID, c.Param("id"), req.TabID)
 	if err != nil {
-		return sheetError(err)
+		return templateError(err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -321,6 +321,13 @@ func (h *Handler) MaterializeTemplateTab(c *echo.Context) error {
 func sheetError(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return echo.NewHTTPError(http.StatusNotFound, "sheet not found")
+	}
+	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+}
+
+func templateError(err error) error {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return echo.NewHTTPError(http.StatusNotFound, "template not found")
 	}
 	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 }
