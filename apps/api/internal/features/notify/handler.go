@@ -84,6 +84,17 @@ func (h *Handler) MarkAllRead(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
+func (h *Handler) ClearAll(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	if err := h.service.ClearAll(uid); err != nil {
+		return notifyError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
 func (h *Handler) Snooze(c *echo.Context) error {
 	uid, err := userID(c)
 	if err != nil {

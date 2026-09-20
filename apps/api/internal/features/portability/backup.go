@@ -185,7 +185,7 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 func deferredColumns(table string) []string {
 	switch table {
 	case "tasks":
-		return []string{"parent_task_id", "blocked_by_id"}
+		return []string{"blocked_by_id"}
 	case "documents":
 		return []string{"parent_id"}
 	default:

@@ -64,8 +64,7 @@ func TestFlattenSheet(t *testing.T) {
 	colItem := "col_item"
 	colCost := "col_cost"
 	sheet := models.Sheet{
-		Title:       "Budget",
-		Description: "Q1 plan",
+		Title: "Budget",
 		Columns: models.SheetColumns{
 			{ID: colItem, Name: "Item"},
 			{ID: colCost, Name: "Cost"},
@@ -75,7 +74,7 @@ func TestFlattenSheet(t *testing.T) {
 		},
 	}
 	text := Combine(sheet.Title, FlattenSheet(&sheet))
-	for _, needle := range []string{"Budget", "Q1 plan", "Item: Paper", "Cost: 12"} {
+	for _, needle := range []string{"Budget", "Item: Paper", "Cost: 12"} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("missing %q in %q", needle, text)
 		}

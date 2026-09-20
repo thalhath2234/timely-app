@@ -20,6 +20,10 @@ export function markAllNotificationsRead() {
   return api<{ ok: boolean }>("/notifications/read-all", { method: "POST" });
 }
 
+export function clearNotifications() {
+  return api<{ ok: boolean }>("/notifications/clear", { method: "POST" });
+}
+
 export function snoozeNotification(id: string, payload: { minutes?: number; until?: string }) {
   return api<AppNotification>(`/notifications/${id}/snooze`, { method: "POST", body: payload });
 }

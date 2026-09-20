@@ -14,6 +14,17 @@ export function sameAddress(a: CellAddress, b: CellAddress) {
   return a.col === b.col && a.row === b.row;
 }
 
+export function sameRange(a: CellRange, b: CellRange) {
+  const left = normalizedRange(a);
+  const right = normalizedRange(b);
+  return (
+    left.minCol === right.minCol &&
+    left.maxCol === right.maxCol &&
+    left.minRow === right.minRow &&
+    left.maxRow === right.maxRow
+  );
+}
+
 export function clampAddress(
   address: CellAddress,
   colCount: number,
@@ -74,6 +85,20 @@ export function isInRange(address: CellAddress, range: CellRange) {
   );
 }
 
+export function isInAnyRange(address: CellAddress, ranges: CellRange[]) {
+  return ranges.some((range) => isInRange(address, range));
+}
+
+export function rangeTouchesCol(range: CellRange, col: number) {
+  const bounds = normalizedRange(range);
+  return col >= bounds.minCol && col <= bounds.maxCol;
+}
+
+export function rangeTouchesRow(range: CellRange, row: number) {
+  const bounds = normalizedRange(range);
+  return row >= bounds.minRow && row <= bounds.maxRow;
+}
+
 export function visitRange(
   range: CellRange,
   visit: (address: CellAddress) => void,
@@ -125,6 +150,30 @@ export function isMergeOrigin(merge: SheetMerge, address: CellAddress) {
 export function coveredByMerge(merges: SheetMerge[], address: CellAddress) {
   const merge = findMerge(merges, address);
   return Boolean(merge && !isMergeOrigin(merge, address));
+}
+
+export function isExactMergeSelection(range: CellRange, merge: SheetMerge) {
+  return sameRange(range, rangeFromMerge(merge));
+}
+
+export function activeCellInRange(range: CellRange, merges: SheetMerge[]): CellAddress {
+  const merge = findMerge(merges, range.focus);
+  if (!merge) return range.focus;
+  if (isExactMergeSelection(range, merge) || !isMergeOrigin(merge, range.focus)) {
+    return { col: merge.startCol, row: merge.startRow };
+  }
+  return range.focus;
+}
+
+export function selectionAddressLabel(range: CellRange, merges: SheetMerge[] = []) {
+  const merge = findMerge(merges, range.anchor);
+  if (merge && isExactMergeSelection(range, merge)) {
+    return rangeAddressLabel({
+      anchor: { col: merge.startCol, row: merge.startRow },
+      focus: { col: merge.startCol, row: merge.startRow },
+    });
+  }
+  return rangeAddressLabel(range);
 }
 
 export function rangesOverlap(a: CellRange, b: CellRange) {

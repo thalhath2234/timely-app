@@ -1,12 +1,27 @@
 import { Text, View } from "react-native";
 import BottomSheet from "../ui/BottomSheet";
-import { PrimaryButton, SectionLabel, Select } from "../ui/primitives";
+import { Field, PrimaryButton, SectionLabel, Select } from "../ui/primitives";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { PRIORITIES } from "../../lib/priority";
-import type { ExtraTaskFilters } from "../../lib/taskFilters";
-import { EMPTY_EXTRA_FILTERS } from "../../lib/taskFilters";
+import {
+  groupFieldLabel,
+  NATIVE_RENDER_OPTIONS,
+  NATIVE_SORT_OPTIONS,
+  NATIVE_VIEW_TEMPLATE,
+} from "../../lib/nativeTaskViews";
 import type { NamedStatusGroup } from "../../lib/status";
-import type { Label, Project, Stage, Workspace } from "../../lib/types";
+import type {
+  CustomField,
+  Label,
+  Project,
+  Stage,
+  TaskListDataMode,
+  TaskListGroupField,
+  TaskListSortBy,
+  TaskRenderMode,
+  TaskViewConfig,
+  Workspace,
+} from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 function toggleId(ids: string[], id: string) {
@@ -52,12 +67,17 @@ function FilterChip({
   );
 }
 
+const BASE_GROUP_FIELDS: TaskListGroupField[] = ["workspace", "project", "stage", "status", "priority"];
+
 export default function TaskFiltersSheet({
   open,
   onClose,
-  value,
-  onChange,
-  defaults = EMPTY_EXTRA_FILTERS,
+  view,
+  onPatch,
+  onAdd,
+  onDelete,
+  canDelete,
+  customFields = [],
   statusGroups,
   labels,
   stages,
@@ -66,57 +86,85 @@ export default function TaskFiltersSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  value: ExtraTaskFilters;
-  onChange: (next: ExtraTaskFilters) => void;
-  defaults?: ExtraTaskFilters;
+  view: TaskViewConfig;
+  onPatch: (patch: Partial<TaskViewConfig>) => void;
+  onAdd: () => void;
+  onDelete: () => void;
+  canDelete: boolean;
+  customFields?: CustomField[];
   statusGroups: NamedStatusGroup[];
   labels: Label[];
   stages: Stage[];
   workspaces?: Workspace[];
   projects?: Project[];
 }) {
-  const workspaceId = value.workspaceIds?.[0] ?? "";
-  const projectId = value.projectIds?.[0] ?? "";
+  const workspaceId = view.selectedWorkspaceIds?.[0] ?? "";
+  const projectId = view.selectedProjectIds?.[0] ?? "";
   const scopedProjects = projects.filter((project) =>
     workspaceId ? project.workspaceId === workspaceId : true,
   );
-  const activeCount =
-    Number(value.onlyOverdue) +
-    Number(value.onlyScheduled) +
-    Number(value.onlyRecurring) +
-    Number(value.onlyDated) +
-    Number(value.showCompleted !== defaults.showCompleted) +
-    (value.workspaceIds?.length ?? 0) +
-    (value.statusKeys?.length ?? value.statusIds.length) +
-    value.priorityLevels.length +
-    value.labelIds.length +
-    value.stageIds.length +
-    (value.projectIds?.length ?? 0);
+  const groupFields = (view.groupFields ?? []).slice(0, 3);
+  const availableGroups: TaskListGroupField[] = [
+    ...BASE_GROUP_FIELDS,
+    ...customFields.map((field) => `cf:${field.id}` as TaskListGroupField),
+  ];
+  const dataValue = view.showReminders ? "reminder" : view.dataMode === "project" ? "project" : "task";
+  const renderMode: TaskRenderMode = view.renderMode === "kanban" ? "kanban" : "list";
+  const statusIds = view.selectedStatusIds ?? [];
+  const statusKeys = statusIds.length
+    ? statusGroups.filter((group) => group.statuses.some((status) => statusIds.includes(status.id))).map((group) => group.key)
+    : [];
+
+  function setData(next: string) {
+    if (next === "reminder") {
+      onPatch({ showReminders: true, dataMode: "task", renderMode: "list" });
+      return;
+    }
+    if (next === "project") {
+      onPatch({ showReminders: false, dataMode: "project", renderMode: "list" });
+      return;
+    }
+    onPatch({ showReminders: false, dataMode: "task" as TaskListDataMode });
+  }
+
+  function updateGroupField(index: number, value: string) {
+    const next = [...groupFields];
+    if (!value) {
+      next.splice(index, 1);
+    } else {
+      next[index] = value as TaskListGroupField;
+    }
+    onPatch({ groupFields: next.filter(Boolean).slice(0, 3) });
+  }
+
+  function addGroupField() {
+    const next = availableGroups.find((field) => !groupFields.includes(field));
+    if (!next || groupFields.length >= 3) return;
+    onPatch({ groupFields: [...groupFields, next] });
+  }
 
   function toggleStatusGroup(group: NamedStatusGroup) {
     const ids = group.statuses.map((status) => status.id);
-    const allOn =
-      (value.statusKeys ?? []).includes(group.key) ||
-      (ids.length > 0 && ids.every((id) => value.statusIds.includes(id)));
-    onChange({
-      ...value,
-      statusKeys: allOn
-        ? (value.statusKeys ?? []).filter((key) => key !== group.key)
-        : [...new Set([...(value.statusKeys ?? []), group.key])],
-      statusIds: allOn
-        ? value.statusIds.filter((id) => !ids.includes(id))
-        : [...new Set([...value.statusIds, ...ids])],
+    const allOn = ids.length > 0 && ids.every((id) => statusIds.includes(id));
+    onPatch({
+      selectedStatusIds: allOn
+        ? statusIds.filter((id) => !ids.includes(id))
+        : [...new Set([...statusIds, ...ids])],
     });
+  }
+
+  function resetView() {
+    onPatch({ ...NATIVE_VIEW_TEMPLATE });
   }
 
   return (
     <BottomSheet
       open={open}
       onClose={onClose}
-      title={activeCount ? `Filters  ·  ${activeCount} active` : "Filters"}
+      title="Customize view"
       footer={
         <View style={styles.footer}>
-          <AnimatedPressable onPress={() => onChange(defaults)} style={styles.reset}>
+          <AnimatedPressable onPress={resetView} style={styles.reset}>
             <Text style={styles.resetText}>Reset</Text>
           </AnimatedPressable>
           <View style={{ flex: 1 }}>
@@ -126,41 +174,130 @@ export default function TaskFiltersSheet({
       }
     >
       <View style={styles.block}>
+        <SectionLabel>Name</SectionLabel>
+        <Field value={view.name} onChangeText={(name) => onPatch({ name })} placeholder="View name" autoCapitalize="words" />
+        <View style={styles.row}>
+          <FilterChip label="Add view" onPress={onAdd} />
+          <FilterChip
+            label="Delete view"
+            active={canDelete}
+            onPress={() => {
+              if (canDelete) onDelete();
+            }}
+          />
+        </View>
+      </View>
+
+      <View style={styles.block}>
+        <SectionLabel>Layout</SectionLabel>
+        <View style={styles.row}>
+          {NATIVE_RENDER_OPTIONS.map((option) => (
+            <FilterChip
+              key={option.value}
+              label={option.label}
+              active={renderMode === option.value}
+              onPress={() => onPatch({ renderMode: option.value, dataMode: option.value === "kanban" ? "task" : view.dataMode, showReminders: option.value === "kanban" ? false : view.showReminders })}
+            />
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.block}>
+        <SectionLabel>Show</SectionLabel>
+        <View style={styles.row}>
+          <FilterChip label="Tasks" active={dataValue === "task"} onPress={() => setData("task")} />
+          <FilterChip label="Reminders" active={dataValue === "reminder"} onPress={() => setData("reminder")} />
+          <FilterChip label="Projects" active={dataValue === "project"} onPress={() => setData("project")} />
+        </View>
+      </View>
+
+      <View style={styles.block}>
+        <SectionLabel action={<Text style={styles.hint}>{groupFields.length}/3</Text>}>Group by</SectionLabel>
+        {groupFields.map((field, index) => (
+          <View key={`${field}-${index}`} style={styles.groupRow}>
+            <View style={{ flex: 1 }}>
+              <Select
+                value={field}
+                onChange={(next) => updateGroupField(index, next)}
+                placeholder="Group field"
+                options={availableGroups
+                  .filter((option) => option === field || !groupFields.includes(option))
+                  .map((option) => ({ value: option, label: groupFieldLabel(option, customFields) }))}
+              />
+            </View>
+            <AnimatedPressable onPress={() => updateGroupField(index, "")} style={styles.remove}>
+              <Text style={styles.removeText}>Remove</Text>
+            </AnimatedPressable>
+          </View>
+        ))}
+        <View style={styles.row}>
+          <FilterChip label="Add group" active={false} onPress={addGroupField} />
+          <FilterChip
+            label={view.groupSortDirection === "desc" ? "Groups Z–A" : "Groups A–Z"}
+            active={view.groupSortDirection === "desc"}
+            onPress={() => onPatch({ groupSortDirection: view.groupSortDirection === "asc" ? "desc" : "asc" })}
+          />
+        </View>
+      </View>
+
+      <View style={styles.block}>
+        <SectionLabel>Sort</SectionLabel>
+        <Select
+          value={view.sortBy}
+          onChange={(next) => onPatch({ sortBy: next as TaskListSortBy })}
+          placeholder="Sort by"
+          options={NATIVE_SORT_OPTIONS}
+        />
+        <View style={styles.row}>
+          <FilterChip
+            label="Ascending"
+            active={view.sortDirection !== "desc"}
+            onPress={() => onPatch({ sortDirection: "asc" })}
+          />
+          <FilterChip
+            label="Descending"
+            active={view.sortDirection === "desc"}
+            onPress={() => onPatch({ sortDirection: "desc" })}
+          />
+        </View>
+      </View>
+
+      <View style={styles.block}>
         <SectionLabel>Quick filters</SectionLabel>
         <View style={styles.row}>
           <FilterChip
             label="Overdue"
-            active={value.onlyOverdue}
-            onPress={() => onChange({ ...value, onlyOverdue: !value.onlyOverdue })}
+            active={Boolean(view.onlyOverdue)}
+            onPress={() => onPatch({ onlyOverdue: !view.onlyOverdue })}
           />
           <FilterChip
             label="Scheduled"
-            active={value.onlyScheduled}
-            onPress={() => onChange({ ...value, onlyScheduled: !value.onlyScheduled })}
+            active={Boolean(view.onlyScheduled)}
+            onPress={() => onPatch({ onlyScheduled: !view.onlyScheduled })}
           />
           <FilterChip
             label="Recurring"
-            active={value.onlyRecurring}
-            onPress={() => onChange({ ...value, onlyRecurring: !value.onlyRecurring })}
+            active={Boolean(view.onlyRecurring)}
+            onPress={() => onPatch({ onlyRecurring: !view.onlyRecurring })}
           />
           <FilterChip
             label="Dated"
-            active={value.onlyDated}
-            onPress={() => onChange({ ...value, onlyDated: !value.onlyDated })}
+            active={Boolean(view.onlyDated)}
+            onPress={() => onPatch({ onlyDated: !view.onlyDated })}
           />
         </View>
         <AnimatedPressable
           accessibilityRole="switch"
-          accessibilityState={{ checked: value.showCompleted }}
-          onPress={() => onChange({ ...value, showCompleted: !value.showCompleted })}
+          accessibilityState={{ checked: view.showCompleted !== false }}
+          onPress={() => onPatch({ showCompleted: view.showCompleted === false })}
           style={styles.toggleRow}
         >
           <View>
             <Text style={styles.toggleTitle}>Show completed tasks</Text>
-            <Text style={styles.toggleHint}>Include finished work in this list</Text>
+            <Text style={styles.toggleHint}>Include finished work in this view</Text>
           </View>
-          <View style={[styles.switchTrack, value.showCompleted && styles.switchTrackOn]}>
-            <View style={[styles.switchThumb, value.showCompleted && styles.switchThumbOn]} />
+          <View style={[styles.switchTrack, view.showCompleted !== false && styles.switchTrackOn]}>
+            <View style={[styles.switchThumb, view.showCompleted !== false && styles.switchThumbOn]} />
           </View>
         </AnimatedPressable>
       </View>
@@ -174,11 +311,10 @@ export default function TaskFiltersSheet({
               const nextProject =
                 id && projectId && !projects.some((project) => project.id === projectId && project.workspaceId === id)
                   ? []
-                  : value.projectIds ?? [];
-              onChange({
-                ...value,
-                workspaceIds: id ? [id] : [],
-                projectIds: nextProject,
+                  : view.selectedProjectIds ?? [];
+              onPatch({
+                selectedWorkspaceIds: id ? [id] : [],
+                selectedProjectIds: nextProject,
               });
             }}
             placeholder="All spaces"
@@ -195,7 +331,7 @@ export default function TaskFiltersSheet({
           <SectionLabel>Project</SectionLabel>
           <Select
             value={projectId}
-            onChange={(id) => onChange({ ...value, projectIds: id ? [id] : [] })}
+            onChange={(id) => onPatch({ selectedProjectIds: id ? [id] : [] })}
             placeholder="All projects"
             options={[
               { value: "", label: "All projects" },
@@ -218,7 +354,7 @@ export default function TaskFiltersSheet({
                 key={group.key}
                 label={group.name}
                 color={group.color}
-                active={(value.statusKeys ?? []).includes(group.key) || group.statuses.some((status) => value.statusIds.includes(status.id))}
+                active={statusKeys.includes(group.key) || group.statuses.some((status) => statusIds.includes(status.id))}
                 onPress={() => toggleStatusGroup(group)}
               />
             ))}
@@ -233,8 +369,8 @@ export default function TaskFiltersSheet({
             <FilterChip
               key={level}
               label={level}
-              active={value.priorityLevels.includes(level)}
-              onPress={() => onChange({ ...value, priorityLevels: toggleId(value.priorityLevels, level) })}
+              active={(view.selectedPriorityLevels ?? []).includes(level)}
+              onPress={() => onPatch({ selectedPriorityLevels: toggleId(view.selectedPriorityLevels ?? [], level) })}
             />
           ))}
         </View>
@@ -249,8 +385,8 @@ export default function TaskFiltersSheet({
                 key={label.id}
                 label={label.name}
                 color={label.color}
-                active={value.labelIds.includes(label.id)}
-                onPress={() => onChange({ ...value, labelIds: toggleId(value.labelIds, label.id) })}
+                active={(view.selectedLabelIds ?? []).includes(label.id)}
+                onPress={() => onPatch({ selectedLabelIds: toggleId(view.selectedLabelIds ?? [], label.id) })}
               />
             ))}
           </View>
@@ -265,8 +401,8 @@ export default function TaskFiltersSheet({
               <FilterChip
                 key={stage.id}
                 label={stage.name}
-                active={value.stageIds.includes(stage.id)}
-                onPress={() => onChange({ ...value, stageIds: toggleId(value.stageIds, stage.id) })}
+                active={(view.selectedStageIds ?? []).includes(stage.id)}
+                onPress={() => onPatch({ selectedStageIds: toggleId(view.selectedStageIds ?? [], stage.id) })}
               />
             ))}
           </View>
@@ -279,9 +415,13 @@ export default function TaskFiltersSheet({
 const styles = createThemedStyleSheet((colors) => ({
   block: { gap: 10, marginBottom: 22 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  groupRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   footer: { flexDirection: "row", alignItems: "center", gap: 12 },
   reset: { paddingHorizontal: 12, paddingVertical: 12 },
   resetText: { color: colors.mutedForeground, fontWeight: "600" },
+  hint: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
+  remove: { paddingHorizontal: 8, paddingVertical: 10 },
+  removeText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   chip: {
     minHeight: 42,
     borderRadius: 13,

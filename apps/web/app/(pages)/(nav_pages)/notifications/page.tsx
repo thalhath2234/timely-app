@@ -3,7 +3,9 @@
 import { Bell } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
+import { requestConfirm } from "@/app/_store/confirmStore";
 import {
+  useClearNotifications,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotifications,
@@ -31,6 +33,7 @@ export default function NotificationsPage() {
   const list = useNotifications();
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
+  const clearAll = useClearNotifications();
   const snooze = useSnoozeNotification();
   const openTask = useEntityDetailStore((state) => state.openTask);
   const items = list.data ?? [];
@@ -44,14 +47,32 @@ export default function NotificationsPage() {
             Reminders, morning planning, and evening recap. Snooze updates the reminder itself.
           </p>
         </div>
-        <button
-          type="button"
-          disabled={markAll.isPending || items.every((item) => item.readAt)}
-          onClick={() => void markAll.mutateAsync()}
-          className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:border-primary/30 disabled:opacity-50"
-        >
-          Mark all read
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            disabled={markAll.isPending || items.length === 0 || items.every((item) => item.readAt)}
+            onClick={() => void markAll.mutateAsync()}
+            className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:border-primary/30 disabled:opacity-50"
+          >
+            Mark all read
+          </button>
+          <button
+            type="button"
+            disabled={clearAll.isPending || items.length === 0}
+            onClick={() =>
+              requestConfirm({
+                title: "Clear all notifications?",
+                description: "This removes them from the list. It cannot be undone.",
+                confirmLabel: "Clear all",
+                pendingLabel: "Clearing…",
+                onConfirm: () => clearAll.mutateAsync(),
+              })
+            }
+            className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-destructive hover:border-destructive/40 disabled:opacity-50"
+          >
+            Clear all
+          </button>
+        </div>
       </header>
       <div className="flex-1 overflow-y-auto p-6">
         {list.isLoading ? (

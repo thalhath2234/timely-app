@@ -53,40 +53,12 @@ export function useCreateTask() {
     mutationFn: (data: CreateTaskPayload) => createTask(data),
     // Creating work never re-plans the calendar on its own: the user reviews
     // and accepts a plan through the explicit Auto-schedule dialog.
-    onSuccess: async (created, variables) => {
-      const parentId = variables.parentTaskId;
-      if (parentId) {
-        queryClient.setQueryData<Task[]>(tasksKey, (tasks) =>
-          tasks?.map((item) =>
-            item.id === parentId
-              ? {
-                  ...item,
-                  subtasks: [...(item.subtasks ?? []), created],
-                  subtaskCount: (item.subtaskCount ?? 0) + 1,
-                  openSubtaskCount: (item.openSubtaskCount ?? 0) + 1,
-                }
-              : item,
-          ),
-        );
-        queryClient.setQueryData<Task>(taskKey(parentId), (parent) =>
-          parent
-            ? {
-                ...parent,
-                subtasks: [...(parent.subtasks ?? []), created],
-                subtaskCount: (parent.subtaskCount ?? 0) + 1,
-                openSubtaskCount: (parent.openSubtaskCount ?? 0) + 1,
-              }
-            : parent,
-        );
-      }
+    onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: tasksKey }),
         queryClient.invalidateQueries({ queryKey: inboxKey }),
         queryClient.invalidateQueries({ queryKey: todayKey }),
         queryClient.invalidateQueries({ queryKey: ["calendar"] }),
-        parentId
-          ? queryClient.invalidateQueries({ queryKey: taskKey(parentId) })
-          : Promise.resolve(),
       ]);
     },
   });

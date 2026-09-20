@@ -26,15 +26,11 @@ const TASK_PAGE_LIMIT = 100;
 export async function getTasks(query: {
   kind?: string;
   inbox?: boolean;
-  parentId?: string;
-  includeSubtasks?: boolean;
   reminders?: boolean;
 } = {}): Promise<Task[]> {
   const params = new URLSearchParams();
   if (query.kind) params.set("kind", query.kind);
   if (query.inbox) params.set("inbox", "true");
-  if (query.parentId) params.set("parentId", query.parentId);
-  if (query.includeSubtasks) params.set("includeSubtasks", "true");
   if (query.reminders) params.set("reminders", "true");
   params.set("limit", String(TASK_PAGE_SIZE));
 
@@ -78,7 +74,6 @@ export interface CreateTaskPayload {
   descriptionRich?: DocContent;
   duration?: number;
   kind?: "task" | "reminder" | "inbox";
-  parentTaskId?: string;
   deadline?: string;
   startDate?: string;
   scheduledOn?: string;
@@ -119,7 +114,6 @@ export interface UpdateTaskPayload {
   descriptionRich?: DocContent;
   duration?: number;
   kind?: "task" | "reminder" | "inbox";
-  parentTaskId?: string | null;
   todayFocusOn?: string | null;
   minChunkMinutes?: number;
   preferredChunkMinutes?: number | null;

@@ -298,17 +298,6 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	occCandidates := map[string]bool{}
 	var replaceManual []string
 
-	parentHasWork := map[string]bool{}
-	for i := range tasks {
-		child := &tasks[i]
-		if child.ParentTaskID == nil || *child.ParentTaskID == "" {
-			continue
-		}
-		if child.IsSchedulableWork() {
-			parentHasWork[*child.ParentTaskID] = true
-		}
-	}
-
 	freezeUntil := time.Time{}
 	if settings.FreezeHours > 0 {
 		freezeUntil = from.Add(time.Duration(settings.FreezeHours) * time.Hour)
@@ -337,9 +326,6 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 			if explicit {
 				skipped = append(skipped, skip(t.ID, t.Name, ReasonReminder))
 			}
-			continue
-		case parentHasWork[t.ID]:
-			skipped = append(skipped, skip(t.ID, t.Name, ReasonHasSubtasks))
 			continue
 		}
 		if t.WorkspaceID != nil && settings.ExcludesWorkspace(*t.WorkspaceID) {

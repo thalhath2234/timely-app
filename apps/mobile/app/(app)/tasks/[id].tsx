@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ban, CalendarDays, Check, CircleDot, Clock, Copy, Flag, FolderKanban, ListTodo, Play, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -10,7 +10,7 @@ import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import TaskMetaEditor from "../../../components/ui/TaskMetaEditor";
 import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
-import { Dot, Chip, Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Chip, Dot, Field, PrimaryButton, PropertyGroup, PropertyRow } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
 import RichTextEditor from "../../../components/editor/RichTextEditor";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
@@ -20,7 +20,6 @@ import {
   useAddBlock,
   useAddChecklistItem,
   useAddComment,
-  useCreateTask,
   useDeleteChecklistItem,
   useDeleteTask,
   useDuplicateTask,
@@ -140,7 +139,6 @@ export default function TaskDetailScreen() {
   const addCheck = useAddChecklistItem();
   const toggleCheck = useToggleChecklistItem();
   const removeCheck = useDeleteChecklistItem();
-  const createSubtask = useCreateTask();
   const duplicate = useDuplicateTask();
   const startFocus = useStartFocus();
   const stopFocus = useStopFocus();
@@ -153,6 +151,7 @@ export default function TaskDetailScreen() {
   const [name, setName] = useDraftText(task?.name, id);
   const [preferStart, setPreferStart] = useDraftText(task?.preferredWindows?.[0]?.start, id);
   const [preferEnd, setPreferEnd] = useDraftText(task?.preferredWindows?.[0]?.end, id);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
   metaRef.current = { taskWorkspaceId: task?.workspaceId ?? "", metaWorkspaceId };
 
   const workspace = spaces.find((w) => w.id === (task?.workspaceId || metaWorkspaceId));
@@ -205,11 +204,9 @@ export default function TaskDetailScreen() {
 
   const overdue = isOverdue(task.deadline, task.completedAt);
   const checklist = task.checklist ?? [];
-  const subtasks = task.parentTaskId ? [] : (task.subtasks ?? []);
   const checklistDone = checklist.filter((item) => item.completedAt).length;
-  const subtaskDone = subtasks.filter((item) => item.completedAt).length;
-  const combinedDone = checklistDone + subtaskDone;
-  const combinedTotal = checklist.length + subtasks.length;
+  const combinedDone = checklistDone;
+  const combinedTotal = checklist.length;
   const combinedProgress = combinedTotal ? combinedDone / combinedTotal : 0;
 
   function persist(data: Parameters<typeof save.mutate>[0]["data"]) {
@@ -304,9 +301,9 @@ export default function TaskDetailScreen() {
                 : "Estimated minutes of work the scheduler can place."}
           </Text>
         </View>
-        <View style={styles.card}>
+        <PropertyGroup>
           {!isReminder ? (
-          <Row
+          <PropertyRow
             icon={<FolderKanban size={16} color={colors.mutedForeground} />}
             label="Workspace"
             value={workspace?.name ?? "Select workspace"}
@@ -314,7 +311,7 @@ export default function TaskDetailScreen() {
           />
           ) : null}
           {!isReminder ? (
-          <Row
+          <PropertyRow
             icon={<CircleDot size={16} color={task.status?.color || colors.mutedForeground} />}
             label="Status"
             value={task.status?.name ?? "None"}
@@ -322,11 +319,11 @@ export default function TaskDetailScreen() {
             onPress={() => setPicker("status")}
           />
           ) : null}
-          <Row icon={<Flag size={16} color={colors.mutedForeground} />} label="Priority" value={task.priorityLevel ? PRIORITY_META[task.priorityLevel]?.label ?? task.priorityLevel : "None"} onPress={() => setPicker("priority")} />
+          <PropertyRow icon={<Flag size={16} color={colors.mutedForeground} />} label="Priority" value={task.priorityLevel ? PRIORITY_META[task.priorityLevel]?.label ?? task.priorityLevel : "None"} onPress={() => setPicker("priority")} />
           {!isReminder ? (
             <>
-              <Row icon={<ListTodo size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
-              <Row
+              <PropertyRow icon={<ListTodo size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
+              <PropertyRow
                 icon={<Ban size={16} color={colors.mutedForeground} />}
                 label="Blocked by"
                 value={
@@ -342,7 +339,7 @@ export default function TaskDetailScreen() {
                 </Text>
               ) : null}
               {stages.length > 0 ? (
-                <Row
+                <PropertyRow
                   icon={<ListTodo size={16} color={colors.mutedForeground} />}
                   label="Stage"
                   value={stages.find((stage) => stage.id === task.stageId)?.name ?? "None"}
@@ -352,7 +349,7 @@ export default function TaskDetailScreen() {
             </>
           ) : null}
           {isReminder && spaces.length > 0 ? (
-          <Row
+          <PropertyRow
             icon={<FolderKanban size={16} color={colors.mutedForeground} />}
             label="Workspace"
             value={workspace?.name ?? "None"}
@@ -360,27 +357,27 @@ export default function TaskDetailScreen() {
           />
           ) : null}
           {!isReminder && !isInbox ? (
-          <Row
+          <PropertyRow
             icon={<Clock size={16} color={colors.mutedForeground} />}
             label="Duration"
             value={formatDuration(task.duration) ?? `${task.duration}m`}
             onPress={() => setPicker("duration")}
           />
           ) : null}
-          <Row
+          <PropertyRow
             icon={<CalendarDays size={16} color={colors.mutedForeground} />}
             label="Start date"
             value={task.startDate ? formatShortDate(task.startDate) : "None"}
             onPress={() => setPicker("start")}
           />
-          <Row
+          <PropertyRow
             icon={<CalendarDays size={16} color={overdue ? colors.destructive : colors.mutedForeground} />}
             label="Deadline"
             value={task.deadline ? formatShortDate(task.deadline) : "None"}
             tone={overdue ? colors.destructive : undefined}
             onPress={() => setPicker("due")}
           />
-        </View>
+        </PropertyGroup>
         <RecurrenceEditor
           value={task.recurrence ? rruleToDraft(task.recurrence.rrule, recAnchor) : null}
           anchor={recAnchor}
@@ -471,8 +468,26 @@ export default function TaskDetailScreen() {
                 <PrimaryButton
                   label={applySchedule.isPending ? "Scheduling…" : "Auto-schedule this task"}
                   disabled={applySchedule.isPending}
-                  onPress={() => applySchedule.mutate({ taskIds: [task.id] })}
+                  onPress={async () => {
+                    setScheduleError(null);
+                    try {
+                      const plan = await applySchedule.mutateAsync({ taskIds: [task.id] });
+                      const skipped = plan.skipped?.find((item) => item.taskId === task.id);
+                      if (skipped) {
+                        setScheduleError(skipped.message || "Could not auto-schedule this task.");
+                      } else if (!plan.proposals?.some((item) => item.taskId === task.id)) {
+                        setScheduleError("The engine did not place this task.");
+                      }
+                    } catch (err) {
+                      setScheduleError(
+                        err instanceof Error ? err.message : "Could not auto-schedule this task.",
+                      );
+                    }
+                  }}
                 />
+                {scheduleError ? (
+                  <Text style={[styles.activity, { color: colors.destructive }]}>{scheduleError}</Text>
+                ) : null}
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                   <Chip
                     label={task.scheduleLocked ? "Pinned" : "Pin task"}
@@ -605,7 +620,7 @@ export default function TaskDetailScreen() {
           <Text style={styles.activity}>{task.actualMinutes}m actually focused</Text>
         ) : null}
         <View style={styles.sectionHeader}>
-          <Text style={styles.section}>Subtasks & checklist</Text>
+          <Text style={styles.section}>Checklist</Text>
           <Text style={styles.progressText}>{combinedDone} of {combinedTotal}</Text>
         </View>
         <View style={styles.progressTrack}>
@@ -633,18 +648,10 @@ export default function TaskDetailScreen() {
             </Text>
           </Pressable>
         ))}
-        {!task.parentTaskId
-          ? subtasks.map((child) => (
-              <AnimatedPressable key={child.id} onPress={() => router.push(`/(app)/tasks/${child.id}`)} style={styles.checkRow}>
-                <ListTodo size={16} color={child.completedAt ? colors.mutedForeground : colors.foreground} />
-                <Text style={[styles.checkText, child.completedAt && styles.checkTextDone]}>{child.name}</Text>
-              </AnimatedPressable>
-            ))
-          : null}
         <Field
           value={childTitle}
           onChangeText={setChildTitle}
-          placeholder={task.parentTaskId ? "Add checklist item" : "Add a checklist item or subtask"}
+          placeholder="Add checklist item"
           autoCapitalize="sentences"
         />
         <View style={styles.addActions}>
@@ -658,30 +665,6 @@ export default function TaskDetailScreen() {
           >
             <Text style={styles.addBtnText}>Add item</Text>
           </Pressable>
-          {!task.parentTaskId ? (
-            <Pressable
-              onPress={() => {
-                const name = childTitle.trim();
-                if (!name) return;
-                void createSubtask
-                  .mutateAsync({
-                    name,
-                    parentTaskId: task.id,
-                    duration: task.duration > 0 ? task.duration : 30,
-                    kind: "task",
-                    workspaceId: task.workspaceId || task.workspace?.id || undefined,
-                    projectId: task.projectId || task.project?.id || undefined,
-                    statusId: task.statusId || task.status?.id || undefined,
-                    stageId: task.stageId || undefined,
-                    priorityLevel: task.priorityLevel || undefined,
-                  })
-                  .then(() => setChildTitle(""));
-              }}
-              style={[styles.addBtn, styles.addBtnSecondary, !childTitle.trim() && styles.addBtnDisabled]}
-            >
-              <Text style={styles.addBtnSecondaryText}>Add subtask</Text>
-            </Pressable>
-          ) : null}
         </View>
         </View>
         </> : null}
@@ -961,7 +944,10 @@ export default function TaskDetailScreen() {
                   : new Date();
               persist({ scheduledOn: applyClock(day, next).toISOString() });
             } else {
-              addBlock.mutate({ taskId: task.id, data: { start: next.toISOString(), durationMinutes: task.duration } });
+              addBlock.mutate({
+                taskId: task.id,
+                data: { start: next.toISOString(), durationMinutes: Math.max(15, task.duration || 30) },
+              });
             }
           }
         }}
@@ -987,34 +973,6 @@ function ActionTile({ icon, label, active, onPress }: { icon: ReactNode; label: 
   );
 }
 
-function Row({
-  icon,
-  label,
-  value,
-  onPress,
-  tone,
-  swatch,
-  action,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  onPress?: () => void;
-  tone?: string;
-  swatch?: string | null;
-  action?: ReactNode;
-}) {
-  return (
-    <AnimatedPressable onPress={onPress} disabled={!onPress} style={styles.row}>
-      {icon}
-      <Text style={styles.rowLabel}>{label}</Text>
-      {swatch ? <Dot color={swatch} /> : null}
-      <Text style={[styles.rowValue, tone ? { color: tone } : null]}>{value}</Text>
-      {action}
-    </AnimatedPressable>
-  );
-}
-
 const styles = createThemedStyleSheet((colors) => ({
   content: { padding: 16, paddingBottom: 40, gap: 12 },
   complete: {
@@ -1030,10 +988,6 @@ const styles = createThemedStyleSheet((colors) => ({
   objectiveCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, gap: 7 },
   descriptionCard: { gap: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, minHeight: 170 },
   eyebrow: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", letterSpacing: 0.9 },
-  card: { borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: "hidden" },
-  row: { minHeight: 45, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  rowLabel: { width: 76, color: colors.mutedForeground, fontSize: 12 },
-  rowValue: { flex: 1, color: colors.foreground, fontSize: 13, fontWeight: "600", textAlign: "right" },
   rowAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   reminderChip: {
     flexDirection: "row",

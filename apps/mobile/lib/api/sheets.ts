@@ -1,12 +1,9 @@
-import { normalizeSheet } from "../sheet";
-import type { DocContent, Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab } from "../types";
+import type { Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab } from "../types";
 import { api, unwrap } from "./client";
 
 export type CreateSheetPayload = {
   title?: string;
   icon?: string;
-  description?: string;
-  descriptionRich?: DocContent;
   columns?: SheetColumn[];
   rows?: SheetRow[];
   merges?: SheetMerge[];
@@ -18,8 +15,6 @@ export type CreateSheetPayload = {
 export type UpdateSheetPayload = {
   title?: string;
   icon?: string;
-  description?: string;
-  descriptionRich?: DocContent;
   columns?: SheetColumn[];
   rows?: SheetRow[];
   merges?: SheetMerge[];

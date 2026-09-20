@@ -35,6 +35,7 @@ import {
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  clearNotifications,
   retryJob,
   snoozeNotification,
   unreadNotificationCount,
@@ -309,6 +310,7 @@ export function useInvalidateAll() {
   return () =>
     Promise.all([
       client.invalidateQueries({ queryKey: keys.tasks }),
+      client.invalidateQueries({ queryKey: ["task"] }),
       client.invalidateQueries({ queryKey: ["calendar"] }),
       client.invalidateQueries({ queryKey: keys.docs }),
       client.invalidateQueries({ queryKey: keys.sheets }),
@@ -980,6 +982,17 @@ export function useMarkAllNotificationsRead() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: markAllNotificationsRead,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.notifications });
+      client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
+export function useClearNotifications() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: clearNotifications,
     onSuccess: () => {
       client.invalidateQueries({ queryKey: keys.notifications });
       client.invalidateQueries({ queryKey: keys.unreadNotifications });

@@ -81,7 +81,6 @@ export function normalizeSheet(sheet: Sheet): Sheet {
   return {
     ...sheet,
     title: sheet.title ?? "",
-    description: sheet.description ?? "",
     columns,
     rows,
     merges,

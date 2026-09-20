@@ -29,8 +29,6 @@ type listTasksIn struct {
 	Reminders    *bool    `json:"reminders,omitempty" jsonschema:"true lists duration-0 reminders instead of work tasks"`
 	Kind         string   `json:"kind,omitempty" jsonschema:"task, reminder, or inbox"`
 	Inbox        *bool    `json:"inbox,omitempty"`
-	ParentID     string   `json:"parentId,omitempty"`
-	IncludeSubtasks bool  `json:"includeSubtasks,omitempty"`
 	Text         string   `json:"text,omitempty"`
 	Sort         string   `json:"sort,omitempty"`
 	Limit        int      `json:"limit,omitempty"`
@@ -54,8 +52,6 @@ func (in listTasksIn) filter() task.TaskFilter {
 		Reminders:       in.Reminders,
 		Kind:            in.Kind,
 		Inbox:           in.Inbox,
-		ParentID:        in.ParentID,
-		IncludeSubtasks: in.IncludeSubtasks,
 		Text:            in.Text,
 		Sort:          in.Sort,
 		Limit:         in.Limit,
@@ -106,7 +102,6 @@ type createTaskIn struct {
 	Description   string      `json:"description,omitempty" jsonschema:"markdown"`
 	Duration      int         `json:"duration,omitempty" jsonschema:"minutes of work; omit or 0 without a ping time captures to inbox"`
 	Kind          string      `json:"kind,omitempty" jsonschema:"task, reminder, or inbox. Title-only create is inbox"`
-	ParentTaskID  string      `json:"parentTaskId,omitempty"`
 	Deadline      string      `json:"deadline,omitempty"`
 	StartDate     string      `json:"startDate,omitempty"`
 	ScheduleAt    string      `json:"scheduleAt,omitempty" jsonschema:"RFC3339 ping time for a reminder, or start of the first work block"`
@@ -128,7 +123,7 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	if in.Duration > 0 && in.WorkspaceID == "" && in.Kind != models.KindInbox {
 		return fail(fmt.Errorf("workspaceId is required"))
 	}
-	kind := models.ResolveCreateKind(in.Kind, in.Duration, strPtr(in.ScheduleAt), in.Recurrence != nil, strPtr(in.ParentTaskID))
+	kind := models.ResolveCreateKind(in.Kind, in.Duration, strPtr(in.ScheduleAt), in.Recurrence != nil)
 	if kind == models.KindReminder {
 		in.ProjectID = ""
 		in.StatusID = ""
@@ -143,7 +138,6 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 		WorkspaceID:   strPtr(in.WorkspaceID),
 		Duration:      in.Duration,
 		Kind:          kind,
-		ParentTaskID:  strPtr(in.ParentTaskID),
 		Deadline:      strPtr(in.Deadline),
 		StartDate:     strPtr(in.StartDate),
 		ScheduledOn:   strPtr(in.ScheduleAt),
@@ -187,7 +181,6 @@ type updateTaskIn struct {
 	StageID         *string     `json:"stageId,omitempty"`
 	BlockedByID     *string     `json:"blockedById,omitempty"`
 	Kind            *string     `json:"kind,omitempty" jsonschema:"task, reminder, or inbox"`
-	ParentTaskID    *string     `json:"parentTaskId,omitempty"`
 	TodayFocusOn    *string     `json:"todayFocusOn,omitempty"`
 	MinChunkMinutes       *int                      `json:"minChunkMinutes,omitempty"`
 	PreferredChunkMinutes *int                      `json:"preferredChunkMinutes,omitempty"`
@@ -219,7 +212,6 @@ func (in updateTaskIn) toUpdate() task.TaskUpdate {
 		StageID:       in.StageID,
 		BlockedByID:   in.BlockedByID,
 		Kind:          in.Kind,
-		ParentTaskID:  in.ParentTaskID,
 		TodayFocusOn:  in.TodayFocusOn,
 		MinChunkMinutes:       in.MinChunkMinutes,
 		PreferredChunkMinutes: in.PreferredChunkMinutes,

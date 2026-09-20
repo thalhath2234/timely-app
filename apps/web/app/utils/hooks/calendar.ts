@@ -29,10 +29,20 @@ import {
   type AddBlockPayload,
   type PlanRequest,
 } from "@/app/utils/api/schedule";
-import { CalendarRange } from "@/app/_types/types";
+import { CalendarRange, Task } from "@/app/_types/types";
 import { optimisticMoveCalendarItems } from "@/app/utils/calendar";
-import { tasksKey, todayKey } from "@/app/utils/hooks/tasks";
+import { taskKey, tasksKey, todayKey } from "@/app/utils/hooks/tasks";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
+
+function writeTaskCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  task: Task,
+) {
+  queryClient.setQueryData<Task>(taskKey(task.id), task);
+  queryClient.setQueryData<Task[]>(tasksKey, (tasks) =>
+    tasks?.map((item) => (item.id === task.id ? { ...item, ...task } : item)),
+  );
+}
 
 export const calendarKey = ["calendar"] as const;
 export const eventsKey = ["events"] as const;
@@ -54,13 +64,15 @@ export function useCalendarRange(from: Date, to: Date, enabled = true) {
 }
 
 /** Anything that changes calendar time invalidates both the range payload and
- * the task list (scheduledOn / blocks are denormalised onto tasks). */
+ * the task list (scheduledOn / blocks are denormalised onto tasks). The open
+ * entity panel reads `["task", id]`, which is not covered by `["tasks"]`. */
 export function useInvalidateCalendar() {
   const queryClient = useQueryClient();
   return () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: calendarKey }),
       queryClient.invalidateQueries({ queryKey: tasksKey }),
+      queryClient.invalidateQueries({ queryKey: ["task"] }),
       queryClient.invalidateQueries({ queryKey: eventsKey }),
       queryClient.invalidateQueries({ queryKey: todayKey }),
       queryClient.invalidateQueries({ queryKey: scheduleSettingsKey }),
@@ -166,10 +178,14 @@ export function useUpdateScheduleSettings() {
 }
 
 export function usePinTask() {
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateCalendar();
   return useMutation({
     mutationFn: ({ taskId, locked }: { taskId: string; locked: boolean }) => pinTask(taskId, locked),
-    onSuccess: invalidate,
+    onSuccess: async (task) => {
+      writeTaskCache(queryClient, task);
+      await invalidate();
+    },
   });
 }
 
@@ -182,17 +198,28 @@ export function usePinBlock() {
 }
 
 export function useAddTaskBlock() {
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateCalendar();
   return useMutation({
     mutationFn: ({ taskId, ...data }: AddBlockPayload & { taskId: string }) =>
       addTaskBlock(taskId, data),
-    onSuccess: invalidate,
+    onSuccess: async (task) => {
+      writeTaskCache(queryClient, task);
+      await invalidate();
+    },
   });
 }
 
 export function useClearTaskBlocks() {
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateCalendar();
-  return useMutation({ mutationFn: clearTaskBlocks, onSuccess: invalidate });
+  return useMutation({
+    mutationFn: clearTaskBlocks,
+    onSuccess: async (task) => {
+      writeTaskCache(queryClient, task);
+      await invalidate();
+    },
+  });
 }
 
 export function useMoveBlock() {

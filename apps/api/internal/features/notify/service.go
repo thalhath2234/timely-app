@@ -90,6 +90,10 @@ func (s *Service) MarkAllRead(userID string) error {
 	return s.repo.MarkAllRead(userID)
 }
 
+func (s *Service) ClearAll(userID string) error {
+	return s.repo.ClearAll(userID)
+}
+
 func (s *Service) RegisterDevice(userID, token, platform string) (*models.PushDevice, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FlatList, Platform, RefreshControl, SectionList, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ListTodo, SlidersHorizontal } from "lucide-react-native";
@@ -6,7 +6,7 @@ import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import TaskCard from "../../../components/tasks/TaskCard";
-import TaskFilterBar, { type TaskFilter } from "../../../components/tasks/TaskFilterBar";
+import TaskFilterBar from "../../../components/tasks/TaskFilterBar";
 import MobileKanban, { kanbanColumns } from "../../../components/tasks/MobileKanban";
 import TaskFiltersSheet from "../../../components/tasks/TaskFiltersSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
@@ -14,15 +14,13 @@ import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import {
   useBulkUpdateTasks,
-  useConfigQuery,
   useDeleteTask,
   useProjectsQuery,
   useSaveTask,
   useTasksQuery,
-  useUpdateTaskViews,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { addDays, isSameDay, startOfDay, toDateInputValue } from "../../../lib/format";
+import { addDays, startOfDay, toDateInputValue } from "../../../lib/format";
 import { PRIORITIES, priorityRank } from "../../../lib/priority";
 import { isTaskOverdue } from "../../../lib/overdue";
 import { taskEntityColor } from "../../../lib/entityColor";
@@ -35,40 +33,74 @@ import {
 import { showUndoToast } from "../../../lib/toast";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
 import {
-  applyExtraFilters,
-  EMPTY_EXTRA_FILTERS,
-  extraFiltersActive,
   filterTasks,
   filtersFromView,
   isReminderTask,
-  resolveViewShowCompleted,
-  type ExtraTaskFilters,
 } from "../../../lib/taskFilters";
-import type { Task, TaskViewConfig } from "../../../lib/types";
+import {
+  customFieldGroupLabel,
+  defaultNativeTaskViews,
+  useNativeTaskViews,
+} from "../../../lib/nativeTaskViews";
+import type { Task, TaskListGroupField, TaskViewConfig } from "../../../lib/types";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
-function matchesFilter(task: Task, filter: TaskFilter) {
-  if (filter === "reminders") return isReminderTask(task);
-  if (filter === "board") return !isReminderTask(task);
-  const done = Boolean(task.completedAt);
-  if (filter === "done") return done;
-  if (done) return false;
-  if (filter === "all") return true;
-  const deadline = task.deadline ? new Date(task.deadline) : null;
-  const today = new Date();
-  switch (filter) {
-    case "today":
-      return Boolean(deadline && isSameDay(deadline, today));
-    case "overdue":
-      return isTaskOverdue(task);
-    case "upcoming":
-      return Boolean(deadline && startOfDay(deadline) > startOfDay(today) && deadline <= addDays(startOfDay(today), 14));
-    case "nodate":
-      return !deadline;
-    default:
-      return true;
+function groupField(view?: TaskViewConfig): TaskListGroupField | undefined {
+  if (view?.renderMode === "kanban") return "status";
+  return view?.groupFields?.[0];
+}
+
+function groupKey(task: Task, view?: TaskViewConfig) {
+  const field = groupField(view);
+  if (field === "status") return statusNameKey(task.status?.name) || "none";
+  if (field === "priority") return task.priorityLevel || "none";
+  if (field === "workspace") return task.workspaceId || "none";
+  if (field === "stage") return task.stageId || "none";
+  if (field?.startsWith("cf:")) {
+    const fieldId = field.slice(3);
+    return `cf:${fieldId}:${customFieldGroupLabel(task, fieldId)}`;
   }
+  return task.projectId ?? `ws:${task.workspaceId}`;
+}
+
+function groupTitle(
+  task: Task,
+  view?: TaskViewConfig,
+  stageNames: Record<string, string> = {},
+) {
+  const field = groupField(view);
+  if (field === "status") return task.status?.name ?? "No status";
+  if (field === "priority") return task.priorityLevel ?? "No priority";
+  if (field === "workspace") return task.workspace?.name ?? "No workspace";
+  if (field === "stage") return (task.stageId && stageNames[task.stageId]) || "No stage";
+  if (field?.startsWith("cf:")) return customFieldGroupLabel(task, field.slice(3));
+  return task.project?.title ?? `${task.workspace?.name ?? "Tasks"} · no project`;
+}
+
+function groupColor(task: Task, view?: TaskViewConfig) {
+  const field = groupField(view);
+  if (field === "status") return task.status?.color ?? null;
+  if (field === "workspace") return task.workspace?.color ?? null;
+  if (field === "project") return task.project?.color ?? null;
+  return taskEntityColor(task);
+}
+
+function viewHasCustomFilters(view?: TaskViewConfig) {
+  if (!view) return false;
+  return Boolean(
+    view.selectedWorkspaceIds?.length ||
+      view.selectedStatusIds?.length ||
+      view.selectedProjectIds?.length ||
+      view.selectedPriorityLevels?.length ||
+      view.selectedLabelIds?.length ||
+      view.selectedStageIds?.length ||
+      view.onlyOverdue ||
+      view.onlyScheduled ||
+      view.onlyRecurring ||
+      view.onlyDated ||
+      view.showCompleted === false,
+  );
 }
 
 function sortTasks(a: Task, b: Task, view?: TaskViewConfig) {
@@ -102,38 +134,13 @@ function sortTasks(a: Task, b: Task, view?: TaskViewConfig) {
   }
 }
 
-function groupKey(task: Task, view?: TaskViewConfig, filter?: TaskFilter) {
-  const field = view?.renderMode === "kanban" ? "status" : view?.groupFields?.[0];
-  if (filter === "board" || field === "status") return statusNameKey(task.status?.name) || "none";
-  if (field === "priority") return task.priorityLevel || "none";
-  if (field === "workspace") return task.workspaceId || "none";
-  if (field === "stage") return task.stageId || "none";
-  return task.projectId ?? `ws:${task.workspaceId}`;
-}
-
-function groupTitle(task: Task, view?: TaskViewConfig, filter?: TaskFilter) {
-  const field = view?.renderMode === "kanban" ? "status" : view?.groupFields?.[0];
-  if (filter === "board" || field === "status") return task.status?.name ?? "No status";
-  if (field === "priority") return task.priorityLevel ?? "No priority";
-  if (field === "workspace") return task.workspace?.name ?? "No workspace";
-  if (field === "stage") return "Stage";
-  return task.project?.title ?? `${task.workspace?.name ?? "Tasks"} · no project`;
-}
-
-function groupColor(task: Task, view?: TaskViewConfig, filter?: TaskFilter) {
-  const field = view?.renderMode === "kanban" ? "status" : view?.groupFields?.[0];
-  if (filter === "board" || field === "status") return task.status?.color ?? null;
-  return taskEntityColor(task);
-}
-
 export default function TasksScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ projectId?: string }>();
   const routeProjectId = typeof params.projectId === "string" ? params.projectId : undefined;
   const tasksQ = useTasksQuery();
   const spacesQ = useWorkspacesQuery();
-  const configQ = useConfigQuery();
-  const saveViews = useUpdateTaskViews();
+  const nativeViews = useNativeTaskViews();
   const projects = useProjectsQuery().data ?? [];
   const save = useSaveTask();
   const bulk = useBulkUpdateTasks();
@@ -141,105 +148,72 @@ export default function TasksScreen() {
   const tasks = tasksQ.data ?? [];
   const workspaces = spacesQ.data ?? [];
   const networkCopy = needsNetworkCopy(tasksQ);
-  const views = configQ.data?.taskViews ?? [];
-  const [viewOverride, setViewOverride] = useState<string | null>(null);
-  const latestViewSelection = useRef<string | null>(null);
-  const [filter, setFilter] = useState<TaskFilter>("all");
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [barProjectId, setBarProjectId] = useState<string | null>(null);
-  const [extraFilters, setExtraFilters] = useState<ExtraTaskFilters>(EMPTY_EXTRA_FILTERS);
+  const views = nativeViews.views;
+  const activeView = nativeViews.activeView;
+  const activeViewId = nativeViews.activeViewId;
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [confirmDeleteView, setConfirmDeleteView] = useState(false);
   const [movingTask, setMovingTask] = useState<Task | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkPicker, setBulkPicker] = useState<
     null | "menu" | "status" | "priority" | "project" | "label" | "deadline"
   >(null);
 
-  const configViewId =
-    (configQ.data?.activeTaskViewId && views.some((view) => view.id === configQ.data?.activeTaskViewId)
-      ? configQ.data.activeTaskViewId
-      : views[0]?.id) ?? "";
-  const activeViewId =
-    viewOverride && views.some((view) => view.id === viewOverride) ? viewOverride : configViewId;
-  const activeView = views.find((view) => view.id === activeViewId);
-  const viewShowCompleted = activeView ? resolveViewShowCompleted(activeView) : true;
-  const extraDefaults = useMemo(
-    () => ({ ...EMPTY_EXTRA_FILTERS, showCompleted: viewShowCompleted }),
-    [viewShowCompleted],
-  );
-  useEffect(() => {
-    setExtraFilters((current) =>
-      current.showCompleted === viewShowCompleted ? current : { ...current, showCompleted: viewShowCompleted },
-    );
-  }, [activeViewId, viewShowCompleted]);
-  const projectId = routeProjectId ?? barProjectId;
+  const projectId = routeProjectId;
   const project = projects.find((item) => item.id === projectId);
-  const barProjects = useMemo(
-    () => projects.filter((item) => (workspaceId ? item.workspaceId === workspaceId : true)),
-    [projects, workspaceId],
-  );
-
-  useEffect(() => {
-    if (viewOverride && configQ.data?.activeTaskViewId === viewOverride) {
-      latestViewSelection.current = null;
-      setViewOverride(null);
+  const workspaceFilter = activeView?.selectedWorkspaceIds?.[0] ?? null;
+  const customFields = useMemo(() => {
+    const seen = new Set<string>();
+    return workspaces.flatMap((space) => space.customFields ?? []).filter((field) => {
+      if (seen.has(field.id)) return false;
+      seen.add(field.id);
+      return true;
+    });
+  }, [workspaces]);
+  const stageNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const item of projects) {
+      for (const stage of item.stages ?? []) names[stage.id] = stage.name;
     }
-  }, [configQ.data?.activeTaskViewId, viewOverride]);
-
-  const workScoped = useMemo(
-    () =>
-      tasks
-        .filter((t) => !isReminderTask(t) && t.kind !== "inbox")
-        .filter((t) => (workspaceId ? t.workspaceId === workspaceId : true)),
-    [tasks, workspaceId],
-  );
-  const counts = useMemo(
-    () => ({
-      today: workScoped.filter((t) => matchesFilter(t, "today")).length,
-      overdue: workScoped.filter((t) => matchesFilter(t, "overdue")).length,
-    }),
-    [workScoped],
-  );
+    return names;
+  }, [projects]);
 
   const visible = useMemo(() => {
-    let next: Task[];
-    if (filter === "board") {
-      next = tasks.filter((t) => !isReminderTask(t) && t.kind !== "inbox" && !t.parentTaskId);
-    } else if (activeView) {
-      next =
-        activeView.dataMode === "project"
-          ? []
-          : filterTasks(tasks, { ...filtersFromView(activeView), showCompleted: extraFilters.showCompleted });
-    } else {
-      next = tasks
-        .filter((t) => (filter === "reminders" ? isReminderTask(t) : !isReminderTask(t)))
-        .filter((t) => matchesFilter(t, filter));
-    }
-    return applyExtraFilters(
-      next
-        .filter((t) => (workspaceId ? t.workspaceId === workspaceId : true))
-        .filter((t) => (projectId ? t.projectId === projectId : true))
-        .sort((a, b) => sortTasks(a, b, filter === "board" ? undefined : activeView)),
-      extraFilters,
-    );
-  }, [tasks, workspaceId, projectId, filter, activeView, extraFilters]);
+    if (!activeView || activeView.dataMode === "project") return [];
+    return filterTasks(tasks, filtersFromView(activeView))
+      .filter((task) => (projectId ? task.projectId === projectId : true))
+      .sort((a, b) => sortTasks(a, b, activeView));
+  }, [tasks, projectId, activeView]);
 
   const groups = useMemo(() => {
     const map = new Map<string, { title: string; color: string | null; tasks: Task[] }>();
-    for (const t of visible) {
-      const key = groupKey(t, activeView, filter);
+    for (const task of visible) {
+      const key = groupKey(task, activeView);
       if (!map.has(key)) {
         map.set(key, {
-          title: groupTitle(t, activeView, filter),
-          color: groupColor(t, activeView, filter),
+          title: groupTitle(task, activeView, stageNames),
+          color: groupColor(task, activeView),
           tasks: [],
         });
       }
-      map.get(key)!.tasks.push(t);
+      map.get(key)!.tasks.push(task);
     }
-    return [...map.values()];
-  }, [visible, activeView, filter]);
+    const rows = [...map.values()];
+    const ordered = activeView?.groupValueOrders?.[groupField(activeView) ?? ""];
+    rows.sort((a, b) => {
+      if (ordered?.length) {
+        const left = ordered.indexOf(a.title);
+        const right = ordered.indexOf(b.title);
+        if (left !== -1 || right !== -1) {
+          return (left === -1 ? ordered.length : left) - (right === -1 ? ordered.length : right);
+        }
+      }
+      const cmp = a.title.localeCompare(b.title);
+      return activeView?.groupSortDirection === "desc" ? -cmp : cmp;
+    });
+    return rows;
+  }, [visible, activeView, stageNames]);
 
   const sections = useMemo(
     () => groups.map((group) => ({ title: group.title, color: group.color, data: group.tasks })),
@@ -251,7 +225,6 @@ export default function TasksScreen() {
     const wanted = new Set(activeView.selectedWorkspaceIds ?? []);
     return projects
       .filter((item) => {
-        if (workspaceId && item.workspaceId !== workspaceId) return false;
         if (wanted.size > 0 && !wanted.has(item.workspaceId)) return false;
         if (projectId && item.id !== projectId) return false;
         return true;
@@ -266,33 +239,32 @@ export default function TasksScreen() {
           openCount: inProject.filter((task) => !task.completedAt).length,
         };
       });
-  }, [activeView, projects, projectId, workspaceId, tasks]);
+  }, [activeView, projects, projectId, tasks]);
 
   const selecting = selectedIds.length > 0;
   const statuses = useMemo(
     () =>
       workspaces
-        .filter((space) => (workspaceId ? space.id === workspaceId : true))
+        .filter((space) => (workspaceFilter ? space.id === workspaceFilter : true))
         .flatMap((space) => space.status ?? []),
-    [workspaces, workspaceId],
+    [workspaces, workspaceFilter],
   );
   const statusGroups = useMemo(() => mergeStatusesByName(statuses), [statuses]);
   const labels = useMemo(
     () =>
       workspaces
-        .filter((space) => (workspaceId ? space.id === workspaceId : true))
+        .filter((space) => (workspaceFilter ? space.id === workspaceFilter : true))
         .flatMap((space) => space.lables ?? []),
-    [workspaces, workspaceId],
+    [workspaces, workspaceFilter],
   );
   const stages = useMemo(
     () =>
       projects
-        .filter((item) => (workspaceId ? item.workspaceId === workspaceId : true))
+        .filter((item) => (workspaceFilter ? item.workspaceId === workspaceFilter : true))
         .flatMap((item) => item.stages ?? []),
-    [projects, workspaceId],
+    [projects, workspaceFilter],
   );
-  const boardMode =
-    filter === "board" || (activeView?.renderMode === "kanban" && activeView.dataMode !== "project");
+  const boardMode = activeView?.renderMode === "kanban" && activeView.dataMode !== "project";
   const boardCols = useMemo(() => kanbanColumns(visible, statusGroups), [visible, statusGroups]);
 
   const toggleSelect = useCallback((task: Task) => {
@@ -345,28 +317,8 @@ export default function TasksScreen() {
   }
 
   function selectView(id: string) {
-    setFilter("all");
     setSelectedIds((current) => (current.length > 0 ? [] : current));
-    if (!id || id === activeViewId) return;
-    const nextView = views.find((view) => view.id === id);
-    const nextShowCompleted = nextView ? resolveViewShowCompleted(nextView) : true;
-    setExtraFilters((current) =>
-      current.showCompleted === nextShowCompleted
-        ? current
-        : { ...current, showCompleted: nextShowCompleted },
-    );
-    latestViewSelection.current = id;
-    setViewOverride(id);
-    saveViews.mutate(
-      { taskViews: views, activeTaskViewId: id },
-      {
-        onError: () => {
-          if (latestViewSelection.current !== id) return;
-          latestViewSelection.current = null;
-          setViewOverride(null);
-        },
-      },
-    );
+    nativeViews.setActiveId(id);
   }
 
   const toggleComplete = useCallback((task: Task) => {
@@ -378,10 +330,10 @@ export default function TasksScreen() {
 
   const openCount = useMemo(() => visible.filter((task) => !task.completedAt).length, [visible]);
   const overdueCount = useMemo(
-    () => visible.filter((task) => matchesFilter(task, "overdue")).length,
+    () => visible.filter((task) => isTaskOverdue(task)).length,
     [visible],
   );
-  const filtersOn = extraFiltersActive(extraFilters, viewShowCompleted);
+  const filtersOn = viewHasCustomFilters(activeView);
   const listRefreshing = tasksQ.isRefetching && !tasksQ.isPending;
   const refreshControl = (
     <RefreshControl
@@ -420,15 +372,7 @@ export default function TasksScreen() {
   return (
     <Screen>
       <MobileHeader
-        title={
-          activeView?.dataMode === "project" && filter !== "board"
-            ? activeView.name
-            : filter === "reminders"
-              ? "Reminders"
-              : filter === "board"
-                ? "Board"
-                : project?.title || (filter === "all" ? activeView?.name : undefined) || "Tasks"
-        }
+        title={project?.title || activeView?.name || "Tasks"}
         subtitle={
           project
             ? "Filtered by project"
@@ -439,13 +383,13 @@ export default function TasksScreen() {
         actions={
           <AnimatedPressable
             accessibilityRole="button"
-            accessibilityLabel="Filters"
+            accessibilityLabel="Customize view"
             onPress={() => setFiltersOpen(true)}
             style={[styles.filterBtn, filtersOn && styles.filterBtnOn]}
           >
             <SlidersHorizontal size={16} color={filtersOn ? colors.primaryForeground : colors.foreground} />
             <Text style={[styles.filterBtnText, filtersOn && styles.filterBtnTextOn]}>
-              {filtersOn ? "Filters · on" : "Filters"}
+              {filtersOn ? "View · on" : "View"}
             </Text>
           </AnimatedPressable>
         }
@@ -456,26 +400,10 @@ export default function TasksScreen() {
           </AnimatedPressable>
         ) : null}
         <TaskFilterBar
-          filter={filter}
-          onFilter={(next) => {
-            setFilter(next);
-            setSelectedIds((current) => (current.length > 0 ? [] : current));
-          }}
-          workspaces={workspaces}
-          workspaceId={workspaceId}
-          onWorkspace={(id) => {
-            setWorkspaceId(id);
-            if (barProjectId && !projects.some((item) => item.id === barProjectId && (!id || item.workspaceId === id))) {
-              setBarProjectId(null);
-            }
-          }}
-          projects={routeProjectId ? [] : barProjects}
-          projectId={barProjectId}
-          onProject={routeProjectId ? undefined : setBarProjectId}
-          counts={counts}
           views={views}
           activeViewId={activeViewId}
           onView={selectView}
+          onAdd={nativeViews.addView}
         />
       </MobileHeader>
       {selecting ? (
@@ -533,7 +461,7 @@ export default function TasksScreen() {
         />
       ) : networkCopy ? (
         <EmptyState icon={ListTodo} title="Couldn't load tasks" description={networkCopy} />
-      ) : activeView?.dataMode === "project" && filter !== "board" ? (
+      ) : activeView?.dataMode === "project" ? (
         <FlatList
           data={projectRows}
           keyExtractor={(item) => item.id}
@@ -585,8 +513,8 @@ export default function TasksScreen() {
           ListEmptyComponent={
             <EmptyState
               icon={ListTodo}
-              title={filter === "done" ? "Nothing completed yet" : filter === "reminders" ? "No reminders" : "All clear"}
-              description={activeView ? "Nothing matches this saved view." : "Tap the + button to capture something new."}
+              title={activeView?.showReminders ? "No reminders" : "All clear"}
+              description="Nothing matches this view. Adjust it with View, or tap + to add something."
             />
           }
         />
@@ -594,9 +522,12 @@ export default function TasksScreen() {
       <TaskFiltersSheet
         open={filtersOpen}
         onClose={() => setFiltersOpen(false)}
-        value={extraFilters}
-        onChange={setExtraFilters}
-        defaults={extraDefaults}
+        view={activeView ?? views[0] ?? defaultNativeTaskViews()[0]}
+        onPatch={nativeViews.patchActiveView}
+        onAdd={nativeViews.addView}
+        onDelete={() => setConfirmDeleteView(true)}
+        canDelete={views.length > 1}
+        customFields={customFields}
         statusGroups={statusGroups}
         labels={labels}
         stages={stages}
@@ -701,6 +632,14 @@ export default function TasksScreen() {
           setSelectedIds([]);
           setBulkPicker(null);
         }}
+      />
+      <ConfirmSheet
+        open={confirmDeleteView}
+        onClose={() => setConfirmDeleteView(false)}
+        title="Delete this view?"
+        message="Only this phone’s task list layout is removed. Web views stay as they are."
+        confirmLabel="Delete view"
+        onConfirm={() => nativeViews.deleteActiveView()}
       />
     </Screen>
   );

@@ -40,13 +40,11 @@ func TestApplyTaskFilterByWorkspaceAndText(t *testing.T) {
 
 	inbox := models.Task{ID: "tsk_inbox", Name: "Buy milk", Kind: models.KindInbox, Duration: 0}
 	parent := models.Task{ID: "tsk_parent", Name: "Parent", Kind: models.KindTask, Duration: 30}
-	childID := "tsk_parent"
-	child := models.Task{ID: "tsk_child", Name: "Child", Kind: models.KindTask, Duration: 15, ParentTaskID: &childID}
-	more := append(tasks, inbox, parent, child)
+	more := append(tasks, inbox, parent)
 	got = applyTaskFilter(more, TaskFilter{Limit: 50})
 	for _, item := range got {
-		if item.ID == "tsk_inbox" || item.ID == "tsk_child" {
-			t.Fatalf("default list should hide inbox and subtasks: %#v", ids(got))
+		if item.ID == "tsk_inbox" {
+			t.Fatalf("default list should hide inbox: %#v", ids(got))
 		}
 	}
 
@@ -54,11 +52,6 @@ func TestApplyTaskFilterByWorkspaceAndText(t *testing.T) {
 	got = applyTaskFilter(more, TaskFilter{Inbox: &inboxOnly, Limit: 50})
 	if len(got) != 1 || got[0].ID != "tsk_inbox" {
 		t.Fatalf("inbox filter: %#v", ids(got))
-	}
-
-	got = applyTaskFilter(more, TaskFilter{ParentID: "tsk_parent", Limit: 50})
-	if len(got) != 1 || got[0].ID != "tsk_child" {
-		t.Fatalf("parentId filter: %#v", ids(got))
 	}
 }
 

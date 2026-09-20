@@ -57,6 +57,16 @@ export async function markAllNotificationsRead(): Promise<void> {
   }
 }
 
+export async function clearNotifications(): Promise<void> {
+  const response = await apiFetch("/notifications/clear", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to clear notifications"));
+  }
+}
+
 export async function snoozeNotification(
   id: string,
   payload: { minutes?: number; until?: string },

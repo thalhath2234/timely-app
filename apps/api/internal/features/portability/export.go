@@ -22,14 +22,14 @@ func (s *Service) TasksCSV(userID string) ([]byte, error) {
 	}
 	var out bytes.Buffer
 	writer := csv.NewWriter(&out)
-	_ = writer.Write([]string{"id", "name", "kind", "description", "duration_minutes", "deadline", "start_date", "scheduled_on", "completed_at", "priority", "workspace_id", "project_id", "stage_id", "status_id", "parent_task_id", "blocked_by_id"})
+	_ = writer.Write([]string{"id", "name", "kind", "description", "duration_minutes", "deadline", "start_date", "scheduled_on", "completed_at", "priority", "workspace_id", "project_id", "stage_id", "status_id", "blocked_by_id"})
 	for _, task := range tasks {
 		_ = writer.Write([]string{
 			task.ID, task.Name, task.Kind, task.Description, strconv.Itoa(task.Duration),
 			stringValue(task.Deadline), stringValue(task.StartDate), stringValue(task.ScheduledOn),
 			stringValue(task.CompletedAt), stringValue(task.PriorityLevel), stringValue(task.WorkspaceID),
 			stringValue(task.ProjectID), stringValue(task.StageID), stringValue(task.StatusID),
-			stringValue(task.ParentTaskID), stringValue(task.BlockedByID),
+			stringValue(task.BlockedByID),
 		})
 	}
 	writer.Flush()

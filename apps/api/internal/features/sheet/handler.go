@@ -18,30 +18,26 @@ func NewHandler(sheetService SheetService) *Handler {
 }
 
 type createSheetRequest struct {
-	Title           string              `json:"title"`
-	Icon            *string             `json:"icon"`
-	Description     string              `json:"description"`
-	DescriptionRich models.JSONMap      `json:"descriptionRich"`
-	Columns         models.SheetColumns `json:"columns"`
-	Rows            models.SheetRows    `json:"rows"`
-	Merges          models.SheetMerges  `json:"merges"`
-	Tabs            models.SheetTabs    `json:"tabs"`
-	WorkspaceID     string              `json:"workspaceId"`
-	ProjectID       *string             `json:"projectId"`
+	Title       string              `json:"title"`
+	Icon        *string             `json:"icon"`
+	Columns     models.SheetColumns `json:"columns"`
+	Rows        models.SheetRows    `json:"rows"`
+	Merges      models.SheetMerges  `json:"merges"`
+	Tabs        models.SheetTabs    `json:"tabs"`
+	WorkspaceID string              `json:"workspaceId"`
+	ProjectID   *string             `json:"projectId"`
 }
 
 type updateSheetRequest struct {
-	Title           *string              `json:"title"`
-	Icon            *string              `json:"icon"`
-	Description     *string              `json:"description"`
-	DescriptionRich *models.JSONMap      `json:"descriptionRich"`
-	Columns         *models.SheetColumns `json:"columns"`
-	Rows            *models.SheetRows    `json:"rows"`
-	Merges          *models.SheetMerges  `json:"merges"`
-	Tabs            *models.SheetTabs    `json:"tabs"`
-	ProjectID       *string              `json:"projectId"`
-	IsFavorite      *bool                `json:"isFavorite"`
-	Archived        *bool                `json:"archived"`
+	Title      *string              `json:"title"`
+	Icon       *string              `json:"icon"`
+	Columns    *models.SheetColumns `json:"columns"`
+	Rows       *models.SheetRows    `json:"rows"`
+	Merges     *models.SheetMerges  `json:"merges"`
+	Tabs       *models.SheetTabs    `json:"tabs"`
+	ProjectID  *string              `json:"projectId"`
+	IsFavorite *bool                `json:"isFavorite"`
+	Archived   *bool                `json:"archived"`
 }
 
 func (h *Handler) Create(c *echo.Context) error {
@@ -56,17 +52,15 @@ func (h *Handler) Create(c *echo.Context) error {
 	}
 
 	createdSheet, err := h.sheetService.Create(&models.Sheet{
-		Title:           req.Title,
-		Icon:            req.Icon,
-		Description:     req.Description,
-		DescriptionRich: req.DescriptionRich,
-		Columns:         req.Columns,
-		Rows:            req.Rows,
-		Merges:          req.Merges,
-		Tabs:            req.Tabs,
-		WorkspaceID:     req.WorkspaceID,
-		ProjectID:       req.ProjectID,
-		UserID:          userID,
+		Title:       req.Title,
+		Icon:        req.Icon,
+		Columns:     req.Columns,
+		Rows:        req.Rows,
+		Merges:      req.Merges,
+		Tabs:        req.Tabs,
+		WorkspaceID: req.WorkspaceID,
+		ProjectID:   req.ProjectID,
+		UserID:      userID,
 	})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -141,17 +135,15 @@ func (h *Handler) Update(c *echo.Context) error {
 	}
 
 	updatedSheet, err := h.sheetService.Update(userID, c.Param("id"), SheetUpdate{
-		Title:           req.Title,
-		Icon:            req.Icon,
-		Description:     req.Description,
-		DescriptionRich: req.DescriptionRich,
-		Columns:         req.Columns,
-		Rows:            req.Rows,
-		Merges:          req.Merges,
-		Tabs:            req.Tabs,
-		ProjectID:       req.ProjectID,
-		IsFavorite:      req.IsFavorite,
-		Archived:        req.Archived,
+		Title:      req.Title,
+		Icon:       req.Icon,
+		Columns:    req.Columns,
+		Rows:       req.Rows,
+		Merges:     req.Merges,
+		Tabs:       req.Tabs,
+		ProjectID:  req.ProjectID,
+		IsFavorite: req.IsFavorite,
+		Archived:   req.Archived,
 	})
 	if err != nil {
 		return sheetError(err)

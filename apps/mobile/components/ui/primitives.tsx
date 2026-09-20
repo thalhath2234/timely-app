@@ -193,6 +193,47 @@ export function Card({ children, onPress }: { children: ReactNode; onPress?: () 
   return <View style={styles.card}>{children}</View>;
 }
 
+/** Grouped property list used on task detail and the new-item form. */
+export function PropertyGroup({ children }: { children: ReactNode }) {
+  return <View style={styles.propertyGroup}>{children}</View>;
+}
+
+export function PropertyRow({
+  icon,
+  label,
+  value,
+  onPress,
+  tone,
+  swatch,
+  action,
+}: {
+  icon?: ReactNode;
+  label: string;
+  value: string;
+  onPress?: () => void;
+  tone?: string;
+  swatch?: string | null;
+  action?: ReactNode;
+}) {
+  return (
+    <AnimatedPressable
+      accessibilityRole={onPress ? "button" : "none"}
+      accessibilityLabel={`${label}, ${value}`}
+      onPress={onPress}
+      disabled={!onPress}
+      style={styles.propertyRow}
+    >
+      {icon}
+      <Text style={styles.propertyLabel}>{label}</Text>
+      {swatch ? <Dot color={swatch} /> : null}
+      <Text style={[styles.propertyValue, tone ? { color: tone } : null]} numberOfLines={1}>
+        {value}
+      </Text>
+      {action}
+    </AnimatedPressable>
+  );
+}
+
 export function Dot({ color }: { color?: string | null }) {
   return <View style={[styles.dot, { backgroundColor: color || colors.mutedForeground }]} />;
 }
@@ -285,5 +326,23 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
     padding: 16,
   },
+  propertyGroup: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    overflow: "hidden",
+  },
+  propertyRow: {
+    minHeight: 45,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  propertyLabel: { width: 76, color: colors.mutedForeground, fontSize: 12 },
+  propertyValue: { flex: 1, color: colors.foreground, fontSize: 13, fontWeight: "600", textAlign: "right" },
   dot: { width: 10, height: 10, borderRadius: 5 },
 }));

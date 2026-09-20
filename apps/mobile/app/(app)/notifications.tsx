@@ -1,11 +1,14 @@
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Bell } from "lucide-react-native";
+import { useState } from "react";
 import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
+import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import {
+  useClearNotifications,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotificationsQuery,
@@ -44,9 +47,11 @@ export default function NotificationsScreen() {
   const list = useNotificationsQuery();
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
+  const clearAll = useClearNotifications();
   const snooze = useSnoozeNotification();
   const items = list.data ?? [];
   const networkCopy = needsNetworkCopy(list);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   return (
     <Screen>
@@ -61,13 +66,22 @@ export default function NotificationsScreen() {
           />
         }
       >
-        <AnimatedPressable
-          onPress={() => void markAll.mutateAsync()}
-          disabled={markAll.isPending || items.every((item) => item.readAt)}
-          style={styles.markAll}
-        >
-          <Text style={styles.markAllText}>Mark all read</Text>
-        </AnimatedPressable>
+        <View style={styles.toolbar}>
+          <AnimatedPressable
+            onPress={() => void markAll.mutateAsync()}
+            disabled={markAll.isPending || items.length === 0 || items.every((item) => item.readAt)}
+            style={styles.markAll}
+          >
+            <Text style={styles.markAllText}>Mark all read</Text>
+          </AnimatedPressable>
+          <AnimatedPressable
+            onPress={() => setConfirmClear(true)}
+            disabled={clearAll.isPending || items.length === 0}
+            style={styles.markAll}
+          >
+            <Text style={styles.clearText}>Clear all</Text>
+          </AnimatedPressable>
+        </View>
         {networkCopy && items.length === 0 ? (
           <EmptyState
             icon={Bell}
@@ -120,14 +134,24 @@ export default function NotificationsScreen() {
           })
         )}
       </ScrollView>
+      <ConfirmSheet
+        open={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        title="Clear all notifications?"
+        message="This removes them from the list. It cannot be undone."
+        confirmLabel="Clear all"
+        onConfirm={() => void clearAll.mutateAsync()}
+      />
     </Screen>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
   body: { padding: 16, gap: 10, paddingBottom: 40 },
+  toolbar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 16 },
   markAll: { alignSelf: "flex-end", paddingVertical: 4 },
   markAllText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  clearText: { color: colors.destructive, fontSize: 13, fontWeight: "600" },
   row: {
     borderWidth: 1,
     borderColor: colors.border,

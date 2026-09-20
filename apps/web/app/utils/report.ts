@@ -284,14 +284,6 @@ export function buildReportData(input: {
   for (const doc of docs) {
     pushMentions("doc", doc.id, doc.title, doc.content);
   }
-  for (const sheet of sheets) {
-    pushMentions(
-      "sheet",
-      sheet.id,
-      sheet.title,
-      sheet.descriptionRich ?? undefined,
-    );
-  }
   for (const task of input.tasks) {
     pushMentions(
       "task",

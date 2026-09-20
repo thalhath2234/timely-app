@@ -168,7 +168,7 @@ export function filterTasks(tasks: Task[], filters: TaskListFilters): Task[] {
   const wantedStages = new Set(filters.stageIds);
 
   return tasks.filter((task) => {
-    if (task.kind === "inbox" || task.parentTaskId) return false;
+    if (task.kind === "inbox") return false;
     if (filters.showReminders) {
       if (!isReminderTask(task)) return false;
     } else if (isReminderTask(task)) {

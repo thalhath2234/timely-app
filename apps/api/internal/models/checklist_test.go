@@ -4,25 +4,21 @@ import "testing"
 
 func TestResolveCreateKind(t *testing.T) {
 	scheduled := "2026-09-12T09:00:00Z"
-	parent := "tsk_parent"
 
-	if got := ResolveCreateKind("", 30, nil, false, nil); got != KindTask {
+	if got := ResolveCreateKind("", 30, nil, false); got != KindTask {
 		t.Fatalf("duration work: %s", got)
 	}
-	if got := ResolveCreateKind("", 0, &scheduled, false, nil); got != KindReminder {
+	if got := ResolveCreateKind("", 0, &scheduled, false); got != KindReminder {
 		t.Fatalf("ping: %s", got)
 	}
-	if got := ResolveCreateKind("", 0, nil, true, nil); got != KindReminder {
+	if got := ResolveCreateKind("", 0, nil, true); got != KindReminder {
 		t.Fatalf("recurring ping: %s", got)
 	}
-	if got := ResolveCreateKind("", 0, nil, false, nil); got != KindInbox {
+	if got := ResolveCreateKind("", 0, nil, false); got != KindInbox {
 		t.Fatalf("title only: %s", got)
 	}
-	if got := ResolveCreateKind(KindInbox, 45, nil, false, nil); got != KindInbox {
+	if got := ResolveCreateKind(KindInbox, 45, nil, false); got != KindInbox {
 		t.Fatalf("explicit inbox: %s", got)
-	}
-	if got := ResolveCreateKind("", 15, nil, false, &parent); got != KindTask {
-		t.Fatalf("subtask: %s", got)
 	}
 }
 

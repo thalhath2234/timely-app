@@ -49,8 +49,7 @@ type createTaskRequest struct {
 
 	BlockedByID *string `json:"blockedById"`
 
-	Kind         string  `json:"kind"`
-	ParentTaskID *string `json:"parentTaskId"`
+	Kind string `json:"kind"`
 
 	LabelIDs []models.LabelInput `json:"labelIds"`
 
@@ -70,11 +69,8 @@ func (h *Handler) Create(c *echo.Context) error {
 		)
 	}
 	req.WorkspaceID = nonemptyID(req.WorkspaceID)
-	req.ParentTaskID = nonemptyID(req.ParentTaskID)
-	kind := models.ResolveCreateKind(req.Kind, req.Duration, req.ScheduledOn, req.Recurrence != nil && req.Recurrence.RRule != "", req.ParentTaskID)
-	// Subtasks inherit workspace/project from the parent in the service.
-	// Requiring workspaceId here rejected that path before inherit ran.
-	if kind == models.KindTask && req.WorkspaceID == nil && req.ParentTaskID == nil {
+	kind := models.ResolveCreateKind(req.Kind, req.Duration, req.ScheduledOn, req.Recurrence != nil && req.Recurrence.RRule != "")
+	if kind == models.KindTask && req.WorkspaceID == nil {
 		return echo.NewHTTPError(
 			http.StatusBadRequest,
 			"workspaceId is required",
@@ -117,7 +113,6 @@ func (h *Handler) Create(c *echo.Context) error {
 
 		BlockedByID:  req.BlockedByID,
 		Kind:         kind,
-		ParentTaskID: nonemptyID(req.ParentTaskID),
 		LabelIDs:     models.LabelInputs(req.LabelIDs),
 	}
 
@@ -215,7 +210,6 @@ func (h *Handler) BulkUpdate(c *echo.Context) error {
 		StageID:         req.Update.StageID,
 		BlockedByID:     req.Update.BlockedByID,
 		Kind:            req.Update.Kind,
-		ParentTaskID:    req.Update.ParentTaskID,
 		LabelIDs:        labelIDs,
 	}
 	if _, ok := updateKeys["recurrence"]; ok {
@@ -247,8 +241,6 @@ func parseTaskFilter(c *echo.Context) TaskFilter {
 		Reminders:       parseBoolQuery(c.QueryParam("reminders")),
 		Kind:            c.QueryParam("kind"),
 		Inbox:           parseBoolQuery(c.QueryParam("inbox")),
-		ParentID:        c.QueryParam("parentId"),
-		IncludeSubtasks: parseBoolQuery(c.QueryParam("includeSubtasks")) != nil && *parseBoolQuery(c.QueryParam("includeSubtasks")),
 		Text:            c.QueryParam("q"),
 		Sort:          c.QueryParam("sort"),
 		Limit:         parseIntQuery(c.QueryParam("limit")),
@@ -319,7 +311,6 @@ type updateTaskRequest struct {
 	StageID           *string                   `json:"stageId"`
 	BlockedByID       *string                   `json:"blockedById"`
 	Kind              *string                   `json:"kind"`
-	ParentTaskID      *string                   `json:"parentTaskId"`
 	TodayFocusOn      *string                   `json:"todayFocusOn"`
 	MinChunkMinutes       *int                      `json:"minChunkMinutes"`
 	PreferredChunkMinutes *int                      `json:"preferredChunkMinutes"`
@@ -407,7 +398,6 @@ func (h *Handler) Update(c *echo.Context) error {
 		StageID:           req.StageID,
 		BlockedByID:       req.BlockedByID,
 		Kind:              req.Kind,
-		ParentTaskID:      req.ParentTaskID,
 		TodayFocusOn:      req.TodayFocusOn,
 		MinChunkMinutes:       req.MinChunkMinutes,
 		PreferredChunkMinutes: req.PreferredChunkMinutes,

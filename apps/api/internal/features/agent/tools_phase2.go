@@ -88,55 +88,6 @@ func (s *Server) clarifyInboxItem(ctx context.Context, req *mcp.CallToolRequest,
 	return reply("clarified "+t.Name, taskPayload(t))
 }
 
-type parentIDIn struct {
-	ParentID string `json:"parentId"`
-}
-
-func (s *Server) listSubtasks(ctx context.Context, req *mcp.CallToolRequest, in parentIDIn) (*mcp.CallToolResult, any, error) {
-	uid, err := userID(req)
-	if err != nil {
-		return fail(err)
-	}
-	tasks, err := s.tasksFor(req).List(uid, task.TaskFilter{ParentID: in.ParentID, Limit: 200})
-	if err != nil {
-		return fail(err)
-	}
-	return reply(fmt.Sprintf("%d subtasks", len(tasks)), map[string]any{"tasks": tasks})
-}
-
-type createSubtaskIn struct {
-	ParentID      string `json:"parentId"`
-	Name          string `json:"name"`
-	Duration      int    `json:"duration,omitempty"`
-	PriorityLevel string `json:"priorityLevel,omitempty"`
-}
-
-func (s *Server) createSubtask(ctx context.Context, req *mcp.CallToolRequest, in createSubtaskIn) (*mcp.CallToolResult, any, error) {
-	uid, err := userID(req)
-	if err != nil {
-		return fail(err)
-	}
-	parent, err := s.Tasks.GetForUser(uid, in.ParentID)
-	if err != nil {
-		return fail(err)
-	}
-	t := &models.Task{
-		Name:          in.Name,
-		UserID:        &uid,
-		ParentTaskID:  &in.ParentID,
-		Duration:      in.Duration,
-		Kind:          models.KindTask,
-		WorkspaceID:   parent.WorkspaceID,
-		ProjectID:     parent.ProjectID,
-		PriorityLevel: strPtr(in.PriorityLevel),
-	}
-	created, err := s.tasksFor(req).Create(t, nil, nil)
-	if err != nil {
-		return fail(err)
-	}
-	return reply("created subtask "+created.Name, taskPayload(created))
-}
-
 type checklistAddIn struct {
 	TaskID string `json:"taskId"`
 	Title  string `json:"title"`

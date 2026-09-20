@@ -260,9 +260,6 @@ func (r *taskRepository) withTaskRelations() *gorm.DB {
 		Preload("Recurrence.Exceptions").
 		Preload("Blocks", func(db *gorm.DB) *gorm.DB {
 			return db.Order("scheduled_blocks.start_at ASC")
-		}).
-		Preload("Subtasks", func(db *gorm.DB) *gorm.DB {
-			return db.Order("created_at ASC")
 		})
 }
 
