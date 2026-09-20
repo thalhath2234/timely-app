@@ -33,6 +33,7 @@ GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING
 .PHONY: help setup setup-mobile-env install tools install-air install-goose \
         dev dev-api dev-web dev-mobile dev-mobile-device dev-desktop launch-electron \
         build build-api build-web build-desktop dist-desktop build-apk install-apk apk-status \
+        emu-start emu-stop emu-status \
         lint lint-api lint-web typecheck typecheck-web typecheck-mobile test test-api check \
         migrate-up migrate-down migrate-status migrate-create migrate-reset migrate-fix migrate-seed migrate-unseed \
         reset-password clean
@@ -147,6 +148,15 @@ install-apk: ## Build the Android release APK and install it on a connected phon
 apk-status: ## Show status of the detached APK build
 	@systemctl --user status timely-apk-build.service --no-pager || true
 	@tail -n 20 /tmp/timely-apk-build.log 2>/dev/null || true
+
+emu-start: ## Start the Android emulator under a 3G memory cap (1536 MB guest)
+	@scripts/start-emulator.sh
+
+emu-stop: ## Stop the memory-capped Android emulator
+	@scripts/stop-emulator.sh
+
+emu-status: ## Show emulator cgroup memory, adb, and log
+	@scripts/emulator-status.sh
 
 ##@ Quality
 

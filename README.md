@@ -8,8 +8,8 @@ timely/
 │   ├── api/        Go 1.25 · Echo v5 · GORM · goose migrations · Postgres (pgvector)   :8080
 │   ├── web/        Next.js 16 · React 19 · Tailwind 4 · Electron desktop shell          :4001
 │   └── mobile/     Expo SDK 57 · expo-router · React Native 0.86
-├── scripts/        Repo-level shell helpers (build-apk.sh)
-├── .agents/ .cursor/   Agent skills (memory-capped Android build)
+├── scripts/        Repo-level shell helpers (build-apk.sh, start-emulator.sh)
+├── .agents/ .cursor/   Agent skills (memory-capped Android build + emulator)
 ├── Makefile        Single entry point for every dev/build/test/db task
 ├── package.json    Workspace root (scripts alias to make)
 ├── pnpm-workspace.yaml · pnpm-lock.yaml
@@ -48,6 +48,7 @@ when the API starts.
 | `make dist-desktop`                     | Electron installer (AppImage / dmg / nsis)                     |
 | `make build-apk [API_URL=https://…]`    | Android release APK, detached under a 12 GB memory cap         |
 | `make apk-status`                       | Status/log of the detached APK build                           |
+| `make emu-start` / `emu-stop`           | Android emulator under a 3G cgroup cap (1536 MB guest)         |
 | `make check`                            | `lint` + `typecheck` + `test` across apps                      |
 | `make migrate-status` / `migrate-down`  | Inspect / roll back goose migrations                           |
 | `make migrate-create NAME=add_thing`    | New SQL migration in `apps/api/migrations`                     |
