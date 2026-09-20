@@ -83,7 +83,9 @@ function findParenPairAt(formula: string, caret: number): { open: number; close:
     const pair = { open, close: index };
     lastClosed = pair;
     if (caret >= open && caret <= index + 1) {
-      containing = pair;
+      if (!containing || open > containing.open) {
+        containing = pair;
+      }
     }
   }
 

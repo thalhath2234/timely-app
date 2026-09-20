@@ -62,15 +62,6 @@ export default function WaitingForSlotRail({
               <motion.li key={task.id} layout whileHover={hoverLift}>
                 <div
                   draggable
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Open ${task.name}`}
-                  onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return;
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    onOpen(task.id);
-                  }}
                   onDragStart={(event) => {
                     dragged.current = true;
                     setTaskDragData(event, task.id);
@@ -112,7 +103,16 @@ export default function WaitingForSlotRail({
                     aria-hidden
                   />
                   <div className="min-w-0 flex-1 px-2.5 py-2">
-                  <p className="truncate text-sm font-medium text-foreground hover:underline">{task.name}</p>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpen(task.id);
+                    }}
+                    className="block w-full truncate text-left text-sm font-medium text-foreground hover:underline"
+                  >
+                    {task.name}
+                  </button>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {task.duration > 0 ? formatDuration(task.duration) : "No estimate"}
                     {deadline

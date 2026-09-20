@@ -1666,6 +1666,7 @@ function renderCell({
   merges,
   colWidth,
   rawAt,
+  filtering,
 }: {
   colIndex: number;
   rowIndex: number;

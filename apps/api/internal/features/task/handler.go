@@ -181,6 +181,9 @@ func (h *Handler) BulkUpdate(c *echo.Context) error {
 	if updateRaw, ok := raw["update"]; ok {
 		_ = json.Unmarshal(updateRaw, &updateKeys)
 	}
+	if _, ok := updateKeys["parentTaskId"]; ok {
+		return rejectRemovedParentTaskID(true)
+	}
 
 	var labelIDs *models.LabelInputs
 	if labelRaw, ok := updateKeys["labelIds"]; ok {
