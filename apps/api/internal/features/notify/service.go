@@ -113,11 +113,18 @@ func (s *Service) PrioritizeOverdue(userID, taskID string) (*schedule.PlanRespon
 		return nil, errors.New("task is no longer past its deadline")
 	}
 	priority := models.PriorityUrgent
+	previousPriority := ""
+	if item.PriorityLevel != nil {
+		previousPriority = *item.PriorityLevel
+	}
 	if _, err := s.tasks.Update(userID, item.ID, task.TaskUpdate{PriorityLevel: &priority}); err != nil {
 		return nil, err
 	}
 	plan, err := s.schedule.Apply(userID, schedule.PlanRequest{Timezone: s.notificationTimezone(userID)})
 	if err != nil {
+		if _, restoreErr := s.tasks.Update(userID, item.ID, task.TaskUpdate{PriorityLevel: &previousPriority}); restoreErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("restore task priority: %w", restoreErr))
+		}
 		return nil, err
 	}
 	_ = s.repo.MarkOverdueRead(userID, taskID)
