@@ -38,6 +38,7 @@ import {
   clearNotifications,
   retryJob,
   snoozeNotification,
+  prioritizeOverdueTask,
   unreadNotificationCount,
   updateNotificationSettings,
 } from "./api/notifications";
@@ -1030,6 +1031,19 @@ export function useSnoozeNotification() {
       invalidate();
       client.invalidateQueries({ queryKey: keys.notifications });
       client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
+export function usePrioritizeOverdueTask() {
+  const client = useQueryClient();
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: prioritizeOverdueTask,
+    onSuccess: () => {
+      void invalidate().catch(() => undefined);
+      void client.invalidateQueries({ queryKey: keys.notifications });
+      void client.invalidateQueries({ queryKey: keys.unreadNotifications });
     },
   });
 }

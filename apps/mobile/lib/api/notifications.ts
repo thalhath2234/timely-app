@@ -1,4 +1,4 @@
-import type { AppNotification, JobHealth, JobRecord, NotificationSettings } from "../types";
+import type { AppNotification, JobHealth, JobRecord, NotificationSettings, SchedulePlan } from "../types";
 import { api } from "./client";
 
 export function listNotifications(unread = false) {
@@ -26,6 +26,10 @@ export function clearNotifications() {
 
 export function snoozeNotification(id: string, payload: { minutes?: number; until?: string }) {
   return api<AppNotification>(`/notifications/${id}/snooze`, { method: "POST", body: payload });
+}
+
+export function prioritizeOverdueTask(taskId: string) {
+  return api<SchedulePlan>(`/tasks/${taskId}/reschedule-urgent`, { method: "POST" });
 }
 
 export function getNotificationSettings() {

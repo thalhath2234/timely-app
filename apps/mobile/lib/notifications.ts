@@ -4,15 +4,19 @@ import type { CalendarItem } from "./types";
 import { registerPushDevice, unregisterPushDevice } from "./api/notifications";
 
 const CHANNEL = "reminders";
+export const OVERDUE_CATEGORY = "overdue_task";
+export const PRIORITIZE_ACTION = "prioritize_urgent";
 const PREFIX = "timely-reminder:";
 const HORIZON_DAYS = 60;
 const MAX_SCHEDULED = 60;
 
 type NotificationsModule = typeof import("expo-notifications");
+type NotificationResponse = import("expo-notifications").NotificationResponse;
 
 let loaded: NotificationsModule | null | undefined;
 let serverPush = false;
 let lastPushToken: string | null = null;
+let lastHandledResponseKey: string | null = null;
 
 export function isServerPushEnabled() {
   return serverPush;
@@ -81,14 +85,23 @@ async function requestAndroidPostNotifications() {
 
 export async function ensureReminderChannel() {
   const N = notifications();
-  if (!N || Platform.OS !== "android") return;
-  await N.setNotificationChannelAsync(CHANNEL, {
-    name: "Reminders",
-    importance: N.AndroidImportance.HIGH,
-    vibrationPattern: [0, 250, 250, 250],
-    sound: "default",
-    enableVibrate: true,
-  });
+  if (!N) return;
+  if (Platform.OS === "android") {
+    await N.setNotificationChannelAsync(CHANNEL, {
+      name: "Reminders",
+      importance: N.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      sound: "default",
+      enableVibrate: true,
+    });
+  }
+  await N.setNotificationCategoryAsync(OVERDUE_CATEGORY, [
+    {
+      identifier: PRIORITIZE_ACTION,
+      buttonTitle: "Reschedule urgently",
+      options: { opensAppToForeground: true },
+    },
+  ]);
 }
 
 export async function getNotificationPermission() {
@@ -223,18 +236,71 @@ export async function unregisterServerPush() {
   }
 }
 
+function dataString(data: Record<string, unknown>, key: string) {
+  const value = data[key];
+  return typeof value === "string" && value ? value : null;
+}
+
+export function routeForNotification(data: Record<string, unknown>): string {
+  const taskId = dataString(data, "taskId");
+  if (taskId) return `/(app)/tasks/${taskId}`;
+
+  const entityType = dataString(data, "entityType");
+  const entityId = dataString(data, "entityId");
+  if (entityType && entityId) {
+    if (entityType === "task") return `/(app)/tasks/${entityId}`;
+    if (entityType === "project") return `/(app)/projects/${entityId}`;
+    if (entityType === "doc") return `/(app)/docs/${entityId}`;
+    if (entityType === "sheet") return `/(app)/sheets/${entityId}`;
+    if (entityType === "event") return `/(app)/events/${entityId}`;
+  }
+
+  const entityRoutes = [
+    ["projectId", "projects"],
+    ["docId", "docs"],
+    ["sheetId", "sheets"],
+    ["eventId", "events"],
+  ] as const;
+  for (const [key, segment] of entityRoutes) {
+    const id = dataString(data, key);
+    if (id) return `/(app)/${segment}/${id}`;
+  }
+
+  const category = dataString(data, "category") ?? dataString(data, "kind");
+  if (category === "digest") return "/(app)/report";
+  return "/(app)/today";
+}
+
 export function addReminderResponseListener(
-  onTask: (taskId: string) => void,
+  onRoute: (href: string) => void,
   onNotification?: (notificationId: string) => void,
+  onPrioritize?: (taskId: string) => void,
 ) {
   const N = notifications();
   if (!N) return () => undefined;
-  const sub = N.addNotificationResponseReceivedListener((response) => {
+
+  const handleResponse = (response: NotificationResponse) => {
+    const responseId = response.notification.request.identifier;
+    const responseKey = `${responseId}:${response.notification.date}:${response.actionIdentifier}`;
+    if (responseKey === lastHandledResponseKey) return;
+    lastHandledResponseKey = responseKey;
     const data = response.notification.request.content.data ?? {};
     const notificationId = data.notificationId;
+    if (response.actionIdentifier === PRIORITIZE_ACTION) {
+      const taskId = data.taskId;
+      if (typeof taskId === "string" && taskId) {
+        onPrioritize?.(taskId);
+      }
+      N.clearLastNotificationResponse();
+      return;
+    }
     if (typeof notificationId === "string" && notificationId) onNotification?.(notificationId);
-    const taskId = data.taskId;
-    if (typeof taskId === "string" && taskId) onTask(taskId);
-  });
+    onRoute(routeForNotification(data));
+    N.clearLastNotificationResponse();
+  };
+
+  const initial = N.getLastNotificationResponse();
+  if (initial) handleResponse(initial);
+  const sub = N.addNotificationResponseReceivedListener(handleResponse);
   return () => sub.remove();
 }

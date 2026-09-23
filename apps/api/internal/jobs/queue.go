@@ -262,6 +262,17 @@ func (q *Queue) HasNotification(dedupeKey string) bool {
 	return n > 0
 }
 
+// HasJob includes completed jobs so clearing the notification center does not
+// cause a one-time alert to be created again on the next sweep.
+func (q *Queue) HasJob(dedupeKey string) bool {
+	if dedupeKey == "" {
+		return false
+	}
+	var n int64
+	q.db.Model(&models.Job{}).Where("dedupe_key = ?", dedupeKey).Count(&n)
+	return n > 0
+}
+
 func (q *Queue) RecoverStuck(olderThan time.Duration) error {
 	cutoff := time.Now().UTC().Add(-olderThan)
 	return q.db.Exec(`

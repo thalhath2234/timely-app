@@ -80,7 +80,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateSheetPayload>((patch) =>
     save.mutateAsync({ id: sheet.id, data: patch }),
   );
-  useUnsavedLeaveGuard(hasUnsavedChanges);
+  const unsavedLeave = useUnsavedLeaveGuard(hasUnsavedChanges);
   const tabsRef = useRef(tabs);
 
   const workspace = spaces.find((w) => w.id === sheet.workspaceId);
@@ -391,6 +391,15 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         title="Delete this sheet?"
         message="This workbook and its tabs will be removed."
         onConfirm={() => remove.mutate(sheet.id, { onSuccess: () => router.replace("/(app)/(tabs)/sheets") })}
+      />
+      <ConfirmSheet
+        open={unsavedLeave.confirmingLeave}
+        onClose={unsavedLeave.stay}
+        title="Unsaved changes"
+        message="Leave this page without finishing the save?"
+        confirmLabel="Leave"
+        cancelLabel="Stay"
+        onConfirm={unsavedLeave.leave}
       />
     </Screen>
   );

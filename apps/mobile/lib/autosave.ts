@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
 import { useNavigation } from "expo-router";
 
 export type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
@@ -106,19 +105,45 @@ export function saveStatusLabel(status: SaveStatus) {
 
 export function useUnsavedLeaveGuard(hasUnsaved: () => boolean) {
   const navigation = useNavigation();
+  const pendingActionRef = useRef<Parameters<typeof navigation.dispatch>[0] | null>(null);
+  const allowNextRemoveRef = useRef(false);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+
   useEffect(() => {
     const sub = navigation.addListener("beforeRemove", (event) => {
+      if (allowNextRemoveRef.current) {
+        allowNextRemoveRef.current = false;
+        return;
+      }
       if (!hasUnsaved()) return;
       event.preventDefault();
-      Alert.alert("Unsaved changes", "Leave this page without finishing the save?", [
-        { text: "Stay", style: "cancel" },
-        {
-          text: "Leave",
-          style: "destructive",
-          onPress: () => navigation.dispatch(event.data.action),
-        },
-      ]);
+      pendingActionRef.current = event.data.action;
+      setConfirmingLeave(true);
     });
     return sub;
   }, [hasUnsaved, navigation]);
+
+  const stay = useCallback(() => {
+    const action = pendingActionRef.current;
+    setConfirmingLeave(false);
+    // ConfirmSheet closes before it invokes onConfirm. Clear a cancelled action
+    // on the next tick so the confirm callback can still dispatch it.
+    setTimeout(() => {
+      if (pendingActionRef.current === action) pendingActionRef.current = null;
+    }, 0);
+  }, []);
+
+  const leave = useCallback(() => {
+    const action = pendingActionRef.current;
+    pendingActionRef.current = null;
+    setConfirmingLeave(false);
+    if (!action) return;
+    allowNextRemoveRef.current = true;
+    navigation.dispatch(action);
+    setTimeout(() => {
+      allowNextRemoveRef.current = false;
+    }, 0);
+  }, [navigation]);
+
+  return { confirmingLeave, stay, leave };
 }

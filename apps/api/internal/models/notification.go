@@ -18,12 +18,14 @@ const (
 	JobSendReminder = "send_reminder"
 	JobIndexEntity  = "index_entity"
 	JobDailyDigest  = "daily_digest"
+	JobOverdueTask  = "overdue_task"
 	JobSendPush     = "send_push"
 	JobCreateBackup = "create_backup"
 
 	NotifyReminder = "reminder"
 	NotifyDigest   = "digest"
 	NotifyPlanning = "planning"
+	NotifyOverdue  = "overdue"
 )
 
 type JobPayload map[string]any
