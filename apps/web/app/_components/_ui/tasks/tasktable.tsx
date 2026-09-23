@@ -72,8 +72,8 @@ const BUILTIN_COLUMNS = [
   { id: "duration", label: "Duration", width: "w-24", align: "right" },
   { id: "startDate", label: "Start Date", width: "w-32", align: "center" },
   { id: "deadline", label: "Deadline", width: "w-32", align: "center" },
-  { id: "scheduledOn", label: "Scheduled On", width: "w-32", align: "center" },
-  { id: "completedAt", label: "Completed At", width: "w-32", align: "center" },
+  { id: "scheduledOn", label: "Scheduled On", width: "w-44", align: "center" },
+  { id: "completedAt", label: "Completed At", width: "w-44", align: "center" },
   { id: "createdAt", label: "Created At", width: "w-32", align: "center" },
   { id: "updatedAt", label: "Updated At", width: "w-32", align: "center" },
   { id: "project", label: "Project", width: "w-44", align: "left" },
@@ -226,11 +226,29 @@ function completedRowCount(rows: Task[]) {
   return rows.filter((task) => Boolean(task.completedAt)).length;
 }
 
-function formatDate(value?: string | null): string {
+/** True when the stored value carries a clock time, not just a calendar day. */
+function hasClockTime(value: string): boolean {
+  return /T\d{2}:\d{2}/.test(value);
+}
+
+function formatDate(value?: string | null, includeTime = false): string {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
+  if (includeTime && hasClockTime(value)) {
+    return date.toLocaleString(undefined, {
+      month: "numeric",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
   return date.toLocaleDateString();
+}
+
+function scheduledStamp(task: Task): string | null | undefined {
+  return task.scheduledOn || task.blocks?.[0]?.start;
 }
 
 function getPriorityWeight(priority?: string | null): number {
@@ -285,9 +303,9 @@ function columnTextValue(
     case "deadline":
       return formatDate(task.deadline);
     case "scheduledOn":
-      return formatDate(task.scheduledOn);
+      return formatDate(scheduledStamp(task), true);
     case "completedAt":
-      return formatDate(task.completedAt);
+      return formatDate(task.completedAt, true);
     case "createdAt":
       return formatDate(task.createdAt);
     case "updatedAt":
@@ -1102,13 +1120,13 @@ export default function TasksTable({
       case "scheduledOn":
         return (
           <td key={column.id} className={bodyCellClass(dateCell, column.id)} style={columnMotionStyle(column.id)}>
-            {formatDate(task.scheduledOn)}
+            {formatDate(scheduledStamp(task), true)}
           </td>
         );
       case "completedAt":
         return (
           <td key={column.id} className={bodyCellClass(dateCell, column.id)} style={columnMotionStyle(column.id)}>
-            {formatDate(task.completedAt)}
+            {formatDate(task.completedAt, true)}
           </td>
         );
       case "createdAt":

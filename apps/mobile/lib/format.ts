@@ -59,6 +59,11 @@ export function formatTime(iso: string) {
   });
 }
 
+/** Calendar day plus clock time, for task-list rows that used to show only one. */
+export function formatDateAndTime(iso: string) {
+  return `${formatShortDate(iso)}, ${formatTime(iso)}`;
+}
+
 export function formatTimeRange(startIso: string, endIso: string) {
   return `${formatTime(startIso)} – ${formatTime(endIso)}`;
 }
