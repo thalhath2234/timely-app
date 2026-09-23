@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useRouter } from "expo-router";
-import { useCalendarQuery, useInvalidateAll } from "../lib/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+import { keys, useCalendarQuery, useInvalidateAll } from "../lib/hooks";
 import { markNotificationRead } from "../lib/api/notifications";
 import { prioritizeOverdueTask } from "../lib/api/notifications";
 import { useToastStore } from "../lib/toast";
@@ -16,6 +17,7 @@ import { addDays, startOfDay } from "../lib/format";
 
 export default function ReminderNotifications() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateAll();
   const invalidateRef = useRef(invalidate);
   invalidateRef.current = invalidate;
@@ -52,6 +54,8 @@ export default function ReminderNotifications() {
         void prioritizeOverdueTask(taskId)
           .then((plan) => {
             void invalidateRef.current().catch(() => undefined);
+            void queryClient.invalidateQueries({ queryKey: keys.notifications });
+            void queryClient.invalidateQueries({ queryKey: keys.unreadNotifications });
             const placed = plan.proposals?.some((proposal) => proposal.taskId === taskId);
             useToastStore.getState().show(placed ? "Rescheduled with urgent priority" : "Set to urgent; task wasn't moved");
             router.push(`/(app)/tasks/${taskId}`);
@@ -62,7 +66,7 @@ export default function ReminderNotifications() {
           });
       },
     );
-  }, [router]);
+  }, [router, queryClient]);
 
   return null;
 }
