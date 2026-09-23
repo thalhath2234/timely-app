@@ -129,6 +129,7 @@ export default function MonthView({
                     className={cn(
                       "truncate rounded border px-1.5 py-0.5 text-left text-[10px] leading-tight text-foreground transition-all hover:brightness-110",
                       !inMonth && "opacity-60",
+                      event.completedAt && "text-muted-foreground line-through",
                     )}
                   >
                     {event.title}

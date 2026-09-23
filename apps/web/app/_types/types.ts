@@ -721,6 +721,7 @@ export interface Config {
 export type TaskListSortBy =
   | "name"
   | "deadline"
+  | "scheduledOn"
   | "startDate"
   | "createdAt"
   | "priority"

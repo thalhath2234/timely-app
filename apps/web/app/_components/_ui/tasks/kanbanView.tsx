@@ -9,7 +9,8 @@ import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useToastStore } from "@/app/_store/toastStore";
-import type { Status, Task, Workspace } from "@/app/_types/types";
+import type { Status, Task, TaskListGroupField, Workspace } from "@/app/_types/types";
+import { PRIORITIES, priorityColor } from "@/app/utils/priority";
 import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
 import { useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tasks";
 import {
@@ -77,6 +78,8 @@ export default function KanbanView({
   workspaces,
   selectedWorkspaceIds,
   selectedStatusIds,
+  selectedPriorityLevels,
+  groupField = "status",
 }: {
   rows: Task[];
   dataMode: "task" | "project";
@@ -84,6 +87,8 @@ export default function KanbanView({
   workspaces: Workspace[];
   selectedWorkspaceIds: string[];
   selectedStatusIds: string[];
+  selectedPriorityLevels?: string[];
+  groupField?: TaskListGroupField;
 }) {
   const updateTask = useUpdateTask();
   const queryClient = useQueryClient();
@@ -111,6 +116,26 @@ export default function KanbanView({
       ? catalog
       : catalog.filter((status) => selectedKeys.has(statusNameKey(status.name)));
     const groups = mergeStatusesByName(visible);
+    if (groupField === "priority") {
+      const levels = selectedPriorityLevels?.length ? PRIORITIES.filter((level) => selectedPriorityLevels.includes(level)) : PRIORITIES;
+      const priorityGroups = levels.map((level) => ({ key: level, name: level, color: priorityColor(level), items: rows.filter((row) => row.priorityLevel === level), statuses: [] as Status[] }));
+      const noPriority = rows.filter((row) => !row.priorityLevel);
+      return { groups: priorityGroups, uncategorized: noPriority };
+    }
+    if (groupField !== "status") {
+      const byValue = new Map<string, { key: string; name: string; color: string | null; items: Task[]; statuses: Status[] }>();
+      const missing: Task[] = [];
+      for (const row of rows) {
+        const value = groupField === "workspace" ? row.workspace : groupField === "project" ? row.project : null;
+        const id = groupField === "stage" ? row.stageId : value?.id;
+        const name = groupField === "stage" ? row.project?.stages?.find((stage) => stage.id === id)?.name : groupField === "project" ? row.project?.title : row.workspace?.name;
+        if (!id) { missing.push(row); continue; }
+        const existing = byValue.get(id) ?? { key: id, name: name || "Untitled", color: value?.color ?? null, items: [], statuses: [] };
+        existing.items.push(row);
+        byValue.set(id, existing);
+      }
+      return { groups: [...byValue.values()], uncategorized: missing };
+    }
     const groupByStatusId = new Map<string, string>();
     for (const group of groups) {
       for (const status of group.statuses) {
@@ -139,10 +164,22 @@ export default function KanbanView({
       })),
       uncategorized,
     };
-  }, [rows, workspaces, selectedWorkspaceIds, selectedStatusIds]);
+  }, [rows, workspaces, selectedWorkspaceIds, selectedStatusIds, selectedPriorityLevels, groupField]);
 
-  const moveTask = async (task: Task, group: NamedStatusGroup) => {
+  const moveTask = async (task: Task, group: NamedStatusGroup & { key: string; name: string }) => {
     if (dataMode !== "task") return;
+    if (groupField !== "status") {
+      const field = groupField === "priority" ? "priorityLevel" : groupField === "workspace" ? "workspaceId" : groupField === "project" ? "projectId" : groupField === "stage" ? "stageId" : null;
+      if (!field) return;
+      const next = group.key === "none" ? "" : group.key;
+      const previous = String(task[field] ?? "");
+      if (next === previous) return;
+      try {
+        await updateTask.mutateAsync({ id: task.id, [field]: next });
+        showUndoToast(`Moved to ${group.name}`, () => { void updateTask.mutateAsync({ id: task.id, [field]: previous }); });
+      } catch { showUndoToast("Could not move task"); }
+      return;
+    }
     const workspaceId = task.workspaceId ?? task.workspace?.id;
     const status = statusForWorkspace(group, workspaceId);
     if (!status) {
@@ -308,7 +345,7 @@ export default function KanbanView({
                       aria-hidden
                     />
                     <div className="min-w-0 flex-1 p-3">
-                      <div className="line-clamp-2 text-sm font-medium text-foreground">{item.name}</div>
+                      <div className={item.completedAt ? "line-clamp-2 text-sm font-medium text-muted-foreground line-through" : "line-clamp-2 text-sm font-medium text-foreground"}>{item.name}</div>
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {item.workspace?.name ? (
                           <ColorChip color={resolvedColor(item.workspace.color, item.workspace.id)}>

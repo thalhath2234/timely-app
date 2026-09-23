@@ -192,12 +192,23 @@ export default function SheetsPage() {
           />
         )}
 
-        {!isLoading && !(sheetsQuery.isError && !sheets) && recentSheets.length === 0 && (
+        {!isLoading && !(sheetsQuery.isError && !sheets) && recentSheets.length === 0 && templates.length === 0 && (
           <div className="mt-6 flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-card px-6 py-10">
             <p className="text-sm text-muted-foreground">
               Nothing here yet. Create a sheet or import a CSV to get started.
             </p>
           </div>
+        )}
+
+        {templatesQuery.isError && (
+          <QueryFailure
+            what="templates"
+            hasData={Boolean(templatesQuery.data)}
+            error={templatesQuery.error}
+            onRetry={() => templatesQuery.refetch()}
+            retrying={templatesQuery.isFetching}
+            className="mt-3"
+          />
         )}
 
         {recentSheets.length > 0 && (
@@ -231,7 +242,7 @@ export default function SheetsPage() {
                   key={template.id}
                   template={template}
                   renaming={renamingKey === `template:${template.id}`}
-                  onOpen={() => void handleCreate(template.id)}
+                  onOpen={() => router.push(`/sheets/templates/${template.id}`)}
                   onContextMenu={(event) =>
                     openMenu(
                       event,

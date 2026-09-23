@@ -109,7 +109,7 @@ export default function WaitingForSlotRail({
                       event.stopPropagation();
                       onOpen(task.id);
                     }}
-                    className="block w-full truncate text-left text-sm font-medium text-foreground hover:underline"
+                    className={cn("block w-full truncate text-left text-sm font-medium text-foreground hover:underline", task.completedAt && "text-muted-foreground line-through")}
                   >
                     {task.name}
                   </button>

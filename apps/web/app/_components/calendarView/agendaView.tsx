@@ -82,7 +82,7 @@ function AgendaRow({
       />
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{event.title}</p>
+        <p className={cn("truncate text-sm font-medium text-foreground", event.completedAt && "text-muted-foreground line-through")}>{event.title}</p>
         <p className="truncate text-xs text-muted-foreground">{subtitle || "No status"}</p>
       </div>
 

@@ -47,7 +47,7 @@ import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 function groupField(view?: TaskViewConfig): TaskListGroupField | undefined {
-  if (view?.renderMode === "kanban") return "status";
+  if (view?.renderMode === "kanban") return view.groupFields?.[0] ?? "status";
   return view?.groupFields?.[0];
 }
 
@@ -75,7 +75,7 @@ function groupValueTitle(task: Task, field: TaskListGroupField, stageNames: Reco
 }
 
 function groupFields(view?: TaskViewConfig): TaskListGroupField[] {
-  if (view?.renderMode === "kanban") return ["status"];
+  if (view?.renderMode === "kanban") return [view.groupFields?.[0] ?? "status"];
   return view?.groupFields?.length ? view.groupFields.slice(0, 3) : ["project"];
 }
 
@@ -127,6 +127,8 @@ function sortTasks(a: Task, b: Task, view?: TaskViewConfig) {
       return cmp(a.createdAt, b.createdAt);
     case "startDate":
       return cmp(a.startDate ?? "zzz", b.startDate ?? "zzz");
+    case "scheduledOn":
+      return cmp(a.scheduledOn ?? a.blocks?.[0]?.start ?? "zzz", b.scheduledOn ?? b.blocks?.[0]?.start ?? "zzz");
     case "priority":
       return (priorityRank(a.priorityLevel) - priorityRank(b.priorityLevel)) * dir;
     case "status":
@@ -163,7 +165,6 @@ export default function TasksScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [confirmDeleteView, setConfirmDeleteView] = useState(false);
-  const [movingTask, setMovingTask] = useState<Task | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkPicker, setBulkPicker] = useState<
     null | "menu" | "status" | "priority" | "project" | "label" | "deadline"
@@ -274,7 +275,7 @@ export default function TasksScreen() {
     [projects, workspaceFilter],
   );
   const boardMode = activeView?.renderMode === "kanban" && activeView.dataMode !== "project";
-  const boardCols = useMemo(() => kanbanColumns(visible, statusGroups), [visible, statusGroups]);
+  const boardCols = useMemo(() => kanbanColumns(visible, statusGroups, groupField(activeView) ?? "status", activeView?.selectedStatusIds ?? [], activeView?.selectedPriorityLevels ?? []), [visible, statusGroups, activeView]);
 
   const toggleSelect = useCallback((task: Task) => {
     setSelectedIds((current) =>
@@ -333,7 +334,7 @@ export default function TasksScreen() {
   const toggleComplete = useCallback((task: Task) => {
     save.mutate({
       id: task.id,
-      data: { completedAt: task.completedAt ? null : new Date().toISOString() },
+      data: { completedAt: task.completedAt ? "" : new Date().toISOString() },
     });
   }, [save]);
 
@@ -422,7 +423,7 @@ export default function TasksScreen() {
             onPress={() => {
               const ids = selectedIds;
               bulk.mutate({ ids, update: { completedAt: new Date().toISOString() } });
-              showUndoToast("Completed", () => bulk.mutate({ ids, update: { completedAt: null } }));
+              showUndoToast("Completed", () => bulk.mutate({ ids, update: { completedAt: "" } }));
               setSelectedIds([]);
               setBulkPicker(null);
             }}
@@ -432,7 +433,7 @@ export default function TasksScreen() {
           <AnimatedPressable
             onPress={() => {
               const ids = selectedIds;
-              bulk.mutate({ ids, update: { completedAt: null } });
+              bulk.mutate({ ids, update: { completedAt: "" } });
               showUndoToast("Reopened", () =>
                 bulk.mutate({ ids, update: { completedAt: new Date().toISOString() } }),
               );
@@ -464,7 +465,14 @@ export default function TasksScreen() {
           selectedIds={selectedIds}
           selecting={selecting}
           onSelect={toggleSelect}
-          onMove={setMovingTask}
+          onMove={(task, column) => {
+            if (groupField(activeView) === "status") applyStatus(task, column.key);
+            else {
+              const field = groupField(activeView);
+              const key = field === "priority" ? "priorityLevel" : field === "workspace" ? "workspaceId" : field === "project" ? "projectId" : field === "stage" ? "stageId" : null;
+              if (key) save.mutate({ id: task.id, data: { [key]: column.key === "none" ? "" : column.key } });
+            }
+          }}
           onToggle={toggleComplete}
           refreshControl={refreshControl}
         />
@@ -503,7 +511,7 @@ export default function TasksScreen() {
         <EmptyState
           icon={ListTodo}
           title="All clear"
-          description="Tap the + button to capture something new, then long-press a card to change status."
+          description="Tap the + button to capture something new, then drag cards between board columns."
         />
       ) : (
         <SectionList
@@ -543,24 +551,6 @@ export default function TasksScreen() {
         workspaces={workspaces}
         projects={projects}
       />
-      <BottomSheet
-        open={Boolean(movingTask)}
-        onClose={() => setMovingTask(null)}
-        title="Move to status"
-      >
-        {statusGroups.map((group) => (
-          <SheetOption
-            key={group.key}
-            selected={statusNameKey(movingTask?.status?.name) === group.key}
-            onSelect={() => {
-              if (movingTask) applyStatus(movingTask, group.key);
-              setMovingTask(null);
-            }}
-          >
-            {group.name}
-          </SheetOption>
-        ))}
-      </BottomSheet>
       <BottomSheet open={bulkPicker === "menu"} onClose={() => setBulkPicker(null)} title="Bulk edit">
         <SheetOption onSelect={() => setBulkPicker("status")}>Status</SheetOption>
         <SheetOption onSelect={() => setBulkPicker("priority")}>Priority</SheetOption>

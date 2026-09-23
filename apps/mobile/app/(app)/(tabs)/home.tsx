@@ -162,10 +162,10 @@ export default function HomeScreen() {
 
   function completeTask(task: Task) {
     const previous = task.completedAt ?? "";
-    const next = task.completedAt ? null : new Date().toISOString();
+    const next = task.completedAt ? "" : new Date().toISOString();
     void save.mutateAsync({ id: task.id, data: { completedAt: next } }).then(() => {
       showUndoToast(next ? `Completed “${task.name}”` : `Reopened “${task.name}”`, () => {
-        void save.mutateAsync({ id: task.id, data: { completedAt: previous || null } });
+        void save.mutateAsync({ id: task.id, data: { completedAt: previous } });
       });
     });
   }

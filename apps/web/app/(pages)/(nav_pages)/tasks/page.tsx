@@ -417,6 +417,8 @@ function Tasks() {
                 workspaces={typedWorkspaces}
                 selectedWorkspaceIds={selectedWorkspaceIds}
                 selectedStatusIds={selectedStatusIds}
+                selectedPriorityLevels={selectedPriorityLevels}
+                groupField={groupFields[0] ?? "status"}
               />
             )}
 
@@ -458,7 +460,7 @@ function Tasks() {
   );
 }
 
-export function TaskHeader({
+function TaskHeader({
   taskCount = 0,
   projectCount = 0,
   optionsVisible = true,
@@ -534,7 +536,7 @@ type TaskNavigationBarProps = {
   onRenameView: (viewId: string, name: string) => void;
 };
 
-export function TaskNavigationBar({
+function TaskNavigationBar({
   views,
   activeTaskViewId,
   onSelectView,

@@ -7,14 +7,14 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { ChevronRight, FileText, MoreVertical, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
+import { ChevronRight, FileText, LayoutTemplate, MoreVertical, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
-import { useCreateDoc, useCreateSheet, useDocsQuery, useSheetsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
+import { useCreateDoc, useCreateSheet, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { fromMarkdown } from "../../../lib/markdown";
 import { csvToGrid } from "../../../lib/sheetCsv";
 import { sheetHref } from "../../../lib/sheet";
@@ -73,6 +73,7 @@ export default function FilesScreen() {
   const [menuDoc, setMenuDoc] = useState<DocNode | null>(null);
   const docsQ = useDocsQuery();
   const sheetsQ = useSheetsQuery();
+  const templatesQ = useSheetTemplatesQuery();
   const createDoc = useCreateDoc();
   const updateDoc = useUpdateDoc();
   const createSheet = useCreateSheet();
@@ -94,6 +95,7 @@ export default function FilesScreen() {
   const favoriteDocs = docs.filter((d) => d.isFavorite);
   const favoriteSheets = sheets.filter((s) => s.isFavorite);
   const restSheets = sheets.filter((s) => !s.isFavorite);
+  const templates = showArchived ? [] : templatesQ.data ?? [];
 
   function toggleExpanded(id: string) {
     setExpandedIds((previous) => {
@@ -209,7 +211,7 @@ export default function FilesScreen() {
     <Screen>
       <MobileHeader
         title="Files"
-        subtitle={kind === "docs" ? `${docs.length} pages` : `${sheets.length} tables`}
+        subtitle={kind === "docs" ? `${docs.length} pages` : `${sheets.length} tables · ${templates.length} templates`}
         actions={
           <HeaderIconButton
             label={kind === "docs" ? "Import Markdown" : "Import CSV"}
@@ -239,8 +241,11 @@ export default function FilesScreen() {
         contentContainerStyle={{ padding: 12, paddingBottom: 110, gap: 10 }}
         refreshControl={
           <RefreshControl
-            refreshing={(kind === "docs" ? docsQ.isRefetching : sheetsQ.isRefetching) && !(kind === "docs" ? docsQ.isPending : sheetsQ.isPending)}
-            onRefresh={() => void (kind === "docs" ? docsQ.refetch() : sheetsQ.refetch())}
+            refreshing={(kind === "docs" ? docsQ.isRefetching : sheetsQ.isRefetching || templatesQ.isRefetching) && !(kind === "docs" ? docsQ.isPending : sheetsQ.isPending)}
+            onRefresh={() => {
+              if (kind === "docs") void docsQ.refetch();
+              else { void sheetsQ.refetch(); void templatesQ.refetch(); }
+            }}
             tintColor={colors.primary}
           />
         }
@@ -273,10 +278,11 @@ export default function FilesScreen() {
               {tree.map((node) => renderNode(node, 0))}
             </>
           )
-        ) : sheets.length === 0 ? (
+        ) : sheets.length === 0 && templates.length === 0 && !templatesQ.isError ? (
           <EmptyState icon={SheetIcon} title="No sheets yet" description="Tap + to create a table, or import a CSV." />
         ) : (
           <>
+            {templatesQ.isError ? <Pressable onPress={() => void templatesQ.refetch()}><Text style={styles.templateError}>Could not load templates. Tap to retry.</Text></Pressable> : null}
             {favoriteSheets.length ? <Text style={styles.section}>Favorites</Text> : null}
             {favoriteSheets.map((sheet) => (
               <AnimatedPressable key={sheet.id} onPress={() => router.push(sheetHref(sheet.id))} style={styles.card}>
@@ -302,6 +308,23 @@ export default function FilesScreen() {
                     {(sheet.rows ?? []).length} rows · {(sheet.columns ?? []).length} cols
                     {sheet.updatedAt ? ` · ${timeAgo(sheet.updatedAt)}` : ""}
                     {wsById.get(sheet.workspaceId) ? ` · ${wsById.get(sheet.workspaceId)?.name}` : ""}
+                  </Text>
+                </View>
+              </AnimatedPressable>
+            ))}
+            {templates.length ? <Text style={styles.section}>Templates</Text> : null}
+            {templates.map((template) => (
+              <AnimatedPressable
+                key={template.id}
+                onPress={() => router.push({ pathname: "/(app)/sheets/templates/[id]", params: { id: template.id } })}
+                style={styles.card}
+              >
+                {template.icon ? <Text style={styles.icon}>{template.icon}</Text> : <LayoutTemplate size={20} color={colors.foreground} style={{ width: 28 }} />}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.title}>{template.name}</Text>
+                  <Text numberOfLines={1} style={styles.meta}>
+                    {template.rows.length} rows · {template.columns.length} cols
+                    {(template.tabs?.length ?? 0) > 1 ? ` · ${template.tabs?.length} tabs` : ""}
                   </Text>
                 </View>
               </AnimatedPressable>
@@ -338,6 +361,7 @@ export default function FilesScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  templateError: { color: colors.destructive, fontSize: 13 },
   section: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase", marginTop: 8 },
   card: {
     flexDirection: "row",

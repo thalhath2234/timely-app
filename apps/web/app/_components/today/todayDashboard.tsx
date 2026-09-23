@@ -323,9 +323,9 @@ function FocusTaskRow({
       <div className={cn("flex min-w-0 items-start gap-3.5", focusing && "pl-2")}>
         <button
           type="button"
-          disabled={busy || completed}
+          disabled={busy}
           onClick={onComplete}
-          aria-label={completed ? `${task.name} completed` : `Complete ${task.name}`}
+          aria-label={completed ? `Reopen ${task.name}` : `Complete ${task.name}`}
           className={cn(
             "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors",
             completed
@@ -667,9 +667,10 @@ export default function TodayDashboard() {
 
   const completeTask = (task: Task) => {
     const previous = task.completedAt ?? "";
+    const next = task.completedAt ? "" : new Date().toISOString();
     runMutation(
-      updateTask.mutateAsync({ id: task.id, completedAt: new Date().toISOString() }).then(() => {
-        showUndoToast(`Completed “${task.name}”`, () => {
+      updateTask.mutateAsync({ id: task.id, completedAt: next }).then(() => {
+        showUndoToast(`${next ? "Completed" : "Reopened"} “${task.name}”`, () => {
           runMutation(
             updateTask.mutateAsync({ id: task.id, completedAt: previous }),
             "Could not undo complete",

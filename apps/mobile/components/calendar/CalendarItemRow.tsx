@@ -64,7 +64,7 @@ export default function CalendarItemRow({
   return (
     <AnimatedPressable onPress={() => onOpen(item)} style={styles.row}>
       <View style={[styles.bar, { backgroundColor: itemColor(item) }]} />
-      {isTaskItem(item) ? <View style={[styles.check, overdue && styles.checkOverdue]} /> : null}
+      {isTaskItem(item) ? <View style={[styles.check, overdue && styles.checkOverdue, done && styles.checkDone]}>{done ? <Check size={12} color="#fff" /> : null}</View> : null}
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text numberOfLines={1} style={[styles.title, done && styles.done]}>
           {item.title}
@@ -96,6 +96,7 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   bar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 3 },
   check: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: colors.mutedForeground },
+  checkDone: { backgroundColor: colors.success, borderColor: colors.success, alignItems: "center", justifyContent: "center" },
   checkOverdue: { borderColor: "rgba(244,63,94,0.65)" },
   title: { color: colors.cardForeground, fontSize: 14, fontWeight: "600" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },

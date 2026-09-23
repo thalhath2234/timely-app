@@ -230,7 +230,7 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
                     className="size-2 shrink-0 rounded-full"
                     style={{ backgroundColor: barColor }}
                   />
-                  <div className="truncate text-sm text-foreground">{row.name}</div>
+                  <div className={row.completedAt ? "truncate text-sm text-muted-foreground line-through" : "truncate text-sm text-foreground"}>{row.name}</div>
                 </div>
                 <div className="mt-1 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
                   {row.workspace ? (
@@ -291,7 +291,7 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
                     onContextMenu={(event) => onRowContextMenu(event, row)}
                     className="flex w-full cursor-grab items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/40 active:cursor-grabbing"
                   >
-                    <span className="truncate text-foreground">{row.name}</span>
+                    <span className={row.completedAt ? "truncate text-muted-foreground line-through" : "truncate text-foreground"}>{row.name}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {row.workspace?.name || "No workspace"}
                     </span>
