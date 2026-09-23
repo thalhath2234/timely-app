@@ -165,6 +165,7 @@ export function customFieldGroupLabel(task: Task, fieldId: string) {
 export const NATIVE_SORT_OPTIONS: { value: TaskListSortBy; label: string }[] = [
   { value: "name", label: "Name" },
   { value: "deadline", label: "Deadline" },
+  { value: "scheduledOn", label: "Scheduled date" },
   { value: "startDate", label: "Start date" },
   { value: "createdAt", label: "Created" },
   { value: "priority", label: "Priority" },

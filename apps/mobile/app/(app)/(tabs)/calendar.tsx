@@ -171,7 +171,7 @@ export default function CalendarScreen() {
     } else {
       save.mutate({
         id: item.taskId,
-        data: { completedAt: item.completedAt ? null : new Date().toISOString() },
+        data: { completedAt: item.completedAt ? "" : new Date().toISOString() },
       });
     }
     setOpen(null);

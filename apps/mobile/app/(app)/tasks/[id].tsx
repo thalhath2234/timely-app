@@ -235,7 +235,7 @@ export default function TaskDetailScreen() {
         statusDot
         actions={
           <Pressable
-            onPress={() => persist({ completedAt: task.completedAt ? null : new Date().toISOString() })}
+            onPress={() => persist({ completedAt: task.completedAt ? "" : new Date().toISOString() })}
             style={styles.complete}
           >
             <Check size={16} color={colors.primaryForeground} />

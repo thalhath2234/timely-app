@@ -106,7 +106,7 @@ export default function TaskFiltersSheet({
   const groupFields = (view.groupFields ?? []).slice(0, 3);
   const availableGroups: TaskListGroupField[] = [
     ...BASE_GROUP_FIELDS,
-    ...customFields.map((field) => `cf:${field.id}` as TaskListGroupField),
+    ...(view.renderMode === "kanban" ? [] : customFields.map((field) => `cf:${field.id}` as TaskListGroupField)),
   ];
   const dataValue = view.showReminders ? "reminder" : view.dataMode === "project" ? "project" : "task";
   const renderMode: TaskRenderMode = view.renderMode === "kanban" ? "kanban" : "list";
@@ -190,7 +190,7 @@ export default function TaskFiltersSheet({
               key={option.value}
               label={option.label}
               active={renderMode === option.value}
-              onPress={() => onPatch({ renderMode: option.value, dataMode: option.value === "kanban" ? "task" : view.dataMode, showReminders: option.value === "kanban" ? false : view.showReminders })}
+              onPress={() => onPatch({ renderMode: option.value, groupFields: option.value === "kanban" && view.groupFields?.[0]?.startsWith("cf:") ? ["status"] : view.groupFields, dataMode: option.value === "kanban" ? "task" : view.dataMode, showReminders: option.value === "kanban" ? false : view.showReminders })}
             />
           ))}
         </View>

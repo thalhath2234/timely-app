@@ -489,7 +489,7 @@ export default function TimeGrid({
                           )}
                         >
                           <Bell className="size-3 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 truncate text-xs font-medium leading-none">
+                          <span className={cn("min-w-0 truncate text-xs font-medium leading-none", event.completedAt && "text-muted-foreground line-through")}>
                             {event.title}
                           </span>
                           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
@@ -499,10 +499,7 @@ export default function TimeGrid({
                       );
                     }
 
-                    const height = Math.max(
-                      (event.endHour - event.startHour) * HOUR_HEIGHT - 2,
-                      MIN_BLOCK_HEIGHT,
-                    );
+                    const height = Math.max(1, (event.endHour - event.startHour) * HOUR_HEIGHT - 2);
                     const draggable = Boolean(onMoveBlock) && isDraggableCalendarBlock(event);
                     const isSource = preview?.event.id === event.id;
                     const left = `calc(${(lane * 100) / lanes}% + 2px)`;
@@ -530,12 +527,13 @@ export default function TimeGrid({
                         }}
                         className={cn(
                           "group absolute z-[2] flex flex-col overflow-hidden rounded-md border bg-card px-2 py-1 text-left text-foreground hover:z-[3] hover:shadow-md hover:brightness-110",
+                          height < 20 && "rounded-sm px-1 py-0",
                           draggable && "cursor-grab touch-none",
                           isSource && "opacity-40",
                           (preview || isSource) && "pointer-events-none",
                         )}
                       >
-                        <span className="truncate text-xs font-medium leading-tight">
+                        <span className={cn("truncate text-xs font-medium leading-tight", height < 20 && "text-[10px] leading-none", event.completedAt && "text-muted-foreground line-through")}>
                           {event.title}
                         </span>
                         {height > 36 ? (

@@ -337,6 +337,8 @@ export default function ProjectTaskList({
             workspaces={scopedWorkspaces}
             selectedWorkspaceIds={selectedWorkspaceIds}
             selectedStatusIds={selectedStatusIds}
+            selectedPriorityLevels={selectedPriorityLevels}
+            groupField={groupFields[0] ?? "status"}
           />
         ) : null}
 

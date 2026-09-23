@@ -163,7 +163,7 @@ export function TaskToolbar({
 
   const availableGroups: TaskListGroupField[] = [
     ...(isProjectScope ? PROJECT_GROUP_FIELDS : GLOBAL_GROUP_FIELDS),
-    ...customFields.map((field) => `cf:${field.id}` as TaskListGroupField),
+    ...(viewMode === "kanban" ? [] : customFields.map((field) => `cf:${field.id}` as TaskListGroupField)),
   ];
 
   const resetGroupFields = defaultGroupFields ?? (isProjectScope ? ["status"] : GLOBAL_DEFAULT_GROUPS);
@@ -262,6 +262,7 @@ export function TaskToolbar({
   const sortOptions = [
     { value: "name", label: "Name" },
     { value: "deadline", label: "Deadline" },
+    { value: "scheduledOn", label: "Scheduled date" },
     { value: "startDate", label: "Start date" },
     { value: "createdAt", label: "Created at" },
     { value: "priority", label: "Priority" },
@@ -458,7 +459,10 @@ export function TaskToolbar({
                     ? "font-medium text-foreground"
                     : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                 }`}
-                onClick={() => setViewMode(option.id)}
+                onClick={() => {
+                  if (option.id === "kanban" && groupFields[0]?.startsWith("cf:")) setGroupFields(["status"]);
+                  setViewMode(option.id);
+                }}
                 aria-pressed={active}
               >
                 {active ? (
@@ -768,15 +772,21 @@ export function TaskOptionsBar({
           />
         </div>
       ) : null}
-      <div className="w-32">
-        <Select
-          size="sm"
-          value={selectedPriorityLevels[0] ?? ""}
-          placeholder="Priority"
-          onChange={(priority) => setSelectedPriorityLevels(priority ? [priority] : [])}
-          options={[{ value: "", label: "All priorities" }, ...PRIORITY_OPTIONS]}
-        />
-      </div>
+      <details className="relative w-36">
+        <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg border border-border bg-input/30 px-2 py-1 text-foreground">
+          <span className="truncate">{selectedPriorityLevels.length === 0 ? "All priorities" : selectedPriorityLevels.length === 1 ? selectedPriorityLevels[0] : `${selectedPriorityLevels.length} priorities`}</span>
+          <ChevronDown size={12} />
+        </summary>
+        <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-xl">
+          <button type="button" onClick={() => setSelectedPriorityLevels([])} className="mb-1 w-full rounded px-2 py-1 text-left hover:bg-accent">All priorities</button>
+          {PRIORITY_OPTIONS.map((option) => (
+            <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-accent">
+              <input type="checkbox" checked={selectedPriorityLevels.includes(option.value)} onChange={() => setSelectedPriorityLevels(selectedPriorityLevels.includes(option.value) ? selectedPriorityLevels.filter((value) => value !== option.value) : [...selectedPriorityLevels, option.value])} className="accent-primary" />
+              {option.label}
+            </label>
+          ))}
+        </div>
+      </details>
       {labels.length > 0 ? (
         <div className="w-36">
           <Select

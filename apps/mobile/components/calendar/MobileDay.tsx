@@ -98,7 +98,7 @@ export default function MobileDay({
             const s = new Date(item.start).getTime();
             const e = new Date(item.end).getTime();
             const top = ((s - dayStart) / 3_600_000) * HOUR_PX;
-            const height = Math.max(22, ((e - s) / 3_600_000) * HOUR_PX - 2);
+            const height = Math.max(1, ((e - s) / 3_600_000) * HOUR_PX - 2);
             const width = `${100 / cols}%` as const;
             const done = Boolean(item.completedAt);
             const compact = height < 40;
@@ -156,7 +156,7 @@ const styles = createThemedStyleSheet((colors) => ({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  blockCompact: { paddingHorizontal: 8, paddingVertical: 1, borderRadius: 8 },
+  blockCompact: { paddingHorizontal: 5, paddingVertical: 0, borderRadius: 4 },
   blockTitle: {
     color: colors.foreground,
     fontSize: 13,
@@ -164,7 +164,7 @@ const styles = createThemedStyleSheet((colors) => ({
     lineHeight: 16,
     includeFontPadding: false,
   },
-  blockTitleCompact: { fontSize: 12, lineHeight: 15, fontWeight: "600" },
+  blockTitleCompact: { fontSize: 10, lineHeight: 12, fontWeight: "600" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   now: { position: "absolute", left: 0, right: 0, height: 2, backgroundColor: colors.destructive },
   nowDot: { position: "absolute", left: -5, top: -4, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.destructive, shadowColor: colors.destructive, shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },

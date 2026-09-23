@@ -34,7 +34,8 @@ import {
   TaskListSortBy,
   TaskListSortDirection,
 } from "@/app/_types/types";
-import { useTasks } from "@/app/utils/hooks/tasks";
+import { useTasks, useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tasks";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/app/utils/cn";
 import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
 import { priorityColor } from "@/app/utils/priority";
@@ -430,6 +431,8 @@ function compareTasks(a: Task, b: Task, sortBy: TaskListSortBy): number {
       return (a.name || "").localeCompare(b.name || "");
     case "deadline":
       return (new Date(a.deadline || "").getTime() || 0) - (new Date(b.deadline || "").getTime() || 0);
+    case "scheduledOn":
+      return (new Date(a.scheduledOn || a.blocks?.[0]?.start || "").getTime() || 0) - (new Date(b.scheduledOn || b.blocks?.[0]?.start || "").getTime() || 0);
     case "startDate":
       return (new Date(a.startDate || "").getTime() || 0) - (new Date(b.startDate || "").getTime() || 0);
     case "createdAt":
@@ -519,6 +522,8 @@ export default function TasksTable({
   onSelectedIdsChange,
 }: TasksTableProps) {
   const { data: tasks, isLoading, status } = useTasks();
+  const updateTask = useUpdateTask();
+  const queryClient = useQueryClient();
   const typedTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
   const customFields = useMemo(() => config.customFields ?? [], [config.customFields]);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
@@ -1037,15 +1042,27 @@ export default function TasksTable({
             }}
           >
             <span className="inline-flex min-w-0 items-center gap-2">
-              <span
-                className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: taskEntityColor(task) }}
-                aria-hidden
-              />
-              {completed ? (
-                <Check className="size-3.5 shrink-0 text-success" aria-hidden />
-              ) : null}
-              <span className="truncate">{task.name}</span>
+              {dataMode === "task" ? (
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={completed}
+                  aria-label={`${completed ? "Reopen" : "Complete"} ${task.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const next = completed ? "" : new Date().toISOString();
+                    patchTaskInCache(queryClient, task.id, { completedAt: next || null });
+                    void updateTask.mutateAsync({ id: task.id, completedAt: next }).catch(() => {
+                      patchTaskInCache(queryClient, task.id, { completedAt: task.completedAt });
+                      useToastStore.getState().show("Could not update task");
+                    });
+                  }}
+                  className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", completed ? "border-success bg-success text-white" : "border-muted-foreground hover:border-primary")}
+                >
+                  {completed ? <Check className="size-3" aria-hidden /> : null}
+                </button>
+              ) : <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: taskEntityColor(task) }} aria-hidden />}
+              <span className={cn("truncate", completed && "line-through")}>{task.name}</span>
             </span>
           </td>
         );
