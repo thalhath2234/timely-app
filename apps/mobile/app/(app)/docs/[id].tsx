@@ -86,7 +86,7 @@ function DocEditor({ docId }: { docId: string }) {
     lastSavedAtRef.current = saved.updatedAt;
     return saved;
   });
-  useUnsavedLeaveGuard(hasUnsavedChanges);
+  const unsavedLeave = useUnsavedLeaveGuard(hasUnsavedChanges);
 
   useDocWatch(docId, {
     lastSavedAtRef,
@@ -310,6 +310,15 @@ function DocEditor({ docId }: { docId: string }) {
             : "This doc will be removed."
         }
         onConfirm={() => remove.mutate(docId, { onSuccess: () => router.replace("/(app)/(tabs)/docs") })}
+      />
+      <ConfirmSheet
+        open={unsavedLeave.confirmingLeave}
+        onClose={unsavedLeave.stay}
+        title="Unsaved changes"
+        message="Leave this page without finishing the save?"
+        confirmLabel="Leave"
+        cancelLabel="Stay"
+        onConfirm={unsavedLeave.leave}
       />
     </Screen>
   );

@@ -11,6 +11,7 @@ import (
 	"time"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/embed"
+	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/task"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
@@ -19,28 +20,33 @@ import (
 )
 
 type Service struct {
-	repo     *repository
-	queue    *jobs.Queue
-	calendar calendar.Service
-	tasks    task.TaskService
-	indexer  embed.Indexer
-	http     *http.Client
+	repo         *repository
+	queue        *jobs.Queue
+	calendar     calendar.Service
+	tasks        task.TaskService
+	schedule     schedule.Service
+	indexer      embed.Indexer
+	http         *http.Client
+	overdueSwept map[string]time.Time
 }
 
-func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, indexer embed.Indexer) *Service {
+func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
 	return &Service{
-		repo:     newRepository(db),
-		queue:    queue,
-		calendar: calendar,
-		tasks:    tasks,
-		indexer:  indexer,
-		http:     &http.Client{Timeout: 15 * time.Second},
+		repo:         newRepository(db),
+		queue:        queue,
+		calendar:     calendar,
+		tasks:        tasks,
+		schedule:     scheduler,
+		indexer:      indexer,
+		http:         &http.Client{Timeout: 15 * time.Second},
+		overdueSwept: map[string]time.Time{},
 	}
 }
 
 func (s *Service) Register(worker *jobs.Worker) {
 	worker.Handle(models.JobSendReminder, s.HandleReminder)
 	worker.Handle(models.JobDailyDigest, s.HandleDigest)
+	worker.Handle(models.JobOverdueTask, s.HandleOverdueTask)
 	worker.Handle(models.JobSendPush, s.HandlePush)
 	worker.Handle(models.JobIndexEntity, s.HandleIndex)
 	worker.SetSweep(s.Sweep)
@@ -92,6 +98,53 @@ func (s *Service) MarkAllRead(userID string) error {
 
 func (s *Service) ClearAll(userID string) error {
 	return s.repo.ClearAll(userID)
+}
+
+// PrioritizeOverdue is the server-side action for an overdue task.
+// Scheduling all eligible tasks lets the urgent task take the earliest free
+// slot instead of leaving existing lower-priority engine blocks in its way.
+func (s *Service) PrioritizeOverdue(userID, taskID string) (*schedule.PlanResponse, error) {
+	item, err := s.tasks.GetForUser(userID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	local := time.Now().In(timeLocation(s.notificationTimezone(userID)))
+	if item.Deadline == nil || !overdueTaskCurrent(item, *item.Deadline, local.Format("2006-01-02")) {
+		return nil, errors.New("task is no longer past its deadline")
+	}
+	priority := models.PriorityUrgent
+	previousPriority := ""
+	if item.PriorityLevel != nil {
+		previousPriority = *item.PriorityLevel
+	}
+	if _, err := s.tasks.Update(userID, item.ID, task.TaskUpdate{PriorityLevel: &priority}); err != nil {
+		return nil, err
+	}
+	plan, err := s.schedule.Apply(userID, schedule.PlanRequest{Timezone: s.notificationTimezone(userID)})
+	if err != nil {
+		if _, restoreErr := s.tasks.Update(userID, item.ID, task.TaskUpdate{PriorityLevel: &previousPriority}); restoreErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("restore task priority: %w", restoreErr))
+		}
+		return nil, err
+	}
+	_ = s.repo.MarkOverdueRead(userID, taskID)
+	return plan, nil
+}
+
+func (s *Service) notificationTimezone(userID string) string {
+	settings, err := s.repo.GetSettings(userID)
+	if err != nil {
+		return "UTC"
+	}
+	return settings.Location(s.repo.WorkingHoursTimezone(userID)).String()
+}
+
+func timeLocation(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 func (s *Service) RegisterDevice(userID, token, platform string) (*models.PushDevice, error) {
@@ -208,8 +261,87 @@ func (s *Service) Sweep(ctx context.Context) error {
 		if err := s.sweepDigests(userID, now); err != nil {
 			return err
 		}
+		if err := s.sweepOverdue(userID, now); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func (s *Service) sweepOverdue(userID string, now time.Time) error {
+	settings, err := s.repo.GetSettings(userID)
+	if err != nil {
+		return err
+	}
+	if !settings.Reminders {
+		return nil
+	}
+	local := now.In(settings.Location(s.repo.WorkingHoursTimezone(userID)))
+	today := local.Format("2006-01-02")
+	if now.Sub(s.overdueSwept[userID]) < 5*time.Minute {
+		return nil
+	}
+	tasks, err := s.tasks.GetAllTaskByUser(userID)
+	if err != nil {
+		return err
+	}
+	for _, item := range tasks {
+		if item.Deadline == nil || !overdueTaskCurrent(&item, *item.Deadline, today) {
+			continue
+		}
+		key := overdueDedupe(item.ID, *item.Deadline)
+		if s.queue.HasJob(key) || s.queue.HasNotification(key) {
+			continue
+		}
+		if _, err := s.queue.Enqueue(jobs.Enqueue{
+			UserID: userID, Kind: models.JobOverdueTask, DedupeKey: key,
+			Payload: models.JobPayload{"taskId": item.ID, "deadline": *item.Deadline},
+		}); err != nil {
+			return err
+		}
+	}
+	s.overdueSwept[userID] = now
+	return nil
+}
+
+func (s *Service) HandleOverdueTask(ctx context.Context, job *models.Job) error {
+	settings, err := s.repo.GetSettings(job.UserID)
+	if err != nil {
+		return err
+	}
+	if !settings.Reminders {
+		return nil
+	}
+	item, err := s.tasks.GetForUser(job.UserID, job.Payload.String("taskId"))
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	deadline := job.Payload.String("deadline")
+	local := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(job.UserID)))
+	if !overdueTaskCurrent(item, deadline, local.Format("2006-01-02")) {
+		return nil
+	}
+	entity := item.ID
+	ntf, err := s.repo.Upsert(&models.Notification{
+		UserID: job.UserID, Category: models.NotifyOverdue,
+		Title: item.Name, Body: "Past deadline. Reschedule as urgent?",
+		EntityType: strPtr("task"), EntityID: &entity,
+		Data:      models.JobPayload{"taskId": item.ID, "deadline": deadline},
+		DedupeKey: job.DedupeKey,
+	})
+	if err != nil {
+		return err
+	}
+	return s.deliver(ctx, ntf, settings)
+}
+
+func overdueTaskCurrent(item *models.Task, deadline, today string) bool {
+	return item != nil && deadline != "" && deadline < today &&
+		item.Deadline != nil && *item.Deadline == deadline &&
+		item.IsSchedulableWork()
 }
 
 func (s *Service) sweepReminders(userID string, now time.Time) error {
@@ -452,6 +584,22 @@ func (s *Service) HandlePush(ctx context.Context, job *models.Job) error {
 	if ntf.DeliveredAt != nil {
 		return nil
 	}
+	if ntf.Category == models.NotifyOverdue {
+		if ntf.ReadAt != nil || ntf.EntityID == nil {
+			return s.repo.MarkDelivered(ntf.ID)
+		}
+		item, err := s.tasks.GetForUser(job.UserID, *ntf.EntityID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return s.repo.MarkDelivered(ntf.ID)
+		}
+		if err != nil {
+			return err
+		}
+		local := time.Now().In(timeLocation(s.notificationTimezone(job.UserID)))
+		if !overdueTaskCurrent(item, ntf.Data.String("deadline"), local.Format("2006-01-02")) {
+			return s.repo.MarkDelivered(ntf.ID)
+		}
+	}
 	settings, err := s.repo.GetSettings(job.UserID)
 	if err != nil {
 		return err
@@ -503,11 +651,12 @@ func (s *Service) sendPush(ctx context.Context, ntf *models.Notification, settin
 	messages := make([]expoMessage, 0, len(devices))
 	for _, device := range devices {
 		messages = append(messages, expoMessage{
-			To:        device.Token,
-			Title:     ntf.Title,
-			Body:      ntf.Body,
-			Sound:     "default",
-			ChannelID: "reminders",
+			To:         device.Token,
+			Title:      ntf.Title,
+			Body:       ntf.Body,
+			Sound:      "default",
+			ChannelID:  "reminders",
+			CategoryID: notificationCategory(ntf),
 			Data: map[string]any{
 				"notificationId": ntf.ID,
 				"category":       ntf.Category,
@@ -522,13 +671,21 @@ func (s *Service) sendPush(ctx context.Context, ntf *models.Notification, settin
 	return s.repo.MarkDelivered(ntf.ID)
 }
 
+func notificationCategory(ntf *models.Notification) string {
+	if ntf.Category == models.NotifyOverdue {
+		return "overdue_task"
+	}
+	return ""
+}
+
 type expoMessage struct {
-	To        string         `json:"to"`
-	Title     string         `json:"title"`
-	Body      string         `json:"body"`
-	Sound     string         `json:"sound,omitempty"`
-	ChannelID string         `json:"channelId,omitempty"`
-	Data      map[string]any `json:"data,omitempty"`
+	To         string         `json:"to"`
+	Title      string         `json:"title"`
+	Body       string         `json:"body"`
+	Sound      string         `json:"sound,omitempty"`
+	ChannelID  string         `json:"channelId,omitempty"`
+	CategoryID string         `json:"categoryId,omitempty"`
+	Data       map[string]any `json:"data,omitempty"`
 }
 
 type expoTicket struct {

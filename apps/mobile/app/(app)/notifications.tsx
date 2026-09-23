@@ -13,26 +13,21 @@ import {
   useMarkNotificationRead,
   useNotificationsQuery,
   useSnoozeNotification,
+  usePrioritizeOverdueTask,
 } from "../../lib/hooks";
 import type { AppNotification } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { needsNetworkCopy } from "../../lib/queryCopy";
+import { routeForNotification } from "../../lib/notifications";
+import { useToastStore } from "../../lib/toast";
 
-function routeFor(item: AppNotification): string | null {
-  const fromData = item.data?.taskId;
-  if (typeof fromData === "string" && fromData) return `/(app)/tasks/${fromData}`;
-  if (item.entityType === "task" && item.entityId) return `/(app)/tasks/${item.entityId}`;
-  if (item.entityType === "project" && item.entityId) return `/(app)/projects/${item.entityId}`;
-  if (item.entityType === "doc" && item.entityId) return `/(app)/docs/${item.entityId}`;
-  if (item.entityType === "sheet" && item.entityId) return `/(app)/sheets/${item.entityId}`;
-  if (item.entityType === "event" && item.entityId) return `/(app)/events/${item.entityId}`;
-  const projectId = item.data?.projectId;
-  if (typeof projectId === "string" && projectId) return `/(app)/projects/${projectId}`;
-  const docId = item.data?.docId;
-  if (typeof docId === "string" && docId) return `/(app)/docs/${docId}`;
-  const eventId = item.data?.eventId;
-  if (typeof eventId === "string" && eventId) return `/(app)/events/${eventId}`;
-  return null;
+function routeFor(item: AppNotification) {
+  return routeForNotification({
+    ...item.data,
+    category: item.category,
+    entityType: item.entityType ?? item.data?.entityType,
+    entityId: item.entityId ?? item.data?.entityId,
+  });
 }
 
 function tomorrowNine() {
@@ -49,6 +44,7 @@ export default function NotificationsScreen() {
   const markAll = useMarkAllNotificationsRead();
   const clearAll = useClearNotifications();
   const snooze = useSnoozeNotification();
+  const prioritize = usePrioritizeOverdueTask();
   const items = list.data ?? [];
   const networkCopy = needsNetworkCopy(list);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -85,6 +81,9 @@ export default function NotificationsScreen() {
         {clearAll.isError ? (
           <Text style={styles.meta}>Couldn't clear notifications. Try again.</Text>
         ) : null}
+        {prioritize.isError ? (
+          <Text style={styles.meta}>Couldn't reschedule the task. Try again.</Text>
+        ) : null}
         {networkCopy && items.length === 0 ? (
           <EmptyState
             icon={Bell}
@@ -107,7 +106,7 @@ export default function NotificationsScreen() {
                 <AnimatedPressable
                   onPress={() => {
                     if (!item.readAt) void markRead.mutateAsync(item.id);
-                    if (href) router.push(href as never);
+                    router.push(href as never);
                   }}
                 >
                   <Text style={styles.title}>{item.title}</Text>
@@ -131,6 +130,22 @@ export default function NotificationsScreen() {
                       <Text style={styles.chipText}>Tomorrow 9:00</Text>
                     </AnimatedPressable>
                   </View>
+                ) : null}
+                {item.category === "overdue" ? (
+                  <AnimatedPressable
+                    onPress={() => {
+                      const taskId = item.entityId ?? item.data?.taskId;
+                      if (typeof taskId !== "string" || !taskId) return;
+                      void prioritize.mutateAsync(taskId).then((plan) => {
+                        const placed = plan.proposals?.some((proposal) => proposal.taskId === (item.entityId ?? item.data?.taskId));
+                        useToastStore.getState().show(placed ? "Rescheduled with urgent priority" : "Set to urgent; task wasn't moved");
+                      }).catch(() => undefined);
+                    }}
+                    disabled={prioritize.isPending}
+                    style={styles.chip}
+                  >
+                    <Text style={styles.chipText}>Reschedule urgently</Text>
+                  </AnimatedPressable>
                 ) : null}
               </View>
             );

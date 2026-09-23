@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
 import { useNavigation } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
 
 export type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
 
@@ -106,19 +106,43 @@ export function saveStatusLabel(status: SaveStatus) {
 
 export function useUnsavedLeaveGuard(hasUnsaved: () => boolean) {
   const navigation = useNavigation();
+  const pendingActionRef = useRef<Parameters<typeof navigation.dispatch>[0] | null>(null);
+  const dispatchActionRef = useRef<Parameters<typeof navigation.dispatch>[0] | null>(null);
+  const [allowNavigation, setAllowNavigation] = useState(false);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+
+  usePreventRemove(hasUnsaved() && !allowNavigation, ({ data }) => {
+    pendingActionRef.current = data.action;
+    setConfirmingLeave(true);
+  });
+
   useEffect(() => {
-    const sub = navigation.addListener("beforeRemove", (event) => {
-      if (!hasUnsaved()) return;
-      event.preventDefault();
-      Alert.alert("Unsaved changes", "Leave this page without finishing the save?", [
-        { text: "Stay", style: "cancel" },
-        {
-          text: "Leave",
-          style: "destructive",
-          onPress: () => navigation.dispatch(event.data.action),
-        },
-      ]);
-    });
-    return sub;
-  }, [hasUnsaved, navigation]);
+    if (!allowNavigation) return;
+    const action = dispatchActionRef.current;
+    dispatchActionRef.current = null;
+    if (action) navigation.dispatch(action);
+    const timer = setTimeout(() => setAllowNavigation(false), 0);
+    return () => clearTimeout(timer);
+  }, [allowNavigation, navigation]);
+
+  const stay = useCallback(() => {
+    const action = pendingActionRef.current;
+    setConfirmingLeave(false);
+    // ConfirmSheet closes before it invokes onConfirm. Clear a cancelled action
+    // on the next tick so the confirm callback can still dispatch it.
+    setTimeout(() => {
+      if (pendingActionRef.current === action) pendingActionRef.current = null;
+    }, 0);
+  }, []);
+
+  const leave = useCallback(() => {
+    const action = pendingActionRef.current;
+    pendingActionRef.current = null;
+    setConfirmingLeave(false);
+    if (!action) return;
+    dispatchActionRef.current = action;
+    setAllowNavigation(true);
+  }, []);
+
+  return { confirmingLeave, stay, leave };
 }

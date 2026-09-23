@@ -98,6 +98,12 @@ func (r *repository) MarkAllRead(userID string) error {
 		Update("read_at", now).Error
 }
 
+func (r *repository) MarkOverdueRead(userID, taskID string) error {
+	return r.db.Model(&models.Notification{}).
+		Where("user_id = ? AND category = ? AND entity_id = ? AND read_at IS NULL", userID, models.NotifyOverdue, taskID).
+		Update("read_at", time.Now().UTC()).Error
+}
+
 func (r *repository) ClearAll(userID string) error {
 	return r.db.Where("user_id = ?", userID).Delete(&models.Notification{}).Error
 }
@@ -214,4 +220,8 @@ func reminderDedupe(taskID string, start time.Time) string {
 
 func digestDedupe(kind, userID, day string) string {
 	return "digest:" + kind + ":" + userID + ":" + day
+}
+
+func overdueDedupe(taskID, deadline string) string {
+	return "overdue:" + taskID + ":" + deadline
 }

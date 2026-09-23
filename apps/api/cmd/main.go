@@ -76,7 +76,7 @@ func main() {
 	calendarService := calendar.NewService(taskRepo, eventRepo)
 	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, blockStore)
 	searchService := search.NewService(db, indexer)
-	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, indexer)
+	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)
 	jobWorker := jobs.NewWorker(jobQueue)
 	notifyService.Register(jobWorker)

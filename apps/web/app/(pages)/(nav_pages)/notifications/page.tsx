@@ -1,6 +1,7 @@
 "use client";
 
 import { Bell } from "lucide-react";
+import { useRouter } from "next/navigation";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
@@ -15,11 +16,40 @@ import type { AppNotification } from "@/app/_types/types";
 import { motion } from "motion/react";
 import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 
-function taskIdOf(item: AppNotification) {
+type NotificationTarget =
+  | { kind: "task"; id: string }
+  | { kind: "route"; href: string };
+
+function dataString(item: AppNotification, key: string) {
+  const value = item.data?.[key];
+  return typeof value === "string" && value ? value : null;
+}
+
+function targetFor(item: AppNotification): NotificationTarget {
   const fromData = item.data?.taskId;
-  if (typeof fromData === "string" && fromData) return fromData;
-  if (item.entityType === "task" && item.entityId) return item.entityId;
-  return null;
+  if (typeof fromData === "string" && fromData) return { kind: "task", id: fromData };
+  if (item.entityType === "task" && item.entityId) return { kind: "task", id: item.entityId };
+
+  const entityId = item.entityId;
+  if (entityId) {
+    if (item.entityType === "project") return { kind: "route", href: `/projects/${entityId}` };
+    if (item.entityType === "doc") return { kind: "route", href: `/docs/${entityId}` };
+    if (item.entityType === "sheet") return { kind: "route", href: `/sheets/${entityId}` };
+    if (item.entityType === "event") return { kind: "route", href: "/calendar" };
+  }
+
+  const dataRoutes = [
+    ["projectId", "projects"],
+    ["docId", "docs"],
+    ["sheetId", "sheets"],
+  ] as const;
+  for (const [key, segment] of dataRoutes) {
+    const id = dataString(item, key);
+    if (id) return { kind: "route", href: `/${segment}/${id}` };
+  }
+  if (dataString(item, "eventId")) return { kind: "route", href: "/calendar" };
+  if (item.category === "digest") return { kind: "route", href: "/report" };
+  return { kind: "route", href: "/today" };
 }
 
 function tomorrowNine() {
@@ -30,6 +60,7 @@ function tomorrowNine() {
 }
 
 export default function NotificationsPage() {
+  const router = useRouter();
   const list = useNotifications();
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
@@ -91,7 +122,7 @@ export default function NotificationsPage() {
             animate="visible"
           >
             {items.map((item) => {
-              const taskId = taskIdOf(item);
+              const target = targetFor(item);
               const unread = !item.readAt;
               return (
                 <motion.li
@@ -106,7 +137,8 @@ export default function NotificationsPage() {
                       className="min-w-0 flex-1 text-left"
                       onClick={() => {
                         if (unread) void markRead.mutateAsync(item.id);
-                        if (taskId) openTask(taskId);
+                        if (target.kind === "task") openTask(target.id);
+                        else router.push(target.href);
                       }}
                     >
                       <p className="truncate text-sm font-medium">{item.title}</p>

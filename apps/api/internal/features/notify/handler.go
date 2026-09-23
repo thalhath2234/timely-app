@@ -131,6 +131,18 @@ func (h *Handler) Reschedule(c *echo.Context) error {
 	return h.Snooze(c)
 }
 
+func (h *Handler) PrioritizeOverdue(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	plan, err := h.service.PrioritizeOverdue(uid, c.Param("id"))
+	if err != nil {
+		return notifyError(err)
+	}
+	return c.JSON(http.StatusOK, plan)
+}
+
 func (h *Handler) GetSettings(c *echo.Context) error {
 	uid, err := userID(c)
 	if err != nil {
