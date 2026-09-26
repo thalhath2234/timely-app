@@ -2,7 +2,7 @@
 
 Snapshot of what the application **already does**, across desktop web, the native Expo app, the Go API, and Hermes/MCP. Use this to decide what to build next. Nothing here is a proposal; gaps are called out separately at the end.
 
-Last inventoried **13 Sep 2026** from `timely`, `timely-api`, and `timely-mobile`. The former mobile-web shell (`/m`) was removed; phones use the native app. Old `/m` bookmarks redirect to `/calendar`.
+Last audited **26 Sep 2026** against the `apps/web`, `apps/mobile`, and `apps/api` source in this monorepo. This is a code inventory, not a production deployment check. The former mobile-web shell (`/m`) was removed; phones use the native app. Old `/m` bookmarks redirect to `/calendar`.
 
 ---
 
@@ -12,10 +12,10 @@ Timely is a **multi-account, single-user personal productivity system**. Multipl
 
 | Surface | What it is |
 | --- | --- |
-| **Desktop web** | Full product: sidebar, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors |
-| **Native app** | Expo Android/iOS: tabs, Inbox/Today, local reminder notifications (permission on first launch), search, working hours, API keys, export |
+| **Desktop web / Electron** | Full product: sidebar, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors; the same web app also has an Electron shell |
+| **Native app** | Expo Android/iOS: Home, Calendar, Tasks, Search, Files tabs; Inbox/Today, local reminder notifications (permission on first launch), working hours, API keys, export |
 | **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue |
-| **Hermes / MCP** | 119 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can through Phase 4 |
+| **Hermes / MCP** | 120 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can through Phase 4 |
 
 Ownership is always “this user owns this row.” No members, roles, invites, or resource ACLs.
 
@@ -84,14 +84,14 @@ Projects are containers for work inside a workspace. There is a dedicated **Proj
 
 ### Desktop `/projects`
 
-- Card list: workspace, status, priority, description, progress bar, open/done counts, start and deadline.
+- Card list: workspace, status, priority, description, progress bar, open/done counts, start and deadline. Workspace and project colors distinguish cards and related tasks.
 - Create from the page or the sidebar + menu.
 
 ### Desktop `/projects/[id]`
 
 - Tabs: **Overview**, **Tasks**, **Stages**, **Activity**.
 - Overview: title, description, status, priority, **shared date picker** for start and deadline (same control as the rest of the app, not a native `<input type="date">`).
-- Stages: create, rename, delete, reorder; unstaged vs staged task lists.
+- Stages: create, rename, delete, reorder, and choose a color; unstaged vs staged task board. Tasks can be moved between stages.
 - Duplicate and mark complete from the header.
 
 ### Native
@@ -152,15 +152,15 @@ Each view stores:
 - **Data mode:** Tasks **or** Projects (project rows aggregated from tasks)
 - **Group by** up to 3 fields, drag-reorder: workspace, project, stage, status, priority, or a custom field
 - Group value order (drag-sortable) and group sort asc/desc
-- **Filters:** multi workspace, multi status, project, priority, labels, stage, show completed, overdue, scheduled, recurring, reminders
+- **Filters:** multi workspace, multi status, project, priority, labels, stage, show completed, overdue, scheduled, recurring, dated, reminders
 - **Sort:** name, deadline, startDate, createdAt, priority, status, project × asc/desc
 - **Column order** (drag headers): built-ins + custom fields
 
-Reminders and inbox items are **hidden from the main board** unless the view’s `showReminders` filter is on. Inbox has its own `/inbox` page.
+Inbox items are always hidden from task views and have their own `/inbox` page. Reminders appear only when a view's `showReminders` filter is on; that mode shows reminders instead of work tasks.
 
-**Kanban:** columns = workspace statuses (+ “No status”). Drag a card to change status. Cards open detail.
+**Kanban:** columns merge same-named workspace statuses (+ “No status”). Drag a card to change status. Cards show the task's next date or block and open detail.
 
-**Gantt:** bars from start→deadline (with fallbacks). Click opens detail. **No drag-resize.** Saved view “My Deadlines” currently switches layout; it does not yet encode “has a deadline or next block.”
+**Gantt:** task bars use start dates, scheduled blocks, recurrence anchors, and deadlines where available; undated tasks appear separately and can be dragged onto the timeline to set dates. Project bars use project dates. Click opens detail. **No bar drag-resize.** Saved view “My Deadlines” filters to work with a deadline, reserved time, or recurrence, and excludes completed tasks by default.
 
 Deep links: `?taskId=`, `?projectId=`.
 
@@ -180,6 +180,7 @@ Deep links: `?taskId=`, `?projectId=`.
 ### Inbox and Today
 
 - **Inbox** (`/inbox`, native Inbox): title-only capture (`kind=inbox`). Review later to assign workspace, duration, and schedule.
+- Desktop Inbox review can turn an item into work by assigning a workspace or choosing Work in detail; this supplies a 30-minute default duration. It can also become a reminder.
 - **Today** (`/today`, native Today): focusing task, today’s calendar items, reminders, inbox count, Today-focus list, start/stop focus.
 
 ### Filters on API (also used by agent)
@@ -192,7 +193,7 @@ Saved **native task views** are stored only on the device (`native-task-views-{u
 
 The Tasks tab is a view switcher (create / rename / delete). **View** opens the customizer: list or board, tasks / reminders / projects, group by (up to 3, including custom fields), sort, and the same filters as desktop (workspace, project, status, priority, labels, stage, completed, overdue, scheduled, recurring, dated).
 
-Default native views: Task List, My Deadlines, Overview, Board. Gantt stays desktop-only.
+Default native views: Task List, My Deadlines (dated, open work), Overview, Board. Gantt stays desktop-only. Native Kanban cards can be dragged between status columns.
 
 ---
 
@@ -208,7 +209,7 @@ A reminder is a **first-class timed ping**, not a work block and not a duration-
 
 **Awareness**
 
-- Due reminders are claimed by a Postgres job (`send_reminder`) even when the UI is closed.
+- Due reminders are claimed by a Postgres job (`send_reminder`) even when the UI is closed. Past-deadline work can also produce a deduplicated `overdue_task` alert.
 - Desktop and native have an in-app notification center (read/unread, clear all, snooze 15m / 1h / tomorrow). Snooze updates `scheduledOn` or a moved occurrence and enqueues the next ping.
 - Settings control category prefs, quiet hours (in-app still writes; push is delayed), digest times, and timezone.
 - **Native local OS schedules are the device ping.** Permission is requested after the first interactive frame (Android 13+ `POST_NOTIFICATIONS`). Local schedules keep running even if Expo push token registration succeeds. Horizon 60 days, max 60 scheduled, Android channel `reminders`.
@@ -247,7 +248,7 @@ Each item can have: allDay, color, blockId, source (`manual` | `engine`), chunk 
 Day, Week, Month, Agenda (`?view=` synced). Prev/next, Today, header label, GMT offset, color legend, counts “on calendar” vs “waiting” (unscheduled).
 
 - **Month:** day cells; click opens Day; overflow “+N”.
-- **Week / Day:** hour grid; click empty slot → schedule dialog; overlapping layout; all-day row; reminders as chips.
+- **Week / Day:** hour grid; click empty slot → schedule dialog; overlapping layout; all-day row; reminders as chips. Drag waiting tasks onto the grid; move or edge-resize eligible work blocks, with collision-aware server validation.
 - **Agenda:** grouped by day plus an **Overdue** section; reminders filtered out of day groups.
 
 ### Events
@@ -314,7 +315,7 @@ This is one of the product’s distinctive features.
 
 ### UI
 
-- Desktop: auto-schedule dialog (changes, skip messages, capacity, risks, undo) + floating toast. Settings → Schedule has hours + engine controls.
+- Desktop: auto-schedule dialog (changes, skip messages, capacity, risks, undo) + floating toast. Calendar also has a waiting-for-slot rail for direct drag scheduling. Settings → Schedule has hours + engine controls.
 - Native: sparkles header → sheet (preview/apply/undo/capacity/skip messages) + activity banner. Settings → Schedule has hours + engine. Task detail has pin/chunk/contiguous/earliest/windows.
 
 ---
@@ -329,6 +330,8 @@ A task is overdue when it is incomplete, not a reminder, and:
 Recurring: deadline only; missed occurrences are handled separately.
 
 Shown in: Agenda Overdue section, Report, native “Overdue” filter, agent `get_agenda` / `what_next`.
+
+For open schedulable work with a past **deadline**, the notification worker creates one deduplicated overdue alert per task and deadline when reminder notifications are enabled. Desktop shows the alert in the notification center. Native offers **Reschedule urgently** from the notification: the API sets priority to Urgent, applies the schedule, marks the alert read, and restores the old priority if scheduling fails. A task overdue only because its last block passed does not trigger this alert.
 
 ---
 
@@ -373,14 +376,18 @@ Nested notes (parentId + order), Notion-like.
 
 Lightweight grids, not Airtable.
 
-**Fields:** title, emoji icon, columns, rows, workspace, project, favorite, archivedAt.
+**Fields:** title, emoji icon, columns, rows, merged ranges, workbook tabs, workspace, project, favorite, archivedAt.
 
 Default new sheet: columns A–D + empty rows.
 
 ### Grid (desktop + native)
 
-- Formula bar; Enter/F2 to edit; type-to-edit; arrows/Tab; Delete/Backspace clear; column resize (72–640px); rename headers; add/delete rows and columns; min 1 row/column; autosave.
-- Desktop and native expose column types: text / number / date / boolean. MCP `add_sheet_column` / `update_sheet_column` / `update_sheet_cells` use the same types; cells are coerced server-side.
+- Formula bar and range selection; Enter/F2 to edit; type-to-edit; arrows/Tab; Delete/Backspace clear; column resize; rename headers; add/delete rows and columns; min 1 row/column; autosave.
+- Desktop and native expose column types: text, number, currency, percent, formula, date, and boolean/checkbox. MCP column and cell tools use the same model; cells are coerced server-side.
+- Multi-tab workbooks: add, rename, switch, and delete tabs. Each tab keeps its own grid and merged ranges.
+- Toolbar and range tools: undo/redo, copy/paste, fill handle, merged cells, number formats, text and fill colors, typography, alignment, borders, and wrapping. Row filtering and column sorting are available in the editor; they are not saved sheet views.
+- Save a whole workbook or one tab as a reusable personal template. The Sheets home lists templates with preview, rename, delete, and create-from-template actions. New tabs can also be made from a template tab. Templates retain formulas, values, formatting, and merges; instances receive fresh row/column/tab IDs.
+- Desktop can export the active tab as CSV.
 - **Archive / unarchive** and **show archived** on the list, same pattern as docs.
 
 ### Formulas (client-side)
@@ -390,7 +397,7 @@ Default new sheet: columns A–D + empty rows.
 - Functions: SUM, AVERAGE/AVG, MIN, MAX, PRODUCT, COUNT, COUNTA, ABS, SQRT, ROUND, FLOOR, CEILING, POWER, IF, AND, OR, NOT, CONCAT/CONCATENATE, LEN, UPPER, LOWER, TRIM
 - Errors: `#VALUE!`, `#DIV/0!`, `#NUM!`, `#NAME?`, `#PARSE!`, etc.
 
-No saved sheet views, filters, sorts, or charts. HTTP is whole-sheet CRUD; row/column helpers are MCP-first.
+No persisted sheet views, charts, or database-style linked records. HTTP supports whole-sheet CRUD and template CRUD/materialization; granular row/column helpers are MCP-only.
 
 ---
 
@@ -417,7 +424,7 @@ Computed from live tasks/projects/docs/sheets:
 - Open tasks, Overdue, Projects, Docs & sheets
 - Overdue list (≤10)
 - Open by priority bars
-- Due in next 14 days (≤10) — currently deadline-based; next engine block is not counted yet
+- Due or scheduled in the next 14 days (≤10), using the earlier deadline or next reserved block
 - Projects with open work (≤8) and by-workspace counts
 - Mentions graph from `@` links in rich text (≤16) — native computes this but barely shows it
 - Recent activity (≤12)
@@ -438,7 +445,7 @@ Working hours, freeze, break minutes, excluded workspaces. Used by auto-schedule
 
 ### Workspaces
 
-Picker → Name / Statuses / Labels / Custom fields (including Yes/No).
+Picker → Name and color / Statuses / Labels / Custom fields (including Yes/No).
 
 ### Appearance
 
@@ -463,7 +470,7 @@ Picker → Name / Statuses / Labels / Custom fields (including Yes/No).
 
 ### Notifications
 
-Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread, clear all, and reminder snooze. Settings → Notifications: category prefs, quiet hours, digest times, failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
+Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread, clear all, reminder snooze, and overdue alerts. The native overdue alert has a **Reschedule urgently** action. Settings → Notifications: category prefs, quiet hours, digest times, failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
 
 **No** language picker, billing, or connected-account screens.
 
@@ -489,7 +496,7 @@ Workspaces, statuses, labels, custom fields (including boolean), projects, stage
 
 Destructive deletes of a workspace, project, or document require `confirm=true`. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
 
-### Complete MCP tool list (119)
+### Complete MCP tool list (120)
 
 **Context / intelligence:** `get_context`, `search`, `semantic_search`, `reindex_search`, `get_agenda`, `get_free_time`, `what_next`
 
@@ -519,7 +526,7 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 
 **Add Item modal:** per-type forms. Tasks open with a **Work | Reminder** toggle first. Reminder uses Notify at (date and time). Work uses duration, workspace, project, stage, labels, custom fields. Rich description for task/project. Recurrence for task/event. Labels/custom fields with inline create. Events all-day/duration/workspace.
 
-**Native FAB** on Calendar/Tasks/Files: Inbox, Task, Reminder, Event, Doc, Sheet. Workspace/Project also from settings. Reminder create uses Notify at.
+**Native FAB** on Home/Calendar/Tasks/Files: Inbox, Task, Reminder, Event, Doc, Sheet. Workspace/Project also from settings. Reminder create uses Notify at.
 
 ### Keyboard (desktop)
 
@@ -539,13 +546,13 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 | Language | English copy with locale-aware date/time formatting; no translation catalog yet |
 | Timezones | Browser TZ + editable working-hours IANA zone; tzdata embedded in API |
 | Mentions | `@` links between docs, sheets, tasks, projects |
-| Colors | Status/label/project/event colors; calendar legend |
+| Colors | Workspace/stage/status/label/project/event colors; task cards inherit project color where available; calendar legend |
 | Realtime | Docs SSE only, in-process hub (won’t fan out across multiple API instances) |
 | Offline | Desktop/native show an explicit offline + stale-data banner. Native persists and replays safe idempotent task completion, checklist, Today-focus, and recurrence actions per account. Doc/sheet editing remains online-only |
 | PWA | None |
 | Attachments / files / camera | None except Markdown file import for docs. Content is JSON/markdown/text |
 | Email / SMTP | None. Push is Expo HTTP; no mailer |
-| Background jobs | Postgres `jobs` table with `FOR UPDATE SKIP LOCKED`, retries/backoff, dedupe keys, `/jobs` health + retry. Worker runs in the API process. Kinds: `send_reminder`, `index_entity`, `daily_digest`, `send_push`, `create_backup`. Scheduled backups use AES-256-GCM encryption and retention |
+| Background jobs | Postgres `jobs` table with `FOR UPDATE SKIP LOCKED`, retries/backoff, dedupe keys, `/jobs` health + retry. Worker runs in the API process. Kinds: `send_reminder`, `overdue_task`, `index_entity`, `daily_digest`, `send_push`, `create_backup`. Scheduled backups use AES-256-GCM encryption and retention |
 | External calendars | None (no Google Calendar, ICS import two-way, Slack, GitHub). ICS **export** exists |
 | Collaboration | Single user per account. Multiple independent accounts may exist on one install |
 | IDs | Typed prefixes (`tsk_`, `pr_`, `doc_`, …) |
@@ -560,7 +567,9 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 - Local reminder schedules (horizon 60 days, max 60) plus optional Expo push registration — locals are **not** cancelled when push registers
 - In-app notification center, clear all, and snooze
 - Dedicated Search tab
+- Home tab with Today focus, agenda, and Inbox entry; it is the default route after login/onboarding
 - Combined Files tab (Docs | Sheets) with Markdown import
+- Sheet templates and multi-tab workbooks, including a template preview route
 - Hidden sheets route (duplicate of Files → Sheets)
 - Android cleartext HTTP for LAN API; API URL baked into production APK (`updates.enabled: false`, so URL changes need a rebuild)
 - Deep link scheme `timelymobile` exists; no custom handlers beyond router paths
@@ -593,8 +602,9 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/projects/[id]` | Overview, tasks, stages, activity |
 | `/docs` | Docs home + Markdown import |
 | `/docs/[id]` | Doc editor |
-| `/sheets` | Sheets home |
-| `/sheets/[id]` | Spreadsheet |
+| `/sheets` | Sheets and template home |
+| `/sheets/[id]` | Multi-tab spreadsheet |
+| `/sheets/templates/[id]` | Template preview and create-from-template |
 | `/report` | Productivity snapshot |
 | `/notifications` | In-app notification center |
 | `/settings` | Account (incl. devices), Appearance, Schedule, Notifications, Workspaces, Data & privacy, Integrations (`?tab=`) |
@@ -605,7 +615,8 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | Route | Role |
 | --- | --- |
 | `/login`, `/signup`, `/onboarding` | Auth gate |
-| `/(app)/(tabs)/calendar` | Default tab |
+| `/(app)/(tabs)/home` | Default Home tab (Today focus, agenda, Inbox entry) |
+| `/(app)/(tabs)/calendar` | Calendar tab |
 | `/(app)/(tabs)/tasks` | Task list |
 | `/(app)/(tabs)/search` | Global search |
 | `/(app)/(tabs)/docs` | Files (Docs \| Sheets) |
@@ -618,6 +629,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/(app)/projects/[id]` | Project detail + stages |
 | `/(app)/docs/[id]` | Doc editor |
 | `/(app)/sheets/[id]` | Sheet editor |
+| `/(app)/sheets/templates/[id]` | Template preview and create-from-template |
 | `/(app)/report` | Report |
 | `/(app)/settings/*` | Account, notifications, schedule, workspaces, API keys |
 | `/(app)/settings/data` | Portable exports, restore, encrypted backup scheduling and history |
@@ -654,9 +666,9 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 **Workspaces:** CRUD, labels, statuses, custom fields, `GET/PUT /config`
 
-**Docs / sheets:** CRUD; archive flag; `GET /docs/:id/watch` (SSE); doc export `?format=markdown` (PDF still accepted by the exporter, unused in UI)
+**Docs / sheets:** CRUD; archive flag; `GET /docs/:id/watch` (SSE); doc export `?format=markdown` (PDF still accepted by the exporter, unused in UI); sheet template list/get/create/update/delete and materialize-tab endpoints
 
-**API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications list/read/clear/snooze; `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
+**API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications list/read/clear/snooze and overdue-task urgent reschedule; `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
 
 **Portability:** full versioned JSON export + replace-mode transactional restore; task CSV; calendar ICS; document Markdown; encrypted server backup create/list/download/delete; backup schedule + retention settings
 
@@ -666,7 +678,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 These are already in the backend — useful if choosing “build UI” vs “build new capability”:
 
-- Sheet granular row/cell APIs (grid UI is whole-sheet)
+- Sheet granular row/cell tools in MCP (the HTTP grid API writes whole sheets)
 - Legacy `scheduleId` still on the task JSON (unused by the engine)
 - Semantic reindex endpoint
 - Agent markdown append-to-doc
@@ -678,7 +690,7 @@ These are already in the backend — useful if choosing “build UI” vs “bui
 
 ## 22. Explicit gaps (not built)
 
-Grouped so you can pick from real holes, not imagined ones. See also `NextPhase.md` §14 (R8).
+Grouped so you can pick from current holes. Older planning notes in `NextPhase.md` may describe work that is now implemented.
 
 ### People and access
 
@@ -688,12 +700,9 @@ Grouped so you can pick from real holes, not imagined ones. See also `NextPhase.
 
 ### Work model
 
-- Saved views that encode intent (My Deadlines = has deadline **or** next block)
-- Kanban/Gantt/report using next scheduled block when dates are empty
-- Inbox **Make task** still needs to write duration, default status, and stay off the board until clarified
-- Stop auto-applying the engine on every task create
+- Native still auto-applies the scheduling engine after creating eligible work tasks; desktop task creation does not
 - Comment delete; richer project activity (not only recently updated tasks)
-- Gantt drag-resize
+- Gantt bar move/resize (undated tasks can currently be dropped onto the timeline to set dates)
 - Full task/project template manager (duplicate is the current entry point)
 
 ### Calendar
@@ -706,12 +715,13 @@ Grouped so you can pick from real holes, not imagined ones. See also `NextPhase.
 ### Knowledge
 
 - Doc/sheet sharing, comments, version history, images/files
-- Databases/views on sheets (filters, sorts, linked records)
+- Persisted sheet views, database-style linked records, and charts (the editors already have transient filter/sort controls)
 
 ### Awareness
 
 - Email notifications (intentionally no SMTP)
 - In-app Hermes chat (today MCP-only)
+- One-click overdue reschedule in the desktop notification center (native has the action)
 - Android 14+ exact-alarm Settings deep-link if the OS denied it
 - Digest open-count matching Report; persist notification timezone from working hours
 
@@ -734,20 +744,20 @@ Grouped so you can pick from real holes, not imagined ones. See also `NextPhase.
 | Device sessions | Yes | Via refresh token | No |
 | Calendar D/W/M/Agenda | D W M A | D M A | Range + agenda |
 | Auto-schedule (skip completed) | Full preview/apply/undo | Preview/apply/undo | Full |
-| Manual blocks | Full | Reschedule + pin/chunk | Full |
+| Manual blocks | Full, including calendar move/resize | Reschedule + pin/chunk | Full |
 | Task list/kanban/gantt + saved views | Yes | Native-only saved views (list/board; no gantt) | Views CRUD + filters |
 | Task comments/activity | Yes | Yes | Yes |
 | Inbox / Today / focus | Yes | Yes | Yes |
 | Checklists | Yes | Yes | Yes |
 | Reminders as a type | Work \| Reminder + Notify at | Kind + segmented control + local push | Yes + snooze |
-| Notification center / prefs | Yes | Yes + OS permission | Yes |
+| Notification center / prefs | Yes; overdue alert opens task | Yes + OS permission; urgent reschedule action | Yes (no urgent-reschedule tool) |
 | Working hours / engine | Multi-window + freeze | Hours + freeze | Yes |
 | Recurrence | Yes | Yes | Yes |
 | Projects hub + stages | Yes | List + detail | Full + stages + board |
 | Docs tree + editor | Yes | Flat + editor | Markdown + archive |
 | Markdown import / MD export | Yes | Yes | Markdown in/out |
 | Code Copy + IDE colors | Yes | Yes | — |
-| Sheets + formulas | Yes | Yes + types | Granular + archive |
+| Sheets + formulas | Tabs, formatting, filters, templates, CSV | Tabs, formatting, filters, templates | Granular + archive; no template tools |
 | Archive docs/sheets | Yes | Yes | Yes |
 | Report | Full | Thinner | No |
 | Global search | Cmd+K | Tab | Keyword + semantic |
@@ -760,4 +770,4 @@ Grouped so you can pick from real holes, not imagined ones. See also `NextPhase.
 
 ## Summary
 
-The current product is a **personal, multi-account, English** workspace where you capture inbox items, turn work and reminders into distinct types, put work on a calendar (manually or with an explainable engine that ignores completed tasks), run projects with stages, write nested docs (including Markdown import and IDE-like code blocks), keep small spreadsheets, export and protect your data, search by text or meaning, glance at a live report, and optionally let Hermes drive the same objects through MCP. Desktop and native make connectivity state explicit; native asks for notification permission on launch and schedules reminder pings on the device.
+The current product is a **personal, multi-account, English** workspace where you capture inbox items, turn work and reminders into distinct types, put work on a calendar (manually or with an explainable engine that ignores completed tasks), run projects with stages, write nested docs (including Markdown import and IDE-like code blocks), use multi-tab spreadsheets and templates, export and protect your data, search by text or meaning, glance at a live report, and optionally let Hermes drive many of the same objects through MCP. Desktop and native make connectivity state explicit; native asks for notification permission on launch and schedules reminder pings on the device.
