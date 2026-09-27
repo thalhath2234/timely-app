@@ -9,7 +9,7 @@ timely/
 │   ├── web/        Next.js 16 · React 19 · Tailwind 4 · Electron desktop shell          :4001
 │   └── mobile/     Expo SDK 57 · expo-router · React Native 0.86
 ├── scripts/        Repo-level shell helpers (build-apk.sh, start-emulator.sh)
-├── .agents/ .cursor/   Agent skills (memory-capped Android build + emulator)
+├── .agents/ .cursor/   Agent skills for Android build and emulator
 ├── Makefile        Single entry point for every dev/build/test/db task
 ├── package.json    Workspace root (scripts alias to make)
 ├── pnpm-workspace.yaml · pnpm-lock.yaml
@@ -19,8 +19,8 @@ timely/
 ## Prerequisites
 
 - Node ≥ 22 and pnpm 11 (`corepack enable` or `npm i -g pnpm`)
-- Go 1.25+
-- PostgreSQL 14+ with the `vector` extension (or `docker compose up db`)
+- Go 1.25.7+ (see `apps/api/go.mod`)
+- PostgreSQL with the `vector` extension (or `docker compose up db` for the configured pgvector image)
 - For mobile: Android SDK, JDK 17 (`~/.local/jdk-17`), Expo Go or an emulator
 
 ## Quick start
@@ -31,6 +31,12 @@ make dev              # API (:8080, live reload) + web (:4001) together
 make dev-desktop      # API + web + Electron window
 make dev-mobile       # Expo/Metro dev server
 ```
+
+From the repository root, start the database with `docker compose up -d db`
+before starting the API if you do not already have a compatible PostgreSQL
+server. `make dev` uses ports 8080 and 4001. In this worktree, use
+`make dev-worktree` for API 8081 and web 4002; those targets set the ports and
+the web server's API origin together. Leave 8080 and 4001 for the main checkout.
 
 Edit `apps/api/.env` (DB credentials, JWT secret), `apps/web/.env`, and
 `apps/mobile/.env.local` (`EXPO_PUBLIC_API_URL`) as needed. The mobile file is
@@ -43,10 +49,11 @@ when the API starts.
 | Command                                 | What it does                                                   |
 | --------------------------------------- | -------------------------------------------------------------- |
 | `make dev-api` / `dev-web` / `dev-mobile` / `dev-desktop` | Run a single app, or the Electron desktop shell |
+| `make dev-worktree`                   | API on 8081 and web on 4002 in this worktree                |
 | `make build`                            | Build the API binary and the web app                           |
 | `make build-desktop`                    | Unpacked Electron app for this OS                              |
 | `make dist-desktop`                     | Electron installer (AppImage / dmg / nsis)                     |
-| `make build-apk [API_URL=https://…]`    | Android release APK, detached under a 12 GB memory cap         |
+| `make build-apk [API_URL=https://…]`    | Android release APK under a 12 GB memory cap; waits for the detached build |
 | `make apk-status`                       | Status/log of the detached APK build                           |
 | `make emu-start` / `emu-stop`           | Android emulator under a 3G cgroup cap (1536 MB guest)         |
 | `make check`                            | `lint` + `typecheck` + `test` across apps                      |
@@ -63,6 +70,7 @@ when the API starts.
 - API: [`apps/api/setup.md`](apps/api/setup.md), [`apps/api/MIGRATIONS.md`](apps/api/MIGRATIONS.md), Postman/Bruno collection in `apps/api/api-collections.json`
 - Web: [`apps/web/FEATURES.md`](apps/web/FEATURES.md), [`apps/web/NextPhase.md`](apps/web/NextPhase.md)
 - Mobile: [`apps/mobile/README.md`](apps/mobile/README.md) (API URL, emulator networking)
+- Domain language: [`CONTEXT.md`](CONTEXT.md); decisions: [`docs/adr/`](docs/adr/)
 
 ## Docker
 

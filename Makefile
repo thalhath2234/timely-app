@@ -32,6 +32,7 @@ GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING
 
 .PHONY: help setup setup-mobile-env install tools install-air install-goose \
         dev dev-api dev-web dev-mobile dev-mobile-device dev-desktop launch-electron \
+        dev-worktree dev-worktree-api dev-worktree-web \
         build build-api build-web build-desktop dist-desktop build-apk install-apk apk-status \
         emu-start emu-stop emu-status \
         lint lint-api lint-web typecheck typecheck-web typecheck-mobile test test-api check \
@@ -76,6 +77,15 @@ dev-api: ## Run the Go API with live reload (air)
 
 dev-web: ## Run the Next.js dev server on :4001
 	@pnpm --filter @timely/web dev
+
+dev-worktree: ## Run API (:8081) and web (:4002) together in this worktree
+	@$(MAKE) -j2 --no-print-directory dev-worktree-api dev-worktree-web
+
+dev-worktree-api: ## Run the Go API on :8081 with live reload
+	@cd $(API) && PORT=8081 air
+
+dev-worktree-web: ## Run Next.js on :4002 against the worktree API
+	@API_ORIGIN=http://localhost:8081 pnpm --filter @timely/web exec next dev -p 4002
 
 .PHONY: audit-web
 AUDIT_PORT ?= 4050

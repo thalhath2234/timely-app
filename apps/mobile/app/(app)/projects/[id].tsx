@@ -35,7 +35,7 @@ import { useDraftText } from "../../../lib/draftText";
 import { useAutosave } from "../../../lib/autosave";
 import type { UpdateProjectPayload } from "../../../lib/api/projects";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
-import RichTextEditor from "../../../components/editor/RichTextEditor";
+import DescriptionCard from "../../../components/editor/DescriptionCard";
 import { isRichContentEmpty, toRichContent } from "../../../lib/richText";
 import type { DocContent, Stage, Task } from "../../../lib/types";
 
@@ -186,9 +186,7 @@ export default function ProjectDetailScreen() {
             <Text style={styles.value}>{project.color?.trim() || "Auto"}</Text>
           </View>
         </Pressable>
-        <Text style={styles.label}>Description</Text>
-        <RichTextEditor
-          compact
+        <DescriptionCard
           content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
           syncKey={noteSync}
           placeholder="Write a description. Type '/' for blocks…"
@@ -196,10 +194,7 @@ export default function ProjectDetailScreen() {
             setNoteRich(content);
             setNote(plainText);
           }}
-        />
-        <PrimaryButton
-          label="Save description"
-          onPress={() => persist({ description: note, descriptionRich: noteRich })}
+          onSave={() => persist({ description: note, descriptionRich: noteRich })}
         />
         <Pressable onPress={() => setPicker("status")} style={styles.card}>
           <Text style={styles.label}>Status</Text>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Archive, Download, FileText, MoreHorizontal, Smile, Star, Trash2, Upload } from "lucide-react-native";
+import { Archive, Download, FileText, FolderUp, MoreHorizontal, Smile, Star, Trash2, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -80,6 +80,12 @@ function DocEditor({ docId }: { docId: string }) {
   const [favorite, setFavorite] = useState(Boolean(doc?.isFavorite));
   const [wordCount, setWordCount] = useState(() => countWords(doc?.plainText ?? ""));
   const [menu, setMenu] = useState<"more" | "icon" | "parent" | "delete" | null>(null);
+  const [nextMenu, setNextMenu] = useState<"icon" | "parent" | "delete" | null>(null);
+
+  function openAfterMore(next: "icon" | "parent" | "delete") {
+    setNextMenu(next);
+    setMenu(null);
+  }
 
   const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateDocPayload>(async (patch) => {
     const saved = await updateDoc.mutateAsync({ id: docId, data: patch });
@@ -193,7 +199,17 @@ function DocEditor({ docId }: { docId: string }) {
         syncKey={editorSync}
       />
 
-      <BottomSheet open={menu === "more"} onClose={() => setMenu(null)} title="Doc">
+      <BottomSheet
+        open={menu === "more"}
+        onClose={() => setMenu(null)}
+        onClosed={() => {
+          if (nextMenu) {
+            setMenu(nextMenu);
+            setNextMenu(null);
+          }
+        }}
+        title="Doc"
+      >
         <SheetOption onSelect={() => { setMenu(null); void shareExport(`/docs/${doc.id}/export?format=markdown`, `${doc.title || "untitled"}.md`, "text/markdown"); }} leading={<Download size={18} color={colors.mutedForeground} />}>
           Export Markdown
         </SheetOption>
@@ -222,11 +238,11 @@ function DocEditor({ docId }: { docId: string }) {
         >
           Import Markdown
         </SheetOption>
-        <SheetOption onSelect={() => setMenu("icon")} leading={<Smile size={18} color={colors.mutedForeground} />}>
+        <SheetOption onSelect={() => openAfterMore("icon")} leading={<Smile size={18} color={colors.mutedForeground} />}>
           Change icon
         </SheetOption>
-        <SheetOption onSelect={() => setMenu("parent")}>
-          Parent page: {parentTitle}
+        <SheetOption onSelect={() => openAfterMore("parent")} leading={<FolderUp size={18} color={colors.mutedForeground} />}>
+          {`Parent page: ${parentTitle}`}
         </SheetOption>
         <SheetOption
           onSelect={() => {
@@ -240,7 +256,7 @@ function DocEditor({ docId }: { docId: string }) {
           {doc.archivedAt ? "Unarchive" : "Archive"}
         </SheetOption>
         <SheetOption
-          onSelect={() => setMenu("delete")}
+          onSelect={() => openAfterMore("delete")}
           leading={<Trash2 size={18} color={colors.destructive} />}
         >
           <Text style={{ color: colors.destructive }}>Delete doc</Text>

@@ -1,166 +1,48 @@
-# Timely API - Initial Setup Guide
+# API setup
 
-Welcome to **Timely API**, a Go-based backend REST API built with [Echo v5](https://echo.labstack.com/), [GORM](https://gorm.io/), and [Goose](https://pressly.github.io/goose/) for database migrations.
+The Go API lives in `apps/api`. Run `make` commands from the repository root;
+the root [README](../../README.md) covers the other apps.
 
-This guide will walk you through setting up your local development environment from scratch.
+## Prerequisites
 
-> This app lives at `apps/api` in the `timely` monorepo. Run `make` commands from the repo root; run `go` commands from this directory.
+- Go 1.25.7 or newer (see [`go.mod`](go.mod)).
+- PostgreSQL with the `vector` extension. `docker compose up -d db` starts the
+  repository's pgvector image on port 5432.
+- `pnpm` and Make for the repository setup commands.
 
----
+## Start locally
 
-## 📋 Prerequisites
-
-Before running the application, ensure you have the following installed on your machine:
-
-1. **Go** (Version `1.22` or later, recommended `1.25+`)
-   - Download & Install: [golang.org/dl](https://golang.org/dl/)
-   - Verify installation:
-     ```bash
-     go version
-     ```
-
-2. **PostgreSQL** (Version `14+`)
-   - Download & Install: [postgresql.org/download](https://www.postgresql.org/download/) or run via Docker:
-     ```bash
-     docker run --name timely-postgres -e POSTGRES_USER=timely -e POSTGRES_PASSWORD=root123 -e POSTGRES_DB=timely_db -p 5432:5432 -d postgres:16
-     ```
-   - Verify connection:
-     ```bash
-     psql -U timely -d timely_db -h localhost
-     ```
-
-3. **Make** (Optional but recommended for helper commands)
-   - Windows: Install via Chocolatey (`choco install make`) or Git Bash.
-   - macOS/Linux: Pre-installed or via package manager.
-
-## Account recovery
-
-Timely does not send email. To reset a forgotten password on a self-hosted
-install, run:
+From the repository root:
 
 ```bash
-make reset-password EMAIL=user@example.com PASSWORD='new-password'   # from the repo root
+make setup               # dependencies, Go tools, and local env files
+docker compose up -d db  # if you do not already run compatible PostgreSQL
+make dev-api             # API on :8080, with live reload
 ```
 
-4. **Air** (Optional, for hot reloading)
-   - Install CLI:
-     ```bash
-     go install github.com/air-verse/air@latest
-     ```
+`make setup` copies `apps/api/.env.example` to the ignored `apps/api/.env` if
+needed. Check its database settings and replace `JWT_SECRET` and
+`TIMELY_BACKUP_KEY` before using a nonlocal installation. The API applies
+pending schema migrations at startup. Embedding search needs an
+`OPENROUTER_API_KEY`; keyword search works without it.
 
----
+For this worktree, use `make dev-worktree-api` to run on port 8081. To run both
+API and web on the worktree ports, use `make dev-worktree`. Leave ports 8080 and
+4001 for the main checkout.
 
-## ⚙️ Environment Configuration
+## Database and maintenance
 
-1. **Copy Environment Template**
-   Duplicate [.env.example](.env.example) to create your local `.env` file:
+The API reads `apps/api/.env`; the root Makefile reads the same file for Goose
+commands. Use `make migrate-status` to inspect schema versions and
+`make migrate-create NAME=add_thing` to add a migration. See
+[MIGRATIONS.md](MIGRATIONS.md) for the full workflow. Mock seed data is optional
+and can be loaded with `make migrate-seed`.
 
-   ```bash
-   cp .env.example .env
-   ```
-
-2. **Configure Variables**
-   Open `.env` and update parameters if necessary:
-
-   ```ini
-   # Database Configuration
-   DB_HOST=localhost
-   DB_PORT=5432
-   DB_USER=timely
-   DB_PASSWORD=root123
-   DB_NAME=timely_db
-   DB_SSLMODE=disable
-
-   # Application Port
-   PORT=8080
-
-   # JWT Secret Key
-   JWT_SECRET=n8SL1dOBK/0miN65rn9+2LJgV7kdxRDrWHzUJtHnrLs=
-   ```
-
----
-
-## 🗄️ Database Setup & Migrations
-
-### 1. Create PostgreSQL Database
-
-If you are not using Docker, log in to PostgreSQL CLI or your SQL client (e.g. DBeaver, pgAdmin) and execute:
-
-```sql
-CREATE USER timely WITH PASSWORD 'root123';
-CREATE DATABASE timely_db OWNER timely;
-GRANT ALL PRIVILEGES ON DATABASE timely_db TO timely;
-```
-
-### 2. Install Goose CLI (Recommended)
-
-To execute manual database schema operations and seeds, install the Goose migration CLI:
+Timely does not send password reset email. For local account recovery, run:
 
 ```bash
-make install-goose
+make reset-password EMAIL=user@example.com PASSWORD='new-password'
 ```
 
-### 3. Run Database Migrations & Seeds
-
-- **Automatic Migrations**: When starting the main application, Goose migrations run automatically on server initialization.
-- **Manual Migrations**:
-  ```bash
-  # Apply all pending UP migrations
-  make migrate-up
-
-  # Apply seed mock data
-  make migrate-seed
-  ```
-
-For comprehensive details on managing schema migrations, refer to [MIGRATIONS.md](MIGRATIONS.md).
-
----
-
-## 🚀 Running the Application
-
-### Option A: Standard Go Run
-
-```bash
-go run cmd/main.go
-```
-
-The API server will launch at `http://localhost:8080`.
-
-### Option B: Live Reload with Air
-
-For live hot-reloading during development:
-
-```bash
-air
-```
-
----
-
-## 🧪 Testing & API Collections
-
-- **API Documentation & Collections**: You can import [api-collections.json](api-collections.json) into Postman, Insomnia, or Bruno to test API endpoints (Auth, Workspaces, Projects, Tasks).
-- **CORS Support**: Default CORS allows requests from `http://localhost:4001` (the web app).
-
----
-
-## 🛠️ Helpful Makefile Commands
-
-All `make` targets live in the monorepo root `Makefile` and are run from the repo root. Run `make help` to view all available commands:
-
-| Command | Description |
-| :--- | :--- |
-| `make migrate-up` | Run pending database migrations |
-| `make migrate-status` | View current migration status |
-| `make migrate-down` | Roll back the last database migration |
-| `make migrate-seed` | Apply seed data from `migrations/seeds` |
-| `make migrate-unseed` | Roll back last seed data migration |
-| `make migrate-create NAME=...` | Create a new SQL migration file |
-| `make install-goose` | Install the Goose CLI tool |
-
----
-
-## ❓ Troubleshooting
-
-- **Database Connection Error (`connection refused`)**: Check if PostgreSQL server is active and running on port `5432`.
-- **Permission Denied / Password Authentication Failed**: Verify credentials in `.env` match your PostgreSQL setup.
-- **Port Conflict (`listen tcp :8080: bind: address already in use`)**: Change `PORT` in `.env` or terminate the process occupying port `8080`.
+The [API collection](api-collections.json) contains sample requests. Run
+`make test-api` for Go tests or `make check` for the repository's quality checks.
