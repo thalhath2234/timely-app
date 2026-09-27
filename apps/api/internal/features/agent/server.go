@@ -10,6 +10,7 @@ import (
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/notify"
+	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
@@ -39,6 +40,7 @@ type Deps struct {
 	Search     search.Service
 	Notify     *notify.Service
 	Jobs       *jobs.Queue
+	Portable   *portability.Service
 }
 
 type Server struct {
@@ -107,6 +109,7 @@ func (s *Server) register(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "list_projects", Description: "List projects with open/done/progress summaries. Optional filters: workspaceId, statusId, completed."}, s.listProjects)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_project", Description: "Get a project with stages, progress, and a stage board (Unstaged + stg_ columns)."}, s.getProject)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_project_activity", Description: "Activity feed for tasks in a project (newest first)."}, s.listProjectActivity)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_project", Description: "Create a project."}, s.createProject)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_project", Description: "Partial-update a project."}, s.updateProject)
 	mcp.AddTool(server, &mcp.Tool{Name: "complete_project", Description: "Mark a project complete."}, s.completeProject)
@@ -140,9 +143,12 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "list_inbox", Description: "List unprocessed inbox items."}, s.listInbox)
 	mcp.AddTool(server, &mcp.Tool{Name: "clarify_inbox_item", Description: "Turn an inbox item into a work task (workspaceId + duration) or a reminder (scheduleAt)."}, s.clarifyInboxItem)
 	mcp.AddTool(server, &mcp.Tool{Name: "add_checklist_item", Description: "Add a lightweight checklist item on a task. Checklist items are not scheduled."}, s.addChecklistItem)
+	mcp.AddTool(server, &mcp.Tool{Name: "update_checklist_item", Description: "Rename and/or complete a checklist item."}, s.updateChecklistItem)
 	mcp.AddTool(server, &mcp.Tool{Name: "toggle_checklist_item", Description: "Complete or reopen a checklist item."}, s.toggleChecklistItem)
+	mcp.AddTool(server, &mcp.Tool{Name: "replace_checklist", Description: "Replace a task's checklist. Items without an id are created; empty titles are skipped."}, s.replaceChecklist)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_checklist_item", Description: "Remove a checklist item."}, s.deleteChecklistItem)
 	mcp.AddTool(server, &mcp.Tool{Name: "start_focus", Description: "Start a focus session on a task. Stops any other active focus and records elapsed minutes on stop."}, s.startFocus)
+	mcp.AddTool(server, &mcp.Tool{Name: "pause_focus", Description: "Pause the active focus session. Elapsed minutes are added to actualMinutes; start_focus resumes it."}, s.pauseFocus)
 	mcp.AddTool(server, &mcp.Tool{Name: "stop_focus", Description: "Stop the focus session and add elapsed minutes to actualMinutes."}, s.stopFocus)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_today", Description: "Today view: scheduled items, overdue, inbox count, today-focus set, active focus, completed today, and unfinished scheduled work."}, s.getToday)
 	mcp.AddTool(server, &mcp.Tool{Name: "set_today_focus", Description: "Add or remove a task from the Today focus set (max 7). date is YYYY-MM-DD; omit/empty clears."}, s.setTodayFocus)
@@ -192,18 +198,30 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "add_sheet_rows", Description: "Append empty rows."}, s.addSheetRows)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_sheet_cells", Description: "Set cells in one row by column id. Values are coerced to the column type (number, date YYYY-MM-DD, boolean TRUE/FALSE). Formulas starting with = are stored as-is."}, s.updateSheetCells)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_sheet_rows", Description: "Delete rows by id."}, s.deleteSheetRows)
+	mcp.AddTool(server, &mcp.Tool{Name: "duplicate_sheet", Description: "Duplicate a sheet, including columns, rows, merges, and tabs."}, s.duplicateSheet)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_sheet", Description: "Delete a sheet."}, s.deleteSheet)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_sheet_templates", Description: "List saved sheet templates."}, s.listSheetTemplates)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_sheet_template", Description: "Get one sheet template."}, s.getSheetTemplate)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_sheet_template", Description: "Save a sheet (or one tab) as a template. Pass templateId to create_sheet to apply it."}, s.createSheetTemplate)
+	mcp.AddTool(server, &mcp.Tool{Name: "update_sheet_template", Description: "Rename a sheet template."}, s.updateSheetTemplate)
+	mcp.AddTool(server, &mcp.Tool{Name: "delete_sheet_template", Description: "Delete a sheet template."}, s.deleteSheetTemplate)
+	mcp.AddTool(server, &mcp.Tool{Name: "materialize_sheet_template_tab", Description: "Clone a template tab (or the whole template when tabId is empty) with new ids. Does not create a sheet."}, s.materializeSheetTemplateTab)
 
 	mcp.AddTool(server, &mcp.Tool{Name: "list_task_views", Description: "Saved task list/kanban/gantt views, including Phase 1 filters (project, priority, labels, stage, overdue, scheduled, recurring, reminders)."}, s.listTaskViews)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_task_view", Description: "Create a saved view. Filters: selectedProjectIds, selectedPriorityLevels, selectedLabelIds, selectedStageIds, showCompleted, onlyOverdue, onlyScheduled, onlyRecurring, onlyDated (deadline or scheduled block), showReminders. renderMode: list, kanban, gantt."}, s.createTaskView)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_task_view", Description: "Update a saved view, including filters and renderMode."}, s.updateTaskView)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_task_view", Description: "Delete a saved view."}, s.deleteTaskView)
 	mcp.AddTool(server, &mcp.Tool{Name: "set_active_task_view", Description: "Select the active saved view."}, s.setActiveTaskView)
+	mcp.AddTool(server, &mcp.Tool{Name: "set_project_task_view", Description: "Save or clear the task view stored for one project (config.projectTaskViews). clear=true removes it."}, s.setProjectTaskView)
 
 	mcp.AddTool(server, &mcp.Tool{Name: "get_profile", Description: "Current user profile."}, s.getProfile)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_config", Description: "Account config: onboarding, task views, project task views, appearance, working hours, and schedule settings."}, s.getConfig)
+	mcp.AddTool(server, &mcp.Tool{Name: "update_account_config", Description: "Update onboarding completion and appearance (theme: system, light, dark; accent: default or #RRGGBB)."}, s.updateAccountConfig)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_profile", Description: "Update the user's display name."}, s.updateProfile)
 
 	mcp.AddTool(server, &mcp.Tool{Name: "list_notifications", Description: "In-app notifications, newest first. unread=true lists only unread."}, s.listNotifications)
+	mcp.AddTool(server, &mcp.Tool{Name: "unread_notification_count", Description: "Count of unread in-app notifications."}, s.unreadNotificationCount)
+	mcp.AddTool(server, &mcp.Tool{Name: "reschedule_urgent", Description: "Mark an overdue work task urgent and apply the schedule so it takes the earliest free slot. Same as POST /tasks/:id/reschedule-urgent."}, s.rescheduleUrgent)
 	mcp.AddTool(server, &mcp.Tool{Name: "mark_notification_read", Description: "Mark one notification read. Empty id marks all unread as read."}, s.markNotificationRead)
 	mcp.AddTool(server, &mcp.Tool{Name: "clear_notifications", Description: "Delete all in-app notifications for this account."}, s.clearNotifications)
 	mcp.AddTool(server, &mcp.Tool{Name: "snooze_reminder", Description: "Snooze a reminder notification. Updates the underlying reminder time and enqueues the next ping. minutes or until (RFC3339)."}, s.snoozeReminder)
@@ -212,6 +230,18 @@ func (s *Server) register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "list_jobs", Description: "Background jobs for this account. Optional status: pending, running, succeeded, failed, cancelled."}, s.listJobs)
 	mcp.AddTool(server, &mcp.Tool{Name: "retry_job", Description: "Re-queue a failed or cancelled job."}, s.retryJob)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_job_health", Description: "Counts of pending, running, failed, and recently succeeded jobs."}, s.getJobHealth)
+
+	mcp.AddTool(server, &mcp.Tool{Name: "export_account", Description: "Full versioned JSON export of this account (same as GET /export/full)."}, s.exportAccount)
+	mcp.AddTool(server, &mcp.Tool{Name: "export_tasks_csv", Description: "Export tasks as CSV text."}, s.exportTasksCSV)
+	mcp.AddTool(server, &mcp.Tool{Name: "export_calendar", Description: "Export events and scheduled blocks as iCalendar text."}, s.exportCalendar)
+	mcp.AddTool(server, &mcp.Tool{Name: "export_doc", Description: "Export one document as markdown, or pdf (base64)."}, s.exportDoc)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_backup_settings", Description: "Encrypted backup schedule: enabled, intervalDays, retentionCount."}, s.getBackupSettings)
+	mcp.AddTool(server, &mcp.Tool{Name: "update_backup_settings", Description: "Update the encrypted backup schedule. intervalDays and retentionCount are 1–30."}, s.updateBackupSettings)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_backup", Description: "Write an encrypted server backup of this account."}, s.createBackup)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_backups", Description: "List encrypted server backups."}, s.listBackups)
+	mcp.AddTool(server, &mcp.Tool{Name: "download_backup", Description: "Decrypt and return one server backup."}, s.downloadBackup)
+	mcp.AddTool(server, &mcp.Tool{Name: "delete_backup", Description: "Delete one encrypted server backup. Requires confirm=true."}, s.deleteBackup)
+	mcp.AddTool(server, &mcp.Tool{Name: "restore_account", Description: "Replace this account's data with a timely-backup JSON object. Requires confirm=true. Same guard as POST /restore."}, s.restoreAccount)
 }
 
 func userID(req *mcp.CallToolRequest) (string, error) {

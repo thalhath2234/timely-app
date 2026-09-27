@@ -100,6 +100,7 @@ func main() {
 		Search:     searchService,
 		Notify:     notifyService,
 		Jobs:       jobQueue,
+		Portable:   portabilityService,
 	})
 
 	handlers := routes.Handlers{

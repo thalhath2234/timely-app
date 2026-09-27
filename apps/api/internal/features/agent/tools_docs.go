@@ -288,6 +288,7 @@ type createSheetIn struct {
 	WorkspaceID string  `json:"workspaceId,omitempty"`
 	ProjectID   string  `json:"projectId,omitempty"`
 	Icon        string  `json:"icon,omitempty"`
+	TemplateID  string  `json:"templateId,omitempty" jsonschema:"create from a sheet template; same as POST /sheets templateId"`
 	Description *string `json:"description,omitempty" jsonschema:"-"`
 }
 
@@ -298,6 +299,13 @@ func (s *Server) createSheet(ctx context.Context, req *mcp.CallToolRequest, in c
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
+	}
+	if in.TemplateID != "" {
+		created, err := s.Sheets.CreateFromTemplate(uid, in.TemplateID, in.Title, in.WorkspaceID, strPtr(in.ProjectID))
+		if err != nil {
+			return fail(err)
+		}
+		return reply("created "+created.Title, sheetPayload(created))
 	}
 	sh := &models.Sheet{
 		Title:       in.Title,
@@ -314,13 +322,17 @@ func (s *Server) createSheet(ctx context.Context, req *mcp.CallToolRequest, in c
 }
 
 type updateSheetIn struct {
-	SheetID     string  `json:"sheetId"`
-	Title       *string `json:"title,omitempty"`
-	Icon        *string `json:"icon,omitempty"`
-	Description *string `json:"description,omitempty" jsonschema:"-"`
-	ProjectID   *string `json:"projectId,omitempty"`
-	IsFavorite  *bool   `json:"isFavorite,omitempty"`
-	Archived    *bool   `json:"archived,omitempty"`
+	SheetID     string               `json:"sheetId"`
+	Title       *string              `json:"title,omitempty"`
+	Icon        *string              `json:"icon,omitempty"`
+	Description *string              `json:"description,omitempty" jsonschema:"-"`
+	Columns     *models.SheetColumns `json:"columns,omitempty"`
+	Rows        *models.SheetRows    `json:"rows,omitempty"`
+	Merges      *models.SheetMerges  `json:"merges,omitempty"`
+	Tabs        *models.SheetTabs    `json:"tabs,omitempty"`
+	ProjectID   *string              `json:"projectId,omitempty"`
+	IsFavorite  *bool                `json:"isFavorite,omitempty"`
+	Archived    *bool                `json:"archived,omitempty"`
 }
 
 func (s *Server) updateSheet(ctx context.Context, req *mcp.CallToolRequest, in updateSheetIn) (*mcp.CallToolResult, any, error) {
@@ -334,6 +346,10 @@ func (s *Server) updateSheet(ctx context.Context, req *mcp.CallToolRequest, in u
 	update := sheet.SheetUpdate{
 		Title:      in.Title,
 		Icon:       in.Icon,
+		Columns:    in.Columns,
+		Rows:       in.Rows,
+		Merges:     in.Merges,
+		Tabs:       in.Tabs,
 		ProjectID:  in.ProjectID,
 		IsFavorite: in.IsFavorite,
 		Archived:   in.Archived,
@@ -490,4 +506,107 @@ func (s *Server) deleteSheet(ctx context.Context, req *mcp.CallToolRequest, in s
 		return fail(err)
 	}
 	return reply("sheet deleted", map[string]string{"id": in.SheetID})
+}
+
+func (s *Server) duplicateSheet(ctx context.Context, req *mcp.CallToolRequest, in sheetIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	sh, err := s.Sheets.Duplicate(uid, in.SheetID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("duplicated "+sh.Title, sheetPayload(sh))
+}
+
+func (s *Server) listSheetTemplates(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	templates, err := s.Sheets.ListTemplates(uid)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("%d sheet templates", len(templates)), map[string]any{"templates": templates})
+}
+
+type templateIDIn struct {
+	TemplateID string `json:"templateId"`
+}
+
+func (s *Server) getSheetTemplate(ctx context.Context, req *mcp.CallToolRequest, in templateIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	template, err := s.Sheets.GetTemplate(uid, in.TemplateID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(template.Name, template)
+}
+
+type createTemplateIn struct {
+	SheetID string `json:"sheetId"`
+	Name    string `json:"name,omitempty"`
+	TabID   string `json:"tabId,omitempty"`
+}
+
+func (s *Server) createSheetTemplate(ctx context.Context, req *mcp.CallToolRequest, in createTemplateIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	template, err := s.Sheets.CreateTemplate(uid, in.SheetID, in.Name, in.TabID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("saved template "+template.Name, template)
+}
+
+type updateTemplateIn struct {
+	TemplateID string `json:"templateId"`
+	Name       string `json:"name"`
+}
+
+func (s *Server) updateSheetTemplate(ctx context.Context, req *mcp.CallToolRequest, in updateTemplateIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	template, err := s.Sheets.RenameTemplate(uid, in.TemplateID, in.Name)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("renamed template "+template.Name, template)
+}
+
+func (s *Server) deleteSheetTemplate(ctx context.Context, req *mcp.CallToolRequest, in templateIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	if err := s.Sheets.DeleteTemplate(uid, in.TemplateID); err != nil {
+		return fail(err)
+	}
+	return reply("template deleted", map[string]string{"id": in.TemplateID})
+}
+
+type materializeTabIn struct {
+	TemplateID string `json:"templateId"`
+	TabID      string `json:"tabId,omitempty"`
+}
+
+func (s *Server) materializeSheetTemplateTab(ctx context.Context, req *mcp.CallToolRequest, in materializeTabIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	tab, err := s.Sheets.MaterializeTemplateTab(uid, in.TemplateID, in.TabID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("materialized tab "+tab.Name, map[string]any{"tab": tab})
 }

@@ -14,6 +14,36 @@ type listNotificationsIn struct {
 	Limit  int  `json:"limit,omitempty"`
 }
 
+func (s *Server) unreadNotificationCount(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	if s.Notify == nil {
+		return fail(errors.New("notifications are not available"))
+	}
+	count, err := s.Notify.UnreadCount(uid)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("%d unread", count), map[string]any{"count": count})
+}
+
+func (s *Server) rescheduleUrgent(ctx context.Context, req *mcp.CallToolRequest, in taskIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	if s.Notify == nil {
+		return fail(errors.New("notifications are not available"))
+	}
+	plan, err := s.Notify.PrioritizeOverdue(uid, in.TaskID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("rescheduled overdue task as urgent", plan)
+}
+
 func (s *Server) listNotifications(ctx context.Context, req *mcp.CallToolRequest, in listNotificationsIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
