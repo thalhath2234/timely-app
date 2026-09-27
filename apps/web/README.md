@@ -8,9 +8,8 @@ Desktop web client for the Go API in [`apps/api`](../api). Part of the `timely` 
 make dev-web          # from the repo root → http://localhost:4001
 make dev              # API + web together
 make dev-desktop      # API + web + Electron window
+make dev-worktree     # API :8081 + web :4002 in this worktree
 ```
-
-Or directly: `pnpm --filter @timely/web dev` (browser) and `pnpm --filter @timely/web electron:dev` (Next.js + Electron, no API).
 
 ## Electron
 
@@ -27,6 +26,8 @@ A packaged build embeds a Next.js standalone server. It still talks to the Go AP
 ## Configuration
 
 Copy `.env.example` to `.env` in this directory. `JWT_SECRET` must match the API's. `API_ORIGIN` (default `http://localhost:8080`) is where `/api-proxy/*` requests are rewritten to (see `next.config.ts`).
+
+`make dev-worktree` sets `API_ORIGIN=http://localhost:8081` for its web server.
 
 ## Docs
 

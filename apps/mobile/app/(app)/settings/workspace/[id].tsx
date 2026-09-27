@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import Screen from "../../../../components/ui/Screen";
@@ -15,12 +15,13 @@ import CustomFieldBuilder, {
 } from "../../../../components/ui/CustomFieldBuilder";
 import { Field, PrimaryButton, SectionLabel } from "../../../../components/ui/primitives";
 import ConfirmSheet, { type ConfirmRequest } from "../../../../components/ui/ConfirmSheet";
-import { keys, useProjectsQuery, useWorkspacesQuery } from "../../../../lib/hooks";
+import { keys, useInvalidateAll, useProjectsQuery, useWorkspacesQuery } from "../../../../lib/hooks";
 import {
   createCustomField,
   createLabel,
   createStatus,
   deleteCustomField,
+  deleteWorkspace,
   deleteLabel,
   deleteStatus,
   updateCustomField,
@@ -37,7 +38,9 @@ export default function WorkspaceEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const client = useQueryClient();
-  const workspace = (useWorkspacesQuery().data ?? []).find((w) => w.id === id);
+  const spaces = useWorkspacesQuery().data ?? [];
+  const workspace = spaces.find((w) => w.id === id);
+  const invalidateAll = useInvalidateAll();
   const projects = useProjectsQuery();
   const [name, setName] = useDraftText(workspace?.name, id);
   const [statusName, setStatusName] = useState("");
@@ -59,6 +62,7 @@ export default function WorkspaceEditor() {
   const [editLabelName, setEditLabelName] = useState("");
   const [editLabelColor, setEditLabelColor] = useState(FIELD_PALETTE[0]);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function refresh() {
     await client.invalidateQueries({ queryKey: keys.workspaces });
@@ -349,6 +353,36 @@ export default function WorkspaceEditor() {
             await client.invalidateQueries({ queryKey: keys.projects });
           }}
         />
+        <SectionLabel>Danger zone</SectionLabel>
+        <View style={styles.dangerCard}>
+          <Text style={styles.dangerTitle}>Delete workspace</Text>
+          <Text style={styles.dangerCopy}>Deletes its tasks, projects, docs, sheets, events, and settings. This cannot be undone.</Text>
+          <Pressable
+            accessibilityRole="button"
+            disabled={spaces.length <= 1 || deleting}
+            onPress={() => setConfirm({
+              title: `Delete ${workspace.name}?`,
+              message: `All content in ${workspace.name} will be permanently deleted.`,
+              confirmLabel: "Delete workspace",
+              onConfirm: async () => {
+                setDeleting(true);
+                try {
+                  await deleteWorkspace(workspace.id);
+                  await invalidateAll();
+                  router.replace("/(app)/settings/workspaces");
+                } catch (cause) {
+                  Alert.alert("Could not delete workspace", cause instanceof Error ? cause.message : "Try again.");
+                } finally {
+                  setDeleting(false);
+                }
+              },
+            })}
+            style={[styles.dangerButton, (spaces.length <= 1 || deleting) && styles.disabled]}
+          >
+            <Text style={styles.remove}>{deleting ? "Deleting…" : "Delete workspace"}</Text>
+          </Pressable>
+          {spaces.length <= 1 ? <Text style={styles.meta}>Your last workspace cannot be deleted.</Text> : null}
+        </View>
       </ScrollView>
       <ConfirmSheet
         open={confirm !== null}
@@ -378,4 +412,9 @@ const styles = createThemedStyleSheet((colors) => ({
     padding: 12,
     gap: 8,
   },
+  dangerCard: { borderRadius: 20, borderWidth: 1, borderColor: colors.destructive, backgroundColor: colors.card, padding: 16, gap: 10 },
+  dangerTitle: { color: colors.foreground, fontSize: 16, fontWeight: "700" },
+  dangerCopy: { color: colors.mutedForeground, fontSize: 13, lineHeight: 19 },
+  dangerButton: { alignSelf: "flex-start", minHeight: 48, borderRadius: 16, backgroundColor: colors.muted, paddingHorizontal: 16, justifyContent: "center" },
+  disabled: { opacity: 0.45 },
 }));

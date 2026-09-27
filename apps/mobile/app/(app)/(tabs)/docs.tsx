@@ -7,14 +7,15 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { Archive, ArchiveRestore, ChevronRight, FileText, LayoutTemplate, MoreVertical, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
+import { Archive, ArchiveRestore, ChevronRight, FilePlus, FileText, FolderUp, LayoutTemplate, MoreVertical, Sheet as SheetIcon, Star, Trash2, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
-import { useCreateDoc, useCreateSheet, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
+import ConfirmSheet from "../../../components/ui/ConfirmSheet";
+import { useCreateDoc, useCreateSheet, useDeleteDoc, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { fromMarkdown } from "../../../lib/markdown";
 import { csvToGrid } from "../../../lib/sheetCsv";
 import { sheetHref } from "../../../lib/sheet";
@@ -70,12 +71,15 @@ export default function FilesScreen() {
   const [kind, setKind] = useState<Kind>("docs");
   const [showArchived, setShowArchived] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [menuDoc, setMenuDoc] = useState<DocNode | null>(null);
+  const [menuDoc, setMenuDoc] = useState<Doc | null>(null);
+  const [deleteDocItem, setDeleteDocItem] = useState<Doc | null>(null);
+  const [pendingDeleteDoc, setPendingDeleteDoc] = useState<Doc | null>(null);
   const docsQ = useDocsQuery();
   const sheetsQ = useSheetsQuery();
   const templatesQ = useSheetTemplatesQuery();
   const createDoc = useCreateDoc();
   const updateDoc = useUpdateDoc();
+  const removeDoc = useDeleteDoc();
   const createSheet = useCreateSheet();
   const spaces = useWorkspacesQuery().data ?? [];
   const docs = useMemo(
@@ -173,6 +177,7 @@ export default function FilesScreen() {
           />
           <AnimatedPressable
             onPress={() => router.push(`/(app)/docs/${node.id}`)}
+            onLongPress={() => setMenuDoc(node)}
             style={styles.cardBody}
           >
             <Text style={styles.icon}>{node.icon || "📄"}</Text>
@@ -186,6 +191,7 @@ export default function FilesScreen() {
           </AnimatedPressable>
           {node.isFavorite ? <Star size={16} color={colors.warning} fill={colors.warning} /> : null}
           <Pressable
+            accessibilityRole="button"
             accessibilityLabel="Page menu"
             onPress={() => setMenuDoc(node)}
             hitSlop={8}
@@ -267,16 +273,21 @@ export default function FilesScreen() {
             <>
               {favoriteDocs.length ? <Text style={styles.section}>Favorites</Text> : null}
               {favoriteDocs.map((doc) => (
-                <AnimatedPressable key={`fav-${doc.id}`} onPress={() => router.push(`/(app)/docs/${doc.id}`)} style={styles.card}>
-                  <Text style={styles.icon}>{doc.icon || "📄"}</Text>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.title}>{doc.title || "Untitled"}</Text>
-                    <Text numberOfLines={2} style={styles.meta}>
-                      {doc.plainText || timeAgo(doc.updatedAt)}
-                    </Text>
-                  </View>
+                <View key={`fav-${doc.id}`} style={styles.card}>
+                  <AnimatedPressable onPress={() => router.push(`/(app)/docs/${doc.id}`)} onLongPress={() => setMenuDoc(doc)} style={styles.cardBody}>
+                    <Text style={styles.icon}>{doc.icon || "📄"}</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.title}>{doc.title || "Untitled"}</Text>
+                      <Text numberOfLines={2} style={styles.meta}>
+                        {doc.plainText || timeAgo(doc.updatedAt)}
+                      </Text>
+                    </View>
+                  </AnimatedPressable>
                   <Star size={16} color={colors.warning} fill={colors.warning} />
-                </AnimatedPressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Page menu" onPress={() => setMenuDoc(doc)} hitSlop={8} style={styles.menuBtn}>
+                    <MoreVertical size={18} color={colors.mutedForeground} />
+                  </Pressable>
+                </View>
               ))}
               <Text style={styles.section}>Pages</Text>
               {tree.map((node) => renderNode(node, 0))}
@@ -336,7 +347,17 @@ export default function FilesScreen() {
           </>
         )}
       </ScrollView>
-      <BottomSheet open={Boolean(menuDoc)} onClose={() => setMenuDoc(null)} title={menuDoc?.title || "Page"}>
+      <BottomSheet
+        open={Boolean(menuDoc)}
+        onClose={() => setMenuDoc(null)}
+        onClosed={() => {
+          if (pendingDeleteDoc) {
+            setDeleteDocItem(pendingDeleteDoc);
+            setPendingDeleteDoc(null);
+          }
+        }}
+        title={menuDoc?.title || "Page"}
+      >
         <SheetOption
           onSelect={() => {
             if (!menuDoc) return;
@@ -344,10 +365,21 @@ export default function FilesScreen() {
             setMenuDoc(null);
             router.push(`/(app)/docs/${id}`);
           }}
+          leading={<FileText size={18} color={colors.mutedForeground} />}
         >
           Open
         </SheetOption>
-        <SheetOption onSelect={() => menuDoc && void addSubpage(menuDoc)}>Add subpage</SheetOption>
+        <SheetOption onSelect={() => menuDoc && void addSubpage(menuDoc)} leading={<FilePlus size={18} color={colors.mutedForeground} />}>Add subpage</SheetOption>
+        <SheetOption
+          onSelect={() => {
+            if (!menuDoc) return;
+            updateDoc.mutate({ id: menuDoc.id, data: { isFavorite: !menuDoc.isFavorite } });
+            setMenuDoc(null);
+          }}
+          leading={<Star size={18} color={colors.mutedForeground} />}
+        >
+          {menuDoc?.isFavorite ? "Remove favorite" : "Add favorite"}
+        </SheetOption>
         {menuDoc?.parentId ? (
           <SheetOption
             onSelect={() => {
@@ -355,11 +387,43 @@ export default function FilesScreen() {
               updateDoc.mutate({ id: menuDoc.id, data: { parentId: null } });
               setMenuDoc(null);
             }}
+            leading={<FolderUp size={18} color={colors.mutedForeground} />}
           >
             Move to top level
           </SheetOption>
         ) : null}
+        <SheetOption
+          onSelect={() => {
+            if (!menuDoc) return;
+            updateDoc.mutate({ id: menuDoc.id, data: { archived: !Boolean(menuDoc.archivedAt) } });
+            setMenuDoc(null);
+          }}
+          leading={<Archive size={18} color={colors.mutedForeground} />}
+        >
+          {menuDoc?.archivedAt ? "Unarchive" : "Archive"}
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setPendingDeleteDoc(menuDoc);
+            setMenuDoc(null);
+          }}
+          leading={<Trash2 size={18} color={colors.destructive} />}
+        >
+          <Text style={styles.destructive}>Delete page</Text>
+        </SheetOption>
       </BottomSheet>
+      <ConfirmSheet
+        open={deleteDocItem !== null}
+        onClose={() => setDeleteDocItem(null)}
+        title="Delete this page?"
+        message={deleteDocItem ? `“${deleteDocItem.title || "Untitled"}” will be permanently removed, along with any subpages.` : undefined}
+        onConfirm={() => {
+          if (!deleteDocItem) return;
+          removeDoc.mutate(deleteDocItem.id, {
+            onError: (cause) => Alert.alert("Could not delete page", cause instanceof Error ? cause.message : "Try again."),
+          });
+        }}
+      />
     </Screen>
   );
 }
@@ -368,6 +432,7 @@ const styles = createThemedStyleSheet((colors) => ({
   headerControls: { paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
   listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120, gap: 10 },
   templateError: { color: colors.destructive, fontSize: 13 },
+  destructive: { color: colors.destructive, fontSize: 15, fontWeight: "600" },
   section: { color: colors.foreground, fontSize: 19, fontWeight: "800", marginTop: 12, marginBottom: 2, letterSpacing: -0.3 },
   card: {
     flexDirection: "row",

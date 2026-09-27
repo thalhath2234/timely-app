@@ -1,7 +1,7 @@
 import { ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Brain, Clock, Database, FolderKanban, Inbox, KeyRound, Tag } from "lucide-react-native";
+import { Bell, Brain, ChevronRight, Clock, Database, FolderKanban, Inbox, KeyRound, Tag } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { SectionLabel } from "../../../components/ui/primitives";
@@ -35,6 +35,7 @@ function Row({
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.meta}>{meta}</Text>
       </View>
+      <ChevronRight size={18} color={colors.mutedForeground} />
     </AnimatedPressable>
   );
 }
@@ -53,40 +54,44 @@ export default function SettingsIndex() {
   return (
     <Screen>
       <MobileHeader title="Settings" back />
-      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 24 + insets.bottom }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 4 }}>
         <AnimatedPressable onPress={() => router.push("/(app)/settings/account")} style={styles.profile}>
           <View style={styles.avatar}>
             <Text style={styles.initials}>{initials}</Text>
           </View>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.name}>{user?.name || "Your account"}</Text>
             <Text style={styles.meta}>{user?.email}</Text>
           </View>
+          <ChevronRight size={20} color={colors.mutedForeground} />
         </AnimatedPressable>
-        <SectionLabel>Appearance</SectionLabel>
+        <SectionLabel>Make it yours</SectionLabel>
         <AppearanceCard />
-        <SectionLabel>Destinations</SectionLabel>
-        <Row icon={Inbox} title="Inbox" meta="Capture now, organize later" onPress={() => router.push("/(app)/inbox")} />
-        <Row icon={Bell} title="Notifications" meta="Reminders, digests, and snooze" onPress={() => router.push("/(app)/notifications")} />
-        <Row
-          icon={FolderKanban}
-          title="Projects"
-          meta="List, stages, and project edit"
-          onPress={() => router.push("/(app)/projects")}
-        />
-        <SectionLabel>Workspace</SectionLabel>
-        <Row
-          icon={Tag}
-          title="Workspaces"
-          meta="Statuses, labels, custom fields"
-          onPress={() => router.push("/(app)/settings/workspaces")}
-        />
-        <SectionLabel>Tools</SectionLabel>
-        <Row icon={Bell} title="Notification settings" meta="Push, quiet hours, and failed jobs" onPress={() => router.push("/(app)/settings/notifications")} />
-        <Row icon={Brain} title="Report" meta="Weekly summary and focus time" onPress={() => router.push("/(app)/report")} />
-        <Row icon={Clock} title="Working hours" meta="When the scheduler can place tasks" onPress={() => router.push("/(app)/settings/schedule")} />
-        <Row icon={Database} title="Data & backups" meta="Export, restore, and encrypted backups" onPress={() => router.push("/(app)/settings/data")} />
-        <Row icon={KeyRound} title="API keys" meta="Connect scripts and automations" onPress={() => router.push("/(app)/settings/api-keys")} />
+        <SectionLabel>Organize</SectionLabel>
+        <View style={styles.group}>
+          <Row icon={Inbox} title="Inbox" meta="Capture now, organize later" onPress={() => router.push("/(app)/inbox")} />
+          <Row icon={Bell} title="Notifications" meta="Reminders, digests, and snooze" onPress={() => router.push("/(app)/notifications")} />
+          <Row
+            icon={FolderKanban}
+            title="Projects"
+            meta="List, stages, and project edit"
+            onPress={() => router.push("/(app)/projects")}
+          />
+          <Row
+            icon={Tag}
+            title="Workspaces"
+            meta="Spaces, statuses, labels, and fields"
+            onPress={() => router.push("/(app)/settings/workspaces")}
+          />
+        </View>
+        <SectionLabel>Preferences & tools</SectionLabel>
+        <View style={styles.group}>
+          <Row icon={Bell} title="Notification settings" meta="Push, quiet hours, and failed jobs" onPress={() => router.push("/(app)/settings/notifications")} />
+          <Row icon={Brain} title="Report" meta="Weekly summary and focus time" onPress={() => router.push("/(app)/report")} />
+          <Row icon={Clock} title="Working hours" meta="When the scheduler can place tasks" onPress={() => router.push("/(app)/settings/schedule")} />
+          <Row icon={Database} title="Data & backups" meta="Export, restore, and encrypted backups" onPress={() => router.push("/(app)/settings/data")} />
+          <Row icon={KeyRound} title="API keys" meta="Connect scripts and automations" onPress={() => router.push("/(app)/settings/api-keys")} />
+        </View>
         <AnimatedPressable onPress={() => void logout()} style={styles.logout}>
           <Text style={styles.logoutText}>Sign out</Text>
         </AnimatedPressable>
@@ -100,40 +105,36 @@ const styles = createThemedStyleSheet((colors) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 16,
+    borderRadius: 28,
+    backgroundColor: colors.accent,
+    padding: 20,
+    marginBottom: 8,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
   initials: { color: colors.primaryForeground, fontWeight: "700" },
-  name: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  name: { color: colors.foreground, fontSize: 20, fontWeight: "700" },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
+  group: { backgroundColor: colors.card, borderRadius: 24, padding: 6, gap: 2 },
   card: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    minHeight: 64,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    minHeight: 68,
+    borderRadius: 18,
+    paddingHorizontal: 10,
   },
   icon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     backgroundColor: colors.muted,
     alignItems: "center",
     justifyContent: "center",

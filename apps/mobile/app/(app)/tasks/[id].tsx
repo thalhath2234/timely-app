@@ -12,7 +12,7 @@ import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
 import { Chip, Dot, Field, PrimaryButton, PropertyGroup, PropertyRow } from "../../../components/ui/primitives";
 import EmptyState from "../../../components/ui/EmptyState";
-import RichTextEditor from "../../../components/editor/RichTextEditor";
+import DescriptionCard from "../../../components/editor/DescriptionCard";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import TaskSectionHeader from "../../../components/tasks/TaskSectionHeader";
 import { toCustomFieldDrafts } from "../../../lib/customFields";
@@ -261,13 +261,7 @@ export default function TaskDetailScreen() {
             autoCapitalize="sentences"
           />
         </View>
-        <View style={styles.descriptionCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.section}>Description</Text>
-            <Text style={styles.sectionMeta}>Markdown enabled</Text>
-          </View>
-          <RichTextEditor
-            compact
+        <DescriptionCard
             content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
             syncKey={noteSync}
             placeholder="Add context, links, acceptance criteria, or notes…"
@@ -275,9 +269,8 @@ export default function TaskDetailScreen() {
               setNoteRich(content);
               setNote(plainText);
             }}
-          />
-          <PrimaryButton label="Save description" onPress={() => persist({ description: note, descriptionRich: noteRich })} />
-        </View>
+            onSave={() => persist({ description: note, descriptionRich: noteRich })}
+        />
         <View style={{ gap: 8 }}>
           <SegmentedControl
             options={[
@@ -992,7 +985,6 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   completeText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "600" },
   objectiveCard: { borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16, gap: 7 },
-  descriptionCard: { gap: 10, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16, minHeight: 170 },
   eyebrow: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", letterSpacing: 0.9 },
   rowAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   reminderChip: {
@@ -1007,7 +999,6 @@ const styles = createThemedStyleSheet((colors) => ({
   reminderChipText: { color: colors.accentForeground, fontSize: 12, fontWeight: "600" },
   section: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.9, marginTop: 4 },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
-  sectionMeta: { color: colors.mutedForeground, fontSize: 9, fontFamily: "SpaceMono" },
   progressText: { color: colors.success, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700" },
   progressTrack: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden", width: "100%" },
   progressFill: { height: "100%", borderRadius: 999, backgroundColor: colors.success },

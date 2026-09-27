@@ -40,6 +40,10 @@ export function updateWorkspace(data: { id: string; name: string }) {
   });
 }
 
+export function deleteWorkspace(id: string) {
+  return api<void>(`/workspaces/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export type NamedColorPayload = { name: string; color: string };
 
 export function createStatus(workspaceId: string, data: NamedColorPayload) {

@@ -1,6 +1,6 @@
 # Timely Android (Expo)
 
-Native client for the Go API in [`apps/api`](../api). Keep the API running on `:8080` (`make dev-api` from the repo root) while developing.
+Native client for the Go API in [`apps/api`](../api). Keep the API running while developing (`make dev-api`, or `make dev-worktree-api` on port 8081 in this worktree).
 
 Part of the `timely` monorepo: install dependencies with `pnpm install` from the repo root, and use `make dev-mobile` / `make build-apk` (see the root [README](../../README.md)).
 
@@ -9,9 +9,15 @@ Part of the `timely` monorepo: install dependencies with `pnpm install` from the
 Run `make setup-mobile-env` from the repository root, then set
 `EXPO_PUBLIC_API_URL` in `.env.local` (this directory):
 
+```ini
+EXPO_PUBLIC_API_URL=http://10.0.2.2:8080
 ```
-EXPO_PUBLIC_API_URL=https://4ee3-2405-1204-c198-100-7d39-2a83-390d-65b3.ngrok-free.app
-```
+
+For this worktree's API on port 8081, use
+`http://10.0.2.2:8081` on the Android emulator or
+`http://<your-pc-lan-ip>:8081` on a phone. Use a reachable HTTPS URL if the
+phone is outside the local network. The URL is baked into a release APK at
+build time; pass `API_URL=...` to `make build-apk` when needed.
 
 `.env.local` is ignored by Git and listed in the repository's
 `.worktreeinclude`, so compatible worktree tools copy it automatically. The
@@ -31,16 +37,13 @@ The app stores the JWT in SecureStore and sends `Authorization: Bearer <token>`.
 ## Run
 
 ```bash
-make dev-mobile              # from the repo root, or:
-pnpm --filter @timely/mobile start --android
-make emu-start               # memory-capped AVD (3G cgroup); make emu-stop when done
+make dev-mobile              # Metro on :8082
+make dev-mobile-device       # Expo Go on a USB phone, with adb reverse for Metro
+make emu-start               # memory-capped AVD; make emu-stop when done
 ```
 
-Release APK (memory-capped, detached): `make build-apk [API_URL=https://...]` from the repo root.
+Release APK (memory-capped detached build, with `make` waiting for completion):
+`make build-apk [API_URL=https://...]` from the repo root.
 
-On the Android emulator, Expo Go should open `exp://127.0.0.1:<port>` with `adb reverse tcp:<port> tcp:<port>` so the device can reach Metro. If Expo Go is already installed, you can also run:
-
-```bash
-adb reverse tcp:8081 tcp:8081
-adb shell am start -a android.intent.action.VIEW -d "exp://127.0.0.1:8081"
-```
+`make dev-mobile` uses Metro port 8082 so the worktree API can use 8081. Stop
+the emulator with `make emu-stop` after a check.
