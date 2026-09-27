@@ -6,6 +6,7 @@ import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
 import DateStrip from "../../../components/calendar/DateStrip";
+import CalendarScopeSelect from "../../../components/calendar/CalendarScopeSelect";
 import MobileAgenda from "../../../components/calendar/MobileAgenda";
 import MobileDay from "../../../components/calendar/MobileDay";
 import MobileMonth from "../../../components/calendar/MobileMonth";
@@ -29,7 +30,6 @@ import {
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
-import { Select } from "../../../components/ui/primitives";
 import { mergeCalendarItems } from "../../../lib/calendarMerge";
 import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
 import { rankUnscheduled } from "../../../lib/scheduleRank";
@@ -91,6 +91,8 @@ export default function CalendarScreen() {
     [occupancy, workspaceId, projectId],
   );
   const tasks = useTasksQuery().data ?? [];
+  const workspaceOptions = useMemo(() => workspaces.map((space) => ({ id: space.id, title: space.name, color: space.color, count: projects.filter((project) => project.workspaceId === space.id).length })), [workspaces, projects]);
+  const projectOptions = useMemo(() => scopedProjects.map((project) => ({ id: project.id, title: project.title || "Untitled project", color: project.color, count: tasks.filter((task) => task.projectId === project.id && !task.completedAt).length })), [scopedProjects, tasks]);
   const hoursQ = useWorkingHoursQuery();
   const overdue = useMemo(
     () =>
@@ -188,24 +190,25 @@ export default function CalendarScreen() {
     <Screen>
       <MobileHeader
         title={formatMonthYear(selected)}
+        large={false}
         actions={
-          <>
-            <HeaderIconButton label="Auto-schedule" onPress={() => setAutoOpen(true)}>
-              <Sparkles size={18} color={colors.foreground} />
-            </HeaderIconButton>
-            <HeaderIconButton label="Previous" onPress={() => step(-1)}>
-              <ChevronLeft size={22} color={colors.foreground} />
-            </HeaderIconButton>
-            <HeaderIconButton label="Next" onPress={() => step(1)}>
-              <ChevronRight size={22} color={colors.foreground} />
-            </HeaderIconButton>
-            <AnimatedPressable onPress={() => setSelected(startOfDay(new Date()))} disabled={isToday} style={[styles.today, isToday && { opacity: 0.4 }]}>
+          <View style={styles.dateNavActions}>
+            <AnimatedPressable accessibilityLabel="Previous period" onPress={() => step(-1)} style={styles.navButton}>
+              <ChevronLeft size={20} color={colors.foreground} />
+            </AnimatedPressable>
+            <AnimatedPressable onPress={() => setSelected(startOfDay(new Date()))} disabled={isToday} style={[styles.today, isToday && styles.todayDisabled]}>
               <Text style={styles.todayText}>Today</Text>
             </AnimatedPressable>
-          </>
+            <AnimatedPressable accessibilityLabel="Next period" onPress={() => step(1)} style={styles.navButton}>
+              <ChevronRight size={20} color={colors.foreground} />
+            </AnimatedPressable>
+            <HeaderIconButton label="Auto-schedule" onPress={() => setAutoOpen(true)}>
+              <Sparkles size={18} color={colors.primary} />
+            </HeaderIconButton>
+          </View>
         }
       >
-        <View style={{ paddingHorizontal: 12, paddingBottom: 10, gap: 8 }}>
+        <View style={styles.headerControls}>
           <SegmentedControl
             options={[
               { label: "Day", value: "day" },
@@ -220,36 +223,28 @@ export default function CalendarScreen() {
             <View style={styles.filters}>
               {workspaces.length > 0 ? (
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Select
-                    value={workspaceId ?? ""}
+                  <CalendarScopeSelect
+                    kind="spaces"
+                    value={workspaceId}
+                    options={workspaceOptions}
                     onChange={(id) => {
-                      setWorkspaceId(id || null);
+                      setWorkspaceId(id);
                       if (projectId && !projects.some((project) => project.id === projectId && (!id || project.workspaceId === id))) {
                         setProjectId(null);
                       }
                     }}
-                    placeholder="All spaces"
-                    options={[
-                      { value: "", label: "All spaces" },
-                      ...workspaces.map((space) => ({ value: space.id, label: space.name, color: space.color ?? undefined })),
-                    ]}
+                    onCreate={() => router.push("/(app)/settings/workspaces")}
                   />
                 </View>
               ) : null}
               {scopedProjects.length > 0 ? (
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Select
-                    value={projectId ?? ""}
-                    onChange={(id) => setProjectId(id || null)}
-                    placeholder="All projects"
-                    options={[
-                      { value: "", label: "All projects" },
-                      ...scopedProjects.map((project) => ({
-                        value: project.id,
-                        label: project.title || "Untitled project",
-                        color: project.color ?? undefined,
-                      })),
-                    ]}
+                  <CalendarScopeSelect
+                    kind="projects"
+                    value={projectId}
+                    onChange={setProjectId}
+                    options={projectOptions}
+                    onCreate={() => router.push("/(app)/projects")}
                   />
                 </View>
               ) : null}
@@ -384,27 +379,29 @@ export default function CalendarScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  headerControls: { paddingHorizontal: 16, paddingBottom: 12, gap: 12 },
+  dateNavActions: { flexDirection: "row", alignItems: "center", gap: 4 },
+  navButton: { width: 36, height: 36, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.muted },
   today: {
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: colors.accent,
+    paddingHorizontal: 10,
     justifyContent: "center",
   },
-  todayText: { color: colors.foreground, fontSize: 13, fontWeight: "500" },
+  todayDisabled: { opacity: 0.5 },
+  todayText: { color: colors.accentForeground, fontSize: 13, fontWeight: "700" },
   waiting: {
-    marginHorizontal: 12,
-    marginBottom: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 12,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 10,
+    borderRadius: 20,
+    backgroundColor: colors.muted,
+    padding: 16,
     gap: 8,
   },
   waitingHead: { flexDirection: "row", alignItems: "center" },
-  waitingTitle: { flex: 1, color: colors.foreground, fontWeight: "600" },
+  waitingTitle: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "700" },
   waitingCount: { color: colors.primary, fontSize: 11, fontWeight: "700", borderRadius: 10, backgroundColor: colors.accent, paddingHorizontal: 7, paddingVertical: 3 },
   waitingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   waitingName: { color: colors.foreground, fontSize: 14, fontWeight: "500" },

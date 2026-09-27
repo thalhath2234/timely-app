@@ -135,20 +135,18 @@ export default function CustomFieldEditor({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  root: { gap: 10 },
-  block: { gap: 6 },
+  root: { gap: 14 },
+  block: { gap: 8 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  label: { color: colors.mutedForeground, fontSize: 13 },
+  label: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
   empty: { color: colors.mutedForeground, fontSize: 13 },
-  value: { color: colors.foreground, fontSize: 14 },
+  value: { color: colors.primary, fontSize: 14, fontWeight: "700" },
   meta: {
-    minHeight: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.input,
-    backgroundColor: colors.card,
-    paddingHorizontal: 14,
+    minHeight: 56,
+    borderRadius: 16,
+    backgroundColor: colors.muted,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",

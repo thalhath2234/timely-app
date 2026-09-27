@@ -10,6 +10,8 @@ export type CreateTaskPayload = {
   deadline?: string;
   startDate?: string;
   scheduledOn?: string;
+  earliestStartAt?: string;
+  preferredWindows?: { start: string; end: string }[];
   workspaceId?: string;
   projectId?: string;
   statusId?: string;
@@ -159,6 +161,11 @@ export async function startFocus(taskId: string) {
 
 export async function stopFocus(taskId: string) {
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/focus/stop`, { method: "POST" });
+  return unwrap(res, "task");
+}
+
+export async function pauseFocus(taskId: string) {
+  const res = await api<Task | { task: Task }>(`/tasks/${taskId}/focus/pause`, { method: "POST" });
   return unwrap(res, "task");
 }
 

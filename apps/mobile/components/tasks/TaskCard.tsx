@@ -1,10 +1,10 @@
 import { memo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { CalendarDays, Check } from "lucide-react-native";
 import type { Task } from "../../lib/types";
 import { formatDateAndTime, formatDueDate, formatDuration, formatRelativeDay, isOverdue, PRIORITY_META } from "../../lib/format";
-import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { Dot } from "../ui/primitives";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { taskEntityColor } from "../../lib/entityColor";
@@ -94,32 +94,32 @@ const styles = createThemedStyleSheet((colors) => ({
   card: {
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: radius,
+    borderRadius: 20,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.card,
   },
-  selected: { borderColor: colors.primary },
-  bar: { width: 3, alignSelf: "stretch", borderRadius: 2, marginVertical: 10, marginLeft: 8 },
-  check: { width: 48, alignItems: "center", justifyContent: "center" },
+  selected: { backgroundColor: colors.accent },
+  bar: { width: 4, alignSelf: "stretch", borderRadius: 2, marginVertical: 12, marginLeft: 10 },
+  check: { width: 52, alignItems: "center", justifyContent: "center" },
   box: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1.5,
     borderColor: colors.mutedForeground,
     alignItems: "center",
     justifyContent: "center",
   },
   boxOn: { backgroundColor: colors.success, borderColor: colors.success },
-  body: { flex: 1, minHeight: 64, justifyContent: "center", paddingVertical: 12, paddingRight: 12, gap: 6 },
+  body: { flex: 1, minHeight: 76, justifyContent: "center", paddingVertical: 14, paddingRight: 14, gap: 7 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  name: { flex: 1, color: colors.cardForeground, fontSize: 14, fontWeight: "600", lineHeight: 19 },
+  name: { flex: 1, minWidth: 0, color: colors.cardForeground, fontSize: 15, fontWeight: "700", lineHeight: 21 },
   duration: { color: colors.foreground, fontFamily: "SpaceMono", fontSize: 12, fontWeight: "700", marginTop: 1 },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-  metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { color: colors.mutedForeground, fontSize: 11 },
-  priorityPill: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2 },
-  priorityText: { fontSize: 9, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  metaItem: { flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" },
+  metaText: { color: colors.mutedForeground, fontSize: 12, flexShrink: 1 },
+  priorityPill: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+  priorityText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
 }));

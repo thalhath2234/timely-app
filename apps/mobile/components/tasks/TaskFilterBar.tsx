@@ -2,7 +2,7 @@ import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { Plus } from "lucide-react-native";
 import type { TaskViewConfig } from "../../lib/types";
-import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { Chip } from "../ui/primitives";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { useSlidingPill } from "../ui/useSlidingPill";
@@ -61,15 +61,13 @@ export default function TaskFilterBar({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  wrap: { paddingBottom: 10 },
-  scroller: { flexGrow: 1, paddingHorizontal: 12, paddingVertical: 2 },
+  wrap: { paddingBottom: 12 },
+  scroller: { flexGrow: 1, paddingHorizontal: 16, paddingVertical: 2 },
   track: {
     flexGrow: 1,
     padding: 3,
-    borderRadius: radius,
+    borderRadius: 20,
     backgroundColor: colors.muted,
-    borderWidth: 1,
-    borderColor: colors.border,
     overflow: "hidden",
   },
   row: {
@@ -82,10 +80,8 @@ const styles = createThemedStyleSheet((colors) => ({
     position: "absolute",
     top: 0,
     bottom: 0,
-    borderRadius: radius - 4,
+    borderRadius: 16,
     backgroundColor: colors.primary,
-    borderWidth: 1,
-    borderColor: colors.ring,
   },
   add: {
     flexDirection: "row",

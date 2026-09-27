@@ -58,28 +58,26 @@ export default function ConfirmSheet({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  message: { color: colors.mutedForeground, fontSize: 14, paddingHorizontal: 4, paddingBottom: 16 },
-  row: { flexDirection: "row", gap: 8, paddingBottom: 4 },
+  message: { color: colors.mutedForeground, fontSize: 15, lineHeight: 22, paddingBottom: 16 },
+  row: { flexDirection: "row", gap: 10 },
   cancel: {
     flex: 1,
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
+    height: 56,
+    borderRadius: 20,
+    backgroundColor: colors.muted,
     alignItems: "center",
     justifyContent: "center",
   },
-  cancelText: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
+  cancelText: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
   confirm: {
     flex: 1,
-    height: 48,
-    borderRadius: 12,
+    height: 56,
+    borderRadius: 20,
     backgroundColor: colors.destructive,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
-  confirmText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  confirmText: { color: "#fff", fontSize: 15, fontWeight: "800" },
 }));

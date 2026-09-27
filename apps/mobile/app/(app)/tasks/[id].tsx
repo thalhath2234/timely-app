@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Ban, CalendarDays, Check, CircleDot, Clock, Copy, Flag, FolderKanban, ListTodo, Play, Trash2 } from "lucide-react-native";
+import { Ban, CalendarDays, Check, CircleDot, Clock, Copy, Flag, FolderKanban, History, ListChecks, ListTodo, Pin, Play, Plus, Sparkles, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
@@ -14,6 +14,7 @@ import { Chip, Dot, Field, PrimaryButton, PropertyGroup, PropertyRow } from "../
 import EmptyState from "../../../components/ui/EmptyState";
 import RichTextEditor from "../../../components/editor/RichTextEditor";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
+import TaskSectionHeader from "../../../components/tasks/TaskSectionHeader";
 import { toCustomFieldDrafts } from "../../../lib/customFields";
 import type { CustomFieldValueInput, DocContent } from "../../../lib/types";
 import {
@@ -248,6 +249,8 @@ export default function TaskDetailScreen() {
           <Text style={styles.eyebrow}>{isReminder ? "TITLE" : "TASK OBJECTIVE"}</Text>
           <Field
             bare
+            multiline
+            autoGrow
             value={name}
             onChangeText={(next) => {
               setName(next);
@@ -306,7 +309,7 @@ export default function TaskDetailScreen() {
                 : "Estimated minutes of work the scheduler can place."}
           </Text>
         </View>
-        <PropertyGroup>
+        <PropertyGroup tone="card">
           {!isReminder ? (
           <PropertyRow
             icon={<FolderKanban size={16} color={colors.mutedForeground} />}
@@ -401,8 +404,8 @@ export default function TaskDetailScreen() {
             </Text>
           </Pressable>
         ) : null}
-        <Text style={styles.section}>{isReminder ? "Reminder" : "Schedule"}</Text>
         <View style={styles.sectionCard}>
+        <TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title={isReminder ? "Reminder Schedule" : "Smart Schedule"} subtitle={isReminder ? "Choose when to get notified" : "Place and manage work blocks"} badge={task.scheduleLocked ? "Locked" : undefined} badgeTone="success" />
         {isReminder || task.recurrence ? (
           <>
             <Pressable onPress={() => setPicker("schedule")} style={styles.block}>
@@ -428,10 +431,11 @@ export default function TaskDetailScreen() {
           <>
             {(task.blocks ?? []).map((block) => (
               <View key={block.id} style={styles.block}>
-                <Text style={styles.blockText}>
-                  {formatRelativeDay(new Date(block.start))} · {formatTimeRange(block.start, block.end)}
-                  {block.locked || block.source === "manual" ? " · pinned" : ""}
-                </Text>
+                <View style={styles.blockIcon}><Pin size={17} color={colors.primary} /></View>
+                <View style={styles.blockCopy}>
+                  <Text style={styles.blockDate}>{formatRelativeDay(new Date(block.start))}{block.locked || block.source === "manual" ? "  ·  PINNED" : ""}</Text>
+                  <Text style={styles.blockText}>{formatTimeRange(block.start, block.end)}</Text>
+                </View>
                 {!isInactive ? <View style={{ flexDirection: "row", gap: 12 }}>
                   {block.source === "engine" && !block.locked ? (
                     <Pressable onPress={() => pinBlock.mutate({ blockId: block.id, locked: true })} hitSlop={8}>
@@ -453,7 +457,22 @@ export default function TaskDetailScreen() {
                 </View> : null}
               </View>
             ))}
-            {!isInactive ? <PrimaryButton label="+ Add time" onPress={() => setPicker("schedule")} /> : null}
+            {!isInactive ? <View style={styles.scheduleActions}>
+              <Pressable onPress={() => setPicker("schedule")} style={styles.scheduleSecondary}>
+                <Plus size={17} color={colors.primary} /><Text style={styles.scheduleActionText}>Add Time Slot</Text>
+              </Pressable>
+              {!isInbox ? <Pressable disabled={applySchedule.isPending} onPress={async () => {
+                setScheduleError(null);
+                try {
+                  const plan = await applySchedule.mutateAsync({ taskIds: [task.id] });
+                  const skipped = plan.skipped?.find((item) => item.taskId === task.id);
+                  if (skipped) setScheduleError(skipped.message || "Could not auto-schedule this task.");
+                  else if (!plan.proposals?.some((item) => item.taskId === task.id)) setScheduleError("The engine did not place this task.");
+                } catch (err) { setScheduleError(err instanceof Error ? err.message : "Could not auto-schedule this task."); }
+              }} style={styles.schedulePrimary}>
+                <Sparkles size={16} color={colors.primaryForeground} /><Text style={styles.schedulePrimaryText}>{applySchedule.isPending ? "Scheduling…" : "Auto-Schedule"}</Text>
+              </Pressable> : null}
+            </View> : null}
             {!isInactive && (task.blocks ?? []).length > 0 ? (
               <Pressable
                 onPress={() =>
@@ -470,26 +489,6 @@ export default function TaskDetailScreen() {
             ) : null}
             {!isInbox && !isInactive ? (
               <>
-                <PrimaryButton
-                  label={applySchedule.isPending ? "Scheduling…" : "Auto-schedule this task"}
-                  disabled={applySchedule.isPending}
-                  onPress={async () => {
-                    setScheduleError(null);
-                    try {
-                      const plan = await applySchedule.mutateAsync({ taskIds: [task.id] });
-                      const skipped = plan.skipped?.find((item) => item.taskId === task.id);
-                      if (skipped) {
-                        setScheduleError(skipped.message || "Could not auto-schedule this task.");
-                      } else if (!plan.proposals?.some((item) => item.taskId === task.id)) {
-                        setScheduleError("The engine did not place this task.");
-                      }
-                    } catch (err) {
-                      setScheduleError(
-                        err instanceof Error ? err.message : "Could not auto-schedule this task.",
-                      );
-                    }
-                  }}
-                />
                 {scheduleError ? (
                   <Text style={[styles.activity, { color: colors.destructive }]}>{scheduleError}</Text>
                 ) : null}
@@ -505,7 +504,7 @@ export default function TaskDetailScreen() {
                     onPress={() => persist({ contiguous: !task.contiguous })}
                   />
                 </View>
-                <Text style={styles.activity}>Min chunk</Text>
+                <Text style={styles.constraintLabel}>Minimum Chunk Duration <Text style={styles.constraintValue}>{task.minChunkMinutes ?? 15}m</Text></Text>
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                   {[15, 30, 45, 60].map((minutes) => (
                     <Chip
@@ -596,8 +595,8 @@ export default function TaskDetailScreen() {
           <>
           <ActionTile
             icon={<Play size={17} color={colors.foreground} fill={task.focusStartedAt ? colors.foreground : "transparent"} />}
-            label={task.focusStartedAt ? "Stop focus" : "Start focus"}
-            active={Boolean(task.focusStartedAt)}
+            label={task.focusStartedAt ? "Stop focus" : task.focusPausedAt ? "Resume focus" : "Start focus"}
+            active={Boolean(task.focusStartedAt || task.focusPausedAt)}
             onPress={() =>
               task.focusStartedAt
                 ? void stopFocus.mutateAsync(task.id)
@@ -628,14 +627,9 @@ export default function TaskDetailScreen() {
         {(task.actualMinutes ?? 0) > 0 ? (
           <Text style={styles.activity}>{task.actualMinutes}m actually focused</Text>
         ) : null}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.section}>Checklist</Text>
-          <Text style={styles.progressText}>{combinedDone} of {combinedTotal}</Text>
-        </View>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${Math.round(combinedProgress * 100)}%` }]} />
-        </View>
         <View style={styles.sectionCard}>
+        <TaskSectionHeader icon={<ListChecks size={18} color={colors.success} />} title="Checklist" subtitle="Breakdown items" badge={`${combinedDone} of ${combinedTotal} done`} badgeTone="success" />
+        <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.round(combinedProgress * 100)}%` }]} /></View>
         {checklist.map((item) => (
           <Pressable
             key={item.id}
@@ -677,11 +671,8 @@ export default function TaskDetailScreen() {
         </View>
         </View>
         </> : null}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.section}>Activity Log</Text>
-          <Text style={styles.sectionMeta}>Latest {(activity.data ?? []).length} events</Text>
-        </View>
         <View style={styles.sectionCard}>
+        <TaskSectionHeader icon={<History size={18} color={colors.primary} />} title="Activity & Comments" subtitle="Latest system events" badge={`${(activity.data ?? []).length} events`} badgeTone="muted" />
         <ScrollView
           nestedScrollEnabled
           showsVerticalScrollIndicator={(activity.data ?? []).length > 4}
@@ -982,14 +973,14 @@ export default function TaskDetailScreen() {
 function ActionTile({ icon, label, active, onPress }: { icon: ReactNode; label: string; active?: boolean; onPress: () => void }) {
   return (
     <AnimatedPressable onPress={onPress} style={[styles.actionTile, active && styles.actionTileActive]}>
-      {icon}
+      <View style={styles.actionIcon}>{icon}</View>
       <Text style={styles.actionTileText}>{label}</Text>
     </AnimatedPressable>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  content: { padding: 16, paddingBottom: 40, gap: 12 },
+  content: { padding: 16, paddingBottom: 40, gap: 16 },
   complete: {
     flexDirection: "row",
     alignItems: "center",
@@ -1000,8 +991,8 @@ const styles = createThemedStyleSheet((colors) => ({
     height: 32,
   },
   completeText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "600" },
-  objectiveCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, gap: 7 },
-  descriptionCard: { gap: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, minHeight: 170 },
+  objectiveCard: { borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16, gap: 7 },
+  descriptionCard: { gap: 10, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16, minHeight: 170 },
   eyebrow: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", letterSpacing: 0.9 },
   rowAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   reminderChip: {
@@ -1020,13 +1011,14 @@ const styles = createThemedStyleSheet((colors) => ({
   progressText: { color: colors.success, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700" },
   progressTrack: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden", width: "100%" },
   progressFill: { height: "100%", borderRadius: 999, backgroundColor: colors.success },
-  sectionCard: { gap: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
-  editorCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
+  sectionCard: { gap: 13, borderRadius: 24, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16 },
+  editorCard: { borderRadius: 24, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16 },
   actionGrid: { flexDirection: "row", gap: 8 },
-  actionTile: { flex: 1, minHeight: 66, alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 6 },
+  actionTile: { flex: 1, minWidth: 0, minHeight: 88, alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 5, paddingVertical: 9 },
   actionTileActive: { borderColor: colors.primary, backgroundColor: colors.accent },
-  actionTileText: { color: colors.foreground, fontSize: 10, fontWeight: "700", textAlign: "center" },
-  checkRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 5 },
+  actionIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
+  actionTileText: { color: colors.foreground, fontSize: 11, lineHeight: 15, fontWeight: "700", textAlign: "center", flexShrink: 1 },
+  checkRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background },
   checkbox: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: colors.mutedForeground, alignItems: "center", justifyContent: "center" },
   checkboxDone: { borderColor: colors.success, backgroundColor: colors.success },
   checkText: { flex: 1, color: colors.foreground, fontSize: 12 },
@@ -1038,13 +1030,23 @@ const styles = createThemedStyleSheet((colors) => ({
   addBtnText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "700" },
   addBtnSecondaryText: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
   preferRow: { flexDirection: "row", gap: 8 },
-  preferBtn: { flex: 1, minHeight: 52, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.muted, paddingHorizontal: 12, paddingVertical: 8, justifyContent: "center", gap: 2 },
+  preferBtn: { flex: 1, minWidth: 0, minHeight: 62, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background, paddingHorizontal: 12, paddingVertical: 8, justifyContent: "center", gap: 2 },
   preferLabel: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  preferValue: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
+  preferValue: { color: colors.foreground, fontSize: 13, fontWeight: "600", flexShrink: 1 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  block: { borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 12 },
-  blockText: { color: colors.foreground, fontSize: 14 },
-  activity: { flex: 1, color: colors.mutedForeground, fontSize: 12, lineHeight: 17 },
+  block: { flexDirection: "row", alignItems: "center", gap: 9, borderRadius: 16, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, padding: 12 },
+  blockIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
+  blockCopy: { flex: 1, minWidth: 0, gap: 2 },
+  blockDate: { color: colors.foreground, fontSize: 12, fontWeight: "800", lineHeight: 17 },
+  blockText: { color: colors.accentForeground, fontSize: 12, lineHeight: 17, flexShrink: 1 },
+  scheduleActions: { flexDirection: "row", gap: 8 },
+  scheduleSecondary: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 16, backgroundColor: colors.muted, borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 6 },
+  schedulePrimary: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 16, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 6 },
+  scheduleActionText: { color: colors.foreground, fontSize: 11, fontWeight: "700", textAlign: "center", flexShrink: 1 },
+  schedulePrimaryText: { color: colors.primaryForeground, fontSize: 11, fontWeight: "700", textAlign: "center", flexShrink: 1 },
+  constraintLabel: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", lineHeight: 18 },
+  constraintValue: { color: colors.primary, fontWeight: "800" },
+  activity: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, flexShrink: 1 },
   activityLog: { maxHeight: 156 },
   activityRow: { minHeight: 39, flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 3 },
   activityDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary, marginTop: 6 },

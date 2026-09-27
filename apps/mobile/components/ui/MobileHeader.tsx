@@ -72,7 +72,7 @@ export default function MobileHeader({
   children?: ReactNode;
 }) {
   const router = useRouter();
-  const showAccountActions = accountActions ?? !back;
+  const showAccountActions = accountActions === true;
   return (
     <View style={styles.wrap}>
       <View style={[styles.row, !large && styles.rowCompact]}>

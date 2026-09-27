@@ -47,21 +47,21 @@ func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (
 		return nil, err
 	}
 	clone := &models.Task{
-		Name:            strings.TrimSpace(opts.namePrefix + src.Name),
-		Description:     src.Description,
-		DescriptionRich: src.DescriptionRich,
-		Duration:        src.Duration,
-		Kind:            src.Kind,
-		Deadline:        src.Deadline,
-		StartDate:       src.StartDate,
-		UserID:          &userID,
-		ProjectID:       firstNonEmpty(opts.projectID, src.ProjectID),
-		StatusID:        src.StatusID,
-		PriorityLevel:   src.PriorityLevel,
-		WorkspaceID:     src.WorkspaceID,
-		StageID:         firstNonEmpty(opts.stageID, src.StageID),
-		LabelIDs:        src.LabelIDs,
-		Checklist:       src.Checklist.Clone(),
+		Name:                  strings.TrimSpace(opts.namePrefix + src.Name),
+		Description:           src.Description,
+		DescriptionRich:       src.DescriptionRich,
+		Duration:              src.Duration,
+		Kind:                  src.Kind,
+		Deadline:              src.Deadline,
+		StartDate:             src.StartDate,
+		UserID:                &userID,
+		ProjectID:             firstNonEmpty(opts.projectID, src.ProjectID),
+		StatusID:              src.StatusID,
+		PriorityLevel:         src.PriorityLevel,
+		WorkspaceID:           src.WorkspaceID,
+		StageID:               firstNonEmpty(opts.stageID, src.StageID),
+		LabelIDs:              src.LabelIDs,
+		Checklist:             src.Checklist.Clone(),
 		MinChunkMinutes:       src.MinChunkMinutes,
 		PreferredChunkMinutes: src.PreferredChunkMinutes,
 		Contiguous:            src.Contiguous,
@@ -241,16 +241,42 @@ func (s *taskService) StartFocus(userID, taskID string) (*models.Task, error) {
 	}
 	for i := range all {
 		other := all[i]
-		if other.ID == taskID || !other.IsFocusing() {
+		if other.ID == taskID {
 			continue
 		}
-		if _, err := s.stopFocusTask(userID, &other); err != nil {
-			return nil, err
+		if other.IsFocusing() || other.FocusPausedAt != nil {
+			if _, err := s.stopFocusTask(userID, &other); err != nil {
+				return nil, err
+			}
 		}
 	}
 	now := utils.GetCurrentTimestamp()
 	if _, err := s.taskRepo.UpdateTask(userID, taskID, map[string]any{
 		"focus_started_at": now,
+		"focus_paused_at":  nil,
+		"updated_at":       utils.GetCurrentTime(),
+	}); err != nil {
+		return nil, err
+	}
+	return s.GetForUser(userID, taskID)
+}
+
+func (s *taskService) PauseFocus(userID, taskID string) (*models.Task, error) {
+	task, err := s.taskRepo.GetTaskByIdForUser(userID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if !task.IsFocusing() {
+		if task.FocusPausedAt != nil {
+			return s.GetForUser(userID, taskID)
+		}
+		return nil, errors.New("task is not being focused")
+	}
+	elapsed := elapsedFocusMinutes(*task.FocusStartedAt)
+	if _, err := s.taskRepo.UpdateTask(userID, taskID, map[string]any{
+		"actual_minutes":   task.ActualMinutes + elapsed,
+		"focus_started_at": nil,
+		"focus_paused_at":  utils.GetCurrentTimestamp(),
 		"updated_at":       utils.GetCurrentTime(),
 	}); err != nil {
 		return nil, err
@@ -271,12 +297,19 @@ func (s *taskService) StopFocus(userID, taskID string) (*models.Task, error) {
 
 func (s *taskService) stopFocusTask(userID string, task *models.Task) (*models.Task, error) {
 	if !task.IsFocusing() {
-		return task, nil
+		if task.FocusPausedAt == nil {
+			return task, nil
+		}
+		return s.taskRepo.UpdateTask(userID, task.ID, map[string]any{
+			"focus_paused_at": nil,
+			"updated_at":      utils.GetCurrentTime(),
+		})
 	}
 	elapsed := elapsedFocusMinutes(*task.FocusStartedAt)
 	return s.taskRepo.UpdateTask(userID, task.ID, map[string]any{
 		"actual_minutes":   task.ActualMinutes + elapsed,
 		"focus_started_at": nil,
+		"focus_paused_at":  nil,
 		"updated_at":       utils.GetCurrentTime(),
 	})
 }

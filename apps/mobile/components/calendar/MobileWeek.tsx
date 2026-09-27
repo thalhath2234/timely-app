@@ -1,8 +1,8 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarItem } from "../../lib/types";
-import { addDays, dayKey, formatTime, isSameDay, startOfDay, startOfWeek } from "../../lib/format";
-import { itemColor } from "./CalendarItemRow";
+import { addDays, dayKey, isSameDay, startOfDay, startOfWeek } from "../../lib/format";
+import { AgendaTimelineRow } from "./MobileAgenda";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { floatingTabBarInset } from "../ui/FloatingTabBar";
@@ -54,17 +54,7 @@ export default function MobileWeek({
             {dayItems.length === 0 ? (
               <Text style={styles.empty}>Tap and hold to add</Text>
             ) : (
-              dayItems.slice(0, 6).map((item) => (
-                <AnimatedPressable
-                  key={item.id}
-                  onPress={() => onOpen(item)}
-                  style={[styles.chip, { borderLeftColor: itemColor(item) }]}
-                >
-                  <Text numberOfLines={1} style={[styles.chipText, Boolean(item.completedAt) && styles.done]}>
-                    {item.allDay ? item.title : `${formatTime(item.start)} ${item.title}`}
-                  </Text>
-                </AnimatedPressable>
-              ))
+              dayItems.slice(0, 6).map((item) => <AgendaTimelineRow key={item.id} item={item} onOpen={onOpen} />)
             )}
             {dayItems.length > 6 ? <Text style={styles.more}>+{dayItems.length - 6} more</Text> : null}
           </AnimatedPressable>
@@ -77,26 +67,16 @@ export default function MobileWeek({
 const styles = createThemedStyleSheet((colors) => ({
   body: { padding: 12, gap: 10, paddingBottom: 40 },
   day: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+    backgroundColor: colors.background,
     padding: 12,
     gap: 8,
   },
-  dayOn: { borderColor: colors.primary },
+  dayOn: { borderLeftColor: colors.primary, backgroundColor: colors.accent },
   head: { flexDirection: "row", alignItems: "baseline", gap: 8 },
   wd: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase" },
   num: { color: colors.foreground, fontSize: 16, fontWeight: "700" },
   empty: { color: colors.mutedForeground, fontSize: 11, textAlign: "center", paddingVertical: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, borderRadius: 9 },
-  chip: {
-    borderLeftWidth: 3,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    backgroundColor: colors.background,
-  },
-  chipText: { color: colors.foreground, fontSize: 13 },
-  done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   more: { color: colors.mutedForeground, fontSize: 12 },
 }));

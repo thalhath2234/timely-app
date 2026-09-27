@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Chip, SectionLabel } from "./primitives";
+import { Repeat2 } from "lucide-react-native";
+import { Chip } from "./primitives";
+import TaskSectionHeader from "../tasks/TaskSectionHeader";
 import DateTimeSheet from "./DateTimeSheet";
 import {
   LAST_DAY,
@@ -59,7 +61,7 @@ export default function RecurrenceEditor({
   const matched = draftToPreset(value, anchor);
   const [customOpen, setCustomOpen] = useState(matched === "custom");
   const [pickingUntil, setPickingUntil] = useState(false);
-  const showCustom = value !== null && (customOpen || matched === "custom");
+  const showCustom = value !== null && (customOpen || matched === "custom" || matched === "weekly");
 
   function update(patch: Partial<RecurrenceDraft>) {
     if (!value) return;
@@ -72,7 +74,13 @@ export default function RecurrenceEditor({
 
   return (
     <View style={styles.root}>
-      <SectionLabel>Repeat</SectionLabel>
+      <TaskSectionHeader
+        icon={<Repeat2 size={18} color={colors.accentForeground} />}
+        title="Repeat Cadence"
+        subtitle="Automate recurring placement"
+        badge={value ? presetLabel(matched, anchor) : "Off"}
+        badgeTone={value ? "primary" : "muted"}
+      />
       <View style={styles.wrap}>
         {PRESETS.map((preset) => (
           <Chip
@@ -275,30 +283,21 @@ function MonthDayGrid({ value, onChange }: { value: number[]; onChange: (days: n
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  root: { gap: 8 },
+  root: { gap: 14, borderRadius: 24, backgroundColor: colors.card, padding: 16 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   row: { gap: 8 },
-  panel: {
-    gap: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.muted,
-    padding: 12,
-  },
-  muted: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
+  panel: { gap: 12, borderRadius: 18, backgroundColor: colors.background, padding: 14 },
+  muted: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
   stepper: { flexDirection: "row", alignItems: "center", gap: 10 },
   step: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
+    width: 40,
+    height: 40,
+    borderRadius: 16,
     backgroundColor: colors.card,
     alignItems: "center",
     justifyContent: "center",
   },
   stepText: { color: colors.foreground, fontSize: 18, fontWeight: "600" },
-  stepValue: { color: colors.foreground, fontSize: 16, fontWeight: "600", minWidth: 24, textAlign: "center" },
-  summary: { color: colors.mutedForeground, fontSize: 11, lineHeight: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 8 },
+  stepValue: { color: colors.primary, fontSize: 18, fontWeight: "800", minWidth: 24, textAlign: "center" },
+  summary: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 12 },
 }));

@@ -164,12 +164,12 @@ export function LabelComposer({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  root: { gap: 10 },
-  colors: { flexDirection: "row", gap: 8 },
-  swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2 },
-  options: { gap: 8 },
-  optionHint: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
-  optionRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  optionDot: { width: 22, height: 22, borderRadius: 11 },
-  addOption: { color: colors.mutedForeground, fontSize: 13, fontWeight: "600" },
+  root: { gap: 14 },
+  colors: { flexDirection: "row", gap: 12, paddingVertical: 6 },
+  swatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 3 },
+  options: { gap: 12 },
+  optionHint: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  optionRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  optionDot: { width: 28, height: 28, borderRadius: 14 },
+  addOption: { color: colors.primary, fontSize: 14, fontWeight: "700", paddingVertical: 8 },
 }));

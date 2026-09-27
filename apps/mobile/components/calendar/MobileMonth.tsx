@@ -11,7 +11,8 @@ import {
 import { CalendarDays } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
 import { addDays, addMonths, dayKey, isSameDay, startOfDay } from "../../lib/format";
-import CalendarItemRow, { itemColor } from "./CalendarItemRow";
+import { itemColor } from "./CalendarItemRow";
+import { AgendaTimelineRow } from "./MobileAgenda";
 import EmptyState from "../ui/EmptyState";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -184,9 +185,9 @@ export default function MobileMonth({
         {selectedItems.length === 0 ? (
           <EmptyState icon={CalendarDays} title="Free day" description="Nothing scheduled on this date." compact />
         ) : (
-          <View style={{ gap: 8 }}>
+          <View>
             {selectedItems.map((item) => (
-              <CalendarItemRow key={item.id} item={item} onOpen={onOpen} />
+              <AgendaTimelineRow key={item.id} item={item} onOpen={onOpen} />
             ))}
           </View>
         )}
@@ -211,6 +212,6 @@ const styles = createThemedStyleSheet((colors) => ({
   dot: { width: 5, height: 5, borderRadius: 3 },
   dayList: { flex: 1, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, backgroundColor: colors.background },
   dayHead: { flexDirection: "row", alignItems: "baseline", gap: 8, paddingTop: 10, paddingBottom: 4, paddingHorizontal: 4 },
-  dayTitle: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
-  dayMeta: { color: colors.mutedForeground, fontSize: 12 },
+  dayTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  dayMeta: { color: colors.mutedForeground, fontSize: 12, flexShrink: 0 },
 }));

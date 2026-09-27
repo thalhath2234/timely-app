@@ -1,4 +1,5 @@
 import { Text, View } from "react-native";
+import { Check } from "lucide-react-native";
 import BottomSheet from "../ui/BottomSheet";
 import { Field, PrimaryButton, SectionLabel, Select } from "../ui/primitives";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -40,7 +41,7 @@ function FilterChip({
   onPress: () => void;
 }) {
   const tint = color && active ? `${color}33` : undefined;
-  const border = color ? (active ? `${color}88` : colors.border) : undefined;
+  const border = color ? (active ? `${color}88` : "transparent") : undefined;
   return (
     <AnimatedPressable
       accessibilityRole="button"
@@ -50,9 +51,10 @@ function FilterChip({
       style={[
         styles.chip,
         active && !color ? styles.chipOn : null,
-        color ? { borderColor: border, backgroundColor: tint || colors.card } : null,
+        color ? { borderColor: border, backgroundColor: tint || colors.muted } : null,
       ]}
     >
+      {active ? <Check size={15} color={color || colors.primaryForeground} strokeWidth={2.5} /> : null}
       {color ? <View style={[styles.chipDot, { backgroundColor: color }]} /> : null}
       <Text
         style={[
@@ -407,33 +409,33 @@ export default function TaskFiltersSheet({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  block: { gap: 10, marginBottom: 22 },
+  block: { gap: 12, marginBottom: 24 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   groupRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   footer: { flexDirection: "row", alignItems: "center", gap: 12 },
   reset: { paddingHorizontal: 12, paddingVertical: 12 },
-  resetText: { color: colors.mutedForeground, fontWeight: "600" },
+  resetText: { color: colors.primary, fontWeight: "700" },
   hint: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   remove: { paddingHorizontal: 8, paddingVertical: 10 },
   removeText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   chip: {
-    minHeight: 42,
-    borderRadius: 13,
+    minHeight: 44,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
+    borderColor: "transparent",
+    backgroundColor: colors.muted,
     paddingHorizontal: 15,
     paddingVertical: 9,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-  chipOn: { backgroundColor: colors.primary, borderColor: colors.ring, shadowColor: colors.primary, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
-  chipText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
+  chipOn: { backgroundColor: colors.primary },
+  chipText: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
-  toggleRow: { minHeight: 58, marginTop: 4, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  toggleTitle: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
-  toggleHint: { color: colors.mutedForeground, fontSize: 10, marginTop: 2 },
+  toggleRow: { minHeight: 64, marginTop: 4, paddingHorizontal: 16, borderRadius: 20, backgroundColor: colors.muted, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  toggleTitle: { color: colors.foreground, fontSize: 14, fontWeight: "700" },
+  toggleHint: { color: colors.mutedForeground, fontSize: 11, marginTop: 2 },
   switchTrack: { width: 42, height: 24, borderRadius: 12, padding: 3, backgroundColor: colors.muted },
   switchTrackOn: { backgroundColor: colors.primary },
   switchThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.foreground },
