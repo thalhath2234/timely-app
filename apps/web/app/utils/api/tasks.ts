@@ -106,6 +106,35 @@ export async function createTask(data: CreateTaskPayload): Promise<Task> {
   return resData.task ?? resData;
 }
 
+export async function captureInbox(name: string): Promise<Task> {
+  const response = await apiFetch("/inbox", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to capture"));
+  }
+  const resData = await response.json();
+  return resData.task ?? resData;
+}
+
+export async function clarifyInbox(
+  inboxId: string,
+  data: CreateTaskPayload,
+): Promise<Task> {
+  const response = await apiFetch(`/inbox/${inboxId}/clarify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to clarify"));
+  }
+  const resData = await response.json();
+  return resData.task ?? resData;
+}
+
 /** Every field is optional so autosave can send just what changed. Passing an
  * empty string to a nullable field clears it. */
 export interface UpdateTaskPayload {

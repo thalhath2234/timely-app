@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
-import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus } from "./api/tasks";
+import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
 import type { Doc, MentionEntityType, NotificationSettings, Project, Sheet, Task, TaskViewConfig } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, materializeTemplateTab } from "./api/sheets";
@@ -16,6 +16,7 @@ import {
   getScheduleSettings,
   getToday,
   getWorkingHours,
+  getRank,
   moveBlock,
   pinBlock,
   pinTask,
@@ -77,6 +78,7 @@ export const keys = {
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
   inbox: ["tasks", "inbox"] as const,
+  rank: ["schedule", "rank"] as const,
   today: ["today"] as const,
   notifications: ["notifications"] as const,
   unreadNotifications: ["notifications", "unread-count"] as const,
@@ -119,6 +121,10 @@ export function useInboxQuery() {
 
 export function useTodayQuery() {
   return useQuery({ queryKey: keys.today, queryFn: () => getToday() });
+}
+
+export function useRankQuery() {
+  return useQuery({ queryKey: keys.rank, queryFn: getRank, staleTime: 15_000 });
 }
 
 export function useTaskQuery(id: string | undefined) {
@@ -319,6 +325,7 @@ export function useInvalidateAll() {
       client.invalidateQueries({ queryKey: keys.projects }),
       client.invalidateQueries({ queryKey: keys.workspaces }),
       client.invalidateQueries({ queryKey: keys.inbox }),
+      client.invalidateQueries({ queryKey: keys.rank }),
       client.invalidateQueries({ queryKey: keys.today }),
       client.invalidateQueries({ queryKey: keys.scheduleSettings }),
     ]);
@@ -467,6 +474,14 @@ export function useCreateTask() {
       await invalidate();
       if (shouldAutoScheduleAfterCreate(payload)) void autoSchedule();
     },
+  });
+}
+
+export function useCaptureInbox() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => captureInbox(name),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.inbox }),
   });
 }
 

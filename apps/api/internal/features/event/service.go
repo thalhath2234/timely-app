@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 	"timely-api/internal/features/embed"
+	"timely-api/internal/features/placement"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
 	"timely-api/internal/utils"
@@ -21,6 +22,7 @@ type EventUpdate struct {
 	Description *string
 	Start       *string
 	End         *string
+	Duration    *int
 	AllDay      *bool
 	Color       *string
 	WorkspaceID *string
@@ -62,11 +64,12 @@ type EventService interface {
 type eventService struct {
 	repo       EventRepository
 	recurrence *recurrence.Store
+	placement  *placement.Service
 	indexer    embed.Indexer
 }
 
-func NewEventService(repo EventRepository, recurrenceStore *recurrence.Store, indexer embed.Indexer) EventService {
-	return &eventService{repo: repo, recurrence: recurrenceStore, indexer: indexer}
+func NewEventService(repo EventRepository, recurrenceStore *recurrence.Store, place *placement.Service, indexer embed.Indexer) EventService {
+	return &eventService{repo: repo, recurrence: recurrenceStore, placement: place, indexer: indexer}
 }
 
 func (s *eventService) Create(userID string, event *models.Event, rec *models.RecurrenceInput) (*models.Event, error) {
@@ -80,7 +83,15 @@ func (s *eventService) Create(userID string, event *models.Event, rec *models.Re
 	if len(event.Title) > maxTitleLength {
 		event.Title = event.Title[:maxTitleLength]
 	}
-	if !event.EndAt.After(event.StartAt) {
+	if event.AllDay {
+		event.Duration = 0
+	} else if event.Duration <= 0 {
+		event.Duration = event.DurationMinutes()
+	}
+	if !event.AllDay {
+		event.EndAt = event.StartAt.Add(time.Duration(event.Duration) * time.Minute)
+	}
+	if !event.EndAt.After(event.StartAt) && !event.AllDay {
 		return nil, errors.New("event must end after it starts")
 	}
 	if event.WorkspaceID != nil && *event.WorkspaceID != "" {
@@ -115,6 +126,15 @@ func (s *eventService) Create(userID string, event *models.Event, rec *models.Re
 		if err != nil {
 			return nil, err
 		}
+	}
+	created = inZone(created, event.StartAt.Location())
+	if err := s.placement.PlaceEvent(userID, created); err != nil {
+		_ = s.repo.Delete(userID, created.ID)
+		return nil, err
+	}
+	created, err = s.repo.GetByID(userID, created.ID)
+	if err != nil {
+		return nil, err
 	}
 	s.indexEvent(created)
 	return created, nil
@@ -159,6 +179,15 @@ func (s *eventService) Update(userID, eventID string, update EventUpdate) (*mode
 	}
 	if update.AllDay != nil {
 		updates["all_day"] = *update.AllDay
+		if *update.AllDay {
+			updates["duration"] = 0
+		}
+	}
+	if update.Duration != nil && (update.AllDay == nil || !*update.AllDay) {
+		if *update.Duration <= 0 {
+			return nil, errors.New("timed events need a duration greater than 0")
+		}
+		updates["duration"] = *update.Duration
 	}
 	if update.Color != nil {
 		if *update.Color == "" {
@@ -196,6 +225,14 @@ func (s *eventService) Update(userID, eventID string, update EventUpdate) (*mode
 	}
 
 	start, end := before.StartAt, before.EndAt
+	allDay := before.AllDay
+	if update.AllDay != nil {
+		allDay = *update.AllDay
+	}
+	duration := before.DurationMinutes()
+	if update.Duration != nil && !allDay {
+		duration = *update.Duration
+	}
 	if update.Start != nil {
 		parsed, err := recurrence.ParseTime(*update.Start)
 		if err != nil {
@@ -211,12 +248,22 @@ func (s *eventService) Update(userID, eventID string, update EventUpdate) (*mode
 		}
 		end = parsed
 		updates["end_at"] = parsed
-	} else if update.Start != nil {
-		// Moving the start without a new end keeps the original length.
-		end = start.Add(before.EndAt.Sub(before.StartAt))
+		if !allDay {
+			duration = int(end.Sub(start).Minutes())
+			if duration <= 0 {
+				return nil, errors.New("timed events need a duration greater than 0")
+			}
+			updates["duration"] = duration
+		}
+	} else if update.Start != nil || update.Duration != nil {
+		if allDay {
+			end = start.Add(24 * time.Hour)
+		} else {
+			end = start.Add(time.Duration(duration) * time.Minute)
+		}
 		updates["end_at"] = end
 	}
-	if !end.After(start) {
+	if !allDay && !end.After(start) {
 		return nil, errors.New("event must end after it starts")
 	}
 
@@ -257,8 +304,24 @@ func (s *eventService) Update(userID, eventID string, update EventUpdate) (*mode
 	if err != nil {
 		return nil, err
 	}
+	updated = inZone(updated, start.Location())
+	if err := s.placement.PlaceEvent(userID, updated); err != nil {
+		return nil, err
+	}
+	updated, err = s.repo.GetByID(userID, eventID)
+	if err != nil {
+		return nil, err
+	}
 	s.indexEvent(updated)
 	return updated, nil
+}
+
+func inZone(event *models.Event, loc *time.Location) *models.Event {
+	if event == nil || loc == nil {
+		return event
+	}
+	event.StartAt = event.StartAt.In(loc)
+	return event
 }
 
 func (s *eventService) Delete(userID, eventID string) error {
@@ -304,7 +367,7 @@ func (s *eventService) EditOccurrence(userID, eventID string, action OccurrenceA
 		if err != nil {
 			return nil, errors.New("invalid newStart")
 		}
-		newEnd := newStart.Add(event.EndAt.Sub(event.StartAt))
+		newEnd := newStart.Add(time.Duration(event.DurationMinutes()) * time.Minute)
 		if action.NewEnd != nil {
 			parsed, err := recurrence.ParseTime(*action.NewEnd)
 			if err != nil {

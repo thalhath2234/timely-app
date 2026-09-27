@@ -6,25 +6,53 @@ import (
 	"timely-api/internal/recurrence"
 )
 
-// IsOverdue reports whether an open work task is past due. That is true when
-// the deadline is before today, or every reserved block (and scheduledOn
-// fallback) already ended before today. Reminders never count; recurring series
-// only use the deadline because missed occurrences are handled separately.
+// IsOverdue reports whether open Work has a deadline date before today.
+// Inbox items, Reminders, and completed Work never count. Missed Blocks are not Overdue.
 func IsOverdue(t models.Task, now time.Time) bool {
 	if t.IsCompleted() || t.IsReminder() || t.IsInbox() {
 		return false
 	}
 	loc := now.Location()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	todayStr := today.Format("2006-01-02")
-	if t.Deadline != nil && *t.Deadline != "" && *t.Deadline < todayStr {
-		return true
+	todayStr := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Format("2006-01-02")
+	return t.Deadline != nil && *t.Deadline != "" && *t.Deadline < todayStr
+}
+
+// IsMissed reports whether open Work has a Block (or scheduledOn ping for the
+// schedule fallback) that already ended, and the Work is still incomplete.
+func IsMissed(t models.Task, now time.Time) bool {
+	if t.IsCompleted() || t.IsReminder() || t.IsInbox() {
+		return false
 	}
 	if t.IsRecurring() {
 		return false
 	}
-	latest, ok := latestScheduleEnd(t, loc)
-	return ok && latest.Before(today)
+	latest, ok := latestScheduleEnd(t, now.Location())
+	return ok && latest.Before(now)
+}
+
+// IsUnscheduled reports whether Work has no Block on the current date.
+func IsUnscheduled(t models.Task, now time.Time) bool {
+	if t.IsCompleted() || t.IsReminder() || t.IsInbox() {
+		return false
+	}
+	loc := now.Location()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	tomorrow := today.AddDate(0, 0, 1)
+	for _, block := range t.Blocks {
+		if !block.EndAt.Before(today) && block.StartAt.Before(tomorrow) {
+			return false
+		}
+	}
+	if t.ScheduledOn != nil && *t.ScheduledOn != "" {
+		parsed, err := recurrence.ParseTimeIn(*t.ScheduledOn, loc)
+		if err == nil {
+			at := parsed.In(loc)
+			if !at.Before(today) && at.Before(tomorrow) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // HasRemainingSchedule is true when a one-off task still has a block (or

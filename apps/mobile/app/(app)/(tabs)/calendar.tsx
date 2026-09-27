@@ -24,6 +24,7 @@ import {
   useMoveBlock,
   useMoveEventTimes,
   useProjectsQuery,
+  useRankQuery,
   useSaveTask,
   useTasksQuery,
   useWorkingHoursQuery,
@@ -32,7 +33,6 @@ import {
 import { isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
 import { mergeCalendarItems } from "../../../lib/calendarMerge";
 import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
-import { rankUnscheduled } from "../../../lib/scheduleRank";
 import { calendarBusy, findNextFreeSlot, type BusyInterval } from "../../../lib/nextFreeSlot";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import { addDays, dayKey, formatDuration, formatMonthYear, formatTime, isSameDay, startOfDay } from "../../../lib/format";
@@ -75,6 +75,7 @@ export default function CalendarScreen() {
   const { from, to } = useMemo(() => calendarWindow(selected), [monthKey]);
 
   const query = useCalendarQuery(from, to);
+  const rankQ = useRankQuery();
   const networkCopy = needsNetworkCopy(query);
   const workspaces = useWorkspacesQuery().data ?? [];
   const projects = useProjectsQuery().data ?? [];
@@ -103,14 +104,15 @@ export default function CalendarScreen() {
   );
   const waiting = useMemo(
     () =>
-      rankUnscheduled(tasks)
+      (rankQ.data ?? [])
+        .map((row) => row.task)
         .filter((task) => {
           if (workspaceId && (task.workspace?.id || task.workspaceId) !== workspaceId) return false;
           if (projectId && (task.project?.id || task.projectId) !== projectId) return false;
           return true;
         })
         .slice(0, 8),
-    [tasks, workspaceId, projectId],
+    [rankQ.data, workspaceId, projectId],
   );
   const nextSlot = useMemo(
     () =>

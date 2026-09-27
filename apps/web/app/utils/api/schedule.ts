@@ -10,6 +10,11 @@ import {
 } from "@/app/_types/types";
 import { apiFetch } from "./client";
 
+export type RankedTask = {
+  task: Task;
+  score: number;
+  reasons: string[];
+};
 
 async function readError(response: Response, fallback: string) {
   try {
@@ -151,6 +156,15 @@ export async function updateScheduleSettings(
     throw new Error(await readError(response, "Failed to save schedule settings"));
   }
   return response.json();
+}
+
+export async function getRank(): Promise<RankedTask[]> {
+  const response = await apiFetch("/schedule/rank", { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to load rank"));
+  }
+  const body = await response.json();
+  return body.items ?? body ?? [];
 }
 
 export async function getCapacity(from: Date, to: Date): Promise<DayCapacity[]> {

@@ -18,6 +18,7 @@ type TodayResponse struct {
 	TodayFocus     []models.Task `json:"todayFocus"`
 	Items          []Item        `json:"items"`
 	Overdue        []models.Task `json:"overdue"`
+	Unscheduled    []models.Task `json:"unscheduled"`
 	InboxCount     int           `json:"inboxCount"`
 	CompletedToday []models.Task `json:"completedToday"`
 	Unfinished     []models.Task `json:"unfinished"`
@@ -65,6 +66,7 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 		TodayFocus:     []models.Task{},
 		Items:          rangeRes.Items,
 		Overdue:        []models.Task{},
+		Unscheduled:    []models.Task{},
 		CompletedToday: []models.Task{},
 		Unfinished:     []models.Task{},
 		TomorrowFocus:  []models.Task{},
@@ -109,6 +111,9 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 		}
 		if task.IsOverdue(t, now) {
 			out.Overdue = append(out.Overdue, t)
+		}
+		if task.IsUnscheduled(t, now) {
+			out.Unscheduled = append(out.Unscheduled, t)
 		}
 		if scheduledIDs[t.ID] {
 			out.Unfinished = append(out.Unfinished, t)

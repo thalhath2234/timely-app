@@ -12,13 +12,15 @@ const (
 	BlockSourceEngine = "engine"
 )
 
-// ScheduledBlock is one interval of calendar time reserved for a task. A task
-// split into chunks owns several blocks. Manual blocks are pinned by the user;
-// engine blocks are rebuilt whenever the schedule is recomputed.
+// ScheduledBlock is one interval of calendar time reserved for Work or an Event.
+// A task split into chunks owns several blocks. Manual blocks are pinned by the
+// person; engine blocks are rebuilt whenever Auto-schedule runs. Event blocks
+// are always Manual. Placement is the only writer.
 type ScheduledBlock struct {
-	ID     string `gorm:"type:text;primaryKey" json:"id"`
-	TaskID string `gorm:"type:text;not null" json:"taskId"`
-	UserID string `gorm:"type:text;not null" json:"userId"`
+	ID      string  `gorm:"type:text;primaryKey" json:"id"`
+	TaskID  string  `gorm:"type:text" json:"taskId"`
+	EventID *string `gorm:"type:text" json:"eventId,omitempty"`
+	UserID  string  `gorm:"type:text;not null" json:"userId"`
 
 	StartAt         time.Time  `gorm:"type:timestamptz;not null" json:"start"`
 	EndAt           time.Time  `gorm:"type:timestamptz;not null" json:"end"`

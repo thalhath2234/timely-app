@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addTaskComment,
   createTask,
+  captureInbox,
+  clarifyInbox,
   deleteTask,
   editTaskOccurrence,
   UpdateTaskPayload,
@@ -51,14 +53,45 @@ export function useCreateTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateTaskPayload) => createTask(data),
-    // Creating work never re-plans the calendar on its own: the user reviews
-    // and accepts a plan through the explicit Auto-schedule dialog.
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: tasksKey }),
         queryClient.invalidateQueries({ queryKey: inboxKey }),
         queryClient.invalidateQueries({ queryKey: todayKey }),
         queryClient.invalidateQueries({ queryKey: ["calendar"] }),
+        queryClient.invalidateQueries({ queryKey: ["schedule", "rank"] }),
+      ]);
+    },
+  });
+}
+
+export function useCaptureInbox() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => captureInbox(name),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: inboxKey });
+    },
+  });
+}
+
+export function useClarifyInbox() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      inboxId,
+      data,
+    }: {
+      inboxId: string;
+      data: CreateTaskPayload;
+    }) => clarifyInbox(inboxId, data),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: tasksKey }),
+        queryClient.invalidateQueries({ queryKey: inboxKey }),
+        queryClient.invalidateQueries({ queryKey: todayKey }),
+        queryClient.invalidateQueries({ queryKey: ["calendar"] }),
+        queryClient.invalidateQueries({ queryKey: ["schedule", "rank"] }),
       ]);
     },
   });

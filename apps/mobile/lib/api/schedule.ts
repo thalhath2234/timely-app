@@ -61,6 +61,17 @@ export function updateScheduleSettings(data: Partial<ScheduleSettings>) {
   return api<ScheduleSettings>("/schedule/settings", { method: "PUT", body: data });
 }
 
+export type RankedTask = {
+  task: Task;
+  score: number;
+  reasons: string[];
+};
+
+export async function getRank() {
+  const body = await api<{ items?: RankedTask[] }>("/schedule/rank");
+  return body.items ?? [];
+}
+
 export async function getCapacity(from: Date, to: Date) {
   const params = new URLSearchParams({
     from: from.toISOString(),

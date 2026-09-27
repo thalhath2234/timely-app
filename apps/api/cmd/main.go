@@ -20,6 +20,7 @@ import (
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/notify"
+	"timely-api/internal/features/placement"
 	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
 	"timely-api/internal/features/schedule"
@@ -58,6 +59,7 @@ func main() {
 	scheduleRepo := schedule.NewRepository(db)
 	recurrenceStore := recurrence.NewStore(db)
 	blockStore := blocks.NewStore(db)
+	place := placement.New(blockStore, scheduleRepo.GetWorkingHours)
 
 	sessionRepo := auth.NewSessionRepository(db)
 	authService := auth.NewAuthService(userRepo, workspaceRepo, sessionRepo)
@@ -65,16 +67,16 @@ func main() {
 	indexer := embed.New(db)
 	jobQueue := jobs.NewQueue(db)
 	indexer.SetQueue(jobQueue)
-	taskService := task.NewTaskService(taskRepo, projectRepo, workspaceRepo, recurrenceStore, blockStore, indexer)
+	taskService := task.NewTaskService(taskRepo, projectRepo, workspaceRepo, recurrenceStore, place, indexer)
 	projectService := project.NewProjectService(projectRepo, workspaceRepo, indexer)
 	projectService.SetTaskCopier(taskService)
 	workspaceService := workspace.NewWorkspaceService(workspaceRepo)
 	live := realtime.NewHub()
 	documentService := doc.NewDocumentService(documentRepo, indexer, live)
 	sheetService := sheet.NewSheetService(sheetRepo, indexer)
-	eventService := event.NewEventService(eventRepo, recurrenceStore, indexer)
-	calendarService := calendar.NewService(taskRepo, eventRepo)
-	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, blockStore)
+	eventService := event.NewEventService(eventRepo, recurrenceStore, place, indexer)
+	calendarService := calendar.NewService(taskRepo, eventRepo, scheduleRepo.GetWorkingHours)
+	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, blockStore, place)
 	searchService := search.NewService(db, indexer)
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)

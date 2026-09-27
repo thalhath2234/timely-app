@@ -1,7 +1,6 @@
 // Package calendar turns tasks, events and their recurrence rules into a flat
-// list of calendar items for a date range. The frontend renders these without
-// knowing where each one came from, and the scheduling engine reads them as
-// busy time.
+// list of calendar items for a date range. Web and mobile draw this list; they
+// do not build bars. Auto-schedule does not use this list for busy time.
 package calendar
 
 import (
@@ -52,9 +51,8 @@ type Item struct {
 	Reminder bool `json:"reminder,omitempty"`
 }
 
-// Collect expands everything that overlaps [from, to). Tasks must have their
-// Blocks and Recurrence preloaded; events their Recurrence.
-func Collect(tasks []models.Task, events []models.Event, from, to time.Time) ([]Item, error) {
+// Collect expands everything that overlaps [from, to) for the grid.
+func Collect(tasks []models.Task, events []models.Event, from, to time.Time, hours models.WorkingHours) ([]Item, error) {
 	var items []Item
 
 	for i := range tasks {
@@ -103,16 +101,65 @@ func Collect(tasks []models.Task, events []models.Event, from, to time.Time) ([]
 		}
 	}
 
+	loc := hours.Location(from.Location())
+	if loc == nil {
+		loc = time.UTC
+	}
+
 	for i := range events {
 		event := &events[i]
 		if event.Recurrence != nil && event.Recurrence.RRule != "" {
-			duration := event.EndAt.Sub(event.StartAt)
+			if event.AllDay {
+				occurrences, err := recurrence.Expand(event.Recurrence, 24*time.Hour, from, to)
+				if err != nil {
+					return nil, fmt.Errorf("event %s: %w", event.ID, err)
+				}
+				for _, occurrence := range occurrences {
+					for _, span := range hours.IntervalsOn(occurrence.Start, loc) {
+						item := eventOccurrenceItem(event, occurrence)
+						item.Start = span[0]
+						item.End = span[1]
+						item.AllDay = true
+						item.ID = event.ID + "@" + span[0].UTC().Format(time.RFC3339)
+						items = append(items, item)
+					}
+				}
+				continue
+			}
+			duration := time.Duration(event.DurationMinutes()) * time.Minute
 			occurrences, err := recurrence.Expand(event.Recurrence, duration, from, to)
 			if err != nil {
 				return nil, fmt.Errorf("event %s: %w", event.ID, err)
 			}
 			for _, occurrence := range occurrences {
 				items = append(items, eventOccurrenceItem(event, occurrence))
+			}
+			continue
+		}
+		if len(event.Blocks) > 0 {
+			for _, block := range event.Blocks {
+				if !block.StartAt.Before(to) || !block.EndAt.After(from) {
+					continue
+				}
+				item := eventItem(event)
+				item.ID = block.ID
+				item.Start = block.StartAt
+				item.End = block.EndAt
+				item.BlockID = block.ID
+				item.Source = block.Source
+				items = append(items, item)
+			}
+			continue
+		}
+		if event.AllDay {
+			for _, span := range hours.IntervalsOn(event.StartAt, loc) {
+				if !span[0].Before(to) || !span[1].After(from) {
+					continue
+				}
+				item := eventItem(event)
+				item.Start = span[0]
+				item.End = span[1]
+				items = append(items, item)
 			}
 			continue
 		}

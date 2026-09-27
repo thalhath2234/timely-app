@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
+    "@timely/contract": "workspace:*",
     "@tanstack/react-query": "^5.100.13",
     "@tiptap/extension-code-block": "^3.29.2",
     "@tiptap/extension-highlight": "^3.29.2",

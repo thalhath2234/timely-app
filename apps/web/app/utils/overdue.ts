@@ -22,17 +22,13 @@ export function latestTaskSchedule(
   return latest;
 }
 
-/** Deadline is before today, or every reserved block already ended before today. */
+/** Deadline date is before today. Missed blocks are not Overdue. */
 export function isTaskOverdue(task: Task, now = new Date()): boolean {
-  if (task.completedAt || (task.duration ?? 0) <= 0) return false;
+  if (task.completedAt || task.kind === "inbox" || task.kind === "reminder") return false;
+  if (!task.deadline) return false;
   const today = startOfDay(now);
-  if (task.deadline) {
-    const deadline = startOfDay(dateFromDateInput(task.deadline));
-    if (deadline < today) return true;
-  }
-  if (task.recurrence) return false;
-  const schedule = latestTaskSchedule(task);
-  return Boolean(schedule && startOfDay(schedule.end) < today);
+  const deadline = startOfDay(dateFromDateInput(task.deadline));
+  return deadline < today;
 }
 
 /** Overdue work that would otherwise vanish from a forward-looking agenda. */

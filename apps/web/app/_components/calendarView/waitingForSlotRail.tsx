@@ -5,7 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import type { Task } from "@/app/_types/types";
 import { formatDuration } from "@/app/utils/calendar";
 import { taskEntityColor } from "@/app/utils/entityColor";
-import { rankUnscheduled } from "@/app/utils/scheduleRank";
+import { useRank } from "@/app/utils/hooks/calendar";
 import { setTaskDragData } from "@/app/utils/taskDrag";
 import { taskDeadlineDate } from "@/app/utils/taskDates";
 import { cn } from "@/app/utils/cn";
@@ -16,16 +16,15 @@ import { AnimatePresence, motion } from "motion/react";
 import { hoverLift, springSoft } from "@/app/_components/_ui/motion";
 
 export default function WaitingForSlotRail({
-  tasks,
   onSchedule,
   onOpen,
 }: {
-  tasks: Task[];
   onSchedule: (taskId: string) => void;
   onOpen: (taskId: string) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const waiting = useMemo(() => rankUnscheduled(tasks), [tasks]);
+  const rank = useRank();
+  const waiting = useMemo(() => (rank.data ?? []).map((row) => row.task), [rank.data]);
   const openMenu = useContextMenu();
   const taskMenu = useTaskContextMenu();
   const dragged = useRef(false);

@@ -6,8 +6,8 @@ import { Inbox } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
-import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
-import { useCreateTask, useInboxTasks } from "@/app/utils/hooks/tasks";
+import { useCaptureInbox, useInboxTasks } from "@/app/utils/hooks/tasks";
+import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import type { Task } from "@/app/_types/types";
 import { AnimatePresence, motion } from "motion/react";
@@ -15,11 +15,13 @@ import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_compo
 
 export default function InboxPage() {
   const inbox = useInboxTasks();
-  const capture = useCreateTask();
+  const capture = useCaptureInbox();
   const [title, setTitle] = useState("");
   const [capturedFlash, setCapturedFlash] = useState(false);
   const captureRef = useRef<HTMLInputElement>(null);
-  const openTask = useEntityDetailStore((state) => state.openTask);
+  const setAddNewMode = useSidebarStore((state) => state.setAddNewMode);
+  const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
+  const setCreateTaskDraft = useSidebarStore((state) => state.setCreateTaskDraft);
   const openMenu = useContextMenu();
   const taskMenu = useTaskContextMenu();
   const items = (inbox.data ?? []) as Task[];
@@ -28,7 +30,7 @@ export default function InboxPage() {
     event.preventDefault();
     const name = title.trim();
     if (!name) return;
-    void capture.mutateAsync({ name, kind: "inbox" }).then(() => {
+    void capture.mutateAsync(name).then(() => {
       setTitle("");
       setCapturedFlash(true);
       captureRef.current?.focus();
@@ -123,7 +125,11 @@ export default function InboxPage() {
                   type="button"
                   whileHover={hoverLift}
                   whileTap={{ scale: 0.99 }}
-                  onClick={() => openTask(task.id)}
+                  onClick={() => {
+                    setCreateTaskDraft({ name: task.name, inboxId: task.id });
+                    setAddNewMode("task");
+                    setIsAddItemModalOpen(true);
+                  }}
                   onContextMenu={(event) =>
                     openMenu(event, taskMenu(task), { title: task.name })
                   }

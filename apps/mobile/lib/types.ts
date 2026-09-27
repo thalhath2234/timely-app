@@ -1,3 +1,7 @@
+import type { TaskKind } from "@timely/contract";
+
+export type { TaskKind };
+
 export type SidebarProps = {
   name: string;
   icon: string;
@@ -181,8 +185,6 @@ export interface ChecklistItem {
   order: number;
 }
 
-export type TaskKind = "task" | "reminder" | "inbox";
-
 export interface Task {
   id: string;
   name: string;
@@ -190,7 +192,7 @@ export interface Task {
   descriptionRich?: DocContent | null;
   timeChunks?: number;
   duration: number;
-  kind?: TaskKind;
+  kind: TaskKind;
   checklist?: ChecklistItem[];
   actualMinutes?: number;
   focusStartedAt?: string | null;
@@ -285,6 +287,7 @@ export interface CalendarEventEntity {
   description: string;
   start: string;
   end: string;
+  duration?: number;
   allDay: boolean;
   color: string | null;
   userId: string;
@@ -341,6 +344,7 @@ export interface TodayResponse {
   todayFocus: Task[];
   items: CalendarItem[];
   overdue: Task[];
+  unscheduled: Task[];
   inboxCount: number;
   completedToday: Task[];
   unfinished: Task[];

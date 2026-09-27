@@ -5,6 +5,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@timely/contract": [
+        "../../packages/contract/src/index.ts"
       ]
     }
   },

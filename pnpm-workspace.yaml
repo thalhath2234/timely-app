@@ -1,6 +1,7 @@
 packages:
   - apps/web
   - apps/mobile
+  - packages/*
 
 # Expo >= 54 supports pnpm's default isolated node_modules. If a React Native
 # library ever fails to build/resolve because of symlinks, uncomment this:

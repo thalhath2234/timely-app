@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "dependencies": {
     "@tanstack/react-query": "^5.102.8",
+    "@timely/contract": "workspace:*",
     "expo": "~57.0.20",
     "expo-constants": "~57.0.17",
     "expo-document-picker": "~57.0.2",

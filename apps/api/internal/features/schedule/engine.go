@@ -8,22 +8,22 @@ import (
 
 // Skip reasons returned when a task could not be placed.
 const (
-	ReasonNoCapacity   = "no_capacity"
-	ReasonBlocked      = "blocked"
-	ReasonManual       = "manual"
-	ReasonNoDuration   = "no_duration"
-	ReasonReminder     = "reminder"
-	ReasonRecurring    = "recurring"
-	ReasonCompleted    = "completed"
-	ReasonInbox        = "inbox"
-	ReasonHasSubtasks  = "parent_has_subtasks"
-	ReasonLocked       = "locked"
-	ReasonFrozen       = "frozen"
-	ReasonWorkspace    = "workspace_excluded"
-	ReasonContiguous   = "contiguous_no_fit"
+	ReasonNoCapacity     = "no_capacity"
+	ReasonBlocked        = "blocked"
+	ReasonManual         = "manual"
+	ReasonNoDuration     = "no_duration"
+	ReasonReminder       = "reminder"
+	ReasonRecurring      = "recurring"
+	ReasonCompleted      = "completed"
+	ReasonInbox          = "inbox"
+	ReasonHasSubtasks    = "parent_has_subtasks"
+	ReasonLocked         = "locked"
+	ReasonFrozen         = "frozen"
+	ReasonWorkspace      = "workspace_excluded"
+	ReasonContiguous     = "contiguous_no_fit"
 	ReasonBeforeEarliest = "before_earliest"
-	defaultBreakMinute = 5
-	slotGranularity    = 5 * time.Minute
+	defaultBreakMinute   = 5
+	slotGranularity      = 5 * time.Minute
 )
 
 type Interval struct {
@@ -37,19 +37,19 @@ func (i Interval) Minutes() int {
 
 // Candidate is a one-off task or one recurring occurrence the engine may place.
 type Candidate struct {
-	ID              string
-	TaskID          string
-	Name            string
-	DurationMinutes int
-	ChunkMinutes    int
-	MinChunkMinutes int
-	Contiguous      bool
-	Priority        string
-	CreatedAt       string
-	Deadline        *time.Time
-	StartDate       *time.Time
-	EarliestStart   *time.Time
-	PreferredWindows []models.PreferredWindow
+	ID                 string
+	TaskID             string
+	Name               string
+	DurationMinutes    int
+	ChunkMinutes       int
+	MinChunkMinutes    int
+	Contiguous         bool
+	Priority           string
+	CreatedAt          string
+	Deadline           *time.Time
+	StartDate          *time.Time
+	EarliestStart      *time.Time
+	PreferredWindows   []models.PreferredWindow
 	BlockedByID        string
 	ExternalBlocked    bool
 	ExternalBlockerEnd *time.Time

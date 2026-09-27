@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"timely-api/internal/features/calendar"
@@ -282,43 +281,21 @@ func (s *Server) whatNext(ctx context.Context, req *mcp.CallToolRequest, _ empty
 	if err != nil {
 		return fail(err)
 	}
-	tasks, err := s.Tasks.List(uid, task.TaskFilter{Completed: boolPtr(false), Limit: 500})
+	ranked, err := s.Schedule.Rank(uid)
 	if err != nil {
 		return fail(err)
 	}
-	now := time.Now()
-	today := now.Format("2006-01-02")
-	type ranked struct {
+	type item struct {
 		ID, Name, Reason string
 		Reasons          []string
 		Score            int
 	}
-	var list []ranked
-	for _, t := range tasks {
-		if t.IsInbox() || t.IsReminder() {
-			continue
-		}
-		deadline := (*time.Time)(nil)
-		if t.Deadline != nil && *t.Deadline != "" {
-			if parsed, err := time.Parse("2006-01-02", models.NormalizeDate(*t.Deadline)); err == nil {
-				deadline = &parsed
-			}
-		}
-		rank := schedule.ScoreTask(schedule.ScoreInput{
-			Priority:      deref(t.PriorityLevel),
-			Deadline:      deadline,
-			Now:           now,
-			Blocked:       t.BlockedByID != nil && *t.BlockedByID != "",
-			Unscheduled:   len(t.Blocks) == 0 && !t.IsRecurring(),
-			TodayFocus:    models.NormalizeDate(deref(t.TodayFocusOn)) == today,
-			ActualMinutes: t.ActualMinutes,
-			Duration:      t.Duration,
-		})
-		list = append(list, ranked{
-			ID: t.ID, Name: t.Name, Reason: strings.Join(rank.Reasons, ", "), Reasons: rank.Reasons, Score: rank.Score,
+	list := make([]item, 0, len(ranked))
+	for _, row := range ranked {
+		list = append(list, item{
+			ID: row.Task.ID, Name: row.Task.Name, Reason: strings.Join(row.Reasons, ", "), Reasons: row.Reasons, Score: row.Score,
 		})
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].Score > list[j].Score })
 	if len(list) > 15 {
 		list = list[:15]
 	}
