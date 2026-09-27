@@ -102,7 +102,7 @@ type createTaskIn struct {
 	WorkspaceID   string      `json:"workspaceId,omitempty" jsonschema:"required for work; ask the user if unknown; optional on reminders when setting labels or custom fields"`
 	Description   string      `json:"description,omitempty" jsonschema:"markdown"`
 	Duration      int         `json:"duration,omitempty" jsonschema:"minutes of work; defaults to 30 when omitted"`
-	Kind          string      `json:"kind,omitempty" jsonschema:"task by default; use reminder or inbox only when explicitly requested"`
+	Kind          string      `json:"kind,omitempty" jsonschema:"task by default; use reminder only for a timed ping; use capture_inbox_item for Inbox"`
 	Deadline      string      `json:"deadline,omitempty"`
 	StartDate     string      `json:"startDate,omitempty"`
 	ScheduleAt    string      `json:"scheduleAt,omitempty" jsonschema:"RFC3339 ping time for a reminder, or start of the first work block"`
@@ -123,6 +123,14 @@ func prepareCreateTask(in createTaskIn) (createTaskIn, error) {
 	if in.Kind == "" {
 		in.Kind = models.KindTask
 	}
+	kind, err := models.NormalizeKind(in.Kind)
+	if err != nil {
+		return in, err
+	}
+	if kind == models.KindInbox {
+		return in, fmt.Errorf("use capture_inbox_item to capture a thought in Inbox")
+	}
+	in.Kind = kind
 	if in.Kind == models.KindTask {
 		if strings.TrimSpace(in.WorkspaceID) == "" {
 			return in, fmt.Errorf("ask the user which workspace to use for this task, then retry create_task")

@@ -32,12 +32,14 @@ func TestPrepareCreateTaskDefaultsWorkDuration(t *testing.T) {
 	}
 }
 
-func TestPrepareCreateTaskKeepsExplicitCaptureAndReminder(t *testing.T) {
-	in, err := prepareCreateTask(createTaskIn{Name: "Thought", Kind: models.KindInbox})
-	if err != nil || in.Kind != models.KindInbox || in.Duration != 0 {
-		t.Fatalf("capture = %+v, %v", in, err)
+func TestPrepareCreateTaskRejectsInboxAndKeepsReminder(t *testing.T) {
+	for _, kind := range []string{models.KindInbox, "unknown"} {
+		_, err := prepareCreateTask(createTaskIn{Name: "Thought", Kind: kind})
+		if err == nil {
+			t.Fatalf("kind %q should be rejected", kind)
+		}
 	}
-	in, err = prepareCreateTask(createTaskIn{Name: "Ping", Kind: models.KindReminder, ScheduleAt: "2026-09-28T12:00:00Z"})
+	in, err := prepareCreateTask(createTaskIn{Name: "Ping", Kind: models.KindReminder, ScheduleAt: "2026-09-28T12:00:00Z"})
 	if err != nil || in.Kind != models.KindReminder || in.Duration != 0 {
 		t.Fatalf("reminder = %+v, %v", in, err)
 	}
