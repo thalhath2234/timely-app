@@ -82,8 +82,11 @@ func TestIsOverdueUsesDeadlineAndMissedSchedule(t *testing.T) {
 		CompletedAt: str("2026-09-10T00:00:00Z"),
 	}
 
-	if !IsOverdue(missed, now) {
-		t.Fatal("yesterday's unfinished block should be overdue")
+	if IsOverdue(missed, now) {
+		t.Fatal("missed blocks without a deadline are not Overdue")
+	}
+	if !IsMissed(missed, now) {
+		t.Fatal("yesterday's unfinished block should be Missed")
 	}
 	if !IsOverdue(pastDue, now) {
 		t.Fatal("past deadline with no remaining time should be overdue")
@@ -100,7 +103,7 @@ func TestIsOverdueUsesDeadlineAndMissedSchedule(t *testing.T) {
 
 	wantOverdue := true
 	got := applyTaskFilter([]models.Task{missed, pastDue, stillOnCalendar, open, done}, TaskFilter{Overdue: &wantOverdue, Limit: 50})
-	if len(got) != 3 {
+	if len(got) != 2 {
 		t.Fatalf("overdue filter: got %#v", ids(got))
 	}
 }

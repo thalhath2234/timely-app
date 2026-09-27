@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"timely-api/internal/blocks"
 	"timely-api/internal/features/embed"
+	"timely-api/internal/features/placement"
 	"timely-api/internal/features/project"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
@@ -78,6 +78,8 @@ type SplitInput struct {
 
 type TaskService interface {
 	Create(task *models.Task, customFieldValues []*models.CustomFieldValue, rec *models.RecurrenceInput) (*models.Task, error)
+	Capture(userID, name string) (*models.Task, error)
+	Clarify(userID, inboxID string, in ClarifyInput) (*models.Task, error)
 	GetAllTaskByUser(userID string) ([]models.Task, error)
 	GetTaskById(taskId string) (*models.Task, error)
 	Update(userID string, taskID string, update TaskUpdate) (*models.Task, error)
@@ -137,7 +139,7 @@ type taskService struct {
 	projectRepo project.ProjectRepository
 	workspaces  workspaceOwner
 	recurrence  *recurrence.Store
-	blocks      *blocks.Store
+	placement   *placement.Service
 	indexer     embed.Indexer
 	actor       string
 }
@@ -147,7 +149,7 @@ func NewTaskService(
 	projectRepo project.ProjectRepository,
 	workspaces workspaceOwner,
 	recurrenceStore *recurrence.Store,
-	blockStore *blocks.Store,
+	place *placement.Service,
 	indexer embed.Indexer,
 ) TaskService {
 	return &taskService{
@@ -155,7 +157,7 @@ func NewTaskService(
 		projectRepo: projectRepo,
 		workspaces:  workspaces,
 		recurrence:  recurrenceStore,
-		blocks:      blockStore,
+		placement:   place,
 		indexer:     indexer,
 	}
 }
@@ -197,6 +199,14 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 		task.Duration = 0
 		task.ScheduledOn = nil
 		rec = nil
+		task.WorkspaceID = nil
+		task.ProjectID = nil
+		task.StatusID = nil
+		task.StageID = nil
+		task.LabelIDs = nil
+		task.PriorityLevel = nil
+		task.Deadline = nil
+		task.StartDate = nil
 	}
 	if task.Kind == models.KindReminder {
 		task.Duration = 0
@@ -298,7 +308,7 @@ func (s *taskService) applyRecurrence(userID string, task *models.Task, rec *mod
 	if err != nil {
 		return err
 	}
-	if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
+	if err := s.placement.ClearTask(task.ID); err != nil {
 		return err
 	}
 	return s.taskRepo.DB().Model(&models.Task{}).
@@ -307,26 +317,16 @@ func (s *taskService) applyRecurrence(userID string, task *models.Task, rec *mod
 }
 
 // placeSingleBlock is the compatibility path for clients that still send
-// scheduledOn. Work tasks get one manual block of `duration` minutes.
-// Reminders (duration 0) only store the ping time — they do not reserve a block.
+// scheduledOn. Placement writes the Manual block (or ping).
 func (s *taskService) placeSingleBlock(userID string, task *models.Task, scheduledOn string, duration int) error {
 	start, err := recurrence.ParseTime(scheduledOn)
 	if err != nil {
 		return errors.New("invalid scheduledOn")
 	}
 	if duration <= 0 {
-		if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
-			return err
-		}
-		return s.taskRepo.DB().Model(&models.Task{}).
-			Where("id = ?", task.ID).
-			Update("scheduled_on", start).Error
+		return s.placement.PlacePing(userID, task, start)
 	}
-	return s.blocks.ReplaceForTask(task.ID, userID, "", []models.ScheduledBlock{{
-		StartAt: start,
-		EndAt:   start.Add(time.Duration(duration) * time.Minute),
-		Source:  models.BlockSourceManual,
-	}})
+	return s.placement.PlaceWork(userID, task, start, duration)
 }
 
 func (s *taskService) GetAllTaskByUser(userID string) ([]models.Task, error) {
@@ -627,7 +627,7 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 				if err := s.recurrence.Delete(models.RecurrenceOwnerTask, task.ID); err != nil {
 					return err
 				}
-				if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
+				if err := s.placement.ClearTask(task.ID); err != nil {
 					return err
 				}
 			}
@@ -656,7 +656,7 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 
 	switch {
 	case update.ScheduledOn != nil && *update.ScheduledOn == "":
-		if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
+		if err := s.placement.ClearTask(task.ID); err != nil {
 			return err
 		}
 		if task.IsReminder() {
@@ -673,7 +673,7 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 			start := task.Blocks[0].StartAt
 			keep = &start
 		}
-		if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
+		if err := s.placement.ClearTask(task.ID); err != nil {
 			return err
 		}
 		if keep != nil {
@@ -686,7 +686,7 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 		return s.placeSingleBlock(userID, task, *task.ScheduledOn, task.Duration)
 	case update.Duration != nil && len(task.Blocks) == 1 && task.Duration > 0:
 		block := task.Blocks[0]
-		return s.blocks.ReplaceForTask(task.ID, userID, "", []models.ScheduledBlock{{
+		return s.placement.ReplaceWork(task.ID, userID, []models.ScheduledBlock{{
 			StartAt: block.StartAt,
 			EndAt:   block.StartAt.Add(time.Duration(task.Duration) * time.Minute),
 			Source:  block.Source,
@@ -1109,8 +1109,10 @@ func (s *taskService) Delete(userID, taskID string) error {
 	if _, err := s.taskRepo.GetTaskByIdForUser(userID, taskID); err != nil {
 		return err
 	}
-	if err := s.recurrence.Delete(models.RecurrenceOwnerTask, taskID); err != nil {
-		return err
+	if s.recurrence != nil {
+		if err := s.recurrence.Delete(models.RecurrenceOwnerTask, taskID); err != nil {
+			return err
+		}
 	}
 	if err := s.taskRepo.DeleteTask(userID, taskID); err != nil {
 		return err

@@ -10,10 +10,7 @@ import (
 )
 
 type captureInboxIn struct {
-	Name          string `json:"name"`
-	PriorityLevel string `json:"priorityLevel,omitempty"`
-	ProjectID     string `json:"projectId,omitempty"`
-	WorkspaceID   string `json:"workspaceId,omitempty"`
+	Name string `json:"name"`
 }
 
 func (s *Server) captureInboxItem(ctx context.Context, req *mcp.CallToolRequest, in captureInboxIn) (*mcp.CallToolResult, any, error) {
@@ -21,16 +18,7 @@ func (s *Server) captureInboxItem(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return fail(err)
 	}
-	t := &models.Task{
-		Name:          in.Name,
-		UserID:        &uid,
-		Kind:          models.KindInbox,
-		Duration:      0,
-		PriorityLevel: strPtr(in.PriorityLevel),
-		ProjectID:     strPtr(in.ProjectID),
-		WorkspaceID:   strPtr(in.WorkspaceID),
-	}
-	created, err := s.tasksFor(req).Create(t, nil, nil)
+	created, err := s.tasksFor(req).Capture(uid, in.Name)
 	if err != nil {
 		return fail(err)
 	}
@@ -65,23 +53,26 @@ func (s *Server) clarifyInboxItem(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return fail(err)
 	}
+	duration := 0
+	if in.Duration != nil {
+		duration = *in.Duration
+	}
 	kind := in.Kind
 	if kind == "" {
-		if in.Duration != nil && *in.Duration > 0 {
+		if duration > 0 {
 			kind = models.KindTask
 		} else {
 			kind = models.KindReminder
 		}
 	}
-	update := task.TaskUpdate{
-		Kind:          &kind,
+	t, err := s.tasksFor(req).Clarify(uid, in.TaskID, task.ClarifyInput{
+		Kind:          kind,
 		WorkspaceID:   strPtr(in.WorkspaceID),
-		Duration:      in.Duration,
+		Duration:      duration,
 		ProjectID:     strPtr(in.ProjectID),
 		PriorityLevel: strPtr(in.PriorityLevel),
 		ScheduledOn:   strPtr(in.ScheduleAt),
-	}
-	t, err := s.tasksFor(req).Update(uid, in.TaskID, update)
+	})
 	if err != nil {
 		return fail(err)
 	}

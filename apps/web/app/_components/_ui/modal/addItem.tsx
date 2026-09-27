@@ -27,7 +27,7 @@ import { useProjects } from "@/app/utils/hooks/projects";
 import { useCreateDoc } from "@/app/utils/hooks/docs";
 import { useCreateSheet, useSheetTemplates } from "@/app/utils/hooks/sheets";
 import { createProject } from "@/app/utils/api/projects";
-import { useCreateTask } from "@/app/utils/hooks/tasks";
+import { useCreateTask, useClarifyInbox } from "@/app/utils/hooks/tasks";
 import { useCreateEvent } from "@/app/utils/hooks/calendar";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
 import TaskTypeToggle from "@/app/_components/_ui/tasks/taskTypeToggle";
@@ -413,6 +413,8 @@ function AddItemModalInner() {
   };
 
   const createTaskMutation = useCreateTask();
+  const clarifyInboxMutation = useClarifyInbox();
+  const isClarify = Boolean(createTaskDraft?.inboxId);
 
   // The first occurrence of a repeating task is the "Schedule" time when set,
   // otherwise the next round hour, so the series starts somewhere sensible.
@@ -458,9 +460,8 @@ function AddItemModalInner() {
             data.scheduledOn || toDatetimeLocalValue(nextRoundHour()),
           )
         : undefined;
-    const isInbox = !isReminder && (Number(data.duration) || 0) <= 0;
-    createTaskMutation.mutate(
-      {
+    const isInbox = !isClarify && !isReminder && (Number(data.duration) || 0) <= 0;
+    const payload = {
       name: data.name,
       description: hasDescription ? taskDescription.plainText : "",
       descriptionRich: hasDescription ? taskDescription.content : undefined,
@@ -473,13 +474,22 @@ function AddItemModalInner() {
       deadline: data.deadline || undefined,
       scheduledOn: pingAt,
       duration: isReminder ? 0 : data.duration ? Number(data.duration) : 0,
-      kind: isInbox ? "inbox" : isReminder ? "reminder" : "task",
+      kind: isInbox ? "inbox" as const : isReminder ? "reminder" as const : "task" as const,
       labelIds: isReminder || isInbox
         ? undefined
         : (data.labelIds ?? taskLabelIds ?? []).map((id) => ({ id })),
       customFieldValues: isReminder || isInbox ? undefined : data.customFieldValues,
       recurrence: recurrence ?? undefined,
-    }, {
+    };
+    if (isClarify && createTaskDraft?.inboxId) {
+      if (payload.kind === "inbox") return;
+      clarifyInboxMutation.mutate(
+        { inboxId: createTaskDraft.inboxId, data: payload },
+        { onSuccess: () => closeModal() },
+      );
+      return;
+    }
+    createTaskMutation.mutate(payload, {
       onSuccess: () => closeModal(),
     });
   };
@@ -636,6 +646,9 @@ function AddItemModalInner() {
         setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
         setCreateTaskDraft({ ...createTaskDraft, kind: undefined });
       }
+      if (createTaskDraft?.name) {
+        setValueTask("name", createTaskDraft.name, { shouldValidate: true });
+      }
     }
   }, [
     isAddItemModalOpen,
@@ -744,7 +757,10 @@ function AddItemModalInner() {
     });
   };
 
-  const meta = MODE_META[addNewMode] ?? MODE_META.task;
+  const meta = {
+    ...(MODE_META[addNewMode] ?? MODE_META.task),
+    ...(isClarify ? { label: "Clarify", action: "Clarify" } : {}),
+  };
 
   if (addNewMode === "workspace") {
     return (
@@ -1009,9 +1025,9 @@ function AddItemModalInner() {
           <CreateAction
             formId="create-task"
             label={meta.action}
-            pending={createTaskMutation.isPending}
+            pending={createTaskMutation.isPending || clarifyInboxMutation.isPending}
             disabled={!isTaskValid}
-            failed={createTaskMutation.isError}
+            failed={createTaskMutation.isError || clarifyInboxMutation.isError}
           />
         }
       >

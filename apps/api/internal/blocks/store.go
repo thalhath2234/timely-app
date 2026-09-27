@@ -175,7 +175,9 @@ func (s *Store) InsertMany(tx *gorm.DB, next []models.ScheduledBlock) error {
 		if next[i].ID == "" {
 			next[i].ID = utils.NewBlockID()
 		}
-		touched[next[i].TaskID] = true
+		if next[i].TaskID != "" {
+			touched[next[i].TaskID] = true
+		}
 	}
 	if err := tx.Create(&next).Error; err != nil {
 		return err
@@ -195,7 +197,45 @@ func (s *Store) DB() *gorm.DB {
 
 // syncScheduledOn mirrors the earliest block start onto the task so list views
 // and sorting keep working without knowing about blocks.
+// ReplaceForEvent drops the Event's blocks and writes the new Manual set.
+// task_id stays NULL so the Work FK does not fire.
+func (s *Store) ReplaceForEvent(eventID, userID string, next []models.ScheduledBlock) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("event_id = ?", eventID).Delete(&models.ScheduledBlock{}).Error; err != nil {
+			return err
+		}
+		for i := range next {
+			next[i].ID = utils.NewBlockID()
+			id := eventID
+			next[i].EventID = &id
+			next[i].TaskID = ""
+			next[i].UserID = userID
+			if next[i].Source == "" {
+				next[i].Source = models.BlockSourceManual
+			}
+			if err := tx.Exec(`
+				INSERT INTO scheduled_blocks (id, task_id, event_id, user_id, start_at, end_at, source, chunk_index, locked, occurrence_start, created_at, updated_at)
+				VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				next[i].ID, eventID, userID, next[i].StartAt, next[i].EndAt, next[i].Source, next[i].ChunkIndex, next[i].Locked, next[i].OccurrenceStart,
+				utils.GetCurrentTimestamp(), utils.GetCurrentTimestamp(),
+			).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Store) ListForEvent(eventID string) ([]models.ScheduledBlock, error) {
+	var out []models.ScheduledBlock
+	err := s.db.Where("event_id = ?", eventID).Order("start_at ASC").Find(&out).Error
+	return out, err
+}
+
 func syncScheduledOn(tx *gorm.DB, taskID string) error {
+	if taskID == "" {
+		return nil
+	}
 	// Reminders (duration 0) keep scheduled_on as the ping time and have no
 	// blocks. Recurring series keep scheduled_on as the rule's dtstart.
 	return tx.Exec(`

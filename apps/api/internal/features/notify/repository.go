@@ -218,6 +218,14 @@ func reminderDedupe(taskID string, start time.Time) string {
 	return "reminder:" + taskID + ":" + start.UTC().Format(time.RFC3339)
 }
 
+func missedDedupe(taskID string, end time.Time) string {
+	return "missed:" + taskID + ":" + end.UTC().Format(time.RFC3339)
+}
+
+func startSoonDedupe(taskID string, start time.Time) string {
+	return "start:" + taskID + ":" + start.UTC().Format(time.RFC3339)
+}
+
 func digestDedupe(kind, userID, day string) string {
 	return "digest:" + kind + ":" + userID + ":" + day
 }

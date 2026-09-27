@@ -97,6 +97,8 @@ func setupAuthRoutes(g *echo.Group, authHandler *auth.Handler) {
 // setupTaskRoutes defines all protected task endpoints
 func setupTaskRoutes(g *echo.Group, taskHandler *task.Handler) {
 	g.POST("/tasks", taskHandler.Create)
+	g.POST("/inbox", taskHandler.Capture)
+	g.POST("/inbox/:id/clarify", taskHandler.Clarify)
 	g.GET("/tasks", taskHandler.GetAllTaskByUser)
 	g.PATCH("/tasks/bulk", taskHandler.BulkUpdate)
 	g.GET("/task/:id", taskHandler.GetTaskById)
@@ -149,6 +151,7 @@ func setupScheduleRoutes(g *echo.Group, scheduleHandler *schedule.Handler) {
 	g.GET("/schedule/settings", scheduleHandler.GetSettings)
 	g.PUT("/schedule/settings", scheduleHandler.UpdateSettings)
 	g.GET("/schedule/capacity", scheduleHandler.Capacity)
+	g.GET("/schedule/rank", scheduleHandler.Rank)
 	g.PUT("/tasks/:id/schedule-lock", scheduleHandler.PinTask)
 	g.PUT("/blocks/:id/lock", scheduleHandler.PinBlock)
 

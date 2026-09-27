@@ -132,6 +132,62 @@ func (h *Handler) Create(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, map[string]interface{}{"message": "task created successfully", "task": createdTask})
 }
 
+type captureRequest struct {
+	Name string `json:"name"`
+}
+
+func (h *Handler) Capture(c *echo.Context) error {
+	userID := c.Get("userID").(string)
+	var req captureRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
+	}
+	created, err := h.taskService.Capture(userID, req.Name)
+	if err != nil {
+		return taskError(err)
+	}
+	return c.JSON(http.StatusCreated, map[string]any{"message": "captured", "task": created})
+}
+
+func (h *Handler) Clarify(c *echo.Context) error {
+	userID := c.Get("userID").(string)
+	var req createTaskRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
+	}
+	customFieldValues := make([]*models.CustomFieldValue, 0, len(req.CustomFieldValues))
+	for _, cfv := range req.CustomFieldValues {
+		customFieldValues = append(customFieldValues, &models.CustomFieldValue{
+			CustomFieldID: cfv.CustomFieldID,
+			OptionsValue:  cfv.OptionsValue,
+			Type:          cfv.Type,
+			StringValue:   cfv.StringValue,
+		})
+	}
+	created, err := h.taskService.Clarify(userID, c.Param("id"), ClarifyInput{
+		Name:              req.Name,
+		Kind:              req.Kind,
+		Duration:          req.Duration,
+		Description:       req.Description,
+		DescriptionRich:   req.DescriptionRich,
+		Deadline:          req.Deadline,
+		StartDate:         req.StartDate,
+		ScheduledOn:       req.ScheduledOn,
+		WorkspaceID:       nonemptyID(req.WorkspaceID),
+		ProjectID:         nonemptyID(req.ProjectID),
+		StatusID:          nonemptyID(req.StatusID),
+		StageID:           nonemptyID(req.StageID),
+		PriorityLevel:     req.PriorityLevel,
+		LabelIDs:          models.LabelInputs(req.LabelIDs),
+		CustomFieldValues: customFieldValues,
+		Recurrence:        req.Recurrence,
+	})
+	if err != nil {
+		return taskError(err)
+	}
+	return c.JSON(http.StatusCreated, map[string]any{"message": "clarified", "task": created})
+}
+
 func (h *Handler) GetAllTaskByUser(c *echo.Context) error {
 	userID, ok := c.Get("userID").(string)
 	if !ok {

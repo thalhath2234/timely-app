@@ -25,6 +25,7 @@ type createEventRequest struct {
 	Description string                  `json:"description"`
 	Start       string                  `json:"start"`
 	End         string                  `json:"end"`
+	Duration    int                     `json:"duration"`
 	AllDay      bool                    `json:"allDay"`
 	Color       *string                 `json:"color"`
 	WorkspaceID *string                 `json:"workspaceId"`
@@ -38,6 +39,7 @@ type updateEventRequest struct {
 	Description *string                 `json:"description"`
 	Start       *string                 `json:"start"`
 	End         *string                 `json:"end"`
+	Duration    *int                    `json:"duration"`
 	AllDay      *bool                   `json:"allDay"`
 	Color       *string                 `json:"color"`
 	WorkspaceID *string                 `json:"workspaceId"`
@@ -93,6 +95,7 @@ func (h *Handler) Create(c *echo.Context) error {
 		Description: req.Description,
 		StartAt:     start,
 		EndAt:       end,
+		Duration:    req.Duration,
 		AllDay:      req.AllDay,
 		Color:       req.Color,
 		WorkspaceID: req.WorkspaceID,
@@ -154,6 +157,7 @@ func (h *Handler) Update(c *echo.Context) error {
 		Description:   req.Description,
 		Start:         req.Start,
 		End:           req.End,
+		Duration:      req.Duration,
 		AllDay:        req.AllDay,
 		Color:         req.Color,
 		WorkspaceID:   req.WorkspaceID,

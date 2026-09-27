@@ -6,6 +6,7 @@ import (
 	"time"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/task"
+	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
 
 	"github.com/labstack/echo/v5"
@@ -24,13 +25,27 @@ type Service interface {
 	Today(userID, date, timezone string) (*TodayResponse, error)
 }
 
+type HoursLookup func(userID string) (models.WorkingHours, error)
+
 type service struct {
 	tasks  task.TaskRepository
 	events event.EventRepository
+	hours  HoursLookup
 }
 
-func NewService(tasks task.TaskRepository, events event.EventRepository) Service {
-	return &service{tasks: tasks, events: events}
+func NewService(tasks task.TaskRepository, events event.EventRepository, hours HoursLookup) Service {
+	return &service{tasks: tasks, events: events, hours: hours}
+}
+
+func (s *service) workingHours(userID string) models.WorkingHours {
+	if s.hours == nil {
+		return models.DefaultWorkingHours("UTC")
+	}
+	hours, err := s.hours(userID)
+	if err != nil || hours.IsEmpty() {
+		return models.DefaultWorkingHours("UTC")
+	}
+	return hours
 }
 
 func (s *service) Range(userID string, from, to time.Time) (*Response, error) {
@@ -52,7 +67,8 @@ func (s *service) Range(userID string, from, to time.Time) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	items, err := Collect(tasks, events, from, to)
+	hours := s.workingHours(userID)
+	items, err := Collect(tasks, events, from, to, hours)
 	if err != nil {
 		return nil, err
 	}

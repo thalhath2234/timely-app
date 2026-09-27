@@ -70,6 +70,19 @@ export async function createTask(data: CreateTaskPayload) {
   return unwrap(res, "task");
 }
 
+export async function captureInbox(name: string) {
+  const res = await api<Task | { task: Task }>("/inbox", { method: "POST", body: { name } });
+  return unwrap(res, "task");
+}
+
+export async function clarifyInbox(inboxId: string, data: CreateTaskPayload) {
+  const res = await api<Task | { task: Task }>(`/inbox/${encodeURIComponent(inboxId)}/clarify`, {
+    method: "POST",
+    body: data,
+  });
+  return unwrap(res, "task");
+}
+
 export async function updateTask(id: string, data: UpdateTaskPayload) {
   const safeOffline = Object.keys(data).every((key) => key === "completedAt" || key === "todayFocusOn" || key === "scheduleLocked");
   const body = data.blockedById === null ? { ...data, blockedById: "" } : data;

@@ -19,6 +19,7 @@ import {
   getScheduleSettings,
   getToday,
   getWorkingHours,
+  getRank,
   moveBlock,
   pinBlock,
   pinTask,
@@ -48,6 +49,7 @@ export const calendarKey = ["calendar"] as const;
 export const eventsKey = ["events"] as const;
 export const workingHoursKey = ["working-hours"] as const;
 export const scheduleSettingsKey = ["schedule-settings"] as const;
+export const rankKey = ["schedule", "rank"] as const;
 
 /** Range keys are minute-stable so navigating back reuses the cache. */
 export function calendarRangeKey(from: Date, to: Date) {
@@ -60,6 +62,14 @@ export function useCalendarRange(from: Date, to: Date, enabled = true) {
     queryFn: () => getCalendarRange(from, to),
     enabled,
     staleTime: 30_000,
+  });
+}
+
+export function useRank() {
+  return useQuery({
+    queryKey: rankKey,
+    queryFn: getRank,
+    staleTime: 15_000,
   });
 }
 
@@ -76,6 +86,7 @@ export function useInvalidateCalendar() {
       queryClient.invalidateQueries({ queryKey: eventsKey }),
       queryClient.invalidateQueries({ queryKey: todayKey }),
       queryClient.invalidateQueries({ queryKey: scheduleSettingsKey }),
+      queryClient.invalidateQueries({ queryKey: rankKey }),
     ]);
 }
 

@@ -7,14 +7,14 @@ import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
 import { Field, PrimaryButton } from "../../components/ui/primitives";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
-import { useCreateTask, useInboxQuery } from "../../lib/hooks";
+import { useCaptureInbox, useInboxQuery } from "../../lib/hooks";
 import { needsNetworkCopy } from "../../lib/queryCopy";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function InboxScreen() {
   const router = useRouter();
   const inbox = useInboxQuery();
-  const capture = useCreateTask();
+  const capture = useCaptureInbox();
   const [title, setTitle] = useState("");
   const items = inbox.data ?? [];
   const networkCopy = needsNetworkCopy(inbox);
@@ -39,7 +39,7 @@ export default function InboxScreen() {
           onPress={() => {
             const name = title.trim();
             if (!name) return;
-            void capture.mutateAsync({ name, kind: "inbox" }).then(() => setTitle(""));
+            void capture.mutateAsync(name).then(() => setTitle(""));
           }}
         />
         <Text style={styles.hint}>Inbox items are not auto-scheduled until you assign a workspace and duration.</Text>

@@ -2,7 +2,9 @@ package schedule
 
 import (
 	"fmt"
+	"sort"
 	"time"
+	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 )
 
@@ -82,6 +84,55 @@ func ScoreTask(in ScoreInput) Rank {
 		reasons = append(reasons, "open work")
 	}
 	return Rank{Score: score, Reasons: reasons}
+}
+
+// RankedTask is Unscheduled or Overdue Work with its Rank. Callers do not copy
+// this policy; they consume the list.
+type RankedTask struct {
+	Task    models.Task `json:"task"`
+	Score   int         `json:"score"`
+	Reasons []string    `json:"reasons"`
+}
+
+// RankList is the next-Work list: Unscheduled or Overdue, ordered by Rank.
+func RankList(tasks []models.Task, now time.Time) []RankedTask {
+	today := now.Format("2006-01-02")
+	var list []RankedTask
+	for i := range tasks {
+		t := tasks[i]
+		if t.IsInbox() || t.IsReminder() || t.IsCompleted() {
+			continue
+		}
+		if !task.IsUnscheduled(t, now) && !task.IsOverdue(t, now) {
+			continue
+		}
+		deadline := (*time.Time)(nil)
+		if t.Deadline != nil && *t.Deadline != "" {
+			if parsed, err := time.Parse("2006-01-02", models.NormalizeDate(*t.Deadline)); err == nil {
+				deadline = &parsed
+			}
+		}
+		rank := ScoreTask(ScoreInput{
+			Priority:      derefRank(t.PriorityLevel),
+			Deadline:      deadline,
+			Now:           now,
+			Blocked:       t.BlockedByID != nil && *t.BlockedByID != "",
+			Unscheduled:   task.IsUnscheduled(t, now),
+			TodayFocus:    models.NormalizeDate(derefRank(t.TodayFocusOn)) == today,
+			ActualMinutes: t.ActualMinutes,
+			Duration:      t.Duration,
+		})
+		list = append(list, RankedTask{Task: t, Score: rank.Score, Reasons: rank.Reasons})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Score > list[j].Score })
+	return list
+}
+
+func derefRank(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func ExplainSkip(reason string) string {

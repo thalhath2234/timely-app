@@ -47,6 +47,8 @@ func (s *Service) Register(worker *jobs.Worker) {
 	worker.Handle(models.JobSendReminder, s.HandleReminder)
 	worker.Handle(models.JobDailyDigest, s.HandleDigest)
 	worker.Handle(models.JobOverdueTask, s.HandleOverdueTask)
+	worker.Handle(models.JobMissedBlock, s.HandleMissedBlock)
+	worker.Handle(models.JobStartSoon, s.HandleStartSoon)
 	worker.Handle(models.JobSendPush, s.HandlePush)
 	worker.Handle(models.JobIndexEntity, s.HandleIndex)
 	worker.SetSweep(s.Sweep)
@@ -264,6 +266,9 @@ func (s *Service) Sweep(ctx context.Context) error {
 		if err := s.sweepOverdue(userID, now); err != nil {
 			return err
 		}
+		if err := s.sweepMissedAndStart(userID, now); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -342,6 +347,122 @@ func overdueTaskCurrent(item *models.Task, deadline, today string) bool {
 	return item != nil && deadline != "" && deadline < today &&
 		item.Deadline != nil && *item.Deadline == deadline &&
 		item.IsSchedulableWork()
+}
+
+const startLead = 10 * time.Minute
+
+func (s *Service) sweepMissedAndStart(userID string, now time.Time) error {
+	settings, err := s.repo.GetSettings(userID)
+	if err != nil {
+		return err
+	}
+	if !settings.Reminders {
+		return nil
+	}
+	from := now.Add(-90 * time.Second)
+	to := now.Add(startLead + 90*time.Second)
+	res, err := s.calendar.Range(userID, from, to)
+	if err != nil {
+		return err
+	}
+	for _, item := range res.Items {
+		if item.Reminder || item.TaskID == "" || item.CompletedAt != nil {
+			continue
+		}
+		if item.Task != nil && (item.Task.IsCompleted() || item.Task.IsInbox() || item.Task.IsReminder()) {
+			continue
+		}
+		if !item.End.Before(from) && item.End.Before(now.Add(90*time.Second)) {
+			key := missedDedupe(item.TaskID, item.End)
+			if s.queue.HasNotification(key) || s.queue.HasJob(key) {
+				continue
+			}
+			if _, err := s.queue.Enqueue(jobs.Enqueue{
+				UserID: userID, Kind: models.JobMissedBlock, DedupeKey: key, RunAt: item.End,
+				Payload: models.JobPayload{"taskId": item.TaskID, "end": item.End.UTC().Format(time.RFC3339), "title": item.Title},
+			}); err != nil {
+				return err
+			}
+		}
+		lead := item.Start.Add(-startLead)
+		if !lead.Before(from) && lead.Before(now.Add(90*time.Second)) {
+			key := startSoonDedupe(item.TaskID, item.Start)
+			if s.queue.HasNotification(key) || s.queue.HasJob(key) {
+				continue
+			}
+			if _, err := s.queue.Enqueue(jobs.Enqueue{
+				UserID: userID, Kind: models.JobStartSoon, DedupeKey: key, RunAt: lead,
+				Payload: models.JobPayload{"taskId": item.TaskID, "start": item.Start.UTC().Format(time.RFC3339), "title": item.Title},
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) HandleMissedBlock(ctx context.Context, job *models.Job) error {
+	settings, err := s.repo.GetSettings(job.UserID)
+	if err != nil {
+		return err
+	}
+	if !settings.Reminders {
+		return nil
+	}
+	taskID := job.Payload.String("taskId")
+	item, err := s.tasks.GetForUser(job.UserID, taskID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if item.IsCompleted() {
+		return nil
+	}
+	entity := taskID
+	ntf, err := s.repo.Upsert(&models.Notification{
+		UserID: job.UserID, Category: models.NotifyMissed,
+		Title: item.Name, Body: "This block ended and the work is still open.",
+		EntityType: strPtr("task"), EntityID: &entity,
+		Data: job.Payload, DedupeKey: job.DedupeKey,
+	})
+	if err != nil {
+		return err
+	}
+	return s.deliver(ctx, ntf, settings)
+}
+
+func (s *Service) HandleStartSoon(ctx context.Context, job *models.Job) error {
+	settings, err := s.repo.GetSettings(job.UserID)
+	if err != nil {
+		return err
+	}
+	if !settings.Reminders {
+		return nil
+	}
+	taskID := job.Payload.String("taskId")
+	item, err := s.tasks.GetForUser(job.UserID, taskID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if item.IsCompleted() {
+		return nil
+	}
+	entity := taskID
+	ntf, err := s.repo.Upsert(&models.Notification{
+		UserID: job.UserID, Category: models.NotifyStart,
+		Title: item.Name, Body: "Starting in 10 minutes.",
+		EntityType: strPtr("task"), EntityID: &entity,
+		Data: job.Payload, DedupeKey: job.DedupeKey,
+	})
+	if err != nil {
+		return err
+	}
+	return s.deliver(ctx, ntf, settings)
 }
 
 func (s *Service) sweepReminders(userID string, now time.Time) error {
@@ -561,11 +682,11 @@ func digestCopy(kind string, today *calendar.TodayResponse) (string, string, str
 		// "Unfinished" is scoped to work that was on today's calendar and is
 		// still open — not the whole backlog, which Report counts separately.
 		return "Evening recap",
-			fmt.Sprintf("Done today: %d. Unfinished from today's plan: %d. Overdue: %d.", len(today.CompletedToday), len(today.Unfinished), len(today.Overdue)),
+			fmt.Sprintf("Done today: %d. Unfinished from today's plan: %d. Overdue: %d. Still unscheduled: %d.", len(today.CompletedToday), len(today.Unfinished), len(today.Overdue), len(today.Unscheduled)),
 			models.NotifyDigest
 	}
 	return "Plan your day",
-		fmt.Sprintf("On the calendar: %d. Overdue: %d. Inbox: %d.", scheduled, len(today.Overdue), today.InboxCount),
+		fmt.Sprintf("On the calendar: %d. Overdue: %d. Unscheduled: %d. Inbox: %d.", scheduled, len(today.Overdue), len(today.Unscheduled), today.InboxCount),
 		models.NotifyPlanning
 }
 

@@ -182,6 +182,7 @@ function Tasks() {
         scheduleId: null,
         stageId: null,
         blockedById: null,
+        kind: "task" as const,
         project,
         workspace: first.workspace,
         status: first.status,

@@ -49,6 +49,44 @@ func (w WorkingHours) IsEmpty() bool {
 	return w.Timezone == "" && len(w.Days) == 0
 }
 
+// WindowsOn is the availability on a calendar date. A day with no windows
+// uses 09:00–17:00 so All-day Events still have hours to fill.
+func (w WorkingHours) WindowsOn(day time.Time) []WorkingWindow {
+	hours := w
+	if hours.IsEmpty() {
+		hours = DefaultWorkingHours("UTC")
+	}
+	windows := hours.Days[WeekdayKey(day.Weekday())]
+	if len(windows) == 0 {
+		return []WorkingWindow{{Start: "09:00", End: "17:00"}}
+	}
+	return windows
+}
+
+// IntervalsOn turns WindowsOn into instants in loc for that date.
+func (w WorkingHours) IntervalsOn(day time.Time, loc *time.Location) [][2]time.Time {
+	if loc == nil {
+		loc = time.UTC
+	}
+	local := time.Date(day.In(loc).Year(), day.In(loc).Month(), day.In(loc).Day(), 0, 0, 0, 0, loc)
+	var out [][2]time.Time
+	for _, window := range w.WindowsOn(local) {
+		startMin, err := ParseClock(window.Start)
+		if err != nil {
+			continue
+		}
+		endMin, err := ParseClock(window.End)
+		if err != nil || endMin <= startMin {
+			continue
+		}
+		out = append(out, [2]time.Time{
+			local.Add(time.Duration(startMin) * time.Minute),
+			local.Add(time.Duration(endMin) * time.Minute),
+		})
+	}
+	return out
+}
+
 // Location resolves the configured zone, falling back to the given default.
 func (w WorkingHours) Location(fallback *time.Location) *time.Location {
 	if w.Timezone == "" {

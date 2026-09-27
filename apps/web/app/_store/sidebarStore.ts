@@ -11,6 +11,8 @@ export type CreateTaskDraft = {
   projectId?: string;
   stageId?: string;
   kind?: "task" | "reminder";
+  name?: string;
+  inboxId?: string;
 };
 
 type SidebarState = {

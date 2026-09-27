@@ -135,6 +135,18 @@ func (h *Handler) UpdateSettings(c *echo.Context) error {
 	return c.JSON(http.StatusOK, updated)
 }
 
+func (h *Handler) Rank(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	list, err := h.service.Rank(uid)
+	if err != nil {
+		return scheduleError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": list})
+}
+
 func (h *Handler) Capacity(c *echo.Context) error {
 	uid, err := userID(c)
 	if err != nil {

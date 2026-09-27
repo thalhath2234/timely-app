@@ -24,7 +24,7 @@ import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { runViewTransition } from "@/app/utils/viewTransition";
-import { useAddTaskBlock, useCalendarRange, useCommitCalendarBlock, useApplySchedule } from "@/app/utils/hooks/calendar";
+import { useAddTaskBlock, useCalendarRange, useCommitCalendarBlock, useApplySchedule, useRank } from "@/app/utils/hooks/calendar";
 import {
   eventLegend,
   headerLabel,
@@ -38,7 +38,6 @@ import {
 } from "@/app/utils/calendar";
 import { overdueAgendaTasks, taskToCalendarItem } from "@/app/utils/overdue";
 import { cn } from "@/app/utils/cn";
-import { rankUnscheduled } from "@/app/utils/scheduleRank";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
 import { AnimatePresence, motion } from "motion/react";
@@ -60,6 +59,7 @@ function CalendarContent() {
     [selectedDate, activeView],
   );
   const calendarQuery = useCalendarRange(range.from, range.to);
+  const rankQuery = useRank();
   const { data: calendar, isLoading, status } = calendarQuery;
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -81,10 +81,7 @@ function CalendarContent() {
     [typedTasks],
   );
   const legend = useMemo(() => eventLegend(events), [events]);
-  const unscheduledCount = useMemo(
-    () => rankUnscheduled(typedTasks).length,
-    [typedTasks],
-  );
+  const unscheduledCount = rankQuery.data?.length ?? 0;
 
   // Selection is held by id so a refetch shows fresh data in the dialog, and
   // a block or occurrence that disappeared simply closes it.
@@ -434,7 +431,6 @@ function CalendarContent() {
           </AnimatePresence>
           </div>
           <WaitingForSlotRail
-            tasks={typedTasks}
             onOpen={(taskId) => openTask(taskId)}
             onSchedule={(taskId) => openAutoSchedule([taskId])}
           />

@@ -33,7 +33,7 @@ func (r *eventRepository) DB() *gorm.DB {
 }
 
 func (r *eventRepository) withRelations() *gorm.DB {
-	return r.db.Preload("Recurrence.Exceptions")
+	return r.db.Preload("Recurrence.Exceptions").Preload("Blocks")
 }
 
 func (r *eventRepository) Create(event *models.Event) (*models.Event, error) {
@@ -71,8 +71,8 @@ func (r *eventRepository) ListInRange(userID string, from, to time.Time) ([]mode
 	err := r.withRelations().
 		Where("user_id = ?", userID).
 		Where(
-			"(start_at < ? AND end_at > ?) OR id IN (SELECT owner_id FROM recurrence_rules WHERE owner_type = ? AND user_id = ?)",
-			to, from, models.RecurrenceOwnerEvent, userID,
+			"(start_at < ? AND end_at > ?) OR id IN (SELECT owner_id FROM recurrence_rules WHERE owner_type = ? AND user_id = ?) OR id IN (SELECT event_id FROM scheduled_blocks WHERE user_id = ? AND event_id IS NOT NULL AND start_at < ? AND end_at > ?)",
+			to, from, models.RecurrenceOwnerEvent, userID, userID, to, from,
 		).
 		Order("start_at ASC").
 		Find(&events).Error

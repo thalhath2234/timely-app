@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 	"timely-api/internal/blocks"
-	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/placement"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
@@ -83,18 +83,18 @@ type DayCapacity struct {
 }
 
 type PlanResponse struct {
-	From           time.Time      `json:"from"`
-	To             time.Time      `json:"to"`
-	Timezone       string         `json:"timezone"`
-	Proposals      []ProposalOut  `json:"proposals"`
-	Skipped        []Skipped      `json:"skipped"`
-	Changes        []PlanChange   `json:"changes"`
-	Risks          []PlanRisk     `json:"risks"`
-	Capacity       []DayCapacity  `json:"capacity"`
-	FreeMinutes    int            `json:"freeMinutes"`
-	PlannedMinutes int            `json:"plannedMinutes"`
-	Applied        bool           `json:"applied"`
-	CanUndo        bool           `json:"canUndo"`
+	From           time.Time     `json:"from"`
+	To             time.Time     `json:"to"`
+	Timezone       string        `json:"timezone"`
+	Proposals      []ProposalOut `json:"proposals"`
+	Skipped        []Skipped     `json:"skipped"`
+	Changes        []PlanChange  `json:"changes"`
+	Risks          []PlanRisk    `json:"risks"`
+	Capacity       []DayCapacity `json:"capacity"`
+	FreeMinutes    int           `json:"freeMinutes"`
+	PlannedMinutes int           `json:"plannedMinutes"`
+	Applied        bool          `json:"applied"`
+	CanUndo        bool          `json:"canUndo"`
 }
 
 type BlockInput struct {
@@ -125,17 +125,19 @@ type Service interface {
 	DeleteBlock(userID, blockID string) error
 	ClearBlocks(userID, taskID string) (*models.Task, error)
 	FreeTime(userID string, from, to time.Time, timezone string) ([]Interval, error)
+	Rank(userID string) ([]RankedTask, error)
 }
 
 type service struct {
-	repo   Repository
-	tasks  task.TaskRepository
-	events event.EventRepository
-	blocks *blocks.Store
+	repo      Repository
+	tasks     task.TaskRepository
+	events    event.EventRepository
+	blocks    *blocks.Store
+	placement *placement.Service
 }
 
-func NewService(repo Repository, tasks task.TaskRepository, events event.EventRepository, blockStore *blocks.Store) Service {
-	return &service{repo: repo, tasks: tasks, events: events, blocks: blockStore}
+func NewService(repo Repository, tasks task.TaskRepository, events event.EventRepository, blockStore *blocks.Store, place *placement.Service) Service {
+	return &service{repo: repo, tasks: tasks, events: events, blocks: blockStore, placement: place}
 }
 
 func (s *service) GetWorkingHours(userID, fallbackTimezone string) (*WorkingHoursResponse, error) {
@@ -157,6 +159,9 @@ func (s *service) UpdateWorkingHours(userID string, hours models.WorkingHours) (
 		return nil, err
 	}
 	if err := s.repo.UpdateWorkingHours(userID, hours); err != nil {
+		return nil, err
+	}
+	if err := s.placement.RewriteFutureAllDay(userID, hours); err != nil {
 		return nil, err
 	}
 	return &WorkingHoursResponse{WorkingHours: hours}, nil
@@ -409,32 +414,27 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 		}
 	}
 
-	items, err := calendar.Collect(tasks, events, from, to)
-	if err != nil {
-		return nil, nil, nil, time.Time{}, err
-	}
+	occupancy := placement.Busy(tasks, events, from, to, hours)
 	var busy []Interval
-	for _, item := range items {
-		if item.Task != nil && item.Task.IsCompleted() {
+	for _, item := range occupancy {
+		if item.Completed {
 			continue
 		}
-		if item.Kind == calendar.KindTaskOccurrence && item.Task != nil && item.Task.IsSchedulableWork() {
-			if item.OriginalStart != nil && occCandidates[occurrenceCandidateID(item.TaskID, *item.OriginalStart)] {
-				if item.Source == models.BlockSourceEngine || req.IncludeManual {
-					if freezeUntil.IsZero() || !item.Start.Before(freezeUntil) {
-						continue
-					}
-				}
-			}
-		} else if item.Kind == calendar.KindTask && candidateSet[item.TaskID] {
+		if item.SchedulableWork && candidateSet[item.TaskID] {
 			if item.Source == models.BlockSourceEngine || req.IncludeManual {
 				if freezeUntil.IsZero() || !item.Start.Before(freezeUntil) {
 					continue
 				}
 			}
 		}
-		if item.AllDay || item.Reminder {
-			continue
+		if item.OccurrenceStart != nil && item.SchedulableWork {
+			if occCandidates[occurrenceCandidateID(item.TaskID, *item.OccurrenceStart)] {
+				if item.Source == models.BlockSourceEngine || req.IncludeManual {
+					if freezeUntil.IsZero() || !item.Start.Before(freezeUntil) {
+						continue
+					}
+				}
+			}
 		}
 		busy = append(busy, Interval{Start: item.Start, End: item.End})
 	}
@@ -522,16 +522,12 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	for i := range tasks {
 		names[tasks[i].ID] = tasks[i].Name
 	}
-	for _, item := range items {
-		if item.TaskID == "" || names[item.TaskID] != "" {
-			continue
-		}
-		if item.Title != "" {
-			names[item.TaskID] = item.Title
-		}
-	}
 	response.Changes = diffPlan(current, response.Proposals, skipped, names)
-	response.Capacity = dayCapacity(from, to, loc, hours, items, response.Proposals)
+	occupied := make([]Interval, 0, len(occupancy))
+	for _, item := range occupancy {
+		occupied = append(occupied, Interval{Start: item.Start, End: item.End})
+	}
+	response.Capacity = dayCapacity(from, to, loc, hours, occupied, response.Proposals)
 	if result.FreeMinutes < result.PlannedMinutes {
 		response.Risks = append(response.Risks, PlanRisk{
 			Kind:    "insufficient_capacity",
@@ -813,15 +809,9 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 	if err != nil {
 		return nil, err
 	}
-	items, err := calendar.Collect(tasks, events, from, to)
-	if err != nil {
-		return nil, err
-	}
+	occupancy := placement.Busy(tasks, events, from, to, hours)
 	var busy []Interval
-	for _, item := range items {
-		if item.AllDay || item.Reminder {
-			continue
-		}
+	for _, item := range occupancy {
 		busy = append(busy, Interval{Start: item.Start, End: item.End})
 	}
 	free := FreeIntervals(from, to, hours, loc, busy)
@@ -829,4 +819,19 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 		free = []Interval{}
 	}
 	return free, nil
+}
+
+func (s *service) Rank(userID string) ([]RankedTask, error) {
+	if userID == "" {
+		return nil, errors.New("user not authenticated")
+	}
+	tasks, err := s.tasks.GetAllTaskByUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	list := RankList(tasks, time.Now())
+	if list == nil {
+		list = []RankedTask{}
+	}
+	return list, nil
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
-	"timely-api/internal/features/calendar"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
 	"timely-api/internal/utils"
@@ -358,7 +357,7 @@ func diffPlan(current map[string][]BlockOut, proposals []ProposalOut, skipped []
 	return changes
 }
 
-func dayCapacity(from, to time.Time, loc *time.Location, hours models.WorkingHours, items []calendar.Item, proposals []ProposalOut) []DayCapacity {
+func dayCapacity(from, to time.Time, loc *time.Location, hours models.WorkingHours, occupied []Interval, proposals []ProposalOut) []DayCapacity {
 	var out []DayCapacity
 	day := time.Date(from.In(loc).Year(), from.In(loc).Month(), from.In(loc).Day(), 0, 0, 0, 0, loc)
 	end := to.In(loc)
@@ -370,8 +369,8 @@ func dayCapacity(from, to time.Time, loc *time.Location, hours models.WorkingHou
 		}
 		scheduled := 0
 		atRisk := false
-		for _, item := range items {
-			if item.AllDay || item.Reminder || !item.Start.Before(next) || !item.End.After(day) {
+		for _, item := range occupied {
+			if !item.Start.Before(next) || !item.End.After(day) {
 				continue
 			}
 			start := maxTime(item.Start, day)

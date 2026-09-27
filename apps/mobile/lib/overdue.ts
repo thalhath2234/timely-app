@@ -32,15 +32,11 @@ export function latestTaskSchedule(
 }
 
 export function isTaskOverdue(task: Task, now = new Date()): boolean {
-  if (task.completedAt || (task.duration ?? 0) <= 0) return false;
+  if (task.completedAt || task.kind === "inbox" || task.kind === "reminder") return false;
+  if (!task.deadline) return false;
   const today = startOfDay(now);
-  if (task.deadline) {
-    const deadline = startOfDay(dateFromDateInput(task.deadline));
-    if (deadline < today) return true;
-  }
-  if (task.recurrence) return false;
-  const schedule = latestTaskSchedule(task);
-  return Boolean(schedule && startOfDay(schedule.end) < today);
+  const deadline = startOfDay(dateFromDateInput(task.deadline));
+  return deadline < today;
 }
 
 export function isAgendaOverdue(task: Task, now = new Date()): boolean {
