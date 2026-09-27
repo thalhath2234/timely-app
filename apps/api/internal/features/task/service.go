@@ -25,22 +25,22 @@ const (
 // "leave untouched", so autosave can send partial payloads. For the nullable
 // columns an empty string clears the value.
 type TaskUpdate struct {
-	Name            *string
-	Description     *string
-	DescriptionRich *models.JSONMap
-	Duration        *int
-	Deadline        *string
-	StartDate       *string
-	ScheduledOn     *string
-	CompletedAt     *string
-	WorkspaceID     *string
-	ProjectID       *string
-	StatusID        *string
-	PriorityLevel   *string
-	StageID         *string
-	BlockedByID     *string
-	Kind            *string
-	TodayFocusOn    *string
+	Name                  *string
+	Description           *string
+	DescriptionRich       *models.JSONMap
+	Duration              *int
+	Deadline              *string
+	StartDate             *string
+	ScheduledOn           *string
+	CompletedAt           *string
+	WorkspaceID           *string
+	ProjectID             *string
+	StatusID              *string
+	PriorityLevel         *string
+	StageID               *string
+	BlockedByID           *string
+	Kind                  *string
+	TodayFocusOn          *string
 	MinChunkMinutes       *int
 	PreferredChunkMinutes *int
 	Contiguous            *bool
@@ -96,6 +96,7 @@ type TaskService interface {
 	DeleteChecklistItem(userID, taskID, itemID string) (*models.Task, error)
 	ReplaceChecklist(userID, taskID string, items models.Checklist) (*models.Task, error)
 	StartFocus(userID, taskID string) (*models.Task, error)
+	PauseFocus(userID, taskID string) (*models.Task, error)
 	StopFocus(userID, taskID string) (*models.Task, error)
 	SetTodayFocus(userID, taskID string, date *string) (*models.Task, error)
 	WithActor(name string) TaskService
@@ -123,7 +124,7 @@ type TaskFilter struct {
 	// true: only reminders. false: same as default.
 	Reminders *bool
 	// Kind filters by task | reminder | inbox. Inbox is also accepted via Inbox=true.
-	Kind string
+	Kind  string
 	Inbox *bool
 }
 
@@ -432,8 +433,8 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		"project_id":     update.ProjectID,
 		"status_id":      update.StatusID,
 		"priority_level": update.PriorityLevel,
-		"stage_id":        update.StageID,
-		"today_focus_on":  update.TodayFocusOn,
+		"stage_id":       update.StageID,
+		"today_focus_on": update.TodayFocusOn,
 	}
 	if err := normalizeTaskPriority(update.PriorityLevel); err != nil {
 		return nil, err
@@ -504,6 +505,13 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 
 	if err := s.syncCompletionWithStatus(before, updates); err != nil {
 		return nil, err
+	}
+	if completedAt, ok := updates["completed_at"]; ok && completedAt != nil {
+		if before.IsFocusing() {
+			updates["actual_minutes"] = before.ActualMinutes + elapsedFocusMinutes(*before.FocusStartedAt)
+		}
+		updates["focus_started_at"] = nil
+		updates["focus_paused_at"] = nil
 	}
 	if err := s.applyKindUpdate(userID, before, update, updates); err != nil {
 		return nil, err

@@ -194,6 +194,7 @@ export interface Task {
   checklist?: ChecklistItem[];
   actualMinutes?: number;
   focusStartedAt?: string | null;
+  focusPausedAt?: string | null;
   todayFocusOn?: string | null;
   minChunkMinutes?: number;
   preferredChunkMinutes?: number | null;
@@ -336,6 +337,7 @@ export interface TodayResponse {
   date: string;
   timezone: string;
   focusing: Task | null;
+  pausedFocus: Task | null;
   todayFocus: Task[];
   items: CalendarItem[];
   overdue: Task[];

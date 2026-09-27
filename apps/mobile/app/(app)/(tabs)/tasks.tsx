@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { FlatList, Platform, RefreshControl, SectionList, Text, View } from "react-native";
+import { FlatList, Platform, RefreshControl, ScrollView, SectionList, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ListTodo, SlidersHorizontal } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -372,8 +372,8 @@ export default function TasksScreen() {
     ({ section }: { section: { title: string; color: string | null; data: Task[] } }) => (
       <View style={styles.head}>
         <View style={[styles.dot, { backgroundColor: section.color ?? colors.mutedForeground }]} />
-        <Text style={styles.group}>{section.title}</Text>
-        <Text style={styles.count}>{section.data.length}</Text>
+        <Text numberOfLines={2} style={styles.group}>{section.title}</Text>
+        <View style={styles.groupCount}><Text style={styles.count}>{section.data.length}</Text></View>
       </View>
     ),
     [],
@@ -382,7 +382,7 @@ export default function TasksScreen() {
   return (
     <Screen>
       <MobileHeader
-        title={project?.title || activeView?.name || "Tasks"}
+        title={project?.title || "Tasks"}
         subtitle={
           project
             ? "Filtered by project"
@@ -419,7 +419,9 @@ export default function TasksScreen() {
       {selecting ? (
         <View style={styles.bulk}>
           <Text style={styles.bulkCount}>{selectedIds.length} selected</Text>
+          <ScrollView horizontal style={styles.bulkScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bulkActions}>
           <AnimatedPressable
+            style={styles.bulkButton}
             onPress={() => {
               const ids = selectedIds;
               bulk.mutate({ ids, update: { completedAt: new Date().toISOString() } });
@@ -431,6 +433,7 @@ export default function TasksScreen() {
             <Text style={styles.bulkAction}>Complete</Text>
           </AnimatedPressable>
           <AnimatedPressable
+            style={styles.bulkButton}
             onPress={() => {
               const ids = selectedIds;
               bulk.mutate({ ids, update: { completedAt: "" } });
@@ -443,13 +446,14 @@ export default function TasksScreen() {
           >
             <Text style={styles.bulkAction}>Reopen</Text>
           </AnimatedPressable>
-          <AnimatedPressable onPress={() => setBulkPicker("menu")}>
+          <AnimatedPressable style={styles.bulkButton} onPress={() => setBulkPicker("menu")}>
             <Text style={styles.bulkAction}>More</Text>
           </AnimatedPressable>
-          <AnimatedPressable onPress={() => setConfirmBulkDelete(true)}>
+          <AnimatedPressable style={styles.bulkButton} onPress={() => setConfirmBulkDelete(true)}>
             <Text style={[styles.bulkAction, { color: colors.destructive }]}>Delete</Text>
           </AnimatedPressable>
           <AnimatedPressable
+            style={styles.bulkButton}
             onPress={() => {
               setSelectedIds([]);
               setBulkPicker(null);
@@ -457,6 +461,7 @@ export default function TasksScreen() {
           >
             <Text style={styles.bulkAction}>Clear</Text>
           </AnimatedPressable>
+          </ScrollView>
         </View>
       ) : null}
       {boardMode && !networkCopy && visible.length > 0 ? (
@@ -482,7 +487,7 @@ export default function TasksScreen() {
         <FlatList
           data={projectRows}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 110 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120 }}
           refreshControl={refreshControl}
           initialNumToRender={8}
           windowSize={7}
@@ -520,7 +525,7 @@ export default function TasksScreen() {
           renderItem={renderTask}
           renderSectionHeader={renderSectionHeader}
           stickySectionHeadersEnabled={false}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 110 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
           refreshControl={refreshControl}
           extraData={selectedIds}
           initialNumToRender={10}
@@ -645,46 +650,47 @@ export default function TasksScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  head: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 16, paddingBottom: 8, paddingHorizontal: 4 },
+  head: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 22, paddingBottom: 12, paddingHorizontal: 4 },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  group: { color: colors.foreground, fontSize: 13, fontWeight: "600", flex: 1 },
-  count: { color: colors.mutedForeground, fontSize: 12 },
+  group: { color: colors.foreground, fontSize: 17, fontWeight: "800", flex: 1, letterSpacing: -0.2 },
+  groupCount: { minWidth: 26, height: 26, paddingHorizontal: 7, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.muted },
+  count: { color: colors.mutedForeground, fontSize: 12, fontWeight: "700" },
   bulk: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  bulkCount: { flex: 1, color: colors.foreground, fontWeight: "600" },
-  bulkAction: { color: colors.primary, fontWeight: "600" },
+  bulkCount: { color: colors.foreground, fontSize: 12, fontWeight: "800", flexShrink: 0 },
+  bulkScroll: { flex: 1, minWidth: 0 },
+  bulkActions: { gap: 7, alignItems: "center" },
+  bulkButton: { minHeight: 36, paddingHorizontal: 10, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
+  bulkAction: { color: colors.primary, fontSize: 12, fontWeight: "700" },
   projectCard: {
-    borderRadius: 14,
+    borderRadius: 20,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 14,
-    gap: 4,
-    marginBottom: 8,
+    padding: 18,
+    gap: 6,
+    marginBottom: 10,
   },
-  cardWrap: { marginBottom: 8 },
-  projectTitle: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
+  cardWrap: { marginBottom: 10 },
+  projectTitle: { color: colors.foreground, fontSize: 17, fontWeight: "700" },
   filterBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    minHeight: 36,
-    paddingHorizontal: 12,
+    minHeight: 40,
+    paddingHorizontal: 14,
     borderRadius: 999,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.muted,
   },
   filterBtnOn: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
   filterBtnText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   filterBtnTextOn: { color: colors.primaryForeground },

@@ -117,9 +117,9 @@ export default function CalendarItemSheet({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  meta: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 },
+  meta: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16, minHeight: 52, borderRadius: 18, backgroundColor: colors.muted, paddingHorizontal: 16 },
   swatch: { width: 10, height: 10, borderRadius: 5 },
-  when: { color: colors.mutedForeground, fontSize: 13 },
-  row: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 },
-  rowText: { color: colors.foreground, fontSize: 15 },
+  when: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
+  row: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, paddingHorizontal: 16, backgroundColor: colors.muted, marginBottom: 4 },
+  rowText: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
 }));

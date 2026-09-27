@@ -1,12 +1,14 @@
 import { startTransition, useEffect, useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { Alert, Text, View } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useRouter } from "expo-router";
-import { Bell, CalendarClock, CalendarDays, Check, CircleDot, Clock, FileText, Flag, FolderKanban, Inbox, ListTodo, Palette, Sheet as SheetIcon } from "lucide-react-native";
+import { Bell, CalendarClock, CalendarDays, Check, CircleDot, Clock, FileText, Flag, FolderKanban, Inbox, ListTodo, Palette, Sheet as SheetIcon, Sparkles } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "./BottomSheet";
 import DateTimeSheet from "./DateTimeSheet";
 import TaskMetaEditor from "./TaskMetaEditor";
 import RecurrenceEditor from "./RecurrenceEditor";
+import TaskSectionHeader from "../tasks/TaskSectionHeader";
+import SegmentedControl from "./SegmentedControl";
 import { Dot, Field, PrimaryButton, PropertyGroup, PropertyRow } from "./primitives";
 import RichTextEditor from "../editor/RichTextEditor";
 import AnimatedPressable from "./AnimatedPressable";
@@ -59,6 +61,10 @@ function applyClock(day: Date, clock: Date) {
   return next;
 }
 
+function clockValue(value: Date) {
+  return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+}
+
 function makeReminderTime(current: Date | null) {
   if (current) return current;
   return nextRoundHour();
@@ -97,6 +103,9 @@ export default function QuickAddSheet({
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [deadline, setDeadline] = useState<Date | null>(null);
   const [scheduledOn, setScheduledOn] = useState<Date | null>(null);
+  const [earliestStartAt, setEarliestStartAt] = useState<Date | null>(null);
+  const [preferFrom, setPreferFrom] = useState<Date | null>(null);
+  const [preferTo, setPreferTo] = useState<Date | null>(null);
   const [labelIds, setLabelIds] = useState<string[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<CustomFieldValueInput[]>([]);
   const [taskRecurrence, setTaskRecurrence] = useState<RecurrenceDraft | null>(null);
@@ -111,6 +120,9 @@ export default function QuickAddSheet({
     | "due"
     | "startDate"
     | "schedule"
+    | "earliest"
+    | "preferFrom"
+    | "preferTo"
     | "eventStart"
     | "workspace"
     | "project"
@@ -245,6 +257,9 @@ export default function QuickAddSheet({
     setStartDate(null);
     setDeadline(null);
     setScheduledOn(null);
+    setEarliestStartAt(null);
+    setPreferFrom(null);
+    setPreferTo(null);
     setLabelIds([]);
     setTaskRecurrence(null);
     setEventRecurrence(null);
@@ -272,6 +287,11 @@ export default function QuickAddSheet({
     }
     if (kind === "task" || kind === "reminder") {
       if (!isReminder && !activeWorkspaceId) return;
+      if (!isReminder && (Boolean(preferFrom) !== Boolean(preferTo) ||
+        (preferFrom && preferTo && clockValue(preferTo) <= clockValue(preferFrom)))) {
+        Alert.alert("Check preferred times", "Set both times, with Prefer to later than Prefer from.");
+        return;
+      }
       const filledFields = filledCustomFieldValues(customFieldValues);
       const wantsMeta = labelIds.length > 0 || filledFields.length > 0;
       if (wantsMeta && !activeWorkspaceId) return;
@@ -290,6 +310,10 @@ export default function QuickAddSheet({
         deadline: deadline ? toDateInputValue(deadline) : undefined,
         scheduledOn: !recurrence
           ? (scheduledOn ?? (isReminder ? nextRoundHour() : null))?.toISOString()
+          : undefined,
+        earliestStartAt: !isReminder ? earliestStartAt?.toISOString() : undefined,
+        preferredWindows: !isReminder && preferFrom && preferTo
+          ? [{ start: clockValue(preferFrom), end: clockValue(preferTo) }]
           : undefined,
         duration: isReminder ? 0 : duration,
         labelIds: labelIds.length ? labelIds.map((id) => ({ id })) : undefined,
@@ -346,6 +370,12 @@ export default function QuickAddSheet({
         ? startDate
         : picking === "schedule"
           ? scheduledOn
+          : picking === "earliest"
+            ? earliestStartAt
+            : picking === "preferFrom"
+              ? preferFrom
+              : picking === "preferTo"
+                ? preferTo
           : picking === "eventStart"
             ? eventStart
             : null;
@@ -385,7 +415,9 @@ export default function QuickAddSheet({
                 android_ripple={{ color: `${colors.primary}22` }}
                 style={[styles.kind, selectedKind === item.value && styles.kindSelected]}
               >
-                <item.Icon size={20} color={selectedKind === item.value ? colors.primary : colors.mutedForeground} />
+                <View style={[styles.kindIcon, selectedKind === item.value && styles.kindIconSelected]}>
+                  <item.Icon size={22} color={selectedKind === item.value ? colors.primary : colors.mutedForeground} />
+                </View>
                 <Text style={[styles.kindText, selectedKind === item.value && styles.kindTextSelected]}>{item.label}</Text>
               </AnimatedPressable>
           ))}
@@ -401,6 +433,8 @@ export default function QuickAddSheet({
           </Text>
           <Field
             bare
+            multiline
+            autoGrow
             value={title}
             onChangeText={setTitle}
             autoCapitalize="sentences"
@@ -472,7 +506,8 @@ export default function QuickAddSheet({
 
         {kind === "task" || kind === "reminder" ? (
           <View style={{ gap: 10 }}>
-            <PropertyGroup>
+            <SegmentedControl options={[{ label: "Work", value: "task" }, { label: "Reminder", value: "reminder" }]} value={kind} onChange={(next) => next === "reminder" ? turnIntoReminder() : addDuration()} />
+            <PropertyGroup tone="card">
               {!isReminder ? (
                 <PropertyRow
                   icon={<FolderKanban size={16} color={colors.mutedForeground} />}
@@ -551,7 +586,8 @@ export default function QuickAddSheet({
               anchor={taskAnchor}
             />
 
-            <Text style={styles.section}>{isReminder ? "Reminder" : "Schedule"}</Text>
+            <View style={styles.scheduleCard}>
+              <TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title={isReminder ? "Reminder Schedule" : "Smart Schedule"} subtitle={isReminder ? "Choose when to get notified" : "Choose when to work on this task"} />
             <PropertyGroup>
               {isReminder ? (
                 <PropertyRow
@@ -567,6 +603,7 @@ export default function QuickAddSheet({
                   onPress={() => setPicking("schedule")}
                 />
               ) : (
+                <>
                 <PropertyRow
                   icon={<CalendarDays size={16} color={colors.mutedForeground} />}
                   label={taskTimeOnly ? "Time" : "Schedule"}
@@ -579,6 +616,25 @@ export default function QuickAddSheet({
                   }
                   onPress={() => setPicking("schedule")}
                 />
+                <PropertyRow
+                  icon={<CalendarClock size={16} color={colors.mutedForeground} />}
+                  label="Earliest start"
+                  value={formatDateValue(earliestStartAt, true)}
+                  onPress={() => setPicking("earliest")}
+                />
+                <PropertyRow
+                  icon={<Clock size={16} color={colors.mutedForeground} />}
+                  label="Prefer from"
+                  value={preferFrom ? formatTime(preferFrom.toISOString()) : "Any time"}
+                  onPress={() => setPicking("preferFrom")}
+                />
+                <PropertyRow
+                  icon={<Clock size={16} color={colors.mutedForeground} />}
+                  label="Prefer to"
+                  value={preferTo ? formatTime(preferTo.toISOString()) : "Any time"}
+                  onPress={() => setPicking("preferTo")}
+                />
+                </>
               )}
             </PropertyGroup>
             <Text style={styles.hint}>
@@ -590,6 +646,7 @@ export default function QuickAddSheet({
                   ? "Each occurrence starts at this time. Auto-schedule keeps that block for this task."
                   : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}
             </Text>
+            </View>
 
             {detailsReady && !isReminder ? (
               <>
@@ -858,12 +915,13 @@ export default function QuickAddSheet({
       </BottomSheet>
       <DateTimeSheet
         key={picking ?? "closed"}
-        open={picking === "due" || picking === "startDate" || picking === "schedule" || picking === "eventStart"}
+        open={picking === "due" || picking === "startDate" || picking === "schedule" || picking === "earliest" || picking === "preferFrom" || picking === "preferTo" || picking === "eventStart"}
         value={pickerValue}
+        title={picking === "earliest" ? "Earliest start" : picking === "preferFrom" ? "Prefer from" : picking === "preferTo" ? "Prefer to" : undefined}
         mode={
           picking === "due" || picking === "startDate" || (picking === "eventStart" && allDay)
             ? "date"
-            : (picking === "schedule" && taskTimeOnly) ||
+            : picking === "preferFrom" || picking === "preferTo" || (picking === "schedule" && taskTimeOnly) ||
                 (picking === "eventStart" && Boolean(eventRecurrence) && !allDay)
               ? "time"
               : "datetime"
@@ -884,6 +942,9 @@ export default function QuickAddSheet({
               setScheduledOn(next);
             }
           }
+          if (picking === "earliest") setEarliestStartAt(next);
+          if (picking === "preferFrom") setPreferFrom(next);
+          if (picking === "preferTo") setPreferTo(next);
           if (picking === "eventStart" && next) {
             if (eventRecurrence && !allDay) {
               const combined = new Date(eventStart);
@@ -901,31 +962,33 @@ export default function QuickAddSheet({
 
 const styles = createThemedStyleSheet((colors) => ({
   fields: { gap: 16 },
-  objectiveCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, gap: 7 },
-  descriptionCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, gap: 10 },
+  objectiveCard: { borderRadius: 20, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 8 },
+  descriptionCard: { borderRadius: 20, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 10 },
   descriptionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  cardEyebrow: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 10, fontWeight: "700", letterSpacing: 0.8 },
-  markdownLabel: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 9 },
-  kinds: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
+  cardEyebrow: { color: colors.mutedForeground, fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
+  markdownLabel: { color: colors.mutedForeground, fontSize: 11 },
+  kinds: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 8 },
   kind: {
     width: "31%",
     flexGrow: 1,
     alignItems: "center",
-    gap: 6,
-    minHeight: 72,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    paddingVertical: 14,
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 108,
+    borderRadius: 24,
+    backgroundColor: colors.muted,
+    paddingVertical: 12,
   },
-  kindSelected: { borderColor: colors.primary, backgroundColor: colors.accent },
-  kindText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
-  kindTextSelected: { color: colors.primary, fontWeight: "700" },
-  changeType: { alignSelf: "flex-start", paddingVertical: 4, paddingRight: 12 },
-  changeTypeText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
-  metaPanel: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
-  section: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.9, marginTop: 4 },
+  kindSelected: { backgroundColor: colors.accent },
+  kindIcon: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.card },
+  kindIconSelected: { backgroundColor: colors.popover },
+  kindText: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  kindTextSelected: { color: colors.primary, fontWeight: "800" },
+  changeType: { alignSelf: "flex-start", paddingVertical: 8, paddingRight: 12 },
+  changeTypeText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
+  metaPanel: { borderRadius: 24, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16 },
+  scheduleCard: { gap: 12, borderRadius: 24, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16 },
+  section: { color: colors.foreground, fontSize: 16, fontWeight: "800", marginTop: 8 },
   hintRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 10 },
-  hint: { color: colors.mutedForeground, fontSize: 12 },
+  hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18 },
 }));

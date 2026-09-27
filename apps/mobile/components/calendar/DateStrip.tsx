@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Dimensions, NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Dimensions, NativeScrollEvent, NativeSyntheticEvent, ScrollView, Text, View } from "react-native";
 import { addDays, dayKey, isSameDay, startOfDay } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -62,6 +62,7 @@ export default function DateStrip({
   return (
     <ScrollView
       ref={scrollRef}
+      style={styles.strip}
       horizontal
       pagingEnabled
       decelerationRate="fast"
@@ -82,12 +83,12 @@ export default function DateStrip({
               <AnimatedPressable key={d.toISOString()} onPress={() => onSelect(d)} style={styles.day}>
                 <Text style={[styles.wd, on && styles.onText]}>{d.toLocaleDateString(undefined, { weekday: "narrow" })}</Text>
                 <View style={[styles.numWrap, on && styles.on]}>
-                  <Text style={[styles.num, on && styles.onText, isToday && !on && { color: colors.primary }]}>
+                  <Text style={[styles.num, on && styles.numOnText, isToday && !on && { color: colors.primary }]}>
                     {d.getDate()}
                   </Text>
                 </View>
                 {busyDays.has(dayKey(d)) ? (
-                  <View style={[styles.dot, on && { backgroundColor: colors.primaryForeground }]} />
+                  <View style={[styles.dot, on && { backgroundColor: colors.primary }]} />
                 ) : (
                   <View style={styles.dotSpacer} />
                 )}
@@ -101,18 +102,20 @@ export default function DateStrip({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  strip: { height: 82, flexGrow: 0 },
   week: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingBottom: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
-  day: { width: 44, alignItems: "center", justifyContent: "center", gap: 2 },
-  numWrap: { width: 36, height: 36, borderRadius: 18, overflow: "hidden", alignItems: "center", justifyContent: "center" },
-  on: { backgroundColor: colors.primary, shadowColor: colors.primary, shadowOpacity: 0.5, shadowRadius: 9, shadowOffset: { width: 0, height: 0 } },
-  wd: { color: colors.mutedForeground, fontSize: 11, fontWeight: "500" },
-  num: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  onText: { color: colors.primaryForeground },
+  day: { width: 44, alignItems: "center", justifyContent: "center", gap: 4 },
+  numWrap: { width: 40, height: 40, borderRadius: 20, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  on: { backgroundColor: colors.primary },
+  wd: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600" },
+  num: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
+  onText: { color: colors.primary },
+  numOnText: { color: colors.primaryForeground },
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.mutedForeground },
   dotSpacer: { width: 5, height: 5 },
 }));

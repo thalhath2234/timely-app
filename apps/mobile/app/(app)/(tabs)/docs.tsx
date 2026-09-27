@@ -7,7 +7,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { ChevronRight, FileText, LayoutTemplate, MoreVertical, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
+import { Archive, ArchiveRestore, ChevronRight, FileText, LayoutTemplate, MoreVertical, Sheet as SheetIcon, Star, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -165,7 +165,7 @@ export default function FilesScreen() {
     const descendantCount = countDocDescendants(node);
     return (
       <Animated.View key={node.id} layout={listLayout(reduceMotion)} style={{ gap: 8 }}>
-        <View style={[styles.card, { marginLeft: depth * 16 }]}>
+        <View style={[styles.card, { marginLeft: Math.min(depth, 3) * 12 }]}>
           <DocsExpandButton
             expanded={expanded}
             hasChildren={hasChildren}
@@ -176,9 +176,9 @@ export default function FilesScreen() {
             style={styles.cardBody}
           >
             <Text style={styles.icon}>{node.icon || "📄"}</Text>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.title}>{node.title || "Untitled"}</Text>
-              <Text numberOfLines={1} style={styles.meta}>
+              <Text numberOfLines={2} style={styles.meta}>
                 {hasChildren ? `${descendantCount} nested · ` : ""}
                 {timeAgo(node.updatedAt)}
               </Text>
@@ -211,17 +211,26 @@ export default function FilesScreen() {
     <Screen>
       <MobileHeader
         title="Files"
-        subtitle={kind === "docs" ? `${docs.length} pages` : `${sheets.length} tables · ${templates.length} templates`}
+        subtitle={kind === "docs" ? `${docs.length} ${docs.length === 1 ? "page" : "pages"}` : `${sheets.length} ${sheets.length === 1 ? "table" : "tables"} · ${templates.length} ${templates.length === 1 ? "template" : "templates"}`}
         actions={
-          <HeaderIconButton
-            label={kind === "docs" ? "Import Markdown" : "Import CSV"}
-            onPress={() => void (kind === "docs" ? importMarkdown() : importCsv())}
-          >
-            <Upload size={20} color={colors.foreground} />
-          </HeaderIconButton>
+          <>
+            <HeaderIconButton
+              label={showArchived ? "Show active files" : "Show archived files"}
+              active={showArchived}
+              onPress={() => setShowArchived((previous) => !previous)}
+            >
+              {showArchived ? <ArchiveRestore size={20} color={colors.primary} /> : <Archive size={20} color={colors.foreground} />}
+            </HeaderIconButton>
+            <HeaderIconButton
+              label={kind === "docs" ? "Import Markdown" : "Import CSV"}
+              onPress={() => void (kind === "docs" ? importMarkdown() : importCsv())}
+            >
+              <Upload size={20} color={colors.foreground} />
+            </HeaderIconButton>
+          </>
         }
       >
-        <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
+        <View style={styles.headerControls}>
           <SegmentedControl
             options={[
               { label: "Docs", value: "docs" },
@@ -230,15 +239,10 @@ export default function FilesScreen() {
             value={kind}
             onChange={setKind}
           />
-          <AnimatedPressable onPress={() => setShowArchived((previous) => !previous)} style={{ paddingTop: 8 }}>
-            <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
-              {showArchived ? "Showing archived · tap for active" : "Show archived"}
-            </Text>
-          </AnimatedPressable>
         </View>
       </MobileHeader>
       <ScrollView
-        contentContainerStyle={{ padding: 12, paddingBottom: 110, gap: 10 }}
+        contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
             refreshing={(kind === "docs" ? docsQ.isRefetching : sheetsQ.isRefetching || templatesQ.isRefetching) && !(kind === "docs" ? docsQ.isPending : sheetsQ.isPending)}
@@ -265,9 +269,9 @@ export default function FilesScreen() {
               {favoriteDocs.map((doc) => (
                 <AnimatedPressable key={`fav-${doc.id}`} onPress={() => router.push(`/(app)/docs/${doc.id}`)} style={styles.card}>
                   <Text style={styles.icon}>{doc.icon || "📄"}</Text>
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.title}>{doc.title || "Untitled"}</Text>
-                    <Text numberOfLines={1} style={styles.meta}>
+                    <Text numberOfLines={2} style={styles.meta}>
                       {doc.plainText || timeAgo(doc.updatedAt)}
                     </Text>
                   </View>
@@ -287,9 +291,9 @@ export default function FilesScreen() {
             {favoriteSheets.map((sheet) => (
               <AnimatedPressable key={sheet.id} onPress={() => router.push(sheetHref(sheet.id))} style={styles.card}>
                 <Text style={styles.icon}>{sheet.icon || "▦"}</Text>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.title}>{sheet.title || "Untitled"}</Text>
-                  <Text numberOfLines={1} style={styles.meta}>
+                  <Text numberOfLines={2} style={styles.meta}>
                     {(sheet.rows ?? []).length} rows · {(sheet.columns ?? []).length} cols
                     {sheet.updatedAt ? ` · ${timeAgo(sheet.updatedAt)}` : ""}
                     {wsById.get(sheet.workspaceId) ? ` · ${wsById.get(sheet.workspaceId)?.name}` : ""}
@@ -302,9 +306,9 @@ export default function FilesScreen() {
             {restSheets.map((sheet) => (
               <AnimatedPressable key={`a-${sheet.id}`} onPress={() => router.push(sheetHref(sheet.id))} style={styles.card}>
                 <Text style={styles.icon}>{sheet.icon || "▦"}</Text>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.title}>{sheet.title || "Untitled"}</Text>
-                  <Text numberOfLines={1} style={styles.meta}>
+                  <Text numberOfLines={2} style={styles.meta}>
                     {(sheet.rows ?? []).length} rows · {(sheet.columns ?? []).length} cols
                     {sheet.updatedAt ? ` · ${timeAgo(sheet.updatedAt)}` : ""}
                     {wsById.get(sheet.workspaceId) ? ` · ${wsById.get(sheet.workspaceId)?.name}` : ""}
@@ -320,9 +324,9 @@ export default function FilesScreen() {
                 style={styles.card}
               >
                 {template.icon ? <Text style={styles.icon}>{template.icon}</Text> : <LayoutTemplate size={20} color={colors.foreground} style={{ width: 28 }} />}
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.title}>{template.name}</Text>
-                  <Text numberOfLines={1} style={styles.meta}>
+                  <Text numberOfLines={2} style={styles.meta}>
                     {template.rows.length} rows · {template.columns.length} cols
                     {(template.tabs?.length ?? 0) > 1 ? ` · ${template.tabs?.length} tabs` : ""}
                   </Text>
@@ -361,33 +365,35 @@ export default function FilesScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  headerControls: { paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
+  listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120, gap: 10 },
   templateError: { color: colors.destructive, fontSize: 13 },
-  section: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase", marginTop: 8 },
+  section: { color: colors.foreground, fontSize: 19, fontWeight: "800", marginTop: 12, marginBottom: 2, letterSpacing: -0.3 },
   card: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    minHeight: 64,
+    gap: 8,
+    minHeight: 76,
     overflow: "visible",
-    borderRadius: 12,
+    borderRadius: 20,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.card,
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
   },
   cardBody: {
     flex: 1,
     minWidth: 0,
-    minHeight: 64,
+    minHeight: 76,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 8,
+    gap: 12,
+    paddingVertical: 10,
   },
   chevron: { width: 32, height: 44, alignItems: "center", justifyContent: "center", overflow: "visible" },
   chevronGlyph: { width: 20, height: 20, alignItems: "center", justifyContent: "center" },
   menuBtn: { width: 36, height: 44, alignItems: "center", justifyContent: "center" },
-  icon: { fontSize: 20, width: 28, textAlign: "center", color: colors.foreground },
-  title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
-  meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
+  icon: { fontSize: 22, width: 44, height: 44, lineHeight: 44, borderRadius: 16, overflow: "hidden", textAlign: "center", textAlignVertical: "center", backgroundColor: colors.accent, color: colors.foreground },
+  title: { color: colors.foreground, fontSize: 15, lineHeight: 20, fontWeight: "700", flexShrink: 1 },
+  meta: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, marginTop: 4 },
 }));

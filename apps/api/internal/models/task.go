@@ -72,6 +72,7 @@ type Task struct {
 	// ActualMinutes is focused time, independent of estimated Duration.
 	ActualMinutes  int     `gorm:"not null;default:0" json:"actualMinutes"`
 	FocusStartedAt *string `gorm:"type:timestamptz" json:"focusStartedAt"`
+	FocusPausedAt  *string `gorm:"type:timestamptz" json:"focusPausedAt"`
 	// TodayFocusOn is a calendar day the user picked as a Today focus item.
 	TodayFocusOn *string `gorm:"type:date" json:"todayFocusOn"`
 

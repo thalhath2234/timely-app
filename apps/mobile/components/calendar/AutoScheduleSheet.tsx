@@ -204,8 +204,8 @@ function MetricChip({ color, label }: { color: string; label: string }) {
 
 const styles = createThemedStyleSheet((colors) => ({
   hint: { color: colors.mutedForeground, fontSize: 11, lineHeight: 16, marginBottom: 12 },
-  previewButton: { minHeight: 44, borderRadius: 12, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderColor: colors.ring },
-  previewText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+  previewButton: { minHeight: 56, borderRadius: 20, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  previewText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
   disabled: { opacity: 0.55 },
   metrics: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 7, marginTop: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   metricChip: { height: 28, borderRadius: 14, borderWidth: 1, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 6 },
@@ -222,7 +222,7 @@ const styles = createThemedStyleSheet((colors) => ({
   lockText: { color: colors.success, fontFamily: "SpaceMono", fontSize: 8, fontWeight: "700", textTransform: "uppercase" },
   policyText: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 8, textTransform: "uppercase" },
   list: { gap: 8 },
-  allocationCard: { padding: 11, borderRadius: 13, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, gap: 7 },
+  allocationCard: { padding: 16, borderRadius: 20, backgroundColor: colors.muted, gap: 8 },
   cardTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
   cardTitleRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-start", gap: 8 },
   priorityDot: { width: 7, height: 7, borderRadius: 4, marginTop: 5 },
@@ -245,9 +245,9 @@ const styles = createThemedStyleSheet((colors) => ({
   emptyTitle: { color: colors.foreground, fontSize: 14, fontWeight: "700" },
   emptyCopy: { color: colors.mutedForeground, fontSize: 11, lineHeight: 16, textAlign: "center" },
   footerActions: { gap: 8 },
-  footerButton: { height: 48, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1 },
-  undoButton: { backgroundColor: colors.primary, borderColor: colors.ring, shadowColor: colors.primary, shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
-  applyButton: { backgroundColor: colors.muted, borderColor: colors.border },
+  footerButton: { height: 56, borderRadius: 20, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  undoButton: { backgroundColor: colors.primary },
+  applyButton: { backgroundColor: colors.muted },
   footerPrimaryText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
   footerSecondaryText: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
 }));

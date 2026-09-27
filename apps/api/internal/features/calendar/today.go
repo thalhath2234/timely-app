@@ -14,6 +14,7 @@ type TodayResponse struct {
 	Date           string        `json:"date"`
 	Timezone       string        `json:"timezone"`
 	Focusing       *models.Task  `json:"focusing"`
+	PausedFocus    *models.Task  `json:"pausedFocus"`
 	TodayFocus     []models.Task `json:"todayFocus"`
 	Items          []Item        `json:"items"`
 	Overdue        []models.Task `json:"overdue"`
@@ -87,6 +88,10 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 		if t.IsFocusing() {
 			copy := t
 			out.Focusing = &copy
+		}
+		if t.FocusPausedAt != nil && !t.IsCompleted() && (out.PausedFocus == nil || *t.FocusPausedAt > *out.PausedFocus.FocusPausedAt) {
+			copy := t
+			out.PausedFocus = &copy
 		}
 		focusDay := models.NormalizeDate(deref(t.TodayFocusOn))
 		if focusDay == dayStamp {

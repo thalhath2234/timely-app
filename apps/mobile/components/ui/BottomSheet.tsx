@@ -9,8 +9,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { X } from "lucide-react-native";
-import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
+import { Check, X } from "lucide-react-native";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { AccessoryLayer, overlayBottomPad } from "./SheetHost";
 import { easeOut, pageDuration, sheetExitDuration } from "../../lib/motion";
 import AnimatedPressable from "./AnimatedPressable";
@@ -35,6 +35,8 @@ export default function BottomSheet({
   const bottom = overlayBottomPad(insets.bottom);
   const reduceMotion = useReducedMotion();
   const [mounted, setMounted] = useState(open);
+  const [sheetHeight, setSheetHeight] = useState(windowHeight);
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const progress = useSharedValue(open && reduceMotion ? 1 : 0);
   const openRef = useRef(open);
   const onClosedRef = useRef(onClosed);
@@ -96,6 +98,23 @@ export default function BottomSheet({
     if (open && Keyboard.isVisible()) Keyboard.dismiss();
   }, [open]);
 
+  useEffect(() => {
+    if (!mounted) return;
+    const show = Keyboard.addListener("keyboardDidShow", (event) => setKeyboardTop(event.endCoordinates.screenY));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardTop(null));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [mounted]);
+
+  useEffect(() => {
+    if (!open) setKeyboardTop(null);
+  }, [open]);
+
+  const keyboardOverlap = keyboardTop === null ? 0 : Math.max(0, sheetHeight - keyboardTop);
+  const availableHeight = sheetHeight - keyboardOverlap;
+
   return (
     <Modal
       visible={mounted}
@@ -107,7 +126,7 @@ export default function BottomSheet({
       hardwareAccelerated={Platform.OS === "android"}
       onRequestClose={onClose}
     >
-      <View style={styles.root}>
+      <View style={styles.root} onLayout={(event) => setSheetHeight(event.nativeEvent.layout.height)}>
         <Animated.View style={[styles.backdrop, backdropStyle]}>
           <Pressable
             accessibilityRole="button"
@@ -116,9 +135,8 @@ export default function BottomSheet({
             onPress={onClose}
           />
         </Animated.View>
-        <View pointerEvents="box-none" style={styles.foreground}>
-          <Animated.View style={[styles.sheet, { paddingBottom: bottom }, sheetStyle]}>
-            <View style={styles.handle} />
+        <View pointerEvents="box-none" style={[styles.foreground, { paddingBottom: keyboardOverlap }]}>
+          <Animated.View style={[styles.sheet, { paddingBottom: bottom, maxHeight: availableHeight * 0.92 }, sheetStyle]}>
             {presented.title ? (
               <View style={styles.titleRow}>
                 <Text style={styles.title}>{presented.title}</Text>
@@ -177,7 +195,7 @@ export function SheetOption({
       ) : (
         <View style={{ flex: 1 }}>{children}</View>
       )}
-      {selected ? <Text style={styles.selected}>Selected</Text> : null}
+      {selected ? <Check size={18} color={colors.primary} strokeWidth={2.5} /> : null}
     </AnimatedPressable>
   );
 }
@@ -188,52 +206,42 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   backdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(8,9,12,0.72)",
+    backgroundColor: "rgba(8,9,12,0.54)",
   },
   foreground: {
     flex: 1,
     justifyContent: "flex-end",
+    alignItems: "center",
   },
   sheet: {
     width: "100%",
+    maxWidth: 640,
     maxHeight: "92%",
     flexGrow: 0,
     backgroundColor: colors.popover,
-    borderTopLeftRadius: radius,
-    borderTopRightRadius: radius,
-    borderTopWidth: 1,
-    borderColor: colors.border,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 8,
   },
-  handle: {
-    alignSelf: "center",
-    width: 40,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.muted,
-    marginTop: 10,
-    marginBottom: 8,
-  },
-  titleRow: { minHeight: 52, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 12 },
-  title: { flex: 1, color: colors.foreground, fontSize: 18, fontWeight: "700", letterSpacing: -0.25 },
-  close: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  body: { paddingHorizontal: 16, flexGrow: 0, flexShrink: 1 },
-  bodyContent: { paddingBottom: 8 },
+  titleRow: { minHeight: 64, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 12 },
+  title: { flex: 1, color: colors.foreground, fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
+  close: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
+  body: { paddingHorizontal: 20, flexGrow: 0, flexShrink: 1 },
+  bodyContent: { paddingBottom: 12 },
   footer: {
-    borderTopWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 12,
-    backgroundColor: colors.card,
+    backgroundColor: colors.popover,
   },
   option: {
-    minHeight: 52,
-    borderRadius: radius,
-    paddingHorizontal: 12,
+    minHeight: 56,
+    borderRadius: 16,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    marginBottom: 4,
   },
   optionOn: { backgroundColor: colors.accent },
-  optionText: { flex: 1, color: colors.foreground, fontSize: 15 },
-  selected: { color: colors.accentForeground, fontSize: 12, fontWeight: "500" },
+  optionText: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" },
 }));

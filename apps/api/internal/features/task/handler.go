@@ -31,13 +31,15 @@ type customFieldValueRequest struct {
 }
 
 type createTaskRequest struct {
-	Name            string         `json:"name"`
-	Description     string         `json:"description"`
-	DescriptionRich models.JSONMap `json:"descriptionRich"`
-	Duration        int            `json:"duration"`
-	Deadline        *string        `json:"deadline"`
-	StartDate       *string        `json:"startDate"`
-	ScheduledOn     *string        `json:"scheduledOn"`
+	Name             string                  `json:"name"`
+	Description      string                  `json:"description"`
+	DescriptionRich  models.JSONMap          `json:"descriptionRich"`
+	Duration         int                     `json:"duration"`
+	Deadline         *string                 `json:"deadline"`
+	StartDate        *string                 `json:"startDate"`
+	ScheduledOn      *string                 `json:"scheduledOn"`
+	EarliestStartAt  *string                 `json:"earliestStartAt"`
+	PreferredWindows models.PreferredWindows `json:"preferredWindows"`
 
 	CustomFieldValues []customFieldValueRequest `json:"customFieldValues"`
 
@@ -100,14 +102,16 @@ func (h *Handler) Create(c *echo.Context) error {
 	}
 
 	task := &models.Task{
-		Name:            req.Name,
-		Description:     req.Description,
-		DescriptionRich: req.DescriptionRich,
-		Duration:        req.Duration,
-		Deadline:        req.Deadline,
-		StartDate:       req.StartDate,
-		ScheduledOn:     req.ScheduledOn,
-		UserID:          &userID,
+		Name:             req.Name,
+		Description:      req.Description,
+		DescriptionRich:  req.DescriptionRich,
+		Duration:         req.Duration,
+		Deadline:         req.Deadline,
+		StartDate:        req.StartDate,
+		ScheduledOn:      req.ScheduledOn,
+		EarliestStartAt:  req.EarliestStartAt,
+		PreferredWindows: req.PreferredWindows,
+		UserID:           &userID,
 
 		ProjectID:     nonemptyID(req.ProjectID),
 		StatusID:      nonemptyID(req.StatusID),

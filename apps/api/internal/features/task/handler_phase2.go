@@ -118,6 +118,18 @@ func (h *Handler) StopFocus(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"task": task})
 }
 
+func (h *Handler) PauseFocus(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	task, err := h.taskService.PauseFocus(userID, c.Param("id"))
+	if err != nil {
+		return taskError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"task": task})
+}
+
 type todayFocusRequest struct {
 	Date *string `json:"date"`
 }

@@ -115,6 +115,7 @@ func setupTaskRoutes(g *echo.Group, taskHandler *task.Handler) {
 	g.PATCH("/tasks/:id/checklist/:itemId", taskHandler.UpdateChecklistItem)
 	g.DELETE("/tasks/:id/checklist/:itemId", taskHandler.DeleteChecklistItem)
 	g.POST("/tasks/:id/focus/start", taskHandler.StartFocus)
+	g.POST("/tasks/:id/focus/pause", taskHandler.PauseFocus)
 	g.POST("/tasks/:id/focus/stop", taskHandler.StopFocus)
 	g.PUT("/tasks/:id/today-focus", taskHandler.SetTodayFocus)
 }

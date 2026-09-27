@@ -1,8 +1,8 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
 import { formatRelativeDay, formatTime, formatTimeRange } from "../../lib/format";
-import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { taskEntityColor } from "../../lib/entityColor";
 import AnimatedPressable from "../ui/AnimatedPressable";
 
@@ -45,15 +45,19 @@ export default function CalendarItemRow({
   item,
   onOpen,
   overdue,
+  timeline,
 }: {
   item: CalendarItem;
   onOpen: (item: CalendarItem) => void;
   overdue?: boolean;
+  timeline?: boolean;
 }) {
   const done = Boolean(item.completedAt);
   const recurring = item.kind.endsWith("Occurrence") || Boolean(item.seriesId);
   const Icon = isTaskItem(item) ? ListTodo : CalendarClock;
-  const when = item.allDay
+  const when = timeline
+    ? item.allDay ? "All day event" : overdue ? "Overdue" : isReminderItem(item) ? "Reminder" : "Scheduled"
+    : item.allDay
     ? overdue
       ? `Due ${formatRelativeDay(new Date(item.start))}`
       : "All day"
@@ -62,11 +66,11 @@ export default function CalendarItemRow({
       : `${formatTimeRange(item.start, item.end)}${overdue ? ` · ${formatRelativeDay(new Date(item.start))}` : ""}`;
 
   return (
-    <AnimatedPressable onPress={() => onOpen(item)} style={styles.row}>
+    <AnimatedPressable onPress={() => onOpen(item)} style={[styles.row, timeline && styles.timelineRow]}>
       <View style={[styles.bar, { backgroundColor: itemColor(item) }]} />
       {isTaskItem(item) ? <View style={[styles.check, overdue && styles.checkOverdue, done && styles.checkDone]}>{done ? <Check size={12} color="#fff" /> : null}</View> : null}
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text numberOfLines={1} style={[styles.title, done && styles.done]}>
+        <Text numberOfLines={2} style={[styles.title, done && styles.done]}>
           {item.title}
         </Text>
         <View style={styles.meta}>
@@ -82,24 +86,23 @@ export default function CalendarItemRow({
 
 const styles = createThemedStyleSheet((colors) => ({
   row: {
-    minHeight: 64,
-    borderRadius: radius,
-    borderWidth: 1,
-    borderColor: colors.border,
+    minHeight: 72,
+    borderRadius: 18,
     backgroundColor: colors.card,
-    paddingVertical: 11,
-    paddingRight: 13,
-    paddingLeft: 14,
+    paddingVertical: 14,
+    paddingRight: 15,
+    paddingLeft: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
-  bar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 3 },
+  timelineRow: { flex: 1, minWidth: 0, minHeight: 62, borderWidth: 1, borderColor: colors.border },
+  bar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 4 },
   check: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: colors.mutedForeground },
   checkDone: { backgroundColor: colors.success, borderColor: colors.success, alignItems: "center", justifyContent: "center" },
   checkOverdue: { borderColor: "rgba(244,63,94,0.65)" },
-  title: { color: colors.cardForeground, fontSize: 14, fontWeight: "600" },
+  title: { color: colors.cardForeground, fontSize: 15, fontWeight: "700" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },
-  metaText: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
+  metaText: { color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },
 }));

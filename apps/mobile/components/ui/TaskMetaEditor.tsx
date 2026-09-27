@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
-import { Plus, X } from "lucide-react-native";
+import { Braces, Tags, Plus, X } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import CustomFieldBuilder, {
   FIELD_PALETTE,
@@ -11,7 +11,7 @@ import CustomFieldBuilder, {
   type OptionDraft,
 } from "./CustomFieldBuilder";
 import CustomFieldEditor from "./CustomFieldEditor";
-import { Chip, SectionLabel } from "./primitives";
+import { Chip } from "./primitives";
 import AnimatedPressable from "./AnimatedPressable";
 import { createCustomField, createLabel } from "../../lib/api/workspaces";
 import { emptyCustomFieldDrafts, withCustomFieldDraft } from "../../lib/customFields";
@@ -19,6 +19,7 @@ import { keys } from "../../lib/hooks";
 import type { CustomField, CustomFieldType, CustomFieldValueInput, Workspace } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { expandEntering, expandExiting, listLayout } from "../../lib/motion";
+import TaskSectionHeader from "../tasks/TaskSectionHeader";
 
 function SubtlePlus({
   label,
@@ -179,9 +180,10 @@ export default function TaskMetaEditor({
     <View style={styles.root}>
       {showLabels ? (
         <>
-          <SectionLabel action={<SubtlePlus label="Add label" open={addingLabel} onPress={toggleAddingLabel} />}>
-            Labels
-          </SectionLabel>
+          <View style={styles.heading}>
+            <View style={styles.headingCopy}><TaskSectionHeader icon={<Tags size={18} color={colors.primary} />} title="Labels & Taxonomy" subtitle="Visual categories and focus filters" badge={`${labelIds.length} active`} badgeTone="muted" /></View>
+            <SubtlePlus label="Add label" open={addingLabel} onPress={toggleAddingLabel} />
+          </View>
           {labels.length > 0 ? (
             <View style={styles.wrap}>
               {labels.map((label) => {
@@ -221,9 +223,10 @@ export default function TaskMetaEditor({
 
       {showCustomFields ? (
         <>
-          <SectionLabel action={<SubtlePlus label="Add custom field" open={addingField} onPress={toggleAddingField} />}>
-            Custom fields
-          </SectionLabel>
+          <View style={styles.heading}>
+            <View style={styles.headingCopy}><TaskSectionHeader icon={<Braces size={18} color={colors.primary} />} title="Custom Fields" subtitle="Configurable task details" /></View>
+            <SubtlePlus label="Add custom field" open={addingField} onPress={toggleAddingField} />
+          </View>
           <CustomFieldEditor hideTitle fields={fields} values={values} onChange={onValues} />
           {addingField ? (
             <Animated.View
@@ -253,15 +256,16 @@ export default function TaskMetaEditor({
 
 const styles = createThemedStyleSheet((colors) => ({
   root: { gap: 10 },
+  heading: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
+  headingCopy: { flex: 1, minWidth: 0 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   plus: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.muted,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   error: { color: colors.destructive, fontSize: 12 },
 }));

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
-import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, stopFocus, setTodayFocus } from "./api/tasks";
+import { getTasks, getTask, updateTask, deleteTask, createTask, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
 import type { Doc, MentionEntityType, NotificationSettings, Project, Sheet, Task, TaskViewConfig } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, materializeTemplateTab } from "./api/sheets";
@@ -922,6 +922,17 @@ export function useStopFocus() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: stopFocus,
+    onSuccess: (task) => {
+      cacheTask(client, task);
+      client.invalidateQueries({ queryKey: keys.today });
+    },
+  });
+}
+
+export function usePauseFocus() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: pauseFocus,
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: keys.today });

@@ -1,10 +1,21 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { CalendarDays } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
-import { dayKey, formatRelativeDay, isSameDay, startOfDay } from "../../lib/format";
-import CalendarItemRow, { isReminderItem } from "./CalendarItemRow";
+import { dayKey, formatRelativeDay, formatTime, isSameDay, startOfDay } from "../../lib/format";
+import CalendarItemRow, { isReminderItem, itemColor } from "./CalendarItemRow";
 import EmptyState from "../ui/EmptyState";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+
+export function AgendaTimelineRow({ item, onOpen, overdue = false }: { item: CalendarItem; onOpen: (item: CalendarItem) => void; overdue?: boolean }) {
+  return <View style={styles.timelineRow}>
+    <View style={styles.timeRail}>
+      <Text style={styles.timeText}>{item.allDay ? "ALL" : formatTime(item.start)}</Text>
+      {!item.allDay && !isReminderItem(item) ? <Text style={styles.endText}>{formatTime(item.end)}</Text> : null}
+      <View style={[styles.railDot, { backgroundColor: itemColor(item) }]} />
+    </View>
+    <CalendarItemRow item={item} onOpen={onOpen} overdue={overdue} timeline />
+  </View>;
+}
 
 export default function MobileAgenda({
   items,
@@ -43,7 +54,7 @@ export default function MobileAgenda({
   }
 
   return (
-    <View style={{ paddingHorizontal: 12 }}>
+    <View style={{ paddingHorizontal: 16 }}>
       {overdue.length > 0 ? (
         <View>
           <View style={styles.head}>
@@ -53,9 +64,9 @@ export default function MobileAgenda({
               <Text style={styles.countText}>{overdue.length}</Text>
             </View>
           </View>
-          <View style={{ gap: 8 }}>
+          <View>
             {overdue.map((item) => (
-              <CalendarItemRow key={item.id} item={item} onOpen={onOpen} overdue />
+              <AgendaTimelineRow key={item.id} item={item} onOpen={onOpen} overdue />
             ))}
           </View>
         </View>
@@ -70,9 +81,9 @@ export default function MobileAgenda({
               {group.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {group.items.length}
             </Text>
           </View>
-          <View style={{ gap: 8 }}>
+          <View>
             {group.items.map((item) => (
-              <CalendarItemRow key={item.id} item={item} onOpen={onOpen} />
+              <AgendaTimelineRow key={item.id} item={item} onOpen={onOpen} />
             ))}
           </View>
         </View>
@@ -82,10 +93,15 @@ export default function MobileAgenda({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  head: { flexDirection: "row", alignItems: "center", gap: 7, paddingTop: 18, paddingBottom: 9, paddingHorizontal: 4 },
-  day: { color: colors.foreground, fontSize: 11, fontWeight: "800", letterSpacing: 0.7, textTransform: "uppercase" },
-  meta: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
+  head: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 22, paddingBottom: 12, paddingHorizontal: 4 },
+  day: { color: colors.foreground, fontSize: 18, fontWeight: "800", letterSpacing: -0.3, flexShrink: 1 },
+  meta: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", fontVariant: ["tabular-nums"], flexShrink: 0 },
   dangerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.destructive },
   countPill: { minWidth: 22, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(244,63,94,0.12)", borderWidth: 1, borderColor: "rgba(244,63,94,0.25)" },
   countText: { color: colors.destructive, fontSize: 10, fontWeight: "700" },
+  timelineRow: { flexDirection: "row", alignItems: "stretch", gap: 9, paddingBottom: 8 },
+  timeRail: { width: 70, alignItems: "flex-end", justifyContent: "flex-start", paddingTop: 10, paddingRight: 10, borderRightWidth: 1, borderRightColor: colors.border },
+  timeText: { color: colors.foreground, fontSize: 10, fontFamily: "SpaceMono", lineHeight: 14, textAlign: "right" },
+  endText: { color: colors.mutedForeground, fontSize: 9, fontFamily: "SpaceMono", lineHeight: 13, textAlign: "right" },
+  railDot: { position: "absolute", right: -4, top: 16, width: 8, height: 8, borderRadius: 4 },
 }));
