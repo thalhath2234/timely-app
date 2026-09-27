@@ -164,6 +164,78 @@ func (s *Server) stopFocus(ctx context.Context, req *mcp.CallToolRequest, in tas
 	return reply("stopped focus on "+t.Name, taskPayload(t))
 }
 
+func (s *Server) pauseFocus(ctx context.Context, req *mcp.CallToolRequest, in taskIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	t, err := s.tasksFor(req).PauseFocus(uid, in.TaskID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("paused focus on "+t.Name, taskPayload(t))
+}
+
+type checklistUpdateIn struct {
+	TaskID    string  `json:"taskId"`
+	ItemID    string  `json:"itemId"`
+	Title     *string `json:"title,omitempty"`
+	Completed *bool   `json:"completed,omitempty"`
+}
+
+func (s *Server) updateChecklistItem(ctx context.Context, req *mcp.CallToolRequest, in checklistUpdateIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	t, err := s.tasksFor(req).UpdateChecklistItem(uid, in.TaskID, in.ItemID, in.Title, in.Completed)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("updated checklist item", taskPayload(t))
+}
+
+type checklistItemIn struct {
+	ID          string  `json:"id,omitempty"`
+	Title       string  `json:"title"`
+	Completed   *bool   `json:"completed,omitempty"`
+	CompletedAt *string `json:"completedAt,omitempty"`
+	Order       int     `json:"order,omitempty"`
+}
+
+type checklistReplaceIn struct {
+	TaskID string            `json:"taskId"`
+	Items  []checklistItemIn `json:"items"`
+}
+
+func checklistFromInput(items []checklistItemIn) models.Checklist {
+	out := make(models.Checklist, 0, len(items))
+	for _, item := range items {
+		next := models.ChecklistItem{ID: item.ID, Title: item.Title, Order: item.Order, CompletedAt: item.CompletedAt}
+		if item.Completed != nil && *item.Completed && (next.CompletedAt == nil || *next.CompletedAt == "") {
+			now := nowRFC()
+			next.CompletedAt = &now
+		}
+		if item.Completed != nil && !*item.Completed {
+			next.CompletedAt = nil
+		}
+		out = append(out, next)
+	}
+	return out
+}
+
+func (s *Server) replaceChecklist(ctx context.Context, req *mcp.CallToolRequest, in checklistReplaceIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	t, err := s.tasksFor(req).ReplaceChecklist(uid, in.TaskID, checklistFromInput(in.Items))
+	if err != nil {
+		return fail(err)
+	}
+	return reply("replaced checklist", taskPayload(t))
+}
+
 type todayIn struct {
 	Date     string `json:"date,omitempty"`
 	Timezone string `json:"timezone,omitempty"`

@@ -314,3 +314,94 @@ func (s *Server) updateProfile(ctx context.Context, req *mcp.CallToolRequest, in
 	}
 	return reply("updated name to "+updated.Name, map[string]any{"id": updated.ID, "email": updated.Email, "name": updated.Name})
 }
+
+func (s *Server) getConfig(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	cfg, err := s.loadConfig(uid)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("account config", cfg)
+}
+
+type accountConfigIn struct {
+	IsOnBoardingCompleted *bool   `json:"isOnboardingCompleted,omitempty"`
+	Theme                 *string `json:"theme,omitempty" jsonschema:"system, light, or dark"`
+	Accent                *string `json:"accent,omitempty" jsonschema:"default or #RRGGBB"`
+}
+
+func (s *Server) updateAccountConfig(ctx context.Context, req *mcp.CallToolRequest, in accountConfigIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	cfg, err := s.loadConfig(uid)
+	if err != nil {
+		return fail(err)
+	}
+	if in.IsOnBoardingCompleted != nil {
+		cfg.IsOnBoardingCompleted = *in.IsOnBoardingCompleted
+	}
+	if in.Theme != nil || in.Accent != nil {
+		appearance := cfg.Appearance
+		if in.Theme != nil {
+			appearance.Theme = *in.Theme
+		}
+		if in.Accent != nil {
+			appearance.Accent = *in.Accent
+		}
+		cfg.Appearance = appearance
+	}
+	updated, err := s.Workspaces.UpdateConfig(cfg)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("account config saved", updated)
+}
+
+type projectViewIn struct {
+	ProjectID string `json:"projectId"`
+	Clear     bool   `json:"clear,omitempty"`
+	createViewIn
+}
+
+func (s *Server) setProjectTaskView(ctx context.Context, req *mcp.CallToolRequest, in projectViewIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	if in.ProjectID == "" {
+		return fail(errors.New("projectId is required"))
+	}
+	cfg, err := s.loadConfig(uid)
+	if err != nil {
+		return fail(err)
+	}
+	if cfg.ProjectTaskViews == nil {
+		cfg.ProjectTaskViews = models.ProjectTaskViews{}
+	}
+	if in.Clear {
+		delete(cfg.ProjectTaskViews, in.ProjectID)
+	} else {
+		var existing *models.TaskViewConfig
+		if current, ok := cfg.ProjectTaskViews[in.ProjectID]; ok {
+			existing = &current
+		}
+		if existing == nil && in.Name == "" {
+			return fail(errors.New("name is required"))
+		}
+		view := viewFromInput(in.createViewIn, existing)
+		cfg.ProjectTaskViews[in.ProjectID] = view
+	}
+	updated, err := s.Workspaces.UpdateConfig(cfg)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("project task view saved", map[string]any{
+		"projectId":        in.ProjectID,
+		"projectTaskViews": updated.ProjectTaskViews,
+	})
+}

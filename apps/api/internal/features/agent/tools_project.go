@@ -67,6 +67,18 @@ type projectIDIn struct {
 	ProjectID string `json:"projectId"`
 }
 
+func (s *Server) listProjectActivity(ctx context.Context, req *mcp.CallToolRequest, in projectIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	entries, err := s.Projects.ListActivity(uid, in.ProjectID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("%d activity rows", len(entries)), map[string]any{"activity": entries})
+}
+
 func (s *Server) getProject(ctx context.Context, req *mcp.CallToolRequest, in projectIDIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {

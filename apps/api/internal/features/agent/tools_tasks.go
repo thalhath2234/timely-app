@@ -169,7 +169,7 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 }
 
 type updateTaskIn struct {
-	TaskID                string      `json:"taskId"`
+	TaskID                string      `json:"taskId,omitempty"`
 	Name                  *string     `json:"name,omitempty"`
 	Description           *string     `json:"description,omitempty" jsonschema:"markdown"`
 	Duration              *int        `json:"duration,omitempty"`
@@ -248,6 +248,9 @@ func (in updateTaskIn) toUpdate() task.TaskUpdate {
 }
 
 func (s *Server) updateTask(ctx context.Context, req *mcp.CallToolRequest, in updateTaskIn) (*mcp.CallToolResult, any, error) {
+	if in.TaskID == "" {
+		return fail(fmt.Errorf("taskId is required"))
+	}
 	if in.ParentTaskID != nil {
 		return fail(fmt.Errorf("parentTaskId is no longer supported; nested tasks were removed"))
 	}
