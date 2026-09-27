@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 
@@ -98,10 +99,10 @@ func (s *Server) getTask(ctx context.Context, req *mcp.CallToolRequest, in taskI
 
 type createTaskIn struct {
 	Name          string      `json:"name"`
-	WorkspaceID   string      `json:"workspaceId,omitempty" jsonschema:"required for work (duration > 0); optional on reminders when setting labels or custom fields"`
+	WorkspaceID   string      `json:"workspaceId,omitempty" jsonschema:"required for work; ask the user if unknown; optional on reminders when setting labels or custom fields"`
 	Description   string      `json:"description,omitempty" jsonschema:"markdown"`
-	Duration      int         `json:"duration,omitempty" jsonschema:"minutes of work; omit or 0 without a ping time captures to inbox"`
-	Kind          string      `json:"kind,omitempty" jsonschema:"task, reminder, or inbox. Title-only create is inbox"`
+	Duration      int         `json:"duration,omitempty" jsonschema:"minutes of work; defaults to 30 when omitted"`
+	Kind          string      `json:"kind,omitempty" jsonschema:"task by default; use reminder or inbox only when explicitly requested"`
 	Deadline      string      `json:"deadline,omitempty"`
 	StartDate     string      `json:"startDate,omitempty"`
 	ScheduleAt    string      `json:"scheduleAt,omitempty" jsonschema:"RFC3339 ping time for a reminder, or start of the first work block"`
@@ -116,8 +117,33 @@ type createTaskIn struct {
 	Recurrence    *recIn      `json:"recurrence,omitempty"`
 }
 
+// prepareCreateTask makes the default create_task intent Work. Work without
+// an estimate gets 30 minutes; Hermes asks for a missing workspace.
+func prepareCreateTask(in createTaskIn) (createTaskIn, error) {
+	if in.Kind == "" {
+		in.Kind = models.KindTask
+	}
+	if in.Kind == models.KindTask {
+		if strings.TrimSpace(in.WorkspaceID) == "" {
+			return in, fmt.Errorf("ask the user which workspace to use for this task, then retry create_task")
+		}
+		if in.Duration < 0 {
+			return in, fmt.Errorf("duration must be at least 0 minutes")
+		}
+		if in.Duration == 0 {
+			in.Duration = 30
+		}
+	}
+	in.Kind = models.ResolveCreateKind(in.Kind, in.Duration, strPtr(in.ScheduleAt), in.Recurrence != nil)
+	return in, nil
+}
+
 func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in createTaskIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	in, err = prepareCreateTask(in)
 	if err != nil {
 		return fail(err)
 	}
@@ -127,7 +153,7 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	if in.Duration > 0 && in.WorkspaceID == "" && in.Kind != models.KindInbox {
 		return fail(fmt.Errorf("workspaceId is required"))
 	}
-	kind := models.ResolveCreateKind(in.Kind, in.Duration, strPtr(in.ScheduleAt), in.Recurrence != nil)
+	kind := in.Kind
 	if kind == models.KindReminder {
 		in.ProjectID = ""
 		in.StatusID = ""

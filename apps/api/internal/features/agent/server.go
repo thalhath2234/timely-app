@@ -59,7 +59,7 @@ Docs and descriptions accept markdown. Mentions: [@Label](timely://task/<id>).
 Reminders fire as server jobs even when the UI is closed. snooze_reminder moves the underlying reminder. Quiet hours still write the in-app row and delay push. Failed jobs are listed with list_jobs and recovered with retry_job.
 
 Projects can have ordered stages (stg_). Move cards with move_task_to_stage (empty stageId = Unstaged) or move_task_to_status for kanban.
-Reminders are duration 0 with kind=reminder; list them with list_tasks reminders=true. Title-only capture is inbox (kind=inbox) and is not auto-scheduled until clarify_inbox_item.
+When the user asks to create a task, ask which workspace to use if it is unknown. Work tasks default to 30 minutes when the user does not specify a duration; use the user's duration when supplied. Use capture_inbox_item only when the user asks to capture a thought for Inbox. Reminders use kind=reminder and a ping time; list them with list_tasks reminders=true. Inbox items are not auto-scheduled until clarify_inbox_item.
 Checklist items are lightweight completion text on a task and are not scheduled.
 Today: get_today, set_today_focus, start_focus/stop_focus (actualMinutes is focused time, separate from duration).
 Duplicate with duplicate_task / duplicate_project (checklist copied; no blocks/completion).
@@ -122,7 +122,7 @@ func (s *Server) register(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "list_tasks", Description: "List work tasks. Reminders and inbox items are hidden unless reminders=true, kind=inbox, or inbox=true. Filters: workspace, project, status, labels, priority, stage, completed, overdue, scheduled, recurring, text."}, s.listTasks)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_task", Description: "Get a task with blocks, recurrence, checklist, progress, and recent activity."}, s.getTask)
-	mcp.AddTool(server, &mcp.Tool{Name: "create_task", Description: "Create a task. Title-only (no duration, no ping time) captures to inbox. Duration 0 with scheduleAt/recurrence is a reminder. Work tasks (duration > 0) require workspaceId. Description is markdown."}, s.createTask)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_task", Description: "Create a work task with workspaceId. Ask the user for the workspace if missing. Work duration defaults to 30 minutes unless the user specifies one. Never silently capture a task to Inbox; use capture_inbox_item for intentional Inbox capture. Explicit kind=reminder with scheduleAt creates a reminder. Description is markdown."}, s.createTask)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_task", Description: "Partial-update a task, including statusId (kanban) and stageId (project board; empty unstages)."}, s.updateTask)
 	mcp.AddTool(server, &mcp.Tool{Name: "bulk_update_tasks", Description: "Apply the same patch to many tasks: completedAt (set or empty to reopen), statusId, priorityLevel, projectId, stageId, deadline, and labelIds (replaces the full set; [] clears)."}, s.bulkUpdateTasks)
 	mcp.AddTool(server, &mcp.Tool{Name: "complete_task", Description: "Mark a one-off task complete."}, s.completeTask)
