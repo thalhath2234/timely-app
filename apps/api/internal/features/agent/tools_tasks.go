@@ -99,7 +99,7 @@ func (s *Server) getTask(ctx context.Context, req *mcp.CallToolRequest, in taskI
 
 type createTaskIn struct {
 	Name          string      `json:"name"`
-	WorkspaceID   string      `json:"workspaceId,omitempty" jsonschema:"required for work; ask the user if unknown; optional on reminders when setting labels or custom fields"`
+	WorkspaceID   string      `json:"workspaceId,omitempty" jsonschema:"required for work; ask the user unless specified in this request; optional on reminders when setting labels or custom fields"`
 	Description   string      `json:"description,omitempty" jsonschema:"markdown"`
 	Duration      int         `json:"duration,omitempty" jsonschema:"minutes of work; defaults to 30 when omitted"`
 	Kind          string      `json:"kind,omitempty" jsonschema:"task by default; use reminder only for a timed ping; use capture_inbox_item for Inbox"`
@@ -142,7 +142,6 @@ func prepareCreateTask(in createTaskIn) (createTaskIn, error) {
 			in.Duration = 30
 		}
 	}
-	in.Kind = models.ResolveCreateKind(in.Kind, in.Duration, strPtr(in.ScheduleAt), in.Recurrence != nil)
 	return in, nil
 }
 
@@ -157,9 +156,6 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	}
 	if in.ParentTaskID != nil {
 		return fail(fmt.Errorf("parentTaskId is no longer supported; nested tasks were removed"))
-	}
-	if in.Duration > 0 && in.WorkspaceID == "" && in.Kind != models.KindInbox {
-		return fail(fmt.Errorf("workspaceId is required"))
 	}
 	kind := in.Kind
 	if kind == models.KindReminder {
