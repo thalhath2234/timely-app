@@ -101,7 +101,7 @@ type createTaskIn struct {
 	Name          string      `json:"name"`
 	WorkspaceID   string      `json:"workspaceId,omitempty" jsonschema:"required for work; ask the user unless specified in this request; optional on reminders when setting labels or custom fields"`
 	Description   string      `json:"description,omitempty" jsonschema:"markdown"`
-	Duration      int         `json:"duration,omitempty" jsonschema:"minutes of work; defaults to 30 when omitted"`
+	Duration      *int        `json:"duration,omitempty" jsonschema:"minutes of work; defaults to 30 when omitted; must be positive if supplied for Work"`
 	Kind          string      `json:"kind,omitempty" jsonschema:"task by default; use reminder only for a timed ping; use capture_inbox_item for Inbox"`
 	Deadline      string      `json:"deadline,omitempty"`
 	StartDate     string      `json:"startDate,omitempty"`
@@ -135,11 +135,11 @@ func prepareCreateTask(in createTaskIn) (createTaskIn, error) {
 		if strings.TrimSpace(in.WorkspaceID) == "" {
 			return in, fmt.Errorf("ask the user which workspace to use for this task, then retry create_task")
 		}
-		if in.Duration < 0 {
-			return in, fmt.Errorf("duration must be at least 0 minutes")
-		}
-		if in.Duration == 0 {
-			in.Duration = 30
+		if in.Duration == nil {
+			defaultDuration := 30
+			in.Duration = &defaultDuration
+		} else if *in.Duration <= 0 {
+			return in, fmt.Errorf("work duration must be greater than 0 minutes")
 		}
 	}
 	return in, nil
@@ -158,6 +158,10 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 		return fail(fmt.Errorf("parentTaskId is no longer supported; nested tasks were removed"))
 	}
 	kind := in.Kind
+	duration := 0
+	if in.Duration != nil {
+		duration = *in.Duration
+	}
 	if kind == models.KindReminder {
 		in.ProjectID = ""
 		in.StatusID = ""
@@ -170,7 +174,7 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 		Name:          in.Name,
 		UserID:        &uid,
 		WorkspaceID:   strPtr(in.WorkspaceID),
-		Duration:      in.Duration,
+		Duration:      duration,
 		Kind:          kind,
 		Deadline:      strPtr(in.Deadline),
 		StartDate:     strPtr(in.StartDate),
