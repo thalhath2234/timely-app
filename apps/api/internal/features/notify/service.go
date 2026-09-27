@@ -417,7 +417,10 @@ func (s *Service) HandleMissedBlock(ctx context.Context, job *models.Job) error 
 	if err != nil {
 		return err
 	}
-	if item.IsCompleted() {
+	if item.IsCompleted() || item.IsInbox() || item.IsReminder() {
+		return nil
+	}
+	if !blockStillScheduled(item, job.Payload.String("end"), true) {
 		return nil
 	}
 	entity := taskID
@@ -449,7 +452,10 @@ func (s *Service) HandleStartSoon(ctx context.Context, job *models.Job) error {
 	if err != nil {
 		return err
 	}
-	if item.IsCompleted() {
+	if item.IsCompleted() || item.IsInbox() || item.IsReminder() {
+		return nil
+	}
+	if !blockStillScheduled(item, job.Payload.String("start"), false) {
 		return nil
 	}
 	entity := taskID
@@ -463,6 +469,40 @@ func (s *Service) HandleStartSoon(ctx context.Context, job *models.Job) error {
 		return err
 	}
 	return s.deliver(ctx, ntf, settings)
+}
+
+// blockStillScheduled reports whether the job's start or end still matches a
+// stored Block. Repeating Work expands on read and has no Block per occurrence,
+// so those jobs stay.
+func blockStillScheduled(item *models.Task, raw string, atEnd bool) bool {
+	if item == nil || raw == "" {
+		return false
+	}
+	when, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return false
+	}
+	if item.IsRecurring() {
+		return true
+	}
+	for _, block := range item.Blocks {
+		got := block.StartAt
+		if atEnd {
+			got = block.EndAt
+		}
+		if nearInstant(got, when) {
+			return true
+		}
+	}
+	return false
+}
+
+func nearInstant(a, b time.Time) bool {
+	d := a.Sub(b)
+	if d < 0 {
+		d = -d
+	}
+	return d < time.Second
 }
 
 func (s *Service) sweepReminders(userID string, now time.Time) error {

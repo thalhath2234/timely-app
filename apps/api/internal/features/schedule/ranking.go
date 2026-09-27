@@ -124,7 +124,12 @@ func RankList(tasks []models.Task, now time.Time) []RankedTask {
 		})
 		list = append(list, RankedTask{Task: t, Score: rank.Score, Reasons: rank.Reasons})
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].Score > list[j].Score })
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Score != list[j].Score {
+			return list[i].Score > list[j].Score
+		}
+		return list[i].Task.ID < list[j].Task.ID
+	})
 	return list
 }
 

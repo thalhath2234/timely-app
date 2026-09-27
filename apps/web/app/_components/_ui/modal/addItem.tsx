@@ -641,13 +641,21 @@ function AddItemModalInner() {
           shouldValidate: true,
         });
       }
-      if (createTaskDraft?.kind === "reminder") {
+      let nextDraft = createTaskDraft;
+      let draftUsed = false;
+      if (nextDraft?.kind === "reminder") {
         setTaskKind("reminder");
         setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
-        setCreateTaskDraft({ ...createTaskDraft, kind: undefined });
+        nextDraft = { ...nextDraft, kind: undefined };
+        draftUsed = true;
       }
-      if (createTaskDraft?.name) {
-        setValueTask("name", createTaskDraft.name, { shouldValidate: true });
+      if (nextDraft?.name) {
+        setValueTask("name", nextDraft.name, { shouldValidate: true });
+        nextDraft = { ...nextDraft, name: undefined };
+        draftUsed = true;
+      }
+      if (draftUsed) {
+        setCreateTaskDraft(nextDraft);
       }
     }
   }, [

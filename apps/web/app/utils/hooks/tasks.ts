@@ -59,6 +59,7 @@ export function useCreateTask() {
         queryClient.invalidateQueries({ queryKey: inboxKey }),
         queryClient.invalidateQueries({ queryKey: todayKey }),
         queryClient.invalidateQueries({ queryKey: ["calendar"] }),
+        queryClient.invalidateQueries({ queryKey: ["schedule", "rank"] }),
       ]);
     },
   });
@@ -90,6 +91,7 @@ export function useClarifyInbox() {
         queryClient.invalidateQueries({ queryKey: inboxKey }),
         queryClient.invalidateQueries({ queryKey: todayKey }),
         queryClient.invalidateQueries({ queryKey: ["calendar"] }),
+        queryClient.invalidateQueries({ queryKey: ["schedule", "rank"] }),
       ]);
     },
   });

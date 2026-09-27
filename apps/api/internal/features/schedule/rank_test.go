@@ -42,3 +42,18 @@ func TestRankListIsUnscheduledOrOverdue(t *testing.T) {
 		t.Fatal("inbox and placed-today work must not be on Rank")
 	}
 }
+
+func TestRankListTieBreaksByTaskID(t *testing.T) {
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	ws := "ws_1"
+	later := models.Task{ID: "b", Name: "Later id", Kind: models.KindTask, Duration: 30, WorkspaceID: &ws}
+	earlier := models.Task{ID: "a", Name: "Earlier id", Kind: models.KindTask, Duration: 30, WorkspaceID: &ws}
+
+	got := RankList([]models.Task{later, earlier}, now)
+	if len(got) != 2 {
+		t.Fatalf("want 2, got %d", len(got))
+	}
+	if got[0].Task.ID != "a" || got[1].Task.ID != "b" {
+		t.Fatalf("equal scores should order by task id, got %s then %s", got[0].Task.ID, got[1].Task.ID)
+	}
+}

@@ -33,9 +33,29 @@ func (s *Service) workingHours(userID string) models.WorkingHours {
 	}
 	hours, err := s.hours(userID)
 	if err != nil || hours.IsEmpty() {
-		return models.DefaultWorkingHours("UTC")
+		return models.WorkingHours{}
 	}
 	return hours
+}
+
+// placeLocation uses Working hours when the user has saved them. Otherwise it
+// keeps the Event's own zone. A missing hours row must not force UTC: Postgres
+// reloads timestamptz without the offset the client sent.
+func placeLocation(hours models.WorkingHours, event *models.Event) *time.Location {
+	fallback := time.UTC
+	if event != nil && event.Recurrence != nil && event.Recurrence.Timezone != "" {
+		fallback = event.Recurrence.Location()
+	} else if event != nil && event.StartAt.Location() != nil {
+		fallback = event.StartAt.Location()
+	}
+	if hours.IsEmpty() {
+		return fallback
+	}
+	loc := hours.Location(fallback)
+	if loc == nil {
+		return fallback
+	}
+	return loc
 }
 
 // PlaceWork writes one Manual block of duration minutes starting at start.
@@ -90,10 +110,7 @@ func (s *Service) PlaceEvent(userID string, event *models.Event) error {
 		return s.blocks.ReplaceForEvent(event.ID, userID, nil)
 	}
 	hours := s.workingHours(userID)
-	loc := hours.Location(event.StartAt.Location())
-	if loc == nil {
-		loc = time.UTC
-	}
+	loc := placeLocation(hours, event)
 	var next []models.ScheduledBlock
 	if event.AllDay {
 		for _, span := range hours.IntervalsOn(event.StartAt, loc) {

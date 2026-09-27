@@ -63,3 +63,17 @@ func TestBusyDoesNotUseReminderScheduledOn(t *testing.T) {
 		t.Fatalf("got %d occupancy rows for a reminder", len(got))
 	}
 }
+
+func TestPlaceLocationKeepsEventZoneWhenHoursAreMissing(t *testing.T) {
+	jst := time.FixedZone("JST", 9*3600)
+	event := &models.Event{AllDay: true, StartAt: time.Date(2026, 9, 27, 0, 0, 0, 0, jst)}
+	if got := placeLocation(models.WorkingHours{}, event); got != jst {
+		t.Fatalf("missing hours should keep the event zone, got %v", got)
+	}
+	hours := models.WorkingHours{Timezone: "America/New_York", Days: map[string][]models.WorkingWindow{
+		"mon": {{Start: "09:00", End: "17:00"}},
+	}}
+	if got := placeLocation(hours, event); got.String() != "America/New_York" {
+		t.Fatalf("saved working hours should win, got %v", got)
+	}
+}

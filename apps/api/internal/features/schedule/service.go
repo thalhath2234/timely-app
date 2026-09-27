@@ -829,7 +829,11 @@ func (s *service) Rank(userID string) ([]RankedTask, error) {
 	if err != nil {
 		return nil, err
 	}
-	list := RankList(tasks, time.Now())
+	hours, err := s.repo.GetWorkingHours(userID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	list := RankList(tasks, time.Now().In(hours.Location(time.UTC)))
 	if list == nil {
 		list = []RankedTask{}
 	}

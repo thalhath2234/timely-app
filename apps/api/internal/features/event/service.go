@@ -127,6 +127,7 @@ func (s *eventService) Create(userID string, event *models.Event, rec *models.Re
 			return nil, err
 		}
 	}
+	created = inZone(created, event.StartAt.Location())
 	if err := s.placement.PlaceEvent(userID, created); err != nil {
 		_ = s.repo.Delete(userID, created.ID)
 		return nil, err
@@ -249,6 +250,9 @@ func (s *eventService) Update(userID, eventID string, update EventUpdate) (*mode
 		updates["end_at"] = parsed
 		if !allDay {
 			duration = int(end.Sub(start).Minutes())
+			if duration <= 0 {
+				return nil, errors.New("timed events need a duration greater than 0")
+			}
 			updates["duration"] = duration
 		}
 	} else if update.Start != nil || update.Duration != nil {
@@ -300,6 +304,7 @@ func (s *eventService) Update(userID, eventID string, update EventUpdate) (*mode
 	if err != nil {
 		return nil, err
 	}
+	updated = inZone(updated, start.Location())
 	if err := s.placement.PlaceEvent(userID, updated); err != nil {
 		return nil, err
 	}
@@ -309,6 +314,14 @@ func (s *eventService) Update(userID, eventID string, update EventUpdate) (*mode
 	}
 	s.indexEvent(updated)
 	return updated, nil
+}
+
+func inZone(event *models.Event, loc *time.Location) *models.Event {
+	if event == nil || loc == nil {
+		return event
+	}
+	event.StartAt = event.StartAt.In(loc)
+	return event
 }
 
 func (s *eventService) Delete(userID, eventID string) error {

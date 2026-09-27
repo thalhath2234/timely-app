@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-27
 
-Every Block write (Auto-schedule Preview/Apply/Undo, pin, drag, add/move/delete, Clarify with a time, Event times) goes through Placement. Task create does not `placeSingleBlock`. Pin must not write Task maps that skip kind rules.
+Every Block write (Auto-schedule Preview/Apply/Undo, pin, drag, add/move/delete, Clarify with a time, Event times) goes through Placement. Task create, when it has a time, writes that Block through `placeSingleBlock`, which delegates to Placement. Pin must not write Task maps that skip kind rules.
 
 ## Consequences
 
