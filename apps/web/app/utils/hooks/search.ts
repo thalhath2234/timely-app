@@ -12,9 +12,11 @@ export function useSearch(query: string) {
 
   const trimmed = debounced.trim();
 
-  return useQuery({
+  const result = useQuery({
     queryKey: ["search", trimmed],
     queryFn: () => searchItems(trimmed),
     enabled: trimmed.length > 0,
   });
+
+  return { ...result, query: trimmed };
 }
