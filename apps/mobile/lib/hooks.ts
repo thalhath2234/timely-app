@@ -302,11 +302,12 @@ export function useSearchQuery(query: string) {
   }, [query]);
 
   const trimmed = debounced.trim();
-  return useQuery({
+  const result = useQuery({
     queryKey: keys.search(trimmed),
     queryFn: () => searchItems(trimmed),
     enabled: trimmed.length > 0,
   });
+  return { ...result, query: trimmed };
 }
 
 export function useApiKeysQuery() {
