@@ -1,3 +1,4 @@
+import { AssistantProvider } from "../components/chat/AssistantProvider";
 import { useEffect, useState } from "react";
 import { AccessibilityInfo, useColorScheme, View } from "react-native";
 import { Stack } from "expo-router";
@@ -64,26 +65,28 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <View style={styles.shell}>
-            <StatusBar style={colorScheme === "light" ? "dark" : "light"} />
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.background },
-                animation: stackFadeAnimation(reduceMotion),
-                animationDuration: 400,
-                gestureEnabled: !reduceMotion,
-              }}
-            >
-              <Stack.Screen name="index" options={{ animation: "none" }} />
-              <Stack.Screen name="login" options={{ animation: stackFadeAnimation(reduceMotion) }} />
-              <Stack.Screen name="signup" options={{ animation: stackPushAnimation(reduceMotion) }} />
-              <Stack.Screen name="onboarding" options={{ animation: stackFadeAnimation(reduceMotion) }} />
-              <Stack.Screen name="(app)" options={{ animation: stackFadeAnimation(reduceMotion) }} />
-            </Stack>
-            <ConnectivityBanner />
-            <SheetHost />
-          </View>
+          <AssistantProvider>
+            <View style={styles.shell}>
+              <StatusBar style={colorScheme === "light" ? "dark" : "light"} />
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: colors.background },
+                  animation: stackFadeAnimation(reduceMotion),
+                  animationDuration: 400,
+                  gestureEnabled: !reduceMotion,
+                }}
+              >
+                <Stack.Screen name="index" options={{ animation: "none" }} />
+                <Stack.Screen name="login" options={{ animation: stackFadeAnimation(reduceMotion) }} />
+                <Stack.Screen name="signup" options={{ animation: stackPushAnimation(reduceMotion) }} />
+                <Stack.Screen name="onboarding" options={{ animation: stackFadeAnimation(reduceMotion) }} />
+                <Stack.Screen name="(app)" options={{ animation: stackFadeAnimation(reduceMotion) }} />
+              </Stack>
+              <ConnectivityBanner />
+              <SheetHost />
+            </View>
+          </AssistantProvider>
         </AuthProvider>
       </QueryClientProvider>
     </SafeAreaProvider>

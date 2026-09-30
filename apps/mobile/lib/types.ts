@@ -388,7 +388,7 @@ export interface NotificationSettings {
   eveningDigestAt: string;
 }
 
-export type NotificationCategory = "reminder" | "digest" | "planning" | "overdue";
+export type NotificationCategory = "reminder" | "digest" | "planning" | "overdue" | "agent";
 
 export interface AppNotification {
   id: string;

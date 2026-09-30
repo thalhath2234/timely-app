@@ -57,6 +57,7 @@ type RequestOptions = {
   auth?: boolean;
   headers?: Record<string, string>;
   queueIfOffline?: boolean;
+  response?: boolean;
 };
 
 let refreshInFlight: Promise<boolean> | null = null;
@@ -93,7 +94,8 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
   }
   const { method = "GET", body, auth = true, queueIfOffline = false } = options;
   const headers: Record<string, string> = { ...options.headers };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const multipart = body instanceof FormData;
+  if (body !== undefined && !multipart) headers["Content-Type"] = "application/json";
   if (API_URL.includes("ngrok")) {
     headers["ngrok-skip-browser-warning"] = "true";
   }
@@ -113,7 +115,7 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
     response = await fetch(`${API_URL}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
     });
   } catch (error) {
     if (queueIfOffline && getOfflineQueueUser()) {
@@ -136,6 +138,7 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
     throw new ApiError(await readError(response, `${method} ${path} failed`), response.status);
   }
 
+  if (options.response) return response as T;
   if (response.status === 204) return undefined as T;
   const text = await response.text();
   if (!text) return undefined as T;

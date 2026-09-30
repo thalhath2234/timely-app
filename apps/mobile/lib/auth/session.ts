@@ -1,5 +1,7 @@
+import type { User } from "../types";
 import * as SecureStore from "expo-secure-store";
 
+const USER_KEY = "timely.session.user";
 const TOKEN_KEY = "timely.session.token";
 const REFRESH_KEY = "timely.session.refresh";
 
@@ -53,7 +55,15 @@ export async function setSession(access: string, refresh?: string | null) {
   if (refresh) await setRefreshToken(refresh);
 }
 
+export async function getCachedUser(): Promise<User | null> {
+  try { const value = await SecureStore.getItemAsync(USER_KEY); const user = value ? JSON.parse(value) : null; return user?.id && user?.email ? user : null; } catch { return null; }
+}
+export async function setCachedUser(user: User) {
+  try { await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user)); } catch { /* In-memory sessions still work if device storage is unavailable. */ }
+}
+
 export async function clearToken() {
+  await SecureStore.deleteItemAsync(USER_KEY).catch(() => undefined);
   memoryToken = null;
   memoryRefresh = null;
   try {

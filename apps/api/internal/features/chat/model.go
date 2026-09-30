@@ -11,6 +11,7 @@ type ContextChip struct {
 	Value string `json:"value"`
 }
 type Message struct {
+	RequestID string        `json:"requestId,omitempty"`
 	Receipt   *ReceiptDraft `json:"receipt,omitempty"`
 	ID        string        `json:"id"`
 	Role      string        `json:"role"`

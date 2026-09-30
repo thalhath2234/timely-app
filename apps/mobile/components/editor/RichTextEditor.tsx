@@ -154,6 +154,7 @@ export default function RichTextEditor({
   content,
   onChange,
   onFocusChange,
+  onSelectionChange,
   onCreateSubpage,
   placeholder = "Start writing. Type '/' for blocks, '@' to mention…",
   syncKey = 0,
@@ -162,6 +163,7 @@ export default function RichTextEditor({
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
   onFocusChange?: (focused: boolean) => void;
+  onSelectionChange?: (text: string) => void;
   onCreateSubpage?: () => Promise<{ id: string; title?: string | null } | null>;
   placeholder?: string;
   /** Increment when remote content should replace the local draft. */
@@ -248,6 +250,7 @@ export default function RichTextEditor({
         from?: number;
         to?: number;
         inTable?: boolean;
+        selectedText?: string;
         active?: EditorActive;
       };
       if (msg.type === "change" && msg.content) {
@@ -270,6 +273,7 @@ export default function RichTextEditor({
         setPicker({ kind: msg.type, query: msg.query ?? "", from: msg.from ?? 0, to: msg.to ?? 0 });
       }
       if (msg.type === "selection") {
+        onSelectionChange?.(msg.selectedText || "");
         setInTable(Boolean(msg.inTable));
         if (msg.active) setActive(msg.active);
       }

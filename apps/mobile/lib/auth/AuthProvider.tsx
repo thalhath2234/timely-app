@@ -1,3 +1,4 @@
+import { clearAssistantCache } from "../chat/storage";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { User } from "../types";
@@ -5,7 +6,7 @@ import { createWorkspace, getConfig, getWorkspaces } from "../api/workspaces";
 import { completeOnboarding, getMe, login as loginApi, register as registerApi, logout as logoutApi, refreshSession } from "../api/auth";
 import { unregisterServerPush } from "../notifications";
 import { ApiError, flushOfflineQueue } from "../api/client";
-import { clearToken, getRefreshToken, getToken, onSessionExpired, setSession } from "./session";
+import { clearToken, getCachedUser, setCachedUser, getRefreshToken, getToken, onSessionExpired, setSession } from "./session";
 import { setOfflineQueueUser } from "../offlineQueue";
 import { prefetchStartupData } from "../prefetch";
 
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function hydrate(token: string, prefetch = false) {
     const user = await withOnboardingState(await getMe());
+    await setCachedUser(user);
     setOfflineQueueUser(user.id);
     void flushOfflineQueue().then(() => queryClient.invalidateQueries());
     queryClient.setQueryData(["me"], user);
@@ -69,6 +71,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setOfflineQueueUser(null);
         if (!cancelled) setState({ ready: true, token: null, user: null });
         return;
+      }
+      const cachedUser = await getCachedUser();
+      if (cachedUser && !cancelled) {
+        setOfflineQueueUser(cachedUser.id);
+        queryClient.setQueryData(["me"], cachedUser);
+        setState({ ready: true, token, user: cachedUser });
       }
       try {
         if (!cancelled) await hydrate(token, true);
@@ -87,10 +95,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!cancelled) await hydrate(session.token, true);
             return;
           }
-        } catch {
-          // fall through to keep the stored token and retry on next launch
+        } catch (refreshError) {
+          if (refreshError instanceof ApiError && refreshError.status === 401) {
+            await clearToken(); setOfflineQueueUser(null);
+            if (!cancelled) setState({ ready: true, token: null, user: null });
+            return;
+          }
         }
-        if (!cancelled) setState({ ready: true, token, user: null });
+        if (!cancelled) setState({ ready: true, token, user: cachedUser });
       }
     })();
     return () => {
@@ -120,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return hydrate(session.token);
       },
       logout: async () => {
+        if (state.user) await clearAssistantCache(state.user.id);
         await unregisterServerPush();
         await logoutApi();
         await clearToken();
@@ -159,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         const user = await withOnboardingState(await getMe());
         queryClient.setQueryData(["me"], user);
+        await setCachedUser({ ...user, is_on_boarding_completed: true });
         setState((prev) => ({ ...prev, user: { ...user, is_on_boarding_completed: true } }));
       },
     }),

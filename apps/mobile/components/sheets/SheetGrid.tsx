@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Dimensions,
   PanResponder,
@@ -150,10 +150,11 @@ export type SheetGridProps = {
   columns: SheetColumn[];
   rows: SheetRow[];
   merges?: SheetMerge[];
+  onAssistantContext?: (value: { selection: string; filter: string; draft: string }) => void;
   onChange: (next: { columns?: SheetColumn[]; rows?: SheetRow[]; merges?: SheetMerge[] }) => void;
 };
 
-export default function SheetGrid({ columns, rows, merges = [], onChange }: SheetGridProps) {
+export default function SheetGrid({ columns, rows, merges = [], onChange, onAssistantContext }: SheetGridProps) {
   const [range, setRange] = useState<CellRange>({
     anchor: { col: 0, row: 0 },
     focus: { col: 0, row: 0 },
@@ -1014,6 +1015,12 @@ export default function SheetGrid({ columns, rows, merges = [], onChange }: Shee
 
   const selectedFormat = formatAt(selected);
   const selectedRaw = rawAt(selected);
+  const contextCallback = useRef(onAssistantContext);
+  contextCallback.current = onAssistantContext;
+  const selectedValues = rows.slice(bounds.minRow, bounds.maxRow + 1).map((row) => ({ id: row.id, cells: Object.fromEntries(columns.slice(bounds.minCol, bounds.maxCol + 1).map((col) => [col.id, row.cells[col.id]])) }));
+  const contextSnapshot = JSON.stringify({ range: selectionAddressLabel(range, merges), columns: columns.slice(bounds.minCol, bounds.maxCol + 1), rows: selectedValues, editing: editing ? { address: editing, value: draft } : undefined });
+  useEffect(() => { contextCallback.current?.({ selection: contextSnapshot, filter: filterQuery, draft: editing ? draft : "" }); }, [contextSnapshot, filterQuery]);
+
   const selectedAddress = columns.length && rows.length ? selectionAddressLabel(range, merges) : "—";
   const mergeActive = hasMergeInRange(merges, range);
   const canMerge = bounds.minCol !== bounds.maxCol || bounds.minRow !== bounds.maxRow;

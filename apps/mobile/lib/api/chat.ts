@@ -1,0 +1,22 @@
+import { File } from "expo-file-system";
+import { api } from "./client";
+import { isOffline } from "../networkState";
+import type { Chat, ChatImage, PendingImage } from "../chat/types";
+
+export function chatRequest<T = Chat>(
+  path: string,
+  method = "GET",
+  body?: unknown,
+): Promise<T> {
+  if (method !== "GET" && isOffline())
+    return Promise.reject(
+      new Error("Reconnect before sending messages or applying changes."),
+    );
+  return api<T>(`/chats${path}`, { method, body, queueIfOffline: false });
+}
+export async function uploadChatImage(image: PendingImage): Promise<ChatImage> {
+  const form = new FormData();
+  // SDK 57 fetch consumes Blob-compatible Expo files; legacy URI descriptors are rejected.
+  form.append("image", new File(image.uri));
+  return chatRequest<ChatImage>("/images", "POST", form);
+}

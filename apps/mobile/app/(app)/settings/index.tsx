@@ -92,6 +92,8 @@ export default function SettingsIndex() {
           <Row icon={Database} title="Data & backups" meta="Export, restore, and encrypted backups" onPress={() => router.push("/(app)/settings/data")} />
           <Row icon={KeyRound} title="API keys" meta="Connect scripts and automations" onPress={() => router.push("/(app)/settings/api-keys")} />
         </View>
+        <SectionLabel>Assistant help</SectionLabel>
+        <Text style={styles.meta}>Pinch inward with two fingers to open the assistant with this screen’s context. Chat history is inside the assistant. Runs continue after closing it. Pinch-to-zoom surfaces keep their normal gesture.</Text>
         <AnimatedPressable onPress={() => void logout()} style={styles.logout}>
           <Text style={styles.logoutText}>Sign out</Text>
         </AnimatedPressable>

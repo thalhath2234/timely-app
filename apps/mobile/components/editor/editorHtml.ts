@@ -232,6 +232,7 @@ export function buildEditorHtml(
     function reportSelection() {
       send({
         type: "selection",
+        selectedText: editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, "\\n"),
         inTable: inTable(),
         active: {
           bold: editor.isActive("bold"),

@@ -1,3 +1,6 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
+import { startOfWeek } from "../../../lib/format";
 import { useMemo, useState } from "react";
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -51,6 +54,8 @@ function nextQuarterOn(day: Date) {
   return next;
 }
 
+function toCalendarEnd(anchor: Date) { return new Date(anchor.getFullYear(), anchor.getMonth() + 2, 1); }
+
 function calendarWindow(anchor: Date) {
   return {
     from: new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1),
@@ -70,6 +75,15 @@ export default function CalendarScreen() {
   const [heldSlots, setHeldSlots] = useState<BusyInterval[]>([]);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
+
+  const visibleFrom = view === "month" ? new Date(selected.getFullYear(), selected.getMonth(), 1) : view === "week" ? startOfWeek(selected) : selected;
+  const visibleTo = view === "month" ? new Date(selected.getFullYear(), selected.getMonth() + 1, 1) : addDays(visibleFrom, view === "day" ? 1 : view === "week" ? 7 : Math.ceil((toCalendarEnd(selected).getTime() - visibleFrom.getTime()) / 86400000));
+  useAssistantScreen([
+    contextChip("calendar", `${view} · ${dayKey(selected)}`, { view, selectedDate: dayKey(selected), from: dayKey(visibleFrom), toExclusive: dayKey(visibleTo) }),
+    ...(workspaceId ? [contextChip("workspace", "Workspace", workspaceId)] : []),
+    ...(projectId ? [contextChip("project", "Project", projectId)] : []),
+    ...(open ? [contextChip("object", open.title, `${open.kind === "event" ? "events" : "tasks"}/${open.eventId || open.taskId || open.id}`)] : []),
+  ]);
 
   const monthKey = `${selected.getFullYear()}-${selected.getMonth()}`;
   const { from, to } = useMemo(() => calendarWindow(selected), [monthKey]);

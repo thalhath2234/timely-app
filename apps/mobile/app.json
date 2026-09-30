@@ -50,7 +50,15 @@
           "backgroundColor": "#1a1b22"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose images to discuss with the Timely assistant.",
+          "cameraPermission": "Take receipt photos for the Timely assistant.",
+          "microphonePermission": false
+        }
+      ]
     ],
     "updates": {
       "enabled": false

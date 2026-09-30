@@ -12,46 +12,46 @@ type Node = {
   content?: Node[];
 };
 
-export default function RichDoc({ content }: { content: DocContent | null | undefined }) {
+export default function RichDoc({ content, onLink }: { content: DocContent | null | undefined; onLink?: (href: string) => void }) {
   const blocks = ((content?.content ?? []) as Node[]).filter(Boolean);
   if (blocks.length === 0) {
     return <Text style={styles.placeholder}>Start writing…</Text>;
   }
-  return <View style={styles.wrap}>{blocks.map((node, i) => <Block key={i} node={node} />)}</View>;
+  return <View style={styles.wrap}>{blocks.map((node, i) => <Block key={i} node={node} onLink={onLink} />)}</View>;
 }
 
-function Block({ node }: { node: Node }) {
+function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }) {
   switch (node.type) {
     case "heading": {
       const level = Math.min(3, Math.max(1, Number(node.attrs?.level ?? 1) || 1));
-      return <Text style={[styles.p, styles[`h${level}` as "h1" | "h2" | "h3"]]}><Inline nodes={node.content} /></Text>;
+      return <Text style={[styles.p, styles[`h${level}` as "h1" | "h2" | "h3"]]}><Inline nodes={node.content} onLink={onLink} /></Text>;
     }
     case "paragraph":
       return (
         <Text style={styles.p}>
-          <Inline nodes={node.content} />
+          <Inline nodes={node.content} onLink={onLink} />
         </Text>
       );
     case "bulletList":
-      return <View style={styles.list}>{(node.content ?? []).map((item, i) => <ListItem key={i} bullet="•" node={item} />)}</View>;
+      return <View style={styles.list}>{(node.content ?? []).map((item, i) => <ListItem key={i} bullet="•" node={item} onLink={onLink} />)}</View>;
     case "orderedList":
       return (
         <View style={styles.list}>
-          {(node.content ?? []).map((item, i) => <ListItem key={i} bullet={`${i + 1}.`} node={item} />)}
+          {(node.content ?? []).map((item, i) => <ListItem key={i} bullet={`${i + 1}.`} node={item} onLink={onLink} />)}
         </View>
       );
     case "taskList":
       return (
         <View style={styles.list}>
           {(node.content ?? []).map((item, i) => (
-            <ListItem key={i} bullet={item.attrs?.checked ? "☑" : "☐"} node={item} />
+            <ListItem key={i} bullet={item.attrs?.checked ? "☑" : "☐"} node={item} onLink={onLink} />
           ))}
         </View>
       );
     case "blockquote":
       return (
         <View style={styles.quote}>
-          {(node.content ?? []).map((child, i) => <Block key={i} node={child} />)}
+          {(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}
         </View>
       );
     case "codeBlock":
@@ -67,17 +67,17 @@ function Block({ node }: { node: Node }) {
     default:
       return (
         <Text style={styles.p}>
-          <Inline nodes={node.content ?? [node]} />
+          <Inline nodes={node.content ?? [node]} onLink={onLink} />
         </Text>
       );
   }
 }
 
-function ListItem({ bullet, node }: { bullet: string; node: Node }) {
+function ListItem({ bullet, node, onLink }: { bullet: string; node: Node; onLink?: (href: string) => void }) {
   return (
     <View style={styles.li}>
       <Text style={styles.bullet}>{bullet}</Text>
-      <View style={styles.liBody}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} />)}</View>
+      <View style={styles.liBody}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>
     </View>
   );
 }
@@ -106,7 +106,7 @@ function Table({ rows }: { rows: Node[] }) {
   );
 }
 
-function Inline({ nodes }: { nodes?: Node[] }): ReactNode {
+function Inline({ nodes, onLink }: { nodes?: Node[]; onLink?: (href: string) => void }): ReactNode {
   return (
     <>
       {(nodes ?? []).map((node, i) => {
@@ -126,13 +126,13 @@ function Inline({ nodes }: { nodes?: Node[] }): ReactNode {
             <Text
               key={i}
               style={markStyle(node.marks)}
-              onPress={typeof href === "string" ? () => void Linking.openURL(href) : undefined}
+              onPress={typeof href === "string" ? () => onLink ? onLink(href) : void Linking.openURL(href) : undefined}
             >
               {node.text}
             </Text>
           );
         }
-        return <Fragment key={i}>{<Inline nodes={node.content} />}</Fragment>;
+        return <Fragment key={i}>{<Inline nodes={node.content} onLink={onLink} />}</Fragment>;
       })}
     </>
   );

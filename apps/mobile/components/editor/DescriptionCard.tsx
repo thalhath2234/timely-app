@@ -10,6 +10,7 @@ export default function DescriptionCard({
   syncKey,
   placeholder,
   onChange,
+  onSelectionChange,
   onSave,
 }: {
   content: DocContent;
@@ -17,6 +18,7 @@ export default function DescriptionCard({
   placeholder: string;
   onChange: (value: { content: DocContent; plainText: string }) => void;
   onSave: () => void;
+  onSelectionChange?: (text: string) => void;
 }) {
   return (
     <View style={styles.card}>
@@ -27,7 +29,7 @@ export default function DescriptionCard({
           <Text style={styles.caption}>Details, links, and rich text</Text>
         </View>
       </View>
-      <RichTextEditor compact content={content} syncKey={syncKey} placeholder={placeholder} onChange={onChange} />
+      <RichTextEditor compact content={content} syncKey={syncKey} placeholder={placeholder} onChange={onChange} onSelectionChange={onSelectionChange} />
       <PrimaryButton label="Save description" onPress={onSave} />
     </View>
   );
