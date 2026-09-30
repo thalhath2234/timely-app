@@ -1,0 +1,474 @@
+const { chromium, expect } = require("@playwright/test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+(async () => {
+  const browser = await chromium.launch({
+    ...(process.env.CHAT_BROWSER
+      ? { executablePath: process.env.CHAT_BROWSER }
+      : {}),
+    headless: true,
+    args: ["--no-sandbox"],
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  // UI audit uses mocked, account-scoped responses; no personal account data.
+  await context.addCookies([
+    { name: "refresh", value: "ui-audit", url: "http://localhost:4002" },
+  ]);
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const chat = {
+    id: "chat_audit",
+    title: "Build a project budget",
+    status: "approval",
+    phase: "apply",
+    webSearch: false,
+    context: [],
+    revision: 2,
+    unread: true,
+    error: "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    messages: [
+      {
+        id: "msg1",
+        role: "user",
+        content: "Create a budget sheet for the PDF tool project.",
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: "msg2",
+        role: "assistant",
+        content:
+          "I’ll create a budget in your PDF tool project, with quantities, unit prices, and calculated totals. Here’s the proposed structure.",
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    plan: [
+      {
+        tool: "create_sheet",
+        summary: "Create “PDF tool budget” in your PDF tool project.",
+        arguments: { title: "PDF tool budget" },
+        status: "pending",
+      },
+      {
+        tool: "update_sheet",
+        summary:
+          "Add Item, Quantity, Unit price, and Total columns, with initial expense rows.",
+        arguments: {
+          sheetId: "$0.sheet.id",
+          columns: [
+            { id: "item", name: "Item", type: "text" },
+            { id: "quantity", name: "Quantity", type: "number" },
+            { id: "price", name: "Unit price", type: "currency" },
+            { id: "total", name: "Total", type: "formula" },
+          ],
+          rows: [
+            {
+              cells: {
+                item: "Hosting",
+                quantity: "1",
+                price: "25",
+                total: "=B1*C1",
+              },
+            },
+          ],
+        },
+        status: "pending",
+      },
+    ],
+  };
+  let themeMode = "light";
+  let receiptMode = false;
+  const receiptSheets = [
+    {
+      id: "sheet_audit",
+      title: "Expenses",
+      workspaceId: "workspace",
+      projectId: "project_audit",
+    },
+  ];
+  const receipt = {
+    merchant: "Corner Shop",
+    date: "2026-09-29",
+    currency: "JPY",
+    category: "Groceries",
+    subtotal: "300",
+    tax: "30",
+    tip: "",
+    discount: "",
+    total: "330",
+    taxIncluded: false,
+    items: [
+      {
+        description: "Rice",
+        quantity: "1",
+        unitPrice: "100",
+        amount: "100",
+        category: "Groceries",
+      },
+      {
+        description: "Tea",
+        quantity: "2",
+        unitPrice: "100",
+        amount: "200",
+        category: "Groceries",
+      },
+    ],
+    issues: [],
+  };
+  const image = {
+    id: "img_audit",
+    name: "Receipt.png",
+    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+  };
+  const receiptPage = await context.newPage();
+  await receiptPage.setContent(
+    `<html><body style="margin:0;padding:44px;background:#fff;color:#111;font:22px monospace;width:412px"><h1 style="font-size:30px;text-align:center">CORNER SHOP</h1><p style="text-align:center">TEST RECEIPT · JPY<br>2026-09-29</p><hr><p>Rice &nbsp;&nbsp;1 × 100 &nbsp;&nbsp;100</p><p>Tea &nbsp;&nbsp;&nbsp;2 × 100 &nbsp;&nbsp;200</p><hr><p>Subtotal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;300</p><p>Tax (10%) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;30</p><h2 style="font-size:26px">TOTAL JPY &nbsp;&nbsp;&nbsp;&nbsp;330</h2><p style="text-align:center;font-size:14px">Synthetic receipt for testing</p></body></html>`,
+  );
+  await receiptPage.setViewportSize({ width: 500, height: 600 });
+  await receiptPage.screenshot({ path: "/tmp/timely-receipt-fixture.png" });
+  await receiptPage.close();
+  const requests = [];
+  await page.route("**/api-proxy/**", async (route) => {
+    const url = new URL(route.request().url());
+    let body = {};
+    let payload = null;
+    try {
+      payload = route.request().postDataJSON();
+    } catch {}
+    if (url.pathname.includes("/chats/images")) {
+      if (route.request().method() === "POST")
+        return route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          body: JSON.stringify(image),
+        });
+      if (route.request().method() === "DELETE")
+        return route.fulfill({ status: 204 });
+      return route.fulfill({
+        status: 200,
+        contentType: "image/png",
+        body: fs.readFileSync("/tmp/timely-receipt-fixture.png"),
+      });
+    }
+    if (
+      receiptMode &&
+      url.pathname.endsWith("/chats") &&
+      route.request().method() === "POST"
+    ) {
+      chat.title = "Receipt expenses";
+      chat.context = [
+        { kind: "workspace", label: "Personal", value: "workspace" },
+        { kind: "object", label: "Expenses", value: "sheets/sheet_audit" },
+        {
+          kind: "sheet-tab",
+          label: "Current sheet tab",
+          value: "sheets/sheet_audit/tabs/travel",
+        },
+      ];
+      chat.status = "idle";
+      chat.phase = "review";
+      chat.sensitive = true;
+      chat.plan = [];
+      chat.revision = 10;
+      chat.images = [image];
+      chat.messages = [
+        {
+          id: "receipt-msg",
+          role: "user",
+          content: payload.content || "Process these images",
+          imageIds: payload.imageIds,
+        },
+      ];
+      chat.imageReview = {
+        imageIds: [image.id],
+        receiptId: "receipt-audit",
+        status: "review",
+        receipt,
+        duplicates: [],
+        text: "Corner Shop receipt",
+      };
+    }
+    if (receiptMode && url.pathname.endsWith("/receipt")) {
+      chat.imageReview.receipt = payload.receipt;
+      chat.imageReview.destination = payload.destination;
+      chat.status = "approval";
+      chat.revision++;
+      chat.plan = [
+        {
+          tool: "update_sheet",
+          summary: "Save one JPY 330 receipt and both individual items",
+          arguments: { sheetId: "sheet_audit" },
+          status: "pending",
+        },
+      ];
+    }
+    if (receiptMode && url.pathname.endsWith("/approve")) {
+      chat.imageReview.status = "confirmed";
+      chat.images = [{ ...image, deletedAt: new Date().toISOString() }];
+      chat.status = "idle";
+      chat.revision++;
+      chat.plan = chat.plan.map((x) => ({ ...x, status: "done" }));
+    }
+    requests.push({
+      path: url.pathname,
+      method: route.request().method(),
+      body: payload,
+    });
+    if (url.pathname.endsWith("/read")) chat.unread = false;
+    if (
+      route.request().method() === "PATCH" &&
+      url.pathname.endsWith("/chat_audit")
+    )
+      Object.assign(chat, route.request().postDataJSON());
+    if (url.pathname.endsWith("/chats"))
+      body = route.request().method() === "POST" ? chat : [chat];
+    else if (receiptMode && url.pathname.endsWith("/workspaces"))
+      body = [{ id: "workspace", name: "Personal" }];
+    else if (receiptMode && url.pathname.endsWith("/sheets"))
+      body = receiptSheets;
+    else if (receiptMode && url.pathname.endsWith("/sheets/sheet_audit"))
+      body = {
+        id: "sheet_audit",
+        title: "Expenses",
+        workspaceId: "workspace",
+        tabs: [
+          { id: "items", name: "Items", columns: [], rows: [] },
+          { id: "expenses", name: "Expenses", columns: [], rows: [] },
+          { id: "travel", name: "Travel", columns: [], rows: [] },
+        ],
+      };
+    else if (url.pathname.includes("/chats/chat_audit")) body = chat;
+    else if (url.pathname.endsWith("/config"))
+      body = { appearance: { theme: themeMode, accent: "default" } };
+    else if (url.pathname.endsWith("/me"))
+      body = {
+        id: "ui-user",
+        name: "Design review",
+        email: "audit@example.invalid",
+        is_on_boarding_completed: true,
+      };
+    else if (url.pathname.includes("unread-count")) body = { count: 1 };
+    else body = [];
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
+  await page.goto("http://localhost:4002/chat");
+  await page.getByRole("heading", { name: "What would you like" }).waitFor();
+  await page.waitForTimeout(450);
+  await page.screenshot({ path: "/tmp/timely-chat-empty.png", fullPage: true });
+  await page.goto("http://localhost:4002/chat?id=chat_audit");
+  await page.getByRole("button", { name: "Apply changes" }).waitFor();
+  await page.waitForTimeout(450);
+  await page.screenshot({
+    path: "/tmp/timely-chat-proposal.png",
+    fullPage: true,
+  });
+  await page.getByText("Review details", { exact: true }).nth(1).click();
+  await page.getByRole("cell", { name: "Hosting", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Web search", exact: true }).click();
+  await page.waitForTimeout(200);
+  assert(
+    requests.some((r) => r.method === "PATCH" && r.body.webSearch === true),
+    "search toggle was not saved",
+  );
+  await page
+    .getByRole("button", { name: "Apply changes", exact: true })
+    .click();
+  await page.waitForTimeout(200);
+  assert(
+    requests.some((r) => r.path.endsWith("/approve") && r.body.revision === 2),
+    "approval did not bind to the displayed revision",
+  );
+  await page.keyboard.press("Control+Shift+J");
+  await page.getByRole("dialog", { name: "Chat with Timely" }).waitFor();
+  await page.waitForTimeout(450);
+  await page.screenshot({
+    path: "/tmp/timely-chat-overlay.png",
+    fullPage: true,
+  });
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /Remove .* context/ })
+    .click();
+  assert.equal(
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: /Remove .* context/ })
+      .count(),
+    0,
+  );
+  await page.keyboard.press("Escape");
+  if (await page.getByRole("dialog").count())
+    throw new Error("Escape failed to close overlay");
+  themeMode = "dark";
+  await page.setViewportSize({ width: 1000, height: 760 });
+  await page.reload();
+  await page.getByRole("button", { name: "Apply changes" }).waitFor();
+  await page.waitForTimeout(450);
+  await page.screenshot({ path: "/tmp/timely-chat-dark.png", fullPage: true });
+  receiptMode = true;
+  themeMode = "light";
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto("http://localhost:4002/chat");
+  await page
+    .getByLabel("Upload images")
+    .setInputFiles("/tmp/timely-receipt-fixture.png");
+  await page.getByRole("button", { name: "Remove Receipt.png" }).waitFor();
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("heading", { name: "Review your receipt" }).waitFor();
+  assert.equal(await page.getByLabel("Item 2 amount").inputValue(), "200");
+  await expect(page.getByLabel("Expense sheet", { exact: true })).toHaveValue(
+    "sheet_audit",
+  );
+  await expect(
+    page.getByLabel("Expense summary tab", { exact: true }),
+  ).toHaveValue("travel");
+  // Manual overrides remain authoritative, including creating a new sheet.
+  await page.getByLabel("Expense sheet", { exact: true }).selectOption("");
+  await expect(page.getByLabel("Receipt workspace")).toHaveValue("workspace");
+  await page.getByLabel("Merchant", { exact: true }).fill("Edited shop");
+  await expect(page.getByLabel("Expense sheet", { exact: true })).toHaveValue(
+    "",
+  );
+  await page
+    .getByLabel("Expense sheet", { exact: true })
+    .selectOption("sheet_audit");
+  await page
+    .getByLabel("Expense summary tab", { exact: true })
+    .selectOption("expenses");
+  await page.screenshot({
+    path: "/tmp/timely-receipt-review.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Review sheet changes" }).click();
+  await page
+    .getByRole("button", { name: "Apply changes", exact: true })
+    .waitFor();
+  await page.getByLabel("Merchant", { exact: true }).fill("Corrected shop");
+  assert(
+    await page
+      .getByRole("button", { name: "Apply changes", exact: true })
+      .isDisabled(),
+    "edited draft can apply stale proposal",
+  );
+  await page.getByRole("button", { name: "Review sheet changes" }).click();
+  await page
+    .getByRole("button", { name: "Apply changes", exact: true })
+    .click();
+  await page
+    .getByText("Image removed · extracted details kept")
+    .first()
+    .waitFor();
+  assert(
+    requests.some(
+      (r) =>
+        r.path.endsWith("/receipt") &&
+        r.body.receipt.merchant === "Corrected shop" &&
+        r.body.destination.sheetId === "sheet_audit" &&
+        r.body.destination.expenseTabId === "expenses",
+    ),
+    "receipt correction was not submitted",
+  );
+  chat.context = [{ kind: "workspace", label: "Personal", value: "workspace" }];
+  chat.imageReview.status = "review";
+  delete chat.imageReview.destination;
+  chat.status = "idle";
+  chat.phase = "review";
+  chat.plan = [];
+  await page.reload();
+  await expect(page.getByLabel("Expense sheet", { exact: true })).toHaveValue(
+    "sheet_audit",
+  );
+  await expect(
+    page.getByLabel("Expense summary tab", { exact: true }),
+  ).toHaveValue("expenses");
+  // Standalone chat must also find the single existing Expense sheet.
+  chat.context = [];
+  receiptSheets[0].title = "Expense";
+  await page.reload();
+  await expect(
+    page.getByLabel("Expense sheet", { exact: true }).locator("option"),
+  ).toHaveCount(2);
+  await expect(page.getByLabel("Expense sheet", { exact: true })).toHaveValue(
+    "sheet_audit",
+  );
+  chat.context = [{ kind: "workspace", label: "Personal", value: "workspace" }];
+  receiptSheets.push({
+    id: "other_sheet",
+    title: "Travel expenses",
+    workspaceId: "workspace",
+    projectId: "other_project",
+  });
+  await page.reload();
+  await expect(
+    page.getByLabel("Expense sheet", { exact: true }).locator("option"),
+  ).toHaveCount(3);
+  await expect(page.getByLabel("Expense sheet", { exact: true })).toHaveValue(
+    "",
+  );
+  // A project narrows otherwise ambiguous workspace matches.
+  chat.context.push({
+    kind: "project",
+    label: "Current project",
+    value: "project_audit",
+  });
+  await page.reload();
+  await expect(page.getByLabel("Expense sheet", { exact: true })).toHaveValue(
+    "sheet_audit",
+  );
+  chat.context = [];
+  await page.reload();
+  await expect(
+    page.getByLabel("Expense sheet", { exact: true }).locator("option"),
+  ).toHaveCount(3);
+  await expect(page.getByLabel("Expense sheet", { exact: true })).toHaveValue(
+    "",
+  );
+  chat.imageReview.receipt = { ...receipt, items: [] };
+  await page.reload();
+  await expect(
+    page.getByText("No individual items were extracted.", { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Item 1 description")).toHaveCount(0);
+  await expect(
+    page.getByText("We’ll save one summary item using", { exact: false }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Expense sheet", { exact: true })
+    .selectOption("sheet_audit");
+  await page.getByRole("button", { name: "Review sheet changes" }).click();
+  assert(
+    requests.some(
+      (r) =>
+        r.path.endsWith("/receipt") &&
+        r.body.receipt.items.length === 0 &&
+        r.body.receipt.total === "330",
+    ),
+    "summary-only receipt was not submitted",
+  );
+  if (errors.length) throw new Error(errors.join("\n"));
+  console.log(
+    JSON.stringify({
+      errors,
+      screenshots: [
+        "/tmp/timely-chat-empty.png",
+        "/tmp/timely-chat-proposal.png",
+        "/tmp/timely-chat-overlay.png",
+        "/tmp/timely-receipt-review.png",
+      ],
+    }),
+  );
+  await browser.close();
+})();
+
+process.on("unhandledRejection", (error) => {
+  console.error(error);
+  process.exit(1);
+});

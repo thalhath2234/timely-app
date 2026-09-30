@@ -46,3 +46,33 @@ make reset-password EMAIL=user@example.com PASSWORD='new-password'
 
 The [API collection](api-collections.json) contains sample requests. Run
 `make test-api` for Go tests or `make check` for the repository's quality checks.
+
+
+## In-app agent
+
+Chat uses the server's `OPENROUTER_API_KEY` and defaults to
+`OPENROUTER_CHAT_MODEL=z-ai/glm-5.3-flash`, with low reasoning effort for interactive tool use. The key is never returned to the web or
+Electron renderer. Startup migrations create conversation storage and enable
+agent notifications. Agent execution runs separately from reminder jobs. Model
+requests allow up to four minutes and retry one transient timeout or truncated
+response within the ten-minute run limit. Worker heartbeats keep long requests
+leased and cancel them when stopped. Domain writes are never retried by the
+provider adapter.
+
+Open Chat in the sidebar or use Ctrl/Cmd+Shift+J from another screen. Proposed
+multi-step changes wait for Apply; navigation does not stop a run. See the
+[feature design](../../docs/ai-agent-design.md) for behavior and checks.
+
+Chat image uploads use an account-scoped temporary directory, by default
+`$TMPDIR/timely-chat-images` (or `/tmp/timely-chat-images`). `CHAT_IMAGE_DIR` can
+point to a dedicated private directory shared by API workers on the same server.
+Keep it outside backups and public/static file serving. Uploaded images are not
+stored in PostgreSQL; do not place unrelated files in this directory. Access expires
+24 hours after upload; cleanup runs on startup and every minute. Confirming or
+Discarding a review removes the images immediately. An unavailable temporary file
+requires re-uploading, but extracted drafts and completed writes remain in chat.
+
+OpenRouter receipt/image requests enforce ZDR-only routing. Leave OpenRouter's
+optional input/output logging and data-sharing settings disabled. Provider availability
+is checked by the real request; the app reports a retryable error rather than falling
+back to a retaining provider. Private image chats do not use web search.

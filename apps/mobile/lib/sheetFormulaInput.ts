@@ -3,7 +3,8 @@ export interface FormulaRefSpan {
   end: number;
 }
 
-const REF_RE = /\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?/g;
+const REF_RE =
+  /(?<![A-Za-z0-9_])(?:\$?[A-Za-z]+(?:\$?\d+)?|\$?\d+)\s*:\s*(?:\$?[A-Za-z]+(?:\$?\d+)?|\$?\d+)(?![A-Za-z0-9_])|\$?[A-Za-z]+\$?\d+/g;
 const TRAILING_NAME_RE = /[A-Za-z_][A-Za-z0-9_.]*$/;
 const A1_REF_RE = /^\$?[A-Za-z]+\$?\d+$/;
 const ARG_BREAK_RE = /[+\-*/&^<>=,(]$/;
@@ -65,7 +66,10 @@ interface InsertSite {
   suffix: string;
 }
 
-function findParenPairAt(formula: string, caret: number): { open: number; close: number } | null {
+function findParenPairAt(
+  formula: string,
+  caret: number,
+): { open: number; close: number } | null {
   const quoted = quotedMask(formula);
   const stack: number[] = [];
   let containing: { open: number; close: number } | null = null;
@@ -96,7 +100,11 @@ function findParenPairAt(formula: string, caret: number): { open: number; close:
     return { open: unclosed, close: formula.length };
   }
 
-  if (lastClosed && caret >= lastClosed.close && lastClosed.close === formula.length - 1) {
+  if (
+    lastClosed &&
+    caret >= lastClosed.close &&
+    lastClosed.close === formula.length - 1
+  ) {
     return lastClosed;
   }
 
@@ -149,7 +157,9 @@ function appendInsertSite(
   const pair = findParenPairAt(formula, probe);
   if (pair) {
     const insertAt = Math.min(Math.max(at, pair.open + 1), pair.close);
-    const prefix = needsCommaBefore(formula, pair.open + 1, insertAt) ? "," : "";
+    const prefix = needsCommaBefore(formula, pair.open + 1, insertAt)
+      ? ","
+      : "";
     return { start: insertAt, end: insertAt, prefix, suffix: "" };
   }
   const before = formula.slice(0, at).trimEnd();
@@ -195,7 +205,8 @@ export function insertFormulaRange(
   if (mode === "append") {
     const site = appendInsertSite(formula, caret, activeSpan);
     const inserted = site.prefix + rangeLabel + site.suffix;
-    const raw = formula.slice(0, site.start) + inserted + formula.slice(site.end);
+    const raw =
+      formula.slice(0, site.start) + inserted + formula.slice(site.end);
     const value = closeOpenParens(raw);
     const labelStart = site.start + site.prefix.length;
     const nextSpan = { start: labelStart, end: labelStart + rangeLabel.length };

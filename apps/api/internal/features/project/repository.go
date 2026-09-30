@@ -90,22 +90,18 @@ func (r *projectRepository) CreateProject(project *models.Project, customFieldVa
 		project.PriorityLevel = &normalized
 	}
 
-	tx := r.db.Begin()
-
-	if err := tx.Create(project).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	for _, cfv := range customFieldValues {
-		cfv.ProjectID = project.ID
-		if err := tx.Omit("TaskID").Create(cfv).Error; err != nil {
-			tx.Rollback()
-			return nil, err
+	if err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(project).Error; err != nil {
+			return err
 		}
-	}
-
-	if err := tx.Commit().Error; err != nil {
+		for _, cfv := range customFieldValues {
+			cfv.ProjectID = project.ID
+			if err := tx.Omit("TaskID").Create(cfv).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 

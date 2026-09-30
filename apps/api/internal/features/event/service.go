@@ -463,8 +463,11 @@ func (s *eventService) Split(userID, eventID string, input SplitInput) (*models.
 		if err := tx.Omit("Recurrence").Create(next).Error; err != nil {
 			return err
 		}
-		_, err := store.Upsert(models.RecurrenceOwnerEvent, next.ID, userID, rec)
-		return err
+		nextRule, err := store.Upsert(models.RecurrenceOwnerEvent, next.ID, userID, rec)
+		if err != nil {
+			return err
+		}
+		return store.PreserveFutureExceptions(source.Recurrence, nextRule, fromStart)
 	})
 	if err != nil {
 		return nil, err

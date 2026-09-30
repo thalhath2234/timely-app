@@ -465,7 +465,7 @@ func (s *Server) addSheetRows(ctx context.Context, req *mcp.CallToolRequest, in 
 type updateCellsIn struct {
 	SheetID string            `json:"sheetId"`
 	RowID   string            `json:"rowId"`
-	Cells   map[string]string `json:"cells"`
+	Cells   map[string]string `json:"cells" jsonschema:"Map column IDs to literal values or formulas, e.g. =B5+SUM(N2:N). Supports N:N whole columns, 2:2 whole rows, and N2:N or B2:2 open ranges. Get row and column IDs with get_sheet; do not use A1 addresses as map keys."`
 }
 
 func (s *Server) updateSheetCells(ctx context.Context, req *mcp.CallToolRequest, in updateCellsIn) (*mcp.CallToolResult, any, error) {

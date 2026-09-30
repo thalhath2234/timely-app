@@ -9,6 +9,7 @@ export type SidebarProps = {
 };
 
 export const SIDEBAR_ITEMS = [
+  { name: "Chat", icon: "MessageCircle", href: "/chat" },
   {
     name: "Today",
     icon: "Sun",

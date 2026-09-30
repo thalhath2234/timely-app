@@ -10,12 +10,14 @@ import (
 
 	_ "time/tzdata" // IANA zones for recurrence and working hours, even on hosts without a zoneinfo directory
 
+	"gorm.io/gorm"
 	"timely-api/internal/blocks"
 	"timely-api/internal/database"
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/apikey"
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/calendar"
+	"timely-api/internal/features/chat"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
@@ -105,7 +107,10 @@ func main() {
 		Portable:   portabilityService,
 	})
 
+	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live) }, chat.NewOpenRouter())
+
 	handlers := routes.Handlers{
+		Chat:      chatService,
 		Auth:      auth.NewHandler(authService, userRepo),
 		Task:      task.NewHandler(taskService),
 		Project:   project.NewHandler(projectService),
@@ -161,6 +166,7 @@ func main() {
 	defer cancel()
 
 	go jobWorker.Run(ctx)
+	chatService.Run(ctx)
 
 	sc := echo.StartConfig{
 		Address:         ":" + port,

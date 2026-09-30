@@ -6,6 +6,7 @@ import (
 	"timely-api/internal/features/apikey"
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/calendar"
+	"timely-api/internal/features/chat"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/notify"
@@ -23,6 +24,7 @@ import (
 
 // Handlers groups every feature handler so SetupRoutes has one parameter.
 type Handlers struct {
+	Chat      *chat.Service
 	Auth      *auth.Handler
 	Task      *task.Handler
 	Project   *project.Handler
@@ -52,6 +54,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	protected := e.Group("")
 	protected.Use(middleware.JWTMiddleware(h.Sessions))
 
+	if h.Chat != nil {
+		h.Chat.Routes(protected)
+	}
 	setupAuthRoutes(protected, h.Auth)
 	setupTaskRoutes(protected, h.Task)
 	setupProjectRoutes(protected, h.Project)

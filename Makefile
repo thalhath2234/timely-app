@@ -188,7 +188,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api ## Run all tests
+test: test-api test-sheet-formulas ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -197,7 +197,7 @@ test-api: ## go test the API
 
 migrate-up: ## Run all pending migrations (via the API's startup migrator)
 	@echo "$(CYAN)Running pending migrations...$(RESET)"
-	@cd $(API) && go run cmd/main.go
+	@cd $(API) && go run ./cmd
 
 migrate-down: ## Roll back the last migration
 	@$(GOOSE_MIGRATIONS) down
@@ -233,3 +233,33 @@ reset-password: ## Reset a user's password. Usage: make reset-password EMAIL=a@b
 clean: ## Remove build outputs (keeps node_modules and the native android/ project)
 	@rm -rf $(API)/tmp $(API)/bin/timely-api $(WEB)/.next $(WEB)/out $(WEB)/tmp $(WEB)/dist-electron $(WEB)/release $(WEB)/.electron-next $(MOBILE)/.expo $(MOBILE)/dist
 	@echo "$(GREEN)✓ cleaned$(RESET)"
+
+.PHONY: format-api
+format-api: ## Format Go source
+	@git ls-files -m -o --exclude-standard -- 'apps/api/*.go' 'apps/api/**/*.go' | xargs -r gofmt -w
+
+.PHONY: test-chat-integration lint-chat
+test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/$(API)/.env" go test ./internal/features/chat ./cmd -run TestIntegration -count=1
+
+lint-chat: ## Lint the chat UI and Electron integration
+	@pnpm --filter @timely/web exec eslint app/_components/chat app/_store/chatStore.ts app/utils/api/chat.ts app/utils/hooks/chat.ts "app/(pages)/(nav_pages)/chat" electron/main.ts electron/preload.ts
+
+.PHONY: audit-chat
+audit-chat: ## Check chat layouts and overlay in Chromium against mocked API responses (web on :4002)
+	@node scripts/audit-chat.cjs
+
+.PHONY: format-chat install-browser
+format-chat: ## Format chat UI and its browser audit
+	@pnpm exec prettier --write apps/web/app/_components/chat apps/web/app/_store/chatStore.ts apps/web/app/utils/api/chat.ts apps/web/app/utils/hooks/chat.ts "apps/web/app/(pages)/(nav_pages)/chat/page.tsx" scripts/audit-chat.cjs
+
+install-browser: ## Install Chromium for browser checks
+	@pnpm exec playwright install chromium
+
+.PHONY: test-sheet-formulas lint-sheet-formulas format-sheet-formulas
+test-sheet-formulas: ## Test web and mobile sheet formula evaluation and range editing
+	@node --experimental-strip-types --test scripts/sheet-formulas.test.mjs
+lint-sheet-formulas: ## Lint sheet formula evaluation and editing helpers
+	@pnpm --filter @timely/web exec eslint app/utils/sheetFormula.ts app/utils/sheetFormulaInput.ts
+format-sheet-formulas: ## Format sheet formula helpers and tests
+	@pnpm exec prettier --write apps/web/app/utils/sheetFormula.ts apps/web/app/utils/sheetFormulaInput.ts apps/mobile/lib/sheetFormula.ts apps/mobile/lib/sheetFormulaInput.ts scripts/sheet-formulas.test.mjs

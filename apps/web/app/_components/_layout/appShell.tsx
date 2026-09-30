@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ChatRuntime from "@/app/_components/chat/chatRuntime";
 import Sidebar from "@/app/_components/_layout/sidebar";
 import { usePreferences } from "@/app/_components/_layout/clientRuntime";
 import { PageFade, springSnappy } from "@/app/_components/_ui/motion";
@@ -45,6 +46,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="relative flex h-full w-full flex-row overflow-hidden bg-sidebar">
+      <ChatRuntime />
       {autoHide ? (
         <div
           aria-hidden

@@ -198,3 +198,18 @@ func (s *Store) UpsertException(rule *models.RecurrenceRule, originalStart time.
 	}
 	return &exception, nil
 }
+
+// PreserveFutureExceptions moves explicit overrides into the replacement series.
+// Expand also emits these when the new RRULE no longer includes their weekday.
+func (s *Store) PreserveFutureExceptions(source, next *models.RecurrenceRule, cutoff time.Time) error {
+	for _, exception := range source.Exceptions {
+		if exception.OriginalStart.Before(cutoff) {
+			continue
+		}
+		exception.RuleID = next.ID
+		if err := s.db.Create(&exception).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}

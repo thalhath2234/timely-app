@@ -15,7 +15,9 @@ function error(message: string): CellResult {
   return { type: "error", message };
 }
 
-function isError(result: CellResult): result is { type: "error"; message: string } {
+function isError(
+  result: CellResult,
+): result is { type: "error"; message: string } {
   return result.type === "error";
 }
 
@@ -89,9 +91,14 @@ export function columnIndexToLetter(index: number): string {
 const A1_REF = /([A-Za-z]+)([0-9]+)/g;
 
 /** Shift relative A1 references when filling a formula down or across. */
-export function shiftFormula(value: string, deltaCol: number, deltaRow: number): string {
+export function shiftFormula(
+  value: string,
+  deltaCol: number,
+  deltaRow: number,
+): string {
   const trimmed = value.trim();
-  if (!trimmed.startsWith("=") || (deltaCol === 0 && deltaRow === 0)) return value;
+  if (!trimmed.startsWith("=") || (deltaCol === 0 && deltaRow === 0))
+    return value;
 
   let inString = false;
   let output = "";
@@ -104,6 +111,26 @@ export function shiftFormula(value: string, deltaCol: number, deltaRow: number):
     }
     if (inString) {
       output += char;
+      continue;
+    }
+    const range =
+      /^([A-Za-z]+[0-9]*|[0-9]+)\s*:\s*([A-Za-z]+[0-9]*|[0-9]+)(?![A-Za-z0-9_])/.exec(
+        value.slice(index),
+      );
+    if (range) {
+      const shiftEndpoint = (part: string) => {
+        const match = /^([A-Za-z]*)([0-9]*)$/.exec(part)!;
+        return (
+          (match[1]
+            ? columnIndexToLetter(
+                Math.max(0, columnLetterToIndex(match[1]) + deltaCol),
+              )
+            : "") +
+          (match[2] ? String(Math.max(1, Number(match[2]) + deltaRow)) : "")
+        );
+      };
+      output += `${shiftEndpoint(range[1])}:${shiftEndpoint(range[2])}`;
+      index += range[0].length - 1;
       continue;
     }
     A1_REF.lastIndex = 0;
@@ -133,7 +160,21 @@ type Token =
   | { kind: "comma" }
   | { kind: "colon" };
 
-const OPERATORS = ["<>", "<=", ">=", "+", "-", "*", "/", "^", "&", "=", "<", ">", "%"];
+const OPERATORS = [
+  "<>",
+  "<=",
+  ">=",
+  "+",
+  "-",
+  "*",
+  "/",
+  "^",
+  "&",
+  "=",
+  "<",
+  ">",
+  "%",
+];
 
 function tokenize(input: string): Token[] | string {
   const tokens: Token[] = [];
@@ -160,7 +201,10 @@ function tokenize(input: string): Token[] | string {
       continue;
     }
 
-    if (/[0-9]/.test(char) || (char === "." && /[0-9]/.test(input[position + 1] ?? ""))) {
+    if (
+      /[0-9]/.test(char) ||
+      (char === "." && /[0-9]/.test(input[position + 1] ?? ""))
+    ) {
       let raw = "";
       while (position < input.length && /[0-9.]/.test(input[position])) {
         raw += input[position];
@@ -325,7 +369,8 @@ function callFunction(name: string, args: EvalValue[]): CellResult {
           : { type: "number", value: Math.sqrt(first) };
       }
       if (name === "FLOOR") return { type: "number", value: Math.floor(first) };
-      if (name === "CEILING") return { type: "number", value: Math.ceil(first) };
+      if (name === "CEILING")
+        return { type: "number", value: Math.ceil(first) };
 
       const digitsArg = args.length > 1 ? toNumber(single(1)) : 0;
       if (typeof digitsArg !== "number") return digitsArg;
@@ -355,7 +400,7 @@ function callFunction(name: string, args: EvalValue[]): CellResult {
                 condition.value.toUpperCase() !== "FALSE"
               : false;
 
-      return isTruthy ? single(1) : (args[2] === undefined ? EMPTY : single(2));
+      return isTruthy ? single(1) : args[2] === undefined ? EMPTY : single(2);
     }
 
     case "AND":
@@ -367,7 +412,9 @@ function callFunction(name: string, args: EvalValue[]): CellResult {
         if (isError(cell)) return cell;
         if (cell.type === "empty") continue;
         flags.push(
-          cell.type === "boolean" ? cell.value : toText(cell).toUpperCase() !== "FALSE",
+          cell.type === "boolean"
+            ? cell.value
+            : toText(cell).toUpperCase() !== "FALSE",
         );
       }
 
@@ -483,7 +530,12 @@ function applyBinary(
   }
 }
 
-function parseFormula(tokens: Token[], lookup: CellLookup): CellResult {
+function parseFormula(
+  tokens: Token[],
+  lookup: CellLookup,
+  columnCount: number,
+  rowCount: number,
+): CellResult {
   let position = 0;
 
   const peek = () => tokens[position];
@@ -539,7 +591,10 @@ function parseFormula(tokens: Token[], lookup: CellLookup): CellResult {
   function parsePower(): EvalValue {
     const left = parseUnary();
 
-    if (peek()?.kind === "operator" && (peek() as { value: string }).value === "^") {
+    if (
+      peek()?.kind === "operator" &&
+      (peek() as { value: string }).value === "^"
+    ) {
       next();
       return applyBinary("^", single(left), single(parsePower()));
     }
@@ -559,7 +614,10 @@ function parseFormula(tokens: Token[], lookup: CellLookup): CellResult {
       if (isError(operand)) return operand;
       const numeric = toNumber(operand);
       if (typeof numeric !== "number") return numeric;
-      return { type: "number", value: token.value === "-" ? -numeric : numeric };
+      return {
+        type: "number",
+        value: token.value === "-" ? -numeric : numeric,
+      };
     }
 
     return parsePostfix();
@@ -569,7 +627,10 @@ function parseFormula(tokens: Token[], lookup: CellLookup): CellResult {
    * Binds tighter than `^` and looser than unary minus, matching Excel. */
   function parsePostfix(): EvalValue {
     let value = parsePrimary();
-    while (peek()?.kind === "operator" && (peek() as { value: string }).value === "%") {
+    while (
+      peek()?.kind === "operator" &&
+      (peek() as { value: string }).value === "%"
+    ) {
       next();
       const operand = single(value);
       if (isError(operand)) return operand;
@@ -584,35 +645,62 @@ function parseFormula(tokens: Token[], lookup: CellLookup): CellResult {
     const token = next();
     if (!token) return error("#PARSE!");
 
+    if (peek()?.kind === "colon") {
+      next();
+      const end = next();
+      // Missing row/column coordinates expand to the current grid boundary.
+      // Re-evaluation against a larger grid includes newly added rows/columns.
+      const endpoint = (
+        part: Token | undefined,
+      ): { col?: number; row?: number } | null => {
+        if (part?.kind === "ref") return { col: part.col, row: part.row };
+        if (part?.kind === "identifier" && /^[A-Z]+$/.test(part.value))
+          return { col: columnLetterToIndex(part.value) };
+        if (part?.kind === "number" && Number.isSafeInteger(part.value))
+          return { row: part.value - 1 };
+        return null;
+      };
+      const start = endpoint(token);
+      const finish = endpoint(end);
+      if (!start || !finish) return error("#PARSE!");
+      if (
+        (start.col === undefined && finish.row === undefined) ||
+        (start.row === undefined && finish.col === undefined)
+      )
+        return error("#PARSE!");
+      for (const coordinate of [start.col, start.row, finish.col, finish.row]) {
+        if (
+          coordinate !== undefined &&
+          (!Number.isSafeInteger(coordinate) || coordinate < 0)
+        )
+          return error("#REF!");
+      }
+      const left = start.col ?? 0;
+      const right = finish.col ?? columnCount - 1;
+      const top = start.row ?? 0;
+      const bottom = finish.row ?? rowCount - 1;
+      const cells: CellResult[] = [];
+      // Only visit actual grid cells, even for very large explicit bounds.
+      const startCol = Math.max(0, Math.min(left, right));
+      const endCol = Math.min(columnCount - 1, Math.max(left, right));
+      const startRow = Math.max(0, Math.min(top, bottom));
+      const endRow = Math.min(rowCount - 1, Math.max(top, bottom));
+      // An open range starting beyond the grid is empty, not reversed.
+      if (
+        (finish.row === undefined && top >= rowCount) ||
+        (finish.col === undefined && left >= columnCount)
+      )
+        return cells;
+      for (let row = startRow; row <= endRow; row += 1) {
+        for (let col = startCol; col <= endCol; col += 1)
+          cells.push(lookup(col, row));
+      }
+      return cells;
+    }
+
     if (token.kind === "number") return { type: "number", value: token.value };
     if (token.kind === "string") return { type: "text", value: token.value };
-
-    if (token.kind === "ref") {
-      if (peek()?.kind === "colon") {
-        next();
-        const end = next();
-        if (!end || end.kind !== "ref") return error("#PARSE!");
-
-        const cells: CellResult[] = [];
-        const [startCol, endCol] = [
-          Math.min(token.col, end.col),
-          Math.max(token.col, end.col),
-        ];
-        const [startRow, endRow] = [
-          Math.min(token.row, end.row),
-          Math.max(token.row, end.row),
-        ];
-
-        for (let row = startRow; row <= endRow; row += 1) {
-          for (let col = startCol; col <= endCol; col += 1) {
-            cells.push(lookup(col, row));
-          }
-        }
-        return cells;
-      }
-
-      return lookup(token.col, token.row);
-    }
+    if (token.kind === "ref") return lookup(token.col, token.row);
 
     if (token.kind === "identifier") {
       if (token.value === "TRUE") return { type: "boolean", value: true };
@@ -622,7 +710,12 @@ function parseFormula(tokens: Token[], lookup: CellLookup): CellResult {
       next();
 
       const args: EvalValue[] = [];
-      if (!(peek()?.kind === "paren" && (peek() as { value: string }).value === ")")) {
+      if (
+        !(
+          peek()?.kind === "paren" &&
+          (peek() as { value: string }).value === ")"
+        )
+      ) {
         args.push(parseExpression());
         while (peek()?.kind === "comma") {
           next();
@@ -666,7 +759,10 @@ function parseLiteral(raw: string): CellResult {
   // Accept "1,234.5" and "42%" as numbers, everything else stays text.
   const numericCandidate = trimmed.replace(/,/g, "");
   if (/^-?\d*\.?\d+%$/.test(numericCandidate)) {
-    return { type: "number", value: Number(numericCandidate.slice(0, -1)) / 100 };
+    return {
+      type: "number",
+      value: Number(numericCandidate.slice(0, -1)) / 100,
+    };
   }
   if (/^-?\d*\.?\d+(e[-+]?\d+)?$/i.test(numericCandidate)) {
     return { type: "number", value: Number(numericCandidate) };
@@ -709,7 +805,9 @@ export function createSheetEvaluator(columns: SheetColumn[], rows: SheetRow[]) {
     visiting.add(key);
     const tokens = tokenize(raw.slice(1));
     const result =
-      typeof tokens === "string" ? error(tokens) : parseFormula(tokens, valueAt);
+      typeof tokens === "string"
+        ? error(tokens)
+        : parseFormula(tokens, valueAt, columns.length, rows.length);
     visiting.delete(key);
 
     cache.set(key, result);
@@ -718,7 +816,9 @@ export function createSheetEvaluator(columns: SheetColumn[], rows: SheetRow[]) {
 
   return {
     valueAt,
-    displayAt: (col: number, row: number) => formatCellResult(valueAt(col, row)),
-    isFormula: (col: number, row: number) => rawAt(col, row).trim().startsWith("="),
+    displayAt: (col: number, row: number) =>
+      formatCellResult(valueAt(col, row)),
+    isFormula: (col: number, row: number) =>
+      rawAt(col, row).trim().startsWith("="),
   };
 }

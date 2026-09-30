@@ -43,6 +43,7 @@ export default function KeyboardShortcuts() {
         awaitingGo.current = false;
         if (goTimer.current) clearTimeout(goTimer.current);
         const routes: Record<string, string> = {
+          a: "/chat",
           t: "/tasks",
           p: "/projects",
           c: "/calendar",

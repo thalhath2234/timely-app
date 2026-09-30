@@ -37,28 +37,15 @@ func NewWorkspaceRepository(db *gorm.DB) WorkspaceRepository {
 }
 
 func (r *workspaceRepository) CreateWorkspace(workspace *models.Workspace, defaultStatuses []models.Status) error {
-	tx := r.db.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(workspace).Error; err != nil {
+			return err
 		}
-	}()
-
-	if err := tx.Create(workspace).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	for i := range defaultStatuses {
-		defaultStatuses[i].WorkspaceID = workspace.ID
-	}
-
-	if err := tx.Create(&defaultStatuses).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	return tx.Commit().Error
+		for i := range defaultStatuses {
+			defaultStatuses[i].WorkspaceID = workspace.ID
+		}
+		return tx.Create(&defaultStatuses).Error
+	})
 }
 
 func (r *workspaceRepository) GetAllWorkspaceByUser(userID string) ([]models.Workspace, error) {

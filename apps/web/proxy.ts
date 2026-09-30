@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { decrypt } from "@/app/utils/session";
 
 const protectedPrefixes = [
+  "/chat",
   "/calendar",
   "/today",
   "/inbox",

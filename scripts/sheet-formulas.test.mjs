@@ -1,0 +1,121 @@
+import assert from "node:assert/strict";
+import test, { describe } from "node:test";
+import * as webFormula from "../apps/web/app/utils/sheetFormula.ts";
+import * as mobileFormula from "../apps/mobile/lib/sheetFormula.ts";
+import * as webInput from "../apps/web/app/utils/sheetFormulaInput.ts";
+import * as mobileInput from "../apps/mobile/lib/sheetFormulaInput.ts";
+
+for (const [platform, formula, input] of [
+  ["web", webFormula, webInput],
+  ["mobile", mobileFormula, mobileInput],
+]) {
+  describe(platform, () => {
+    const { createSheetEvaluator, shiftFormula } = formula;
+    const { findFormulaRefAt } = input;
+    const columns = Array.from({ length: 14 }, (_, i) => ({
+      id: `c${i}`,
+      name: `Column ${i}`,
+      type: "number",
+      width: 100,
+    }));
+    function evaluate(formula, values = ["10", "20", "30"], extraColumns = []) {
+      const rows = values.map((value, i) => ({
+        id: `r${i}`,
+        cells: { c13: value },
+      }));
+      rows[0].cells.c0 = formula;
+      return createSheetEvaluator([...columns, ...extraColumns], rows).valueAt(
+        0,
+        0,
+      );
+    }
+
+    for (const [formula, value] of [
+      ["=SUM(N:N)", 60],
+      ["=SUM(N2:N)", 50],
+      ["=SUM(N1:N)", 60],
+      ["=SUM(N2:N3)", 50],
+      ["=SUM(N3:N2)", 50],
+      ["=SUM(2:2)", 20],
+      ["=SUM(2:3)", 50],
+      ["=SUM(B2:2)", 20],
+      ["=SUM(M:N)", 60],
+      ["=AVERAGE(N:N)", 20],
+      ["=COUNT(N:N)", 3],
+      ["=SUM(N99:N)", 0],
+      ["=SUM(N2:N999999999)", 50],
+      ["=SUM(N:N)+SUM(2:2)", 80],
+      ["=10+SUM(N2:N)", 60],
+      ["=SUM(N1:N2, N3:N)", 60],
+    ]) {
+      test(formula, () =>
+        assert.deepEqual(evaluate(formula), { type: "number", value }),
+      );
+    }
+    test("new rows automatically enter open ranges", () => {
+      assert.deepEqual(evaluate("=SUM(N2:N)", ["10", "20", "30", "40"]), {
+        type: "number",
+        value: 90,
+      });
+    });
+    test("new columns automatically enter whole rows", () => {
+      const rows = [
+        { id: "r1", cells: { c0: "=SUM(2:2)" } },
+        { id: "r2", cells: { c13: "20", extra: "7" } },
+      ];
+      assert.deepEqual(createSheetEvaluator(columns, rows).valueAt(0, 0), {
+        type: "number",
+        value: 20,
+      });
+      assert.deepEqual(
+        createSheetEvaluator(
+          [
+            ...columns,
+            { id: "extra", name: "Extra", type: "number", width: 100 },
+          ],
+          rows,
+        ).valueAt(0, 0),
+        { type: "number", value: 27 },
+      );
+    });
+    test("blanks and text do not affect sums", () =>
+      assert.deepEqual(evaluate("=SUM(N:N)", ["Header", "", "30"]), {
+        type: "number",
+        value: 30,
+      }));
+    for (const formula of ["=SUM(A:A)", "=SUM(1:1)", "=SUM(A1:A)"]) {
+      test(`cycle ${formula}`, () =>
+        assert.deepEqual(evaluate(formula), {
+          type: "error",
+          message: "#CYCLE!",
+        }));
+    }
+    for (const formula of ["=SUM(N0:N)", "=SUM(0:2)"]) {
+      test(`invalid ${formula}`, () =>
+        assert.deepEqual(evaluate(formula), {
+          type: "error",
+          message: "#REF!",
+        }));
+    }
+    for (const formula of ["=SUM(2:N)", "=SUM(N:2)", "=SUM(N:)"]) {
+      test(`malformed ${formula}`, () =>
+        assert.equal(evaluate(formula).type, "error"));
+    }
+    test("fill shifts complete ranges, preserving strings", () => {
+      assert.equal(
+        shiftFormula('=SUM(N2:N,N:N,2:2)+B5+LEN("N2:N")', 1, 1),
+        '=SUM(O3:O,O:O,3:3)+C6+LEN("N2:N")',
+      );
+    });
+    for (const reference of ["N:N", "N2:N", "2:2", "B2:2", "N2:N21"]) {
+      test(`editing recognizes ${reference}`, () => {
+        const formula = `=SUM(${reference})`;
+        assert.deepEqual(findFormulaRefAt(formula, 5 + reference.length), {
+          start: 5,
+          end: 5 + reference.length,
+        });
+        assert.equal(findFormulaRefAt(`=LEN("${reference}")`, 7), null);
+      });
+    }
+  });
+}

@@ -1,5 +1,7 @@
 import {
   app,
+  ipcMain,
+  Notification,
   BrowserWindow,
   Menu,
   dialog,
@@ -15,6 +17,25 @@ const WAIT_TIMEOUT_MS = 120_000;
 
 let mainWindow: BrowserWindow | null = null;
 let nextProcess: ChildProcess | null = null;
+const deliveredChats = new Set<string>();
+ipcMain.on("chat:notify", (event, payload: unknown) => {
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || event.sender !== win.webContents || win.isFocused() || !Notification.isSupported()) return;
+  if (!payload || typeof payload !== "object") return;
+  const data = payload as Record<string, unknown>;
+  if (typeof data.id !== "string" || !/^chat_[a-zA-Z0-9-]+$/.test(data.id) || typeof data.title !== "string" || typeof data.body !== "string" || typeof data.revision !== "number") return;
+  const key = `${data.id}:${data.revision}`;
+  if (deliveredChats.has(key)) return;
+  deliveredChats.add(key);
+  if (deliveredChats.size > 1000) deliveredChats.delete(deliveredChats.values().next().value!);
+  const notification = new Notification({ title: data.title.slice(0, 100), body: data.body.slice(0, 200) });
+  notification.on("click", () => {
+    if (win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show(); win.focus(); win.webContents.send("chat:open", data.id);
+  });
+  notification.show();
+});
 
 function isDev() {
   return process.env.ELECTRON_DEV === "1" || !app.isPackaged;
@@ -189,6 +210,7 @@ async function createWindow(rendererUrl: string) {
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
+      backgroundThrottling: false,
       nodeIntegration: false,
       sandbox: true,
     },

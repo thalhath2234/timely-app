@@ -32,6 +32,7 @@ function targetFor(item: AppNotification): NotificationTarget {
 
   const entityId = item.entityId;
   if (entityId) {
+    if (item.entityType === "chat") return { kind: "route", href: `/chat?id=${encodeURIComponent(entityId)}` };
     if (item.entityType === "project") return { kind: "route", href: `/projects/${entityId}` };
     if (item.entityType === "doc") return { kind: "route", href: `/docs/${entityId}` };
     if (item.entityType === "sheet") return { kind: "route", href: `/sheets/${entityId}` };
