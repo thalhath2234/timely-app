@@ -1,0 +1,58 @@
+[
+  {
+    "path": "/projects",
+    "overflow": false,
+    "text": "Skip to content\n\nProjects\n\nCreate a project, break it into stages, and work the tasks without leaving this area.\n\nNew project\n\nNo projects yet\n\nCreate a project to group tasks, stages, and deadlines.\n\nNew project",
+    "unlabeled": 0,
+    "url": "http://127.0.0.1:4002/projects"
+  },
+  {
+    "path": "/report",
+    "overflow": false,
+    "text": "Skip to content\n\nReport\n\nA snapshot of open work, deadlines, and the links between your docs, sheets, tasks, and projects.\n\nCompletion\n\n33%\n\n1 done · 2 open\n\nOPEN TASKS\n\n2\n\n1 completed\n\nOVERDUE\n\n0\n\nAll clear\n\nPROJECTS\n\n0\n\n0 with open work\n\nDOCS & SHEETS\n\n2\n\n1 docs · 1 sheets\n\nOverdue\n\nNothing past due\n\nNo overdue tasks. Keep it that way.\n\nOpen by priority\n\n2 tasks\n\nMedium\n2\nDue or planned in the next 14 days\n\n2 upcoming · deadlines and next scheduled blocks\n\nQA native new work\nNo project · Medium · next block\nOct 1(today)\nQA Captured Thought\nNo project · Medium · next block\nOct 1(today)\nProjects with open work\n\nNo open project tasks\n\nOpen tasks aren't attached to projects yet.\n\nBY WORKSPACE\nQA Audit Workspace\n2\nMentions\n\nNo @mentions yet\n\nType @ in a doc, sheet, task, or project description to link things together.\n\nRecently updated\n\nAcross tasks, projects, docs and sheets\n\nQA Web Work Editeda Mobile\nTask\nOct 1\nQA Captured Thought\nTask\nOct 1\nQA native new work\nTask\nOct 1\nQA Web Doc\nDoc · QA Audit Workspace\nOct 1\nQA Web Sheet\nSheet · QA Audit Workspace\nOct 1",
+    "unlabeled": 0,
+    "url": "http://127.0.0.1:4002/report"
+  },
+  {
+    "path": "/notifications",
+    "overflow": false,
+    "text": "Skip to content\n\nNotifications\n\nReminders, morning planning, and evening recap. Snooze updates the reminder itself.\n\nMark all read\nClear all\n\nNothing yet\n\nDue reminders and daily digests will show up here, including when the app is closed.",
+    "unlabeled": 0,
+    "url": "http://127.0.0.1:4002/notifications"
+  },
+  {
+    "path": "/chat",
+    "overflow": false,
+    "text": "Skip to content\n\nChats\nYour conversations will live here.\nChat from any screen with Ctrl / ⌘ + Shift + J\nNew conversation\n\nTimely assistant\n\nTimely assistant\nWhat would you like\nto make happen?\n\nTurn an idea into a project, shape a sheet, or plan your week. Small changes happen right away; bigger ones wait for your approval.\n\nStart a project\nCreate a project for a PDF tool and a document with an initial plan.\nBuild a budget\nCreate a project budget sheet with Item, Quantity, Unit price, and Total columns.\nMake room to learn\nCreate a workspace for learning Japanese and add three study sessions.\nSave a receipt\nAttach a receipt photo and I’ll add it to your expense sheet.\nWeb search\nEnter to send · Shift+Enter for a new line\n\nSimple changes happen directly. Larger changes are yours to review.",
+    "unlabeled": 0,
+    "url": "http://127.0.0.1:4002/chat"
+  },
+  {
+    "path": "/settings",
+    "overflow": false,
+    "text": "Skip to content\n\nSettings\n\nManage your account and per-workspace configuration.\n\nAccount\nYour profile and login details\nAppearance\nTheme, colors, and sidebar\nSchedule\nWorking hours, freeze, and engine controls\nNotifications\nReminders, digests, quiet hours, and jobs\nWorkspaces\nStatuses, labels, and custom fields\nData & privacy\nExport, backups, and restore\nIntegrations\nAPI keys for Hermes and MCP\nAccount\n\nUpdate your display name, email, and password.\n\nName\nEmail\nChange password\n\nLeave blank to keep your current password.\n\nCurrent password\nNew password\nSave account\nDevices\n\nSign out a device if you no longer use it.\n\n1 other session still signed in.\n\nSign out everywhere else\n\nTimely mobile app\n\nLast used 21 minutes ago · signed in 21 minutes ago\n\nTechnical details\nLog out\n\nChrome on Linux\nTHIS DEVICE\n\nLast used 25 minutes ago · signed in 26 minutes ago\n\nTechnical details\nLog out",
+    "unlabeled": 0,
+    "url": "http://127.0.0.1:4002/settings"
+  },
+  {
+    "path": "/docs",
+    "overflow": false,
+    "text": "Skip to content\n\nDocs\nImport Markdown\nShow archived\nQA Web Doc\nDocs\n\nWrite notes, specs and meeting minutes. Type / inside a page for blocks, or use markdown shortcuts like ## and -.\n\nImport .md\nNew doc\nQA Web Doc\n\nQA web document persistence Mobile\n\nOct 1, 4:15 AM",
+    "unlabeled": 0,
+    "url": "http://127.0.0.1:4002/docs"
+  },
+  {
+    "path": "/sheets",
+    "overflow": false,
+    "text": "Skip to content\n\nSHEETS WORKSPACE\n/\nRECENT SHEETS\nShow archived\nQA Web Sheet\n20 rows · 4 cols · 4:15 AM\nFormula Syntax\n\n=SUM(A1:A10)\n=B2*1.1\n=IF(C1>10, \"high\", \"low\")\n\nSheets\n\nTrack numbers in a grid. Cells support formulas such as =SUM(A1:A10), =B2*1.1 and =IF(C1>10,\"high\",\"low\").\n\nImport CSV\nNew sheet\nQA Web Sheet\n\n20 rows · 4 columns\n\n4:15 AM",
+    "unlabeled": 0,
+    "url": "http://127.0.0.1:4002/sheets"
+  },
+  {
+    "path": "/tasks",
+    "overflow": false,
+    "text": "Skip to content\n\nProjects & Tasks\n3 Tasks · 0 Projects\nHide options\nNew task\nC\nTask List\nMy Deadlines\nOverview\nProject Timelines\nGroup by:\nWorkspace > Project > Stage\nSort Groups\nList\nKanban\nGantt\nSort\nDeadline\nAsc\nStatus:\nAll\nWorkspace:\nAll\nTASKS: 3\nOverdue\nShow completed\nScheduled\nRecurring\nDated only\nAll projects\nAll priorities\n\tTASK\tDESCRIPTION\tDURATION\tSTART DATE\tDEADLINE\tSCHEDULED ON\tCOMPLETED AT\tCREATED AT\tUPDATED AT\tPROJECT\tWORKSPACE\tBLOCKED BY\tPRIORITY\tSTAGE\tSTATUS\tLABELS\n\nQA Audit Workspace\n(3)\n\n\nNo project\n(3)\n\n\nNo stage\n(3)\n\n\t\nQA Web Work Editeda Mobile\n\tQA native description\t30m\t-\t-\t10/1/2026, 9:00 AM\t10/1/2026, 4:09 AM\t10/1/2026\t10/1/2026\t-\t\nQA Audit Workspace\n\t-\t\nMedium\n\t-\t\nCompleted\n\t\n-\n\n\t\nQA Captured Thought\n\t-\t30m\t-\t-\t10/1/2026, 9:35 AM\t-\t10/1/2026\t10/1/2026\t-\t\nQA Audit Workspace\n\t-\t\nMedium\n\t-\t\nTodo\n\t\n-\n\n\t\nQA native new work\n\t-\t30m\t-\t-\t10/1/2026, 9:00 AM\t-\t10/1/2026\t10/1/2026\t-\t\nQA Audit Workspace\n\t-\t\nMedium\n\t-\t\nTodo\n\t\n-\nAll local changes synced\n·\nShowing 3 tasks\n⌘K\nQuick search\n·\nC\nNew task",
+    "unlabeled": 0,
+    "url": "http://127.0.0.1:4002/tasks"
+  }
+]

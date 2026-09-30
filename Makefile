@@ -278,3 +278,32 @@ audit-mobile-receipt: ## Preview the mobile receipt flow on :4002 with fixture A
 
 audit-mobile-assistant: ## Check the mobile assistant screens in Chromium with fixture APIs (web on :4002; AUDIT_CHECK=0 to only serve)
 	@AUDIT_CHECK=$${AUDIT_CHECK-1} node scripts/audit-mobile-assistant.mjs
+
+.PHONY: audit-qa-api audit-dependencies check-mobile-deps
+audit-qa-api: ## Run the 2026-10-01 live API audit against localhost:8081 (creates QA accounts)
+	@node docs/qa/2026-10-01/api-audit.mjs
+
+audit-dependencies: ## Audit production JavaScript dependencies
+	@pnpm audit --prod --json
+
+check-mobile-deps: ## Check installed mobile packages against the Expo SDK
+	@pnpm --filter @timely/mobile exec expo install --check
+
+.PHONY: test-portability-integration audit-api-dependencies
+test-portability-integration: ## Test PostgreSQL backup restore inside a rolled-back transaction
+	@cd $(API) && TIMELY_TEST_POSTGRES=1 go test ./internal/features/portability -run RestorePostgres -count=1
+
+audit-api-dependencies: ## Check reachable Go dependency vulnerabilities
+	@cd $(API) && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+.PHONY: audit-mobile-offline format-qa check-qa
+audit-mobile-offline: ## Reproduce the mobile offline mutation pause at the framework seam
+	@node docs/qa/2026-10-01/offline-mutation-probe.mjs
+
+format-qa: ## Format the 2026-10-01 QA scripts and evidence
+	@pnpm exec prettier --write 'docs/qa/2026-10-01/**/*.{mjs,json,md}'
+
+check-qa: ## Check QA script syntax and artifact formatting
+	@node --check docs/qa/2026-10-01/api-audit.mjs
+	@node --check docs/qa/2026-10-01/offline-mutation-probe.mjs
+	@pnpm exec prettier --check 'docs/qa/2026-10-01/**/*.{mjs,json,md}'

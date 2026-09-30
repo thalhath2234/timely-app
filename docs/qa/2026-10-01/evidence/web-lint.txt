@@ -1,0 +1,231 @@
+Scope: all 4 workspace projects
+✓ Lockfile passes supply-chain policies (verified 14h ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +1114
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 1114, reused 1043, downloaded 0, added 0
+Progress: resolved 1114, reused 1112, downloaded 1, added 954
+Progress: resolved 1114, reused 1112, downloaded 1, added 1114, done
+.../sharp@0.34.5/node_modules/sharp install$ node install/check.js || npm run build
+.../sharp@0.34.5/node_modules/sharp install: > sharp@0.34.5 build
+.../sharp@0.34.5/node_modules/sharp install: > node install/build.js
+.../sharp@0.34.5/node_modules/sharp install: sharp: Attempting to build from source via node-gyp
+.../sharp@0.34.5/node_modules/sharp install: sharp: See https://sharp.pixelplumbing.com/install#building-from-source
+.../sharp@0.34.5/node_modules/sharp install: sharp: Please add node-addon-api to your dependencies
+.../sharp@0.34.5/node_modules/sharp install: Failed
+
+Done in 4.3s using pnpm v11.15.1
+$ eslint
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_layout/appShell.tsx
+  22:5   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_layout/appShell.tsx:22:5
+  20 |
+  21 |   useEffect(() => {
+> 22 |     setReady(true);
+     |     ^^^^^^^^ Avoid calling setState() directly within an effect
+  23 |   }, []);
+  24 |
+  25 |   useEffect(() => {                                                                                              react-hooks/set-state-in-effect
+  26:27  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_layout/appShell.tsx:26:27
+  24 |
+  25 |   useEffect(() => {
+> 26 |     if (!sidebarAutoHide) setRevealed(false);
+     |                           ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  27 |   }, [sidebarAutoHide]);
+  28 |
+  29 |   const autoHide = ready && sidebarAutoHide;  react-hooks/set-state-in-effect
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_layout/clientRuntime.tsx
+  69:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_layout/clientRuntime.tsx:69:5
+  67 |     const nextTheme = readStoredTheme();
+  68 |     const nextAccent = readStoredAccent();
+> 69 |     setThemeState(nextTheme);
+     |     ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  70 |     setAccentState(nextAccent);
+  71 |     setSidebarAutoHideState(readStoredSidebarAutoHide());
+  72 |     applyDocumentAppearance(nextTheme, nextAccent);  react-hooks/set-state-in-effect
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_ui/colorPicker.tsx
+  135:6  warning  React Hook useEffect has a missing dependency: 'setOpen'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_ui/datePicker.tsx
+  352:6  warning  React Hook useEffect has a missing dependency: 'setOpen'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_ui/modal/addItem.tsx
+  304:31  warning  Compilation Skipped: Use of incompatible library
+
+This API returns functions which cannot be memoized without leading to stale UI. To prevent this, by default React Compiler will skip memoizing this component/hook. However, you may see issues if values from this API are passed to other components/hooks that are memoized.
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_ui/modal/addItem.tsx:304:31
+  302 |   });
+  303 |
+> 304 |   const selectedWorkspaceId = watch("workspaceId");
+      |                               ^^^^^ React Hook Form's `useForm()` API returns a `watch()` function which cannot be memoized safely.
+  305 |   const workspaceColor = watchWorkspace("color") ?? "#6E56CF";
+  306 |   const projectStatusId = watch("statusId") ?? "";
+  307 |   const projectPriorityLevel = watch("priorityLevel") ?? "Low";  react-hooks/incompatible-library
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_ui/motion.tsx
+  95:19  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_ui/motion.tsx:95:19
+  93 | export function useClientGate() {
+  94 |   const [ready, setReady] = useState(false);
+> 95 |   useEffect(() => setReady(true), []);
+     |                   ^^^^^^^^ Avoid calling setState() directly within an effect
+  96 |   return ready;
+  97 | }
+  98 |  react-hooks/set-state-in-effect
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_ui/select.tsx
+  148:6  warning  React Hook useEffect has a missing dependency: 'setOpen'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_ui/tasks/taskScheduleSection.tsx
+  101:5   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/_ui/tasks/taskScheduleSection.tsx:101:5
+   99 |
+  100 |   useEffect(() => {
+> 101 |     setPreferStart(preferredWindows?.[0]?.start ?? "");
+      |     ^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  102 |     setPreferEnd(preferredWindows?.[0]?.end ?? "");
+  103 |   }, [preferredWindows?.[0]?.start, preferredWindows?.[0]?.end]);
+  104 |  react-hooks/set-state-in-effect
+  103:6   warning  React Hook useEffect has a missing dependency: 'preferredWindows'. Either include it or remove the dependency array. If 'setPreferStart' needs the current value of 'preferredWindows', you can also switch to useReducer instead of useState and read 'preferredWindows' in the reducer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react-hooks/exhaustive-deps
+  103:7   warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react-hooks/exhaustive-deps
+  103:37  warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     react-hooks/exhaustive-deps
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/calendarView/timeGrid.tsx
+  120:3   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/calendarView/timeGrid.tsx:120:3
+  118 |   const stopListeningRef = useRef<(() => void) | null>(null);
+  119 |   const onMoveBlockRef = useRef(onMoveBlock);
+> 120 |   onMoveBlockRef.current = onMoveBlock;
+      |   ^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  121 |   const [now, setNow] = useState(() => new Date());
+  122 |   const [preview, setPreview] = useState<DragPreview | null>(null);
+  123 |  react-hooks/refs
+  205:3   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/calendarView/timeGrid.tsx:205:3
+  203 |   };
+  204 |   const liveIntervalRef = useRef(liveInterval);
+> 205 |   liveIntervalRef.current = liveInterval;
+      |   ^^^^^^^^^^^^^^^^^^^^^^^ Cannot update ref during render
+  206 |
+  207 |   const startDrag = (
+  208 |     event: CalendarEvent,                                                                                                                              react-hooks/refs
+  247:5   error  Error: This value cannot be modified
+
+Modifying a variable defined outside a component or hook is not allowed. Consider using an effect.
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/calendarView/timeGrid.tsx:247:5
+  245 |     const previousCursor = document.body.style.cursor;
+  246 |     const previousSelect = document.body.style.userSelect;
+> 247 |     document.body.style.userSelect = "none";
+      |     ^^^^^^^^^^^^^^^^^^^ value cannot be modified
+  248 |
+  249 |     const onMove = (nextPointer: PointerEvent) => {
+  250 |       const session = dragRef.current;                                                                                                                                                                                                                                       react-hooks/immutability
+  321:16  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/calendarView/timeGrid.tsx:321:16
+  319 |   const nowHour = now.getHours() + now.getMinutes() / 60;
+  320 |   const guidelineHour =
+> 321 |     preview && dragRef.current
+      |                ^^^^^^^^^^^^^^^ Cannot access ref value during render
+  322 |       ? dragRef.current.mode === "resize-end"
+  323 |         ? preview.endHour
+  324 |         : preview.startHour                                            react-hooks/refs
+  322:9   error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/calendarView/timeGrid.tsx:322:9
+  320 |   const guidelineHour =
+  321 |     preview && dragRef.current
+> 322 |       ? dragRef.current.mode === "resize-end"
+      |         ^^^^^^^^^^^^^^^^^^^^ Cannot access ref value during render
+  323 |         ? preview.endHour
+  324 |         : preview.startHour
+  325 |       : null;                                                                                           react-hooks/refs
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/calendarView/waitingForSlotRail.tsx
+  5:15  warning  'Task' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/editor/richTextEditor.tsx
+  263:32  error  Error: Cannot access refs during render
+
+React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef).
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/editor/richTextEditor.tsx:263:32
+  261 |     if (enableSlashCommands) {
+  262 |       list.push(
+> 263 |         SlashCommand.configure({
+      |                                ^
+> 264 |           suggestion: {
+      | ^^^^^^^^^^^^^^^^^^^^^^^
+> 265 |             char: "/",
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^^^
+> 281 |           },
+      | ^^^^^^^^^^^^^^^^^^^^^^^
+> 282 |         }),
+      | ^^^^^^^^^^ Passing a ref to a function may read its value during render
+  283 |       );
+  284 |     }
+  285 |  react-hooks/refs
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web/app/_components/sheets/sheetGrid.tsx
+  977:6  warning  React Hook useEffect has a missing dependency: 'commitEdit'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+✖ 20 problems (11 errors, 9 warnings)
+
+/home/thalhath/.t3/worktrees/timely-app/t3code-cfe7b1a3/apps/web:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @timely/web@0.1.0 lint: `eslint`
+Exit status 1
+make: *** [Makefile:183: lint-web] Error 1

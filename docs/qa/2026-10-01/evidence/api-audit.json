@@ -1,0 +1,81 @@
+{
+  "run": "8dc8410e-2e69-4a1e-9c57-eadc35bdb15a",
+  "base": "http://127.0.0.1:8081",
+  "results": [
+    {
+      "name": "Anonymous reads are rejected",
+      "pass": true
+    },
+    {
+      "name": "Wrong password is rejected",
+      "pass": true
+    },
+    {
+      "name": "Workspace creation and onboarding",
+      "pass": true
+    },
+    {
+      "name": "Project CRUD",
+      "pass": true
+    },
+    {
+      "name": "Work creation, editing and checklist persistence",
+      "pass": true
+    },
+    {
+      "name": "Capture and clarify consume the original inbox item",
+      "pass": true
+    },
+    {
+      "name": "Document rich content survives reload",
+      "pass": true
+    },
+    {
+      "name": "Sheet data and formulas survive reload",
+      "pass": true
+    },
+    {
+      "name": "Timed event creation and calendar inclusion",
+      "pass": true
+    },
+    {
+      "name": "Auto-schedule preview, apply and undo",
+      "pass": true
+    },
+    {
+      "name": "Cross-account object reads and writes are denied",
+      "pass": true
+    },
+    {
+      "name": "Foreign workspace cannot be used to create Work",
+      "pass": true
+    },
+    {
+      "name": "Keyword search returns the saved Work",
+      "pass": true
+    },
+    {
+      "name": "Data exports contain only the current account",
+      "pass": true
+    },
+    {
+      "name": "Invalid-signature JWT cannot revoke a session",
+      "pass": false,
+      "error": "Invalid JWT revoked the targeted session (expected 200, got 401)\n\n401 !== 200\n"
+    },
+    {
+      "name": "Refresh token rotation rejects replay",
+      "pass": true
+    },
+    {
+      "name": "Valid logout revokes its access token",
+      "pass": true
+    },
+    {
+      "name": "QA fixture deletion",
+      "pass": true
+    }
+  ],
+  "passed": 17,
+  "failed": 1
+}

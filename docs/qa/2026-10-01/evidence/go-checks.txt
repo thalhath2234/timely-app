@@ -1,0 +1,29 @@
+ok  	timely-api/cmd	0.006s
+?   	timely-api/internal/blocks	[no test files]
+?   	timely-api/internal/database	[no test files]
+ok  	timely-api/internal/features/agent	0.005s
+ok  	timely-api/internal/features/apikey	0.004s
+ok  	timely-api/internal/features/auth	0.547s
+?   	timely-api/internal/features/calendar	[no test files]
+ok  	timely-api/internal/features/chat	0.860s
+?   	timely-api/internal/features/doc	[no test files]
+ok  	timely-api/internal/features/embed	0.009s
+?   	timely-api/internal/features/event	[no test files]
+ok  	timely-api/internal/features/notify	0.008s
+ok  	timely-api/internal/features/placement	0.009s
+ok  	timely-api/internal/features/portability	0.010s
+ok  	timely-api/internal/features/project	0.010s
+ok  	timely-api/internal/features/schedule	0.015s
+?   	timely-api/internal/features/search	[no test files]
+?   	timely-api/internal/features/sheet	[no test files]
+ok  	timely-api/internal/features/task	0.014s
+?   	timely-api/internal/features/workspace	[no test files]
+ok  	timely-api/internal/jobs	0.015s
+?   	timely-api/internal/middleware	[no test files]
+ok  	timely-api/internal/models	0.010s
+ok  	timely-api/internal/realtime	0.039s
+ok  	timely-api/internal/recurrence	0.011s
+ok  	timely-api/internal/richtext	0.005s
+?   	timely-api/internal/routes	[no test files]
+ok  	timely-api/internal/utils	0.003s
+?   	timely-api/scripts	[no test files]
