@@ -388,3 +388,59 @@ discard, rename and delete), `make typecheck-mobile`, `make test-mobile-assistan
 and the new `make audit-mobile-assistant`, which renders the production mobile
 assistant in react-native-web with fixture APIs and drives history, rename,
 delete, proposal review, discard, failed-step retry and Stop in Chromium.
+
+## Agent providers (2026-10-01)
+
+Design confirmed after an interview; see ADR 0009 and the `Agent provider` and
+`Connect` terms in `CONTEXT.md`.
+
+- Settings → Agent (web and mobile) shows three provider cards: OpenRouter,
+  Claude Code and Codex. Several can be set up at once; one is the default for
+  new runs. Each card keeps its own model. A run records the provider and model
+  it was claimed with and finishes on them; the chat header shows that label.
+- Claude Code and Codex are found and run on the API host for the OS user that
+  runs the API (`apps/api/internal/features/provider/`). Connect scans `PATH`
+  and common install directories, reads `claude auth status --json` /
+  `codex login status`, runs a one-word test call and records the result. The
+  UI never supplies a path; `CLAUDE_BIN` / `CODEX_BIN` cover unusual locations
+  and `CHAT_LOCAL_CLI=off` hides both cards. Status is cached for a minute.
+- Each CLI is a `chat.Completer`. Claude runs `claude -p` with `--tools ""`,
+  `--strict-mcp-config`, `--setting-sources ""`, no session persistence and
+  stream-json input (images travel as base64 content blocks). Codex runs
+  `codex exec --ephemeral -s read-only` in an empty scratch directory with the
+  shell and image tools disabled and `web_search` off unless the conversation
+  enabled search, in which case only the CLI's native web search is allowed.
+  Tool-calling turns use a strict JSON response schema (`content`, `toolCalls`
+  with JSON-encoded `arguments`); tool-less turns (image extraction, receipt
+  edits, search answers) return the model's raw text. Each turn resends the
+  transcript; no CLI session is reused.
+- Models: Claude offers the `fable`, `opus`, `sonnet` and `haiku` aliases plus a
+  typed full name; Codex lists the account's models from the app server's
+  `model/list` (falling back to `~/.codex/models_cache.json`) and preselects the
+  model in `~/.codex/config.toml`; OpenRouter lists tool-calling models from its
+  catalogue with a vision badge. Saving a chat model runs a test call.
+- OpenRouter keys are per account, AES-256-GCM encrypted under
+  `TIMELY_BACKUP_KEY` (falling back to `JWT_SECRET`), shown only as a hint, and
+  validated with a test call before saving. The server `OPENROUTER_API_KEY`
+  remains the fallback. The account key also drives semantic-search embeddings
+  (`embed.Credentials`); the embedding model is pickable and probed for the
+  1536-dimension index width before saving. A key or embedding-model change
+  queues a `reindex_user` job whose progress the Agent tab shows.
+- Failures never fall back to another provider: the run fails with a message
+  naming the fix (missing binary, signed out, usage limit, unusable model, no
+  key), consistent with the existing no-fallback image route.
+- `DB_SCHEMA` (optional API env) runs an instance in its own PostgreSQL schema,
+  including goose's version table and job/chat workers, so a worktree API on
+  8081 never claims runs that belong to the main checkout on 8080.
+
+Checks: `make test-api`, `make lint-api`, `make test-chat-integration` (now
+includes the provider package, which applies the real settings migration),
+`make typecheck-web`, `make lint-chat`, `make build-web`, `make audit-chat`,
+`make typecheck-mobile`, `make test-mobile-assistant`. Live checks on
+2026-10-01 in an isolated schema with a throwaway account: Connect for both
+CLIs, a Claude read-only chat, a Claude two-step proposal applied after
+approval, a Codex read-only chat, image chats through Codex and Claude, a web
+search chat through Claude with source links, an OpenRouter chat with an
+account key, key rejection on a bad key, a 768-dimension embedding model
+rejected, a 1536-dimension model accepted with the re-index completing, and a
+run failing clearly with `CLAUDE_BIN` pointed at a missing file.

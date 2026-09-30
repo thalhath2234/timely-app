@@ -64,7 +64,7 @@ func (s *service) SemanticSearch(ctx context.Context, userID, query string, limi
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
-	if s.indexer == nil || !s.indexer.Enabled() {
+	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
 		return nil, embed.ErrDisabled
 	}
 	query = strings.TrimSpace(query)
@@ -111,7 +111,7 @@ func (s *service) Reindex(ctx context.Context, userID string) (int, error) {
 	if userID == "" {
 		return 0, errors.New("user not authenticated")
 	}
-	if s.indexer == nil || !s.indexer.Enabled() {
+	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
 		return 0, embed.ErrDisabled
 	}
 	return s.indexer.ReindexUser(ctx, userID)

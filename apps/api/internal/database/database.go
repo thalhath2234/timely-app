@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/pressly/goose/v3"
 	"gorm.io/driver/postgres"
@@ -32,10 +33,25 @@ func InitDB() *gorm.DB {
 
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
 		host, user, password, dbname, port, sslmode)
+	// DB_SCHEMA runs this instance (tables, migrations, workers) in its own
+	// schema of a shared database, so a worktree API never claims jobs or chat
+	// runs that belong to the main checkout.
+	schema := strings.TrimSpace(os.Getenv("DB_SCHEMA"))
+	if schema != "" {
+		dsn += " search_path=" + schema + ",public" // public keeps extensions such as pgvector reachable
+	}
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	if schema != "" {
+		if err := db.Exec("CREATE SCHEMA IF NOT EXISTS " + schema).Error; err != nil {
+			log.Fatalf("Failed to create schema %s: %v", schema, err)
+		}
+		// Keep goose's version table inside the schema; otherwise the shared
+		// public one is found first and no tables are created here.
+		goose.SetTableName(schema + ".goose_db_version")
 	}
 
 	log.Println("Database connection established")

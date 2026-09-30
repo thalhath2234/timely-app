@@ -75,6 +75,14 @@ _Avoid_: current screen (when referring to previously attached context)
 An attempt to carry out a request in a conversation, with progress and results retained in its history. It can continue while the person leaves the chat; stopping prevents further steps but preserves completed changes.
 _Avoid_: task (Work is a separate concept)
 
+**Agent provider**:
+The model source an account's Agent runs use: OpenRouter with the account's own key, or the Claude Code or Codex CLI installed and signed in on the API host. Each account has one default provider and a model per provider; a run keeps the provider it started with.
+_Avoid_: backend, engine (Auto-schedule is the engine), LLM (in copy)
+
+**Connect**:
+Verifying a CLI Agent provider on the API host: the binary is found, its sign-in is valid, and one test call succeeds. Connect never takes a path from the person and never signs in for them.
+_Avoid_: install, log in (those happen in a terminal on the host)
+
 ### Work status and order
 
 **Rank**:

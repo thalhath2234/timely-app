@@ -30,6 +30,18 @@ import { createEvent, deleteEvent, editEventOccurrence, getEvent, splitEventSeri
 import { searchItems } from "./api/search";
 import { listApiKeys, createApiKey, revokeApiKey } from "./api/apiKeys";
 import {
+  connectProvider,
+  disconnectProvider,
+  getAgentProviders,
+  listProviderModels,
+  patchAgentProviders,
+  removeOpenRouterKey,
+  setOpenRouterKey,
+  type AgentProviders,
+  type ProviderId,
+  type ProviderPatch,
+} from "./api/agentProviders";
+import {
   getJobHealth,
   getNotificationSettings,
   listFailedJobs,
@@ -77,6 +89,7 @@ export const keys = {
   search: (q: string) => ["search", q] as const,
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
+  agentProviders: ["agent-providers"] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
   today: ["today"] as const,
@@ -313,6 +326,45 @@ export function useSearchQuery(query: string) {
 export function useApiKeysQuery() {
   return useQuery({ queryKey: keys.apiKeys, queryFn: listApiKeys });
 }
+
+export function useAgentProvidersQuery() {
+  return useQuery({
+    queryKey: keys.agentProviders,
+    queryFn: getAgentProviders,
+    // Poll while the semantic-search rebuild runs so the count moves.
+    refetchInterval: (query) => {
+      const status = query.state.data?.reindex?.status;
+      return status === "queued" || status === "running" ? 2000 : false;
+    },
+  });
+}
+
+export function useProviderModelsQuery(id: ProviderId, kind?: "embed", enabled = true) {
+  return useQuery({
+    queryKey: [...keys.agentProviders, "models", id, kind ?? "chat"] as const,
+    queryFn: () => listProviderModels(id, kind),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+function useAgentProviderMutation<TVars>(fn: (vars: TVars) => Promise<AgentProviders>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (data) => client.setQueryData(keys.agentProviders, data),
+    onSettled: () => client.invalidateQueries({ queryKey: keys.agentProviders, exact: true }),
+  });
+}
+
+export const usePatchAgentProviders = () =>
+  useAgentProviderMutation((patch: ProviderPatch) => patchAgentProviders(patch));
+export const useConnectProvider = () =>
+  useAgentProviderMutation((id: "claude" | "codex") => connectProvider(id));
+export const useDisconnectProvider = () =>
+  useAgentProviderMutation((id: "claude" | "codex") => disconnectProvider(id));
+export const useSetOpenRouterKey = () => useAgentProviderMutation((key: string) => setOpenRouterKey(key));
+export const useRemoveOpenRouterKey = () => useAgentProviderMutation<void>(() => removeOpenRouterKey());
 
 export function useInvalidateAll() {
   const client = useQueryClient();

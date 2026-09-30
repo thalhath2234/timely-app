@@ -7,13 +7,14 @@ import WorkspaceSettings from "@/app/_components/settings/workspaceSettings";
 import WorkingHoursSettings from "@/app/_components/settings/workingHoursSettings";
 import NotificationSettings from "@/app/_components/settings/notificationSettings";
 import ApiKeysSettings from "@/app/_components/settings/apiKeysSettings";
+import AgentSettings from "@/app/_components/settings/agentSettings";
 import DataSettings from "@/app/_components/settings/dataSettings";
 import AppearanceSettings from "@/app/_components/settings/appearanceSettings";
 import { cn } from "@/app/utils/cn";
 import { AnimatePresence, motion } from "motion/react";
 import { fadeTransition, springSoft } from "@/app/_components/_ui/motion";
 
-type SettingsTab = "account" | "appearance" | "schedule" | "notifications" | "workspaces" | "data" | "integrations";
+type SettingsTab = "account" | "appearance" | "schedule" | "notifications" | "workspaces" | "agent" | "data" | "integrations";
 
 const TABS: { id: SettingsTab; label: string; description: string }[] = [
   {
@@ -40,6 +41,11 @@ const TABS: { id: SettingsTab; label: string; description: string }[] = [
     id: "workspaces",
     label: "Workspaces",
     description: "Statuses, labels, and custom fields",
+  },
+  {
+    id: "agent",
+    label: "Agent",
+    description: "AI provider and default model",
   },
   {
     id: "data",
@@ -126,6 +132,7 @@ function SettingsContent() {
               {tab === "schedule" && <WorkingHoursSettings />}
               {tab === "notifications" && <NotificationSettings />}
               {tab === "workspaces" && <WorkspaceSettings />}
+              {tab === "agent" && <AgentSettings />}
               {tab === "data" && <DataSettings />}
               {tab === "integrations" && <ApiKeysSettings />}
             </motion.div>

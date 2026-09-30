@@ -1,4 +1,5 @@
 import * as Clipboard from "expo-clipboard";
+import { PROVIDER_LABELS, type ProviderId } from "../../lib/api/agentProviders";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -651,7 +652,9 @@ export default function Assistant() {
               ? "Nothing is saved until you apply"
               : chat?.status === "approval"
                 ? "Waiting for your decision"
-                : "Ask about your work";
+                : chat?.provider
+                  ? `${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}`
+                  : "Ask about your work";
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
       <KeyboardAvoidingView

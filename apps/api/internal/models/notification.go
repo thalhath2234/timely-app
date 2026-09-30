@@ -23,6 +23,7 @@ const (
 	JobStartSoon    = "start_soon"
 	JobSendPush     = "send_push"
 	JobCreateBackup = "create_backup"
+	JobReindexUser  = "reindex_user"
 
 	NotifyReminder = "reminder"
 	NotifyDigest   = "digest"
