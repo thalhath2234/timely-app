@@ -10,6 +10,7 @@ type ContextChip struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
 }
+
 // Message kinds: "" is a normal turn, "notice" is a run event (stopped, done,
 // data changed) and "archive" carries a superseded or discarded plan.
 type Message struct {
@@ -37,6 +38,9 @@ type Snapshot struct {
 	Arguments json.RawMessage `json:"arguments"`
 	Hash      string          `json:"hash"`
 }
+
+// Provider and Model are fixed when a run is claimed, so a run finishes on the
+// provider it started with even if the account's default changes meanwhile.
 type Conversation struct {
 	Images      []ImageAttachment `gorm:"-" json:"images,omitempty"`
 	Sensitive   bool              `json:"sensitive"`
@@ -48,6 +52,8 @@ type Conversation struct {
 	Status      string            `json:"status"`
 	Phase       string            `json:"phase"`
 	WebSearch   bool              `json:"webSearch"`
+	Provider    string            `json:"provider"`
+	Model       string            `json:"model"`
 	Context     []ContextChip     `gorm:"serializer:json;type:jsonb" json:"context"`
 	Messages    []Message         `gorm:"serializer:json;type:jsonb" json:"messages"`
 	Plan        []Step            `gorm:"serializer:json;type:jsonb" json:"plan"`

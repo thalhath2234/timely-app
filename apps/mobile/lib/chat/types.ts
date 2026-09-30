@@ -31,6 +31,9 @@ export type Chat = {
   status: string;
   phase: string;
   webSearch: boolean;
+  /** Provider and model the current or last run used; empty before the first run. */
+  provider?: string;
+  model?: string;
   context: ChatContext[];
   messages: ChatMessage[];
   plan: ChatStep[];

@@ -17,15 +17,20 @@ import (
 )
 
 type Service struct {
-	db       *gorm.DB
-	factory  func(*gorm.DB) agent.Catalog
-	provider Completer
+	db         *gorm.DB
+	factory    func(*gorm.DB) agent.Catalog
+	provider   Completer
+	completers Completers
 }
 
 func New(db *gorm.DB, factory func(*gorm.DB) agent.Catalog, provider Completer) *Service {
 	return &Service{db: db, factory: factory, provider: provider}
 }
-func id(prefix string) string { return prefix + uuid.NewString() }
+
+// SetCompleters switches runs to per-account provider selection. The fixed
+// provider passed to New remains the fallback when none is set.
+func (s *Service) SetCompleters(c Completers) { s.completers = c }
+func id(prefix string) string                 { return prefix + uuid.NewString() }
 func message(role, content string) Message {
 	return Message{ID: id("msg_"), Role: role, Content: content, CreatedAt: time.Now().UTC()}
 }
@@ -182,7 +187,7 @@ func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error
 	s.fillImages(&row)
 	return c.JSON(200, row)
 }
-func busy(c *Conversation) bool { return c.Status == "queued" || c.Status == "running" }
+func busy(c *Conversation) bool   { return c.Status == "queued" || c.Status == "running" }
 func archivePlan(c *Conversation) { archivePlanAs(c, "Previous changes", "") }
 
 // Pending steps of an archived plan never run; mark them so clients do not show
@@ -391,6 +396,7 @@ func (s *Service) read(c *echo.Context) error { // Reading must not invalidate p
 	}
 	return c.NoContent(204)
 }
+
 // Omitted fields are left unchanged. Renaming is allowed at any time; context
 // and web search wait for the current run, which already read them.
 func (s *Service) configure(c *echo.Context) error {

@@ -347,7 +347,7 @@ func reconciliationIssues(receipt ReceiptDraft) []string {
 }
 
 func (s *Service) readReceipt(ctx context.Context, messages []WireMessage) (imageExtraction, error) {
-	result, err := s.provider.Complete(ctx, messages, nil, false)
+	result, err := s.complete(ctx, messages, nil, false)
 	if err != nil {
 		return imageExtraction{}, err
 	}

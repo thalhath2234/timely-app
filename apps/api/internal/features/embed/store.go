@@ -11,11 +11,12 @@ import (
 )
 
 func (i *indexer) upsert(ctx context.Context, doc Document) error {
-	if !i.Enabled() {
-		return ErrDisabled
-	}
 	if doc.UserID == "" || doc.Kind == "" || doc.EntityID == "" {
 		return nil
+	}
+	_, model := i.credentials(doc.UserID)
+	if !i.EnabledFor(doc.UserID) {
+		return ErrDisabled
 	}
 
 	combined := validUTF8(Combine(doc.Title, doc.Body))
@@ -44,8 +45,8 @@ func (i *indexer) upsert(ctx context.Context, doc Document) error {
 	}
 	var need []pending
 	for idx, content := range chunks {
-		hash := contentHash(i.model, content)
-		if prev, ok := byIndex[idx]; ok && prev.ContentHash == hash && prev.Model == i.model {
+		hash := contentHash(model, content)
+		if prev, ok := byIndex[idx]; ok && prev.ContentHash == hash && prev.Model == model {
 			if prev.Title != doc.Title {
 				_ = i.db.WithContext(ctx).Model(&models.Embedding{}).Where("id = ?", prev.ID).Update("title", doc.Title).Error
 			}
@@ -59,8 +60,11 @@ func (i *indexer) upsert(ctx context.Context, doc Document) error {
 		for n, item := range need {
 			texts[n] = item.content
 		}
-		vectors, err := i.embedTexts(ctx, texts)
+		vectors, err := i.embedTexts(ctx, doc.UserID, texts)
 		if err != nil {
+			return err
+		}
+		if err := CheckDims(vectors); err != nil {
 			return err
 		}
 		now := utils.GetCurrentTimestamp()
@@ -75,7 +79,7 @@ func (i *indexer) upsert(ctx context.Context, doc Document) error {
 				Content:     item.content,
 				Embedding:   pgvector.NewVector(vectors[n]),
 				ContentHash: item.hash,
-				Model:       i.model,
+				Model:       model,
 				CreatedAt:   now,
 				UpdatedAt:   now,
 			}
@@ -112,7 +116,7 @@ func (i *indexer) Count(ctx context.Context, userID string) (int64, error) {
 }
 
 func (i *indexer) Query(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error) {
-	if !i.Enabled() {
+	if !i.EnabledFor(userID) {
 		return nil, ErrDisabled
 	}
 	query = strings.TrimSpace(query)
@@ -124,8 +128,11 @@ func (i *indexer) Query(ctx context.Context, userID, query string, limit int, ki
 	}
 	kinds = normalizeKinds(kinds)
 
-	vectors, err := i.embedTexts(ctx, []string{query})
+	vectors, err := i.embedTexts(ctx, userID, []string{query})
 	if err != nil {
+		return nil, err
+	}
+	if err := CheckDims(vectors); err != nil {
 		return nil, err
 	}
 	vec := pgvector.NewVector(vectors[0])
