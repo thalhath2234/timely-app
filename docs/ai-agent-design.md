@@ -335,3 +335,56 @@ Checks: `make typecheck-mobile`, `make test-mobile-assistant`, `make test-api`,
 `make dev-mobile MOBILE_METRO_FLAGS=--clear` after changing a development API URL
 if Expo's virtual environment module retains the old value. Native checks use
 `make emu-start` / `make emu-stop`, API 8081 and Metro 8082.
+
+## Workflow completion and screen redesign (2026-10-01)
+
+The web and mobile agent screens were rebuilt on the apps' own design systems
+and the remaining workflow gaps were closed on both clients.
+
+Backend additions:
+
+- `POST /chats/:id/reject` discards a pending proposal. The plan is archived
+  with its steps marked `discarded`, a notice is appended, and the conversation
+  returns to idle so the person can ask for a different plan. Nothing is written.
+- `DELETE /chats/:id` removes the conversation, its temporary images and its
+  agent notifications in one transaction, for the owning account only.
+- `PATCH /chats/:id` accepts `title` (1–120 characters) and now leaves omitted
+  fields unchanged. Renaming works during a run; context and web search still
+  wait for it.
+- A failed apply names the step that stopped the run (`status: "failed"` plus
+  `error`); retry resets it to pending. Message `kind` distinguishes normal turns
+  from `notice` run events (stopped, done, data changed, discarded) and `archive`
+  messages carrying superseded or discarded plans. The stale-data refresh prompt
+  is stored as a system notice rather than a message the person appears to have
+  written; the model still reads it as data.
+- Reading an agent notification clears the conversation's unread flag, so the
+  Chat badge and the Notifications badge agree.
+
+Web (`apps/web/app/_components/chat/`): history is grouped (Needs you, Today,
+Yesterday, This week, Earlier) with status icons, inline rename and delete from
+a row menu or right-click, a load-error state and skeletons. The conversation
+shows day separators, user bubbles, notices as event rows and archived plans as
+collapsible cards. The proposal panel has a progress bar, per-step status badges
+and errors, Discard and Apply, Stop while applying, and Retry after a failure or
+stop. The composer shows kind-specific context chips, a drop-zone highlight, and
+keyboard hints. The overlay uses one header with Open-in-Chat and Close, is
+animated, carries `role="dialog"` so global shortcuts stay off, and no longer
+replays every unread chat as a desktop notification on startup.
+
+Mobile (`apps/mobile/components/chat/`): `Assistant.tsx` orchestrates
+`AssistantHeader`, `Thread`, `Composer`, `HistoryPage`, `ProposalPage`,
+`ChangeCards`, `AttachSheet` and the existing `ReceiptReview`. Attachments use a
+bottom sheet instead of nested alerts; drafts are discarded through the shared
+confirmation sheet. History groups chats, shows an unread badge on the header
+icon, supports pull-to-refresh, and long-press opens Rename/Delete. The proposal
+page mirrors web: summary card, progress, per-step badges and errors, Apply,
+Discard, Retry, Stop. Archived proposals open read-only from the thread. Retry of
+a failed apply returns to the proposal page instead of silently re-queueing.
+
+Checks: `make test-api`, `make test-chat-integration` (adds
+`TestIntegrationConversationManagement`), `make lint-api`, `make typecheck-web`,
+`make lint-chat`, `make build-web`, `make audit-chat` (now covers failed steps,
+discard, rename and delete), `make typecheck-mobile`, `make test-mobile-assistant`,
+and the new `make audit-mobile-assistant`, which renders the production mobile
+assistant in react-native-web with fixture APIs and drives history, rename,
+delete, proposal review, discard, failed-step retry and Stop in Chromium.

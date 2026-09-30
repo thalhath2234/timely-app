@@ -10,7 +10,10 @@ type ContextChip struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
 }
+// Message kinds: "" is a normal turn, "notice" is a run event (stopped, done,
+// data changed) and "archive" carries a superseded or discarded plan.
 type Message struct {
+	Kind      string        `json:"kind,omitempty"`
 	RequestID string        `json:"requestId,omitempty"`
 	Receipt   *ReceiptDraft `json:"receipt,omitempty"`
 	ID        string        `json:"id"`

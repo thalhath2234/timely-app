@@ -1,18 +1,23 @@
 export type ChatContext = { kind: string; label: string; value: string };
+/** pending → done, or failed (retry resets it), or discarded in an archived plan. */
+export type ChatStepStatus = "pending" | "done" | "failed" | "discarded";
 export type ChatStep = {
   tool: string;
   summary: string;
   arguments: Record<string, unknown>;
-  status: string;
+  status: ChatStepStatus | string;
   result?: Record<string, unknown>;
   before?: Record<string, unknown>;
   error?: string;
 };
+/** "" is a turn, "notice" a run event, "archive" a superseded or discarded plan. */
+export type ChatMessageKind = "" | "notice" | "archive";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
   id: string;
   role: string;
+  kind?: ChatMessageKind;
   content: string;
   createdAt: string;
   steps?: ChatStep[];

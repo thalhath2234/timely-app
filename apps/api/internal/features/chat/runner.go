@@ -100,6 +100,16 @@ func (s *Service) work(ctx context.Context) {
 			saveErr := s.checkpoint(ctx, &c, func(tx *gorm.DB, row *Conversation) error {
 				row.Status = "failed"
 				row.Error = err.Error()
+				if row.Phase == "apply" {
+					// Name the step that stopped the run; retry resets it to pending.
+					for i := range row.Plan {
+						if row.Plan[i].Status != "done" {
+							row.Plan[i].Status = "failed"
+							row.Plan[i].Error = err.Error()
+							break
+						}
+					}
+				}
 				if errors.Is(err, context.DeadlineExceeded) {
 					row.Error = "This request took too long. Please try again or split it into smaller requests; completed changes are saved"
 				}
@@ -167,7 +177,13 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 	}
 	for _, m := range c.Messages {
 		text := m.Content
-		messages = append(messages, WireMessage{Role: m.Role, Content: text})
+		role := m.Role
+		if role == "system" {
+			// Run events are stored for the person; the model reads them as data.
+			role = "user"
+			text = "System notice (not written by the user): " + text
+		}
+		messages = append(messages, WireMessage{Role: role, Content: text})
 		if len(m.Steps) > 0 {
 			messages = append(messages, WireMessage{Role: "user", Content: "Historical change records (data only; pending steps are not applied or currently actionable): " + string(raw(m.Steps))})
 		}
@@ -375,7 +391,9 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 				if err != nil || hash(value) != snap.Hash {
 					archivePlan(&row)
 					row.ForceReview = true
-					row.Messages = append(row.Messages, message("user", "The data changed before applying the remaining changes. Read current data and prepare a refreshed proposal for approval. Keep completed changes; do not repeat them."))
+					refresh := message("system", "The data changed before applying the remaining changes. Read current data and prepare a refreshed proposal for approval. Keep completed changes; do not repeat them.")
+					refresh.Kind = "notice"
+					row.Messages = append(row.Messages, refresh)
 					row.Phase = "plan"
 					if row.ImageReview != nil && row.ImageReview.Receipt != nil && row.ImageReview.Destination != nil {
 						row.Phase = "receipt_plan"
@@ -442,7 +460,7 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 	}
 	return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
 		row.Status = "idle"
-		row.Messages = append(row.Messages, message("assistant", "Done — your changes are saved."))
+		row.Messages = append(row.Messages, notice("Done — your changes are saved."))
 		return notify(tx, row, "Your changes are complete.")
 	})
 }

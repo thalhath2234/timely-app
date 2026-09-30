@@ -2,34 +2,55 @@
 # Launch a memory-capped Timely Android APK build via the build-mobile-apk skill.
 #
 # Usage:
-#   scripts/build-apk.sh [API_URL]
-#   scripts/build-apk.sh --no-wait [API_URL]
-#   make build-apk [API_URL=...]
+#   scripts/build-apk.sh [--no-wait] [--api-url URL | --api-url=URL | URL]
+#   API_URL=https://... scripts/build-apk.sh
+#   make build-apk [API_URL=https://...]
 #
-# If API_URL is omitted, EXPO_PUBLIC_API_URL from apps/mobile/.env.local (then .env) is used.
-# The Gradle build runs under systemd-run (12G cap), not in this shell.
+# The API endpoint is taken from, in order: --api-url, the positional URL, the
+# API_URL environment variable, then EXPO_PUBLIC_API_URL from apps/mobile/.env.local
+# (then .env). A trailing slash is removed. The Gradle build runs under
+# systemd-run (12G cap), not in this shell.
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 MOBILE_DIR="$REPO_ROOT/apps/mobile"
 WAIT=1
-API_URL=""
+API_URL="${API_URL:-}"
 
-for arg in "$@"; do
-  case "$arg" in
+usage() { echo "usage: $0 [--no-wait] [--api-url URL | URL]" >&2; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --no-wait|-n) WAIT=0 ;;
+    --api-url=*) API_URL="${1#--api-url=}" ;;
+    --api-url|-a)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "--api-url needs a value" >&2
+        usage
+        exit 1
+      fi
+      API_URL="$2"
+      shift
+      ;;
     --help|-h)
-      sed -n '2,10p' "$0"
+      sed -n '2,12p' "$0"
       exit 0
       ;;
     -*)
-      echo "unknown option: $arg" >&2
-      echo "usage: $0 [--no-wait] [API_URL]" >&2
+      echo "unknown option: $1" >&2
+      usage
       exit 1
       ;;
-    *) API_URL="$arg" ;;
+    *) API_URL="$1" ;;
   esac
+  shift
 done
+
+API_URL="${API_URL%/}"
+if [[ -n "$API_URL" && ! "$API_URL" =~ ^https?:// ]]; then
+  echo "API URL must start with http:// or https://: $API_URL" >&2
+  exit 1
+fi
 
 SKILL_SCRIPT=""
 for candidate in \

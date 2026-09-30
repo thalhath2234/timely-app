@@ -295,3 +295,119 @@ func TestIntegrationMobileSendRecoveryAndPushOutbox(t *testing.T) {
 		t.Fatal("recovered chat leaked across accounts")
 	}
 }
+
+func TestIntegrationConversationManagement(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	s.factory = func(tx *gorm.DB) agent.Catalog {
+		return agent.Catalog{"create_workspace": {Call: func(context.Context, string, json.RawMessage) (any, error) {
+			return nil, fmt.Errorf("workspace name already exists")
+		}}}
+	}
+	e := echo.New()
+	g := e.Group("")
+	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", "user-a"); return next(c) }
+	})
+	s.Routes(g)
+	call := func(method, path, body string) (int, Conversation) {
+		t.Helper()
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		e.ServeHTTP(w, r)
+		var row Conversation
+		_ = json.Unmarshal(w.Body.Bytes(), &row)
+		return w.Code, row
+	}
+
+	// A failed apply names the step that stopped the run; retry resets it.
+	c := runFixture(t, db, []Step{{Tool: "create_workspace", Summary: "Japanese", Arguments: raw(map[string]string{"name": "Japanese"}), Status: "pending"}})
+	c.Status = "queued"
+	c.Lease = ""
+	db.Save(&c)
+	ctx, cancel := context.WithCancel(context.Background())
+	go s.work(ctx)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		db.First(&c, "id = ?", c.ID)
+		if c.Status == "failed" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	cancel()
+	if c.Status != "failed" || c.Plan[0].Status != "failed" || !strings.Contains(c.Plan[0].Error, "already exists") {
+		t.Fatalf("failed step not recorded: %s %+v", c.Status, c.Plan)
+	}
+	if code, row := call("POST", "/chats/"+c.ID+"/retry", ""); code != 200 || row.Plan[0].Status != "pending" || row.Plan[0].Error != "" || row.Status != "approval" {
+		t.Fatalf("retry did not reset the failed step: %d %+v", code, row.Plan)
+	}
+
+	// Rename works during a run; context changes do not.
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Update("status", "running")
+	if code, row := call("PATCH", "/chats/"+c.ID, `{"title":"  Study plan  "}`); code != 200 || row.Title != "Study plan" {
+		t.Fatalf("rename failed: %d %q", code, row.Title)
+	}
+	if code, _ := call("PATCH", "/chats/"+c.ID, `{"context":[]}`); code != 409 {
+		t.Fatalf("context change accepted while running: %d", code)
+	}
+	if code, _ := call("PATCH", "/chats/"+c.ID, `{"title":""}`); code != 400 {
+		t.Fatalf("empty title accepted: %d", code)
+	}
+	db.First(&c, "id = ?", c.ID)
+	if c.Title != "Study plan" {
+		t.Fatal("rejected updates changed the title")
+	}
+
+	// Rejecting a proposal archives it as discarded and leaves the chat usable.
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Update("status", "approval")
+	db.First(&c, "id = ?", c.ID)
+	if code, _ := call("POST", "/chats/"+c.ID+"/reject", fmt.Sprintf(`{"revision":%d}`, c.Revision+5)); code != 409 {
+		t.Fatalf("stale reject accepted: %d", code)
+	}
+	code, row := call("POST", "/chats/"+c.ID+"/reject", fmt.Sprintf(`{"revision":%d}`, c.Revision))
+	if code != 200 || row.Status != "idle" || len(row.Plan) != 0 {
+		t.Fatalf("reject failed: %d %s %d", code, row.Status, len(row.Plan))
+	}
+	last := row.Messages[len(row.Messages)-1]
+	archive := row.Messages[len(row.Messages)-2]
+	if last.Kind != "notice" || archive.Kind != "archive" || archive.Steps[0].Status != "discarded" {
+		t.Fatalf("discarded plan not archived: %+v %+v", archive, last)
+	}
+	if code, _ := call("POST", "/chats/"+c.ID+"/reject", "{}"); code != 409 {
+		t.Fatalf("reject without proposal accepted: %d", code)
+	}
+
+	// Deleting removes the row, its images and its notifications, for the owner only.
+	image := ImageAttachment{ID: id("img_"), UserID: "user-a", ConversationID: &c.ID, Name: "receipt.jpg", CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour)}
+	if err := db.Create(&image).Error; err != nil {
+		t.Fatal(err)
+	}
+	kind := "chat"
+	if err := db.Create(&models.Notification{ID: id("ntf_"), UserID: "user-a", Category: "agent", Title: "Study plan", EntityType: &kind, EntityID: &c.ID, CreatedAt: time.Now().UTC()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.find(db, "user-b", c.ID, &Conversation{}); err == nil {
+		t.Fatal("cross-account read")
+	}
+	if code, _ := call("DELETE", "/chats/"+c.ID, ""); code != 204 {
+		t.Fatalf("delete failed: %d", code)
+	}
+	if code, _ := call("DELETE", "/chats/"+c.ID, ""); code != 404 {
+		t.Fatalf("second delete: %d", code)
+	}
+	var count int64
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Count(&count)
+	if count != 0 {
+		t.Fatal("conversation remained")
+	}
+	db.Model(&models.Notification{}).Where("entity_id = ?", c.ID).Count(&count)
+	if count != 0 {
+		t.Fatal("notifications remained")
+	}
+	db.First(&image, "id = ?", image.ID)
+	if image.DeletedAt == nil {
+		t.Fatal("image not erased")
+	}
+}

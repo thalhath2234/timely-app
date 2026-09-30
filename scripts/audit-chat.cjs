@@ -82,6 +82,7 @@ const fs = require("node:fs");
   };
   let themeMode = "light";
   let receiptMode = false;
+  let deleted = false;
   const receiptSheets = [
     {
       id: "sheet_audit",
@@ -222,10 +223,39 @@ const fs = require("node:fs");
     if (
       route.request().method() === "PATCH" &&
       url.pathname.endsWith("/chat_audit")
-    )
+    ) {
       Object.assign(chat, route.request().postDataJSON());
+      chat.revision++;
+    }
+    if (url.pathname.endsWith("/chat_audit/reject")) {
+      chat.messages.push({
+        id: "archive",
+        role: "assistant",
+        kind: "archive",
+        content: "Discarded changes",
+        createdAt: new Date().toISOString(),
+        steps: chat.plan.map((x) => ({ ...x, status: "discarded" })),
+      });
+      chat.messages.push({
+        id: "notice",
+        role: "assistant",
+        kind: "notice",
+        content: "Proposal discarded. Nothing was changed.",
+        createdAt: new Date().toISOString(),
+      });
+      chat.plan = [];
+      chat.status = "idle";
+      chat.revision++;
+    }
+    if (
+      route.request().method() === "DELETE" &&
+      url.pathname.endsWith("/chat_audit")
+    ) {
+      deleted = true;
+      return route.fulfill({ status: 204 });
+    }
     if (url.pathname.endsWith("/chats"))
-      body = route.request().method() === "POST" ? chat : [chat];
+      body = route.request().method() === "POST" ? chat : deleted ? [] : [chat];
     else if (receiptMode && url.pathname.endsWith("/workspaces"))
       body = [{ id: "workspace", name: "Personal" }];
     else if (receiptMode && url.pathname.endsWith("/sheets"))
@@ -263,7 +293,11 @@ const fs = require("node:fs");
   await page.getByRole("heading", { name: "What would you like" }).waitFor();
   await page.waitForTimeout(450);
   await page.screenshot({ path: "/tmp/timely-chat-empty.png", fullPage: true });
-  await page.goto("http://localhost:4002/chat?id=chat_audit");
+  // Clicking a history row opens that conversation.
+  await page
+    .getByRole("button", { name: "Open Build a project budget" })
+    .click();
+  await page.waitForURL(/\/chat\?id=chat_audit/);
   await page.getByRole("button", { name: "Apply changes" }).waitFor();
   await page.waitForTimeout(450);
   await page.screenshot({
@@ -278,14 +312,98 @@ const fs = require("node:fs");
     requests.some((r) => r.method === "PATCH" && r.body.webSearch === true),
     "search toggle was not saved",
   );
+  const approvalRevision = chat.revision;
   await page
     .getByRole("button", { name: "Apply changes", exact: true })
     .click();
   await page.waitForTimeout(200);
   assert(
-    requests.some((r) => r.path.endsWith("/approve") && r.body.revision === 2),
+    requests.some(
+      (r) =>
+        r.path.endsWith("/approve") && r.body.revision === approvalRevision,
+    ),
     "approval did not bind to the displayed revision",
   );
+  // Failed steps are named, and retry resets them.
+  const originalPlan = JSON.parse(JSON.stringify(chat.plan));
+  chat.status = "failed";
+  chat.error = "Sheet name already exists";
+  chat.plan[0].status = "done";
+  chat.plan[1].status = "failed";
+  chat.plan[1].error = "Sheet name already exists";
+  await page.reload();
+  await page.getByText("Some changes did not finish").waitFor();
+  await page
+    .getByRole("alert")
+    .getByText("Sheet name already exists")
+    .first()
+    .waitFor();
+  await page.getByLabel("Failed", { exact: true }).waitFor();
+  await page
+    .getByRole("button", { name: "Review unfinished changes" })
+    .waitFor();
+  chat.status = "approval";
+  chat.error = "";
+  chat.plan[1].status = "pending";
+  delete chat.plan[1].error;
+  // Discarding a proposal archives it and keeps the conversation usable.
+  await page.reload();
+  const rejectRevision = chat.revision;
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await page.getByText("Proposal discarded. Nothing was changed.").waitFor();
+  await page.getByRole("button", { name: /Discarded proposal/ }).click();
+  await page.getByLabel("Discarded", { exact: true }).first().waitFor();
+  assert(
+    requests.some(
+      (r) => r.path.endsWith("/reject") && r.body.revision === rejectRevision,
+    ),
+    "discard did not bind to the displayed revision",
+  );
+  await expect(
+    page.getByRole("button", { name: "Apply changes", exact: true }),
+  ).toHaveCount(0);
+  await page.screenshot({
+    path: "/tmp/timely-chat-discarded.png",
+    fullPage: true,
+  });
+  // History rows rename inline and delete through the shared confirmation.
+  await page
+    .getByRole("button", { name: "More options for Build a project budget" })
+    .click();
+  await page.getByRole("menuitem", { name: "Rename" }).click();
+  await page.getByLabel("Conversation title").fill("Budget planning");
+  await page.keyboard.press("Enter");
+  await page.getByRole("heading", { name: "Budget planning" }).waitFor();
+  assert(
+    requests.some(
+      (r) => r.method === "PATCH" && r.body.title === "Budget planning",
+    ),
+    "rename was not saved",
+  );
+  await page
+    .getByRole("button", { name: "More options for Budget planning" })
+    .click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Delete" })
+    .click();
+  await page.getByRole("heading", { name: "What would you like" }).waitFor();
+  assert(
+    requests.some(
+      (r) => r.method === "DELETE" && r.path.endsWith("/chat_audit"),
+    ),
+    "delete was not sent",
+  );
+  await page.getByText("Your conversations will live here.").waitFor();
+  deleted = false;
+  chat.title = "Build a project budget";
+  chat.messages = chat.messages.slice(0, 2);
+  chat.plan = JSON.parse(JSON.stringify(originalPlan));
+  chat.status = "approval";
+  chat.revision = 2;
+  await page.goto("http://localhost:4002/chat?id=chat_audit");
+  await page.getByRole("button", { name: "Apply changes" }).waitFor();
   await page.keyboard.press("Control+Shift+J");
   await page.getByRole("dialog", { name: "Chat with Timely" }).waitFor();
   await page.waitForTimeout(450);
@@ -461,6 +579,7 @@ const fs = require("node:fs");
         "/tmp/timely-chat-empty.png",
         "/tmp/timely-chat-proposal.png",
         "/tmp/timely-chat-overlay.png",
+        "/tmp/timely-chat-discarded.png",
         "/tmp/timely-receipt-review.png",
       ],
     }),

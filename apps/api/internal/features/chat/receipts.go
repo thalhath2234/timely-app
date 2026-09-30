@@ -573,7 +573,7 @@ func (s *Service) discardReview(c *echo.Context) error {
 		row.LeaseUntil = nil
 		row.Error = ""
 		archivePlan(row)
-		row.Messages = append(row.Messages, message("assistant", "Image review discarded. Temporary images were removed; extracted draft data is kept."))
+		row.Messages = append(row.Messages, notice("Image review discarded. Temporary images were removed; extracted draft data is kept."))
 		return nil
 	})
 }

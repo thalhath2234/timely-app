@@ -20,3 +20,7 @@ export async function uploadChatImage(image: PendingImage): Promise<ChatImage> {
   form.append("image", new File(image.uri));
   return chatRequest<ChatImage>("/images", "POST", form);
 }
+export const renameChat = (id: string, title: string) =>
+  chatRequest(`/${encodeURIComponent(id)}`, "PATCH", { title });
+export const deleteChat = (id: string) =>
+  chatRequest<void>(`/${encodeURIComponent(id)}`, "DELETE");

@@ -2,8 +2,11 @@
 # Build the Timely Android APK (memory-capped) and install it on a connected phone.
 #
 # Usage:
-#   scripts/install-apk.sh [API_URL]
+#   scripts/install-apk.sh [--api-url URL | URL]
+#   API_URL=https://... scripts/install-apk.sh
 #   make install-apk [API_URL=https://...]
+#
+# The API URL is forwarded to scripts/build-apk.sh (see its header for precedence).
 #
 # Requires USB debugging. If several devices are attached, set ANDROID_SERIAL.
 set -euo pipefail
