@@ -3,7 +3,6 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, X } from "lucide-react";
 import Conversation from "./conversation";
 import { useChatStore } from "@/app/_store/chatStore";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
@@ -17,7 +16,7 @@ export default function ChatRuntime() {
   const pathname = usePathname();
   const router = useRouter();
   const { data: chats } = useChats();
-  const seen = useRef(new Map<string, string>());
+  const seen = useRef<Map<string, string> | null>(null);
   useEffect(() => {
     function open(event: KeyboardEvent) {
       if (
@@ -104,11 +103,17 @@ export default function ChatRuntime() {
   }, [cache, pathname, openNew]);
   useEffect(() => {
     if (!chats || !window.timelyDesktop?.notifyChat) return;
+    // The first poll only records what already happened; it must not replay
+    // every unread chat as a fresh desktop notification.
+    const first = seen.current === null;
+    const map = seen.current ?? new Map<string, string>();
+    seen.current = map;
     for (const chat of chats) {
       const version = `${chat.status}:${chat.revision}`;
-      const previous = seen.current.get(chat.id);
-      seen.current.set(chat.id, version);
+      const previous = map.get(chat.id);
+      map.set(chat.id, version);
       if (
+        !first &&
         chat.unread &&
         ["idle", "approval", "failed"].includes(chat.status) &&
         previous !== version
@@ -138,7 +143,7 @@ export default function ChatRuntime() {
   return overlayOpen ? <ChatOverlay /> : null;
 }
 function ChatOverlay() {
-  const { context, conversationId, setId, close } = useChatStore();
+  const { context, conversationId, setId, close, openNew } = useChatStore();
   const dialog = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   useEffect(() => {
@@ -151,48 +156,35 @@ function ChatOverlay() {
   return createPortal(
     <dialog
       ref={dialog}
+      role="dialog"
       aria-label="Chat with Timely"
-      onCancel={close}
+      onCancel={(e) => {
+        e.preventDefault();
+        close();
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) close();
       }}
-      className="fixed inset-0 m-auto h-[min(820px,90dvh)] max-h-[90dvh] w-[min(760px,94vw)] max-w-none overflow-hidden rounded-2xl border border-border bg-background p-0 text-foreground shadow-2xl backdrop:bg-black/45 backdrop:backdrop-blur-sm"
+      className="fixed inset-0 m-auto h-[min(820px,90dvh)] max-h-[90dvh] w-[min(760px,94vw)] max-w-none overflow-hidden rounded-2xl border border-border bg-background p-0 text-foreground shadow-2xl backdrop:bg-black/45 backdrop:backdrop-blur-sm open:animate-[vt-panel-in_280ms_cubic-bezier(0.22,1,0.36,1)_both] open:backdrop:animate-[vt-fade-in_200ms_ease-out_both] motion-reduce:open:animate-none"
     >
       <div className="flex h-full flex-col">
-        <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-5 py-2">
-          <span className="text-xs text-muted-foreground">Chat in context</span>
-          <div className="flex items-center gap-1">
-            {conversationId && (
-              <button
-                type="button"
-                aria-label="Open in Chat tab"
-                onClick={() => {
+        <Conversation
+          key={conversationId || "new"}
+          id={conversationId}
+          initialContext={context}
+          onCreated={setId}
+          onNew={conversationId ? () => openNew([]) : undefined}
+          onOpenFull={
+            conversationId
+              ? () => {
                   close();
                   router.push(`/chat?id=${encodeURIComponent(conversationId)}`);
-                }}
-                className="rounded-lg p-2 hover:bg-muted"
-              >
-                <ArrowUpRight className="size-4" />
-              </button>
-            )}
-            <button
-              type="button"
-              aria-label="Close chat"
-              onClick={close}
-              className="rounded-lg p-2 hover:bg-muted"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-        </div>
-        <div className="min-h-0 flex-1">
-          <Conversation
-            id={conversationId}
-            initialContext={context}
-            onCreated={setId}
-            compact
-          />
-        </div>
+                }
+              : undefined
+          }
+          onClose={close}
+          variant="overlay"
+        />
       </div>
     </dialog>,
     document.body,

@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { Alert, AppState, Keyboard, Modal, Text, View } from "react-native";
+import { Sparkles } from "lucide-react-native";
 import {
   useGlobalSearchParams,
   usePathname,
@@ -266,12 +267,18 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
         </GestureDetector>
         {uid && hydratedUser === uid && !cache.hintDismissed && !visible ? (
           <View style={styles.hint}>
-            <Text style={styles.hintText}>
-              Pinch inward with two fingers to ask the assistant about this
-              screen.
-            </Text>
+            <View style={styles.hintIcon}>
+              <Sparkles size={18} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={styles.hintTitle}>Meet your assistant</Text>
+              <Text style={styles.hintText}>
+                Pinch inward with two fingers to ask about this screen.
+              </Text>
+            </View>
             <Action
               label="Got it"
+              compact
               onPress={() =>
                 setCache((value) => ({ ...value, hintDismissed: true }))
               }
@@ -301,12 +308,29 @@ const styles = createThemedStyleSheet(() => ({
     bottom: 110,
     left: 16,
     right: 16,
-    padding: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     borderRadius: 20,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    gap: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
-  hintText: { fontSize: 14, lineHeight: 21, color: colors.foreground },
+  hintIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hintTitle: { fontSize: 14, fontWeight: "700", color: colors.foreground },
+  hintText: { fontSize: 12, lineHeight: 17, color: colors.mutedForeground },
 }));

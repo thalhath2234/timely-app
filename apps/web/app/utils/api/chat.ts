@@ -1,23 +1,48 @@
 import { apiFetch } from "./client";
 
 export type ChatContext = { kind: string; label: string; value: string };
+/** pending → done, or failed (retry resets it), or discarded in an archived plan. */
+export type ChatStepStatus = "pending" | "done" | "failed" | "discarded";
 export type ChatStep = {
   tool: string;
   summary: string;
   arguments: Record<string, unknown>;
-  status: string;
+  status: ChatStepStatus | string;
   result?: Record<string, unknown>;
   before?: Record<string, unknown>;
   error?: string;
 };
+export type ChatStatus =
+  | "queued"
+  | "running"
+  | "approval"
+  | "idle"
+  | "failed"
+  | "stopped";
+/** "" is a turn, "notice" a run event, "archive" a superseded or discarded plan. */
+export type ChatMessageKind = "" | "notice" | "archive";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
   id: string;
   role: string;
+  kind?: ChatMessageKind;
   content: string;
   createdAt: string;
   steps?: ChatStep[];
+};
+/** GET /chats returns only these columns. */
+export type ChatSummary = {
+  id: string;
+  title: string;
+  status: ChatStatus | string;
+  phase: string;
+  webSearch: boolean;
+  revision: number;
+  unread: boolean;
+  error: string;
+  updatedAt: string;
+  createdAt: string;
 };
 export type Chat = {
   images?: ChatImage[];
@@ -25,7 +50,7 @@ export type Chat = {
   imageReview?: ImageReview;
   id: string;
   title: string;
-  status: string;
+  status: ChatStatus | string;
   phase: string;
   webSearch: boolean;
   context: ChatContext[];
@@ -55,6 +80,10 @@ export async function chatRequest<T>(
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
+export const renameChat = (id: string, title: string) =>
+  chatRequest<Chat>(`/${encodeURIComponent(id)}`, "PATCH", { title });
+export const deleteChat = (id: string) =>
+  chatRequest<void>(`/${encodeURIComponent(id)}`, "DELETE");
 
 export type ChatImage = {
   id: string;

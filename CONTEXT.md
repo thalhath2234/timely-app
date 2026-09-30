@@ -64,8 +64,8 @@ _Avoid_: schedule, reschedule (when referring to this operation)
 ### Agent assistance
 
 **Agent proposal**:
-A reviewable set of changes requested through chat that the person can revise before approving. It is required for multi-step requests, recurring-series changes, bulk edits, document-content replacement, populated sheet creation, and sheet-content removal or replacement.
-_Avoid_: plan (when referring to changes awaiting approval)
+A reviewable set of changes requested through chat that the person can revise before approving or discard. It is required for multi-step requests, recurring-series changes, bulk edits, document-content replacement, populated sheet creation, and sheet-content removal or replacement. A discarded proposal writes nothing and stays in the conversation's history.
+_Avoid_: plan (when referring to changes awaiting approval), reject (in copy; the person discards)
 
 **Chat context**:
 The location, open object, and selection or calendar date range attached to a conversation. It stays attached when the person navigates elsewhere and can be removed from the conversation.

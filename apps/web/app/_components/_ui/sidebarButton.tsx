@@ -84,4 +84,18 @@ function UnreadBadge() {
   );
 }
 
-function ChatBadge() { const { data } = useChats(); const count = data?.filter(c => c.unread).length || 0; return count ? <span aria-label={`${count} unread chats`} className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground">{count > 9 ? "9+" : count}</span> : null; }
+function ChatBadge() {
+  const { data } = useChats();
+  const count = data?.filter((c) => c.unread).length || 0;
+  if (!count) return null;
+  return (
+    <motion.span
+      initial={{ scale: 0.5, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      aria-label={`${count} unread chats`}
+      className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
+    >
+      {count > 9 ? "9+" : count}
+    </motion.span>
+  );
+}

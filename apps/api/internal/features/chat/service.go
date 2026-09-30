@@ -29,6 +29,11 @@ func id(prefix string) string { return prefix + uuid.NewString() }
 func message(role, content string) Message {
 	return Message{ID: id("msg_"), Role: role, Content: content, CreatedAt: time.Now().UTC()}
 }
+func notice(content string) Message {
+	m := message("assistant", content)
+	m.Kind = "notice"
+	return m
+}
 func (s *Service) Routes(g *echo.Group) {
 	g.POST("/chats/images", s.uploadImage)
 	g.GET("/chats/images/:imageId", s.getImage)
@@ -41,6 +46,8 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/chats/:id", s.get)
 	g.POST("/chats/:id/messages", s.send)
 	g.POST("/chats/:id/approve", s.approve)
+	g.POST("/chats/:id/reject", s.reject)
+	g.DELETE("/chats/:id", s.remove)
 	g.POST("/chats/:id/stop", s.stop)
 	g.POST("/chats/:id/retry", s.retry)
 	g.POST("/chats/:id/read", s.read)
@@ -176,9 +183,19 @@ func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error
 	return c.JSON(200, row)
 }
 func busy(c *Conversation) bool { return c.Status == "queued" || c.Status == "running" }
-func archivePlan(c *Conversation) {
+func archivePlan(c *Conversation) { archivePlanAs(c, "Previous changes", "") }
+
+// Pending steps of an archived plan never run; mark them so clients do not show
+// them as live work.
+func archivePlanAs(c *Conversation, title, pendingStatus string) {
 	if len(c.Plan) > 0 {
-		m := message("assistant", "Previous changes")
+		m := message("assistant", title)
+		m.Kind = "archive"
+		for i := range c.Plan {
+			if c.Plan[i].Status != "done" && pendingStatus != "" {
+				c.Plan[i].Status = pendingStatus
+			}
+		}
 		m.Steps = c.Plan
 		c.Messages = append(c.Messages, m)
 	}
@@ -272,10 +289,62 @@ func (s *Service) stop(c *echo.Context) error {
 			row.Status = "stopped"
 			row.Lease = ""
 			row.LeaseUntil = nil
-			row.Messages = append(row.Messages, message("assistant", "Stopped. Completed changes are kept."))
+			row.Messages = append(row.Messages, notice("Stopped. Completed changes are kept."))
 		}
 		return nil
 	})
+}
+
+// Rejecting a proposal keeps the conversation so the person can ask for a
+// different plan; nothing in the plan has been written yet.
+func (s *Service) reject(c *echo.Context) error {
+	var in struct {
+		Revision int `json:"revision"`
+	}
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(400, "Invalid request")
+	}
+	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+		if row.Status != "approval" {
+			return echo.NewHTTPError(409, "There is no proposal waiting for approval")
+		}
+		if in.Revision != 0 && row.Revision != in.Revision {
+			return echo.NewHTTPError(409, "This proposal changed. Review the latest version first")
+		}
+		archivePlanAs(row, "Discarded changes", "discarded")
+		row.Status = "idle"
+		row.Phase = "plan"
+		row.Error = ""
+		row.Unread = false
+		row.Messages = append(row.Messages, notice("Proposal discarded. Nothing was changed."))
+		return nil
+	})
+}
+
+// Deleting removes history, temporary images and notifications together. A run
+// in progress loses its row, so its next checkpoint fails and no result is published.
+func (s *Service) remove(c *echo.Context) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var row Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {
+			return err
+		}
+		var imageIDs []string
+		if err := tx.Model(&ImageAttachment{}).Where("user_id = ? AND conversation_id = ? AND deleted_at IS NULL", row.UserID, row.ID).Pluck("id", &imageIDs).Error; err != nil {
+			return err
+		}
+		if err := eraseImages(tx, row.UserID, imageIDs); err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND entity_type = 'chat' AND entity_id = ?", row.UserID, row.ID).Delete(&models.Notification{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ? AND user_id = ?", row.ID, row.UserID).Delete(&Conversation{}).Error
+	})
+	if err != nil {
+		return err
+	}
+	return c.NoContent(204)
 }
 func (s *Service) retry(c *echo.Context) error {
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
@@ -322,25 +391,44 @@ func (s *Service) read(c *echo.Context) error { // Reading must not invalidate p
 	}
 	return c.NoContent(204)
 }
+// Omitted fields are left unchanged. Renaming is allowed at any time; context
+// and web search wait for the current run, which already read them.
 func (s *Service) configure(c *echo.Context) error {
 	var in struct {
-		WebSearch bool          `json:"webSearch"`
-		Context   []ContextChip `json:"context"`
+		Title     *string        `json:"title"`
+		WebSearch *bool          `json:"webSearch"`
+		Context   *[]ContextChip `json:"context"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid settings")
 	}
-	if err := validateInput(sendInput{Content: "context", Context: in.Context}); err != nil {
-		return err
+	if in.Context != nil {
+		if err := validateInput(sendInput{Content: "context", Context: *in.Context}); err != nil {
+			return err
+		}
+	}
+	title := ""
+	if in.Title != nil {
+		title = strings.TrimSpace(*in.Title)
+		if title == "" || len([]rune(title)) > 120 {
+			return echo.NewHTTPError(400, "Title must be between 1 and 120 characters")
+		}
 	}
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
-		if busy(row) {
+		if (in.Context != nil || in.WebSearch != nil) && busy(row) {
 			return echo.NewHTTPError(409, "Wait or stop before changing context")
 		}
-		row.WebSearch = in.WebSearch
-		row.Context = in.Context
-		if row.Context == nil {
-			row.Context = []ContextChip{}
+		if in.Title != nil {
+			row.Title = title
+		}
+		if in.WebSearch != nil {
+			row.WebSearch = *in.WebSearch
+		}
+		if in.Context != nil {
+			row.Context = *in.Context
+			if row.Context == nil {
+				row.Context = []ContextChip{}
+			}
 		}
 		return nil
 	})

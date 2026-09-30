@@ -88,14 +88,24 @@ func (r *repository) MarkRead(userID, id string) (*models.Notification, error) {
 		Update("read_at", now).Error; err != nil {
 		return nil, err
 	}
-	return r.Get(userID, id)
+	row, err := r.Get(userID, id)
+	if err == nil && row.EntityType != nil && *row.EntityType == "chat" && row.EntityID != nil {
+		// The chat badge follows its notification; reading one clears the other.
+		if err := r.db.Exec("UPDATE agent_conversations SET unread = false WHERE id = ? AND user_id = ?", *row.EntityID, userID).Error; err != nil {
+			return nil, err
+		}
+	}
+	return row, err
 }
 
 func (r *repository) MarkAllRead(userID string) error {
 	now := time.Now().UTC()
-	return r.db.Model(&models.Notification{}).
+	if err := r.db.Model(&models.Notification{}).
 		Where("user_id = ? AND read_at IS NULL", userID).
-		Update("read_at", now).Error
+		Update("read_at", now).Error; err != nil {
+		return err
+	}
+	return r.db.Exec("UPDATE agent_conversations SET unread = false WHERE user_id = ?", userID).Error
 }
 
 func (r *repository) MarkOverdueRead(userID, taskID string) error {

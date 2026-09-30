@@ -2,25 +2,22 @@ import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
-  Pressable,
   ScrollView,
-  Switch,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  AlertTriangle,
+  ClipboardList,
   MessageCircle,
   Plus,
-  X,
-  Sparkles,
-  ArrowLeft,
+  ReceiptText,
+  WifiOff,
 } from "lucide-react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
@@ -28,16 +25,31 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as DocumentPicker from "expo-document-picker";
 import * as FS from "expo-file-system/legacy";
 import { useAuth } from "../../lib/auth/AuthProvider";
-import { chatRequest, uploadChatImage } from "../../lib/api/chat";
+import {
+  chatRequest,
+  deleteChat,
+  renameChat,
+  uploadChatImage,
+} from "../../lib/api/chat";
 import { isOffline, subscribeOffline } from "../../lib/networkState";
 import { mergeContext } from "../../lib/chat/context";
 import { removeLocalImage, retainImage } from "../../lib/chat/storage";
 import type { Chat, ChatStep, PendingImage } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { emptyDraft, useAssistant } from "../../lib/chat/runtime";
-import { Action, ChatText, DetailValue, styles as common } from "./shared";
-import ImagePreview from "./ImagePreview";
-import ReceiptReview, { ReceiptSaveSummary } from "./ReceiptReview";
+import { useToastStore } from "../../lib/toast";
+import ConfirmSheet from "../ui/ConfirmSheet";
+import AssistantHeader from "./AssistantHeader";
+import AttachSheet, { type ImageSource } from "./AttachSheet";
+import Composer from "./Composer";
+import HistoryPage from "./HistoryPage";
+import ProposalPage from "./ProposalPage";
+import ReceiptReview from "./ReceiptReview";
+import Thread, { FailureCard, RunStatus, StatusCard, Welcome } from "./Thread";
+import { isBusy, phaseLabel } from "./chatMeta";
+import { Action, IconButton } from "./shared";
+
+type Page = "chat" | "history" | "proposal" | "receipt";
 
 export default function Assistant() {
   const assistant = useAssistant();
@@ -45,14 +57,13 @@ export default function Assistant() {
   const uid = user!.id;
   const id = assistant.chatId;
   const queryClient = useQueryClient();
+  const toast = useToastStore((state) => state.show);
   const [offline, setOfflineState] = useState(isOffline());
-  const [page, setPage] = useState<"chat" | "history" | "proposal" | "receipt">(
-    "chat",
-  );
-  const [historySearch, setHistorySearch] = useState("");
+  const [page, setPage] = useState<Page>("chat");
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
-
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [preview, setPreview] = useState<{
     uri: string;
     candidate?: PendingImage;
@@ -67,13 +78,11 @@ export default function Assistant() {
     staleTime: 0,
     refetchOnMount: "always",
     queryKey: detailKey,
-    queryFn: () => chatRequest<Chat>(`/${id}`),
+    queryFn: () => chatRequest<Chat>(`/${encodeURIComponent(id ?? "")}`),
     enabled: !!id && assistant.visible && assistant.foreground && !offline,
     initialData: id ? assistant.cache.conversations[id] : undefined,
     refetchInterval: (q) =>
-      assistant.foreground &&
-      !offline &&
-      ["queued", "running"].includes(q.state.data?.status ?? "")
+      assistant.foreground && !offline && isBusy(q.state.data?.status)
         ? 1500
         : false,
   });
@@ -84,18 +93,20 @@ export default function Assistant() {
     queryFn: () => chatRequest<Chat[]>(""),
     initialData: assistant.cache.chats,
     enabled: assistant.visible && assistant.foreground && !offline,
-    refetchInterval: assistant.foreground && !offline ? 5000 : false,
+    refetchInterval:
+      assistant.foreground && !offline && page === "history" ? 5000 : 15000,
   });
   const chat = id ? query.data : undefined;
-  const busy = !!chat && ["queued", "running"].includes(chat.status);
+  const busy = isBusy(chat?.status);
   const cachedDraft = assistant.cache.draft;
   const matchingDraft =
     cachedDraft && (cachedDraft.conversationId ?? null) === id;
   const draft = matchingDraft ? cachedDraft : emptyDraft(chat?.context ?? []);
-  const otherDraft =
+  const otherDraft = !!(
     cachedDraft &&
     !matchingDraft &&
-    (cachedDraft.text || cachedDraft.images.length || cachedDraft.requestId);
+    (cachedDraft.text || cachedDraft.images.length || cachedDraft.requestId)
+  );
   const reviewEdit = id ? assistant.cache.receiptEdits[id] : undefined;
   const receiptDirty =
     !!reviewEdit?.dirty &&
@@ -108,6 +119,9 @@ export default function Assistant() {
   const search = chat?.webSearch ?? draft.webSearch;
   const lastRevision = useRef<number | undefined>(undefined);
   const openedReceipt = useRef("");
+  const unreadCount = (list.data ?? []).filter(
+    (c) => c.unread && c.id !== id,
+  ).length;
   useEffect(() => {
     if (list.data)
       assistant.updateCache((cache) => ({ ...cache, chats: list.data! }));
@@ -119,7 +133,7 @@ export default function Assistant() {
       conversations: { ...cache.conversations, [chat.id]: chat },
     }));
     if (chat.unread && assistant.visible && assistant.foreground && !offline)
-      void chatRequest(`/${chat.id}/read`, "POST")
+      void chatRequest(`/${encodeURIComponent(chat.id)}/read`, "POST")
         .then(() => {
           queryClient.setQueryData<Chat>(detailKey, (value) =>
             value ? { ...value, unread: false } : value,
@@ -155,6 +169,7 @@ export default function Assistant() {
   useEffect(() => {
     setPage("chat");
     setError("");
+    setReviewSteps(null);
     lastRevision.current = undefined;
     openedReceipt.current = "";
   }, [id]);
@@ -177,7 +192,7 @@ export default function Assistant() {
   }, [page]);
   useEffect(() => {
     if (page === "chat") scroll.current?.scrollToEnd({ animated: true });
-  }, [chat?.messages?.length]);
+  }, [chat?.messages?.length, chat?.status]);
 
   const mutation = useMutation({
     mutationFn: ({
@@ -190,7 +205,7 @@ export default function Assistant() {
       target?: string | null;
     }) =>
       chatRequest<Chat>(
-        target ? `/${target}${action}` : "",
+        target ? `/${encodeURIComponent(target)}${action}` : "",
         target ? (action === "" ? "PATCH" : "POST") : "POST",
         body,
       ),
@@ -211,9 +226,13 @@ export default function Assistant() {
         assistant.acceptSend(variables.target ?? id, next.id);
       }
       if (
-        ["/receipt", "/images/discard", "/images/confirm", "/approve"].includes(
-          variables.action,
-        )
+        [
+          "/receipt",
+          "/images/discard",
+          "/images/confirm",
+          "/approve",
+          "/reject",
+        ].includes(variables.action)
       )
         assistant.updateCache((cache) => ({
           ...cache,
@@ -227,13 +246,22 @@ export default function Assistant() {
         setReviewSteps(null);
         setPage(next.status === "approval" ? "proposal" : "receipt");
       }
-      if (
-        ["/images/discard", "/images/confirm", "/approve"].includes(
-          variables.action,
-        )
-      ) {
-        setPage("chat");
+      if (variables.action === "/retry" && next.status === "approval") {
+        setReviewSteps(null);
+        setPage("proposal");
       }
+      if (
+        [
+          "/images/discard",
+          "/images/confirm",
+          "/approve",
+          "/reject",
+          "/stop",
+        ].includes(variables.action)
+      )
+        setPage("chat");
+      if (variables.action === "/reject")
+        toast("Proposal discarded. Nothing was changed.");
       setError("");
     },
     onError: (reason) => {
@@ -255,8 +283,13 @@ export default function Assistant() {
       requestId: undefined,
     }));
   }
+  const canConfigure = !busy && !pending && !(offline && !!id);
   function configure(nextContext = context, webSearch = search) {
-    if (busy || pending || (offline && id)) return;
+    if (!canConfigure) {
+      if (offline && id)
+        setError("Reconnect to change this conversation's context.");
+      return;
+    }
     if (id) act("", { context: nextContext, webSearch });
     else
       assistant.setDraft((value) => ({
@@ -362,9 +395,19 @@ export default function Assistant() {
       setUploading(false);
     }
   }
-  async function picker(
-    source: "camera" | "library" | "files" | "screenshot" | "clipboard",
-  ) {
+  function removeImage(image: PendingImage) {
+    assistant.setDraft((value) => ({
+      ...value,
+      images: value.images.filter((item) => item.uri !== image.uri),
+      requestId: undefined,
+    }));
+    void removeLocalImage(image.uri);
+    if (image.uploaded)
+      void chatRequest(`/images/${image.uploaded.id}`, "DELETE").catch(
+        () => undefined,
+      );
+  }
+  async function picker(source: ImageSource) {
     try {
       if (source === "clipboard") {
         const image = await Clipboard.getImageAsync({ format: "png" });
@@ -452,52 +495,15 @@ export default function Assistant() {
       setError((reason as Error).message);
     }
   }
-  function attachMenu() {
-    Alert.alert(
-      "Attach image",
-      "Up to five images. Temporary uploads expire after 24 hours.",
-      [
-        { text: "Camera", onPress: () => void picker("camera") },
-        { text: "Photo library", onPress: () => void picker("library") },
-        {
-          text: "More sources",
-          onPress: () =>
-            Alert.alert("Image source", undefined, [
-              { text: "Image files", onPress: () => void picker("files") },
-              {
-                text: "Capture current screen",
-                onPress: () => void picker("screenshot"),
-              },
-              { text: "Paste image", onPress: () => void picker("clipboard") },
-            ]),
-        },
-      ],
-    );
-  }
   function discardDraft() {
-    if (pending) return;
-    Alert.alert(
-      "Discard unsent draft?",
-      "Its text, context and attachments will be removed.",
-      [
-        { text: "Keep draft", style: "cancel" },
-        {
-          text: "Discard",
-          style: "destructive",
-          onPress: () => {
-            cachedDraft?.images.forEach((image) => {
-              void removeLocalImage(image.uri);
-              if (image.uploaded)
-                void chatRequest(
-                  `/images/${image.uploaded.id}`,
-                  "DELETE",
-                ).catch(() => undefined);
-            });
-            assistant.updateCache((cache) => ({ ...cache, draft: null }));
-          },
-        },
-      ],
-    );
+    cachedDraft?.images.forEach((image) => {
+      void removeLocalImage(image.uri);
+      if (image.uploaded)
+        void chatRequest(`/images/${image.uploaded.id}`, "DELETE").catch(
+          () => undefined,
+        );
+    });
+    assistant.updateCache((cache) => ({ ...cache, draft: null }));
   }
   function newChat() {
     if (
@@ -506,11 +512,55 @@ export default function Assistant() {
     ) {
       assistant.select(cachedDraft.conversationId ?? null);
       setPage("chat");
+      toast("Restored your unsent draft.");
       return;
     }
     assistant.updateCache((cache) => ({ ...cache, draft: emptyDraft() }));
     assistant.select(null);
     setPage("chat");
+  }
+  async function rename(chatId: string, title: string) {
+    try {
+      const next = await renameChat(chatId, title);
+      queryClient.setQueryData(["chat", uid, chatId], next);
+      void queryClient.invalidateQueries({ queryKey: listKey });
+      assistant.updateCache((cache) => ({
+        ...cache,
+        chats: cache.chats.map((c) => (c.id === chatId ? { ...c, title } : c)),
+        conversations: cache.conversations[chatId]
+          ? {
+              ...cache.conversations,
+              [chatId]: { ...cache.conversations[chatId], title },
+            }
+          : cache.conversations,
+      }));
+    } catch (reason) {
+      toast((reason as Error).message);
+      throw reason;
+    }
+  }
+  async function remove(chatId: string) {
+    try {
+      await deleteChat(chatId);
+      queryClient.removeQueries({ queryKey: ["chat", uid, chatId] });
+      void queryClient.invalidateQueries({ queryKey: listKey });
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      assistant.updateCache((cache) => ({
+        ...cache,
+        chats: cache.chats.filter((c) => c.id !== chatId),
+        conversations: Object.fromEntries(
+          Object.entries(cache.conversations).filter(([key]) => key !== chatId),
+        ),
+        receiptEdits: Object.fromEntries(
+          Object.entries(cache.receiptEdits).filter(([key]) => key !== chatId),
+        ),
+        draft: cache.draft?.conversationId === chatId ? null : cache.draft,
+      }));
+      if (id === chatId) assistant.select(null);
+      toast("Conversation deleted");
+    } catch (reason) {
+      toast((reason as Error).message);
+    }
   }
   function openLink(href: string) {
     const timely = href.match(
@@ -545,6 +595,7 @@ export default function Assistant() {
     }
     if (page !== "chat") {
       setPage("chat");
+      setReviewSteps(null);
       return;
     }
     assistant.close();
@@ -572,70 +623,80 @@ export default function Assistant() {
     (typeof savedSheetStep?.result?.id === "string"
       ? savedSheetStep.result.id
       : review?.destination?.sheetId);
+  const hasDraft = !!(draft.text || draft.images.length);
+  const title = preview
+    ? "Image preview"
+    : page === "history"
+      ? "Chats"
+      : page === "receipt"
+        ? "Check your receipt"
+        : page === "proposal"
+          ? reviewSteps
+            ? "Earlier changes"
+            : receiptConfirmation
+              ? "Confirm receipt"
+              : "Review changes"
+          : chat?.title || "New conversation";
+  const subtitle = offline
+    ? "Offline · drafts and cached history"
+    : busy
+      ? phaseLabel(chat?.phase)
+      : page === "history"
+        ? `${list.data?.length ?? 0} ${list.data?.length === 1 ? "conversation" : "conversations"}`
+        : page === "receipt"
+          ? "Step 1 of 2 · Check details"
+          : receiptConfirmation
+            ? "Step 2 of 2 · Confirm and save"
+            : page === "proposal"
+              ? "Nothing is saved until you apply"
+              : chat?.status === "approval"
+                ? "Waiting for your decision"
+                : "Ask about your work";
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <View style={styles.header}>
-          <Pressable
-            accessibilityLabel={
-              page === "chat" && !preview ? "Close assistant" : "Back to chat"
-            }
-            onPress={close}
-            style={styles.icon}
-          >
-            {page === "chat" && !preview ? (
-              <X color={colors.foreground} size={22} />
-            ) : (
-              <ArrowLeft color={colors.foreground} size={22} />
-            )}
-          </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text numberOfLines={1} style={styles.title}>
-              {preview
-                ? "Image preview"
-                : page === "history"
-                  ? "Chat history"
-                  : page === "receipt"
-                    ? "Receipt review"
-                    : page === "proposal"
-                      ? receiptConfirmation
-                        ? "Confirm receipt"
-                        : "Review changes"
-                      : chat?.title || "Timely assistant"}
-            </Text>
-            <Text style={common.muted}>
-              {offline
-                ? "Offline · drafts and cached history"
-                : busy
-                  ? "Working · you can leave this chat"
-                  : page === "receipt"
-                    ? "Step 1 of 2 · Check details"
-                    : receiptConfirmation
-                      ? "Step 2 of 2 · Confirm and save"
-                      : "Ask about your work"}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityLabel="Chat history"
-            onPress={() => {
-              setPreview(undefined);
-              setPage("history");
-            }}
-            style={styles.icon}
-          >
-            <MessageCircle color={colors.primary} size={22} />
-          </Pressable>
-          <Pressable
-            accessibilityLabel="New chat"
-            onPress={newChat}
-            style={styles.icon}
-          >
-            <Plus color={colors.primary} size={22} />
-          </Pressable>
-        </View>
+        <AssistantHeader
+          title={title}
+          subtitle={subtitle}
+          status={page === "chat" && !preview ? chat?.status : undefined}
+          phase={chat?.phase}
+          back={page !== "chat" || !!preview}
+          onBack={close}
+          actions={
+            page === "chat" && !preview ? (
+              <>
+                <IconButton
+                  label={
+                    unreadCount
+                      ? `Chat history, ${unreadCount} unread`
+                      : "Chat history"
+                  }
+                  onPress={() => {
+                    setPreview(undefined);
+                    setPage("history");
+                  }}
+                >
+                  <View>
+                    <MessageCircle size={20} color={colors.foreground} />
+                    {unreadCount ? (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>
+                          {unreadCount > 9 ? "9+" : unreadCount}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </IconButton>
+                <IconButton label="New chat" onPress={newChat}>
+                  <Plus size={20} color={colors.foreground} />
+                </IconButton>
+              </>
+            ) : null
+          }
+        />
         {preview ? (
           <View style={styles.preview}>
             <ScrollView
@@ -649,7 +710,7 @@ export default function Assistant() {
                 resizeMode="contain"
               />
             </ScrollView>
-            {preview.candidate && (
+            {preview.candidate ? (
               <Action
                 label="Attach screenshot"
                 primary
@@ -659,54 +720,25 @@ export default function Assistant() {
                   setPreview(undefined);
                 }}
               />
-            )}
+            ) : null}
             <Action label="Back" onPress={() => setPreview(undefined)} />
           </View>
         ) : page === "history" ? (
-          <View style={{ flex: 1, padding: 16, gap: 12 }}>
-            <TextInput
-              accessibilityLabel="Search chat history"
-              placeholder="Search conversations"
-              placeholderTextColor={colors.mutedForeground}
-              value={historySearch}
-              onChangeText={setHistorySearch}
-              style={styles.input}
-            />
-            <ScrollView>
-              {(list.data ?? [])
-                .filter((item) =>
-                  item.title
-                    .toLowerCase()
-                    .includes(historySearch.toLowerCase()),
-                )
-                .map((item) => (
-                  <Pressable
-                    key={item.id}
-                    style={styles.historyRow}
-                    onPress={() => {
-                      assistant.select(item.id);
-                      setPage("chat");
-                    }}
-                  >
-                    <Text style={styles.title}>
-                      {item.unread ? "● " : ""}
-                      {item.title}
-                    </Text>
-                    <Text style={common.muted}>
-                      {item.status === "approval"
-                        ? "Needs approval"
-                        : item.status}{" "}
-                      · {new Date(item.updatedAt).toLocaleString()}
-                    </Text>
-                  </Pressable>
-                ))}
-              {!list.data?.length && (
-                <Text style={common.muted}>
-                  Your conversations appear here after sending a message.
-                </Text>
-              )}
-            </ScrollView>
-          </View>
+          <HistoryPage
+            chats={list.data ?? []}
+            loading={list.isLoading}
+            refreshing={list.isRefetching && !list.isPending}
+            error={list.error?.message}
+            offline={offline}
+            activeId={id}
+            onRefresh={() => void list.refetch()}
+            onOpen={(chatId) => {
+              assistant.select(chatId);
+              setPage("chat");
+            }}
+            onRename={rename}
+            onDelete={remove}
+          />
         ) : (
           <>
             <ScrollView
@@ -724,564 +756,293 @@ export default function Assistant() {
                   onImage={(uri) => setPreview({ uri })}
                 />
               ) : page === "proposal" && chat ? (
-                <>
-                  {receiptConfirmation && review?.receipt ? (
-                    <ReceiptSaveSummary
-                      receipt={review.receipt}
-                      destination={review.destination!}
-                    />
-                  ) : (
-                    <Text style={common.muted}>
-                      {
-                        chat.plan.filter((step) => step.status === "done")
-                          .length
-                      }{" "}
-                      / {chat.plan.length} complete
-                    </Text>
-                  )}
-                  {!receiptConfirmation && (
-                    <ChangeCards
-                      steps={reviewSteps ?? chat.plan}
-                      onLink={openLink}
-                    />
-                  )}
-                  {!reviewSteps && chat.status === "approval" && (
-                    <>
-                      {receiptDirty && (
-                        <Text style={common.muted}>
-                          Receipt details changed. Return to the receipt and
-                          continue again to update this preview.
-                        </Text>
-                      )}
-                      <Action
-                        label={
-                          receiptConfirmation ? "Save receipt" : "Apply changes"
-                        }
-                        primary
-                        disabled={locked || receiptDirty}
-                        onPress={() =>
-                          act("/approve", { revision: chat.revision })
-                        }
-                      />
-                      {receiptConfirmation && (
-                        <Action
-                          label="Back to edit receipt"
-                          disabled={locked}
-                          onPress={() => setPage("receipt")}
-                        />
-                      )}
-                    </>
-                  )}
-                  {receiptConfirmation && (
-                    <ChangeCards steps={chat.plan} onLink={openLink} compact />
-                  )}
-                </>
+                <ProposalPage
+                  chat={chat}
+                  steps={reviewSteps ?? chat.plan}
+                  archived={!!reviewSteps}
+                  receiptConfirmation={receiptConfirmation}
+                  receiptDirty={receiptDirty}
+                  locked={locked}
+                  pending={pending}
+                  offline={offline}
+                  act={act}
+                  onLink={openLink}
+                  onEditReceipt={() => setPage("receipt")}
+                />
               ) : (
                 <>
-                  {id && query.isLoading && (
-                    <ActivityIndicator color={colors.primary} />
-                  )}
-                  {id && !chat && offline && (
-                    <Text style={common.muted}>
-                      This conversation is not cached. Reconnect to load it.
-                    </Text>
-                  )}
-                  {!id && (
-                    <View style={styles.welcome}>
-                      <Sparkles size={32} color={colors.primary} />
-                      <Text style={styles.hero}>
-                        What would you like to make happen?
-                      </Text>
-                      <Text style={common.text}>
-                        Plan your day, shape a sheet, or attach a receipt photo
-                        to save an expense.
-                      </Text>
-                      {[
-                        "Help me plan today.",
-                        "Create a project budget sheet with Item, Quantity, Unit price, and Total columns.",
-                        "Create a workspace for learning Japanese and add three study sessions.",
-                      ].map((text) => (
-                        <Action
-                          key={text}
-                          label={text}
-                          onPress={() => editText(text)}
-                          disabled={!!otherDraft}
-                        />
-                      ))}
-                    </View>
-                  )}
-                  {chat?.messages?.map((message) => (
-                    <View
-                      key={message.id}
-                      style={[
-                        styles.message,
-                        message.role === "user" && styles.userMessage,
-                      ]}
+                  {id && query.isLoading ? (
+                    <ActivityIndicator
+                      color={colors.primary}
+                      style={{ marginTop: 24 }}
+                    />
+                  ) : null}
+                  {id && !chat && offline ? (
+                    <StatusCard
+                      tone="warning"
+                      icon={WifiOff}
+                      title="This conversation is not cached"
+                      body="Reconnect to load it. Cached chats open offline from history."
+                    />
+                  ) : null}
+                  {id && !chat && !offline && query.error ? (
+                    <StatusCard
+                      tone="destructive"
+                      icon={AlertTriangle}
+                      title="Couldn't load this conversation"
+                      body={query.error.message}
                     >
-                      <Text style={styles.speaker}>
-                        {message.role === "user" ? "You" : "Timely"}
-                      </Text>
-                      <ChatText text={message.content} onLink={openLink} />
-                      {(chat.images ?? [])
-                        .filter((image) => message.imageIds?.includes(image.id))
-                        .map((image) => (
-                          <ImagePreview
-                            key={image.id}
-                            image={image}
-                            onOpen={(uri) => setPreview({ uri })}
-                          />
-                        ))}
-                      {message.receipt && (
-                        <View style={common.stack}>
-                          <Text style={common.text}>
-                            {message.receipt.merchant} ·{" "}
-                            {message.receipt.currency} {message.receipt.total} ·{" "}
-                            {message.receipt.date}
-                          </Text>
-                          {message.receipt.items.map((item, i) => (
-                            <Text key={i} style={common.muted}>
-                              {item.description} · {item.amount}
-                            </Text>
-                          ))}
-                        </View>
-                      )}
-                      {!!message.steps?.length && (
-                        <Action
-                          label="Review previous changes"
-                          onPress={() => {
-                            setReviewSteps(message.steps!);
-                            setPage("proposal");
-                          }}
-                        />
-                      )}
-                    </View>
-                  ))}
-                  {savedReceipt && review?.receipt && (
-                    <View style={styles.change}>
-                      <Text style={styles.title}>✓ Receipt saved</Text>
-                      <Text style={common.text}>
-                        {review.receipt.merchant} · {review.receipt.currency}{" "}
-                        {review.receipt.total}
-                      </Text>
-                      {savedSheetId && (
+                      <Action
+                        label="Try again"
+                        compact
+                        onPress={() => void query.refetch()}
+                      />
+                    </StatusCard>
+                  ) : null}
+                  {!id ? (
+                    <Welcome disabled={otherDraft} onPick={editText} />
+                  ) : null}
+                  {chat ? (
+                    <Thread
+                      chat={chat}
+                      onLink={openLink}
+                      onPreviewImage={(uri) => setPreview({ uri })}
+                      onReviewArchive={(steps) => {
+                        setReviewSteps(steps);
+                        setPage("proposal");
+                      }}
+                    />
+                  ) : null}
+                  {savedReceipt && review?.receipt ? (
+                    <StatusCard
+                      tone="success"
+                      icon={ReceiptText}
+                      title="Receipt saved"
+                      body={`${review.receipt.merchant} · ${review.receipt.currency} ${review.receipt.total}`}
+                    >
+                      {savedSheetId ? (
                         <Action
                           label="Open expense sheet"
-                          primary
+                          compact
                           onPress={() => openLink(`/sheets/${savedSheetId}`)}
                         />
-                      )}
-                    </View>
-                  )}
-                  {review?.status === "review" && review.receipt && (
-                    <Action
-                      label={
+                      ) : null}
+                    </StatusCard>
+                  ) : null}
+                  {review?.status === "review" && review.receipt ? (
+                    <StatusCard
+                      tone="warning"
+                      icon={ReceiptText}
+                      title={
                         chat?.status === "approval"
-                          ? "Edit receipt details"
-                          : "Check receipt details"
+                          ? "Receipt ready to save"
+                          : "Receipt needs a check"
                       }
-                      primary={chat?.status !== "approval"}
-                      onPress={() => setPage("receipt")}
-                    />
-                  )}
-                  {review?.status === "review" && !review.receipt && (
-                    <View style={common.stack}>
-                      <Text style={common.muted}>
-                        Confirm to remove temporary images and keep extracted
-                        text.
-                      </Text>
+                      body="Review the extracted details and choose where to save them."
+                    >
                       <Action
-                        label="Confirm image review"
-                        disabled={locked}
-                        onPress={() =>
-                          act("/images/confirm", { revision: chat?.revision })
+                        label={
+                          chat?.status === "approval"
+                            ? "Edit receipt details"
+                            : "Check receipt details"
                         }
+                        primary={chat?.status !== "approval"}
+                        compact
+                        onPress={() => setPage("receipt")}
                       />
-                      <Action
-                        label="Discard images"
-                        disabled={pending || offline}
-                        onPress={() => act("/images/discard")}
-                      />
-                    </View>
-                  )}
-                  {!!chat?.plan?.length && (
-                    <Action
-                      label={
-                        chat.status === "approval"
-                          ? "Review proposed changes"
-                          : "View changes and progress"
-                      }
-                      primary={chat.status === "approval"}
-                      onPress={() => {
+                    </StatusCard>
+                  ) : null}
+                  {review?.status === "review" && !review.receipt ? (
+                    <StatusCard
+                      tone="primary"
+                      icon={ReceiptText}
+                      title="Keep the extracted text?"
+                      body="Confirm to remove temporary images and keep what was read from them."
+                    >
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        <View style={{ flex: 1 }}>
+                          <Action
+                            label="Confirm"
+                            primary
+                            compact
+                            disabled={locked}
+                            onPress={() =>
+                              act("/images/confirm", {
+                                revision: chat?.revision,
+                              })
+                            }
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Action
+                            label="Discard images"
+                            compact
+                            disabled={pending || offline}
+                            onPress={() => act("/images/discard")}
+                          />
+                        </View>
+                      </View>
+                    </StatusCard>
+                  ) : null}
+                  {chat?.plan?.length ? (
+                    <PlanSummary
+                      chat={chat}
+                      onOpen={() => {
                         setReviewSteps(null);
                         setPage("proposal");
                       }}
                     />
-                  )}
-                  {busy && (
-                    <View style={common.stack}>
-                      <ActivityIndicator color={colors.primary} />
-                      <Text style={common.muted}>
-                        {chat?.phase === "apply"
-                          ? "Saving your changes…"
-                          : chat?.phase === "extract"
-                            ? "Reading your images…"
-                            : chat?.phase === "receipt_edit"
-                              ? "Revising your receipt…"
-                              : "Thinking it through…"}{" "}
-                        You can leave this chat.
-                      </Text>
-                    </View>
-                  )}
-                  {chat?.error && (
-                    <Text style={styles.error}>{chat.error}</Text>
-                  )}
-                  {chat && ["failed", "stopped"].includes(chat.status) && (
-                    <Action
-                      label={
-                        chat.phase === "apply"
-                          ? "Review unfinished changes"
-                          : "Try again"
-                      }
-                      disabled={locked}
-                      onPress={() => act("/retry")}
+                  ) : null}
+                  {chat ? <RunStatus chat={chat} /> : null}
+                  {chat ? (
+                    <FailureCard
+                      chat={chat}
+                      locked={locked}
+                      onRetry={() => act("/retry")}
                     />
-                  )}
+                  ) : null}
                 </>
               )}
-              {(error || query.error?.message || list.error?.message) && (
-                <Text style={styles.error}>
-                  {error || query.error?.message || list.error?.message}
-                </Text>
-              )}
+              {error ? (
+                <View style={styles.inlineError}>
+                  <AlertTriangle size={16} color={colors.destructive} />
+                  <Text style={[styles.errorText, { flex: 1 }]}>{error}</Text>
+                </View>
+              ) : null}
             </ScrollView>
-            {page === "chat" && (
-              <View style={styles.composer}>
-                {otherDraft ? (
-                  <View style={common.stack}>
-                    <Text style={common.muted}>
-                      You have an unsent draft in another conversation.
-                    </Text>
-                    <Action
-                      label="Return to unsent draft"
-                      onPress={() =>
-                        assistant.select(cachedDraft.conversationId ?? null)
-                      }
-                    />
-                    <Action
-                      label="Discard unsent draft"
-                      onPress={discardDraft}
-                    />
-                  </View>
-                ) : (
-                  <>
-                    {!!context.length && (
-                      <ScrollView horizontal contentContainerStyle={{ gap: 8 }}>
-                        {context.map((chip, index) => (
-                          <Pressable
-                            key={`${chip.kind}:${index}`}
-                            disabled={busy || pending}
-                            onPress={() =>
-                              configure(context.filter((_, i) => i !== index))
-                            }
-                            style={styles.chip}
-                          >
-                            <Text numberOfLines={1} style={common.muted}>
-                              {chip.label} ×
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </ScrollView>
-                    )}
-                    {!!draft.images.length && (
-                      <ScrollView horizontal contentContainerStyle={{ gap: 8 }}>
-                        {draft.images.map((image) => (
-                          <View key={image.uri}>
-                            <Pressable
-                              onPress={() => setPreview({ uri: image.uri })}
-                            >
-                              <Image
-                                source={{ uri: image.uri }}
-                                style={{
-                                  width: 72,
-                                  height: 72,
-                                  borderRadius: 12,
-                                }}
-                              />
-                            </Pressable>
-                            <Action
-                              label="Remove"
-                              disabled={pending}
-                              onPress={() => {
-                                assistant.setDraft((value) => ({
-                                  ...value,
-                                  images: value.images.filter(
-                                    (item) => item.uri !== image.uri,
-                                  ),
-                                  requestId: undefined,
-                                }));
-                                void removeLocalImage(image.uri);
-                                if (image.uploaded)
-                                  void chatRequest(
-                                    `/images/${image.uploaded.id}`,
-                                    "DELETE",
-                                  ).catch(() => undefined);
-                              }}
-                            />
-                          </View>
-                        ))}
-                      </ScrollView>
-                    )}
-                    <TextInput
-                      accessibilityLabel="Message the assistant"
-                      placeholder={
-                        draft.images.length
-                          ? "Add a note (optional)…"
-                          : "Ask Timely…"
-                      }
-                      placeholderTextColor={colors.mutedForeground}
-                      value={draft.text}
-                      editable={!pending && !busy}
-                      onChangeText={editText}
-                      multiline
-                      maxLength={16000}
-                      style={[styles.input, { maxHeight: 130 }]}
-                    />
-                    <View style={styles.tools}>
-                      <Action
-                        label="Attach"
-                        disabled={pending || busy || draft.images.length >= 5}
-                        onPress={attachMenu}
-                      />
-                      <Action
-                        label="Add current screen"
-                        disabled={pending || busy || (!!id && offline)}
-                        onPress={addScreen}
-                      />
-                      {busy ? (
-                        <Action
-                          label="Stop"
-                          disabled={pending || offline}
-                          onPress={() => act("/stop")}
-                        />
-                      ) : (
-                        <Action
-                          label={
-                            uploading
-                              ? "Uploading…"
-                              : draft.images.length && !draft.text.trim()
-                                ? "Read receipt"
-                                : "Send"
-                          }
-                          primary
-                          disabled={
-                            locked ||
-                            (!draft.text.trim() && !draft.images.length)
-                          }
-                          onPress={() => void send()}
-                        />
-                      )}
-                    </View>
-                    <View style={styles.search}>
-                      <Switch
-                        accessibilityLabel="Web search"
-                        value={
-                          search && !chat?.sensitive && !draft.images.length
-                        }
-                        disabled={
-                          busy ||
-                          pending ||
-                          chat?.sensitive ||
-                          !!draft.images.length ||
-                          (!!id && offline)
-                        }
-                        onValueChange={(value) => configure(context, value)}
-                      />
-                      <Text style={common.muted}>
-                        {chat?.sensitive || draft.images.length
-                          ? "Private images · web search unavailable"
-                          : "Web search"}
-                      </Text>
-                      {draft.text || draft.images.length ? (
-                        <Pressable disabled={pending} onPress={discardDraft}>
-                          <Text style={common.muted}>Discard draft</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  </>
-                )}
-              </View>
-            )}
+            {page === "chat" ? (
+              <Composer
+                text={draft.text}
+                onChangeText={editText}
+                placeholder={
+                  draft.images.length
+                    ? "Add a note (optional)…"
+                    : chat?.status === "approval"
+                      ? "Tell me what to change…"
+                      : "Ask Timely…"
+                }
+                chips={context}
+                onRemoveChip={(index) =>
+                  configure(context.filter((_, i) => i !== index))
+                }
+                onAddScreen={addScreen}
+                canConfigure={canConfigure}
+                images={draft.images}
+                onPreview={(uri) => setPreview({ uri })}
+                onRemoveImage={removeImage}
+                onAttach={() => setAttachOpen(true)}
+                search={search}
+                onToggleSearch={() => configure(context, !search)}
+                privateImages={!!chat?.sensitive || draft.images.length > 0}
+                busy={busy}
+                pending={pending}
+                uploading={uploading}
+                offline={offline}
+                editable={!pending && !busy}
+                onSend={() => void send()}
+                onStop={() => act("/stop")}
+                hasDraft={hasDraft}
+                onDiscardDraft={() => setConfirmDiscard(true)}
+                otherDraft={otherDraft}
+                onReturnDraft={() =>
+                  assistant.select(cachedDraft?.conversationId ?? null)
+                }
+              />
+            ) : null}
           </>
         )}
       </KeyboardAvoidingView>
+      <AttachSheet
+        open={attachOpen}
+        remaining={Math.max(0, 5 - draft.images.length)}
+        onClose={() => setAttachOpen(false)}
+        onPick={(source) => void picker(source)}
+      />
+      <ConfirmSheet
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        title="Discard unsent draft?"
+        message="Its text, context and attachments will be removed."
+        confirmLabel="Discard"
+        onConfirm={discardDraft}
+      />
     </SafeAreaView>
   );
 }
-function ChangeCards({
-  steps,
-  onLink,
-  compact = false,
-}: {
-  steps: ChatStep[];
-  onLink: (href: string) => void;
-  compact?: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
+
+/** Compact entry point to the proposal page from the thread. */
+function PlanSummary({ chat, onOpen }: { chat: Chat; onOpen: () => void }) {
+  const done = chat.plan.filter((step) => step.status === "done").length;
+  const total = chat.plan.length;
+  const approval = chat.status === "approval";
+  const failed = chat.status === "failed";
+  const applying = isBusy(chat.status) && chat.phase === "apply";
+  const tone = approval
+    ? "warning"
+    : failed
+      ? "destructive"
+      : done === total
+        ? "success"
+        : "primary";
   return (
-    <View style={{ gap: 16 }}>
-      {compact && (
-        <Action
-          label={expanded ? "Hide sheet changes" : "View sheet changes"}
-          onPress={() => setExpanded(!expanded)}
-        />
-      )}
-      {(!compact || expanded) &&
-        steps.map((step, i) => {
-          const result = step.result;
-          const entries: [string, string][] = [
-            ["sheet", "sheets"],
-            ["task", "tasks"],
-            ["project", "projects"],
-            ["doc", "docs"],
-            ["event", "events"],
-          ];
-          const links = entries.flatMap(([key, path]) => {
-            const item = result?.[key] as
-              | { id?: string; title?: string; name?: string }
-              | undefined;
-            return item?.id
-              ? [
-                  {
-                    href: `/${path}/${item.id}`,
-                    label: item.title || item.name || `Open ${key}`,
-                  },
-                ]
-              : [];
-          });
-          if (!links.length && typeof result?.id === "string") {
-            const path = step.tool.includes("sheet_template")
-              ? "sheets/templates"
-              : step.tool.includes("sheet")
-                ? "sheets"
-                : step.tool.includes("doc")
-                  ? "docs"
-                  : step.tool.includes("project")
-                    ? "projects"
-                    : step.tool.includes("event")
-                      ? "events"
-                      : step.tool.includes("task")
-                        ? "tasks"
-                        : "";
-            if (path)
-              links.push({
-                href: `/${path}/${result.id}`,
-                label: String(result.title || result.name || "Open item"),
-              });
-          }
-          return (
-            <View key={i} style={styles.change}>
-              <Text style={styles.title}>
-                {step.status === "done" ? "✓ " : `${i + 1}. `}
-                {step.summary}
-              </Text>
-              <Text style={common.muted}>{step.status}</Text>
-              {step.error && <Text style={styles.error}>{step.error}</Text>}
-              {links.map((link) => (
-                <Action
-                  key={link.href}
-                  label={link.label}
-                  onPress={() => onLink(link.href)}
-                />
-              ))}
-              <Text style={styles.speaker}>After</Text>
-              <DetailValue value={step.arguments} onLink={onLink} />
-              {step.before && (
-                <>
-                  <Text style={styles.speaker}>Before</Text>
-                  <DetailValue value={step.before} onLink={onLink} />
-                </>
-              )}
-            </View>
-          );
-        })}
-    </View>
+    <StatusCard
+      tone={tone}
+      icon={ClipboardList}
+      spinning={applying}
+      title={
+        approval
+          ? "Changes ready for your review"
+          : applying
+            ? "Applying changes"
+            : failed
+              ? "Some changes did not finish"
+              : chat.status === "stopped"
+                ? "Stopped before finishing"
+                : done === total
+                  ? "Changes applied"
+                  : "Your changes"
+      }
+      body={`${done} of ${total} ${total === 1 ? "change" : "changes"} applied`}
+    >
+      <Action
+        label={approval ? "Review and apply" : "View changes"}
+        primary={approval}
+        compact
+        onPress={onOpen}
+      />
+    </StatusCard>
   );
 }
+
 const styles = createThemedStyleSheet(() => ({
   root: { flex: 1, backgroundColor: colors.background },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: 12,
-    borderBottomWidth: 0.5,
-    borderBottomColor: colors.border,
-  },
-  icon: {
-    width: 48,
-    height: 48,
+  content: { padding: 16, paddingBottom: 24, gap: 16, flexGrow: 1 },
+  preview: { flex: 1, padding: 16, gap: 12 },
+  badge: {
+    position: "absolute",
+    top: -6,
+    right: -8,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 3,
   },
-  title: { fontSize: 16, fontWeight: "700", color: colors.foreground },
-  content: { padding: 20, gap: 20, flexGrow: 1 },
-  hero: {
-    color: colors.foreground,
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: "800",
+  badgeText: {
+    color: colors.primaryForeground,
+    fontSize: 9,
+    fontWeight: "700",
   },
-  welcome: { gap: 20, paddingVertical: 20 },
-  message: { gap: 8 },
-  userMessage: {
-    marginLeft: 24,
-    padding: 16,
-    borderRadius: 20,
-    backgroundColor: colors.muted,
-  },
-  speaker: { color: colors.primary, fontSize: 12, fontWeight: "700" },
-  composer: {
-    gap: 8,
-    padding: 12,
-    borderTopWidth: 0.5,
-    borderTopColor: colors.border,
-  },
-  input: {
-    minHeight: 48,
-    color: colors.foreground,
-    fontSize: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 16,
-    backgroundColor: colors.muted,
-  },
-  tools: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
-  search: {
+  inlineError: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    flexWrap: "wrap",
-  },
-  chip: {
+    borderRadius: 14,
+    backgroundColor: `${colors.destructive}14`,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    maxWidth: 220,
-    borderRadius: 16,
-    backgroundColor: colors.muted,
+    paddingVertical: 10,
   },
-  error: { color: colors.destructive, fontSize: 14, lineHeight: 22 },
-  historyRow: {
-    paddingVertical: 18,
-    borderBottomWidth: 0.5,
-    borderBottomColor: colors.border,
-    gap: 4,
-  },
-  preview: { flex: 1, padding: 16, gap: 12 },
-  change: {
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: colors.border,
-    gap: 12,
-  },
+  errorText: { color: colors.destructive, fontSize: 13, lineHeight: 19 },
 }));

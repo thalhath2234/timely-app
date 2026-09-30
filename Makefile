@@ -151,11 +151,11 @@ build-desktop: ## Package an unpacked Electron app for this OS (release/<platfor
 dist-desktop: ## Build a distributable Electron installer for this OS (AppImage / dmg / nsis)
 	@pnpm --filter @timely/web electron:dist
 
-build-apk: ## Build the Android release APK (memory-capped, detached). Usage: make build-apk [API_URL=https://...]
-	@scripts/build-apk.sh $(API_URL)
+build-apk: ## Build the Android release APK (memory-capped, detached). Usage: make build-apk API_URL=https://... (defaults to apps/mobile/.env.local)
+	@scripts/build-apk.sh $(if $(API_URL),--api-url "$(API_URL)")
 
-install-apk: ## Build the Android release APK and install it on a connected phone. Usage: make install-apk [API_URL=https://...]
-	@scripts/install-apk.sh $(API_URL)
+install-apk: ## Build the Android release APK and install it on a connected phone. Usage: make install-apk API_URL=https://...
+	@scripts/install-apk.sh $(if $(API_URL),--api-url "$(API_URL)")
 
 apk-status: ## Show status of the detached APK build
 	@systemctl --user status timely-apk-build.service --no-pager || true
@@ -270,8 +270,11 @@ format-sheet-formulas: ## Format sheet formula helpers and tests
 test-mobile-assistant: ## Test mobile assistant context and notification routing
 	@node --experimental-strip-types --test scripts/mobile-assistant.test.mjs
 format-mobile-assistant: ## Format mobile assistant and its screen context integration
-	@pnpm exec prettier --write apps/mobile/components/chat apps/mobile/lib/chat apps/mobile/lib/api/chat.ts apps/mobile/lib/notificationRoute.ts scripts/mobile-assistant.test.mjs
+	@pnpm exec prettier --write apps/mobile/components/chat apps/mobile/lib/chat apps/mobile/lib/api/chat.ts apps/mobile/lib/notificationRoute.ts scripts/mobile-assistant.test.mjs scripts/audit-mobile-assistant.mjs
 
-.PHONY: audit-mobile-receipt
+.PHONY: audit-mobile-receipt audit-mobile-assistant
 audit-mobile-receipt: ## Preview the mobile receipt flow on :4002 with fixture APIs (optional AUDIT_RECEIPT_IMAGE)
 	@node scripts/audit-mobile-receipt.mjs
+
+audit-mobile-assistant: ## Check the mobile assistant screens in Chromium with fixture APIs (web on :4002; AUDIT_CHECK=0 to only serve)
+	@AUDIT_CHECK=$${AUDIT_CHECK-1} node scripts/audit-mobile-assistant.mjs
