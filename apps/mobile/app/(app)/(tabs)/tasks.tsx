@@ -1,3 +1,5 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
 import { useCallback, useMemo, useState } from "react";
 import { FlatList, Platform, RefreshControl, ScrollView, SectionList, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -250,6 +252,12 @@ export default function TasksScreen() {
         };
       });
   }, [activeView, projects, projectId, tasks]);
+
+  useAssistantScreen([
+    contextChip("task-view", activeView?.name || "Task view", { filters: activeView ? filtersFromView(activeView) : {}, projectId, dataMode: activeView?.dataMode, scope: selectedIds.length ? "selected" : "all-filtered-matches", taskIds: selectedIds.length ? selectedIds : visible.map((task) => task.id), projectIds: activeView?.dataMode === "project" ? projectRows.map((project) => project.id) : undefined }),
+    ...(projectId ? [contextChip("project", project?.title || "Project", projectId)] : []),
+    ...(workspaceFilter ? [contextChip("workspace", "Workspace", workspaceFilter)] : []),
+  ]);
 
   const selecting = selectedIds.length > 0;
   const statuses = useMemo(

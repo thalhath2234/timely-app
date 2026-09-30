@@ -1,3 +1,5 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -125,6 +127,7 @@ export default function HomeScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<string[]>([]);
   const [now, setNow] = useState(() => Date.now());
+  useAssistantScreen([contextChip("today", "Today", { date: new Date(now).toLocaleDateString("en-CA"), selectedTaskIds: pickerSelected })]);
   const data = today.data;
   const focusingId = data?.focusing?.id;
   const focusSession = data?.focusing ?? data?.pausedFocus;

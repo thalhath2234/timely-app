@@ -1,3 +1,5 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -70,6 +72,7 @@ export default function FilesScreen() {
   const reduceMotion = Boolean(useReducedMotion());
   const [kind, setKind] = useState<Kind>("docs");
   const [showArchived, setShowArchived] = useState(false);
+  useAssistantScreen([contextChip("file-view", "Files", { kind, showArchived })]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [menuDoc, setMenuDoc] = useState<Doc | null>(null);
   const [deleteDocItem, setDeleteDocItem] = useState<Doc | null>(null);

@@ -1,3 +1,5 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -75,6 +77,8 @@ function DocEditor({ docId }: { docId: string }) {
     [doc?.id],
   );
 
+  const [assistantText, setAssistantText] = useState(doc?.plainText ?? "");
+  const [selectedText, setSelectedText] = useState("");
   const [title, setTitle] = useState(doc?.title ?? "");
   const [icon, setIcon] = useState(doc?.icon ?? "");
   const [favorite, setFavorite] = useState(Boolean(doc?.isFavorite));
@@ -112,6 +116,13 @@ function DocEditor({ docId }: { docId: string }) {
     setEditorSync((value) => value + 1);
   }, [remoteEpoch, doc?.title, doc?.icon, doc?.isFavorite, doc?.plainText, doc?.content]);
 
+  useAssistantScreen(doc ? [
+    contextChip("object", title || "Document", `docs/${docId}`),
+    contextChip("workspace", "Workspace", doc.workspaceId),
+    ...(doc.projectId ? [contextChip("project", "Project", doc.projectId)] : []),
+    ...(selectedText ? [contextChip("selection", "Selected text", selectedText)] : []),
+    ...(hasUnsavedChanges() ? [contextChip("draft", "Unsaved document", { title, plainText: assistantText })] : []),
+  ] : []);
   if (!doc) return null;
 
   const workspace = spaces.find((w) => w.id === doc.workspaceId);
@@ -181,10 +192,12 @@ function DocEditor({ docId }: { docId: string }) {
             ? { type: "doc", content: [{ type: "paragraph" }] }
             : (remoteContent ?? seedContent)
         }
+        onSelectionChange={setSelectedText}
         onFocusChange={(focused) => {
           editorFocusedRef.current = focused;
         }}
         onChange={({ content, plainText }) => {
+          setAssistantText(plainText);
           setWordCount(countWords(plainText));
           schedule({ content, plainText });
         }}

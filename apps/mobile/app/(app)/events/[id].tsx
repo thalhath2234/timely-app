@@ -1,3 +1,5 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -64,6 +66,13 @@ export default function EventDetailScreen() {
     setAllDay(event.allDay);
     setRecurrence(event.recurrence ? rruleToDraft(event.recurrence.rrule, new Date(event.start)) : null);
   }, [event?.id, event?.updatedAt]);
+
+  useAssistantScreen(event ? [
+    contextChip("object", title || "Event", `events/${event.id}`),
+    contextChip("workspace", "Workspace", event.workspaceId),
+    ...(projectId ? [contextChip("project", "Project", projectId)] : []),
+    contextChip("draft", "Local event form", { title, description, start: start.toISOString(), end: end.toISOString(), allDay, scope, recurrence }),
+  ] : []);
 
   if (fetched.isLoading && !event && !item) {
     return (

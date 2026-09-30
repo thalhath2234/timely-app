@@ -103,8 +103,10 @@ audit-index: ## Rebuild and validate the portable screenshot gallery
 	@python audit/scripts/build_index.py
 	@python audit/scripts/build_inventory.py
 
+MOBILE_METRO_FLAGS ?=
+
 dev-mobile: setup-mobile-env ## Start the Expo dev server (Metro on :8082; leave :8081 for the worktree API)
-	@pnpm --filter @timely/mobile exec expo start --lan --port 8082 --go
+	@pnpm --filter @timely/mobile exec expo start --lan --port 8082 --go $(MOBILE_METRO_FLAGS)
 
 dev-mobile-device: setup-mobile-env ## Metro + Expo Go on a USB phone (adb reverse :8082)
 	@ANDROID_HOME=$${ANDROID_HOME:-$${ANDROID_SDK_ROOT:-/home/thalhath/.local/android-sdk}}; \
@@ -263,3 +265,9 @@ lint-sheet-formulas: ## Lint sheet formula evaluation and editing helpers
 	@pnpm --filter @timely/web exec eslint app/utils/sheetFormula.ts app/utils/sheetFormulaInput.ts
 format-sheet-formulas: ## Format sheet formula helpers and tests
 	@pnpm exec prettier --write apps/web/app/utils/sheetFormula.ts apps/web/app/utils/sheetFormulaInput.ts apps/mobile/lib/sheetFormula.ts apps/mobile/lib/sheetFormulaInput.ts scripts/sheet-formulas.test.mjs
+
+.PHONY: test-mobile-assistant format-mobile-assistant
+test-mobile-assistant: ## Test mobile assistant context and notification routing
+	@node --experimental-strip-types --test scripts/mobile-assistant.test.mjs
+format-mobile-assistant: ## Format mobile assistant and its screen context integration
+	@pnpm exec prettier --write apps/mobile/components/chat apps/mobile/lib/chat apps/mobile/lib/api/chat.ts apps/mobile/lib/notificationRoute.ts scripts/mobile-assistant.test.mjs

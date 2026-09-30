@@ -1,3 +1,5 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
 import { useRef, useState } from "react";
 import { Keyboard, ScrollView, Text, TextInput, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
@@ -46,6 +48,7 @@ export default function SearchTab() {
   const scroll = useRef<ScrollView>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<Category>("all");
+  useAssistantScreen([contextChip("search", "Search results", { query, category })]);
   const results = useSearchQuery(query);
   const trimmed = query.trim();
   const current = results.query === trimmed;

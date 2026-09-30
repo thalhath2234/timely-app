@@ -765,6 +765,16 @@ func (s *Service) HandlePush(ctx context.Context, job *models.Job) error {
 	if err != nil {
 		return err
 	}
+	if ntf.Category == "agent" {
+		if !settings.Planning || ntf.ReadAt != nil {
+			return s.repo.MarkDelivered(ntf.ID)
+		}
+		now := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(job.UserID)))
+		if settings.InQuietHours(now) {
+			_, err := s.queue.Enqueue(jobs.Enqueue{UserID: ntf.UserID, Kind: models.JobSendPush, DedupeKey: fmt.Sprintf("push:%s:quiet:%d", ntf.ID, settings.QuietEnd(now).Unix()), RunAt: settings.QuietEnd(now), Payload: models.JobPayload{"notificationId": ntf.ID}})
+			return err
+		}
+	}
 	return s.sendPush(ctx, ntf, settings)
 }
 
@@ -811,25 +821,43 @@ func (s *Service) sendPush(ctx context.Context, ntf *models.Notification, settin
 	}
 	messages := make([]expoMessage, 0, len(devices))
 	for _, device := range devices {
-		messages = append(messages, expoMessage{
-			To:         device.Token,
-			Title:      ntf.Title,
-			Body:       ntf.Body,
-			Sound:      "default",
-			ChannelID:  "reminders",
-			CategoryID: notificationCategory(ntf),
-			Data: map[string]any{
-				"notificationId": ntf.ID,
-				"category":       ntf.Category,
-				"taskId":         ntf.Data.String("taskId"),
-			},
-		})
+		messages = append(messages, notificationPushMessage(ntf, device.Token))
 	}
 	if err := s.postExpo(ctx, messages); err != nil {
 		return err
 	}
 	_ = settings
 	return s.repo.MarkDelivered(ntf.ID)
+}
+
+func notificationPushMessage(ntf *models.Notification, token string) expoMessage {
+	title, body, channel := ntf.Title, ntf.Body, "reminders"
+	if ntf.Category == "agent" {
+		title, channel = "Timely assistant", "agent"
+		switch ntf.Data.String("status") {
+		case "approval":
+			body = "Your assistant needs approval."
+		case "failed":
+			body = "Your assistant needs attention."
+		default:
+			body = "Your assistant has finished."
+		}
+	}
+	return expoMessage{
+		To:         token,
+		Title:      title,
+		Body:       body,
+		Sound:      "default",
+		ChannelID:  channel,
+		CategoryID: notificationCategory(ntf),
+		Data: map[string]any{
+			"notificationId": ntf.ID,
+			"category":       ntf.Category,
+			"taskId":         ntf.Data.String("taskId"),
+			"entityType":     ntf.EntityType,
+			"entityId":       ntf.EntityID,
+		},
+	}
 }
 
 func notificationCategory(ntf *models.Notification) string {

@@ -1,3 +1,5 @@
+import { routeForNotification } from "./notificationRoute";
+export { routeForNotification } from "./notificationRoute";
 import { PermissionsAndroid, Platform } from "react-native";
 import Constants from "expo-constants";
 import type { CalendarItem } from "./types";
@@ -87,6 +89,7 @@ export async function ensureReminderChannel() {
   const N = notifications();
   if (!N) return;
   if (Platform.OS === "android") {
+    await N.setNotificationChannelAsync("agent", { name: "Assistant", importance: N.AndroidImportance.DEFAULT, sound: "default" });
     await N.setNotificationChannelAsync(CHANNEL, {
       name: "Reminders",
       importance: N.AndroidImportance.HIGH,
@@ -236,40 +239,6 @@ export async function unregisterServerPush() {
   }
 }
 
-function dataString(data: Record<string, unknown>, key: string) {
-  const value = data[key];
-  return typeof value === "string" && value ? value : null;
-}
-
-export function routeForNotification(data: Record<string, unknown>): string {
-  const taskId = dataString(data, "taskId");
-  if (taskId) return `/(app)/tasks/${taskId}`;
-
-  const entityType = dataString(data, "entityType");
-  const entityId = dataString(data, "entityId");
-  if (entityType && entityId) {
-    if (entityType === "task") return `/(app)/tasks/${entityId}`;
-    if (entityType === "project") return `/(app)/projects/${entityId}`;
-    if (entityType === "doc") return `/(app)/docs/${entityId}`;
-    if (entityType === "sheet") return `/(app)/sheets/${entityId}`;
-    if (entityType === "event") return `/(app)/events/${entityId}`;
-  }
-
-  const entityRoutes = [
-    ["projectId", "projects"],
-    ["docId", "docs"],
-    ["sheetId", "sheets"],
-    ["eventId", "events"],
-  ] as const;
-  for (const [key, segment] of entityRoutes) {
-    const id = dataString(data, key);
-    if (id) return `/(app)/${segment}/${id}`;
-  }
-
-  const category = dataString(data, "category") ?? dataString(data, "kind");
-  if (category === "digest") return "/(app)/report";
-  return "/(app)/today";
-}
 
 export function addReminderResponseListener(
   onRoute: (href: string) => void,

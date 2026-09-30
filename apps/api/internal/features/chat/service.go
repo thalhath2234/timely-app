@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/jobs"
 	"timely-api/internal/models"
 
 	"github.com/google/uuid"
@@ -74,6 +75,7 @@ func (s *Service) get(c *echo.Context) error {
 }
 
 type sendInput struct {
+	RequestID string        `json:"requestId"`
 	ImageIDs  []string      `json:"imageIds"`
 	Content   string        `json:"content"`
 	Context   []ContextChip `json:"context"`
@@ -81,6 +83,9 @@ type sendInput struct {
 }
 
 func validateInput(in sendInput) error {
+	if len(in.RequestID) > 100 {
+		return echo.NewHTTPError(400, "Request ID is too long")
+	}
 	if (len(strings.TrimSpace(in.Content)) == 0 && len(in.ImageIDs) == 0) || len(in.Content) > 16000 {
 		return echo.NewHTTPError(400, "Message must be between 1 and 16,000 characters")
 	}
@@ -115,10 +120,26 @@ func (s *Service) create(c *echo.Context) error {
 	if len(title) > 70 {
 		title = title[:70]
 	}
-	row := Conversation{ID: id("chat_"), UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, Context: in.Context, Messages: []Message{message("user", in.Content)}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	cid := id("chat_")
+	if in.RequestID != "" {
+		cid = "chat_" + uuid.NewSHA1(uuid.NameSpaceOID, []byte(user(c)+":"+in.RequestID)).String()
+	}
+	firstMessage := message("user", in.Content)
+	firstMessage.RequestID = in.RequestID
+	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&row).Error; err != nil {
-			return err
+		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			if err := s.find(tx, user(c), cid, &row); err != nil {
+				return err
+			}
+			if len(row.Messages) == 0 || row.Messages[0].Content != in.Content {
+				return echo.NewHTTPError(409, "Request ID was already used for another message")
+			}
+			return nil
 		}
 		if err := attachImages(tx, &row, in.ImageIDs); err != nil {
 			return err
@@ -130,6 +151,9 @@ func (s *Service) create(c *echo.Context) error {
 	s.fillImages(&row)
 	return c.JSON(201, row)
 }
+
+var errAlreadySent = errors.New("message already accepted")
+
 func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error) error {
 	var row Conversation
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -137,6 +161,9 @@ func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error
 			return err
 		}
 		if err := fn(tx, &row); err != nil {
+			if errors.Is(err, errAlreadySent) {
+				return nil
+			}
 			return err
 		}
 		row.Revision++
@@ -168,6 +195,19 @@ func (s *Service) send(c *echo.Context) error {
 		return err
 	}
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+		if strings.TrimSpace(in.Content) == "" {
+			in.Content = "Process these images"
+		}
+		if in.RequestID != "" {
+			for _, existing := range row.Messages {
+				if existing.RequestID == in.RequestID {
+					if existing.Content != in.Content {
+						return echo.NewHTTPError(409, "Request ID was already used for another message")
+					}
+					return errAlreadySent
+				}
+			}
+		}
 		if busy(row) {
 			return echo.NewHTTPError(409, "Stop or wait for the current run before sending another message")
 		}
@@ -182,7 +222,9 @@ func (s *Service) send(c *echo.Context) error {
 		}
 		row.ForceReview = row.Status == "approval" || row.Sensitive
 		archivePlan(row)
-		row.Messages = append(row.Messages, message("user", in.Content))
+		nextMessage := message("user", in.Content)
+		nextMessage.RequestID = in.RequestID
+		row.Messages = append(row.Messages, nextMessage)
 		row.Status = "queued"
 		row.Phase = "plan"
 		if len(in.ImageIDs) == 0 && row.ImageReview != nil && row.ImageReview.Status == "extracting" {
@@ -308,7 +350,25 @@ func notify(tx *gorm.DB, c *Conversation, body string) error {
 	kind := "chat"
 	key := fmt.Sprintf("%s:%d:%s", c.ID, c.Revision, c.Status)
 	n := models.Notification{ID: id("ntf_"), UserID: c.UserID, Category: "agent", Title: c.Title, Body: body, EntityType: &kind, EntityID: &c.ID, DedupeKey: &key, Data: models.JobPayload{"status": c.Status}, CreatedAt: time.Now().UTC()}
-	return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&n).Error
+	result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&n)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil
+	}
+	var config models.Config
+	if err := tx.Select("notification_settings", "working_hours").Where("user_id = ?", c.UserID).First(&config).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	settings := config.NotificationSettings.Normalized()
+	runAt := time.Now().UTC()
+	local := runAt.In(settings.Location(config.WorkingHours.Timezone))
+	if settings.InQuietHours(local) {
+		runAt = settings.QuietEnd(local)
+	}
+	_, err := jobs.NewQueue(tx).Enqueue(jobs.Enqueue{UserID: c.UserID, Kind: models.JobSendPush, DedupeKey: "push:" + n.ID, RunAt: runAt, Payload: models.JobPayload{"notificationId": n.ID}})
+	return err
 }
 
 // A fenced lease prevents a stopped or recovered worker from publishing results.

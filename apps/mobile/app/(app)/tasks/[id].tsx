@@ -1,3 +1,5 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -131,6 +133,7 @@ export default function TaskDetailScreen() {
   const comment = useAddComment();
   const [picker, setPicker] = useState<Picker>(null);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const [assistantSelection, setAssistantSelection] = useState("");
   const [note, setNote] = useState("");
   const [noteRich, setNoteRich] = useState<DocContent>({ type: "doc", content: [{ type: "paragraph" }] });
   const [noteReady, setNoteReady] = useState(false);
@@ -181,6 +184,13 @@ export default function TaskDetailScreen() {
     else if (!metaWorkspaceId && spaces[0]?.id) setMetaWorkspaceId(spaces[0].id);
   }, [task?.id, customFields.map((field) => field.id).join(","), spaces[0]?.id]);
 
+  useAssistantScreen(task ? [
+    contextChip("object", name || "Task", `tasks/${task.id}`),
+    ...(assistantSelection ? [contextChip("selection", "Selected text", assistantSelection)] : []),
+    contextChip("workspace", "Workspace", task.workspaceId),
+    ...(task.projectId ? [contextChip("project", "Project", task.projectId)] : []),
+    ...(name !== task.name || note !== (task.description || "") ? [contextChip("draft", "Unsaved task text", { name, description: note })] : []),
+  ] : []);
   if (!task) {
     return (
       <Screen>
@@ -262,6 +272,7 @@ export default function TaskDetailScreen() {
           />
         </View>
         <DescriptionCard
+            onSelectionChange={setAssistantSelection}
             content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
             syncKey={noteSync}
             placeholder="Add context, links, acceptance criteria, or notes…"

@@ -55,7 +55,10 @@ func integrationDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { sqlDB, _ := db.DB(); sqlDB.Close() })
-	if err = db.AutoMigrate(&Conversation{}, &ImageAttachment{}, &models.Sheet{}, &models.Notification{}, &testItem{}); err != nil {
+	if err = db.AutoMigrate(&Conversation{}, &ImageAttachment{}, &models.Sheet{}, &models.Notification{}, &models.Job{}, &models.Config{}, &testItem{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec("CREATE UNIQUE INDEX notifications_dedupe_test ON notifications(dedupe_key) WHERE dedupe_key IS NOT NULL").Error; err != nil {
 		t.Fatal(err)
 	}
 	// Apply the production notification constraint migration, so this test also
@@ -223,5 +226,72 @@ func TestIntegrationLeaseRenewalAndStopCancelsProvider(t *testing.T) {
 	}
 	if ctx.Err() == nil {
 		t.Fatal("request still active")
+	}
+}
+
+func TestIntegrationMobileSendRecoveryAndPushOutbox(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	e := echo.New()
+	g := e.Group("")
+	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", "user-a"); return next(c) }
+	})
+	s.Routes(g)
+	request := func(path, body string) Conversation {
+		t.Helper()
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		e.ServeHTTP(w, r)
+		if w.Code >= 300 {
+			t.Fatalf("request %s: %d %s", path, w.Code, w.Body.String())
+		}
+		var row Conversation
+		if err := json.Unmarshal(w.Body.Bytes(), &row); err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	first := request("/chats", `{"content":"Plan today","requestId":"mobile-create-1"}`)
+	recovered := request("/chats", `{"content":"Plan today","requestId":"mobile-create-1"}`)
+	if first.ID != recovered.ID {
+		t.Fatal("lost create response duplicated conversation")
+	}
+	db.Model(&Conversation{}).Where("id = ?", first.ID).Update("status", "completed")
+	sent := request("/chats/"+first.ID+"/messages", `{"content":"Use my selected tasks","requestId":"mobile-send-1"}`)
+	duplicate := request("/chats/"+first.ID+"/messages", `{"content":"Use my selected tasks","requestId":"mobile-send-1"}`)
+	if len(duplicate.Messages) != 2 || sent.Revision != duplicate.Revision {
+		t.Fatal("retry duplicated message or changed approval revision")
+	}
+	var config models.Config
+	config.ID, config.UserID = "cfg-mobile", "user-a"
+	config.NotificationSettings = models.NotificationSettings{Planning: true, QuietHoursStart: "00:00", QuietHoursEnd: "23:59", Timezone: "UTC"}
+	if err := db.Create(&config).Error; err != nil {
+		t.Fatal(err)
+	}
+	sent.UserID = "user-a"
+	sent.Status, sent.Revision = "approval", 7
+	if err := db.Transaction(func(tx *gorm.DB) error { return notify(tx, &sent, "Private project details") }); err != nil {
+		t.Fatal(err)
+	}
+	// Retrying a checkpoint cannot enqueue another push for the same revision/status.
+	if err := db.Transaction(func(tx *gorm.DB) error { return notify(tx, &sent, "Private project details") }); err != nil {
+		t.Fatal(err)
+	}
+	var jobs []models.Job
+	if err := db.Find(&jobs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 || jobs[0].Kind != models.JobSendPush || jobs[0].Payload.String("notificationId") == "" {
+		t.Fatal("missing or duplicate transactional push outbox")
+	}
+	local := time.Now().UTC()
+	if config.NotificationSettings.InQuietHours(local) && !jobs[0].RunAt.After(local) {
+		t.Fatal("agent push ignores quiet hours")
+	}
+	var other Conversation
+	if err := s.find(db, "user-b", first.ID, &other); err == nil {
+		t.Fatal("recovered chat leaked across accounts")
 	}
 }

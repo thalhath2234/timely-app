@@ -1,3 +1,5 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -71,11 +73,19 @@ export default function ProjectDetailScreen() {
   const [stageDraft, setStageDraft] = useState("");
   const [movingTask, setMovingTask] = useState<Task | null>(null);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const [assistantSelection, setAssistantSelection] = useState("");
   const [note, setNote] = useState("");
   const [noteRich, setNoteRich] = useState<DocContent>({ type: "doc", content: [{ type: "paragraph" }] });
   const [noteSync, setNoteSync] = useState(0);
   const seededNoteId = useRef<string | null>(null);
   const [title, setTitle] = useDraftText(project?.title, id);
+
+  useAssistantScreen(project ? [
+    contextChip("object", title || "Project", `projects/${project.id}`),
+    ...(assistantSelection ? [contextChip("selection", "Selected text", assistantSelection)] : []),
+    contextChip("workspace", "Workspace", project.workspaceId),
+    ...(title !== project.title || note !== (project.description || "") ? [contextChip("draft", "Unsaved project text", { title, description: note })] : []),
+  ] : []);
 
   const workspace = spaces.find((space) => space.id === project?.workspaceId);
   const projectTasks = useMemo(
@@ -187,6 +197,7 @@ export default function ProjectDetailScreen() {
           </View>
         </Pressable>
         <DescriptionCard
+            onSelectionChange={setAssistantSelection}
           content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
           syncKey={noteSync}
           placeholder="Write a description. Type '/' for blocks…"

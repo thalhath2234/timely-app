@@ -1,3 +1,5 @@
+import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { contextChip } from "../../../lib/chat/context";
 import { useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -68,6 +70,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   const materializeTab = useMaterializeTemplateTab();
   const initialTabs = tabsFromSheet(sheet);
 
+  const [gridContext, setGridContext] = useState({ selection: "", filter: "", draft: "" });
   const [title, setTitle] = useState(sheet.title);
   const [icon, setIcon] = useState(sheet.icon ?? "");
   const [favorite, setFavorite] = useState(sheet.isFavorite);
@@ -85,6 +88,16 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
 
   const workspace = spaces.find((w) => w.id === sheet.workspaceId);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+
+  useAssistantScreen([
+    contextChip("object", title || "Sheet", `sheets/${sheet.id}`),
+    contextChip("workspace", workspace?.name || "Workspace", sheet.workspaceId),
+    ...(sheet.projectId ? [contextChip("project", "Project", sheet.projectId)] : []),
+    ...(activeTab ? [contextChip("sheet-tab", activeTab.name, `sheets/${sheet.id}/tabs/${activeTab.id}`)] : []),
+    ...(gridContext.selection ? [contextChip("selection", "Selected cells", gridContext.selection)] : []),
+    ...(gridContext.filter ? [contextChip("sheet-filter", "Sheet filter", gridContext.filter)] : []),
+    ...(hasUnsavedChanges() || gridContext.draft ? [contextChip("draft", "Unsaved sheet edits", { title, tabId: activeTabId, selectedCells: gridContext.selection, activeCellDraft: gridContext.draft })] : []),
+  ]);
 
   function persistTabs(nextTabs: SheetTab[]) {
     tabsRef.current = nextTabs;
@@ -175,6 +188,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
       <View style={styles.gridWrap} collapsable={false}>
         {activeTab ? (
           <SheetGrid
+            onAssistantContext={setGridContext}
             key={activeTab.id}
             columns={activeTab.columns}
             rows={activeTab.rows}

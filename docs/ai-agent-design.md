@@ -281,3 +281,57 @@ blank gaps, formulas, notes, links and merged ranges. Proposals name the destina
 summary row. Existing receipts and duplicate updates keep their current positions.
 Regression coverage reproduces a four-row expense grid receiving its first receipt
 on row 21, then verifies placement on row 5 and successful Apply/duplicate detection.
+
+## Mobile assistant (2026-09-30)
+
+Mobile uses the same account-scoped conversations, execution rules, proposals,
+receipt imports, image privacy, and web-search settings as web. Pinch inward with
+exactly two fingers to open a full-screen assistant over the current screen. No
+new navigation tab or external chat button is added. History and new-conversation
+controls live inside its header. A dismissible first-use hint and Settings help
+explain the gesture. Voice and an alternative accessibility invocation are outside
+this release. Zoom previews retain their normal gesture.
+
+Screens register their local context rather than inferring filters and selections
+from the route. Context chips capture objects, workspace/project, task-view filters
+and selected IDs, calendar ranges, active sheet tabs/cells, and selected document
+text. Local editor content is explicitly labeled as draft data. Selected tasks take
+priority over filtered matches; bulk proposals must describe the affected scope.
+Context stays fixed until the person removes chips or chooses Add current screen.
+Account-scoped draft text, context, pending images, receipt edits, and visited
+conversation history survive closing/restarting the app. An existing unsent draft
+is restored before creating another; images are retained locally until sending or
+discarding. Logout/session expiry clears the local assistant cache. Stored account
+identity allows cached history to open offline; messages and approvals require
+connectivity and never enter the general offline mutation queue.
+
+Attachments support camera, photo library, JPEG/PNG files, clipboard images, and
+explicit capture of the underlying screen. Screenshots show a preview before
+attachment and exclude the assistant and keyboard. Native uploads use SDK 57's
+Blob-compatible File, with the existing authenticated refresh flow. Provider
+routing and temporary-image expiry remain enforced by the shared backend.
+
+Proposals and receipt forms open dedicated review pages. The receipt form retains
+all extracted fields, inclusion flags, uncertainty acknowledgement, editable item
+rows, duplicate choices, and destination/tab selection. Changing it blocks Apply
+until the proposal is rebuilt. Sheet previews scroll horizontally. Result links
+open the item; Back restores the conversation. Closing does not cancel a run or
+reopen the assistant when a pending send finishes.
+
+Create/send accept an optional client request ID. Conversation creation derives an
+account-scoped stable ID; messages deduplicate under the existing row lock. A
+repeated accepted send does not advance the approval revision. Older web clients
+remain compatible without request IDs.
+
+Agent notifications now enqueue push jobs in the same database transaction as the
+persistent notification, deduplicated per revision/status. Mobile notification taps
+open the exact conversation. Lock-screen titles/bodies are generic; agent delivery
+uses the Assistant channel and respects Planning notifications, quiet hours, and
+read state. Expo Go does not support push delivery; OS delivery requires a native
+build with push credentials and a registered device.
+
+Checks: `make typecheck-mobile`, `make test-mobile-assistant`, `make test-api`,
+`make test-chat-integration`, and `make lint-api`. Start Metro with
+`make dev-mobile MOBILE_METRO_FLAGS=--clear` after changing a development API URL
+if Expo's virtual environment module retains the old value. Native checks use
+`make emu-start` / `make emu-stop`, API 8081 and Metro 8082.
