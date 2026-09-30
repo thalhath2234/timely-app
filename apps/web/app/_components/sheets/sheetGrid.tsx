@@ -1328,7 +1328,7 @@ export default function SheetGrid({
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
+    <div data-chat-sheet-range={selectedAddress} data-chat-sheet-tab={activeTabId} className="flex h-full flex-col overflow-hidden bg-background">
       <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-[#191B22] px-2 py-1">
         <button type="button" title="Undo (⌘Z)" disabled={history.past.length === 0} onClick={undo} className={toolClass()}>
           <Undo2 className="size-4" />

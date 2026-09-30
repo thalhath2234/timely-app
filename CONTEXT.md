@@ -61,6 +61,20 @@ _Avoid_: automatic block, scheduled block
 The Preview, Apply, and Undo operation that places Work within Working hours around existing busy time. It does not place or move Events.
 _Avoid_: schedule, reschedule (when referring to this operation)
 
+### Agent assistance
+
+**Agent proposal**:
+A reviewable set of changes requested through chat that the person can revise before approving. It is required for multi-step requests, recurring-series changes, bulk edits, document-content replacement, populated sheet creation, and sheet-content removal or replacement.
+_Avoid_: plan (when referring to changes awaiting approval)
+
+**Chat context**:
+The location, open object, and selection or calendar date range attached to a conversation. It stays attached when the person navigates elsewhere and can be removed from the conversation.
+_Avoid_: current screen (when referring to previously attached context)
+
+**Agent run**:
+An attempt to carry out a request in a conversation, with progress and results retained in its history. It can continue while the person leaves the chat; stopping prevents further steps but preserves completed changes.
+_Avoid_: task (Work is a separate concept)
+
 ### Work status and order
 
 **Rank**:

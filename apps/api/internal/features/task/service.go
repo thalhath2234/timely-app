@@ -841,6 +841,9 @@ func (s *taskService) Split(userID, taskID string, input SplitInput) (*models.Ta
 		if err != nil {
 			return err
 		}
+		if err := store.PreserveFutureExceptions(source.Recurrence, rule, fromStart); err != nil {
+			return err
+		}
 		return tx.Model(&models.Task{}).Where("id = ?", next.ID).Update("scheduled_on", rule.Dtstart).Error
 	})
 	if err != nil {

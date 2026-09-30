@@ -98,6 +98,17 @@ func Expand(rule *models.RecurrenceRule, duration time.Duration, from, to time.T
 	pad := 62 * 24 * time.Hour
 	starts := parsed.Between(dtstart, from.Add(-pad), to.Add(pad))
 
+	// Retain explicitly adjusted occurrences even if a future-series edit
+	// removes their original weekday from the rule.
+	seen := map[int64]bool{}
+	for _, start := range starts {
+		seen[start.Unix()] = true
+	}
+	for _, exception := range rule.Exceptions {
+		if !seen[exception.OriginalStart.Unix()] {
+			starts = append(starts, exception.OriginalStart)
+		}
+	}
 	var out []Occurrence
 	for _, start := range starts {
 		occurrence := Occurrence{OriginalStart: start, Start: start, End: start.Add(duration)}
@@ -127,6 +138,11 @@ func Expand(rule *models.RecurrenceRule, duration time.Duration, from, to time.T
 
 // IsOccurrence reports whether `start` is a real instance of the rule.
 func IsOccurrence(rule *models.RecurrenceRule, start time.Time) bool {
+	for _, exception := range rule.Exceptions {
+		if exception.OriginalStart.Equal(start) {
+			return true
+		}
+	}
 	parsed, err := Parse(rule.RRule)
 	if err != nil {
 		return false

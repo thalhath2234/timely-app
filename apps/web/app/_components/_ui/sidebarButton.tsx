@@ -1,11 +1,13 @@
 "use client";
 import Link from "next/link";
 import { SidebarProps } from "../../_types/types";
-import { Brain, Bell, Calendar, FileText, FolderKanban, Inbox, ListTodo, Settings, Sheet, Sun } from "lucide-react";
+import { MessageCircle, Brain, Bell, Calendar, FileText, FolderKanban, Inbox, ListTodo, Settings, Sheet, Sun } from "lucide-react";
 import { useSidebarStore } from "../../_store/sidebarStore";
 import { motion } from "motion/react";
 import { usePathname } from "next/navigation";
 import { useUnreadNotificationCount } from "../../utils/hooks/notifications";
+
+import { useChats } from "@/app/utils/hooks/chat";
 
 export default function SidebarButton({ item }: { item: SidebarProps }) {
   const { setActiveItem } = useSidebarStore();
@@ -33,6 +35,7 @@ export default function SidebarButton({ item }: { item: SidebarProps }) {
         className={`relative flex h-full w-full items-center justify-center p-2 transition-colors ${isActive ? "text-primary" : "text-muted-foreground"} hover:text-primary`}
       >
         <SidebarButtonIcon icon={item.icon} />
+        {item.name === "Chat" ? <ChatBadge /> : null}
         {item.name === "Notifications" ? <UnreadBadge /> : null}
       </Link>
     </motion.div>
@@ -41,6 +44,7 @@ export default function SidebarButton({ item }: { item: SidebarProps }) {
 
 export const SidebarButtonIcon = ({ icon }: { icon: string }) => {
   switch (icon) {
+    case "MessageCircle": return <MessageCircle className="size-5" />;
     case "Calendar":
       return <Calendar className="size-5" />;
     case "Sun":
@@ -79,3 +83,5 @@ function UnreadBadge() {
     </motion.span>
   );
 }
+
+function ChatBadge() { const { data } = useChats(); const count = data?.filter(c => c.unread).length || 0; return count ? <span aria-label={`${count} unread chats`} className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground">{count > 9 ? "9+" : count}</span> : null; }

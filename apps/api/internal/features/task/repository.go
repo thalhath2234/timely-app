@@ -68,22 +68,18 @@ func (r *taskRepository) CreateTask(task *models.Task, customFieldValues []*mode
 		task.PriorityLevel = &normalized
 	}
 
-	tx := r.db.Begin()
-
-	if err := tx.Omit("Recurrence", "Blocks").Create(task).Error; err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	for _, cfv := range customFieldValues {
-		cfv.TaskID = task.ID
-		if err := tx.Omit("ProjectID").Create(cfv).Error; err != nil {
-			tx.Rollback()
-			return nil, err
+	if err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Omit("Recurrence", "Blocks").Create(task).Error; err != nil {
+			return err
 		}
-	}
-
-	if err := tx.Commit().Error; err != nil {
+		for _, cfv := range customFieldValues {
+			cfv.TaskID = task.ID
+			if err := tx.Omit("ProjectID").Create(cfv).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 

@@ -10,7 +10,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { springSoft } from "@/app/_components/_ui/motion";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
@@ -19,6 +19,7 @@ import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStor
 import { requestConfirm } from "@/app/_store/confirmStore";
 
 const GO_SHORTCUTS: Record<string, string> = {
+  Chat: "G then A",
   Today: "G then Y",
   Inbox: "G then I",
   Calendar: "G then C",
@@ -52,6 +53,7 @@ export default function Sidebar() {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const queryClient = useQueryClient();
   const pathname = usePathname();
   const openMenu = useContextMenu();
 
@@ -69,6 +71,7 @@ export default function Sidebar() {
     },
 
     onSuccess: () => {
+      queryClient.clear();
       router.push("/login");
       router.refresh();
     },
