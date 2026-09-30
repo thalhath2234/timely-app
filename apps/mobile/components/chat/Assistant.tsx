@@ -37,7 +37,7 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { emptyDraft, useAssistant } from "../../lib/chat/runtime";
 import { Action, ChatText, DetailValue, styles as common } from "./shared";
 import ImagePreview from "./ImagePreview";
-import ReceiptReview from "./ReceiptReview";
+import ReceiptReview, { ReceiptSaveSummary } from "./ReceiptReview";
 
 export default function Assistant() {
   const assistant = useAssistant();
@@ -107,6 +107,7 @@ export default function Assistant() {
   const context = chat?.context ?? draft.context;
   const search = chat?.webSearch ?? draft.webSearch;
   const lastRevision = useRef<number | undefined>(undefined);
+  const openedReceipt = useRef("");
   useEffect(() => {
     if (list.data)
       assistant.updateCache((cache) => ({ ...cache, chats: list.data! }));
@@ -155,7 +156,25 @@ export default function Assistant() {
     setPage("chat");
     setError("");
     lastRevision.current = undefined;
+    openedReceipt.current = "";
   }, [id]);
+  useEffect(() => {
+    const review = chat?.imageReview;
+    if (
+      !chat ||
+      !review?.receipt ||
+      review.status !== "review" ||
+      chat.status !== "idle"
+    )
+      return;
+    const key = `${chat.id}:${JSON.stringify(review.receipt)}`;
+    if (openedReceipt.current === key) return;
+    openedReceipt.current = key;
+    if (page === "chat") setPage("receipt");
+  }, [chat]);
+  useEffect(() => {
+    scroll.current?.scrollTo({ y: 0, animated: false });
+  }, [page]);
   useEffect(() => {
     if (page === "chat") scroll.current?.scrollToEnd({ animated: true });
   }, [chat?.messages?.length]);
@@ -206,7 +225,7 @@ export default function Assistant() {
         }));
       if (variables.action === "/receipt") {
         setReviewSteps(null);
-        setPage("proposal");
+        setPage(next.status === "approval" ? "proposal" : "receipt");
       }
       if (
         ["/images/discard", "/images/confirm", "/approve"].includes(
@@ -536,6 +555,23 @@ export default function Assistant() {
   }, [page, preview]);
   const locked = busy || pending || offline;
   const review = chat?.imageReview;
+  const receiptConfirmation =
+    !!review?.receipt &&
+    !!review.destination &&
+    !reviewSteps &&
+    chat?.status === "approval";
+  const savedReceipt = review?.status === "confirmed" && !!review.receipt;
+  const savedSheetStep = chat?.plan.findLast(
+    (step) => step.status === "done" && step.tool.includes("sheet"),
+  );
+  const savedSheet = savedSheetStep?.result?.sheet as
+    | { id?: string }
+    | undefined;
+  const savedSheetId =
+    savedSheet?.id ||
+    (typeof savedSheetStep?.result?.id === "string"
+      ? savedSheetStep.result.id
+      : review?.destination?.sheetId);
   return (
     <SafeAreaView style={styles.root}>
       <KeyboardAvoidingView
@@ -565,7 +601,9 @@ export default function Assistant() {
                   : page === "receipt"
                     ? "Receipt review"
                     : page === "proposal"
-                      ? "Review changes"
+                      ? receiptConfirmation
+                        ? "Confirm receipt"
+                        : "Review changes"
                       : chat?.title || "Timely assistant"}
             </Text>
             <Text style={common.muted}>
@@ -573,7 +611,11 @@ export default function Assistant() {
                 ? "Offline · drafts and cached history"
                 : busy
                   ? "Working · you can leave this chat"
-                  : "Ask about your work"}
+                  : page === "receipt"
+                    ? "Step 1 of 2 · Check details"
+                    : receiptConfirmation
+                      ? "Step 2 of 2 · Confirm and save"
+                      : "Ask about your work"}
             </Text>
           </View>
           <Pressable
@@ -683,30 +725,55 @@ export default function Assistant() {
                 />
               ) : page === "proposal" && chat ? (
                 <>
-                  <Text style={common.muted}>
-                    {chat.plan.filter((step) => step.status === "done").length}{" "}
-                    / {chat.plan.length} complete
-                  </Text>
-                  <ChangeCards
-                    steps={reviewSteps ?? chat.plan}
-                    onLink={openLink}
-                  />
+                  {receiptConfirmation && review?.receipt ? (
+                    <ReceiptSaveSummary
+                      receipt={review.receipt}
+                      destination={review.destination!}
+                    />
+                  ) : (
+                    <Text style={common.muted}>
+                      {
+                        chat.plan.filter((step) => step.status === "done")
+                          .length
+                      }{" "}
+                      / {chat.plan.length} complete
+                    </Text>
+                  )}
+                  {!receiptConfirmation && (
+                    <ChangeCards
+                      steps={reviewSteps ?? chat.plan}
+                      onLink={openLink}
+                    />
+                  )}
                   {!reviewSteps && chat.status === "approval" && (
                     <>
-                      <Text style={common.muted}>
-                        {receiptDirty
-                          ? "Receipt fields changed. Rebuild the sheet proposal before applying."
-                          : "Review the details, or return to chat to request changes."}
-                      </Text>
+                      {receiptDirty && (
+                        <Text style={common.muted}>
+                          Receipt details changed. Return to the receipt and
+                          continue again to update this preview.
+                        </Text>
+                      )}
                       <Action
-                        label="Apply changes"
+                        label={
+                          receiptConfirmation ? "Save receipt" : "Apply changes"
+                        }
                         primary
                         disabled={locked || receiptDirty}
                         onPress={() =>
                           act("/approve", { revision: chat.revision })
                         }
                       />
+                      {receiptConfirmation && (
+                        <Action
+                          label="Back to edit receipt"
+                          disabled={locked}
+                          onPress={() => setPage("receipt")}
+                        />
+                      )}
                     </>
+                  )}
+                  {receiptConfirmation && (
+                    <ChangeCards steps={chat.plan} onLink={openLink} compact />
                   )}
                 </>
               ) : (
@@ -726,8 +793,8 @@ export default function Assistant() {
                         What would you like to make happen?
                       </Text>
                       <Text style={common.text}>
-                        Plan your day, shape a sheet, or turn an idea into a
-                        project.
+                        Plan your day, shape a sheet, or attach a receipt photo
+                        to save an expense.
                       </Text>
                       {[
                         "Help me plan today.",
@@ -789,10 +856,30 @@ export default function Assistant() {
                       )}
                     </View>
                   ))}
+                  {savedReceipt && review?.receipt && (
+                    <View style={styles.change}>
+                      <Text style={styles.title}>✓ Receipt saved</Text>
+                      <Text style={common.text}>
+                        {review.receipt.merchant} · {review.receipt.currency}{" "}
+                        {review.receipt.total}
+                      </Text>
+                      {savedSheetId && (
+                        <Action
+                          label="Open expense sheet"
+                          primary
+                          onPress={() => openLink(`/sheets/${savedSheetId}`)}
+                        />
+                      )}
+                    </View>
+                  )}
                   {review?.status === "review" && review.receipt && (
                     <Action
-                      label="Review receipt"
-                      primary
+                      label={
+                        chat?.status === "approval"
+                          ? "Edit receipt details"
+                          : "Check receipt details"
+                      }
+                      primary={chat?.status !== "approval"}
                       onPress={() => setPage("receipt")}
                     />
                   )}
@@ -946,7 +1033,11 @@ export default function Assistant() {
                     )}
                     <TextInput
                       accessibilityLabel="Message the assistant"
-                      placeholder="Ask Timely…"
+                      placeholder={
+                        draft.images.length
+                          ? "Add a note (optional)…"
+                          : "Ask Timely…"
+                      }
                       placeholderTextColor={colors.mutedForeground}
                       value={draft.text}
                       editable={!pending && !busy}
@@ -974,7 +1065,13 @@ export default function Assistant() {
                         />
                       ) : (
                         <Action
-                          label={uploading ? "Uploading…" : "Send"}
+                          label={
+                            uploading
+                              ? "Uploading…"
+                              : draft.images.length && !draft.text.trim()
+                                ? "Read receipt"
+                                : "Send"
+                          }
                           primary
                           disabled={
                             locked ||
@@ -1023,80 +1120,90 @@ export default function Assistant() {
 function ChangeCards({
   steps,
   onLink,
+  compact = false,
 }: {
   steps: ChatStep[];
   onLink: (href: string) => void;
+  compact?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   return (
     <View style={{ gap: 16 }}>
-      {steps.map((step, i) => {
-        const result = step.result;
-        const entries: [string, string][] = [
-          ["sheet", "sheets"],
-          ["task", "tasks"],
-          ["project", "projects"],
-          ["doc", "docs"],
-          ["event", "events"],
-        ];
-        const links = entries.flatMap(([key, path]) => {
-          const item = result?.[key] as
-            | { id?: string; title?: string; name?: string }
-            | undefined;
-          return item?.id
-            ? [
-                {
-                  href: `/${path}/${item.id}`,
-                  label: item.title || item.name || `Open ${key}`,
-                },
-              ]
-            : [];
-        });
-        if (!links.length && typeof result?.id === "string") {
-          const path = step.tool.includes("sheet_template")
-            ? "sheets/templates"
-            : step.tool.includes("sheet")
-              ? "sheets"
-              : step.tool.includes("doc")
-                ? "docs"
-                : step.tool.includes("project")
-                  ? "projects"
-                  : step.tool.includes("event")
-                    ? "events"
-                    : step.tool.includes("task")
-                      ? "tasks"
-                      : "";
-          if (path)
-            links.push({
-              href: `/${path}/${result.id}`,
-              label: String(result.title || result.name || "Open item"),
-            });
-        }
-        return (
-          <View key={i} style={styles.change}>
-            <Text style={styles.title}>
-              {step.status === "done" ? "✓ " : `${i + 1}. `}
-              {step.summary}
-            </Text>
-            <Text style={common.muted}>{step.status}</Text>
-            {step.error && <Text style={styles.error}>{step.error}</Text>}
-            {links.map((link) => (
-              <Action
-                key={link.href}
-                label={link.label}
-                onPress={() => onLink(link.href)}
-              />
-            ))}
-            <Text style={styles.speaker}>After</Text>
-            <DetailValue value={step.arguments} onLink={onLink} />
-            {step.before && (
-              <>
-                <Text style={styles.speaker}>Before</Text>
-                <DetailValue value={step.before} onLink={onLink} />
-              </>
-            )}
-          </View>
-        );
-      })}
+      {compact && (
+        <Action
+          label={expanded ? "Hide sheet changes" : "View sheet changes"}
+          onPress={() => setExpanded(!expanded)}
+        />
+      )}
+      {(!compact || expanded) &&
+        steps.map((step, i) => {
+          const result = step.result;
+          const entries: [string, string][] = [
+            ["sheet", "sheets"],
+            ["task", "tasks"],
+            ["project", "projects"],
+            ["doc", "docs"],
+            ["event", "events"],
+          ];
+          const links = entries.flatMap(([key, path]) => {
+            const item = result?.[key] as
+              | { id?: string; title?: string; name?: string }
+              | undefined;
+            return item?.id
+              ? [
+                  {
+                    href: `/${path}/${item.id}`,
+                    label: item.title || item.name || `Open ${key}`,
+                  },
+                ]
+              : [];
+          });
+          if (!links.length && typeof result?.id === "string") {
+            const path = step.tool.includes("sheet_template")
+              ? "sheets/templates"
+              : step.tool.includes("sheet")
+                ? "sheets"
+                : step.tool.includes("doc")
+                  ? "docs"
+                  : step.tool.includes("project")
+                    ? "projects"
+                    : step.tool.includes("event")
+                      ? "events"
+                      : step.tool.includes("task")
+                        ? "tasks"
+                        : "";
+            if (path)
+              links.push({
+                href: `/${path}/${result.id}`,
+                label: String(result.title || result.name || "Open item"),
+              });
+          }
+          return (
+            <View key={i} style={styles.change}>
+              <Text style={styles.title}>
+                {step.status === "done" ? "✓ " : `${i + 1}. `}
+                {step.summary}
+              </Text>
+              <Text style={common.muted}>{step.status}</Text>
+              {step.error && <Text style={styles.error}>{step.error}</Text>}
+              {links.map((link) => (
+                <Action
+                  key={link.href}
+                  label={link.label}
+                  onPress={() => onLink(link.href)}
+                />
+              ))}
+              <Text style={styles.speaker}>After</Text>
+              <DetailValue value={step.arguments} onLink={onLink} />
+              {step.before && (
+                <>
+                  <Text style={styles.speaker}>Before</Text>
+                  <DetailValue value={step.before} onLink={onLink} />
+                </>
+              )}
+            </View>
+          );
+        })}
     </View>
   );
 }

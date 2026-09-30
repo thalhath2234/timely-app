@@ -271,3 +271,7 @@ test-mobile-assistant: ## Test mobile assistant context and notification routing
 	@node --experimental-strip-types --test scripts/mobile-assistant.test.mjs
 format-mobile-assistant: ## Format mobile assistant and its screen context integration
 	@pnpm exec prettier --write apps/mobile/components/chat apps/mobile/lib/chat apps/mobile/lib/api/chat.ts apps/mobile/lib/notificationRoute.ts scripts/mobile-assistant.test.mjs
+
+.PHONY: audit-mobile-receipt
+audit-mobile-receipt: ## Preview the mobile receipt flow on :4002 with fixture APIs (optional AUDIT_RECEIPT_IMAGE)
+	@node scripts/audit-mobile-receipt.mjs

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -484,5 +485,81 @@ func TestReceiptRowPlacementPreservesLayout(t *testing.T) {
 				t.Fatal("existing layout changed")
 			}
 		})
+	}
+}
+
+// The user's receipt has six food/drink lines (2143) and a bag (4).
+type missingBagCompleter struct {
+	t            *testing.T
+	calls        int
+	date         string
+	recheckError bool
+}
+
+func (p *missingBagCompleter) Complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	p.calls++
+	if p.calls == 2 && p.recheckError {
+		return WireMessage{}, fmt.Errorf("recheck unavailable")
+	}
+	if search || len(tools) != 0 || !messages[0].Sensitive || len(messages[1].ImageURLs) != 1 {
+		p.t.Fatal("receipt recheck must retain private image routing")
+	}
+	r := ReceiptDraft{Merchant: "業務スーパー", Date: p.date, Currency: "JPY", Subtotal: "2147", Tax: "171", Total: "2318"}
+	for i, amount := range []string{"179", "398", "398", "684", "248", "236"} {
+		r.Items = append(r.Items, ReceiptItem{Description: fmt.Sprintf("Printed item %d", i+1), Amount: amount})
+	}
+	if p.calls == 2 {
+		r.Items = append(r.Items, ReceiptItem{Description: "レジ袋NO45小", Quantity: "1", UnitPrice: "4", Amount: "4"})
+	}
+	return WireMessage{Content: string(raw(imageExtraction{Receipt: &r}))}, nil
+}
+func TestReceiptExtractionRechecksMissingBag(t *testing.T) {
+	p := &missingBagCompleter{t: t, date: "2026-09-30"}
+	s := &Service{provider: p}
+	result, err := s.extractReceipt(context.Background(), WireMessage{Role: "user", Sensitive: true, ImageURLs: []string{"data:image/jpeg;base64,fixture"}}, "2026-09-30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.calls != 2 || len(result.Receipt.Items) != 7 {
+		t.Fatalf("missing bag was not rechecked: %d calls, %d items", p.calls, len(result.Receipt.Items))
+	}
+	if result.Receipt.Date != "2026-09-30" {
+		t.Fatal("printed date changed")
+	}
+	if issues := receiptIssues(*result.Receipt); len(issues) != 0 {
+		t.Fatal(issues)
+	}
+}
+func TestReceiptExtractionDefaultsMissingDate(t *testing.T) {
+	p := &missingBagCompleter{t: t}
+	s := &Service{provider: p}
+	result, err := s.extractReceipt(context.Background(), WireMessage{Role: "user", Sensitive: true, ImageURLs: []string{"data:image/jpeg;base64,fixture"}}, "2026-10-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Receipt.Date != "2026-10-01" {
+		t.Fatalf("missing date = %q, want local today", result.Receipt.Date)
+	}
+}
+
+func TestReceiptExtractionFailedRecheckKeepsReview(t *testing.T) {
+	p := &missingBagCompleter{t: t, date: "2026-09-30", recheckError: true}
+	s := &Service{provider: p}
+	result, err := s.extractReceipt(context.Background(), WireMessage{Role: "user", Sensitive: true, ImageURLs: []string{"data:image/jpeg;base64,fixture"}}, "2026-10-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.calls != 2 || len(result.Receipt.Items) != 6 || result.Receipt.Total != "2318" || len(result.Receipt.Issues) == 0 {
+		t.Fatal("failed recheck must preserve the original amounts and flag the mismatch")
+	}
+}
+func TestReceiptExtractionBalancedReceiptNeedsNoRecheck(t *testing.T) {
+	s := &Service{provider: receiptCompleter{t}}
+	result, err := s.extractReceipt(context.Background(), WireMessage{Role: "user", Sensitive: true, ImageURLs: []string{"data:image/jpeg;base64,fixture"}}, "2026-10-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Receipt.Date != "2026-09-29" || len(result.Receipt.Issues) != 0 {
+		t.Fatal("balanced receipt or printed date changed")
 	}
 }
