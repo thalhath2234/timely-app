@@ -1,0 +1,45 @@
+{
+  "purpose": "Runtime validation of the release build on the emulator. The shipped artifact is arm64-v8a only and cannot load on the x86_64 image, so an x86_64 variant of the same commit was built with TIMELY_ANDROID_ARCHITECTURES=x86_64 (an override the build script already supports) to a temporary output path.",
+  "temporaryChanges": [
+    "android:usesCleartextTraffic=\"true\" added to the generated, untracked apps/mobile/android/app/src/main/AndroidManifest.xml because release builds refuse the plain-http emulator API URL (the real build uses an https tunnel); restored from a backup right after the build (diff -q clean).",
+    "apps/mobile/lib/api/bundledUrl.ts rewritten by the build script with the emulator URL; restored with git checkout.",
+    "Both x86_64 APKs deleted and the app uninstalled from the emulator afterwards; git tree clean; the arm64 APK from the default build is untouched."
+  ],
+  "build": {
+    "arch": "x86_64",
+    "result": "BUILD SUCCESSFUL",
+    "nativeLibs": 23,
+    "size": "47 MB"
+  },
+  "checks": [
+    {
+      "check": "launch",
+      "result": "PASS: MainActivity starts, notification permission prompt, login screen"
+    },
+    {
+      "check": "sign in with the disposable qa-android-* account",
+      "result": "PASS: Today screen"
+    },
+    {
+      "check": "agenda with 30 Events",
+      "result": "PASS: scrolled to Sat, Oct 10; 'Agenda 10-16h' opened its sheet; header navigation visible"
+    },
+    {
+      "check": "offline queue (QA-02)",
+      "result": "PASS: two offline toggles -> '2 changes waiting' -> am force-stop -> relaunch offline still shows 2 waiting -> reconnect -> server flipped both tasks (undo target completed at 14:13:27+09:00, complete target reopened); Tasks list matches"
+    },
+    {
+      "check": "sheet draft + header Back (formula bar)",
+      "result": "PASS: 'rb' saved"
+    },
+    {
+      "check": "sheet draft + system Back (in cell)",
+      "result": "PASS: 'rs' saved"
+    },
+    {
+      "check": "document editor (WebView, Tiptap 3.31.4 from esm.sh)",
+      "result": "PASS: content rendered with toolbar; typed text saved ('Release build editor checkrelease-ok', 'Saved', 4 words)"
+    }
+  ],
+  "notDone": "The arm64 artifact itself was not executed (no arm64 device); it is the same commit, JavaScript bundle configuration, and native modules as the x86_64 variant."
+}
