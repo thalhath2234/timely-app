@@ -1,0 +1,3 @@
+ok  	timely-api/internal/features/chat	1.695s
+ok  	timely-api/cmd	0.300s
+EXIT=0

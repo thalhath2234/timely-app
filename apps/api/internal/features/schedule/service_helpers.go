@@ -409,3 +409,17 @@ func dayCapacity(from, to time.Time, loc *time.Location, hours models.WorkingHou
 	}
 	return out
 }
+
+// DayLocation is the single day-boundary location shared by Auto-schedule,
+// free-time, and Rank: saved Working hours win, then the client's timezone,
+// then UTC. Using one resolver keeps "today" identical between placing Work
+// and listing what is still Unscheduled for a new account without saved hours.
+func DayLocation(hours models.WorkingHours, clientTimezone string) *time.Location {
+	loc := time.UTC
+	if clientTimezone != "" {
+		if parsed, err := time.LoadLocation(clientTimezone); err == nil {
+			loc = parsed
+		}
+	}
+	return hours.Location(loc)
+}

@@ -132,7 +132,7 @@ export default function ColorPicker({
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open, measure]);
+  }, [open, measure, setOpen]);
 
   const pick = (next: string) => {
     const normalized = normalizeHex(next);

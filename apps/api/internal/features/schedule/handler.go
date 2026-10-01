@@ -140,7 +140,7 @@ func (h *Handler) Rank(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	list, err := h.service.Rank(uid)
+	list, err := h.service.Rank(uid, c.QueryParam("timezone"))
 	if err != nil {
 		return scheduleError(err)
 	}

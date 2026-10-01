@@ -190,7 +190,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-sheet-formulas ## Run all tests
+test: test-api test-sheet-formulas test-mobile-assistant test-mobile-offline test-electron-guards ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -296,14 +296,20 @@ test-portability-integration: ## Test PostgreSQL backup restore inside a rolled-
 audit-api-dependencies: ## Check reachable Go dependency vulnerabilities
 	@cd $(API) && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-.PHONY: audit-mobile-offline format-qa check-qa
-audit-mobile-offline: ## Reproduce the mobile offline mutation pause at the framework seam
-	@node docs/qa/2026-10-01/offline-mutation-probe.mjs
+.PHONY: audit-mobile-offline format-qa check-qa test-mobile-offline test-electron-guards
+audit-mobile-offline: ## Check the mobile offline mutation path with the app's own QueryClient and queue configuration
+	@node --experimental-strip-types docs/qa/2026-10-01/offline-mutation-probe.mjs
+
+test-mobile-offline: ## Test the mobile offline queue: durable enqueue, restart, account scope, replay
+	@node --experimental-strip-types --test scripts/mobile-offline-queue.test.mjs
+
+test-electron-guards: ## Test the desktop shell's window-open origin policy
+	@node --experimental-strip-types --test scripts/electron-guards.test.mjs
 
 format-qa: ## Format the 2026-10-01 QA scripts and evidence
-	@pnpm exec prettier --write 'docs/qa/2026-10-01/**/*.{mjs,json,md}'
+	@pnpm exec prettier --write 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'
 
 check-qa: ## Check QA script syntax and artifact formatting
 	@node --check docs/qa/2026-10-01/api-audit.mjs
 	@node --check docs/qa/2026-10-01/offline-mutation-probe.mjs
-	@pnpm exec prettier --check 'docs/qa/2026-10-01/**/*.{mjs,json,md}'
+	@pnpm exec prettier --check 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'

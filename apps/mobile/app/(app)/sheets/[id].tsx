@@ -10,7 +10,7 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import EmptyState from "../../../components/ui/EmptyState";
-import SheetGrid from "../../../components/sheets/SheetGrid";
+import SheetGrid, { type SheetGridHandle } from "../../../components/sheets/SheetGrid";
 import { useDeleteSheet, useDuplicateSheet, useCreateSheetTemplate, useMaterializeTemplateTab, useSheetQuery, useSheetTemplatesQuery, useUpdateSheet, useWorkspacesQuery } from "../../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../../lib/autosave";
 import { showUndoToast } from "../../../lib/toast";
@@ -83,7 +83,17 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateSheetPayload>((patch) =>
     save.mutateAsync({ id: sheet.id, data: patch }),
   );
-  const unsavedLeave = useUnsavedLeaveGuard(hasUnsavedChanges);
+  const gridRef = useRef<SheetGridHandle>(null);
+  // An active cell draft is unsaved work too: the grid commits it on blur or
+  // Enter, but neither fires when the screen is popped. Leaving first commits
+  // the draft into the autosave patch and flushes it; the confirmation only
+  // appears if that save fails.
+  const unsavedLeave = useUnsavedLeaveGuard(() => hasUnsavedChanges() || Boolean(gridContext.draft), {
+    beforeLeave: async () => {
+      gridRef.current?.commitActiveEdit();
+      return flush();
+    },
+  });
   const tabsRef = useRef(tabs);
 
   const workspace = spaces.find((w) => w.id === sheet.workspaceId);
@@ -143,7 +153,15 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   return (
     <Screen>
       <View style={styles.kineticHeader}>
-        <Pressable accessibilityLabel="Back" onPress={() => router.back()} hitSlop={10} style={styles.headerIcon}>
+        <Pressable
+          accessibilityLabel="Back"
+          onPress={() => {
+            gridRef.current?.commitActiveEdit();
+            router.back();
+          }}
+          hitSlop={10}
+          style={styles.headerIcon}
+        >
           <ChevronLeft size={22} color="#F1F3F9" />
         </Pressable>
         <View style={styles.headerIdentity}>
@@ -188,6 +206,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
       <View style={styles.gridWrap} collapsable={false}>
         {activeTab ? (
           <SheetGrid
+            ref={gridRef}
             onAssistantContext={setGridContext}
             key={activeTab.id}
             columns={activeTab.columns}

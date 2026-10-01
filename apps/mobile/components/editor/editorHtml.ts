@@ -77,13 +77,13 @@ export function buildEditorHtml(
 <body>
   <div id="editor"></div>
   <script type="module">
-    import { Editor, Node, Extension, InputRule, wrappingInputRule } from "https://esm.sh/@tiptap/core@3.29.2";
-    import StarterKit from "https://esm.sh/@tiptap/starter-kit@3.29.2";
-    import { TableKit } from "https://esm.sh/@tiptap/extension-table@3.29.2";
-    import TaskList from "https://esm.sh/@tiptap/extension-task-list@3.29.2";
-    import TaskItem from "https://esm.sh/@tiptap/extension-task-item@3.29.2";
-    import Highlight from "https://esm.sh/@tiptap/extension-highlight@3.29.2";
-    import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.29.2";
+    import { Editor, Node, Extension, InputRule, wrappingInputRule } from "https://esm.sh/@tiptap/core@3.31.4";
+    import StarterKit from "https://esm.sh/@tiptap/starter-kit@3.31.4";
+    import { TableKit } from "https://esm.sh/@tiptap/extension-table@3.31.4";
+    import TaskList from "https://esm.sh/@tiptap/extension-task-list@3.31.4";
+    import TaskItem from "https://esm.sh/@tiptap/extension-task-item@3.31.4";
+    import Highlight from "https://esm.sh/@tiptap/extension-highlight@3.31.4";
+    import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
 
     const placeholder = ${embed(placeholder)};
     const Mention = Node.create({

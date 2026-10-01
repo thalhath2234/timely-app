@@ -349,7 +349,7 @@ export default function DatePicker({
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open, measure]);
+  }, [open, measure, setOpen]);
 
   const cells = useMemo(() => buildMonthCells(visibleMonth), [visibleMonth]);
   const today = useMemo(() => new Date(), []);

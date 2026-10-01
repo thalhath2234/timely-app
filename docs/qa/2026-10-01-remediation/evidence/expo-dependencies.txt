@@ -1,0 +1,4 @@
+env: load .env.local
+env: export EXPO_PUBLIC_API_URL
+Dependencies are up to date
+EXIT=0

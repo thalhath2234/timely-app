@@ -960,6 +960,11 @@ export default function SheetGrid({
     };
   }, [editing, openMenu, typeMenuIndex]);
 
+  const commitEditRef = useRef(commitEdit);
+  useEffect(() => {
+    commitEditRef.current = commitEdit;
+  });
+
   useEffect(() => {
     if (!editing) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -970,7 +975,7 @@ export default function SheetGrid({
       if (target.closest("[data-sheet-popover]")) return;
       if (target.closest("[data-formula-bar]")) return;
       if (gridRef.current?.contains(target)) return;
-      commitEdit();
+      commitEditRef.current();
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);

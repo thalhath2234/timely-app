@@ -145,7 +145,7 @@ export default function Select({
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open, activeIndex, enabledOptions, onChange, measure]);
+  }, [open, activeIndex, enabledOptions, onChange, measure, setOpen]);
 
   const pick = (next: string) => {
     onChange(next);

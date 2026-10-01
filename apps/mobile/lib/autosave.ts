@@ -104,16 +104,53 @@ export function saveStatusLabel(status: SaveStatus) {
   }
 }
 
-export function useUnsavedLeaveGuard(hasUnsaved: () => boolean) {
+export type UnsavedLeaveGuardOptions = {
+  /**
+   * Runs when navigation away is intercepted with unsaved work. Resolve true
+   * once everything is saved and the screen may close without asking; resolve
+   * false (or reject) to show the confirmation instead.
+   */
+  beforeLeave?: () => Promise<boolean>;
+};
+
+export function useUnsavedLeaveGuard(hasUnsaved: () => boolean, options: UnsavedLeaveGuardOptions = {}) {
   const navigation = useNavigation();
   const pendingActionRef = useRef<Parameters<typeof navigation.dispatch>[0] | null>(null);
   const dispatchActionRef = useRef<Parameters<typeof navigation.dispatch>[0] | null>(null);
+  const beforeLeaveRef = useRef(options.beforeLeave);
   const [allowNavigation, setAllowNavigation] = useState(false);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
 
+  useEffect(() => {
+    beforeLeaveRef.current = options.beforeLeave;
+  });
+
+  const leave = useCallback(() => {
+    const action = pendingActionRef.current;
+    pendingActionRef.current = null;
+    setConfirmingLeave(false);
+    if (!action) return;
+    dispatchActionRef.current = action;
+    setAllowNavigation(true);
+  }, []);
+
   usePreventRemove(hasUnsaved() && !allowNavigation, ({ data }) => {
     pendingActionRef.current = data.action;
-    setConfirmingLeave(true);
+    const beforeLeave = beforeLeaveRef.current;
+    if (!beforeLeave) {
+      setConfirmingLeave(true);
+      return;
+    }
+    beforeLeave().then(
+      (saved) => {
+        if (pendingActionRef.current !== data.action) return;
+        if (saved) leave();
+        else setConfirmingLeave(true);
+      },
+      () => {
+        if (pendingActionRef.current === data.action) setConfirmingLeave(true);
+      },
+    );
   });
 
   useEffect(() => {
@@ -133,15 +170,6 @@ export function useUnsavedLeaveGuard(hasUnsaved: () => boolean) {
     setTimeout(() => {
       if (pendingActionRef.current === action) pendingActionRef.current = null;
     }, 0);
-  }, []);
-
-  const leave = useCallback(() => {
-    const action = pendingActionRef.current;
-    pendingActionRef.current = null;
-    setConfirmingLeave(false);
-    if (!action) return;
-    dispatchActionRef.current = action;
-    setAllowNavigation(true);
   }, []);
 
   return { confirmingLeave, stay, leave };

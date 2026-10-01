@@ -1,0 +1,20 @@
+{
+  "check": "QA-05 follow-up: addItem modal after replacing react-hook-form watch() with useWatch and moving the clock read into a lazy initializer",
+  "steps": [
+    {
+      "step": "sidebar Add item → Project",
+      "form": {
+        "workspace": "QA Web Space (preselected)",
+        "status": "Todo (workspace default resolved from the watched workspace id)",
+        "priority": "Low",
+        "deadline": "Oct 15, 2026 (today + 14 days)",
+        "stages": "Enabled"
+      }
+    },
+    {
+      "step": "title 'QA Web Project via modal' → Create project",
+      "api": "GET /projects → [('QA Web Project via modal', '2026-10-15', 'Low')]"
+    }
+  ],
+  "result": "PASS"
+}

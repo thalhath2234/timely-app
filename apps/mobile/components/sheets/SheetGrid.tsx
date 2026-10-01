@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   Dimensions,
   PanResponder,
@@ -154,7 +154,13 @@ export type SheetGridProps = {
   onChange: (next: { columns?: SheetColumn[]; rows?: SheetRow[]; merges?: SheetMerge[] }) => void;
 };
 
-export default function SheetGrid({ columns, rows, merges = [], onChange, onAssistantContext }: SheetGridProps) {
+/** Lets the owning screen finish an in-progress cell edit before it leaves. */
+export type SheetGridHandle = {
+  /** Commits the active cell draft, if any. Returns whether a draft was committed. */
+  commitActiveEdit: () => boolean;
+};
+
+export default function SheetGrid({ columns, rows, merges = [], onChange, onAssistantContext, ref }: SheetGridProps & { ref?: Ref<SheetGridHandle> }) {
   const [range, setRange] = useState<CellRange>({
     anchor: { col: 0, row: 0 },
     focus: { col: 0, row: 0 },
@@ -208,6 +214,16 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   editingRef.current = editing;
   rangeRef.current = range;
   editingFormulaRef.current = Boolean(editing && isFormulaValue(draft));
+
+  useImperativeHandle(ref, () => ({
+    commitActiveEdit: () => {
+      if (!editingRef.current) return false;
+      // A half-picked formula range is still worth keeping over losing the cell.
+      formulaPickingRef.current = false;
+      commitEdit();
+      return true;
+    },
+  }));
 
   function onGridLayout(event: LayoutChangeEvent) {
     const { width, height } = event.nativeEvent.layout;

@@ -61,9 +61,9 @@ func integrationDB(t *testing.T) *gorm.DB {
 	if err = db.Exec("CREATE UNIQUE INDEX notifications_dedupe_test ON notifications(dedupe_key) WHERE dedupe_key IS NOT NULL").Error; err != nil {
 		t.Fatal(err)
 	}
-	// Apply the production notification constraint migration, so this test also
+	// Apply the newest production constraint migration, so this test also
 	// catches category mismatches between GORM models and the actual database.
-	migration, err := os.ReadFile("../../../migrations/20260928120602_agent_notification_category.sql")
+	migration, err := os.ReadFile("../../../migrations/20261001133000_allow_missed_and_start_notifications.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

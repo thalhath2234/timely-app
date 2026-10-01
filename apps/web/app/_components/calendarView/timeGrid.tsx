@@ -67,12 +67,24 @@ type DragSession = {
 
 type DragPreview = {
   event: CalendarEvent;
+  mode: GridDragMode;
   dayIndex: number;
   start: Date;
   end: Date;
   startHour: number;
   endHour: number;
 };
+
+/** Stops text selection while a block is dragged; returns the undo. */
+function lockBodyForDrag() {
+  const previousCursor = document.body.style.cursor;
+  const previousSelect = document.body.style.userSelect;
+  document.body.style.userSelect = "none";
+  return () => {
+    document.body.style.cursor = previousCursor;
+    document.body.style.userSelect = previousSelect;
+  };
+}
 
 function hoursOf(start: Date, end: Date) {
   const startHour = (start.getHours() * 60 + start.getMinutes()) / 60;
@@ -117,8 +129,10 @@ export default function TimeGrid({
   const suppressClickRef = useRef(false);
   const stopListeningRef = useRef<(() => void) | null>(null);
   const onMoveBlockRef = useRef(onMoveBlock);
-  onMoveBlockRef.current = onMoveBlock;
   const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    onMoveBlockRef.current = onMoveBlock;
+  });
   const [preview, setPreview] = useState<DragPreview | null>(null);
 
   useEffect(() => {
@@ -195,6 +209,7 @@ export default function TimeGrid({
     const hours = hoursOf(interval.start, interval.end);
     return {
       event: session.event,
+      mode: session.mode,
       dayIndex: Math.max(0, dayIndex),
       start: interval.start,
       end: interval.end,
@@ -202,7 +217,9 @@ export default function TimeGrid({
     };
   };
   const liveIntervalRef = useRef(liveInterval);
-  liveIntervalRef.current = liveInterval;
+  useEffect(() => {
+    liveIntervalRef.current = liveInterval;
+  });
 
   const startDrag = (
     event: CalendarEvent,
@@ -220,6 +237,7 @@ export default function TimeGrid({
     const grabOffsetMinutes = minutesFromY(pointer.clientY) - startMinutes;
     const live: DragPreview = {
       event,
+      mode,
       dayIndex: Math.max(0, days.findIndex((item) => isSameDay(item, day))),
       start: event.start,
       end: event.end,
@@ -242,9 +260,7 @@ export default function TimeGrid({
       live,
     };
 
-    const previousCursor = document.body.style.cursor;
-    const previousSelect = document.body.style.userSelect;
-    document.body.style.userSelect = "none";
+    const restoreBody = lockBodyForDrag();
 
     const onMove = (nextPointer: PointerEvent) => {
       const session = dragRef.current;
@@ -278,8 +294,7 @@ export default function TimeGrid({
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
       window.removeEventListener("keydown", onKey);
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousSelect;
+      restoreBody();
       stopListeningRef.current = null;
     };
 
@@ -317,12 +332,11 @@ export default function TimeGrid({
   useEffect(() => () => stopListeningRef.current?.(), []);
 
   const nowHour = now.getHours() + now.getMinutes() / 60;
-  const guidelineHour =
-    preview && dragRef.current
-      ? dragRef.current.mode === "resize-end"
-        ? preview.endHour
-        : preview.startHour
-      : null;
+  const guidelineHour = preview
+    ? preview.mode === "resize-end"
+      ? preview.endHour
+      : preview.startHour
+    : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">

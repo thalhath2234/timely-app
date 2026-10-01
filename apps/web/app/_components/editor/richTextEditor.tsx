@@ -132,6 +132,16 @@ const BLANK_DOCUMENT: JSONContent = {
 /** Tiptap rejects a document without a node type, which stored blanks can be. */
 /** Mutable holder for the mention list so the TipTap suggestion plugin (which
  * lives outside React) can read the latest items without rebuilding. */
+function createHandlerBox<T>(initial: T) {
+  let value = initial;
+  return {
+    get: () => value,
+    set: (next: T) => {
+      value = next;
+    },
+  };
+}
+
 function createMentionBox(initial: ReturnType<typeof useMentionItems>) {
   let items = initial;
   return {
@@ -180,7 +190,11 @@ export default function RichTextEditor({
   // rebuilt whenever the data refreshes.
   const mentionItems = useMentionItems();
   const [mentionBox] = useState(() => createMentionBox(mentionItems));
-  const createSubpageRef = useRef(onCreateSubpage);
+  // Only the presence of the handler decides whether the slash item exists;
+  // the latest handler is read through a box (like mentions) when it runs, so
+  // building the extension list never touches a ref during render.
+  const [subpageBox] = useState(() => createHandlerBox(onCreateSubpage));
+  const hasCreateSubpage = Boolean(onCreateSubpage);
 
   const openLinkEditor = useCallback(() => {
     const editor = editorRef.current;
@@ -269,9 +283,9 @@ export default function RichTextEditor({
             items: ({ query }: { query: string }) =>
               filterSlashItems(
                 createSlashItems({
-                  onCreateSubpage: createSubpageRef.current
+                  onCreateSubpage: hasCreateSubpage
                     ? (props) => {
-                        void createSubpageRef.current?.(props);
+                        void subpageBox.get()?.(props);
                       }
                     : undefined,
                 }),
@@ -298,7 +312,7 @@ export default function RichTextEditor({
 
     return list;
     // The mention list is read through the stable box, so it must not rebuild here.
-  }, [enableMentions, enableSlashCommands, placeholder, variant, mentionBox]);
+  }, [enableMentions, enableSlashCommands, hasCreateSubpage, placeholder, variant, mentionBox, subpageBox]);
 
   const editor = useEditor({
     // The editor is rendered inside a client page, and Tiptap requires this
@@ -339,7 +353,7 @@ export default function RichTextEditor({
 
   useEffect(() => {
     onChangeRef.current = onChange;
-    createSubpageRef.current = onCreateSubpage;
+    subpageBox.set(onCreateSubpage);
     mentionBox.set(mentionItems);
   });
 

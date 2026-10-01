@@ -1,19 +1,21 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { getConfig, updateAppearanceConfig } from "@/app/utils/api/worksapce";
+import { useClientGate } from "@/app/_components/_ui/motion";
 import {
-  ACCENT_STORAGE_KEY,
   applyDocumentAppearance,
   isAccentPreference,
   isThemePreference,
   readStoredAccent,
   readStoredSidebarAutoHide,
   readStoredTheme,
-  SIDEBAR_AUTO_HIDE_STORAGE_KEY,
-  THEME_STORAGE_KEY,
+  subscribeStoredAppearance,
+  writeStoredAccent,
+  writeStoredSidebarAutoHide,
+  writeStoredTheme,
   type AccentPreference,
   type ThemePreference,
 } from "@/app/utils/theme";
@@ -52,26 +54,26 @@ function appearanceFromConfig(value: { theme?: string; accent?: string } | undef
   };
 }
 
+const serverTheme = (): ThemePreference => "system";
+const serverAccent = (): AccentPreference => "default";
+const serverSidebarAutoHide = () => false;
+
 export default function ClientRuntime({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [online, setOnline] = useState(true);
-  const [hydrated, setHydrated] = useState(false);
-  const [theme, setThemeState] = useState<ThemePreference>("system");
-  const [accent, setAccentState] = useState<AccentPreference>("default");
-  const [sidebarAutoHide, setSidebarAutoHideState] = useState(false);
+  // Server render and hydration use the defaults; the client snapshot from
+  // localStorage takes over right after hydration without a state update.
+  const hydrated = useClientGate();
+  const theme = useSyncExternalStore(subscribeStoredAppearance, readStoredTheme, serverTheme);
+  const accent = useSyncExternalStore(subscribeStoredAppearance, readStoredAccent, serverAccent);
+  const sidebarAutoHide = useSyncExternalStore(
+    subscribeStoredAppearance,
+    readStoredSidebarAutoHide,
+    serverSidebarAutoHide,
+  );
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipPersist = useRef(true);
   const accountReady = useRef(false);
-
-  useEffect(() => {
-    const nextTheme = readStoredTheme();
-    const nextAccent = readStoredAccent();
-    setThemeState(nextTheme);
-    setAccentState(nextAccent);
-    setSidebarAutoHideState(readStoredSidebarAutoHide());
-    applyDocumentAppearance(nextTheme, nextAccent);
-    setHydrated(true);
-  }, []);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -87,14 +89,14 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
         if (serverIsDefault && localDiffers) {
           skipPersist.current = false;
           accountReady.current = true;
-          setThemeState(localTheme);
-          setAccentState(localAccent);
+          writeStoredTheme(localTheme);
+          writeStoredAccent(localAccent);
           void updateAppearanceConfig({ theme: localTheme, accent: localAccent }).catch(() => undefined);
           return;
         }
         skipPersist.current = true;
-        setThemeState(remote.theme);
-        setAccentState(remote.accent);
+        writeStoredTheme(remote.theme);
+        writeStoredAccent(remote.accent);
         accountReady.current = true;
         queueMicrotask(() => {
           skipPersist.current = false;
@@ -114,8 +116,6 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
     const apply = () => applyDocumentAppearance(theme, accent);
     apply();
     media.addEventListener("change", apply);
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
-    localStorage.setItem(ACCENT_STORAGE_KEY, accent);
     return () => media.removeEventListener("change", apply);
   }, [theme, accent, hydrated]);
 
@@ -129,11 +129,6 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
       if (persistTimer.current) clearTimeout(persistTimer.current);
     };
   }, [theme, accent, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(SIDEBAR_AUTO_HIDE_STORAGE_KEY, sidebarAutoHide ? "true" : "false");
-  }, [sidebarAutoHide, hydrated]);
 
   useEffect(() => {
     const update = () => {
@@ -153,11 +148,11 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({
     theme,
-    setTheme: (next: ThemePreference) => setThemeState(next),
+    setTheme: writeStoredTheme,
     accent,
-    setAccent: (next: AccentPreference) => setAccentState(next),
+    setAccent: writeStoredAccent,
     sidebarAutoHide,
-    setSidebarAutoHide: (next: boolean) => setSidebarAutoHideState(next),
+    setSidebarAutoHide: writeStoredSidebarAutoHide,
   }), [theme, accent, sidebarAutoHide]);
 
   return (

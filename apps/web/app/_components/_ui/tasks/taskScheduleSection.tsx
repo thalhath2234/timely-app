@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CalendarDays, Clock, Pin, Plus, Repeat, Sparkles, X } from "lucide-react";
 import { DateTimeField, TimeField } from "@/app/_components/_ui/datePicker";
 import { SidebarSectionTitle } from "@/app/_components/_ui/modal/entityModal";
@@ -94,13 +94,18 @@ export default function TaskScheduleSection({
   const [adding, setAdding] = useState(false);
   const [pickAt, setPickAt] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [preferStart, setPreferStart] = useState(preferredWindows?.[0]?.start ?? "");
-  const [preferEnd, setPreferEnd] = useState(preferredWindows?.[0]?.end ?? "");
-
-  useEffect(() => {
-    setPreferStart(preferredWindows?.[0]?.start ?? "");
-    setPreferEnd(preferredWindows?.[0]?.end ?? "");
-  }, [preferredWindows?.[0]?.start, preferredWindows?.[0]?.end]);
+  const incomingPreferStart = preferredWindows?.[0]?.start ?? "";
+  const incomingPreferEnd = preferredWindows?.[0]?.end ?? "";
+  const [preferStart, setPreferStart] = useState(incomingPreferStart);
+  const [preferEnd, setPreferEnd] = useState(incomingPreferEnd);
+  // The fields are editable copies of the saved window; when the saved window
+  // changes (another client, undo), the copies follow it.
+  const [syncedWindow, setSyncedWindow] = useState({ start: incomingPreferStart, end: incomingPreferEnd });
+  if (syncedWindow.start !== incomingPreferStart || syncedWindow.end !== incomingPreferEnd) {
+    setSyncedWindow({ start: incomingPreferStart, end: incomingPreferEnd });
+    setPreferStart(incomingPreferStart);
+    setPreferEnd(incomingPreferEnd);
+  }
 
   const reminder = duration <= 0;
   const anchor = recurrence

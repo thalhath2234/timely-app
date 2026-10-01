@@ -1,0 +1,13 @@
+{
+  "beforeRestart": {
+    "paused": false,
+    "persistenceCalls": 1,
+    "mutations": 1,
+    "queued": 1
+  },
+  "afterRestart": {
+    "mutations": 0,
+    "persistenceCalls": 1,
+    "queued": 1
+  }
+}

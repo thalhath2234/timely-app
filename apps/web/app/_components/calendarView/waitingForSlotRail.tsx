@@ -2,7 +2,6 @@
 
 import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import type { Task } from "@/app/_types/types";
 import { formatDuration } from "@/app/utils/calendar";
 import { taskEntityColor } from "@/app/utils/entityColor";
 import { useRank } from "@/app/utils/hooks/calendar";

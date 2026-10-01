@@ -27,6 +27,9 @@ const apiUrl = fromEnvFile || (emulatorOnly ? "" : fromProcess) || "";
 module.exports = {
   expo: {
     ...appJson.expo,
+    // expo-sharing (SDK 57) registers its config plugin; `expo install --fix`
+    // cannot write it into a dynamic config, so it is added here.
+    plugins: [...(appJson.expo.plugins ?? []), "expo-sharing"],
     extra: {
       apiUrl,
     },
