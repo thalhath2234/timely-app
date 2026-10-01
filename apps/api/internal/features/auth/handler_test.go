@@ -112,3 +112,16 @@ func sessionIDFromRequestForBearer(bearer string) string {
 	req.Header.Set("Authorization", "Bearer "+bearer)
 	return sessionIDFromRequest(e.NewContext(req, httptest.NewRecorder()))
 }
+
+func TestLogoutIgnoresTokenWithUnexpectedAlgorithm(t *testing.T) {
+	h, svc, tokens := newLogoutFixture(t)
+	other := jwt.NewWithClaims(jwt.SigningMethodHS512, &JWTClaims{SessionID: tokens.SessionID})
+	signed, err := other.SignedString([]byte(handlerTestSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	postLogout(t, h, signed)
+	if !svc.SessionIsActive(tokens.SessionID) {
+		t.Fatal("a token signed with an algorithm the server never issues revoked the session")
+	}
+}

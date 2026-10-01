@@ -29,7 +29,8 @@ var errUnverifiedToken = errors.New("token signature is not verified")
 // the holder was issued. Tokens with an invalid signature are rejected.
 func ParseSignedSessionClaims(tokenString string) (*JWTClaims, error) {
 	claims := &JWTClaims{}
-	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	// Access tokens are always issued with HS256 (see issueAccessToken).
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation(), jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	token, err := parser.ParseWithClaims(tokenString, claims, jwtSecret)
 	if err != nil {
 		return nil, err
