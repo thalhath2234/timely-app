@@ -6,8 +6,8 @@ Part of the `timely` monorepo: install dependencies with `pnpm install` from the
 
 ## API URL
 
-Run `make setup-mobile-env` from the repository root, then set
-`EXPO_PUBLIC_API_URL` in `.env.local` (this directory):
+Run `make setup-env` from the repository root, then set
+`EXPO_PUBLIC_API_URL` in the root `.env`:
 
 ```ini
 EXPO_PUBLIC_API_URL=http://10.0.2.2:8080
@@ -19,12 +19,11 @@ For this worktree's API on port 8081, use
 phone is outside the local network. The URL is baked into a release APK at
 build time; pass `API_URL=...` to `make build-apk` when needed.
 
-`.env.local` is ignored by Git and listed in the repository's
+The root `.env` is ignored by Git and listed in the repository's
 `.worktreeinclude`, so compatible worktree tools copy it automatically. The
-setup target provides the same behavior in T3 Code worktrees. The legacy
-`.env` file remains a fallback.
+setup target provides the same behavior in T3 Code worktrees.
 
-Fallbacks if the local env file is omitted:
+Fallbacks if the URL is omitted:
 
 - Android emulator: `http://10.0.2.2:8080` (this maps to the host machine’s `localhost`)
 - Physical phone on the same Wi-Fi: `http://<your-pc-lan-ip>:8080`

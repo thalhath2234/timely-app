@@ -15,9 +15,9 @@ GREEN := $(shell printf '\033[32m')
 RED   := $(shell printf '\033[31m')
 RESET := $(shell printf '\033[0m')
 
-# Load the API's .env (DB_* etc.) so goose targets use the same credentials as
+# Load the root .env (DB_* etc.) so goose targets use the same credentials as
 # the running server. Missing file is fine.
--include $(API)/.env
+-include .env
 
 # Database configuration (overridable: make migrate-status DB_HOST=...)
 DB_HOST     ?= localhost
@@ -30,7 +30,7 @@ GOOSE_DBSTRING ?= "host=$(DB_HOST) port=$(DB_PORT) user=$(DB_USER) password=$(DB
 GOOSE_MIGRATIONS := goose -dir $(API)/migrations postgres $(GOOSE_DBSTRING)
 GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING)
 
-.PHONY: help setup setup-mobile-env install tools install-air install-goose \
+.PHONY: help setup setup-env install tools install-air install-goose \
         dev dev-api dev-web dev-mobile dev-mobile-device dev-desktop launch-electron \
         dev-worktree dev-worktree-api dev-worktree-web \
         build build-api build-web build-desktop dist-desktop build-apk install-apk apk-status \
@@ -46,14 +46,11 @@ help: ## Show this help
 	  /^[a-zA-Z_-]+:.*?##/ { printf "  $(GREEN)%-18s$(RESET) %s\n", $$1, $$2 } \
 	  /^##@/ { printf "\n$(CYAN)%s$(RESET)\n", substr($$0, 5) }' $(MAKEFILE_LIST)
 
-setup: install tools setup-mobile-env ## First-time setup: install dependencies, tools, and local env files
-	@for app in $(API) $(WEB); do \
-	  if [ ! -f $$app/.env ] && [ -f $$app/.env.example ]; then cp $$app/.env.example $$app/.env; echo "created $$app/.env from example"; fi; \
-	done
-	@echo "$(GREEN)✓ Setup complete. Mobile development config: $(MOBILE)/.env.local$(RESET)"
+setup: install tools setup-env ## First-time setup: install dependencies, tools, and the local .env
+	@echo "$(GREEN)✓ Setup complete. Configuration for all apps: .env$(RESET)"
 
-setup-mobile-env: ## Copy/create the ignored mobile .env.local for this worktree
-	@scripts/setup-mobile-env.sh
+setup-env: ## Copy/create the ignored root .env for this checkout or worktree
+	@scripts/setup-env.sh
 
 install: ## Install workspace JS dependencies (pnpm) and Go modules
 	@pnpm install
@@ -82,7 +79,7 @@ dev-worktree: ## Run API (:8081) and web (:4002) together in this worktree
 	@$(MAKE) -j2 --no-print-directory dev-worktree-api dev-worktree-web
 
 dev-worktree-api: ## Run the Go API on :8081 with live reload
-	@cd $(API) && PORT=8081 air
+	@cd $(API) && API_PORT=8081 air
 
 dev-worktree-web: ## Run Next.js on :4002 against the worktree API
 	@API_ORIGIN=http://localhost:8081 pnpm --filter @timely/web exec next dev -p 4002
@@ -105,10 +102,10 @@ audit-index: ## Rebuild and validate the portable screenshot gallery
 
 MOBILE_METRO_FLAGS ?=
 
-dev-mobile: setup-mobile-env ## Start the Expo dev server (Metro on :8082; leave :8081 for the worktree API)
+dev-mobile: setup-env ## Start the Expo dev server (Metro on :8082; leave :8081 for the worktree API)
 	@pnpm --filter @timely/mobile exec expo start --lan --port 8082 --go $(MOBILE_METRO_FLAGS)
 
-dev-mobile-device: setup-mobile-env ## Metro + Expo Go on a USB phone (adb reverse :8082)
+dev-mobile-device: setup-env ## Metro + Expo Go on a USB phone (adb reverse :8082)
 	@ANDROID_HOME=$${ANDROID_HOME:-$${ANDROID_SDK_ROOT:-/home/thalhath/.local/android-sdk}}; \
 	export ANDROID_HOME; \
 	export ANDROID_SDK_ROOT="$$ANDROID_HOME"; \
@@ -151,7 +148,7 @@ build-desktop: ## Package an unpacked Electron app for this OS (release/<platfor
 dist-desktop: ## Build a distributable Electron installer for this OS (AppImage / dmg / nsis)
 	@pnpm --filter @timely/web electron:dist
 
-build-apk: ## Build the Android release APK (memory-capped, detached). Usage: make build-apk API_URL=https://... (defaults to apps/mobile/.env.local)
+build-apk: ## Build the Android release APK (memory-capped, detached). Usage: make build-apk API_URL=https://... (defaults to EXPO_PUBLIC_API_URL in .env)
 	@scripts/build-apk.sh $(if $(API_URL),--api-url "$(API_URL)")
 
 install-apk: ## Build the Android release APK and install it on a connected phone. Usage: make install-apk API_URL=https://...
@@ -242,7 +239,7 @@ format-api: ## Format Go source
 
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
-	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/$(API)/.env" go test ./internal/features/chat ./internal/features/provider ./cmd -run TestIntegration -count=1
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/chat ./internal/features/provider ./cmd -run TestIntegration -count=1
 
 lint-chat: ## Lint the chat UI and Electron integration
 	@pnpm --filter @timely/web exec eslint app/_components/chat app/_store/chatStore.ts app/utils/api/chat.ts app/utils/hooks/chat.ts "app/(pages)/(nav_pages)/chat" electron/main.ts electron/preload.ts

@@ -1,2 +1,2 @@
 # Local development configuration copied into compatible managed worktrees.
-apps/mobile/.env.local
+.env

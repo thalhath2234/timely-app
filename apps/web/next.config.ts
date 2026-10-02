@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+// The monorepo keeps one .env at the repo root, and Next.js only reads env
+// files from this directory. Values already in the environment win.
+const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const rootEnvFile = path.join(repoRoot, ".env");
+if (existsSync(rootEnvFile)) process.loadEnvFile(rootEnvFile);
 
 const apiOrigin = process.env.API_ORIGIN || "http://localhost:8080";
 const electronBuild = process.env.ELECTRON_BUILD === "1";
@@ -9,7 +16,7 @@ const nextConfig: NextConfig = {
   ...(electronBuild
     ? {
         output: "standalone" as const,
-        outputFileTracingRoot: path.join(path.dirname(fileURLToPath(import.meta.url)), "../.."),
+        outputFileTracingRoot: repoRoot,
       }
     : {}),
   allowedDevOrigins: [

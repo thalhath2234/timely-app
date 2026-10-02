@@ -5,7 +5,7 @@ The API applies pending migrations when it starts. GORM handles data access;
 schema changes belong in SQL migrations.
 
 Run every command below from the repository root. The Makefile loads database
-settings from `apps/api/.env`; command-line `DB_*` values override them. See
+settings from the root `.env`; command-line `DB_*` values override them. See
 [setup.md](setup.md) for PostgreSQL and environment setup.
 
 | Command | Effect |

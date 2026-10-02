@@ -19,7 +19,7 @@ tmp_dir = "tmp"
   ignore_dangerous_root_dir = false
   include_dir = []
   include_ext = ["go", "tpl", "tmpl", "html", "sql"]
-  include_file = [".env"]
+  include_file = []
   # Gives the old process time to release the port and the binary file lock.
   kill_delay = "1s"
   log = "build-errors.log"

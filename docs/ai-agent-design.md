@@ -154,7 +154,7 @@ can be selected during implementation.
 Run from the repository root:
 
 - `make test-api` and `make lint-api`
-- `make test-chat-integration` — temporary PostgreSQL schemas using API `.env`,
+- `make test-chat-integration` — temporary PostgreSQL schemas using the root `.env`,
   covering actual migrations, shared domain tools, rollback, safe retries,
   recurrence exceptions, stale proposals, and account isolation.
 - `make typecheck-web`, `make lint-chat`, and `make build-web`

@@ -458,7 +458,7 @@ function CliCard({
       {!status.found ? (
         <Text style={styles.meta}>
           Install the CLI for the OS user that runs the Timely API. If it lives
-          somewhere unusual, set {envVar} in the API .env. The path cannot be
+          somewhere unusual, set {envVar} in the server .env. The path cannot be
           set from here.
         </Text>
       ) : null}

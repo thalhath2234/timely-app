@@ -20,9 +20,10 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     env_file:
-      - path: apps/api/.env
+      - path: .env
         required: false
     environment:
+      API_PORT: 8080
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: ${DB_USER:-timely}
@@ -42,10 +43,8 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    env_file:
-      - path: apps/web/.env
-        required: false
     environment:
+      JWT_SECRET: ${JWT_SECRET:-}
       API_ORIGIN: http://api:8080
     ports:
       - "4001:4001"

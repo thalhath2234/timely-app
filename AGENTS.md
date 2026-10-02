@@ -12,7 +12,7 @@ Three apps, one repo. Run everything from the repo root via `make` (see `make he
 
 - **Package manager:** pnpm workspace (`pnpm-workspace.yaml`), single root `pnpm-lock.yaml`. Never add a per-app lockfile. Run `pnpm install` from the root.
 - **Task runner:** the root `Makefile` is the single source of truth for dev/build/lint/test/migrate commands. Add new commands there, not as ad-hoc shell in docs.
-- **Env files:** each app has its own `.env` (git-ignored) next to a committed `.env.example`.
+- **Env file:** one `.env` at the repo root (git-ignored) next to a committed `.env.example`, shared by all three apps, the Makefile and docker-compose. Never add a per-app `.env`. Restart the dev servers after editing it.
 - **Go module** is `timely-api` (import paths are `timely-api/internal/...`); run Go commands from `apps/api` or via `make`.
 - **Migrations** live in `apps/api/migrations` and run automatically on API start. Use `make migrate-create NAME=...` for new ones.
 - **Android builds:** never run Gradle/`expo run:android` directly — use `make build-apk` or `make install-apk` (see `.agents/skills/build-mobile-apk/SKILL.md`).

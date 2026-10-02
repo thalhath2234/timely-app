@@ -562,7 +562,7 @@ function CliCard({
             Install the CLI for the OS user that runs the Timely API. If it
             lives somewhere unusual, set{" "}
             <code>{id === "claude" ? "CLAUDE_BIN" : "CODEX_BIN"}</code> in the
-            API <code>.env</code>. The path cannot be set from here.
+            server <code>.env</code>. The path cannot be set from here.
           </p>
         )}
         {status.found && !status.loggedIn && (

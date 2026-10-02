@@ -16,9 +16,9 @@ function loadDotEnv(filename) {
   return values;
 }
 
-// Match the usual development convention: local, ignored values override the
-// shared .env fallback. Release builds seed .env.local explicitly as well.
-const env = { ...loadDotEnv(".env"), ...loadDotEnv(".env.local") };
+// The monorepo keeps one .env at the repo root; Expo only reads env files from
+// this directory, so the API URL is read here. Release builds write it there too.
+const env = loadDotEnv("../../.env");
 const fromEnvFile = env.EXPO_PUBLIC_API_URL || "";
 const fromProcess = process.env.EXPO_PUBLIC_API_URL || "";
 const emulatorOnly = fromProcess.includes("10.0.2.2") || fromProcess.includes("localhost");

@@ -20,7 +20,7 @@ docker compose up -d db  # if you do not already run compatible PostgreSQL
 make dev-api             # API on :8080, with live reload
 ```
 
-`make setup` copies `apps/api/.env.example` to the ignored `apps/api/.env` if
+`make setup` copies the root `.env.example` to the ignored root `.env` if
 needed. Check its database settings and replace `JWT_SECRET` and
 `TIMELY_BACKUP_KEY` before using a nonlocal installation. The API applies
 pending schema migrations at startup. Embedding search needs an
@@ -32,7 +32,7 @@ API and web on the worktree ports, use `make dev-worktree`. Leave ports 8080 and
 
 ## Database and maintenance
 
-The API reads `apps/api/.env`; the root Makefile reads the same file for Goose
+The API reads the root `.env`; the root Makefile reads the same file for Goose
 commands. Use `make migrate-status` to inspect schema versions and
 `make migrate-create NAME=add_thing` to add a migration. See
 [MIGRATIONS.md](MIGRATIONS.md) for the full workflow. Mock seed data is optional

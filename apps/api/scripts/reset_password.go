@@ -30,7 +30,7 @@ func main() {
 		log.Fatal("usage: reset_password -email user@example.com -password 'new-password'")
 	}
 
-	_ = godotenv.Load()
+	_ = godotenv.Load("../../.env")
 	db := database.InitDB()
 
 	var user models.User

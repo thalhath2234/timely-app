@@ -26,7 +26,7 @@ timely/
 ## Quick start
 
 ```bash
-make setup            # pnpm install, go mod download, install air + goose, create .env files from examples
+make setup            # pnpm install, go mod download, install air + goose, create .env from .env.example
 make dev              # API (:8080, live reload) + web (:4001) together
 make dev-desktop      # API + web + Electron window
 make dev-mobile       # Expo/Metro dev server
@@ -38,11 +38,11 @@ server. `make dev` uses ports 8080 and 4001. In this worktree, use
 `make dev-worktree` for API 8081 and web 4002; those targets set the ports and
 the web server's API origin together. Leave 8080 and 4001 for the main checkout.
 
-Edit `apps/api/.env` (DB credentials, JWT secret), `apps/web/.env`, and
-`apps/mobile/.env.local` (`EXPO_PUBLIC_API_URL`) as needed. The mobile file is
-copied into compatible managed worktrees via `.worktreeinclude`; run
-`make setup-mobile-env` to seed it explicitly. Migrations run automatically
-when the API starts.
+All three apps read one `.env` at the repository root: DB credentials, the
+JWT secret, and the mobile `EXPO_PUBLIC_API_URL`. Edit it as needed and restart
+the dev servers afterwards. The file is copied into compatible managed
+worktrees via `.worktreeinclude`; run `make setup-env` to seed it explicitly.
+Migrations run automatically when the API starts.
 
 ## Common tasks
 

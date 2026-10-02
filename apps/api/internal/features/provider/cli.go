@@ -206,7 +206,7 @@ func (t *Tool) Check(ctx context.Context, maxAge time.Duration) Status {
 	status := Status{CheckedAt: time.Now().UTC().Format(time.RFC3339)}
 	path := t.Locate()
 	if path == "" {
-		status.Error = "Not found on the server. Install the CLI for the user that runs the Timely API, or set " + t.EnvVar + " in the API .env"
+		status.Error = "Not found on the server. Install the CLI for the user that runs the Timely API, or set " + t.EnvVar + " in the server .env"
 		t.checked, t.snapshot = time.Now(), status
 		return status
 	}

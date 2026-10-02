@@ -43,8 +43,9 @@ import (
 )
 
 func main() {
-	// Load environment variables
-	if err := godotenv.Load(); err != nil {
+	// Load environment variables from the repo-root .env (the API runs from
+	// apps/api), or from a .env beside the binary when deployed outside the repo.
+	if godotenv.Load("../../.env") != nil && godotenv.Load() != nil {
 		log.Println("Warning: No .env file found or failed to load")
 	}
 
@@ -162,7 +163,11 @@ func main() {
 	// Setup all routes
 	routes.SetupRoutes(e, handlers)
 	// Start server
-	port := os.Getenv("PORT")
+	// API_PORT is the name in the shared .env; PORT is the older name.
+	port := os.Getenv("API_PORT")
+	if port == "" {
+		port = os.Getenv("PORT")
+	}
 	if port == "" {
 		port = "8080"
 	}

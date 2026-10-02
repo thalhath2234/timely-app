@@ -44,7 +44,8 @@ function isDev() {
 
 function loadEnvFiles() {
   const candidates = [
-    path.join(__dirname, "..", ".env"),
+    // Repo-root .env when running from the checkout (dist-electron → apps/web → repo).
+    path.join(__dirname, "..", "..", "..", ".env"),
     path.join(process.cwd(), ".env"),
     path.join(app.getPath("userData"), ".env"),
   ];

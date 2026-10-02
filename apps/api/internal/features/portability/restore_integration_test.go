@@ -17,7 +17,7 @@ func TestRestorePostgresRoundTrip(t *testing.T) {
 	if os.Getenv("TIMELY_TEST_POSTGRES") != "1" {
 		t.Skip("set TIMELY_TEST_POSTGRES=1 to run the Postgres restore test")
 	}
-	_ = godotenv.Load("../../../.env")
+	_ = godotenv.Load("../../../../../.env")
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
 		os.Getenv("DB_HOST"), os.Getenv("DB_USER"), os.Getenv("DB_PASSWORD"),
 		os.Getenv("DB_NAME"), os.Getenv("DB_PORT"), os.Getenv("DB_SSLMODE"))

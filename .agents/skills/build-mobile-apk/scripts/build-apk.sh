@@ -29,26 +29,31 @@ case "$ANDROID_ARCHITECTURES" in
 esac
 API_URL="${1:-}"
 
-if [[ -z "$API_URL" ]]; then
-  for env_file in "$APP_DIR/.env.local" "$APP_DIR/.env"; do
-    if [[ -f "$env_file" ]]; then
-      API_URL=$(awk -F= '/^EXPO_PUBLIC_API_URL=/{sub(/^[^=]*=/, ""); print; exit}' "$env_file")
-      [[ -n "$API_URL" ]] && break
-    fi
-  done
+# The monorepo keeps one .env at the repo root (two levels above apps/mobile).
+ENV_FILE="$(cd "$APP_DIR/../.." && pwd)/.env"
+
+ENV_URL=""
+if [[ -f "$ENV_FILE" ]]; then
+  ENV_URL=$(awk -F= '/^EXPO_PUBLIC_API_URL=/{sub(/^[^=]*=/, ""); print; exit}' "$ENV_FILE")
 fi
+API_URL="${API_URL:-$ENV_URL}"
 API_URL="${API_URL%/}"
 if [[ -z "$API_URL" ]]; then
-  echo "missing API URL (pass as arg or set EXPO_PUBLIC_API_URL in $APP_DIR/.env.local)" >&2
+  echo "missing API URL (pass as arg or set EXPO_PUBLIC_API_URL in $ENV_FILE)" >&2
   exit 1
 fi
 
+# Record the URL in the root .env, touching only its own line.
+if [[ "$API_URL" != "$ENV_URL" ]]; then
+  if grep -q '^EXPO_PUBLIC_API_URL=' "$ENV_FILE" 2>/dev/null; then
+    updated=$(API_URL="$API_URL" awk '/^EXPO_PUBLIC_API_URL=/{print "EXPO_PUBLIC_API_URL=" ENVIRON["API_URL"]; next} {print}' "$ENV_FILE")
+    printf '%s\n' "$updated" > "$ENV_FILE"
+  else
+    printf 'EXPO_PUBLIC_API_URL=%s\n' "$API_URL" >> "$ENV_FILE"
+  fi
+fi
+
 mkdir -p "$APP_DIR/lib/api"
-cat > "$APP_DIR/.env.local" <<EOF
-# Local API fallback (emulator): http://10.0.2.2:8080
-# Local API fallback (iOS / web): http://localhost:8080
-EXPO_PUBLIC_API_URL=$API_URL
-EOF
 printf 'export const BUNDLED_API_URL = "%s";\n' "$API_URL" > "$APP_DIR/lib/api/bundledUrl.ts"
 (cd "$APP_DIR" && node -e "require('./app.config.js')")
 
