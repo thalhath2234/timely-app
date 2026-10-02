@@ -2,6 +2,7 @@
 
 import { Clock } from "lucide-react";
 import { motion } from "motion/react";
+import Link from "next/link";
 import { listContainerVariants, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
 
 const SESSION_ROWS = [
@@ -13,7 +14,7 @@ const SESSION_ROWS = [
 export default function AuthBrandPanel() {
   return (
     <section className="relative z-10 hidden flex-col justify-between border-r border-white/10 bg-[#0c0e14] p-10 lg:p-14 md:flex md:w-[42%] lg:w-[40%]">
-      <div className="flex items-center gap-3">
+      <Link href="/" aria-label="Timely home" className="flex items-center gap-3 self-start rounded-lg">
         <div className="flex size-8 items-center justify-center rounded-lg bg-[#c0c1ff] text-[#1000a9] shadow-sm">
           <span className="text-sm font-bold select-none">T</span>
         </div>
@@ -25,7 +26,7 @@ export default function AuthBrandPanel() {
             Productivity & Sheets Workspace
           </span>
         </div>
-      </div>
+      </Link>
 
       <motion.div
         className="max-w-md py-12"

@@ -37,7 +37,6 @@
 html:has(.landing) {
   background: #110f1c;
   scrollbar-color: #5b5670 #110f1c;
-  scroll-behavior: smooth;
   scroll-padding-top: 5.5rem;
 }
 
