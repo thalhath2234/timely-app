@@ -58,9 +58,14 @@ export function useScene(delays: readonly number[]) {
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
+    // inView stops watching an element whose enter callback returns nothing,
+    // so the empty leave handler is what lets the scene start again later.
     const stopEnter = inView(
       element,
-      () => setState((current) => (current.running ? current : { ...current, running: true })),
+      () => {
+        setState((current) => (current.running ? current : { ...current, running: true }));
+        return () => {};
+      },
       { amount: 0.4 },
     );
     const stopLeave = inView(element, () => () => setState({ running: false, step: 0 }));
