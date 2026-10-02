@@ -1,5 +1,13 @@
 import { ImageResponse } from "next/og";
-import { EVENT_COLOR, EVENT_SLOTS, PROJECT, WORK_SLOTS, type CalendarSlot } from "./_components/landing/sampleData";
+import {
+  EVENT_BLOCKS,
+  EVENT_COLOR,
+  PROJECT,
+  WEEK_DAYS,
+  WORK_BLOCKS,
+  WORKING_DAY,
+  type CalendarBlock,
+} from "@/app/_components/landing/sampleData";
 
 export const alt = "Timely — From loose thoughts to a planned week";
 export const size = { width: 1200, height: 630 };
@@ -18,28 +26,29 @@ async function loadDisplayFont(weight: 500 | 800, text: string) {
       `https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@48,${weight}&text=${encodeURIComponent(text)}`,
     ).then((response) => response.text());
     const url = css.match(/src: url\((.+?)\) format\('(?:opentype|truetype)'\)/)?.[1];
-    if (!url) return null;
-    const font = await fetch(url);
-    return font.ok ? await font.arrayBuffer() : null;
+    const font = url ? await fetch(url) : null;
+    if (font?.ok) return await font.arrayBuffer();
   } catch {
-    return null;
+    // reported below
   }
+  console.warn("opengraph-image: could not load Bricolage Grotesque; using the default font.");
+  return null;
 }
 
 // The landing hero, redrawn with the flexbox-and-absolute subset ImageResponse supports.
-const GRID = { width: 400, height: 330, days: 5, firstHour: 9, hours: 8 };
+const GRID = { width: 400, height: 330 };
 
-function Block({ slot, color }: { slot: CalendarSlot; color: string }) {
-  const column = GRID.width / GRID.days;
-  const row = GRID.height / GRID.hours;
+function Block({ block, color }: { block: CalendarBlock; color: string }) {
+  const column = GRID.width / WEEK_DAYS.length;
+  const row = GRID.height / WORKING_DAY.hours;
   return (
     <div
       style={{
         position: "absolute",
-        left: slot.day * column + 3,
-        top: (slot.start - GRID.firstHour) * row + 3,
+        left: block.day * column + 3,
+        top: (block.start - WORKING_DAY.start) * row + 3,
         width: column - 6,
-        height: slot.hours * row - 6,
+        height: block.hours * row - 6,
         borderRadius: 8,
         borderLeft: `6px solid ${color}`,
         background: `${color}55`,
@@ -117,11 +126,11 @@ export default async function Image() {
               boxShadow: "10px 10px 0 #4a3f86",
             }}
           >
-            {EVENT_SLOTS.map((slot) => (
-              <Block key={slot.id} slot={slot} color={EVENT_COLOR} />
+            {EVENT_BLOCKS.map((block) => (
+              <Block key={block.title} block={block} color={EVENT_COLOR} />
             ))}
-            {WORK_SLOTS.map((slot) => (
-              <Block key={slot.id} slot={slot} color={PROJECT.color} />
+            {WORK_BLOCKS.map((block) => (
+              <Block key={`${block.work}-${block.part ?? ""}`} block={block} color={PROJECT.color} />
             ))}
           </div>
         </div>

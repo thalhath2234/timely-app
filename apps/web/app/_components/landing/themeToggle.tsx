@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { Moon, Sun } from "lucide-react";
 import { applyLandingTheme, readLandingTheme, writeLandingTheme } from "./landingTheme";
 
 export default function ThemeToggle() {
-  useEffect(() => {
-    // The inline script covers a full page load; this covers client-side
-    // navigation to the page and later system or cross-tab changes.
+  // The inline script covers a full page load. This covers client-side
+  // navigation to the page, where that script does not run, and later system
+  // or cross-tab changes; a layout effect applies the theme before paint.
+  useLayoutEffect(() => {
     const sync = () => applyLandingTheme(readLandingTheme());
     sync();
     const media = window.matchMedia("(prefers-color-scheme: light)");

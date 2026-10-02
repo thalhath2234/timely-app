@@ -3,8 +3,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Sparkles, Undo2 } from "lucide-react";
 import { cn } from "@/app/utils/cn";
-import { MiniWeek, slotColors, slotRect } from "../miniWeek";
-import { EVENT_COLOR, EVENT_SLOTS, PROJECT, WORK, WORK_SLOTS } from "../sampleData";
+import { EventBlocks, MiniWeek, blockColors, blockRect } from "../miniWeek";
+import { PROJECT, WORK, WORK_BLOCKS } from "../sampleData";
 import { MiniWindow, SceneBox, SceneButton, sceneEase, sceneSpring, useScene } from "../scene";
 
 // Step 1 is the resting state; the visitor drives the rest.
@@ -69,23 +69,14 @@ function Scene() {
 
           <div className="flex min-w-0 flex-1 flex-col">
             <MiniWeek className="min-h-0 flex-1">
-              {EVENT_SLOTS.map((slot) => (
-                <div key={slot.id} className="absolute p-px" style={slotRect(slot)}>
-                  <div
-                    className="mini-8 h-full overflow-hidden rounded-sm px-0.5 py-px leading-tight font-medium"
-                    style={slotColors(EVENT_COLOR)}
-                  >
-                    <span className="line-clamp-2">{slot.title}</span>
-                  </div>
-                </div>
-              ))}
+              <EventBlocks compact />
               <AnimatePresence>
                 {preview || applied
-                  ? WORK_SLOTS.map((slot, index) => (
+                  ? WORK_BLOCKS.map((block, index) => (
                       <motion.div
-                        key={slot.id}
+                        key={`${block.work}-${block.part ?? ""}`}
                         className="absolute p-px"
-                        style={slotRect(slot)}
+                        style={blockRect(block)}
                         initial={{ opacity: 0, x: "-70%", scale: 0.85 }}
                         animate={{ opacity: applied ? 1 : 0.62, x: 0, scale: 1 }}
                         exit={{ opacity: 0, x: "-70%", scale: 0.85, transition: { duration: 0.25, delay: index * 0.03 } }}
@@ -96,10 +87,10 @@ function Scene() {
                             "mini-8 h-full overflow-hidden rounded-sm px-0.5 py-px leading-tight font-medium",
                             !applied && "outline-1 -outline-offset-1 outline-primary outline-dashed",
                           )}
-                          style={slotColors(PROJECT.color)}
+                          style={blockColors(PROJECT.color)}
                         >
-                          <span className="line-clamp-2">{slot.title}</span>
-                          {slot.part ? <span className="font-mono text-muted-foreground">{slot.part}</span> : null}
+                          <span className="line-clamp-2">{block.title}</span>
+                          {block.part ? <span className="font-mono text-muted-foreground">{block.part}</span> : null}
                         </div>
                       </motion.div>
                     ))
@@ -129,7 +120,7 @@ function Scene() {
                   ) : preview ? (
                     <>
                       <span className="mini-10 min-w-0 flex-1 leading-tight">
-                        <span className="font-semibold">Preview:</span> 6 blocks, nothing skipped
+                        <span className="font-semibold">Preview:</span> {WORK_BLOCKS.length} blocks, nothing skipped
                       </span>
                       <SceneButton onClick={() => setStep(1)}>Cancel</SceneButton>
                       <SceneButton primary pulse onClick={() => setStep(APPLIED)}>

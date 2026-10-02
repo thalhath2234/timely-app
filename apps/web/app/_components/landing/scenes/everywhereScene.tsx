@@ -3,10 +3,10 @@
 import { motion } from "motion/react";
 import { Check, Plus } from "lucide-react";
 import { cn } from "@/app/utils/cn";
-import { WORK } from "../sampleData";
+import { MCP_TOOL_COUNT, WORK } from "../sampleData";
 import { Caret, MiniWindow, SceneBox, Typed, sceneSpring, typingTime, useScene } from "../scene";
 
-const NEW_TASK = "Draft the announcement post";
+const NEW_TASK = "Write the release notes";
 const COMMAND = `create_task "${NEW_TASK}"`;
 
 // 0 at rest · 1 ticked on the phone · 2 arrives on desktop · 3 agent types · 4 agent answers · 5 new task everywhere
@@ -90,11 +90,11 @@ function Scene() {
         className="mini-window absolute bottom-0 left-[5%] flex h-[38%] w-[59%] flex-col font-mono"
         style={{ background: "#0c0e14", color: "#e2e2eb", borderColor: "rgb(255 255 255 / 12%)" }}
       >
-        <p className="mini-9 border-b border-white/10 px-2.5 py-1.5 text-[#908fa0]">MCP agent · 147 tools</p>
+        <p className="mini-9 border-b border-white/10 px-2.5 py-1.5 text-[#908fa0]">MCP agent · {MCP_TOOL_COUNT} tools</p>
         <div className="mini-9 flex flex-col gap-1 p-2.5 leading-snug">
           <p>
             <span className="text-[#c0c1ff]">›</span>{" "}
-            {step >= 3 ? <Typed text={COMMAND} state={step === 3 ? "typing" : "done"} speed={30} /> : null}
+            {step >= 3 ? <Typed text={COMMAND} done={step > 3} speed={30} /> : null}
             {step <= 3 ? <Caret /> : null}
           </p>
           {step >= 4 ? (

@@ -2,11 +2,12 @@
 
 import { useEffect, useInsertionEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { MotionGlobalConfig, animate, inView, type Transition } from "motion/react";
+import { easeOut } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
 
 /** Slower than the in-app springs: a scene has to be followed, not just felt. */
 export const sceneSpring: Transition = { type: "spring", stiffness: 210, damping: 24, mass: 0.9 };
-export const sceneEase: Transition = { duration: 0.45, ease: [0.22, 1, 0.36, 1] };
+export const sceneEase: Transition = { duration: 0.45, ease: easeOut };
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -194,18 +195,9 @@ function TypedRun({ text, speed }: { text: string; speed: number }) {
   return <>{text.slice(0, count)}</>;
 }
 
-/** Text that types itself while `state` is "typing"; empty before, complete after. */
-export function Typed({
-  text,
-  state,
-  speed = 42,
-}: {
-  text: string;
-  state: "idle" | "typing" | "done";
-  speed?: number;
-}) {
-  if (state === "idle") return null;
-  if (state === "done") return <>{text}</>;
+/** Text that types itself from the moment it mounts, or shows whole once `done`. */
+export function Typed({ text, done = false, speed = 42 }: { text: string; done?: boolean; speed?: number }) {
+  if (done) return <>{text}</>;
   return <TypedRun key={text} text={text} speed={speed} />;
 }
 

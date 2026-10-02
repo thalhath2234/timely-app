@@ -60,7 +60,7 @@ const GROUPS: { title: string; icon: LucideIcon; hue: string; items: string[] }[
     icon: Bot,
     hue: "#AB4ABA",
     items: [
-      "Chat that knows which screen you are on",
+      "Chat that takes the screen and selection you attach as context",
       "Runs that continue after you leave the chat",
       "Receipt photos turned into expense rows",
       "Optional web search",

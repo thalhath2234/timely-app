@@ -25,9 +25,6 @@ const ROWS = [
   ["Domain", "14.00"],
 ];
 
-// The app's mention tint for a sheet.
-const SHEET_TINT = "oklch(0.6 0.15 155)";
-
 function Todo({ done, children }: { done?: boolean; children: React.ReactNode }) {
   return (
     <p className="mini-10 flex items-center gap-1.5">
@@ -80,8 +77,8 @@ function Scene() {
                 >
                   Costs live in
                   <span
-                    className="inline-flex items-center gap-1 rounded-md px-1 py-px font-medium"
-                    style={{ background: `color-mix(in oklch, ${SHEET_TINT} 18%, transparent)`, color: SHEET_TINT }}
+                    data-entity-type="sheet"
+                    className="mention-swatch inline-flex items-center gap-1 rounded-md px-1 py-px font-medium"
                   >
                     <Table2 className="size-2.5" />
                     {SHEET_TITLE}
@@ -132,7 +129,7 @@ function Scene() {
               <span className="mini-9 rounded border border-border px-1 font-mono text-muted-foreground">B5</span>
               <span className="mini-9 text-muted-foreground italic">fx</span>
               <span className="mini-10 min-w-0 flex-1 truncate font-mono">
-                {step >= 4 ? <Typed text={FORMULA} state={step === 4 ? "typing" : "done"} speed={80} /> : null}
+                {step >= 4 ? <Typed text={FORMULA} done={step > 4} speed={80} /> : null}
                 {step === 4 ? <Caret /> : null}
               </span>
             </div>

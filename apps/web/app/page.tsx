@@ -2,27 +2,29 @@ import type { Metadata } from "next";
 import { Bricolage_Grotesque } from "next/font/google";
 import Link from "next/link";
 import { ArrowUpRight, MousePointerClick } from "lucide-react";
-import FeatureIndex from "./_components/landing/featureIndex";
-import Header, { GitHubMark } from "./_components/landing/header";
-import { hueStyle } from "./_components/landing/hue";
-import { landingThemeScript } from "./_components/landing/landingTheme";
-import { LOOP_STEPS } from "./_components/landing/loopSteps";
-import QuickStart from "./_components/landing/quickStart";
-import { REPO_URL } from "./_components/landing/sampleData";
-import AssistantScene from "./_components/landing/scenes/assistantScene";
-import AutoScheduleScene from "./_components/landing/scenes/autoScheduleScene";
-import CaptureScene from "./_components/landing/scenes/captureScene";
-import ClarifyScene from "./_components/landing/scenes/clarifyScene";
-import DocsSheetsScene from "./_components/landing/scenes/docsSheetsScene";
-import EverywhereScene from "./_components/landing/scenes/everywhereScene";
-import FocusScene from "./_components/landing/scenes/focusScene";
-import HeroScene from "./_components/landing/scenes/heroScene";
-import ReviewScene from "./_components/landing/scenes/reviewScene";
-import SearchScene from "./_components/landing/scenes/searchScene";
-import { ReducedMotionGate } from "./_components/landing/scene";
-import { Section, Stage } from "./_components/landing/section";
-import { Shape, Sticker } from "./_components/landing/stickers";
-import "./_components/landing/landing.css";
+import FeatureIndex from "@/app/_components/landing/featureIndex";
+import GitHubMark from "@/app/_components/landing/githubMark";
+import Header from "@/app/_components/landing/header";
+import { hueStyle } from "@/app/_components/landing/hue";
+import InlineScript from "@/app/_components/landing/inlineScript";
+import { landingThemeScript } from "@/app/_components/landing/landingTheme";
+import { LOOP_STEPS } from "@/app/_components/landing/loopSteps";
+import QuickStart from "@/app/_components/landing/quickStart";
+import { MCP_TOOL_COUNT, REPO_URL } from "@/app/_components/landing/sampleData";
+import { ReducedMotionGate } from "@/app/_components/landing/scene";
+import AssistantScene from "@/app/_components/landing/scenes/assistantScene";
+import AutoScheduleScene from "@/app/_components/landing/scenes/autoScheduleScene";
+import CaptureScene from "@/app/_components/landing/scenes/captureScene";
+import ClarifyScene from "@/app/_components/landing/scenes/clarifyScene";
+import DocsSheetsScene from "@/app/_components/landing/scenes/docsSheetsScene";
+import EverywhereScene from "@/app/_components/landing/scenes/everywhereScene";
+import FocusScene from "@/app/_components/landing/scenes/focusScene";
+import HeroScene from "@/app/_components/landing/scenes/heroScene";
+import ReviewScene from "@/app/_components/landing/scenes/reviewScene";
+import SearchScene from "@/app/_components/landing/scenes/searchScene";
+import { Section, Stage } from "@/app/_components/landing/section";
+import { Shape, Sticker } from "@/app/_components/landing/stickers";
+import "@/app/_components/landing/landing.css";
 
 const display = Bricolage_Grotesque({
   variable: "--font-landing-display",
@@ -40,6 +42,12 @@ export const metadata: Metadata = {
   openGraph: { title: TITLE, description: DESCRIPTION, type: "website", siteName: "Timely" },
   twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
 };
+
+/** The anchor, colour, label and number of one step of the loop, for its section. */
+function loopStep(id: (typeof LOOP_STEPS)[number]["id"]) {
+  const index = LOOP_STEPS.findIndex((step) => step.id === id);
+  return { ...LOOP_STEPS[index], step: index + 1 };
+}
 
 function GetTheCode({ className = "" }: { className?: string }) {
   return (
@@ -65,7 +73,7 @@ function TryIt({ children }: { children: string }) {
 export default function Home() {
   return (
     <div className={`landing ${display.variable}`}>
-      <script dangerouslySetInnerHTML={{ __html: landingThemeScript }} />
+      <InlineScript html={landingThemeScript} />
       <ReducedMotionGate />
       <Header />
 
@@ -124,10 +132,7 @@ export default function Home() {
         </section>
 
         <Section
-          id="capture"
-          hue="#FFB224"
-          step={1}
-          label="Capture"
+          {...loopStep("capture")}
           headline="Get it out of your head in one line."
           body="The Inbox takes a title and nothing else. No project, no date, no decisions. Those come later, when you have a minute to think."
           points={[
@@ -144,16 +149,11 @@ export default function Home() {
         </Section>
 
         <Section
-          id="clarify"
-          hue="#E93D82"
-          step={2}
-          label="Clarify"
+          {...loopStep("clarify")}
           headline="Decide what it is: work to do, or a nudge at the right time."
-          body="Clarify turns an Inbox item into Work, with a duration and a workspace, or into a Reminder, with a time. Work can be placed on your calendar. A Reminder just pings you and takes up no time."
+          body="Clarify replaces an Inbox item with Work, which has a duration and a workspace, or with a Reminder, which has a time. Work can be placed on your calendar. A Reminder just pings you and takes up no time."
           flip
           sticker="bell"
-          stickerClassName="-left-3 -top-7 sm:-left-6 sm:-top-9"
-          stickerTilt={-10}
           shapes={[
             { name: "dots", hue: "#6E56CF", className: "-right-5 -bottom-6 size-16 sm:size-20" },
             { name: "squiggle", hue: "#30A66D", className: "-top-6 right-10 w-24 sm:w-32", tilt: 6 },
@@ -163,10 +163,7 @@ export default function Home() {
         </Section>
 
         <Section
-          id="schedule"
-          hue="#6E56CF"
-          step={3}
-          label="Auto-schedule"
+          {...loopStep("schedule")}
           headline="Let Timely find the time."
           body="Auto-schedule places your Work inside your Working hours, around the Events you already have. Preview what would change, apply it, and undo it if you disagree."
           points={[
@@ -185,16 +182,12 @@ export default function Home() {
         </Section>
 
         <Section
-          id="focus"
-          hue="#30A66D"
-          step={4}
-          label="Focus"
+          {...loopStep("focus")}
+          label="Focus and Today"
           headline="One list for today. One thing at a time."
           body="Today shows what is on your calendar, what you chose to focus on and what is still waiting. Start a focus session and Timely counts the real minutes against your estimate."
           flip
           sticker="stopwatch"
-          stickerClassName="-left-3 -top-7 sm:-left-6 sm:-top-9"
-          stickerTilt={-8}
           shapes={[
             { name: "ring", hue: "#FFB224", className: "-right-6 -bottom-6 size-16 sm:size-20" },
             { name: "pill", hue: "#0090FF", className: "-top-5 right-12 w-16 sm:w-24", tilt: 10 },
@@ -204,12 +197,9 @@ export default function Home() {
         </Section>
 
         <Section
-          id="review"
-          hue="#0090FF"
-          step={5}
-          label="Review"
+          {...loopStep("review")}
           headline="See how the week actually went."
-          body="The report is worked out from your live data: what got done, what is still open by priority, and what slipped. Overdue means a deadline has passed. Missed means a block ended with the work still open. Timely keeps the two apart."
+          body="The report is worked out from your live data: what got done, what is still open by priority, what is due in the next two weeks and what is overdue. Overdue means the deadline has passed; a block that merely ended does not count."
           sticker="chart"
           shapes={[
             { name: "squiggle", hue: "#E93D82", className: "-bottom-7 left-8 w-24 sm:w-32", tilt: -4 },
@@ -229,9 +219,9 @@ export default function Home() {
         <Section
           id="assistant"
           hue="#AB4ABA"
-          label="Assistant"
-          headline="Ask in plain words. Review before anything changes."
-          body="The assistant reads your workspace and answers with a proposal: a list of changes you can inspect, apply or discard. Nothing with more than one step is written until you approve it."
+          label="Ask the assistant"
+          headline="Ask in plain words. Review bigger changes before they apply."
+          body="The assistant reads your workspace and answers with a proposal: a list of changes you can inspect, apply or discard. A simple one-step change is applied directly; anything bigger waits for your approval."
           points={[
             "Photograph a receipt and it becomes rows in an expense sheet.",
             "Bring your own model: OpenRouter, Claude Code or Codex.",
@@ -240,8 +230,6 @@ export default function Home() {
           extra={<TryIt>Press Apply changes in the demo.</TryIt>}
           flip
           sticker="chat"
-          stickerClassName="-left-3 -top-7 sm:-left-6 sm:-top-9"
-          stickerTilt={-8}
           shapes={[
             { name: "blob", hue: "#12A594", className: "-right-8 -bottom-8 size-20 sm:size-28", tilt: 30 },
             { name: "plus", hue: "#FFB224", className: "-top-5 right-12 size-8 sm:size-10", tilt: 12 },
@@ -283,8 +271,6 @@ export default function Home() {
           }
           flip
           sticker="magnifier"
-          stickerClassName="-left-3 -top-7 sm:-left-6 sm:-top-9"
-          stickerTilt={-12}
           shapes={[
             { name: "dots", hue: "#0090FF", className: "-right-5 -bottom-6 size-16 sm:size-20" },
             { name: "squiggle", hue: "#6E56CF", className: "-top-6 right-10 w-24 sm:w-32" },
@@ -298,7 +284,7 @@ export default function Home() {
           hue="#3E63DD"
           label="Everywhere"
           headline="On your desk, in your pocket, in your agent’s hands."
-          body="Desktop and Android apps, built from source, share one account. Any MCP agent can work with the same data through 147 tools, using a personal API key you can revoke."
+          body={`Desktop and Android apps, built from source, share one account. Any MCP agent can work with the same data through ${MCP_TOOL_COUNT} tools, using a personal API key you can revoke.`}
           sticker="phone"
           shapes={[
             { name: "blob", hue: "#30A66D", className: "-bottom-8 -left-8 size-20 sm:size-28", tilt: 50 },
@@ -310,11 +296,14 @@ export default function Home() {
 
         <section id="everything-else" className="l-hue relative overflow-x-clip" style={hueStyle("#99D52A")}>
           <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 lg:py-24">
-            <div className="mx-auto max-w-2xl text-center">
-              <p className="l-label inline-flex rounded-full px-3 py-1 text-xs font-semibold tracking-wide">
+            <div className="relative mx-auto max-w-2xl text-center">
+              <Sticker name="star" tilt={-10} className="-top-10 left-2 size-14 sm:left-0 sm:size-16" />
+              <Shape name="squiggle" className="-top-6 right-0 w-20 sm:w-28" style={hueStyle("#0090FF")} tilt={8} />
+              <Shape name="plus" className="right-6 -bottom-9 size-7 sm:size-9" style={hueStyle("#E93D82")} tilt={16} />
+              <p className="l-label relative inline-flex rounded-full px-3 py-1 text-xs font-semibold tracking-wide">
                 Everything else
               </p>
-              <h2 className="l-display mt-4 text-3xl leading-[1.08] font-bold text-balance sm:text-4xl lg:text-[2.75rem]">
+              <h2 className="l-display relative mt-4 text-3xl leading-[1.08] font-bold text-balance sm:text-4xl lg:text-[2.75rem]">
                 The rest of what is in the box.
               </h2>
             </div>
@@ -328,7 +317,7 @@ export default function Home() {
           <div className="relative mx-auto max-w-3xl px-5 pt-6 pb-20 text-center sm:px-8 lg:pb-28">
             <Shape name="blob" className="-top-2 left-2 size-16 sm:left-0 sm:size-24" style={hueStyle("#FFB224")} tilt={18} />
             <Shape name="ring" className="top-10 right-3 size-12 sm:right-0 sm:size-16" style={hueStyle("#30A66D")} />
-            <Sticker name="star" tilt={12} className="top-0 right-16 size-14 sm:right-24 sm:size-16" style={hueStyle("#E93D82")} />
+            <Sticker name="sparkle" tilt={12} className="top-0 right-16 size-14 sm:right-24 sm:size-16" style={hueStyle("#E93D82")} />
             <h2 className="l-display relative pt-16 text-4xl leading-[1.05] font-extrabold text-balance sm:text-5xl">
               Run it yourself.
             </h2>

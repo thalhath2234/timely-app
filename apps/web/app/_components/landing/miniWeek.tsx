@@ -1,30 +1,50 @@
 import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/app/utils/cn";
-import { WEEK_DAYS, type CalendarSlot } from "./sampleData";
+import { EVENT_BLOCKS, EVENT_COLOR, WEEK_DAYS, WORKING_DAY, type CalendarBlock } from "./sampleData";
 
-const DAY_START = 9;
-const DAY_HOURS = 8;
 const HOUR_MARKS = [9, 11, 13, 15];
 
-/** Position of a calendar slot inside the grid body, in percent of that body. */
-export function slotRect(slot: Pick<CalendarSlot, "day" | "start" | "hours">) {
+/** How far down the grid body an hour sits, in percent of that body. */
+export function hourTop(hour: number) {
+  return `${((hour - WORKING_DAY.start) * 100) / WORKING_DAY.hours}%`;
+}
+
+/** Position of a Block inside the grid body, in percent of that body. */
+export function blockRect(block: Pick<CalendarBlock, "day" | "start" | "hours">) {
   return {
-    left: `${(slot.day * 100) / WEEK_DAYS.length}%`,
-    top: `${((slot.start - DAY_START) * 100) / DAY_HOURS}%`,
+    left: `${(block.day * 100) / WEEK_DAYS.length}%`,
+    top: hourTop(block.start),
     width: `${100 / WEEK_DAYS.length}%`,
-    height: `${(slot.hours * 100) / DAY_HOURS}%`,
+    height: `${(block.hours * 100) / WORKING_DAY.hours}%`,
   };
 }
 
 /** The app's calendar-item look: a tinted bar with a solid edge in the entity colour. */
-export function slotColors(color: string): CSSProperties {
+export function blockColors(color: string): CSSProperties {
   return {
     background: `color-mix(in oklch, ${color} 24%, var(--card))`,
     borderLeft: `calc(var(--u) * 3) solid ${color}`,
   };
 }
 
-/** A Mon–Fri hour grid; children are positioned over the grid body with `slotRect`. */
+/** The sample week's Events, which are on the calendar before any Work is placed. */
+export function EventBlocks({ compact = false }: { compact?: boolean }) {
+  return EVENT_BLOCKS.map((block) => (
+    <div key={block.title} className="absolute p-px" style={blockRect(block)}>
+      <div
+        className={cn(
+          "h-full overflow-hidden rounded-sm font-medium",
+          compact ? "mini-8 px-0.5 py-px leading-tight" : "mini-9 px-1 py-0.5",
+        )}
+        style={blockColors(EVENT_COLOR)}
+      >
+        <span className="line-clamp-2">{block.title}</span>
+      </div>
+    </div>
+  ));
+}
+
+/** A Mon–Fri hour grid; children are positioned over the grid body with `blockRect`. */
 export function MiniWeek({ className, children }: { className?: string; children?: ReactNode }) {
   return (
     <div className={cn("flex flex-col", className ?? "h-full")}>
@@ -41,18 +61,18 @@ export function MiniWeek({ className, children }: { className?: string; children
             <span
               key={hour}
               className="mini-8 absolute right-1 font-mono text-muted-foreground"
-              style={{ top: `calc(${((hour - DAY_START) * 100) / DAY_HOURS}% + var(--u) * 2)` }}
+              style={{ top: `calc(${hourTop(hour)} + var(--u) * 2)` }}
             >
               {String(hour).padStart(2, "0")}
             </span>
           ))}
         </div>
         <div className="relative flex-1">
-          {Array.from({ length: DAY_HOURS - 1 }, (_, index) => (
+          {Array.from({ length: WORKING_DAY.hours - 1 }, (_, index) => (
             <i
               key={`h${index}`}
               className="absolute inset-x-0 border-t border-border"
-              style={{ top: `${((index + 1) * 100) / DAY_HOURS}%` }}
+              style={{ top: hourTop(WORKING_DAY.start + index + 1) }}
             />
           ))}
           {WEEK_DAYS.map((day, index) => (

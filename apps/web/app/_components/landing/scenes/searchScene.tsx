@@ -19,12 +19,12 @@ const ACTIONS = [
   { icon: CalendarPlus, label: "Go to calendar" },
 ];
 
-// The app's mention tints, one per kind of result.
+// `entity` selects the app's mention tint for that kind (see globals.css).
 const RESULTS = [
-  { icon: Table2, tint: "oklch(0.6 0.15 155)", kind: "Sheet", title: SHEET_TITLE, snippet: "Design, hosting and domain", byMeaning: true },
-  { icon: FileText, tint: "oklch(0.62 0.16 255)", kind: "Doc", title: DOC_TITLE, snippet: "Launch is Friday 9 October", byMeaning: false },
-  { icon: ListTodo, tint: "oklch(0.65 0.16 45)", kind: "Task", title: WORK.checklist.title, snippet: `${PROJECT.title} · 45m`, byMeaning: false },
-  { icon: FolderKanban, tint: "oklch(0.6 0.17 300)", kind: "Project", title: PROJECT.title, snippet: `${PROJECT.workspace} · 5 open`, byMeaning: false },
+  { icon: Table2, entity: "sheet", kind: "Sheet", title: SHEET_TITLE, snippet: "Design, hosting and domain", byMeaning: true },
+  { icon: FileText, entity: "doc", kind: "Doc", title: DOC_TITLE, snippet: "Launch is Friday 9 October", byMeaning: false },
+  { icon: ListTodo, entity: "task", kind: "Task", title: WORK.checklist.title, snippet: `${PROJECT.title} · ${WORK.checklist.duration}`, byMeaning: false },
+  { icon: FolderKanban, entity: "project", kind: "Project", title: PROJECT.title, snippet: `${PROJECT.workspace} · ${Object.keys(WORK).length} open`, byMeaning: false },
 ];
 
 function Scene() {
@@ -41,8 +41,8 @@ function Scene() {
               <span className="text-muted-foreground">Search anything, or run a command…</span>
             ) : (
               <>
-                <Typed text={QUERY} state={step === 1 ? "typing" : "done"} speed={70} />
-                <Caret />
+                <Typed text={QUERY} done={step > 1} speed={70} />
+                {step === 1 ? <Caret /> : null}
               </>
             )}
           </span>
@@ -87,8 +87,8 @@ function Scene() {
                 )}
               >
                 <span
-                  className="flex size-6 shrink-0 items-center justify-center rounded-md"
-                  style={{ background: `color-mix(in oklch, ${result.tint} 18%, transparent)`, color: result.tint }}
+                  data-entity-type={result.entity}
+                  className="mention-swatch flex size-6 shrink-0 items-center justify-center rounded-md"
                 >
                   <result.icon className="size-3" />
                 </span>

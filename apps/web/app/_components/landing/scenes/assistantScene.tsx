@@ -124,10 +124,29 @@ function ApplyingProposal({ instant, onReset }: { instant: boolean; onReset: () 
       applying={!finished}
       footer={
         finished ? (
-          <SceneButton onClick={onReset}>
-            <RotateCcw className="size-2.5" />
-            Start over
-          </SceneButton>
+          // The receipt's line, now a row in the sheet.
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={sceneSpring}
+            className="w-full overflow-hidden rounded-lg border border-border bg-background"
+          >
+            <div className="flex items-center gap-1.5 py-1 pr-1 pl-2">
+              <Table2 className="size-2.5 shrink-0 text-success" />
+              <span className="mini-9 min-w-0 flex-1 truncate font-medium text-muted-foreground">
+                {SHEET_TITLE} · new row
+              </span>
+              <SceneButton onClick={onReset}>
+                <RotateCcw className="size-2.5" />
+                Start over
+              </SceneButton>
+            </div>
+            <div className="mini-10 grid grid-cols-[1fr_auto_auto] gap-x-4 border-t border-border px-2 py-1 font-mono">
+              <span className="font-sans font-medium">Hosting</span>
+              <span className="text-muted-foreground">2 Oct</span>
+              <span>48.00</span>
+            </div>
+          </motion.div>
         ) : (
           <span className="mini-9 py-1 text-muted-foreground">Each change is written in its own transaction.</span>
         )
@@ -225,7 +244,7 @@ function Scene() {
             <span className="mini-11 min-w-0 flex-1 truncate">
               {step === 1 ? (
                 <>
-                  <Typed text={REQUEST} state="typing" speed={28} />
+                  <Typed text={REQUEST} speed={28} />
                   <Caret />
                 </>
               ) : (
@@ -245,9 +264,9 @@ function Scene() {
 export default function AssistantScene() {
   return (
     <SceneBox
-      height={370}
+      height={394}
       interactive
-      label="Interactive demo: a chat request with a receipt photo becomes a three-step proposal you can apply or discard."
+      label="Interactive demo: a chat request with a receipt photo becomes a three-step proposal you can apply or discard; applying it adds the receipt as a row in the budget sheet."
     >
       <Scene />
     </SceneBox>

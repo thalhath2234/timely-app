@@ -32,7 +32,7 @@ function Scene() {
             <span className="mini-12 min-w-0 flex-1 truncate">
               {typingIndex >= 0 ? (
                 <>
-                  <Typed text={THOUGHTS[typingIndex]} state="typing" />
+                  <Typed text={THOUGHTS[typingIndex]} />
                   <Caret />
                 </>
               ) : (

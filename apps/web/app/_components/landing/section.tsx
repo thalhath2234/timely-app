@@ -15,21 +15,18 @@ export type StageShape = {
 /** The pastel panel a scene sits on, with its sticker and loose shapes around it. */
 export function Stage({
   sticker,
-  stickerClassName = "-right-3 -top-7 sm:-right-6 sm:-top-9",
-  stickerTilt = 8,
+  stickerSide = "right",
   shapes = [],
-  className,
   children,
 }: {
   sticker: StickerName;
-  stickerClassName?: string;
-  stickerTilt?: number;
+  /** The top corner the sticker overlaps. */
+  stickerSide?: "left" | "right";
   shapes?: StageShape[];
-  className?: string;
   children: ReactNode;
 }) {
   return (
-    <div className={cn("relative mx-auto w-full max-w-[34rem]", className)}>
+    <div className="relative mx-auto w-full max-w-[34rem]">
       {shapes.map((shape) => (
         <Shape
           key={`${shape.name}-${shape.className}`}
@@ -40,7 +37,14 @@ export function Stage({
         />
       ))}
       <div className="l-stage relative rounded-[1.75rem] p-4 sm:rounded-[2.5rem] sm:p-7">{children}</div>
-      <Sticker name={sticker} tilt={stickerTilt} className={cn("size-16 sm:size-20", stickerClassName)} />
+      <Sticker
+        name={sticker}
+        tilt={stickerSide === "left" ? -9 : 8}
+        className={cn(
+          "-top-7 size-16 sm:-top-9 sm:size-20",
+          stickerSide === "left" ? "-left-3 sm:-left-6" : "-right-3 sm:-right-6",
+        )}
+      />
     </div>
   );
 }
@@ -57,8 +61,6 @@ export function Section({
   extra,
   flip = false,
   sticker,
-  stickerClassName,
-  stickerTilt,
   shapes,
   children,
 }: {
@@ -71,11 +73,9 @@ export function Section({
   body: ReactNode;
   points?: string[];
   extra?: ReactNode;
-  /** Put the scene on the left at desktop widths. */
+  /** Put the scene, and its sticker, on the left at desktop widths. */
   flip?: boolean;
   sticker: StickerName;
-  stickerClassName?: string;
-  stickerTilt?: number;
   shapes?: StageShape[];
   children: ReactNode;
 }) {
@@ -107,7 +107,7 @@ export function Section({
           ) : null}
           {extra}
         </div>
-        <Stage sticker={sticker} stickerClassName={stickerClassName} stickerTilt={stickerTilt} shapes={shapes}>
+        <Stage sticker={sticker} stickerSide={flip ? "left" : "right"} shapes={shapes}>
           {children}
         </Stage>
       </div>
