@@ -40,7 +40,8 @@ export default async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  if (publicExact.has(path) && authenticated && path !== "/") {
+  // Signed-in visitors skip the landing page as well as the auth pages.
+  if (publicExact.has(path) && authenticated) {
     return NextResponse.redirect(
       new URL(onboarded || !access ? "/calendar" : "/onboarding", req.url),
     );

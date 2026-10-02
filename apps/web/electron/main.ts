@@ -217,7 +217,9 @@ async function createWindow(rendererUrl: string) {
 
   attachWindowGuards(win, rendererUrl);
   win.once("ready-to-show", () => win.show());
-  await win.loadURL(rendererUrl);
+  // The desktop app opens on the product, not the landing page at "/": the
+  // web proxy sends a signed-out window on to the login page.
+  await win.loadURL(new URL("/calendar", rendererUrl).toString());
   mainWindow = win;
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
