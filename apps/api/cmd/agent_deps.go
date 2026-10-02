@@ -9,6 +9,7 @@ import (
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/notify"
 	"timely-api/internal/features/placement"
 	"timely-api/internal/features/project"
 	"timely-api/internal/features/schedule"
@@ -37,12 +38,16 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub) agent.Catalog {
 	taskService := task.NewTaskService(tasks, projects, workspaces, rules, place, indexer)
 	projectService := project.NewProjectService(projects, workspaces, indexer)
 	projectService.SetTaskCopier(taskService)
+	calendarService := calendar.NewService(tasks, events, sched.GetWorkingHours)
+	scheduleService := schedule.NewService(sched, tasks, events, blockStore, place)
 	return agent.NewCatalog(agent.Deps{
 		Auth:  auth.NewAuthService(auth.NewUserRepository(db), workspaces, auth.NewSessionRepository(db)),
 		Tasks: taskService, Projects: projectService, Workspaces: workspace.NewWorkspaceService(workspaces),
-		Events: event.NewEventService(events, rules, place, indexer), Calendar: calendar.NewService(tasks, events, sched.GetWorkingHours),
-		Schedule: schedule.NewService(sched, tasks, events, blockStore, place),
-		Docs:     doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer),
+		Events: event.NewEventService(events, rules, place, indexer), Calendar: calendarService,
+		Schedule: scheduleService,
+		// Notifications, snooze and mark-read run in the same transaction too.
+		Notify: notify.NewService(db, jobs.NewQueue(db), calendarService, taskService, scheduleService, indexer),
+		Docs:   doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer),
 		Search: search.NewService(db, indexer),
 	})
 }

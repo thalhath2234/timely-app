@@ -23,6 +23,14 @@ func TestApprovalBoundaries(t *testing.T) {
 		{"recurrence through general update", "update_event", `{"recurrence":{"rrule":"FREQ=WEEKLY"}}`, true},
 		{"calendar placement", "auto_schedule_apply", `{}`, true},
 		{"plain create", "create_task", `{"name":"Read"}`, false},
+		{"delete task", "delete_task", `{"taskId":"tsk"}`, true},
+		{"clear blocks", "clear_task_blocks", `{"taskId":"tsk"}`, true},
+		{"working hours", "update_working_hours", `{"timezone":"Asia/Tokyo","days":{}}`, true},
+		{"undo auto-schedule", "undo_schedule", `{}`, true},
+		{"mark every notification read", "mark_notification_read", `{}`, true},
+		{"mark one notification read", "mark_notification_read", `{"id":"ntf"}`, false},
+		{"start focus", "start_focus", `{"taskId":"tsk"}`, false},
+		{"today focus", "set_today_focus", `{"taskId":"tsk","date":"2026-10-02"}`, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -53,7 +61,7 @@ func TestCatalogScope(t *testing.T) {
 			t.Errorf("missing read handler %s", name)
 		}
 	}
-	for _, name := range []string{"delete_sheet", "delete_task", "delete_workspace", "restore_account", "update_profile", "create_backup", "update_working_hours"} {
+	for _, name := range []string{"delete_workspace", "delete_project", "delete_status", "delete_custom_field", "delete_backup", "restore_account", "update_profile", "update_account_config", "clear_notifications", "create_backup", "export_account"} {
 		if writeTools[name] || readTools[name] {
 			t.Errorf("unexpected authority for %s", name)
 		}
@@ -110,7 +118,7 @@ func TestProposalRejectsAccidentalSequentialGridReplacement(t *testing.T) {
 		"steps": []any{
 			map[string]any{"tool": "update_sheet", "summary": "Add transactions", "arguments": map[string]any{"sheetId": "$0.sheet.id", "rows": []any{map[string]any{"id": "expense", "cells": map[string]string{"amount": "25"}}}}},
 			map[string]any{"tool": "update_sheet", "summary": "Add totals", "arguments": map[string]any{"sheetId": "$0.sheet.id", "rows": []any{map[string]any{"id": "total", "cells": map[string]string{"amount": "=SUM(A1:A1)"}}}}},
-		}}))
+		}}), nil)
 	if err == nil || !strings.Contains(err.Error(), "does not append") {
 		t.Fatalf("accepted silent replacement: %v", err)
 	}

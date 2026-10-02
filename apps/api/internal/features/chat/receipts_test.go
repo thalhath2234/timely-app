@@ -488,6 +488,34 @@ func TestReceiptRowPlacementPreservesLayout(t *testing.T) {
 	}
 }
 
+func TestReceiptRowGoesAboveTheTotalsRow(t *testing.T) {
+	columns := models.SheetColumns{{ID: "item"}, {ID: "qty"}, {ID: "unit"}, {ID: "total"}, {ID: "note"}}
+	tab := models.SheetTab{Columns: columns, Rows: models.SheetRows{
+		{ID: "rent", Cells: map[string]string{"item": "Rent", "total": "=B1*C1"}},
+		{ID: "gym", Cells: map[string]string{"item": "Gym", "total": "=B2*C2"}},
+		{ID: "sum", Cells: map[string]string{"item": "Total", "total": "=SUM(D1:D2)+LOG10(D3)", "note": "=D3/2+ATAN2(1,2)"}},
+		{ID: "pad", Cells: map[string]string{}},
+	}}
+	got := appendReceiptRow(&tab, models.SheetRow{ID: "receipt", Cells: map[string]string{"total": "28.76"}})
+	if got != 2 || tab.Rows[2].ID != "receipt" || tab.Rows[3].ID != "sum" || len(tab.Rows) != 4 {
+		t.Fatalf("receipt at %d, rows %v", got, tab.Rows)
+	}
+	if tab.Rows[3].Cells["total"] != "=SUM(D1:D3)+LOG10(D4)" || tab.Rows[3].Cells["note"] != "=D4/2+ATAN2(1,2)" {
+		t.Fatalf("totals formulas not shifted: %v", tab.Rows[3].Cells)
+	}
+	if tab.Rows[0].Cells["total"] != "=B1*C1" || tab.Rows[1].Cells["total"] != "=B2*C2" {
+		t.Fatal("rows above the total changed")
+	}
+	// A total over a column the receipt does not fill stays where it is.
+	other := models.SheetTab{Columns: columns, Rows: models.SheetRows{
+		{ID: "rent", Cells: map[string]string{"qty": "1"}},
+		{ID: "sum", Cells: map[string]string{"qty": "=SUM(B1:B1)"}},
+	}}
+	if got := appendReceiptRow(&other, models.SheetRow{ID: "receipt", Cells: map[string]string{"total": "28.76"}}); got != 2 || other.Rows[1].Cells["qty"] != "=SUM(B1:B1)" {
+		t.Fatalf("unrelated total moved: %d %v", got, other.Rows)
+	}
+}
+
 // The user's receipt has six food/drink lines (2143) and a bag (4).
 type missingBagCompleter struct {
 	t            *testing.T

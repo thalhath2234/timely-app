@@ -3,6 +3,7 @@ package schedule
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
@@ -57,33 +58,75 @@ func (s *service) PinBlock(userID, blockID string, locked bool) (*models.Schedul
 	return block, nil
 }
 
+// revisionSnapshot is what Apply stores for Undo: the engine blocks it
+// replaced and every task whose engine blocks it rewrote. Undo must clear the
+// blocks Apply added for all of those tasks, including tasks that had no
+// blocks before (otherwise undoing a first auto-schedule removed nothing).
+// Revisions written before this held only the block array.
+type revisionSnapshot struct {
+	Blocks  []models.ScheduledBlock `json:"blocks"`
+	TaskIDs []string                `json:"taskIds"`
+}
+
+func decodeRevision(raw json.RawMessage) (revisionSnapshot, []string, error) {
+	var out revisionSnapshot
+	var err error
+	if trimmed := strings.TrimSpace(string(raw)); strings.HasPrefix(trimmed, "[") {
+		err = json.Unmarshal(raw, &out.Blocks)
+	} else {
+		err = json.Unmarshal(raw, &out)
+	}
+	if err != nil {
+		return out, nil, err
+	}
+	seen := map[string]bool{}
+	ids := []string{}
+	for _, id := range out.TaskIDs {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	for _, block := range out.Blocks {
+		if block.TaskID != "" && !seen[block.TaskID] {
+			seen[block.TaskID] = true
+			ids = append(ids, block.TaskID)
+		}
+	}
+	if out.Blocks == nil {
+		out.Blocks = []models.ScheduledBlock{}
+	}
+	return out, ids, nil
+}
+
+func (s *service) latestRevision(userID string) (*models.ScheduleRevision, revisionSnapshot, []string, time.Time, time.Time, error) {
+	var none revisionSnapshot
+	rev, err := s.repo.LatestRevision(userID)
+	if err != nil {
+		return nil, none, nil, time.Time{}, time.Time{}, errors.New("nothing to undo")
+	}
+	snapshot, ids, err := decodeRevision(rev.Snapshot)
+	if err != nil {
+		return nil, none, nil, time.Time{}, time.Time{}, err
+	}
+	from, err := time.Parse(time.RFC3339, rev.HorizonFrom)
+	if err != nil {
+		return nil, none, nil, time.Time{}, time.Time{}, err
+	}
+	to, err := time.Parse(time.RFC3339, rev.HorizonTo)
+	if err != nil {
+		return nil, none, nil, time.Time{}, time.Time{}, err
+	}
+	return rev, snapshot, ids, from, to, nil
+}
+
 func (s *service) Undo(userID string) (*PlanResponse, error) {
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
-	rev, err := s.repo.LatestRevision(userID)
-	if err != nil {
-		return nil, errors.New("nothing to undo")
-	}
-	var snapshot []models.ScheduledBlock
-	if err := json.Unmarshal(rev.Snapshot, &snapshot); err != nil {
-		return nil, err
-	}
-	from, err := time.Parse(time.RFC3339, rev.HorizonFrom)
+	rev, snapshot, ids, from, to, err := s.latestRevision(userID)
 	if err != nil {
 		return nil, err
-	}
-	to, err := time.Parse(time.RFC3339, rev.HorizonTo)
-	if err != nil {
-		return nil, err
-	}
-	taskIDs := map[string]bool{}
-	for _, block := range snapshot {
-		taskIDs[block.TaskID] = true
-	}
-	ids := make([]string, 0, len(taskIDs))
-	for id := range taskIDs {
-		ids = append(ids, id)
 	}
 	err = s.blocks.DB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", userID).Error; err != nil {
@@ -93,7 +136,7 @@ func (s *service) Undo(userID string) (*PlanResponse, error) {
 		if err := store.DeleteEngineBlocksInRange(tx, ids, from, to, time.Time{}); err != nil {
 			return err
 		}
-		if err := store.InsertMany(tx, snapshot); err != nil {
+		if err := store.InsertMany(tx, snapshot.Blocks); err != nil {
 			return err
 		}
 		return tx.Where("id = ? AND user_id = ?", rev.ID, userID).Delete(&models.ScheduleRevision{}).Error
@@ -102,6 +145,57 @@ func (s *service) Undo(userID string) (*PlanResponse, error) {
 		return nil, err
 	}
 	return s.Preview(userID, PlanRequest{})
+}
+
+// UndoBlock is one engine block an undo removes or restores.
+type UndoBlock struct {
+	TaskID   string    `json:"taskId"`
+	TaskName string    `json:"taskName"`
+	Start    time.Time `json:"start"`
+	End      time.Time `json:"end"`
+}
+
+// UndoPreview lists what undoing the last auto-schedule would change, so the
+// change can be reviewed before it is made.
+type UndoPreview struct {
+	CanUndo   bool        `json:"canUndo"`
+	AppliedAt string      `json:"appliedAt,omitempty"`
+	From      *time.Time  `json:"from,omitempty"`
+	To        *time.Time  `json:"to,omitempty"`
+	Remove    []UndoBlock `json:"remove"`
+	Restore   []UndoBlock `json:"restore"`
+}
+
+func (s *service) PreviewUndo(userID string) (*UndoPreview, error) {
+	if userID == "" {
+		return nil, errors.New("user not authenticated")
+	}
+	rev, snapshot, ids, from, to, err := s.latestRevision(userID)
+	if err != nil {
+		return &UndoPreview{Remove: []UndoBlock{}, Restore: []UndoBlock{}}, nil
+	}
+	current, err := snapshotEngineBlocks(s.blocks.DB(), userID, ids, from, to)
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	if len(ids) > 0 {
+		var rows []struct{ ID, Name string }
+		if err := s.blocks.DB().Table("tasks").Select("id, name").Where("user_id = ? AND id IN ?", userID, ids).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			names[row.ID] = row.Name
+		}
+	}
+	list := func(blocks []models.ScheduledBlock) []UndoBlock {
+		out := make([]UndoBlock, 0, len(blocks))
+		for _, b := range blocks {
+			out = append(out, UndoBlock{TaskID: b.TaskID, TaskName: names[b.TaskID], Start: b.StartAt, End: b.EndAt})
+		}
+		return out
+	}
+	return &UndoPreview{CanUndo: true, AppliedAt: rev.CreatedAt, From: &from, To: &to, Remove: list(current), Restore: list(snapshot.Blocks)}, nil
 }
 
 func (s *service) Capacity(userID string, from, to time.Time, timezone string) ([]DayCapacity, error) {

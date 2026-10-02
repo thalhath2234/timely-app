@@ -19,9 +19,14 @@ import (
 type Service struct {
 	db         *gorm.DB
 	factory    func(*gorm.DB) agent.Catalog
+	rehearsal  func(*gorm.DB) agent.Catalog
 	provider   Completer
 	completers Completers
 }
+
+// SetRehearsal supplies a catalog without live side effects (no realtime
+// broadcasts) for rehearsing proposals in a rolled-back transaction.
+func (s *Service) SetRehearsal(factory func(*gorm.DB) agent.Catalog) { s.rehearsal = factory }
 
 func New(db *gorm.DB, factory func(*gorm.DB) agent.Catalog, provider Completer) *Service {
 	return &Service{db: db, factory: factory, provider: provider}
@@ -92,6 +97,9 @@ type sendInput struct {
 	Content   string        `json:"content"`
 	Context   []ContextChip `json:"context"`
 	WebSearch bool          `json:"webSearch"`
+	// Device IANA timezone. The agent uses it when no timezone is saved in
+	// Working hours; invalid values are ignored.
+	Timezone string `json:"timezone"`
 }
 
 func validateInput(in sendInput) error {
@@ -138,7 +146,8 @@ func (s *Service) create(c *echo.Context) error {
 	}
 	firstMessage := message("user", in.Content)
 	firstMessage.RequestID = in.RequestID
-	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, Timezone: validTimezone(in.Timezone), Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	noteLanguage(&row, in.Content)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
 		if result.Error != nil {
@@ -188,7 +197,7 @@ func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error
 	return c.JSON(200, row)
 }
 func busy(c *Conversation) bool   { return c.Status == "queued" || c.Status == "running" }
-func archivePlan(c *Conversation) { archivePlanAs(c, "Previous changes", "") }
+func archivePlan(c *Conversation) { archivePlanAs(c, tr(c.Language, txtPreviousChanges), "") }
 
 // Pending steps of an archived plan never run; mark them so clients do not show
 // them as live work.
@@ -242,6 +251,10 @@ func (s *Service) send(c *echo.Context) error {
 		if strings.TrimSpace(in.Content) == "" {
 			in.Content = "Process these images"
 		}
+		if zone := validTimezone(in.Timezone); zone != "" {
+			row.Timezone = zone
+		}
+		noteLanguage(row, in.Content)
 		row.ForceReview = row.Status == "approval" || row.Sensitive
 		archivePlan(row)
 		nextMessage := message("user", in.Content)
@@ -276,7 +289,7 @@ func (s *Service) approve(c *echo.Context) error {
 			}
 			row.ImageReview.Status = "confirmed"
 			if row.ImageReview.Receipt != nil {
-				m := message("assistant", "Receipt details confirmed. Temporary images removed.")
+				m := message("assistant", tr(row.Language, txtReceiptConfirmed))
 				m.Receipt = row.ImageReview.Receipt
 				row.Messages = append(row.Messages, m)
 			}
@@ -294,7 +307,7 @@ func (s *Service) stop(c *echo.Context) error {
 			row.Status = "stopped"
 			row.Lease = ""
 			row.LeaseUntil = nil
-			row.Messages = append(row.Messages, notice("Stopped. Completed changes are kept."))
+			row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
 		}
 		return nil
 	})
@@ -316,12 +329,12 @@ func (s *Service) reject(c *echo.Context) error {
 		if in.Revision != 0 && row.Revision != in.Revision {
 			return echo.NewHTTPError(409, "This proposal changed. Review the latest version first")
 		}
-		archivePlanAs(row, "Discarded changes", "discarded")
+		archivePlanAs(row, tr(row.Language, txtDiscardedChanges), "discarded")
 		row.Status = "idle"
 		row.Phase = "plan"
 		row.Error = ""
 		row.Unread = false
-		row.Messages = append(row.Messages, notice("Proposal discarded. Nothing was changed."))
+		row.Messages = append(row.Messages, notice(tr(row.Language, txtDiscarded)))
 		return nil
 	})
 }

@@ -180,13 +180,13 @@ func (s *Server) editEventOccurrence(ctx context.Context, req *mcp.CallToolReque
 
 type splitEventIn struct {
 	EventID   string `json:"eventId"`
-	FromStart string `json:"fromStart"`
-	RRule     string `json:"rrule"`
-	Dtstart   string `json:"dtstart,omitempty"`
-	Timezone  string `json:"timezone,omitempty"`
+	FromStart string `json:"fromStart" jsonschema:"RFC3339 original start of the first occurrence that changes; earlier occurrences keep their time"`
+	RRule     string `json:"rrule" jsonschema:"Repeat rule for the new series, e.g. FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"`
+	Dtstart   string `json:"dtstart,omitempty" jsonschema:"Same as start when start is omitted"`
+	Timezone  string `json:"timezone,omitempty" jsonschema:"IANA timezone of the new series"`
 	Title     string `json:"title,omitempty"`
-	Start     string `json:"start,omitempty"`
-	End       string `json:"end,omitempty"`
+	Start     string `json:"start,omitempty" jsonschema:"RFC3339 start of the new series' first occurrence; sets the new time of day. Defaults to fromStart (time unchanged)"`
+	End       string `json:"end,omitempty" jsonschema:"RFC3339 end of that first occurrence; defaults to start plus the current duration"`
 }
 
 func (s *Server) splitEventSeries(ctx context.Context, req *mcp.CallToolRequest, in splitEventIn) (*mcp.CallToolResult, any, error) {
@@ -204,6 +204,11 @@ func (s *Server) splitEventSeries(ctx context.Context, req *mcp.CallToolRequest,
 	}
 	if in.Title != "" {
 		input.Title = &in.Title
+	}
+	// Models often put the new time only in dtstart; honour it rather than
+	// silently keeping the old time of day.
+	if in.Start == "" && in.Dtstart != "" {
+		in.Start = in.Dtstart
 	}
 	if in.Start != "" {
 		input.Start = &in.Start

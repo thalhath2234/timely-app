@@ -117,6 +117,7 @@ type Service interface {
 	Preview(userID string, req PlanRequest) (*PlanResponse, error)
 	Apply(userID string, req PlanRequest) (*PlanResponse, error)
 	Undo(userID string) (*PlanResponse, error)
+	PreviewUndo(userID string) (*UndoPreview, error)
 	Capacity(userID string, from, to time.Time, timezone string) ([]DayCapacity, error)
 	PinTask(userID, taskID string, locked bool) (*models.Task, error)
 	PinBlock(userID, blockID string, locked bool) (*models.ScheduledBlock, error)
@@ -222,7 +223,7 @@ func (s *service) Apply(userID string, req PlanRequest) (*PlanResponse, error) {
 		if err := store.InsertMany(tx, next); err != nil {
 			return err
 		}
-		raw, err := json.Marshal(snapshot)
+		raw, err := json.Marshal(revisionSnapshot{Blocks: snapshot, TaskIDs: candidateIDs})
 		if err != nil {
 			return err
 		}
