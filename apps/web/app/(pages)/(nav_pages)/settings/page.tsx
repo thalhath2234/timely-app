@@ -72,9 +72,14 @@ export default function SettingsPage() {
 }
 
 function SettingsContent() {
-  const searchParams = useSearchParams();
-  const initialTab = searchParams.get("tab");
-  const [tab, setTab] = useState<SettingsTab>(isTab(initialTab) ? initialTab : "account");
+  const requested = useSearchParams().get("tab");
+  const initialTab = isTab(requested) ? requested : "account";
+  // Remount when ?tab= changes so links into an open Settings page switch tabs.
+  return <SettingsTabs key={initialTab} initialTab={initialTab} />;
+}
+
+function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
 
   return (
     <main className="flex h-full flex-col overflow-hidden bg-background">

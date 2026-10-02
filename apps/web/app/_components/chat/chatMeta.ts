@@ -159,7 +159,7 @@ export function stepTarget(
             : key === "event"
               ? "/calendar"
               : key === "workspace"
-                ? "/settings/workspaces"
+                ? "/settings?tab=workspaces"
                 : `/${path}/${encodeURIComponent(item.id)}`,
         title: String(item.title || item.name || `Open ${key}`),
       };
