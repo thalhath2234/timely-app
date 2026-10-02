@@ -2,7 +2,7 @@
 
 Snapshot of what the application **already does**, across desktop web, the native Expo app, the Go API, and Hermes/MCP. Use this to decide what to build next. Nothing here is a proposal; gaps are called out separately at the end.
 
-Last audited **26 Sep 2026** against the `apps/web`, `apps/mobile`, and `apps/api` source in this monorepo. This is a code inventory, not a production deployment check. The former mobile-web shell (`/m`) was removed; phones use the native app. Old `/m` bookmarks redirect to `/calendar`.
+Last audited **2 Oct 2026** (commit `3b624bf`) against the `apps/web`, `apps/mobile`, and `apps/api` source in this monorepo. Domain terms (Capture, Clarify, Work, Block, Placement, Rank, Missed, …) follow `CONTEXT.md` and `docs/adr/`. This is a code inventory, not a production deployment check. The former mobile-web shell (`/m`) was removed; phones use the native app. Old `/m` bookmarks redirect to `/calendar`.
 
 ---
 
@@ -12,10 +12,10 @@ Timely is a **multi-account, single-user personal productivity system**. Multipl
 
 | Surface | What it is |
 | --- | --- |
-| **Desktop web / Electron** | Full product: sidebar, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors; the same web app also has an Electron shell |
-| **Native app** | Expo Android/iOS: Home, Calendar, Tasks, Search, Files tabs; Inbox/Today, local reminder notifications (permission on first launch), working hours, API keys, export |
-| **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue |
-| **Hermes / MCP** | 120 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can through Phase 4 |
+| **Desktop web / Electron** | Full product: sidebar, AI Chat, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors, command palette; the same web app also has an Electron shell with native chat notifications |
+| **Native app** | Expo Android/iOS: Home, Calendar, Tasks, Search (command palette), Files tabs; pinch-to-open AI assistant with camera/receipt capture; Inbox/Today, local reminder notifications (permission on first launch), working hours, API keys, export |
+| **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue, in-app agent runner with OpenRouter / Claude Code / Codex providers |
+| **Hermes / MCP** | 147 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can, including export/backup/restore and sheet templates |
 
 Ownership is always “this user owns this row.” No members, roles, invites, or resource ACLs.
 
@@ -27,7 +27,7 @@ Ownership is always “this user owns this row.” No members, roles, invites, o
 
 - Email + password **register** and **login**. Signup sends **name** and lands on **onboarding**.
 - Password hashed with bcrypt. Short-lived access JWT (cookie `session` on web; SecureStore on native) plus a **refresh token**. Native refreshes via `POST /auth/refresh`.
-- **Logout** clears cookie/token.
+- **Logout** clears cookie/token and revokes that device session (only for tokens this server signed with HS256; expired tokens are still accepted for logout). Web logout also clears the query cache.
 - **Profile:** name, email, change password (needs current password).
 - **Device sessions:** Settings → Account lists sessions and can **log out a device** (`GET /sessions`, `DELETE /sessions/:id`).
 - **Onboarding:** create a workspace, mark complete, land on Calendar. Unauthenticated private routes redirect to login; unfinished onboarding redirects to `/onboarding`.
@@ -36,7 +36,7 @@ Ownership is always “this user owns this row.” No members, roles, invites, o
 
 **Protected routes (web proxy)**
 
-`/calendar`, `/today`, `/inbox`, `/tasks`, `/projects`, `/report`, `/settings`, `/docs`, `/sheets`, `/notifications`, plus `/onboarding` when logged out. Requests to `/m` or `/m/*` redirect to `/calendar`.
+`/chat`, `/calendar`, `/today`, `/inbox`, `/tasks`, `/projects`, `/report`, `/settings`, `/docs`, `/sheets`, `/notifications`, plus `/onboarding` when logged out. Requests to `/m` or `/m/*` redirect to `/calendar`.
 
 **What does not exist**
 
@@ -52,7 +52,7 @@ A user can have **multiple personal workspaces**. Everything work-related hangs 
 
 - Create from onboarding, sidebar +, Add modal, Settings, native workspace settings.
 - Rename in Settings.
-- Delete is allowed except the last workspace (agent requires `confirm=true`).
+- Delete is allowed except the last workspace, on desktop and in native workspace settings (“Danger zone”). MCP requires `confirm=true`.
 
 ### Each workspace has taxonomy
 
@@ -117,7 +117,7 @@ Title, rich description, workspace, status, priority, start date, deadline, comp
 
 ## 4. Tasks (core work items)
 
-Work tasks require `duration > 0`, `kind=task`, and a workspace. Duration is minutes of work the scheduler can place. Title-only capture is `kind=inbox` and is **not** auto-scheduled until clarified. Reminders are `kind=reminder` (timed pings). Checklist items are lightweight completion text on the task and are not scheduled. `actualMinutes` is focused time, separate from estimated `duration`.
+Work tasks require `duration > 0`, `kind=task`, and a workspace; an explicit zero Work duration is rejected. Duration is minutes of work the scheduler can place. Title-only capture is `kind=inbox` and is **not** auto-scheduled until clarified. Reminders are `kind=reminder` (timed pings). Checklist items are lightweight completion text on the task and are not scheduled. `actualMinutes` is focused time, separate from estimated `duration`.
 
 ### Fields
 
@@ -139,8 +139,10 @@ Work tasks require `duration > 0`, `kind=task`, and a workspace. Duration is min
 | Blocks | Manual or engine time chunks on the calendar |
 | Kind | `task`, `reminder`, or `inbox` — kind is the source of truth |
 | Checklist | `{id, title, completedAt, order}` items; not scheduled |
-| Actual minutes | Focused time from start/stop focus |
+| Actual minutes | Focused time from start/pause/stop focus |
+| Focus | `focusStartedAt` while focusing, `focusPausedAt` while paused; one session at a time |
 | Today focus | Optional `todayFocusOn` date; max 7 per day |
+| Placement hints | `earliestStartAt` and `preferredWindows`, accepted on create and update |
 
 ### List / board / gantt (desktop only, persisted)
 
@@ -179,9 +181,10 @@ Deep links: `?taskId=`, `?projectId=`.
 
 ### Inbox and Today
 
-- **Inbox** (`/inbox`, native Inbox): title-only capture (`kind=inbox`). Review later to assign workspace, duration, and schedule.
-- Desktop Inbox review can turn an item into work by assigning a workspace or choosing Work in detail; this supplies a 30-minute default duration. It can also become a reminder.
-- **Today** (`/today`, native Today): focusing task, today’s calendar items, reminders, inbox count, Today-focus list, start/stop focus.
+- **Capture** (`POST /inbox`; `/inbox`, native Inbox): title-only (`kind=inbox`). Capture clears workspace, project, status, stage, labels, priority, and dates. Native Inbox rows also have a delete button.
+- **Clarify** (`POST /inbox/:id/clarify`, ADR 0002/0003): creates **new** Work or a new Reminder and consumes the Inbox item (the id changes). Work needs a workspace and duration > 0; an optional `scheduledOn` becomes a Manual block. On desktop, clicking an Inbox row opens the Add modal titled **Clarify**, prefilled with the title (30-minute default). Native still clarifies by editing the item in task detail; the native `clarifyInbox()` helper exists but is unused.
+- **Today** (`/today`, native Today/Home): focusing or paused task, today’s calendar items, reminders, inbox count, Today-focus list, start/stop focus. `GET /today` also returns `pausedFocus` and `unscheduled` Work.
+- **Focus pause/resume** (API, MCP `pause_focus`, native): pausing adds elapsed time to `actualMinutes`; starting again resumes. Native Home shows a “FOCUS PAUSED” state, and task detail reads Start / Stop / Resume focus. **Desktop web has only start/stop.**
 
 ### Filters on API (also used by agent)
 
@@ -193,7 +196,9 @@ Saved **native task views** are stored only on the device (`native-task-views-{u
 
 The Tasks tab is a view switcher (create / rename / delete). **View** opens the customizer: list or board, tasks / reminders / projects, group by (up to 3, including custom fields), sort, and the same filters as desktop (workspace, project, status, priority, labels, stage, completed, overdue, scheduled, recurring, dated).
 
-Default native views: Task List, My Deadlines (dated, open work), Overview, Board. Gantt stays desktop-only. Native Kanban cards can be dragged between status columns.
+Default native views: Task List, My Deadlines (dated, open work), Overview, Board. Gantt stays desktop-only. Native Kanban cards can be dragged between status columns. Bulk actions sit in a horizontally scrolling bar.
+
+Native Home's “Add to today” picker is multi-select, grouped by project/workspace (Inbox items included), with an “n slots left” count. Native task detail has a **Smart Schedule** section (Add Time Slot, per-task Auto-Schedule) and a rich **Description** card. Native Quick Add has a Work | Reminder control, an auto-growing title, and Earliest start / Prefer from–to fields (one preferred window).
 
 ---
 
@@ -206,13 +211,15 @@ A reminder is a **first-class timed ping**, not a work block and not a duration-
 - Recurring reminders are allowed (time of day + repeat rule).
 - Calendar draws them as short chips; they **do not occupy busy time** for auto-schedule.
 - Native Quick Add has Reminder as its own kind (alongside Inbox, Task, Event, Doc, Sheet).
+- Placement writes the ping time (`PlacePing`); reminders never get Blocks.
 
 **Awareness**
 
 - Due reminders are claimed by a Postgres job (`send_reminder`) even when the UI is closed. Past-deadline work can also produce a deduplicated `overdue_task` alert.
+- **Start soon:** a sweep enqueues `start_soon` 10 minutes before a Work Block (“Starting in 10 minutes.”). **Missed:** `missed_block` fires when a Block ends and the Work is still open. Both follow the Reminders preference and are dropped if the Block has since moved.
 - Desktop and native have an in-app notification center (read/unread, clear all, snooze 15m / 1h / tomorrow). Snooze updates `scheduledOn` or a moved occurrence and enqueues the next ping.
 - Settings control category prefs, quiet hours (in-app still writes; push is delayed), digest times, and timezone.
-- **Native local OS schedules are the device ping.** Permission is requested after the first interactive frame (Android 13+ `POST_NOTIFICATIONS`). Local schedules keep running even if Expo push token registration succeeds. Horizon 60 days, max 60 scheduled, Android channel `reminders`.
+- **Native local OS schedules are the device ping.** Permission is requested after the first interactive frame (Android 13+ `POST_NOTIFICATIONS`). Local schedules keep running even if Expo push token registration succeeds. Horizon 60 days, max 60 scheduled, Android channel `reminders` (assistant pushes use channel `agent`).
 - Exact-alarm access on Android 14+ may still need a system Settings grant; that deep-link is not in the UI yet.
 
 ---
@@ -225,7 +232,7 @@ RFC 5545 RRULE with `dtstart` + IANA timezone. Occurrences are **expanded on rea
 
 **Custom editor:** interval; DAILY / WEEKLY / MONTHLY / YEARLY; BYDAY chips; monthly day-of-month or nth weekday; yearly months; end never / count / until date.
 
-**Occurrence actions:** this / this+future (split series) / all. Complete, uncomplete, skip, restore, move.
+**Occurrence actions:** this / this+future (split series) / all. Complete, uncomplete, skip, restore, move. Splitting keeps future exceptions, and moved occurrences still show if the new rule drops their weekday.
 
 Auto-schedule places recurring **work** as blocks tagged with `occurrenceStart`. Recurring **reminders** stay on their ping rule and are not placed as work.
 
@@ -249,13 +256,20 @@ Day, Week, Month, Agenda (`?view=` synced). Prev/next, Today, header label, GMT 
 
 - **Month:** day cells; click opens Day; overflow “+N”.
 - **Week / Day:** hour grid; click empty slot → schedule dialog; overlapping layout; all-day row; reminders as chips. Drag waiting tasks onto the grid; move or edge-resize eligible work blocks, with collision-aware server validation.
+- **Waiting rail:** ordered by the server's **Rank** (`GET /schedule/rank?timezone=`), not client-side scoring. Rank covers open Work that is Unscheduled or Overdue.
 - **Agenda:** grouped by day plus an **Overdue** section; reminders filtered out of day groups.
 
 ### Events
 
 Standalone calendar items, optionally linked to a workspace / project / task.
 
-Fields: title, description, start/end, allDay, color, recurrence.
+Fields: title, description, start/end, **duration**, allDay, color, recurrence.
+
+Event time model (ADR 0005):
+
+- **Timed one-off events** store a duration and get at least one Manual block of exactly that length (existing events were backfilled). Duration ≤ 0 is rejected on update. MCP derives duration from start/end.
+- **All-day events** have duration 0 and fill that date's Working hours (09:00–17:00 if the day has none). They are drawn as those windows and **count as busy** for auto-schedule and free time.
+- **Repeating events** expand on read with no stored Blocks. Auto-schedule never places events.
 
 Create from Add modal, schedule-dialog “New event” tab, native Quick Add. Edit/delete; occurrence scope same as tasks.
 
@@ -265,7 +279,7 @@ Tabs: **Schedule an existing unscheduled task** (search) | **New event**. Durati
 
 ### Native calendar
 
-Day / Agenda / Month (**no Week**). Horizontal date strip with busy dots. Item sheet: type badge, complete, reschedule (block / reminder time / one-off event), skip/restore occurrence. Auto-schedule from the header.
+Day / Week / Agenda / Month. **Week is a 7-day list** (up to 6 items per day; long-press a day for its empty-day action), not an hour grid. Horizontal date strip with busy dots. Header: Prev / Today / Next plus auto-schedule. Space and project filters are searchable bottom sheets with counts and create links. The waiting list uses the server Rank. Item sheet: type badge, complete, reschedule (block / reminder time / one-off event), skip/restore occurrence.
 
 ---
 
@@ -291,9 +305,11 @@ This is one of the product’s distinctive features.
 
 ### Engine behavior
 
-- Places incomplete **work** into **free working hours minus busy time** (events + existing **incomplete** blocks). Completed tasks are not candidates, do not appear in the change list, and do not consume free capacity. Inbox items and reminders are skipped.
+- **Placement is the only Block writer** (ADR 0004): manual work blocks, reminder pings, event blocks, and the rewrite of future all-day windows when Working hours change all go through one service.
+- “Today” comes from one **DayLocation** resolver: saved Working hours timezone, then the client's timezone, then UTC. Auto-schedule, free time, and Rank share it.
+- Places incomplete **work** into **free working hours minus busy time** (events, including all-day events, + existing **incomplete** blocks). Auto-schedule uses its own busy list, separate from calendar items (ADR 0006). Completed tasks are not candidates, do not appear in the change list, and do not consume free capacity. Inbox items and reminders are skipped.
 - Recurring work is scheduled as blocks on the parent task with `occurrenceStart`. One occurrence failing to fit does not change later ones. Skip/move/complete exceptions are respected.
-- Shared ranking with `what_next`: deadline slack, duration, priority, Today focus, dependency readiness, partial progress. Scores are ordering hints, never presented as certainty.
+- Shared ranking with `what_next` and `GET /schedule/rank`: deadline slack, duration, priority, Today focus, dependency readiness, partial progress. Scores are ordering hints, never presented as certainty.
 - Blockers are hoisted. Earliest fit respects min/preferred chunk, contiguous single-slot, preferred-window intersection, and freeze.
 - Horizon default **14 days**, max **90**.
 - Skip reasons include: `no_capacity`, `blocked`, `manual`, `no_duration`, `reminder`, `recurring` (repeating **reminders**), `completed`, `inbox`, `locked`, `frozen`, `workspace_excluded`, `contiguous_no_fit`, `before_earliest`. Each skip has a plain-language `message`.
@@ -322,16 +338,11 @@ This is one of the product’s distinctive features.
 
 ## 9. Overdue
 
-A task is overdue when it is incomplete, not a reminder, and:
-
-- deadline is before today, **or**
-- (one-off only) last block / scheduledOn ended before today.
-
-Recurring: deadline only; missed occurrences are handled separately.
+**Overdue is deadline-only:** open Work (not a reminder or inbox item) whose deadline date is before today. A Block that already ended does **not** make Work overdue. That case is **Missed** and produces a `missed_block` notification instead. **Unscheduled** means open Work with no Block or ping today. Web, native, and API all use these rules.
 
 Shown in: Agenda Overdue section, Report, native “Overdue” filter, agent `get_agenda` / `what_next`.
 
-For open schedulable work with a past **deadline**, the notification worker creates one deduplicated overdue alert per task and deadline when reminder notifications are enabled. Desktop shows the alert in the notification center. Native offers **Reschedule urgently** from the notification: the API sets priority to Urgent, applies the schedule, marks the alert read, and restores the old priority if scheduling fails. A task overdue only because its last block passed does not trigger this alert.
+For open schedulable work with a past **deadline**, the notification worker creates one deduplicated overdue alert per task and deadline when reminder notifications are enabled. Desktop shows the alert in the notification center. Native offers **Reschedule urgently** from the notification: the API sets priority to Urgent, applies the schedule, marks the alert read, and restores the old priority if scheduling fails. The same urgent reschedule is available to MCP as `reschedule_urgent`; desktop does not have the button yet.
 
 ---
 
@@ -366,7 +377,7 @@ Nested notes (parentId + order), Notion-like.
 - **Import Markdown** (`.md` / `.markdown` / plain text) on docs home, sidebar, open-doc header, native Files tab, and native doc menu. A markdown parser turns headings, lists, tasks, quotes, fences, tables, and links into the same TipTap block model.
 - **Export Markdown** from the open doc. **PDF download is not in the UI** (the API can still render a simple text PDF).
 
-**Native:** flat list with favorites; editor without tree. Files tab is Docs | Sheets. Editor is a WebView with the same schema, code Copy, auto-cap, and mentions.
+**Native:** Files tab is Docs | Sheets. Docs is a nested tree (expand/collapse, indent capped at depth 3) with favorites and an archive toggle in the header. Long-press or ⋮ opens a page menu: Open, Add subpage, Add/Remove favorite, Move to top level, Archive/Unarchive, Delete page (with subpages). Editor is a WebView with the same schema, code Copy, auto-cap, and mentions. It reports selected text to the assistant.
 
 **Not implemented:** sharing, permissions, version history, comments on docs, attachments/images, publish.
 
@@ -393,24 +404,32 @@ Default new sheet: columns A–D + empty rows.
 ### Formulas (client-side)
 
 - Operators: `+ - * / ^ & = <> < > <= >=`
-- Ranges `A1:B2`, TRUE/FALSE, percents
+- Ranges `A1:B2` and open-ended ranges (`A:A`, `1:1`, `A2:A`, `A:C`) sized to the current grid; fill-down shifts them. TRUE/FALSE, percents. No cross-tab references
 - Functions: SUM, AVERAGE/AVG, MIN, MAX, PRODUCT, COUNT, COUNTA, ABS, SQRT, ROUND, FLOOR, CEILING, POWER, IF, AND, OR, NOT, CONCAT/CONCATENATE, LEN, UPPER, LOWER, TRIM
 - Errors: `#VALUE!`, `#DIV/0!`, `#NUM!`, `#NAME?`, `#PARSE!`, etc.
 
-No persisted sheet views, charts, or database-style linked records. HTTP supports whole-sheet CRUD and template CRUD/materialization; granular row/column helpers are MCP-only.
+- Native commits the active cell draft and flushes the save on header or system Back; it asks about unsaved changes only if that save fails.
+
+No persisted sheet views, charts, or database-style linked records. HTTP supports whole-sheet CRUD and template CRUD/materialization; granular row/column helpers, `duplicate_sheet`, and the template tools are on MCP.
 
 ---
 
 ## 12. Search
 
-**Desktop:** command palette, sidebar Search or **Ctrl/Cmd+K**. Semantic `/search?mode=semantic`, fallback to keyword if 503. Hits: task, project, doc, sheet, event → deep links (events → calendar). Duplicate hits are collapsed by `kind:id`.
+**Command palette** (desktop: sidebar Search, **Ctrl/Cmd+K** or `/`; native: Search tab). “Search anything, or run a command…”:
 
-**Native:** dedicated Search tab, 250ms debounce, same semantic+fallback and dedupe.
+- Category tabs: All, Sheets, Docs, Tasks, Projects, Events.
+- Semantic `/search?mode=semantic`, fallback to keyword if 503. Hits → deep links (events → calendar). Duplicate hits are collapsed by `kind:id`; stale results are hidden while a new query debounces (native 250ms).
+- **Quick actions:** Create sheet/doc/task/project/event (opens the Add modal / Quick Add) and Go to sheets/docs/tasks/projects/calendar.
+- If search fails, commands still work (native offers Retry).
+
+A public demo of the palette with sample data lives at `/demo/command-palette`.
 
 **Backend**
 
 - Keyword: ILIKE across those five kinds.
-- Semantic: OpenRouter embeddings (default `openai/text-embedding-3-small`, 1536 dims) → pgvector cosine. Optional `kinds=` filter. Index writes enqueue an `index_entity` job (goroutine fallback if the queue is unset); `POST /search/reindex`; auto-reindex if empty. Disabled without `OPENROUTER_API_KEY`.
+- Semantic: OpenRouter embeddings (default `openai/text-embedding-3-small`, 1536 dims) → pgvector cosine. Optional `kinds=` filter. Index writes enqueue an `index_entity` job (goroutine fallback if the queue is unset); `POST /search/reindex`; auto-reindex if empty.
+- Each account can set its own OpenRouter key and embedding model (Settings → Agent; the model must produce 1536 dims). Changing either enqueues a `reindex_user` job with visible progress. Without a personal key it falls back to the server `OPENROUTER_API_KEY`; with neither, semantic search is off.
 
 ---
 
@@ -453,6 +472,13 @@ Picker → Name and color / Statuses / Labels / Custom fields (including Yes/No)
 - Accent color presets and custom hex on desktop.
 - Auto-hide sidebar: reveal when the pointer is at the left edge.
 
+### Agent (desktop `?tab=agent`, native `settings/agent`)
+
+- Three provider cards: **OpenRouter**, **Claude Code**, **Codex**. “Use as default” is enabled only once a provider is ready; badges show Default / Ready / Connected.
+- OpenRouter: personal API key (add / replace / remove; validated with a test call, stored encrypted, shown only as a hint), searchable chat-model picker (tool-calling models; custom names allowed), and embedding-model picker with reindex progress.
+- Claude Code / Codex: CLI found + version + path, signed-in account, Connect / Reconnect (one-word test call) / Disconnect, model picker. Hints point at `CLAUDE_BIN` / `CODEX_BIN` and `claude auth login` / `codex login` on the server. Hidden when the server sets `CHAT_LOCAL_CLI=off`.
+- Saving a model runs a test call. Privacy note: zero data retention for private images applies only to OpenRouter. Timely never switches providers silently, and a running chat finishes on the provider it started with.
+
 ### Data & privacy
 
 - Full JSON backup, tasks CSV, calendar ICS. Current backups use `schemaVersion` 2. Version 1 restores unless it still contains nested `parent_task_id` rows; export a new backup after upgrading.
@@ -470,69 +496,125 @@ Picker → Name and color / Statuses / Labels / Custom fields (including Yes/No)
 
 ### Notifications
 
-Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread, clear all, reminder snooze, and overdue alerts. The native overdue alert has a **Reschedule urgently** action. Settings → Notifications: category prefs, quiet hours, digest times, failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
+Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread, clear all, reminder snooze, overdue / start-soon / missed alerts, and assistant updates (which open the chat). The native overdue alert has a **Reschedule urgently** action. Settings → Notifications: category prefs (reminder, digest, planning, overdue, agent, missed, start), quiet hours, digest times (digests include Unscheduled counts), failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
 
 **No** language picker, billing, or connected-account screens.
 
 ---
 
-## 15. AI agent (Hermes via MCP)
+## 15. AI agent (in-app chat + Hermes via MCP)
 
-**No in-app chat.** The product surface is: mint an API key → point Hermes/MCP at `/mcp`.
+There are two agent surfaces over **one tool catalog**: the in-app chat (desktop `/chat` + overlay, native assistant) and external Hermes/MCP with an API key. MCP activity is attributed to `"Hermes"`; in-app chat activity to `"Timely AI"`.
 
-Activity from the agent is attributed to `"Hermes"`.
+### In-app chat — desktop
 
-### Intelligence tools
+- **Page** `/chat` (`?id=` opens a conversation) and an **overlay** from anywhere with **Ctrl/Cmd+Shift+J** (New chat, Open in Chat tab, Close). `g` then `a` goes to `/chat`. Chat is the first sidebar item, with an unread badge (9+ cap).
+- **Screen context:** removable chips added automatically: location, the open doc/sheet/project/task, its workspace and project, selected text (≤12,000 chars), sheet tab + selected cells, calendar view and date.
+- **History:** grouped Needs you / Today / Yesterday / This week / Earlier; title search; status or relative time per row; inline rename (≤120 chars) and delete (removes history, temporary images, and notifications; applied changes stay). Collapsible; a drawer on narrow widths.
+- **Conversation:** status pill (Queued / Working / Applying / Needs your review / Needs attention / Stopped), provider · model subtitle, day separators, notice rows for run events, collapsible archived proposals, inline change cards. Empty state suggests Start a project, Build a budget, Make room to learn, Save a receipt. Finished runs refresh tasks, projects, docs, sheets, calendar, Today, Inbox, and notifications.
+- **Composer:** Enter sends, Shift+Enter newline, ≤16,000 chars. JPEG/PNG images by picker, paste, or drag-drop (≤5, 10 MB each). **Web search** toggle (off for image chats: “Private image chat”). Send becomes Stop while busy.
+- **Electron:** when the window is unfocused and a chat becomes unread (ready to review, needs attention, new update), an OS notification appears; clicking it opens `/chat?id=`. Background throttling is off so polling continues.
+
+### In-app chat — native
+
+- **Opened by a two-finger pinch** anywhere in the signed-in app (one-time “Meet your assistant” hint; screens can opt out), or from an assistant notification via `/(app)/assistant?chatId=`. It is a full-screen modal, not a tab.
+- Header, thread, composer, history (same groups, unread dot and badge, long-press Rename / Delete), and a separate proposal page.
+- Attachments: camera, photo library, image files, a screenshot of the current screen, or clipboard. Camera/library photos are re-encoded to JPEG.
+- Screen context from Home, Calendar, Tasks, Search, Files, and task/doc/sheet/project/event detail (selection, filters, calendar range, unsaved drafts). “Add current screen as context” in the composer.
+- **Recovery:** sends are idempotent (`requestId`). The draft, cached chats, and receipt edits are stored per account and wiped on logout. Cached chats open offline; sending needs a connection.
+
+### Proposals and approval (ADR 0007)
+
+- The model reads with read tools and submits all writes as one `propose_changes` plan (1–30 steps; later steps can reference earlier results).
+- Simple single-step changes apply directly. **Approval is required** for multi-step plans; deletes, bulk, recurrence/occurrence/series edits; `auto_schedule_apply` (default range now → +14 days); adding sheet rows or multi-cell / structural sheet edits; column type changes; templated sheets; markdown doc rewrites; any edit to an existing recurring object; and every image chat.
+- Proposal panel: Ready for your review → Applying → Changes applied / Some changes did not finish / Stopped. “X of N applied” progress. Per-step Pending / In progress / Done / Failed (with error) / Discarded, expandable “Review details” (sheet rows as a table, existing content), and links to created objects.
+- Actions: **Apply changes**, **Discard** (archives the plan; nothing is written), **Stop** (keeps finished steps), **Try again** (resumes from the first unfinished step). Each step runs in its own serializable transaction. If data changed since the plan was made, the plan is archived and a fresh one is proposed.
+- Not available to chat at all: whole-object deletes (except sheet rows/columns), settings, backups, restore, notifications, jobs.
+
+### Runs (ADR 0008)
+
+- Runs execute on the server in three dedicated workers (lease 3 min, renewed every 5 s), separate from the job queue. They are capped at 12 model turns and 10 minutes, and **keep running after you leave the chat**. Clients poll (1.5 s while busy; the desktop list every 5 s).
+- Limits: 8 context chips, 5 images per message, 150 messages per chat.
+- A reply, approval request, completion, or failure marks the chat unread and creates an `agent` notification. Push is private: “Timely assistant” with “needs approval / needs attention / has finished”, never chat content. It follows the Planning preference and quiet hours. Reading the chat or its notification clears both.
+
+### Images and receipts
+
+- Images are re-encoded (EXIF stripped), ≤10 MB / 20 MP, expire after **24 hours** (20 live per account, in `CHAT_IMAGE_DIR`). The UI then shows “Image removed · extracted details kept”. Image chats are marked sensitive: review is forced, web search is blocked, and OpenRouter uses zero-data-retention routing.
+- **Receipts:** the model extracts merchant, date, currency, category, subtotal, tax, tip, discount, total, included-tax/discount flags, and up to 300 line items. Totals are reconciled with exact decimal math; if items do not add up, the images are re-checked.
+- **Receipt review** (desktop inline, native two steps “Check your receipt” → “Confirm receipt”): edit every field, acknowledge flagged issues, handle duplicates (Skip / Update existing / Add anyway), and choose an existing expense sheet + tab or a new sheet (picked automatically from context). The result is an approval-required sheet change writing Expenses and Items tabs; missing columns are added without retyping existing ones.
+- Non-receipt images: confirm or discard the extracted text.
+
+### Providers (ADR 0009)
+
+- **OpenRouter** (default): personal encrypted key or the server `OPENROUTER_API_KEY`; default chat model `z-ai/glm-5.3-flash` (`OPENROUTER_CHAT_MODEL`). Web search via the `web` plugin.
+- **Claude Code CLI**: models fable, opus, sonnet (default), haiku or a full name; runs `claude -p` with every built-in tool disabled.
+- **Codex CLI**: `codex exec --ephemeral -s read-only` with the shell disabled; default model from `~/.codex/config.toml`.
+- Connect checks the binary, sign-in, and one test call. Disconnecting the default provider resets it to OpenRouter. Provider and model are fixed when a run starts; there is never a silent fallback.
+- Env: `OPENROUTER_API_KEY`, `OPENROUTER_CHAT_MODEL`, `OPENROUTER_EMBED_MODEL`, `CHAT_LOCAL_CLI=off`, `CLAUDE_BIN`, `CODEX_BIN`, `CHAT_IMAGE_DIR`; stored keys are encrypted with `TIMELY_BACKUP_KEY` (or `JWT_SECRET`).
+
+### Hermes / MCP
+
+Mint an API key → point Hermes at `/mcp`. The server instructions tell the agent to start with `get_context` and to ask which workspace to use on every Work creation.
+
+**Intelligence tools**
 
 - `get_context` — user, workspaces (with statuses/labels/fields), projects (stages, open/done/progress), working hours, saved views, now/timezone. Intended first call.
 - `search` / `semantic_search` / `reindex_search`
 - `get_agenda` — items + overdue + unscheduled for a day/week
 - `get_free_time` — working-hour gaps
-- `what_next` — ranks open work with the same scoring policy as the engine. Returns `reasons[]`; scores are ordering hints, not certainty. Inbox and reminders are excluded.
+- `what_next` — the same **Rank** as `GET /schedule/rank` (optional `timezone`, top 15). Returns `reasons[]`; scores are ordering hints, not certainty. Inbox and reminders are excluded.
 
-### Then full CRUD
+**Task-creation rules:** `create_task` defaults to Work with a 30-minute duration and requires `workspaceId`; an explicit duration ≤ 0 is rejected; `kind=inbox` is refused in favor of `capture_inbox_item` (title only). `clarify_inbox_item` creates new Work or a Reminder and consumes the item.
 
-Workspaces, statuses, labels, custom fields (including boolean), projects, stages, tasks (including bulk, labels, custom fields, dependency, comments, activity, recurrence, occurrences, split, kanban status, project-stage moves, schedule lock/chunks), events, calendar, working hours, schedule settings, capacity, auto-schedule preview/apply/undo, pins, manual blocks, docs (markdown, append, archive), sheets (column types, typed cells, archive), saved task views, profile (name only), notifications, jobs.
+Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `delete_backup`, `restore_account` — require `confirm=true`. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
 
-Destructive deletes of a workspace, project, or document require `confirm=true`. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
+### Complete MCP tool list (147)
 
-### Complete MCP tool list (120)
+**Context / intelligence (7):** `get_context`, `search`, `semantic_search`, `reindex_search`, `get_agenda`, `get_free_time`, `what_next`
 
-**Context / intelligence:** `get_context`, `search`, `semantic_search`, `reindex_search`, `get_agenda`, `get_free_time`, `what_next`
+**Workspaces / taxonomy (14):** `list_workspaces`, `get_workspace`, `create_workspace`, `rename_workspace`, `delete_workspace`, `create_status`, `update_status`, `delete_status`, `create_label`, `update_label`, `delete_label`, `create_custom_field`, `update_custom_field`, `delete_custom_field`
 
-**Workspaces / taxonomy:** `list_workspaces`, `get_workspace`, `create_workspace`, `rename_workspace`, `delete_workspace`, `create_status`, `update_status`, `delete_status`, `create_label`, `update_label`, `delete_label`, `create_custom_field`, `update_custom_field`, `delete_custom_field`
+**Projects (13):** `list_projects`, `get_project`, `list_project_activity`, `create_project`, `update_project`, `complete_project`, `reopen_project`, `delete_project`, `create_stage`, `update_stage`, `delete_stage`, `reorder_stages`, `duplicate_project`
 
-**Projects:** `list_projects`, `get_project`, `create_project`, `update_project`, `complete_project`, `reopen_project`, `delete_project`, `create_stage`, `update_stage`, `delete_stage`, `reorder_stages`, `duplicate_project`
+**Tasks (33):** `list_tasks`, `get_task`, `create_task`, `update_task`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `add_checklist_item`, `update_checklist_item`, `toggle_checklist_item`, `replace_checklist`, `delete_checklist_item`, `start_focus`, `pause_focus`, `stop_focus`, `get_today`, `set_today_focus`, `duplicate_task`
 
-**Tasks:** `list_tasks`, `get_task`, `create_task`, `update_task`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `add_checklist_item`, `toggle_checklist_item`, `delete_checklist_item`, `start_focus`, `stop_focus`, `get_today`, `set_today_focus`, `duplicate_task`
+**Events (7):** `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `edit_event_occurrence`, `split_event_series`
 
-**Events:** `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `edit_event_occurrence`, `split_event_series`
+**Calendar / schedule (15):** `get_calendar`, `get_working_hours`, `update_working_hours`, `get_schedule_settings`, `update_schedule_settings`, `get_capacity`, `auto_schedule_preview`, `auto_schedule_apply`, `undo_schedule`, `pin_task`, `pin_block`, `schedule_task`, `move_block`, `delete_block`, `clear_task_blocks`
 
-**Calendar / schedule:** `get_calendar`, `get_working_hours`, `update_working_hours`, `get_schedule_settings`, `update_schedule_settings`, `get_capacity`, `auto_schedule_preview`, `auto_schedule_apply`, `undo_schedule`, `pin_task`, `pin_block`, `schedule_task`, `move_block`, `delete_block`, `clear_task_blocks`
+**Docs (7):** `list_docs`, `get_doc`, `create_doc`, `update_doc`, `append_to_doc`, `archive_doc`, `delete_doc`
 
-**Docs:** `list_docs`, `get_doc`, `create_doc`, `update_doc`, `append_to_doc`, `archive_doc`, `delete_doc`
+**Sheets (19):** `list_sheets`, `get_sheet`, `create_sheet` (optional `templateId`), `update_sheet`, `archive_sheet`, `add_sheet_column`, `update_sheet_column`, `delete_sheet_column`, `add_sheet_rows`, `update_sheet_cells`, `delete_sheet_rows`, `duplicate_sheet`, `delete_sheet`, `list_sheet_templates`, `get_sheet_template`, `create_sheet_template`, `update_sheet_template`, `delete_sheet_template`, `materialize_sheet_template_tab`
 
-**Sheets:** `list_sheets`, `get_sheet`, `create_sheet`, `update_sheet`, `archive_sheet`, `add_sheet_column`, `update_sheet_column`, `delete_sheet_column`, `add_sheet_rows`, `update_sheet_cells`, `delete_sheet_rows`, `delete_sheet`
+**Saved views / profile / config (10):** `list_task_views`, `create_task_view`, `update_task_view`, `delete_task_view`, `set_active_task_view`, `set_project_task_view`, `get_profile`, `update_profile`, `get_config`, `update_account_config` (onboarding flag, theme, accent)
 
-**Saved views / profile:** `list_task_views`, `create_task_view`, `update_task_view`, `delete_task_view`, `set_active_task_view`, `get_profile`, `update_profile`
+**Notifications / jobs (11):** `list_notifications`, `unread_notification_count`, `mark_notification_read`, `clear_notifications`, `snooze_reminder`, `reschedule_urgent`, `get_notification_settings`, `update_notification_settings`, `list_jobs`, `retry_job`, `get_job_health`
 
-**Notifications / jobs:** `list_notifications`, `mark_notification_read`, `clear_notifications`, `snooze_reminder`, `get_notification_settings`, `update_notification_settings`, `list_jobs`, `retry_job`, `get_job_health`
+**Portability (11):** `export_account`, `export_tasks_csv`, `export_calendar`, `export_doc` (markdown, or PDF as base64), `get_backup_settings`, `update_backup_settings` (interval and retention 1–30), `create_backup`, `list_backups`, `download_backup`, `delete_backup`, `restore_account`
+
+`apps/api/scripts/mcp_parity.go` exercises MCP/API parity end to end.
 
 ---
 
 ## 16. Create / navigation UX
 
-**Desktop sidebar:** + menu (Task, Event, Workspace, Project, Doc, Sheet), Search, Today, Inbox, Calendar, Tasks, Projects, Docs, Sheets, Report, Notifications, Settings, Logout. `g` then `y`/`i`/`n` jumps to Today/Inbox/Notifications. Settings → Appearance can auto-hide the rail until the pointer is at the left edge.
+**Desktop sidebar:** + menu (Task, Event, Workspace, Project, Doc, Sheet), Search, Chat (unread badge), Today, Inbox, Calendar, Tasks, Projects, Docs, Sheets, Report, Notifications, Settings, Logout. Settings → Appearance can auto-hide the rail until the pointer is at the left edge.
 
 **Add Item modal:** per-type forms. Tasks open with a **Work | Reminder** toggle first. Reminder uses Notify at (date and time). Work uses duration, workspace, project, stage, labels, custom fields. Rich description for task/project. Recurrence for task/event. Labels/custom fields with inline create. Events all-day/duration/workspace.
 
-**Native FAB** on Home/Calendar/Tasks/Files: Inbox, Task, Reminder, Event, Doc, Sheet. Workspace/Project also from settings. Reminder create uses Notify at.
+**Clarify modal:** the same Add modal, titled Clarify, opened from an Inbox row.
+
+**Native FAB** on Home/Calendar/Tasks/Files: Inbox, Task, Reminder, Event, Doc, Sheet. Workspace/Project also from settings. Reminder create uses Notify at. A **two-finger pinch** anywhere opens the assistant.
 
 ### Keyboard (desktop)
 
-- Ctrl/Cmd+K search
+- Ctrl/Cmd+K or `/` command palette
+- Ctrl/Cmd+Shift+J chat overlay (new chat with screen context)
+- `g` then `a` Chat, `y` Today, `i` Inbox, `c` Calendar, `t` Tasks, `p` Projects, `d` Docs, `s` Sheets, `r` Report, `n` Notifications
+- `c` or `n` new task (on `/inbox`, `c` focuses capture)
+- On `/tasks`: `x` completes the open task (with Undo), `s` schedules it on the calendar
 - Escape close
-- Ctrl/Cmd+Enter comment
+- Ctrl/Cmd+Enter comment; in chat, Enter sends and Shift+Enter adds a line
 - Sheet: arrows, Tab, Enter/F2, Delete, type-to-edit
 - `/` slash, `@` mention, `.`/`-` + space in editor
 
@@ -547,15 +629,17 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 | Timezones | Browser TZ + editable working-hours IANA zone; tzdata embedded in API |
 | Mentions | `@` links between docs, sheets, tasks, projects |
 | Colors | Workspace/stage/status/label/project/event colors; task cards inherit project color where available; calendar legend |
-| Realtime | Docs SSE only, in-process hub (won’t fan out across multiple API instances) |
-| Offline | Desktop/native show an explicit offline + stale-data banner. Native persists and replays safe idempotent task completion, checklist, Today-focus, and recurrence actions per account. Doc/sheet editing remains online-only |
+| Realtime | Docs SSE only, in-process hub (won’t fan out across multiple API instances). Chat uses polling |
+| Offline | Desktop/native show an explicit offline + stale-data banner. Native mutations use `networkMode: "always"` and land in a durable per-account queue: task completion, schedule lock, bulk complete, checklist toggle, Today focus, and recurrence occurrence edits (except move). The queue replays one at a time on startup, sign-in, and reconnect (4xx drops an item). Cold starts work offline from a cached session user. Doc/sheet editing and sending chat messages remain online-only |
 | PWA | None |
-| Attachments / files / camera | None except Markdown file import for docs. Content is JSON/markdown/text |
+| Attachments / files / camera | Markdown file import for docs, and **temporary** chat images (JPEG/PNG, 24-hour expiry; native camera, library, files, screenshot, clipboard). No persistent attachments |
 | Email / SMTP | None. Push is Expo HTTP; no mailer |
-| Background jobs | Postgres `jobs` table with `FOR UPDATE SKIP LOCKED`, retries/backoff, dedupe keys, `/jobs` health + retry. Worker runs in the API process. Kinds: `send_reminder`, `overdue_task`, `index_entity`, `daily_digest`, `send_push`, `create_backup`. Scheduled backups use AES-256-GCM encryption and retention |
+| Background jobs | Postgres `jobs` table with `FOR UPDATE SKIP LOCKED`, retries/backoff, dedupe keys, `/jobs` health + retry. Worker runs in the API process. Kinds: `send_reminder`, `overdue_task`, `missed_block`, `start_soon`, `index_entity`, `reindex_user`, `daily_digest`, `send_push`, `create_backup`. Scheduled backups use AES-256-GCM encryption and retention. Chat runs use their own leased workers, not this queue |
 | External calendars | None (no Google Calendar, ICS import two-way, Slack, GitHub). ICS **export** exists |
 | Collaboration | Single user per account. Multiple independent accounts may exist on one install |
 | IDs | Typed prefixes (`tsk_`, `pr_`, `doc_`, …) |
+| Electron | Windows and navigation stay in-app only on an exact origin match; other links open in the OS only for `http`, `https`, and `mailto` |
+| Isolation | Optional `DB_SCHEMA` runs an API instance in its own Postgres schema (worktree dev) |
 | CORS | Allowlist includes localhost:4001 and hardcoded ngrok origins |
 
 ---
@@ -563,19 +647,20 @@ Destructive deletes of a workspace, project, or document require `confirm=true`.
 ## 18. Native-only extras
 
 - JWT + refresh token in SecureStore
-- Notification permission on first launch; Android `POST_NOTIFICATIONS`, reminder channel, exact-alarm permissions declared
+- Notification permission on first launch; Android `POST_NOTIFICATIONS`, `reminders` and `agent` channels, exact-alarm permissions declared
+- Pinch-to-open AI assistant with camera / photo-library permissions (`expo-image-picker`, no microphone), screen capture, and receipt review
 - Local reminder schedules (horizon 60 days, max 60) plus optional Expo push registration — locals are **not** cancelled when push registers
 - In-app notification center, clear all, and snooze
-- Dedicated Search tab
+- Dedicated Search tab (command palette with quick actions)
 - Home tab with Today focus, agenda, and Inbox entry; it is the default route after login/onboarding
-- Combined Files tab (Docs | Sheets) with Markdown import
+- Combined Files tab (Docs | Sheets) with a nested doc tree, page menu, and Markdown import
 - Sheet templates and multi-tab workbooks, including a template preview route
 - Hidden sheets route (duplicate of Files → Sheets)
-- Android cleartext HTTP for LAN API; API URL baked into production APK (`updates.enabled: false`, so URL changes need a rebuild)
+- Android cleartext HTTP for LAN API; API URL baked into production APK (`updates.enabled: false`, so URL changes need a rebuild). `make build-apk` / `install-apk` take the URL via `--api-url` or `API_URL`
 - Deep link scheme `timelymobile` exists; no custom handlers beyond router paths
 - Portrait, light/dark theme picker, splash, tablet flag on iOS
 
-Export uses the native share sheet; network state, stale data, and queued safe mutations are persisted and visible. No widgets, camera, biometrics, or offline doc/sheet database.
+Export uses the native share sheet; network state, stale data, and queued safe mutations are persisted and visible. No widgets, biometrics, or offline doc/sheet database.
 
 ---
 
@@ -589,11 +674,13 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/login` | Email/password login |
 | `/signup` | Register (sends name) |
 | `/onboarding` | Create first workspace |
+| `/demo/command-palette` | Public command-palette demo with sample data |
 
 ### Desktop app
 
 | Route | What it does |
 | --- | --- |
+| `/chat` | AI chat: history + conversation (`?id=`) |
 | `/today` | Focus, today’s plan, reminders, inbox |
 | `/inbox` | Title-only capture |
 | `/calendar` | Day / Week / Month / Agenda |
@@ -607,7 +694,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/sheets/templates/[id]` | Template preview and create-from-template |
 | `/report` | Productivity snapshot |
 | `/notifications` | In-app notification center |
-| `/settings` | Account (incl. devices), Appearance, Schedule, Notifications, Workspaces, Data & privacy, Integrations (`?tab=`) |
+| `/settings` | Account (incl. devices), Appearance, Schedule, Notifications, Workspaces, Agent, Data & privacy, Integrations (`?tab=`) |
 | `/m`, `/m/*` | Redirect to `/calendar` (legacy mobile-web bookmarks) |
 
 ### Native app
@@ -618,9 +705,11 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/(app)/(tabs)/home` | Default Home tab (Today focus, agenda, Inbox entry) |
 | `/(app)/(tabs)/calendar` | Calendar tab |
 | `/(app)/(tabs)/tasks` | Task list |
-| `/(app)/(tabs)/search` | Global search |
+| `/(app)/(tabs)/search` | Command palette search |
 | `/(app)/(tabs)/docs` | Files (Docs \| Sheets) |
-| `/(app)/(tabs)/more` | Settings tab |
+| `/(app)/(tabs)/more` | Hidden; redirects to settings |
+| `/(app)/assistant` | Deep-link shim: opens the assistant overlay at `?chatId=` |
+| `/(app)/search` | Redirects to the Search tab |
 | `/(app)/today` | Today |
 | `/(app)/inbox` | Inbox capture |
 | `/(app)/tasks/[id]` | Task / reminder detail (Work \| Reminder) |
@@ -632,6 +721,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/(app)/sheets/templates/[id]` | Template preview and create-from-template |
 | `/(app)/report` | Report |
 | `/(app)/settings/*` | Account, notifications, schedule, workspaces, API keys |
+| `/(app)/settings/agent` | AI provider and model settings |
 | `/(app)/settings/data` | Portable exports, restore, encrypted backup scheduling and history |
 | `/(app)/notifications` | In-app notification center |
 
@@ -656,11 +746,11 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 **Sessions:** `GET /sessions`, `DELETE /sessions/:id`
 
-**Tasks:** CRUD, bulk patch, activity, comments, occurrence edit, recurrence split, inbox, focus, checklist, today-focus
+**Tasks:** CRUD, bulk patch, activity, comments, occurrence edit, recurrence split, inbox (`POST /inbox` capture, `POST /inbox/:id/clarify`), focus start/pause/stop, checklist, today-focus
 
-**Events:** CRUD, occurrence edit, recurrence split
+**Events:** CRUD (with `duration`), occurrence edit, recurrence split
 
-**Calendar / schedule:** `GET /calendar`, working hours get/put, schedule preview/apply/reschedule/undo, task blocks CRUD
+**Calendar / schedule:** `GET /calendar`, working hours get/put, schedule preview/apply/reschedule/undo, `GET /schedule/rank?timezone=`, task blocks CRUD
 
 **Projects:** CRUD, stages CRUD + reorder, duplicate
 
@@ -670,6 +760,10 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 **API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications list/read/clear/snooze and overdue-task urgent reschedule; `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
 
+**Chat:** `GET/POST /chats`, `GET/PATCH/DELETE /chats/:id`, `POST /chats/:id/{messages,approve,reject,stop,retry,read,receipt}`, `POST /chats/:id/images/{confirm,discard}`, `POST /chats/images`, `GET/DELETE /chats/images/:imageId`
+
+**Agent providers:** `GET/PATCH /agent/providers`, `GET /agent/providers/:id/models` (`?kind=embed` for OpenRouter), `POST /agent/providers/:id/{connect,disconnect}`, `POST/DELETE /agent/providers/openrouter/key`
+
 **Portability:** full versioned JSON export + replace-mode transactional restore; task CSV; calendar ICS; document Markdown; encrypted server backup create/list/download/delete; backup schedule + retention settings
 
 ---
@@ -678,11 +772,15 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 These are already in the backend — useful if choosing “build UI” vs “build new capability”:
 
-- Sheet granular row/cell tools in MCP (the HTTP grid API writes whole sheets)
+- Sheet granular row/cell tools, `duplicate_sheet`, and checklist replace/update in MCP (the HTTP grid API writes whole sheets)
 - Legacy `scheduleId` still on the task JSON (unused by the engine)
 - Semantic reindex endpoint
 - Agent markdown append-to-doc
-- `what_next` / `get_free_time` / `get_agenda` (agent-only intelligence)
+- `get_free_time` / `get_agenda` (agent-only; Rank is now in the UI via the calendar waiting rail)
+- Focus pause (`POST /tasks/:id/focus/pause`): native uses it, desktop web does not
+- `POST /inbox/:id/clarify`: desktop uses it, native still clarifies by editing in task detail
+- Urgent overdue reschedule: native and MCP only
+- Per-project task views (`config.projectTaskViews`) via MCP `set_project_task_view`
 - Document PDF bytes (no download button)
 - Split recurring series (hooks exist; native task UI is thinner than events)
 
@@ -700,6 +798,8 @@ Grouped so you can pick from current holes. Older planning notes in `NextPhase.m
 
 ### Work model
 
+- Focus pause/resume on desktop web (API and native have it)
+- Native Inbox does not use the Clarify endpoint yet
 - Native still auto-applies the scheduling engine after creating eligible work tasks; desktop task creation does not
 - Comment delete; richer project activity (not only recently updated tasks)
 - Gantt bar move/resize (undated tasks can currently be dropped onto the timeline to set dates)
@@ -707,7 +807,7 @@ Grouped so you can pick from current holes. Older planning notes in `NextPhase.m
 
 ### Calendar
 
-- Week view on mobile
+- Hour-grid Week view on mobile (native Week is a list)
 - Google / Outlook / ICS two-way sync
 - Time-zone per event, travel time, conference links
 - Drag-drop on native calendar
@@ -720,7 +820,6 @@ Grouped so you can pick from current holes. Older planning notes in `NextPhase.m
 ### Awareness
 
 - Email notifications (intentionally no SMTP)
-- In-app Hermes chat (today MCP-only)
 - One-click overdue reschedule in the desktop notification center (native has the action)
 - Android 14+ exact-alarm Settings deep-link if the OS denied it
 - Digest open-count matching Report; persist notification timezone from working hours
@@ -730,9 +829,10 @@ Grouped so you can pick from current holes. Older planning notes in `NextPhase.m
 - Translation catalogs and runtime language selection
 - Offline doc/sheet editing, a full offline database, and PWA
 - Billing
-- Attachments (beyond `.md` import)
+- Persistent attachments (beyond `.md` import and 24-hour chat images)
 - Multi-instance realtime for docs (SSE hub is in-process)
 - Humanized device session names
+- Pushed chat updates (clients poll; runs themselves are multi-instance safe via leases)
 
 ---
 
@@ -742,27 +842,29 @@ Grouped so you can pick from current holes. Older planning notes in `NextPhase.m
 | --- | --- | --- | --- |
 | Auth / onboarding / refresh | Yes | Yes | Profile name |
 | Device sessions | Yes | Via refresh token | No |
-| Calendar D/W/M/Agenda | D W M A | D M A | Range + agenda |
+| Calendar D/W/M/Agenda | D W M A | D W(list) M A | Range + agenda |
 | Auto-schedule (skip completed) | Full preview/apply/undo | Preview/apply/undo | Full |
 | Manual blocks | Full, including calendar move/resize | Reschedule + pin/chunk | Full |
 | Task list/kanban/gantt + saved views | Yes | Native-only saved views (list/board; no gantt) | Views CRUD + filters |
 | Task comments/activity | Yes | Yes | Yes |
-| Inbox / Today / focus | Yes | Yes | Yes |
+| Inbox / Today / focus | Yes; Clarify modal; no focus pause | Yes; focus pause; clarify via detail | Yes, incl. pause |
 | Checklists | Yes | Yes | Yes |
 | Reminders as a type | Work \| Reminder + Notify at | Kind + segmented control + local push | Yes + snooze |
-| Notification center / prefs | Yes; overdue alert opens task | Yes + OS permission; urgent reschedule action | Yes (no urgent-reschedule tool) |
+| Notification center / prefs | Yes; overdue alert opens task; chat alerts open chat | Yes + OS permission; urgent reschedule action | Yes, incl. `reschedule_urgent` |
 | Working hours / engine | Multi-window + freeze | Hours + freeze | Yes |
 | Recurrence | Yes | Yes | Yes |
 | Projects hub + stages | Yes | List + detail | Full + stages + board |
-| Docs tree + editor | Yes | Flat + editor | Markdown + archive |
+| Docs tree + editor | Yes | Tree + page menu + editor | Markdown + archive |
 | Markdown import / MD export | Yes | Yes | Markdown in/out |
 | Code Copy + IDE colors | Yes | Yes | — |
-| Sheets + formulas | Tabs, formatting, filters, templates, CSV | Tabs, formatting, filters, templates | Granular + archive; no template tools |
+| Sheets + formulas | Tabs, formatting, filters, templates, CSV | Tabs, formatting, filters, templates | Granular + archive + templates + duplicate |
 | Archive docs/sheets | Yes | Yes | Yes |
 | Report | Full | Thinner | No |
-| Global search | Cmd+K | Tab | Keyword + semantic |
+| Global search / command palette | Cmd+K or `/`, quick actions | Tab, quick actions | Keyword + semantic |
+| AI chat | `/chat` + Cmd+Shift+J overlay, images, receipts, Electron notifications | Pinch overlay, camera/screenshot, receipts, private push | Is the tool catalog (chat uses an allowlisted subset) |
+| AI provider settings | Settings → Agent | Settings → Agent | No |
 | API keys / Hermes | Yes | Yes | Auth itself |
-| Export / backup / restore | Full | Full + share sheet | No |
+| Export / backup / restore | Full | Full + share sheet | Yes (`confirm=true` for restore/delete backup) |
 | Workspace taxonomy | Yes | Yes | Yes |
 | Theme | System/light/dark | Light/dark | No |
 
@@ -770,4 +872,4 @@ Grouped so you can pick from current holes. Older planning notes in `NextPhase.m
 
 ## Summary
 
-The current product is a **personal, multi-account, English** workspace where you capture inbox items, turn work and reminders into distinct types, put work on a calendar (manually or with an explainable engine that ignores completed tasks), run projects with stages, write nested docs (including Markdown import and IDE-like code blocks), use multi-tab spreadsheets and templates, export and protect your data, search by text or meaning, glance at a live report, and optionally let Hermes drive many of the same objects through MCP. Desktop and native make connectivity state explicit; native asks for notification permission on launch and schedules reminder pings on the device.
+The current product is a **personal, multi-account, English** workspace where you capture inbox items, turn work and reminders into distinct types, put work on a calendar (manually or with an explainable engine that ignores completed tasks), run projects with stages, write nested docs (including Markdown import and IDE-like code blocks), use multi-tab spreadsheets and templates, export and protect your data, search by text or meaning from a command palette, glance at a live report, ask the in-app AI agent (OpenRouter, Claude Code, or Codex) to propose changes you review before they apply — including turning receipt photos into expense sheets — and optionally let Hermes drive the same objects through MCP. Desktop and native make connectivity state explicit; native asks for notification permission on launch and schedules reminder pings on the device.
