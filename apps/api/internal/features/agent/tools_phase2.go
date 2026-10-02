@@ -237,7 +237,7 @@ func (s *Server) getToday(ctx context.Context, req *mcp.CallToolRequest, in toda
 	if err != nil {
 		return fail(err)
 	}
-	today, err := s.Calendar.Today(uid, in.Date, in.Timezone)
+	today, err := s.Calendar.Today(uid, in.Date, zone(ctx, in.Timezone))
 	if err != nil {
 		return fail(err)
 	}

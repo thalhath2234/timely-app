@@ -5,7 +5,7 @@ import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
 import RichDoc from "../docs/RichDoc";
 import { fromMarkdown } from "../../lib/markdown";
 import AnimatedPressable from "../ui/AnimatedPressable";
-import { toneColor, type Tone } from "./chatMeta";
+import { readableTimestamp, toneColor, type Tone } from "./chatMeta";
 
 /** Text button; `primary` fills, `tone="destructive"` outlines in red. */
 export function Action({
@@ -151,7 +151,7 @@ export function DetailValue({
       <Text selectable style={styles.text}>
         {/^\$\d+\./.test(value)
           ? `From change ${Number(value.slice(1).split(".")[0]) + 1}`
-          : value}
+          : (readableTimestamp(value) ?? value)}
       </Text>
     );
   if (typeof value !== "object")

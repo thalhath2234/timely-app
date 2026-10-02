@@ -155,7 +155,6 @@ export interface TaskCustomFieldValue extends BaseEntity {
   taskId: string;
   name?: string;
   type?: string;
-  "type; not null"?: string;
   stringValue?: string;
   numberValue?: number;
   dateValue?: string;

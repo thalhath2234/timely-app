@@ -166,7 +166,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "update_event", Description: "Partial-update an event."}, s.updateEvent)
 	registerTool(s, server, &mcp.Tool{Name: "delete_event", Description: "Delete an event (whole series)."}, s.deleteEvent)
 	registerTool(s, server, &mcp.Tool{Name: "edit_event_occurrence", Description: "skip, restore, or move one event occurrence."}, s.editEventOccurrence)
-	registerTool(s, server, &mcp.Tool{Name: "split_event_series", Description: "This-and-future split of a recurring event."}, s.splitEventSeries)
+	registerTool(s, server, &mcp.Tool{Name: "split_event_series", Description: "This-and-future split of a recurring event. To move future occurrences to a new time, pass start (and end) for the first changed occurrence."}, s.splitEventSeries)
 
 	registerTool(s, server, &mcp.Tool{Name: "get_calendar", Description: "Unified calendar items in a date range."}, s.getCalendar)
 	registerTool(s, server, &mcp.Tool{Name: "get_working_hours", Description: "Weekly availability template."}, s.getWorkingHours)
@@ -177,6 +177,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "auto_schedule_preview", Description: "Preview engine v2 placement without writing. Recurring work occurrences in the horizon are placed as blocks (not new task rows). Returns proposals (with why), skipped (reason+message), changes (add/move/remove/pin), capacity, and risks. Scores are ordering hints, not certainty."}, s.autoSchedulePreview)
 	registerTool(s, server, &mcp.Tool{Name: "auto_schedule_apply", Description: "Apply engine placement. Idempotent per user (advisory lock). Frozen/locked/manual pins stay. Stores a revision for undo_schedule. POST /schedule/reschedule is an alias."}, s.autoScheduleApply)
 	registerTool(s, server, &mcp.Tool{Name: "undo_schedule", Description: "Undo the last auto-schedule apply by restoring the previous engine blocks."}, s.undoSchedule)
+	registerTool(s, server, &mcp.Tool{Name: "undo_schedule_preview", Description: "Show what undo_schedule would change: the engine blocks it removes and the earlier blocks it restores. canUndo=false when there is nothing to undo."}, s.undoSchedulePreview)
 	registerTool(s, server, &mcp.Tool{Name: "pin_task", Description: "Lock or unlock a task so the engine will not move its blocks (scheduleLocked)."}, s.pinTask)
 	registerTool(s, server, &mcp.Tool{Name: "pin_block", Description: "Lock or unlock one calendar block. Locking turns it into a manual pin."}, s.pinBlock)
 	registerTool(s, server, &mcp.Tool{Name: "schedule_task", Description: "Pin a manual time block on a one-off work task. On a reminder (duration 0) this only sets the ping time."}, s.scheduleTask)

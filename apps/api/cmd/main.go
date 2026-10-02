@@ -110,6 +110,8 @@ func main() {
 	})
 
 	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live) }, chat.NewOpenRouter())
+	// Proposals are rehearsed in a rolled-back transaction; no live doc broadcasts.
+	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil) })
 	providerService := provider.New(db, indexer, jobQueue)
 	providerService.Register(jobWorker)
 	chatService.SetCompleters(providerService)

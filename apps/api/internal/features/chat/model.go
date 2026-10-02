@@ -23,6 +23,12 @@ type Message struct {
 	CreatedAt time.Time     `json:"createdAt"`
 	Steps     []Step        `json:"steps,omitempty"`
 	ImageIDs  []string      `json:"imageIds,omitempty"`
+	// Proposal marks a proposal summary. Remaining is what a batched proposal
+	// leaves for the next batch; Timely continues automatically once the batch
+	// is applied, and Continue carries that remainder on the notice it adds.
+	Proposal  bool   `json:"proposal,omitempty"`
+	Remaining string `json:"remaining,omitempty"`
+	Continue  string `json:"continue,omitempty"`
 }
 type Step struct {
 	Tool      string          `json:"tool"`
@@ -52,6 +58,8 @@ type Conversation struct {
 	Status      string            `json:"status"`
 	Phase       string            `json:"phase"`
 	WebSearch   bool              `json:"webSearch"`
+	Timezone    string            `json:"timezone"` // device IANA zone from the latest message
+	Language    string            `json:"language"` // see i18n.go; empty means English`
 	Provider    string            `json:"provider"`
 	Model       string            `json:"model"`
 	Context     []ContextChip     `gorm:"serializer:json;type:jsonb" json:"context"`

@@ -4,7 +4,14 @@ import { ArrowUpRight, ChevronDown, ChevronRight } from "lucide-react-native";
 import type { ChatStep } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
-import { stepIcon, stepLinks, stepMeta, toneColor } from "./chatMeta";
+import {
+  beforeLabel,
+  isRemoval,
+  stepIcon,
+  stepLinks,
+  stepMeta,
+  toneColor,
+} from "./chatMeta";
 import { DetailValue, styles as common } from "./shared";
 
 function Card({
@@ -20,7 +27,9 @@ function Card({
   muted: boolean;
   onLink: (href: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const removal = isRemoval(step.tool);
+  // A pending removal opens with what it removes in view.
+  const [open, setOpen] = useState(removal && step.status === "pending");
   const Icon = stepIcon(step.tool);
   const meta = stepMeta(step.status, active);
   const Badge = meta.icon;
@@ -30,14 +39,25 @@ function Card({
     <View
       style={[
         styles.card,
-        step.status === "failed" && { borderColor: `${colors.destructive}66` },
+        (step.status === "failed" ||
+          (removal && step.status === "pending")) && {
+          borderColor: `${colors.destructive}66`,
+        },
         muted && { opacity: 0.75 },
       ]}
     >
       <View style={styles.head}>
         <View style={styles.iconWrap}>
-          <View style={styles.iconTile}>
-            <Icon size={18} color={colors.mutedForeground} />
+          <View
+            style={[
+              styles.iconTile,
+              removal && { backgroundColor: `${colors.destructive}1A` },
+            ]}
+          >
+            <Icon
+              size={18}
+              color={removal ? colors.destructive : colors.mutedForeground}
+            />
           </View>
           <View
             accessibilityLabel={meta.label}
@@ -58,7 +78,14 @@ function Card({
               {step.summary}
             </Text>
           </View>
-          <Text style={[styles.status, { color }]}>{meta.label}</Text>
+          <View style={styles.statusRow}>
+            <Text style={[styles.status, { color }]}>{meta.label}</Text>
+            {removal ? (
+              <View style={styles.removes}>
+                <Text style={styles.removesText}>Removes</Text>
+              </View>
+            ) : null}
+          </View>
           {step.status === "failed" && step.error ? (
             <View style={styles.errorBox}>
               <Text style={styles.errorText}>{step.error}</Text>
@@ -99,7 +126,14 @@ function Card({
           <DetailValue value={step.arguments} onLink={onLink} />
           {step.before ? (
             <View style={styles.before}>
-              <Text style={common.fieldLabel}>Existing content</Text>
+              <Text
+                style={[
+                  common.fieldLabel,
+                  removal && { color: colors.destructive },
+                ]}
+              >
+                {beforeLabel(step.tool)}
+              </Text>
               <DetailValue value={step.before} onLink={onLink} />
             </View>
           ) : null}
@@ -192,6 +226,14 @@ const styles = createThemedStyleSheet(() => ({
     textDecorationLine: "line-through",
   },
   status: { fontSize: 12, fontWeight: "600" },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  removes: {
+    borderRadius: 999,
+    backgroundColor: `${colors.destructive}1A`,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  removesText: { color: colors.destructive, fontSize: 11, fontWeight: "700" },
   errorBox: {
     marginTop: 4,
     borderRadius: 10,

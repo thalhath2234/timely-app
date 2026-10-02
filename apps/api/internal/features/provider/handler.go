@@ -317,6 +317,11 @@ func (s *Service) configure(c *echo.Context) error {
 		if value == "" {
 			continue
 		}
+		// Before Connect a CLI model is only recorded; Connect tests it. Otherwise
+		// a default model that is at capacity could never be changed.
+		if (change.provider == ClaudeCLI && trial.ClaudeConnectedAt == nil) || (change.provider == CodexCLI && trial.CodexConnectedAt == nil) {
+			continue
+		}
 		// Verify the chosen model actually answers before it becomes the default.
 		completer, err := s.build(trial, change.provider, s.chatModel(trial, change.provider))
 		if err != nil {

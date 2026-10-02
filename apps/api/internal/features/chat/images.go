@@ -271,7 +271,7 @@ func (s *Service) extractImages(ctx context.Context, c *Conversation) error {
 		row.Phase = "review"
 		if extracted.Receipt != nil {
 			row.ImageReview.Duplicates = findReceiptDuplicates(tx, row.UserID, *extracted.Receipt)
-			m := message("assistant", "Review the receipt below; correct highlighted fields and choose where to save it. If no individual items are available, the merchant and total will be saved as one summary item.")
+			m := message("assistant", tr(row.Language, txtReceiptReview))
 			m.Receipt = extracted.Receipt
 			row.Messages = append(row.Messages, m)
 		} else {
@@ -280,10 +280,10 @@ func (s *Service) extractImages(ctx context.Context, c *Conversation) error {
 				row.Phase = "plan"
 				row.Status = "queued"
 			} else {
-				row.Messages = append(row.Messages, message("assistant", "What would you like to do with this image?"))
+				row.Messages = append(row.Messages, message("assistant", tr(row.Language, txtImageQuestion)))
 			}
 		}
-		return notify(tx, row, "Your image is ready to review.")
+		return notify(tx, row, tr(row.Language, txtPushImage))
 	})
 }
 

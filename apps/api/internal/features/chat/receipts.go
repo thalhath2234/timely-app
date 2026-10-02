@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -190,8 +191,93 @@ func receiptItems(r ReceiptDraft) []ReceiptItem {
 	return []ReceiptItem{{Description: r.Merchant, Amount: r.Total, Category: r.Category}}
 }
 
+var (
+	aggregateRange = regexp.MustCompile(`(?i)\b(SUM|AVERAGE|MIN|MAX|COUNT|COUNTA|PRODUCT)\(\s*\$?[A-Z]{1,3}\$?\d+\s*:\s*\$?([A-Z]{1,3})\$?(\d+)\s*\)`)
+	cellReference  = regexp.MustCompile(`(:?)(\$?[A-Z]{1,3}\$?)(\d+)\b`)
+)
+
+// totalsRow reports whether a row (1-based number) aggregates the rows
+// directly above it, e.g. =SUM(D1:D5) on row 6, in a column where the new
+// row has a value, so placing the new row above it gets that value counted.
+func totalsRow(columns models.SheetColumns, row, added models.SheetRow, number int) bool {
+	for _, value := range row.Cells {
+		if !strings.HasPrefix(value, "=") {
+			continue
+		}
+		for _, match := range aggregateRange.FindAllStringSubmatch(value, -1) {
+			end, err := strconv.Atoi(match[3])
+			column := columnIndex(match[2])
+			if err == nil && end == number-1 && column < len(columns) && added.Cells[columns[column].ID] != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// columnIndex turns spreadsheet letters into a zero-based index (A → 0).
+func columnIndex(letters string) int {
+	index := 0
+	for _, r := range strings.ToUpper(letters) {
+		index = index*26 + int(r-'A'+1)
+	}
+	return index - 1
+}
+
+func emptyRow(row models.SheetRow) bool {
+	for _, value := range row.Cells {
+		if value != "" {
+			return false
+		}
+	}
+	return len(row.Formats) == 0
+}
+
+// shiftTotalsFormula rewrites a totals row's formula after one row is inserted
+// above it: references to its own row move down, and ranges ending on the row
+// above now end on the inserted row.
+func shiftTotalsFormula(value string, number int) string {
+	if !strings.HasPrefix(value, "=") {
+		return value
+	}
+	var b strings.Builder
+	last := 0
+	for _, m := range cellReference.FindAllStringSubmatchIndex(value, -1) {
+		// Skip matches inside names such as LOG10.
+		if c := value[m[0]]; c != ':' && m[0] > 0 {
+			if p := value[m[0]-1]; p == '_' || p >= 'A' && p <= 'Z' || p >= 'a' && p <= 'z' || p >= '0' && p <= '9' {
+				continue
+			}
+		}
+		if m[1] < len(value) && value[m[1]] == '(' {
+			continue // a function name such as LOG10(
+		}
+		row, err := strconv.Atoi(value[m[6]:m[7]])
+		if err != nil {
+			continue
+		}
+		rangeEnd := m[3] > m[2]
+		switch {
+		case row == number:
+			row++
+		case row == number-1 && rangeEnd:
+			row++
+		default:
+			continue
+		}
+		b.WriteString(value[last:m[6]])
+		b.WriteString(strconv.Itoa(row))
+		last = m[7]
+	}
+	b.WriteString(value[last:])
+	return b.String()
+}
+
 // Reuse trailing grid padding without inserting/deleting rows or moving formulas.
 // Internal gaps, notes, links and merged ranges belong to the existing layout.
+// The one exception is a closing totals row (=SUM(D1:D5) right below its data):
+// the receipt goes above it and the total's range grows by one row, otherwise
+// the receipt would sit below the total and never be counted.
 func appendReceiptRow(tab *models.SheetTab, added models.SheetRow) int {
 	last := -1
 	for i, row := range tab.Rows {
@@ -208,8 +294,25 @@ func appendReceiptRow(tab *models.SheetTab, added models.SheetRow) int {
 			}
 		}
 	}
+	mergedFrom := -1
 	for _, merge := range tab.Merges {
 		last = max(last, merge.StartRow+merge.RowSpan-1)
+		mergedFrom = max(mergedFrom, merge.StartRow+merge.RowSpan-1)
+	}
+	if last > 0 && mergedFrom < last && totalsRow(tab.Columns, tab.Rows[last], added, last+1) {
+		total := tab.Rows[last]
+		cells := map[string]string{}
+		for column, value := range total.Cells {
+			cells[column] = shiftTotalsFormula(value, last+1)
+		}
+		total.Cells = cells
+		rest := tab.Rows[last+1:]
+		// Reuse one blank padding row below so the grid keeps its size.
+		if len(rest) > 0 && emptyRow(rest[0]) {
+			rest = rest[1:]
+		}
+		tab.Rows = append(tab.Rows[:last:last], append(models.SheetRows{added, total}, rest...)...)
+		return last
 	}
 	next := last + 1
 	if next < len(tab.Rows) {
@@ -362,7 +465,7 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 		row.Phase = "review"
 		review.Status = "review"
 		row.Error = "A matching receipt exists. Choose Skip, Update existing, or Add anyway"
-		return notify(tx, row, "Review a possible duplicate receipt.")
+		return notify(tx, row, tr(row.Language, txtPushDuplicate))
 	}
 	if d.DuplicateAction == "update" {
 		found := false
@@ -525,6 +628,9 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 	}
 	summaryText := fmt.Sprintf("Record %s %s at %s on %s in %s; save all %d items separately in Items. Add missing receipt columns; preserve existing rows and other tabs. No currency conversion or combined-currency total.", r.Currency, r.Total, r.Merchant, r.Date, tabs[expenseIndex].Name, len(r.Items))
 	summaryText += fmt.Sprintf(" Receipt summary goes in row %d.", expenseRowIndex+1)
+	if expenseRowIndex+1 < len(tabs[expenseIndex].Rows) && totalsRow(tabs[expenseIndex].Columns, tabs[expenseIndex].Rows[expenseRowIndex+1], summary, expenseRowIndex+2) {
+		summaryText += " It goes above the totals row, whose ranges now include it."
+	}
 	if len(review.Receipt.Items) == 0 {
 		summaryText += " No individual items available: save one summary item using the merchant name and full receipt total."
 	}
@@ -532,7 +638,7 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 		summaryText = "Update the matching receipt and its linked item rows. " + summaryText
 	}
 	steps = append(steps, Step{Tool: "update_sheet", Summary: summaryText, Arguments: raw(map[string]any{"sheetId": targetID, "tabs": tabs})})
-	p, snapshots, err := s.prepareProposal(ctx, catalog, row.UserID, raw(proposal{Summary: summaryText, Steps: steps}))
+	p, snapshots, err := s.prepareProposal(ctx, catalog, row.UserID, raw(proposal{Summary: summaryText, Steps: steps}), nil)
 	if err != nil {
 		return err
 	}
@@ -544,7 +650,7 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 	row.ForceReview = true
 	review.Status = "review"
 	row.Messages = append(row.Messages, message("assistant", summaryText))
-	return notify(tx, row, "Your receipt is ready to apply.")
+	return notify(tx, row, tr(row.Language, txtPushReceipt))
 }
 func (s *Service) refreshReceipt(ctx context.Context, c *Conversation) error {
 	return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
@@ -553,7 +659,7 @@ func (s *Service) refreshReceipt(ctx context.Context, c *Conversation) error {
 			row.Phase = "review"
 			row.ImageReview.Status = "review"
 			row.Error = err.Error()
-			return notify(tx, row, "Your receipt needs another review.")
+			return notify(tx, row, tr(row.Language, txtPushReceiptAgain))
 		}
 		return nil
 	})
@@ -573,7 +679,7 @@ func (s *Service) discardReview(c *echo.Context) error {
 		row.LeaseUntil = nil
 		row.Error = ""
 		archivePlan(row)
-		row.Messages = append(row.Messages, notice("Image review discarded. Temporary images were removed; extracted draft data is kept."))
+		row.Messages = append(row.Messages, notice(tr(row.Language, txtImageReviewDiscarded)))
 		return nil
 	})
 }
@@ -624,9 +730,9 @@ func (s *Service) editReceipt(ctx context.Context, c *Conversation) error {
 		row.ImageReview.Duplicates = findReceiptDuplicates(tx, row.UserID, draft)
 		row.Status = "idle"
 		row.Phase = "review"
-		m := message("assistant", "I've revised the receipt draft. Review the fields below before preparing the sheet changes.")
+		m := message("assistant", tr(row.Language, txtReceiptRevised))
 		m.Receipt = &draft
 		row.Messages = append(row.Messages, m)
-		return notify(tx, row, "Your revised receipt is ready to review.")
+		return notify(tx, row, tr(row.Language, txtPushReceiptRevised))
 	})
 }

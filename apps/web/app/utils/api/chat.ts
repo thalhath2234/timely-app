@@ -1,4 +1,5 @@
 import { apiFetch } from "./client";
+import { browserTimezone } from "./schedule";
 
 export type ChatContext = { kind: string; label: string; value: string };
 /** pending → done, or failed (retry resets it), or discarded in an archived plan. */
@@ -65,11 +66,21 @@ export type Chat = {
   updatedAt: string;
   createdAt: string;
 };
+/** New messages carry the browser zone; the agent uses it when no timezone is saved in Working hours. */
+function withTimezone(path: string, method: string, body: unknown) {
+  const sendsMessage =
+    method === "POST" && (path === "" || path.endsWith("/messages"));
+  return sendsMessage && body && typeof body === "object"
+    ? { ...body, timezone: browserTimezone() }
+    : body;
+}
+
 export async function chatRequest<T>(
   path: string,
   method = "GET",
   body?: unknown,
 ): Promise<T> {
+  body = withTimezone(path, method, body);
   const res = await apiFetch(`/chats${path}`, {
     method,
     headers: { "Content-Type": "application/json" },
