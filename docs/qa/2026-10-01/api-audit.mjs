@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 // Local worktree only. Credentials never appear in the output or evidence.
 const base = "http://127.0.0.1:8081";
@@ -270,6 +271,62 @@ await check("Auto-schedule preview, apply and undo", async () => {
   );
   await ok("/schedule/undo", "POST", undefined, token);
 });
+await check(
+  "Rank day boundary follows the client timezone (QA-03)",
+  async () => {
+    // A new account has no saved Working hours. Pick a zone whose local date
+    // differs from the UTC date right now, and a Block that is "today" in UTC
+    // but not in that zone: Rank must list the Work for the zone and not for UTC.
+    const now = new Date();
+    const utcDay = now.toISOString().slice(0, 10);
+    const afternoon = now.getUTCHours() >= 12;
+    const zone = afternoon ? "Etc/GMT-14" : "Etc/GMT+12";
+    const blockStart = afternoon
+      ? `${utcDay}T00:30:00Z`
+      : `${utcDay}T23:30:00Z`;
+    const created = await ok(
+      "/tasks",
+      "POST",
+      {
+        name: "QA API Rank Zone",
+        duration: 30,
+        workspaceId: objects.workspace.id,
+      },
+      token,
+    );
+    objects.rankTask = created.task ?? created;
+    await ok(
+      `/tasks/${objects.rankTask.id}/blocks`,
+      "POST",
+      { start: blockStart, durationMinutes: 30 },
+      token,
+    );
+    const ids = (list) => (list.items ?? list).map((row) => row.task.id);
+    const zoneRank = ids(
+      await ok(
+        `/schedule/rank?timezone=${encodeURIComponent(zone)}`,
+        "GET",
+        undefined,
+        token,
+      ),
+    );
+    const utcRank = ids(await ok("/schedule/rank", "GET", undefined, token));
+    const evidence = {
+      zone,
+      blockStart,
+      listedForZone: zoneRank.includes(objects.rankTask.id),
+      listedForUtc: utcRank.includes(objects.rankTask.id),
+    };
+    console.log(`EVIDENCE rank timezone ${JSON.stringify(evidence)}`);
+    assert.equal(
+      evidence.listedForZone,
+      true,
+      "Block is not today in the zone",
+    );
+    assert.equal(evidence.listedForUtc, false, "Block is today in UTC");
+    return evidence;
+  },
+);
 await check("Cross-account object reads and writes are denied", async () => {
   for (const [get, put] of [
     [`/task/${objects.task.id}`, `/tasks/${objects.task.id}`],
@@ -386,6 +443,7 @@ await check("QA fixture deletion", async () => {
     ["sheet", "sheets"],
     ["doc", "docs"],
     ["clarified", "tasks"],
+    ["rankTask", "tasks"],
     ["task", "tasks"],
     ["project", "projects"],
   ]) {
@@ -410,10 +468,14 @@ const evidence = {
   passed: results.filter((r) => r.pass).length,
   failed: results.filter((r) => !r.pass).length,
 };
-writeFileSync(
-  new URL("./evidence/api-audit.json", import.meta.url),
-  JSON.stringify(evidence, null, 2) + "\n",
-);
+// evidence/api-audit.json holds the audited build's result; reruns write to
+// QA_EVIDENCE_FILE, defaulting to the remediation folder.
+const target =
+  process.env.QA_EVIDENCE_FILE ||
+  new URL("../2026-10-01-remediation/evidence/api-audit.json", import.meta.url)
+    .pathname;
+mkdirSync(dirname(target), { recursive: true });
+writeFileSync(target, JSON.stringify(evidence, null, 2) + "\n");
 console.log(
   `${evidence.passed} passed; ${evidence.failed} failed. QA accounts and their last workspace remain; other created objects were deleted.`,
 );

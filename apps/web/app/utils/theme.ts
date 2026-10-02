@@ -56,6 +56,40 @@ export function readStoredSidebarAutoHide(): boolean {
   return localStorage.getItem(SIDEBAR_AUTO_HIDE_STORAGE_KEY) === "true";
 }
 
+// The stored preferences are an external store for React: components read
+// them with useSyncExternalStore (server snapshot = defaults, so hydration
+// matches), and every write below notifies subscribers in this tab. Other
+// tabs arrive through the window "storage" event.
+const appearanceListeners = new Set<() => void>();
+
+function notifyStoredAppearance() {
+  for (const listener of appearanceListeners) listener();
+}
+
+export function subscribeStoredAppearance(listener: () => void) {
+  appearanceListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    appearanceListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+export function writeStoredTheme(theme: ThemePreference) {
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+  notifyStoredAppearance();
+}
+
+export function writeStoredAccent(accent: AccentPreference) {
+  localStorage.setItem(ACCENT_STORAGE_KEY, accent);
+  notifyStoredAppearance();
+}
+
+export function writeStoredSidebarAutoHide(hide: boolean) {
+  localStorage.setItem(SIDEBAR_AUTO_HIDE_STORAGE_KEY, hide ? "true" : "false");
+  notifyStoredAppearance();
+}
+
 function srgbToLinear(channel: number): number {
   const value = channel / 255;
   return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;

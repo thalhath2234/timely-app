@@ -11,6 +11,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { isOpenableExternally, isSameOrigin } from "./origin";
 
 const DEFAULT_RENDERER_URL = "http://127.0.0.1:4001";
 const WAIT_TIMEOUT_MS = 120_000;
@@ -178,23 +179,20 @@ function installApplicationMenu() {
 function attachWindowGuards(win: BrowserWindow, rendererUrl: string) {
   const origin = new URL(rendererUrl).origin;
 
+  // Only the renderer's exact origin may open inside the app; anything else
+  // goes to the system browser, and URLs we cannot parse or hand off are dropped.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith(origin)) {
+    if (isSameOrigin(url, origin)) {
       return { action: "allow" };
     }
-    void shell.openExternal(url);
+    if (isOpenableExternally(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
 
   win.webContents.on("will-navigate", (event, url) => {
-    try {
-      if (new URL(url).origin === origin) return;
-    } catch {
-      event.preventDefault();
-      return;
-    }
+    if (isSameOrigin(url, origin)) return;
     event.preventDefault();
-    void shell.openExternal(url);
+    if (isOpenableExternally(url)) void shell.openExternal(url);
   });
 }
 

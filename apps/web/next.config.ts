@@ -12,9 +12,6 @@ const nextConfig: NextConfig = {
         outputFileTracingRoot: path.join(path.dirname(fileURLToPath(import.meta.url)), "../.."),
       }
     : {}),
-  experimental: {
-    viewTransition: true,
-  },
   allowedDevOrigins: [
     "11a5-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
     "7b74-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",

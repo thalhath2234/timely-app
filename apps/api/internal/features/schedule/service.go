@@ -125,7 +125,7 @@ type Service interface {
 	DeleteBlock(userID, blockID string) error
 	ClearBlocks(userID, taskID string) (*models.Task, error)
 	FreeTime(userID string, from, to time.Time, timezone string) ([]Interval, error)
-	Rank(userID string) ([]RankedTask, error)
+	Rank(userID string, timezone string) ([]RankedTask, error)
 }
 
 type service struct {
@@ -260,13 +260,7 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 		return nil, nil, nil, time.Time{}, err
 	}
 	settings = settings.Normalized()
-	loc := time.UTC
-	if req.Timezone != "" {
-		if parsed, err := time.LoadLocation(req.Timezone); err == nil {
-			loc = parsed
-		}
-	}
-	loc = hours.Location(loc)
+	loc := DayLocation(hours, req.Timezone)
 	if hours.IsEmpty() {
 		hours = models.DefaultWorkingHours(loc.String())
 	}
@@ -790,13 +784,7 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 	if err != nil {
 		return nil, err
 	}
-	loc := time.UTC
-	if timezone != "" {
-		if parsed, err := time.LoadLocation(timezone); err == nil {
-			loc = parsed
-		}
-	}
-	loc = hours.Location(loc)
+	loc := DayLocation(hours, timezone)
 	if hours.IsEmpty() {
 		hours = models.DefaultWorkingHours(loc.String())
 	}
@@ -821,7 +809,10 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 	return free, nil
 }
 
-func (s *service) Rank(userID string) ([]RankedTask, error) {
+// Rank lists Unscheduled and Overdue Work for the current date. The date
+// boundary uses the same location as Auto-schedule: saved Working hours, else
+// the client's timezone, else UTC (QA-03).
+func (s *service) Rank(userID string, timezone string) ([]RankedTask, error) {
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
@@ -833,7 +824,7 @@ func (s *service) Rank(userID string) ([]RankedTask, error) {
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	list := RankList(tasks, time.Now().In(hours.Location(time.UTC)))
+	list := RankList(tasks, time.Now().In(DayLocation(hours, timezone)))
 	if list == nil {
 		list = []RankedTask{}
 	}

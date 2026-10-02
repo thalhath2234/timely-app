@@ -159,7 +159,10 @@ export async function updateScheduleSettings(
 }
 
 export async function getRank(): Promise<RankedTask[]> {
-  const response = await apiFetch("/schedule/rank", { credentials: "include" });
+  // The API ranks "today" in the saved Working hours timezone, falling back to
+  // this timezone so a new account ranks in the same day it schedules in.
+  const params = new URLSearchParams({ timezone: browserTimezone() });
+  const response = await apiFetch(`/schedule/rank?${params}`, { credentials: "include" });
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to load rank"));
   }

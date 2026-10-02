@@ -57,3 +57,48 @@ func TestRankListTieBreaksByTaskID(t *testing.T) {
 		t.Fatalf("equal scores should order by task id, got %s then %s", got[0].Task.ID, got[1].Task.ID)
 	}
 }
+
+// QA-03: a new account without saved Working hours must rank "today" in the
+// same location Auto-schedule plans in. When the client's local date is already
+// October 1 but UTC is still September 30, Work placed at 09:00 local on
+// October 1 is scheduled for today, not Unscheduled.
+func TestRankUsesClientTimezoneWhenNoWorkingHoursSaved(t *testing.T) {
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := "ws_1"
+	placedToday := models.Task{
+		ID: "p", Name: "Placed", Kind: models.KindTask, Duration: 30, WorkspaceID: &ws,
+		Blocks: []models.ScheduledBlock{{
+			StartAt: time.Date(2026, 10, 1, 9, 0, 0, 0, tokyo),
+			EndAt:   time.Date(2026, 10, 1, 10, 0, 0, 0, tokyo),
+		}},
+	}
+	// 00:30 on October 1 in Tokyo is 15:30 on September 30 in UTC.
+	instant := time.Date(2026, 10, 1, 0, 30, 0, 0, tokyo)
+	var noHours models.WorkingHours
+
+	utcNow := instant.In(DayLocation(noHours, ""))
+	if got := RankList([]models.Task{placedToday}, utcNow); len(got) != 1 {
+		t.Fatalf("with a UTC day boundary the block is tomorrow, want 1 ranked task, got %d", len(got))
+	}
+
+	clientNow := instant.In(DayLocation(noHours, "Asia/Tokyo"))
+	if got := RankList([]models.Task{placedToday}, clientNow); len(got) != 0 {
+		t.Fatalf("with the client's day boundary the block is today, want 0 ranked tasks, got %d", len(got))
+	}
+}
+
+func TestDayLocationPrefersSavedWorkingHours(t *testing.T) {
+	saved := models.DefaultWorkingHours("Europe/Berlin")
+	if got := DayLocation(saved, "Asia/Tokyo").String(); got != "Europe/Berlin" {
+		t.Fatalf("saved Working hours should win, got %s", got)
+	}
+	if got := DayLocation(models.WorkingHours{}, "Asia/Tokyo").String(); got != "Asia/Tokyo" {
+		t.Fatalf("client timezone should be the fallback, got %s", got)
+	}
+	if got := DayLocation(models.WorkingHours{}, "Not/AZone").String(); got != "UTC" {
+		t.Fatalf("invalid client timezone should fall back to UTC, got %s", got)
+	}
+}

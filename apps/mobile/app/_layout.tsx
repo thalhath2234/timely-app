@@ -5,7 +5,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "../lib/auth/AuthProvider";
 import { colors, createThemedStyleSheet, initializeTheme, ThemeRoot } from "../lib/theme";
@@ -13,12 +13,11 @@ import { stackFadeAnimation, stackPushAnimation } from "../lib/motion";
 import ConnectivityBanner from "../components/ConnectivityBanner";
 import { SheetHost } from "../components/ui/SheetHost";
 import { requestNotificationPermission } from "../lib/notifications";
+import { createQueryClient } from "../lib/queryClient";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
-});
+const queryClient = createQueryClient();
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);

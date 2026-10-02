@@ -8,7 +8,7 @@ import {
   emitSessionExpired,
   setSession,
 } from "../auth/session";
-import { enqueueMutation, getOfflineQueueUser, queuedMutationsForActiveUser, removeQueuedMutation } from "../offlineQueue";
+import { enqueueMutation, getOfflineQueueUser, replayQueuedMutations } from "../offlineQueue";
 import { isOffline } from "../networkState";
 
 function bundledApiUrl() {
@@ -145,21 +145,23 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
   return JSON.parse(text) as T;
 }
 
-export async function flushOfflineQueue() {
-  if (isOffline() || !getOfflineQueueUser()) return;
-  for (const item of queuedMutationsForActiveUser()) {
-    try {
-      await api(item.path, { method: item.method, body: item.body, queueIfOffline: false });
-      removeQueuedMutation(item.id);
-    } catch (error) {
-      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
-        // The server definitively rejected this stale mutation; do not retry it forever.
-        removeQueuedMutation(item.id);
-        continue;
-      }
-      break;
-    }
-  }
+let flushInFlight: Promise<void> | null = null;
+
+export function flushOfflineQueue(): Promise<void> {
+  if (isOffline() || !getOfflineQueueUser()) return Promise.resolve();
+  // Startup, sign-in, and reconnect can all ask for a replay at once; one pass
+  // at a time keeps a queued change from being sent twice.
+  if (flushInFlight) return flushInFlight;
+  flushInFlight = replayQueuedMutations(
+    (item) => api(item.path, { method: item.method, body: item.body, queueIfOffline: false }),
+    // The server definitively rejected this stale mutation; do not retry it forever.
+    (error) => error instanceof ApiError && error.status >= 400 && error.status < 500,
+  )
+    .then(() => undefined)
+    .finally(() => {
+      flushInFlight = null;
+    });
+  return flushInFlight;
 }
 
 export function unwrap<T>(payload: T | { [k: string]: T }, key: string): T {

@@ -276,12 +276,16 @@ func (s *Server) getFreeTime(ctx context.Context, req *mcp.CallToolRequest, in r
 	return reply(fmt.Sprintf("%d free minutes in %d slots", minutes, len(free)), map[string]any{"slots": free, "freeMinutes": minutes})
 }
 
-func (s *Server) whatNext(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
+type whatNextIn struct {
+	Timezone string `json:"timezone,omitempty" jsonschema:"IANA timezone used for today's date when no Working hours are saved"`
+}
+
+func (s *Server) whatNext(ctx context.Context, req *mcp.CallToolRequest, in whatNextIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
 	}
-	ranked, err := s.Schedule.Rank(uid)
+	ranked, err := s.Schedule.Rank(uid, in.Timezone)
 	if err != nil {
 		return fail(err)
 	}

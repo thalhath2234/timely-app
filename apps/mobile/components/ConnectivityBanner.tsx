@@ -15,8 +15,33 @@ export default function ConnectivityBanner() {
   const [queued, setQueued] = useState(queuedMutationCount());
   const [syncing, setSyncing] = useState(false);
   const wasOffline = useRef(false);
+  const replaying = useRef(false);
 
   useEffect(() => subscribeQueuedMutations(setQueued), []);
+
+  // Replay whatever is waiting as soon as the account is known and the device
+  // is online: after a restart the queue is read back from disk, so the first
+  // network reading is "online" and the reconnect path below never runs. A
+  // replay that leaves items behind does not start another until the queue or
+  // connectivity changes again.
+  useEffect(() => {
+    if (offline || queued === 0 || replaying.current) return;
+    let mounted = true;
+    replaying.current = true;
+    setSyncing(true);
+    void (async () => {
+      try {
+        await flushOfflineQueue();
+        await queryClient.invalidateQueries();
+      } finally {
+        replaying.current = false;
+        if (mounted) setSyncing(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [offline, queued, queryClient]);
 
   useEffect(() => {
     let mounted = true;

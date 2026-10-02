@@ -3,8 +3,8 @@
 import { usePathname } from "next/navigation";
 import {
   useCallback,
-  useEffect,
   useState,
+  useSyncExternalStore,
   ViewTransition,
   type ReactNode,
 } from "react";
@@ -90,10 +90,19 @@ export const hoverLift = {
 export const tapPress = { scale: 0.98 };
 
 /** False during SSR and the first client render so portals cannot hydrate-mismatch. */
+const subscribeToNothing = () => () => {};
+
+/**
+ * False during server rendering and hydration, true once the client has
+ * taken over. Implemented as an external store so the switch does not need a
+ * state update inside an effect.
+ */
 export function useClientGate() {
-  const [ready, setReady] = useState(false);
-  useEffect(() => setReady(true), []);
-  return ready;
+  return useSyncExternalStore(
+    subscribeToNothing,
+    () => true,
+    () => false,
+  );
 }
 
 export function useViewOpen(initial = false) {

@@ -1,0 +1,38 @@
+{
+  "device": "Android emulator timely_pixel (API sdk_gphone64_x86_64), Expo Go SDK 57, Metro 8082 via adb reverse, API 10.0.2.2:8081",
+  "account": "disposable qa-android-* account created by the fixture script; credentials not recorded",
+  "steps": [
+    {
+      "step": "svc wifi disable; svc data disable",
+      "banner": "Offline · saved data may be out of date"
+    },
+    {
+      "step": "tap completion toggle on completed task 'Offline undo target' (undo)",
+      "banner": "Offline · saved data may be out of date · 1 change waiting"
+    },
+    {
+      "step": "tap completion toggle on open task 'Offline complete target' (complete)",
+      "banner": "Offline · saved data may be out of date · 2 changes waiting"
+    },
+    {
+      "step": "am force-stop host.exp.exponent; relaunch exp://127.0.0.1:8082 while still offline",
+      "banner": "Offline · saved data may be out of date · 2 changes waiting"
+    },
+    {
+      "step": "server state read over the API before reconnect",
+      "doneTask.completedAt": "2026-10-01T11:57:17.711+09:00 (unchanged)",
+      "openTask.completedAt": null
+    },
+    {
+      "step": "svc wifi enable; svc data enable; wait 12 s",
+      "banner": "cleared"
+    },
+    {
+      "step": "server state read over the API after reconnect",
+      "doneTask.completedAt": null,
+      "openTask.completedAt": "2026-10-01T12:18:28.135+09:00"
+    }
+  ],
+  "result": "PASS: both offline completion directions were queued durably, survived app termination, and replayed on reconnect",
+  "notOnDevice": "account scoping of the queue is covered by scripts/mobile-offline-queue.test.mjs (sign-out needs the network, so a second account could not be exercised while the queue was non-empty)"
+}

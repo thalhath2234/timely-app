@@ -352,9 +352,12 @@ func sessionIDFromRequest(c *echo.Context) string {
 	if tokenString == "" {
 		return ""
 	}
-	claims, err := ParseAccessToken(tokenString)
-	if err != nil {
-		return claims.SessionID
+	// Only a token this server signed may name the session to revoke. An
+	// expired access token is still accepted so a client can log out after its
+	// access token lapsed, but a forged or tampered token identifies nothing.
+	claims, err := ParseSignedSessionClaims(tokenString)
+	if err != nil || claims == nil {
+		return ""
 	}
 	return claims.SessionID
 }

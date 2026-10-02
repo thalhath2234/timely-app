@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
@@ -217,6 +217,10 @@ function AddItemModalInner() {
     null,
   );
   const [taskKind, setTaskKind] = useState<"task" | "reminder">("task");
+  // Impure clock read belongs in a lazy initializer, not in render.
+  const [defaultProjectDeadline] = useState(() =>
+    new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+  );
 
   // Event fields. Events are simple enough that plain state beats a resolver.
   const [eventTitle, setEventTitle] = useState("");
@@ -237,7 +241,7 @@ function AddItemModalInner() {
     register,
     handleSubmit,
     reset,
-    watch: watchWorkspace,
+    control: workspaceControl,
     setValue: setWorkspaceValue,
     formState: { errors, isValid },
   } = useForm<AddWorkspaceForm>({
@@ -253,7 +257,7 @@ function AddItemModalInner() {
     register: registerProject,
     handleSubmit: handleProjectSubmit,
     reset: resetProject,
-    watch,
+    control: projectControl,
     setValue,
     formState: { errors: projectErrors, isValid: isProjectValid },
   } = useForm<AddProjectForm>({
@@ -263,9 +267,7 @@ function AddItemModalInner() {
       color: "#30A66D",
       priorityLevel: "Low",
       doesHaveStages: false,
-      deadline: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split("T")[0],
+      deadline: defaultProjectDeadline,
     },
   });
 
@@ -274,7 +276,7 @@ function AddItemModalInner() {
     register: registerTask,
     handleSubmit: handleTaskSubmit,
     reset: resetTask,
-    watch: watchTask,
+    control: taskControl,
     setValue: setValueTask,
     formState: { errors: taskErrors, isValid: isTaskValid },
   } = useForm<AddTaskForm>({
@@ -294,32 +296,41 @@ function AddItemModalInner() {
     handleSubmit: handlePageSubmit,
     reset: resetPage,
     setValue: setValuePage,
-    watch: watchPage,
+    control: pageControl,
     formState: { errors: pageErrors, isValid: isPageValid },
   } = useForm<AddPageForm>({
     resolver: zodResolver(addPageSchema),
     mode: "onChange",
   });
 
-  const selectedWorkspaceId = watch("workspaceId");
-  const workspaceColor = watchWorkspace("color") ?? "#6E56CF";
-  const projectStatusId = watch("statusId") ?? "";
-  const projectPriorityLevel = watch("priorityLevel") ?? "Low";
-  const projectStartDate = watch("startDate") ?? "";
-  const projectDeadline = watch("deadline") ?? "";
-  const projectColor = watch("color") ?? "#30A66D";
-  const selectedTaskWorkspaceId = watchTask("workspaceId");
-  const taskProjectId = watchTask("projectId") ?? "";
-  const taskStageId = watchTask("stageId") ?? "";
-  const taskStatusId = watchTask("statusId") ?? "";
-  const taskPriorityLevel = watchTask("priorityLevel") ?? "Medium";
-  const taskStartDate = watchTask("startDate") ?? "";
-  const taskDeadline = watchTask("deadline") ?? "";
-  const taskScheduledOn = watchTask("scheduledOn") ?? "";
+  const selectedWorkspaceId = useWatch({ control: projectControl, name: "workspaceId" });
+  const workspaceColor = useWatch({ control: workspaceControl, name: "color" }) ?? "#6E56CF";
+  const projectStatusId = useWatch({ control: projectControl, name: "statusId" }) ?? "";
+  const projectPriorityLevel = useWatch({ control: projectControl, name: "priorityLevel" }) ?? "Low";
+  const projectStartDate = useWatch({ control: projectControl, name: "startDate" }) ?? "";
+  const projectDeadline = useWatch({ control: projectControl, name: "deadline" }) ?? "";
+  const projectColor = useWatch({ control: projectControl, name: "color" }) ?? "#30A66D";
+  const selectedTaskWorkspaceId = useWatch({ control: taskControl, name: "workspaceId" });
+  const taskProjectId = useWatch({ control: taskControl, name: "projectId" }) ?? "";
+  const taskStageId = useWatch({ control: taskControl, name: "stageId" }) ?? "";
+  const taskStatusId = useWatch({ control: taskControl, name: "statusId" }) ?? "";
+  const taskPriorityLevel = useWatch({ control: taskControl, name: "priorityLevel" }) ?? "Medium";
+  const taskStartDate = useWatch({ control: taskControl, name: "startDate" }) ?? "";
+  const taskDeadline = useWatch({ control: taskControl, name: "deadline" }) ?? "";
+  const taskScheduledOn = useWatch({ control: taskControl, name: "scheduledOn" }) ?? "";
+  // A quick-add draft that asks for a Reminder switches the kind as soon as the
+  // task form is shown; the effect below consumes the rest of the draft.
+  const draftKindForTaskForm =
+    isAddItemModalOpen && addNewMode === "task" ? createTaskDraft?.kind : undefined;
+  const [seenDraftKind, setSeenDraftKind] = useState(draftKindForTaskForm);
+  if (seenDraftKind !== draftKindForTaskForm) {
+    setSeenDraftKind(draftKindForTaskForm);
+    if (draftKindForTaskForm === "reminder") setTaskKind("reminder");
+  }
   const taskIsReminder = taskKind === "reminder";
   const taskTimeOnly = Boolean(taskRecurrence);
-  const taskLabelIds = watchTask("labelIds") ?? [];
-  const selectedPageWorkspaceId = watchPage("workspaceId");
+  const taskLabelIds = useWatch({ control: taskControl, name: "labelIds" }) ?? [];
+  const selectedPageWorkspaceId = useWatch({ control: pageControl, name: "workspaceId" });
 
   const typedWorkspaces = useMemo(
     () => (workspaces ?? []) as Workspace[],
@@ -644,7 +655,7 @@ function AddItemModalInner() {
       let nextDraft = createTaskDraft;
       let draftUsed = false;
       if (nextDraft?.kind === "reminder") {
-        setTaskKind("reminder");
+        // taskKind itself follows the draft during render (see above).
         setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
         nextDraft = { ...nextDraft, kind: undefined };
         draftUsed = true;
@@ -714,7 +725,7 @@ function AddItemModalInner() {
     setValuePage,
   ]);
 
-  const projectCustomFieldValues = watch("customFieldValues") ?? [];
+  const projectCustomFieldValues = useWatch({ control: projectControl, name: "customFieldValues" }) ?? [];
   const changeProjectCustomField = (
     field: CustomField,
     next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">,
@@ -736,7 +747,7 @@ function AddItemModalInner() {
     );
   };
 
-  const taskCustomFieldValues = watchTask("customFieldValues") ?? [];
+  const taskCustomFieldValues = useWatch({ control: taskControl, name: "customFieldValues" }) ?? [];
   const changeTaskCustomField = (
     field: CustomField,
     next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">,

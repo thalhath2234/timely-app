@@ -68,7 +68,9 @@ export type RankedTask = {
 };
 
 export async function getRank() {
-  const body = await api<{ items?: RankedTask[] }>("/schedule/rank");
+  // Same day boundary as Auto-schedule for accounts without saved Working hours.
+  const params = new URLSearchParams({ timezone: deviceTimezone() });
+  const body = await api<{ items?: RankedTask[] }>(`/schedule/rank?${params}`);
   return body.items ?? [];
 }
 

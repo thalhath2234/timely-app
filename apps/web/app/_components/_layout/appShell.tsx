@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import ChatRuntime from "@/app/_components/chat/chatRuntime";
 import Sidebar from "@/app/_components/_layout/sidebar";
 import { usePreferences } from "@/app/_components/_layout/clientRuntime";
-import { PageFade, springSnappy } from "@/app/_components/_ui/motion";
+import { PageFade, springSnappy, useClientGate } from "@/app/_components/_ui/motion";
 import { useContextMenuStore } from "@/app/_store/contextMenuStore";
 import { cn } from "@/app/utils/cn";
 import { motion } from "motion/react";
@@ -15,16 +15,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { sidebarAutoHide } = usePreferences();
   const menuOpen = useContextMenuStore((state) => state.menu != null);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const [ready, setReady] = useState(false);
+  const ready = useClientGate();
   const [revealed, setRevealed] = useState(false);
-
-  useEffect(() => {
-    setReady(true);
-  }, []);
-
-  useEffect(() => {
+  // Forget a hover reveal whenever auto-hide is switched off, so re-enabling it
+  // later starts with the sidebar tucked away.
+  const [revealedFor, setRevealedFor] = useState(sidebarAutoHide);
+  if (revealedFor !== sidebarAutoHide) {
+    setRevealedFor(sidebarAutoHide);
     if (!sidebarAutoHide) setRevealed(false);
-  }, [sidebarAutoHide]);
+  }
 
   const autoHide = ready && sidebarAutoHide;
 

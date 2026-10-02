@@ -1,0 +1,21 @@
+Release APK launch on the capped emulator (sdk_gphone64_x86_64, abilist x86_64,arm64-v8a via libndk_translation)
+
+New build (apps/mobile/timely-release-arm64.apk, 2026-10-01, arm64-v8a only, 23 native libraries):
+  adb install -r ... Success
+  am start -n com.timely.mobile/.MainActivity
+  FATAL EXCEPTION: main
+  com.facebook.soloader.SoLoaderDSONotFoundError: couldn't find DSO to load: libreactnative.so
+    SoSource 0: ApplicationSoSource[DirectorySoSource[root = .../lib/arm64 flags = 0]]
+    SoSource 1: DirectApkSoSource[root = [.../base.apk!/lib/x86_64]]
+    at com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
+    at com.timely.mobile.MainApplication.onCreate(MainApplication.kt:37)
+
+Control: the pre-existing /home/thalhath/timely-release-arm64.apk (built 2026-09-26 from the audited dependency set, 24 native libraries)
+  adb install ... Success
+  am start -n com.timely.mobile/.MainActivity
+  FATAL EXCEPTION: main
+  com.facebook.soloader.SoLoaderDSONotFoundError: couldn't find DSO to load: libreactnative.so
+
+Conclusion: SoLoader resolves in-APK native libraries under the device's primary ABI (x86_64), which an arm64-only APK does not ship,
+so neither build can start on this image. The build-mobile-apk skill mandates arm64-v8a only. Launch validation of the release
+build needs an arm64 device; both builds were uninstalled from the emulator afterwards.

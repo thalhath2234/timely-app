@@ -1,0 +1,11 @@
+[
+  {
+    "description": "",
+    "devtoolsFrontendUrl": "/devtools/inspector.html?ws=127.0.0.1:4061/devtools/page/D8FF18ABD3859FF8A11C6D87D35B0BB6",
+    "id": "D8FF18ABD3859FF8A11C6D87D35B0BB6",
+    "title": "Timely",
+    "type": "page",
+    "url": "http://localhost:4002/",
+    "webSocketDebuggerUrl": "ws://127.0.0.1:4061/devtools/page/D8FF18ABD3859FF8A11C6D87D35B0BB6"
+  }
+]

@@ -1,0 +1,168 @@
+$ eslint
+$ tsc --noEmit && tsc --noEmit -p electron/tsconfig.json
+$ tsc --noEmit
+ok  	timely-api/cmd	0.008s
+?   	timely-api/internal/blocks	[no test files]
+?   	timely-api/internal/database	[no test files]
+ok  	timely-api/internal/features/agent	0.006s
+ok  	timely-api/internal/features/apikey	0.005s
+ok  	timely-api/internal/features/auth	1.023s
+?   	timely-api/internal/features/calendar	[no test files]
+ok  	timely-api/internal/features/chat	0.815s
+?   	timely-api/internal/features/doc	[no test files]
+ok  	timely-api/internal/features/embed	0.007s
+?   	timely-api/internal/features/event	[no test files]
+ok  	timely-api/internal/features/notify	0.006s
+ok  	timely-api/internal/features/placement	0.007s
+ok  	timely-api/internal/features/portability	0.007s
+ok  	timely-api/internal/features/project	0.006s
+ok  	timely-api/internal/features/schedule	0.008s
+?   	timely-api/internal/features/search	[no test files]
+?   	timely-api/internal/features/sheet	[no test files]
+ok  	timely-api/internal/features/task	0.007s
+?   	timely-api/internal/features/workspace	[no test files]
+ok  	timely-api/internal/jobs	0.006s
+?   	timely-api/internal/middleware	[no test files]
+ok  	timely-api/internal/models	0.007s
+ok  	timely-api/internal/realtime	0.033s
+ok  	timely-api/internal/recurrence	0.006s
+ok  	timely-api/internal/richtext	0.005s
+?   	timely-api/internal/routes	[no test files]
+ok  	timely-api/internal/utils	0.003s
+?   	timely-api/scripts	[no test files]
+(node:537066) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/web/app/utils/sheetFormula.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/web/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:537066) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/mobile/lib/sheetFormula.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/mobile/package.json.
+▶ web
+  ✔ =SUM(N:N) (3.886559ms)
+  ✔ =SUM(N2:N) (0.310972ms)
+  ✔ =SUM(N1:N) (0.215978ms)
+  ✔ =SUM(N2:N3) (0.29297ms)
+  ✔ =SUM(N3:N2) (0.229631ms)
+  ✔ =SUM(2:2) (0.28411ms)
+  ✔ =SUM(2:3) (0.196153ms)
+  ✔ =SUM(B2:2) (0.190329ms)
+  ✔ =SUM(M:N) (0.275152ms)
+  ✔ =AVERAGE(N:N) (0.517647ms)
+  ✔ =COUNT(N:N) (0.174203ms)
+  ✔ =SUM(N99:N) (0.122464ms)
+  ✔ =SUM(N2:N999999999) (0.105268ms)
+  ✔ =SUM(N:N)+SUM(2:2) (0.325065ms)
+  ✔ =10+SUM(N2:N) (0.142261ms)
+  ✔ =SUM(N1:N2, N3:N) (0.112729ms)
+  ✔ new rows automatically enter open ranges (0.137637ms)
+  ✔ new columns automatically enter whole rows (0.217447ms)
+  ✔ blanks and text do not affect sums (0.164281ms)
+  ✔ cycle =SUM(A:A) (0.127606ms)
+  ✔ cycle =SUM(1:1) (0.112505ms)
+  ✔ cycle =SUM(A1:A) (0.143593ms)
+  ✔ invalid =SUM(N0:N) (0.166118ms)
+  ✔ invalid =SUM(0:2) (0.087526ms)
+  ✔ malformed =SUM(2:N) (0.163638ms)
+  ✔ malformed =SUM(N:2) (0.085029ms)
+  ✔ malformed =SUM(N:) (0.101317ms)
+  ✔ fill shifts complete ranges, preserving strings (0.689888ms)
+  ✔ editing recognizes N:N (0.481296ms)
+  ✔ editing recognizes N2:N (0.094785ms)
+  ✔ editing recognizes 2:2 (0.071829ms)
+  ✔ editing recognizes B2:2 (0.101907ms)
+  ✔ editing recognizes N2:N21 (0.079718ms)
+✔ web (13.278376ms)
+▶ mobile
+  ✔ =SUM(N:N) (1.734555ms)
+  ✔ =SUM(N2:N) (0.191065ms)
+  ✔ =SUM(N1:N) (0.162991ms)
+  ✔ =SUM(N2:N3) (0.792255ms)
+  ✔ =SUM(N3:N2) (0.220077ms)
+  ✔ =SUM(2:2) (0.218273ms)
+  ✔ =SUM(2:3) (0.123755ms)
+  ✔ =SUM(B2:2) (0.113351ms)
+  ✔ =SUM(M:N) (0.10904ms)
+  ✔ =AVERAGE(N:N) (0.132384ms)
+  ✔ =COUNT(N:N) (0.12913ms)
+  ✔ =SUM(N99:N) (0.128606ms)
+  ✔ =SUM(N2:N999999999) (0.093127ms)
+  ✔ =SUM(N:N)+SUM(2:2) (0.31294ms)
+  ✔ =10+SUM(N2:N) (0.119826ms)
+  ✔ =SUM(N1:N2, N3:N) (0.094273ms)
+  ✔ new rows automatically enter open ranges (0.079136ms)
+  ✔ new columns automatically enter whole rows (0.128422ms)
+  ✔ blanks and text do not affect sums (0.116389ms)
+  ✔ cycle =SUM(A:A) (0.163505ms)
+  ✔ cycle =SUM(1:1) (0.098707ms)
+  ✔ cycle =SUM(A1:A) (0.083025ms)
+  ✔ invalid =SUM(N0:N) (0.114986ms)
+  ✔ invalid =SUM(0:2) (0.079668ms)
+  ✔ malformed =SUM(2:N) (0.073936ms)
+  ✔ malformed =SUM(N:2) (0.068609ms)
+  ✔ malformed =SUM(N:) (0.095471ms)
+  ✔ fill shifts complete ranges, preserving strings (0.41103ms)
+  ✔ editing recognizes N:N (0.181948ms)
+  ✔ editing recognizes N2:N (0.07116ms)
+  ✔ editing recognizes 2:2 (0.086145ms)
+  ✔ editing recognizes B2:2 (0.068074ms)
+  ✔ editing recognizes N2:N21 (0.065755ms)
+✔ mobile (7.824946ms)
+ℹ tests 66
+ℹ suites 2
+ℹ pass 66
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 197.989942
+(node:537081) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/mobile/lib/notificationRoute.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/mobile/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ agent notification targets its chat and retains existing reminder routing (1.336965ms)
+✔ adding a new screen preserves original context and deduplicates references (1.366828ms)
+✔ scope is never silently dropped to fit context limits (2.07114ms)
+✔ receipt review explains the missing bag amount and clears after correction (1.301162ms)
+✔ receipt review handles decimal currencies and included tax/discount (0.267229ms)
+✔ summary-only receipts and incomplete items have useful review feedback (0.241253ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 130.194376
+(node:537094) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/mobile/lib/queryClient.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/mobile/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ an offline mutation reaches the durable queue instead of pausing in memory (54.572306ms)
+✔ the queue survives a restart and stays scoped to the account that made it (1.839164ms)
+✔ replay drops a rejected change and keeps the rest after a network failure (1.117864ms)
+✔ a change cannot be queued before the account is known (1.01664ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 200.137426
+(node:537107) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/web/electron/origin.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/thalhath/.t3/worktrees/timely-app/t3code-8b664817/apps/web/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ same-origin URLs are allowed in the app window (0.827276ms)
+✔ userinfo and lookalike hosts that share the prefix are rejected (0.187234ms)
+✔ malformed URLs are neither allowed nor opened externally (0.221511ms)
+✔ web and mail links may be handed to the system (0.125644ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 86.630244
+EXIT=0
