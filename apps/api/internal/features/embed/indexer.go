@@ -25,9 +25,13 @@ const (
 )
 
 var (
-	ErrDisabled   = errors.New("semantic search is not configured (set OPENROUTER_API_KEY)")
+	ErrDisabled   = errors.New("semantic search is not configured (add an OpenRouter key in Settings → Agent or set OPENROUTER_API_KEY)")
 	ErrEmptyQuery = errors.New("query is empty")
 )
+
+// Credentials resolves the OpenRouter key and embedding model for one account.
+// An empty key means the account has none of its own.
+type Credentials func(userID string) (key, model string)
 
 // Indexer stores and queries OpenRouter embeddings in pgvector.
 type IndexQueue interface {
@@ -36,7 +40,9 @@ type IndexQueue interface {
 
 type Indexer interface {
 	Enabled() bool
+	EnabledFor(userID string) bool
 	SetQueue(IndexQueue)
+	SetCredentials(Credentials)
 	IndexDocument(ctx context.Context, doc Document) error
 	IndexTask(*models.Task)
 	IndexProject(*models.Project)
@@ -47,6 +53,7 @@ type Indexer interface {
 	Query(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error)
 	Count(ctx context.Context, userID string) (int64, error)
 	ReindexUser(ctx context.Context, userID string) (int, error)
+	Reindex(ctx context.Context, userID string, progress func(done, total int)) (int, error)
 }
 
 type Document struct {
@@ -66,11 +73,12 @@ type Hit struct {
 }
 
 type indexer struct {
-	db     *gorm.DB
-	http   *http.Client
-	apiKey string
-	model  string
-	queue  IndexQueue
+	db      *gorm.DB
+	http    *http.Client
+	apiKey  string
+	model   string
+	queue   IndexQueue
+	resolve Credentials
 }
 
 func New(db *gorm.DB) Indexer {
@@ -87,8 +95,35 @@ func New(db *gorm.DB) Indexer {
 	}
 }
 
+// Enabled reports whether any account could be indexed: a server key exists or
+// accounts may supply their own. Per-account checks use EnabledFor.
 func (i *indexer) Enabled() bool {
-	return i != nil && i.apiKey != ""
+	return i != nil && (i.apiKey != "" || i.resolve != nil)
+}
+
+func (i *indexer) EnabledFor(userID string) bool {
+	key, _ := i.credentials(userID)
+	return key != ""
+}
+
+func (i *indexer) SetCredentials(resolve Credentials) {
+	i.resolve = resolve
+}
+
+// credentials prefers the account's own key and model, then the server's.
+func (i *indexer) credentials(userID string) (string, string) {
+	if i == nil {
+		return "", ""
+	}
+	if i.resolve != nil && userID != "" {
+		if key, model := i.resolve(userID); key != "" {
+			if model == "" {
+				model = defaultModel
+			}
+			return key, model
+		}
+	}
+	return i.apiKey, i.model
 }
 
 func (i *indexer) SetQueue(queue IndexQueue) {

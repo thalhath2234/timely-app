@@ -17,7 +17,7 @@ Three apps, one repo. Run everything from the repo root via `make` (see `make he
 - **Migrations** live in `apps/api/migrations` and run automatically on API start. Use `make migrate-create NAME=...` for new ones.
 - **Android builds:** never run Gradle/`expo run:android` directly — use `make build-apk` or `make install-apk` (see `.agents/skills/build-mobile-apk/SKILL.md`).
 - **Android emulator:** never run `emulator`/`qemu` directly — use `make emu-start` / `make emu-stop` (3G cgroup cap; see `.agents/skills/android-emulator/SKILL.md`). Stop the emulator when the check is done.
-- **Worktree development testing: ** Always run the frontend server on 4002 and API on 8081 if a process is already using these ports, stop the process and run the dev server. Never touch 8080 and 4001 
+- **Worktree development testing: ** Always run the frontend server on 4002 and API on 8081 if a process is already using these ports, stop the process and run the dev server. Never touch 8080 and 4001. Set `DB_SCHEMA=<name>` on the worktree API when it must not share chat runs and jobs with the main checkout (both poll the same tables otherwise).
 
 ## App-specific guidance
 

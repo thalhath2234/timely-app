@@ -53,6 +53,7 @@ func (s *Service) work(ctx context.Context) {
 		case <-ticker.C:
 		}
 		var c Conversation
+		var providerErr error
 		err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			now := time.Now().UTC()
 			result := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("status = 'queued' OR (status = 'running' AND lease_until < ?)", now).Order("updated_at").Limit(1).Find(&c)
@@ -61,6 +62,11 @@ func (s *Service) work(ctx context.Context) {
 			}
 			if result.RowsAffected == 0 {
 				return gorm.ErrRecordNotFound
+			}
+			// A fresh run takes the account's current default; a resumed lease
+			// keeps the provider it started with.
+			if c.Status == "queued" && s.completers != nil {
+				c.Provider, c.Model, providerErr = s.completers.Resolve(ctx, c.UserID)
 			}
 			// One expired lease can be safely resumed: writes and checkpoints commit together.
 			lease := now.Add(3 * time.Minute)
@@ -77,12 +83,22 @@ func (s *Service) work(ctx context.Context) {
 			continue
 		}
 		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		if providerErr == nil && s.completers != nil {
+			var completer Completer
+			completer, providerErr = s.completers.Completer(runCtx, c.UserID, c.Provider, c.Model)
+			if providerErr == nil {
+				runCtx = WithCompleter(runCtx, completer)
+			}
+		}
 		leaseDone := make(chan struct{})
 		go func(uid, cid, lease string) {
 			defer close(leaseDone)
 			s.keepLease(runCtx, cancel, uid, cid, lease, 5*time.Second)
 		}(c.UserID, c.ID, c.Lease)
-		if c.Phase == "receipt_edit" {
+		if providerErr != nil {
+			// The selected provider is unusable; never switch silently (see Settings → Agent).
+			err = providerErr
+		} else if c.Phase == "receipt_edit" {
 			err = s.editReceipt(runCtx, &c)
 		} else if c.Phase == "extract" {
 			err = s.extractImages(runCtx, &c)
@@ -194,7 +210,7 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		response, err := s.provider.Complete(ctx, messages, specs, false)
+		response, err := s.complete(ctx, messages, specs, false)
 		if err != nil {
 			return err
 		}
@@ -246,7 +262,7 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 				err = json.Unmarshal(args, &in)
 				if err == nil && len(in.Query) > 0 && len(in.Query) < 2000 {
 					var answer WireMessage
-					answer, err = s.provider.Complete(ctx, []WireMessage{{Role: "user", Content: in.Query + "\nInclude source links."}}, nil, true)
+					answer, err = s.complete(ctx, []WireMessage{{Role: "user", Content: in.Query + "\nInclude source links."}}, nil, true)
 					result = map[string]any{"answer": answer.Content, "sources": answer.Annotations}
 				} else {
 					err = fmt.Errorf("Invalid search query")

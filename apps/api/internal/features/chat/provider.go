@@ -34,6 +34,33 @@ type WireMessage struct {
 type Completer interface {
 	Complete(context.Context, []WireMessage, []any, bool) (WireMessage, error)
 }
+
+// Completers picks the model client for each account. Resolve runs once when a
+// queued run is claimed; Completer rebuilds the client for that recorded choice
+// so resumed runs keep their provider.
+type Completers interface {
+	Resolve(ctx context.Context, userID string) (provider, model string, err error)
+	Completer(ctx context.Context, userID, provider, model string) (Completer, error)
+}
+
+type completerKey struct{}
+
+// WithCompleter attaches the run's client to the context so every model call in
+// the run (planning, receipts, vision, search) uses the same provider.
+func WithCompleter(ctx context.Context, c Completer) context.Context {
+	return context.WithValue(ctx, completerKey{}, c)
+}
+
+func (s *Service) complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	if c, ok := ctx.Value(completerKey{}).(Completer); ok && c != nil {
+		return c.Complete(ctx, messages, tools, search)
+	}
+	if s.provider == nil {
+		return WireMessage{}, fmt.Errorf("No AI provider is set up. Open Settings → Agent to connect one")
+	}
+	return s.provider.Complete(ctx, messages, tools, search)
+}
+
 type OpenRouter struct {
 	Key, Model, URL string
 	Client          *http.Client

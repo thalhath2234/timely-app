@@ -25,6 +25,7 @@ import (
 	"timely-api/internal/features/placement"
 	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
+	"timely-api/internal/features/provider"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
@@ -108,9 +109,13 @@ func main() {
 	})
 
 	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live) }, chat.NewOpenRouter())
+	providerService := provider.New(db, indexer, jobQueue)
+	providerService.Register(jobWorker)
+	chatService.SetCompleters(providerService)
 
 	handlers := routes.Handlers{
 		Chat:      chatService,
+		Providers: providerService,
 		Auth:      auth.NewHandler(authService, userRepo),
 		Task:      task.NewHandler(taskService),
 		Project:   project.NewHandler(projectService),

@@ -1,0 +1,69 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  connectProvider,
+  disconnectProvider,
+  getAgentProviders,
+  listProviderModels,
+  patchAgentProviders,
+  removeOpenRouterKey,
+  setOpenRouterKey,
+  type AgentProviders,
+  type ProviderId,
+  type ProviderPatch,
+} from "@/app/utils/api/agentProviders";
+
+export const agentProvidersKey = ["agent-providers"] as const;
+
+export function useAgentProviders() {
+  return useQuery({
+    queryKey: agentProvidersKey,
+    queryFn: getAgentProviders,
+    // Poll while a semantic-search rebuild is running so the count moves.
+    refetchInterval: (query) => {
+      const status = query.state.data?.reindex?.status;
+      return status === "queued" || status === "running" ? 2000 : false;
+    },
+  });
+}
+
+export function useProviderModels(
+  id: ProviderId,
+  kind?: "embed",
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...agentProvidersKey, "models", id, kind ?? "chat"],
+    queryFn: () => listProviderModels(id, kind),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+function useProviderMutation<TVars>(
+  fn: (vars: TVars) => Promise<AgentProviders>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (data) => {
+      queryClient.setQueryData(agentProvidersKey, data);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({
+        queryKey: agentProvidersKey,
+        exact: true,
+      });
+    },
+  });
+}
+
+export const usePatchAgentProviders = () =>
+  useProviderMutation((patch: ProviderPatch) => patchAgentProviders(patch));
+export const useConnectProvider = () =>
+  useProviderMutation((id: "claude" | "codex") => connectProvider(id));
+export const useDisconnectProvider = () =>
+  useProviderMutation((id: "claude" | "codex") => disconnectProvider(id));
+export const useSetOpenRouterKey = () =>
+  useProviderMutation((key: string) => setOpenRouterKey(key));
+export const useRemoveOpenRouterKey = () =>
+  useProviderMutation<void>(() => removeOpenRouterKey());

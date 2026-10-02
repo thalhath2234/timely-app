@@ -21,6 +21,7 @@ import ProposalPanel from "./proposalPanel";
 import ReceiptReview from "./receiptReview";
 import { useImageUploads } from "./imageAttachments";
 import { isBusy, phaseLabel, statusMeta } from "./chatMeta";
+import { PROVIDER_LABELS, type ProviderId } from "@/app/utils/api/agentProviders";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -211,13 +212,14 @@ export default function Conversation({
     mutation.mutate({ action, body });
   const error = uploads.error || mutation.error?.message;
   const title = chat?.title || (id ? "" : "New conversation");
+  const providerLabel = chat?.provider
+    ? `${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}`
+    : "";
   const subtitle = busy
     ? phaseLabel(chat?.phase)
     : chat?.status === "approval"
       ? "Waiting for your decision"
-      : compact
-        ? "Chat in context"
-        : "Timely assistant";
+      : providerLabel || (compact ? "Chat in context" : "Timely assistant");
   const hint = uploads.images.length
     ? "One receipt per message · up to 5 photos · images removed after confirmation or 24 hours"
     : chat?.sensitive
