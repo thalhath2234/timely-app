@@ -55,7 +55,7 @@ func integrationDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { sqlDB, _ := db.DB(); sqlDB.Close() })
-	if err = db.AutoMigrate(&Conversation{}, &ImageAttachment{}, &models.Sheet{}, &models.Notification{}, &models.Job{}, &models.Config{}, &testItem{}); err != nil {
+	if err = db.AutoMigrate(&Conversation{}, &ImageAttachment{}, &models.Sheet{}, &models.Notification{}, &models.Job{}, &models.Config{}, &models.ScheduledBlock{}, &testItem{}); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Exec("CREATE UNIQUE INDEX notifications_dedupe_test ON notifications(dedupe_key) WHERE dedupe_key IS NOT NULL").Error; err != nil {

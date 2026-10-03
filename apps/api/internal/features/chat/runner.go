@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 	"timely-api/internal/features/agent"
 	"timely-api/internal/models"
+	"timely-api/internal/recurrence"
 )
 
 const instruction = `You are Timely's in-app assistant. Help the signed-in person organize their own work.
@@ -34,7 +35,7 @@ Summaries must describe exact changes in plain language, including destinations,
 Only set direct=true for a clearly requested single creation or small edit that completes the entire request. Proposals are not applied until server approval. Never use tool arguments to bypass approval.
 Recurring changes default to this-and-future using split_event_series/split_task_series; to change the time of future event occurrences pass start and end for the first changed occurrence. Show the effective date in summary; preserve past and individually adjusted occurrences. Use account timezone. Never quietly rewrite an entire recurring series.
 To create a reusable sheet template, build the sheet and save it with create_sheet_template in the same reviewed proposal. Do not claim that a normal sheet is a saved template. If asked to find a popular template with web search off, explain that search must be enabled to verify popularity; offer an original monthly expense layout without claiming external research.
-For sheets use text, number, date, boolean, currency, percent, formula. Data rows start at 1; headers are not counted. A first-row total for Quantity in B and Unit price in C is =B1*C1. To create a populated sheet, propose create_sheet then update_sheet with sheetId="$0.sheet.id", columns [{id:"item",name:"Item",type:"text",width:180},...], and rows [{id:"hosting",cells:{item:"Hosting",...}}]. Column widths are required. update_sheet REPLACES supplied rows/columns/tabs arrays; it never appends. Use one update_sheet with the complete final grid for a newly created sheet. To append to an existing sheet use add_sheet_rows. Calculate formula row positions against that complete grid. Use unique row/column IDs you choose for the new grid. Do not look up templates or existing sheets just to discover these documented conventions. Supported formulas are same-grid A1 references, bounded ranges (A1:A20), whole-column ranges (A:A), whole-row ranges (2:2), open-ended ranges (A2:A or B2:2), arithmetic, SUM/AVERAGE/MIN/MAX/PRODUCT/COUNT/COUNTA, IF/AND/OR/NOT and basic rounding/text. Use SUM to add ranges, e.g. =B5+SUM(N2:N); avoid including the formula cell in its own range. Open ranges include future rows/columns. No cross-tab/Excel promise. Existing positional formula references are not automatically rewritten on structural changes: include necessary formula repairs or ask. Column retyping can clear values: disclose that. Other tabs require explicit update_sheet tabs preserving unrelated tabs. Only delete rows/columns or replace existing data when the user expressly requested it, and describe affected values.
+For sheets use text, number, date, boolean, currency, percent, formula. Data rows start at 1; headers are not counted. A first-row total for Quantity in B and Unit price in C is =B1*C1. To create a populated sheet, propose create_sheet then update_sheet with sheetId="$0.sheet.id", columns [{id:"item",name:"Item",type:"text",width:180},...], and rows [{id:"hosting",cells:{item:"Hosting",...}}]. Column widths are required. update_sheet REPLACES supplied rows/columns/tabs arrays; it never appends. Use one update_sheet with the complete final grid for a newly created sheet. To append to an existing sheet use add_sheet_rows. Calculate formula row positions against that complete grid. Use unique row/column IDs you choose for the new grid. Do not look up templates or existing sheets just to discover these documented conventions. Supported formulas are same-grid A1 references, bounded ranges (A1:A20), whole-column ranges (A:A), whole-row ranges (2:2), open-ended ranges (A2:A or B2:2), arithmetic, SUM/AVERAGE/MIN/MAX/PRODUCT/COUNT/COUNTA, IF/AND/OR/NOT and basic rounding/text. Use SUM to add ranges, e.g. =B5+SUM(N2:N); avoid including the formula cell in its own range. Open ranges include future rows/columns. No cross-tab/Excel promise. Existing positional formula references are not automatically rewritten on structural changes: include necessary formula repairs or ask. A repaired formula must give the same result as before; when a removed cell fed a formula, substitute its value (deleting a Quantity of 2 turns =B1*C1 into =B1*2). State a total only after calculating it from the final grid. Column retyping can clear values: disclose that. Other tabs require explicit update_sheet tabs preserving unrelated tabs. Only delete rows/columns or replace existing data when the user expressly requested it, and describe affected values.
 Delete only when the person explicitly asks: tasks, events (delete_event removes the whole series; to drop one occurrence use edit_event_occurrence with skip), docs (confirm=true; subpages stay), sheets, labels, stages, checklist items and calendar blocks. Name exactly what is removed. Never delete workspaces, projects, statuses or custom fields, and never touch backups, restore data, or run code.
 update_working_hours replaces the whole week and the timezone: read get_working_hours first, then include every day (an empty list means no hours) and the IANA timezone.
 A system notice that the data changed means: read the current data, keep completed changes, and propose only what is still needed.
@@ -348,6 +349,7 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 		if err := json.Unmarshal(steps[i].Arguments, &args); err != nil {
 			return nil, err
 		}
+		var taskBefore, blockBefore any
 		if steps[i].Tool == "bulk_update_tasks" {
 			ids, _ := args["ids"].([]any)
 			before := []any{}
@@ -377,6 +379,7 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 				return nil, fmt.Errorf("step %d (%s) cannot read block %s: %w", i+1, steps[i].Tool, blockID, err)
 			}
 			steps[i].Before = raw(result)
+			blockBefore = result
 			out = append(out, Snapshot{Tool: "scheduled_block", Arguments: a, Hash: hash(result)})
 		}
 		for field, tool := range map[string]string{"taskId": "get_task", "projectId": "get_project", "workspaceId": "get_workspace", "eventId": "get_event", "docId": "get_doc", "sheetId": "get_sheet", "templateId": "get_sheet_template"} {
@@ -398,6 +401,9 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 			result, err := catalog[tool].Call(ctx, uid, a)
 			if err != nil {
 				return nil, fmt.Errorf("step %d (%s) cannot read the destination or edited object %s %s: %w", i+1, steps[i].Tool, field, value, err)
+			}
+			if field == "taskId" {
+				taskBefore = result
 			}
 			// Deletions show what they remove, including the label's workspace or the stage's project.
 			if field != "workspaceId" && field != "projectId" || strings.Contains(steps[i].Tool, strings.TrimSuffix(strings.TrimPrefix(tool, "get_"), "s")) || strings.HasPrefix(steps[i].Tool, "delete_") {
@@ -435,8 +441,61 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 			steps[i].Before = raw(result)
 			out = append(out, Snapshot{Tool: "auto_schedule_preview", Arguments: steps[i].Arguments, Hash: hash(result)})
 		}
+		// A reviewed placement reserves a calendar span; anything that lands
+		// there after approval must be reviewed too, since placing by hand
+		// can push aside other work.
+		if start, end, ok := placementInterval(steps[i].Tool, args, taskBefore, blockBefore); ok {
+			a := raw(map[string]string{"from": start.Format(time.RFC3339), "to": end.Format(time.RFC3339)})
+			result, err := catalog["get_calendar"].Call(ctx, uid, a)
+			if err != nil {
+				return nil, fmt.Errorf("step %d (%s) cannot read the calendar span: %w", i+1, steps[i].Tool, err)
+			}
+			out = append(out, Snapshot{Tool: "get_calendar", Arguments: a, Hash: hash(result)})
+		}
 	}
 	return out, nil
+}
+
+// placementInterval is the span a manual placement step reserves, resolved
+// the way the schedule service resolves it: an explicit end, else a duration,
+// else the moved block's length or the task's estimate.
+func placementInterval(tool string, args map[string]any, task, block any) (time.Time, time.Time, bool) {
+	if tool != "schedule_task" && tool != "move_block" {
+		return time.Time{}, time.Time{}, false
+	}
+	startRaw, _ := args["start"].(string)
+	start, err := recurrence.ParseTime(startRaw)
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	if endRaw, _ := args["end"].(string); endRaw != "" {
+		if end, err := recurrence.ParseTime(endRaw); err == nil && end.After(start) {
+			return start, end, true
+		}
+	}
+	minutes := 0
+	if v, ok := args["durationMinutes"].(float64); ok && v > 0 {
+		minutes = int(v)
+	}
+	if minutes <= 0 && tool == "move_block" {
+		if b, ok := block.(models.ScheduledBlock); ok {
+			minutes = int(b.EndAt.Sub(b.StartAt).Minutes())
+		}
+	}
+	if minutes <= 0 && task != nil {
+		var read struct {
+			Task struct {
+				Duration int `json:"duration"`
+			} `json:"task"`
+		}
+		if err := json.Unmarshal(raw(task), &read); err == nil {
+			minutes = read.Task.Duration
+		}
+	}
+	if minutes <= 0 {
+		minutes = 30
+	}
+	return start, start.Add(time.Duration(minutes) * time.Minute), true
 }
 
 // Block reads remain account-scoped even though Hermes exposes them via calendar views.
