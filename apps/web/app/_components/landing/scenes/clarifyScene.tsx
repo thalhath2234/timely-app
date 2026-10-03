@@ -144,7 +144,7 @@ function Scene() {
                   {item.kind === "reminder" ? (
                     <span
                       className="flex size-5 shrink-0 items-center justify-center rounded-full"
-                      style={{ background: `color-mix(in oklch, ${REMINDER_COLOR} 28%, var(--card))` }}
+                      style={{ background: `color-mix(in oklab, ${REMINDER_COLOR} 28%, var(--card))` }}
                     >
                       <Bell className="size-2.5" style={{ color: REMINDER_COLOR }} />
                     </span>

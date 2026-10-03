@@ -196,6 +196,7 @@ function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
         {tab === "status" && (
           <NamedColorEditor
             title="Statuses"
+            noun="status"
             description="Statuses used by tasks and projects in this workspace."
             emptyLabel="No statuses yet."
             items={(workspace.status ?? []).map((status) => ({
