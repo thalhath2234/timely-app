@@ -57,6 +57,10 @@ _Avoid_: locked block (pinning is only one way to choose a time)
 A Block whose time Auto-schedule chose.
 _Avoid_: automatic block, scheduled block
 
+**Pinned**:
+A Block, or all Blocks of one Work, that neither Auto-schedule nor manual placement may move or remove. An Event's time is kept the same way.
+_Avoid_: locked, frozen (frozen is the near-term window the engine leaves alone)
+
 **Auto-schedule**:
 The Preview, Apply, and Undo operation that places Work within Working hours around existing busy time. It does not place or move Events.
 _Avoid_: schedule, reschedule (when referring to this operation)

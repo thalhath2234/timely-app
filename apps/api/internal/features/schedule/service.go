@@ -754,11 +754,17 @@ func occurrenceCandidateID(taskID string, original time.Time) string {
 	return taskID + "@" + original.UTC().Format(time.RFC3339)
 }
 
-// displaceOverlapping drops other work blocks that cover [start, end) so the
-// block the user just placed can keep that slot. The schedule engine then
-// re-places those tasks in the next free time. keepBlockID is the pin.
+// displaceOverlapping drops other replaceable work blocks that cover
+// [start, end) so the block the user just placed can keep that slot. The
+// schedule engine then re-places those tasks in the next free time.
+// keepBlockID is the pin. Time the person protected stays put and simply
+// overlaps: a pinned block, every block of a pinned task, and an Event's time.
 func (s *service) displaceOverlapping(userID string, start, end time.Time, keepBlockID string) error {
 	blocks, err := s.blocks.ListInRange(userID, start, end)
+	if err != nil {
+		return err
+	}
+	lockedTasks, err := s.lockedTaskIDs(blocks)
 	if err != nil {
 		return err
 	}
@@ -767,11 +773,39 @@ func (s *service) displaceOverlapping(userID string, start, end time.Time, keepB
 		if keepBlockID != "" && block.ID == keepBlockID {
 			continue
 		}
+		if block.Locked || block.EventID != nil || block.TaskID == "" || lockedTasks[block.TaskID] {
+			continue
+		}
 		if err := s.blocks.Delete(block); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// lockedTaskIDs returns the tasks among the blocks' owners that are pinned
+// as a whole (scheduleLocked).
+func (s *service) lockedTaskIDs(blocks []models.ScheduledBlock) (map[string]bool, error) {
+	ids := []string{}
+	for i := range blocks {
+		if blocks[i].TaskID != "" {
+			ids = append(ids, blocks[i].TaskID)
+		}
+	}
+	locked := map[string]bool{}
+	if len(ids) == 0 {
+		return locked, nil
+	}
+	var lockedIDs []string
+	if err := s.blocks.DB().Model(&models.Task{}).
+		Where("id IN ? AND schedule_locked = ?", ids, true).
+		Pluck("id", &lockedIDs).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range lockedIDs {
+		locked[id] = true
+	}
+	return locked, nil
 }
 
 func (s *service) FreeTime(userID string, from, to time.Time, timezone string) ([]Interval, error) {

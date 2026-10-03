@@ -478,7 +478,9 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		}
 	}
 
-	if len(updates) == 0 && update.LabelIDs == nil && update.CustomFieldValues == nil && !update.RecurrenceSet && update.Kind == nil {
+	// Duration and kind are written by applyKindUpdate below, so they count
+	// as changes here even though the update map is still empty.
+	if len(updates) == 0 && update.LabelIDs == nil && update.CustomFieldValues == nil && !update.RecurrenceSet && update.Kind == nil && update.Duration == nil {
 		return s.taskRepo.GetTaskByIdForUser(userID, taskID)
 	}
 

@@ -9,6 +9,7 @@ import (
 	"timely-api/internal/features/agent"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -106,7 +107,7 @@ func validateInput(in sendInput) error {
 	if len(in.RequestID) > 100 {
 		return echo.NewHTTPError(400, "Request ID is too long")
 	}
-	if (len(strings.TrimSpace(in.Content)) == 0 && len(in.ImageIDs) == 0) || len(in.Content) > 16000 {
+	if (len(strings.TrimSpace(in.Content)) == 0 && len(in.ImageIDs) == 0) || utf8.RuneCountInString(in.Content) > 16000 {
 		return echo.NewHTTPError(400, "Message must be between 1 and 16,000 characters")
 	}
 	if len(in.ImageIDs) > 5 {
