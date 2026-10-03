@@ -1,6 +1,18 @@
 const fs = require("fs");
 const path = require("path");
+const { withAndroidManifest } = require("expo/config-plugins");
 const appJson = require("./app.json");
+
+// The phone pairs with a Desktop host over plain http inside the Tailscale
+// tunnel (ADR 0011). Android blocks cleartext by default and Expo has no
+// built-in field for it, so this plugin sets the manifest attribute.
+function withCleartextTraffic(config) {
+  return withAndroidManifest(config, (mod) => {
+    const application = mod.modResults.manifest.application?.[0];
+    if (application) application.$["android:usesCleartextTraffic"] = "true";
+    return mod;
+  });
+}
 
 function loadDotEnv(filename) {
   const file = path.join(__dirname, filename);
@@ -30,7 +42,7 @@ module.exports = {
     ...appJson.expo,
     // expo-sharing (SDK 57) registers its config plugin; `expo install --fix`
     // cannot write it into a dynamic config, so it is added here.
-    plugins: [...(appJson.expo.plugins ?? []), "expo-sharing"],
+    plugins: [...(appJson.expo.plugins ?? []), "expo-sharing", withCleartextTraffic],
     extra: apiUrl ? { apiUrl } : {},
   },
 };
