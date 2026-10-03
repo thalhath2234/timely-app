@@ -230,7 +230,7 @@ export default function Sidebar() {
           return (
             <div
               key={item.name}
-              className="relative"
+              className="relative isolate"
               onContextMenu={(event) =>
                 openMenu(event, [
                   {

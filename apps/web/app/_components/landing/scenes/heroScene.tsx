@@ -91,7 +91,7 @@ function Scene() {
           >
             <div
               className="mini-8 flex h-full items-center gap-0.5 overflow-hidden rounded-full px-1 font-medium"
-              style={{ background: `color-mix(in oklch, ${REMINDER_COLOR} 30%, var(--card))` }}
+              style={{ background: `color-mix(in oklab, ${REMINDER_COLOR} 30%, var(--card))` }}
             >
               <Bell className="size-2 shrink-0" style={{ color: REMINDER_COLOR }} />
               <span className="truncate">{REMINDER.title}</span>

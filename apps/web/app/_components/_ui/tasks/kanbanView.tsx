@@ -126,9 +126,10 @@ export default function KanbanView({
       const byValue = new Map<string, { key: string; name: string; color: string | null; items: Task[]; statuses: Status[] }>();
       const missing: Task[] = [];
       for (const row of rows) {
-        const value = groupField === "workspace" ? row.workspace : groupField === "project" ? row.project : null;
+        const stage = groupField === "stage" ? row.stage ?? row.project?.stages?.find((candidate) => candidate.id === row.stageId) ?? null : null;
+        const value = groupField === "workspace" ? row.workspace : groupField === "project" ? row.project : stage;
         const id = groupField === "stage" ? row.stageId : value?.id;
-        const name = groupField === "stage" ? row.project?.stages?.find((stage) => stage.id === id)?.name : groupField === "project" ? row.project?.title : row.workspace?.name;
+        const name = groupField === "stage" ? stage?.name : groupField === "project" ? row.project?.title : row.workspace?.name;
         if (!id) { missing.push(row); continue; }
         const existing = byValue.get(id) ?? { key: id, name: name || "Untitled", color: value?.color ?? null, items: [], statuses: [] };
         existing.items.push(row);

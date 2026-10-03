@@ -22,7 +22,7 @@ export function blockRect(block: Pick<CalendarBlock, "day" | "start" | "hours">)
 /** The app's calendar-item look: a tinted bar with a solid edge in the entity colour. */
 export function blockColors(color: string): CSSProperties {
   return {
-    background: `color-mix(in oklch, ${color} 24%, var(--card))`,
+    background: `color-mix(in oklab, ${color} 24%, var(--card))`,
     borderLeft: `calc(var(--u) * 3) solid ${color}`,
   };
 }
