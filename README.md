@@ -25,7 +25,7 @@ Timely runs on your own computer. Two downloads, nothing else:
 
 To use the phone away from home, install [Tailscale](https://tailscale.com/download) on both devices and sign them into the same tailnet, then turn on *Allow my Tailscale devices to connect* in **Settings → Server**. Nothing is exposed to your Wi‑Fi or the internet; the phone reaches the computer only through the tailnet. Closing the desktop window keeps the server running in the tray; *Quit Timely* stops it. Updating the desktop app keeps your data and takes a backup first.
 
-The first Windows and macOS releases are not code-signed: Windows shows a SmartScreen prompt (*More info → Run anyway*); macOS needs right-click → *Open* once. Details: [`docs/desktop/README.md`](docs/desktop/README.md).
+On Linux the AppImage needs FUSE (`libfuse2` on Debian/Ubuntu, `fuse2` on Arch); without it, run it as `./Timely-*.AppImage --appimage-extract-and-run`. The first Windows and macOS releases are not code-signed: Windows shows a SmartScreen prompt (*More info → Run anyway*); macOS needs right-click → *Open* once. Details: [`docs/desktop/README.md`](docs/desktop/README.md).
 
 ## Prerequisites (developers)
 
