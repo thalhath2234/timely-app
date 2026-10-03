@@ -198,7 +198,7 @@ export default function SetupPage() {
                 {instance.tailscale.installed && (
                   <Toggle
                     name="tailscaleEnabled"
-                    label="Allow my Tailscale devices to connect"
+                    label="Tailscale access"
                     description="Lets your phone reach Timely over Tailscale. Turning this on restarts the server for a few seconds."
                     checked={instance.settings.tailscaleEnabled}
                     busy={setting.pending === "tailscaleEnabled"}
@@ -327,7 +327,7 @@ export default function SetupPage() {
                 </div>
                 {instance.api.tailscaleUrls.length === 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Without Tailscale, the phone can only connect while it is on this computer’s
+                    Without Tailscale, the phone can only reach Timely while it is on this computer’s
                     own network address, which usually means not at all. You can come back to this
                     after installing Tailscale.
                   </p>

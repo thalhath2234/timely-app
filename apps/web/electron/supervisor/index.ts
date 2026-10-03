@@ -212,6 +212,11 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     this.secrets = sealed.secrets;
     if (sealed.changed) {
       this.log.warn(`boot: generated secrets: ${sealed.regenerated.join(", ")}`);
+      if (this.config.lostSecrets?.length) {
+        this.log.warn(
+          "boot: some stored secrets could not be unsealed (the OS keyring changed); the old sealed values are kept under lostSecrets in config.json. Older encrypted backups need the old backup key.",
+        );
+      }
       this.save();
     }
 

@@ -48,7 +48,7 @@ export default function SettingsIndex() {
   const server = useServer();
   const serverMeta = server.activeUrl
     ? `${server.name ? `${server.name} · ` : ""}${server.activeUrl}`
-    : "Not connected";
+    : "Not paired";
   const initials = (user?.name ?? user?.email ?? "T")
     .split(" ")
     .map((p) => p[0])
@@ -89,7 +89,7 @@ export default function SettingsIndex() {
             onPress={() => router.push("/(app)/settings/workspaces")}
           />
         </View>
-        <SectionLabel>Connection</SectionLabel>
+        <SectionLabel>Desktop</SectionLabel>
         <View style={styles.group}>
           <Row icon={Server} title="Server" meta={serverMeta} onPress={() => router.push("/(app)/settings/server")} />
         </View>

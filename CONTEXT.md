@@ -113,7 +113,7 @@ _Avoid_: overdue (deadline only), skipped
 
 **Desktop host**:
 The Timely desktop app when it runs its own database and API as supervised sidecars (ADR 0011). It keeps serving while its window is hidden and stops serving when the person quits it.
-_Avoid_: server (alone, in copy), backend, local install
+_Avoid_: backend, local install, machine (the Desktop host is an app, not hardware)
 
 **Server address**:
 An `http://host:port` the phone uses to reach a Desktop host or any other Timely API. A Desktop host has a loopback address and, when allowed, Tailscale addresses.

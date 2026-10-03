@@ -150,6 +150,19 @@ test("secrets: an unreadable sealed value is regenerated, the rest are kept", ()
   assert.equal(result.secrets.dbPassword, "fresh");
   assert.deepEqual(result.regenerated, ["dbPassword"]);
   assert.equal(config.secrets.dbPassword, Buffer.from("enc(fresh)").toString("base64"));
+  // The unreadable value is kept aside, never thrown away.
+  assert.equal(config.lostSecrets?.length, 1);
+  assert.equal(config.lostSecrets?.[0].key, "dbPassword");
+  assert.equal(config.lostSecrets?.[0].sealed, Buffer.from("garbage").toString("base64"));
+  assert.match(config.lostSecrets?.[0].lostAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
+  const { dir, cleanup } = tmpdir();
+  try {
+    const file = path.join(dir, "config.json");
+    saveConfig(file, config);
+    assert.equal(loadConfig(file, "0.1.0").config.lostSecrets?.[0].key, "dbPassword", "lostSecrets survive a save/load round-trip");
+  } finally {
+    cleanup();
+  }
 });
 
 test("secrets: the plain: fallback is used when encryption is unavailable", () => {

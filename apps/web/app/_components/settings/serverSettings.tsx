@@ -409,7 +409,7 @@ export default function ServerSettings() {
         <h3 className="text-sm font-semibold text-foreground">Access</h3>
         <Toggle
           name="tailscaleEnabled"
-          label="Allow my Tailscale devices to connect"
+          label="Tailscale access"
           description="Lets your phone and other devices on your Tailscale network reach Timely. Nothing is opened to the internet. Turning this on or off restarts the server for a few seconds."
           checked={instance.settings.tailscaleEnabled}
           disabled={!tailscaleReady}

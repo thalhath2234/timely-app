@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -50,8 +52,10 @@ func NewLoginRateLimiter() *RateLimiter {
 	return NewRateLimiter(time.Minute, 20, 8)
 }
 
-// Middleware limits by IP and, when withAccount is set, by the "email" field
-// of a JSON body. The body is restored so the handler can bind it.
+// Middleware limits by IP and, when withAccount is set, by the account named
+// in the JSON body: the "email" field, or a digest of "refreshToken" so one
+// stolen refresh token cannot be replayed from many addresses either. The body
+// is restored so the handler can bind it.
 func (r *RateLimiter) Middleware(withAccount bool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -61,7 +65,7 @@ func (r *RateLimiter) Middleware(withAccount bool) echo.MiddlewareFunc {
 			}
 			account := ""
 			if withAccount && r.perAccount > 0 {
-				account = r.peekEmail(c)
+				account = r.peekAccount(c)
 			}
 			if retry := r.take(ip, account); retry > 0 {
 				seconds := int(math.Ceil(retry.Seconds()))
@@ -134,9 +138,10 @@ func (r *RateLimiter) prune(now time.Time) {
 	}
 }
 
-// peekEmail reads the JSON body for an "email" key and puts the bytes back so
-// the handler can bind them. Non-JSON bodies yield no account key.
-func (r *RateLimiter) peekEmail(c *echo.Context) string {
+// peekAccount reads the JSON body for an "email" (or, failing that, a
+// "refreshToken") key and puts the bytes back so the handler can bind them.
+// Non-JSON bodies yield no account key.
+func (r *RateLimiter) peekAccount(c *echo.Context) string {
 	req := c.Request()
 	if req.Body == nil {
 		return ""
@@ -153,10 +158,18 @@ func (r *RateLimiter) peekEmail(c *echo.Context) string {
 		return ""
 	}
 	var body struct {
-		Email string `json:"email"`
+		Email        string `json:"email"`
+		RefreshToken string `json:"refreshToken"`
 	}
 	if json.Unmarshal(raw, &body) != nil {
 		return ""
 	}
-	return strings.ToLower(strings.TrimSpace(body.Email))
+	if email := strings.ToLower(strings.TrimSpace(body.Email)); email != "" {
+		return email
+	}
+	if token := strings.TrimSpace(body.RefreshToken); token != "" {
+		sum := sha256.Sum256([]byte(token))
+		return "refresh:" + hex.EncodeToString(sum[:8])
+	}
+	return ""
 }

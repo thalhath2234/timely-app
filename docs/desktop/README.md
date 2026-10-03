@@ -55,7 +55,9 @@ Guard rails before anything starts:
 }
 ```
 
-Secrets are generated on first run (32 random bytes, base64url). When
+Secrets are generated on first run (32 random bytes, base64url). A sealed value that can no
+longer be unsealed (the OS keyring changed) is replaced, and the old sealed value is moved to
+`lostSecrets` in the same file so a restored keyring can recover it. When
 `safeStorage.isEncryptionAvailable()` is false (Linux without a keyring), the values are
 stored with the `plain:` prefix and the file is created with mode 0600.
 

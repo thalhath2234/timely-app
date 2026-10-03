@@ -15,7 +15,7 @@ function statusLabel(status: ServerStatus, health: { status: string; db?: string
   if (status === "checking") return "Checking…";
   if (status === "online") return health?.status === "ok" ? "Online" : "Online · database degraded";
   if (status === "offline") return "Unreachable";
-  return "Not connected";
+  return "Not reachable";
 }
 
 function statusTone(status: ServerStatus, health: { status: string } | null) {
@@ -98,7 +98,7 @@ export default function ServerSettings() {
 
         <SectionLabel>Change server</SectionLabel>
         <Text style={styles.help}>
-          Sign-in tokens belong to one server, so connecting to a different computer signs you out of this
+          Sign-in tokens belong to one server, so pairing with a different computer signs you out of this
           one first.
         </Text>
         <AnimatedPressable

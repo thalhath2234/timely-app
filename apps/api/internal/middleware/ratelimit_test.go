@@ -117,3 +117,34 @@ func TestRateLimitWindowSlidesAndPrunes(t *testing.T) {
 		t.Fatal("expired keys were not pruned")
 	}
 }
+
+// A refresh token names the account on /auth/refresh, so the per-account cap
+// applies there too (issue #61, Phase 1).
+func TestRateLimiterKeysRefreshByToken(t *testing.T) {
+	limiter := NewRateLimiter(time.Minute, 100, 2)
+	e := echo.New()
+	call := func(ip, token string) int {
+		req := httptest.NewRequest(http.MethodPost, "/auth/refresh", strings.NewReader(`{"refreshToken":"`+token+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = ip + ":1234"
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		handler := limiter.Middleware(true)(func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
+		if err := handler(c); err != nil {
+			t.Fatal(err)
+		}
+		return rec.Code
+	}
+	if got := call("10.0.0.1", "ref_a"); got != http.StatusOK {
+		t.Fatalf("first call = %d", got)
+	}
+	if got := call("10.0.0.2", "ref_a"); got != http.StatusOK {
+		t.Fatalf("second call from another IP = %d", got)
+	}
+	if got := call("10.0.0.3", "ref_a"); got != http.StatusTooManyRequests {
+		t.Fatalf("third call with the same token = %d, want 429", got)
+	}
+	if got := call("10.0.0.3", "ref_b"); got != http.StatusOK {
+		t.Fatalf("another token is not affected: %d", got)
+	}
+}

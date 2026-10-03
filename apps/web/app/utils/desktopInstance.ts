@@ -74,9 +74,9 @@ export function describeTailscale(
   }
   if (!enabled) {
     return {
-      label: "Connected, sharing off",
+      label: "Connected, Tailscale access off",
       tone: "muted",
-      detail: "Turn on sharing below to let your Tailscale devices connect.",
+      detail: "Turn on Tailscale access below so your phone can reach Timely from anywhere.",
     };
   }
   return {

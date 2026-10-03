@@ -77,7 +77,7 @@ export default function PairingQr({ instance }: { instance: DesktopInstance }) {
       <div className="flex min-w-0 flex-1 flex-col gap-2 text-center sm:text-left">
         <p className="text-sm font-medium text-foreground">Scan from Timely on your phone</p>
         <p className="text-xs text-muted-foreground">
-          Open Timely on your phone, choose “Connect to my computer” and point the camera at this
+          Open Timely on your phone, tap “Scan QR code” and point the camera at this
           code. You can also type the address below by hand.
         </p>
         <code

@@ -1,3 +1,6 @@
+-- Edited after it shipped (ADR 0011): a fresh database creates real[] here and never
+-- needs pgvector; databases that already ran the vector(1536) version are converted
+-- by 20261003070129_drop_pgvector.sql. goose does not checksum applied files.
 -- +goose Up
 -- Embeddings are plain real[] (ADR 0011): similarity runs in the API, so a
 -- fresh database needs no extension.

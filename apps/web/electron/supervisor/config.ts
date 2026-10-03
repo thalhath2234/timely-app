@@ -20,6 +20,12 @@ export type DesktopConfig = {
   setupDone: boolean;
   /** Sealed values; see Sealer. */
   secrets: Partial<Record<SecretKey, string>>;
+  /**
+   * Sealed values that could not be unsealed (a lost OS keyring) and were
+   * replaced. Kept so a restored keyring can still recover them: the backup
+   * key decrypts older .tlbk exports.
+   */
+  lostSecrets?: { key: SecretKey; sealed: string; lostAt: string }[];
 };
 
 export type Secrets = Record<SecretKey, string>;
@@ -78,6 +84,15 @@ export function defaultConfig(version: string): DesktopConfig {
   };
 }
 
+function readLostSecrets(raw: unknown): DesktopConfig["lostSecrets"] {
+  if (!Array.isArray(raw)) return undefined;
+  const entries = raw.filter(
+    (e): e is { key: SecretKey; sealed: string; lostAt: string } =>
+      Boolean(e) && typeof e === "object" && SECRET_KEYS.includes((e as { key: SecretKey }).key) && typeof (e as { sealed: unknown }).sealed === "string" && typeof (e as { lostAt: unknown }).lostAt === "string",
+  );
+  return entries.length ? entries : undefined;
+}
+
 function isPort(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 && value < 65536;
 }
@@ -110,6 +125,7 @@ export function loadConfig(file: string, fallbackVersion: string): { config: Des
       allowRegistration: data.allowRegistration !== false,
       setupDone: data.setupDone === true,
       secrets,
+      lostSecrets: readLostSecrets(data.lostSecrets),
     },
   };
 }
@@ -130,7 +146,8 @@ export function generateSecret(): string {
  * Guarantees every secret exists and can be unsealed. Missing or unreadable
  * secrets are regenerated (a lost keyring means a lost secret; the API
  * re-issues sessions and the database password is re-applied on the next
- * boot by the caller, which gets `regenerated` to decide what to do).
+ * boot by the caller, which gets `regenerated` to decide what to do). An
+ * unreadable sealed value is moved to `lostSecrets`, never deleted.
  */
 export function ensureSecrets(
   config: DesktopConfig,
@@ -146,7 +163,7 @@ export function ensureSecrets(
         secrets[key] = sealer.unseal(sealed);
         continue;
       } catch {
-        // Fall through and regenerate.
+        config.lostSecrets = [...(config.lostSecrets ?? []), { key, sealed, lostAt: new Date().toISOString() }];
       }
     }
     const fresh = generate();

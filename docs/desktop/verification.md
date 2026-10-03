@@ -49,4 +49,5 @@ directory, staged linux-x64 sidecars), driven over the Chrome DevTools protocol.
 | SIGTERM to Electron: Next → API → Postgres stopped in order, ports released, no orphan processes | pass |
 | Settings → Agent: Claude Code found through the login-shell PATH, Re-scan and install links present | pass |
 | Tailscale toggle | not testable here (Tailscale not installed); the tab shows the install hint and keeps the toggle disabled |
-| macOS, Windows, physical phone over Tailscale, code signing, electron-updater against a real release | open |
+| Android release APK: `make build-apk` without `API_URL`, fresh `expo prebuild` with the camera module, release bundle check (no dev URLs, `/connect` present) | pass |
+| macOS, Windows, physical phone over Tailscale, code signing (whether electron-builder signs the sidecar binaries under resources/ is unverified), electron-updater against a real release | open |

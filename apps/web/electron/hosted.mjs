@@ -13,8 +13,8 @@ import { pathToFileURL } from "node:url";
 const require = createRequire(import.meta.url);
 const electronBinary = require("electron");
 const webRoot = path.join(import.meta.dirname, "..");
-const os = process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : process.platform;
-const target = `${os}-${process.arch}`;
+const osName = process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : process.platform;
+const target = `${osName}-${process.arch}`;
 
 const api = path.join(webRoot, ".electron-api", target);
 const postgres = path.join(webRoot, ".electron-postgres", target);

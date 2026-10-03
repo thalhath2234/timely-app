@@ -11,7 +11,7 @@ import { DEFAULT_PROBE_TIMEOUT_MS, parseHealthPayload, serverStore, type ServerH
 
 /** `ApiError.code` when no server has been paired yet (release builds only). */
 export const NO_SERVER_CODE = "no-server";
-export const NO_SERVER_MESSAGE = "Connect to your Timely desktop first";
+export const NO_SERVER_MESSAGE = "Pair with your Timely desktop first";
 
 export class ApiError extends Error {
   status: number;

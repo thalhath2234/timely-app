@@ -100,9 +100,12 @@ function SettingsContent() {
 }
 
 function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
-  const [tab, setTab] = useState<SettingsTab>(initialTab);
+  const [requestedTab, setTab] = useState<SettingsTab>(initialTab);
   const desktop = useDesktopBridge();
   const tabs = desktop ? [...TABS, SERVER_TAB] : TABS;
+  // ?tab=server outside the desktop app falls back to the first tab instead of
+  // rendering a panel that has no entry in the list.
+  const tab: SettingsTab = requestedTab === "server" && !desktop ? "account" : requestedTab;
 
   return (
     <main className="flex h-full flex-col overflow-hidden bg-background">

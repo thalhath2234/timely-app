@@ -107,7 +107,7 @@ func setupPublicRoutes(e *echo.Echo, authHandler *auth.Handler, limiter *middlew
 	e.POST("/register", authHandler.Register, limiter.Middleware(true))
 	e.POST("/login", authHandler.Login, limiter.Middleware(true))
 	e.POST("/logout", authHandler.Logout)
-	e.POST("/auth/refresh", authHandler.Refresh, limiter.Middleware(false))
+	e.POST("/auth/refresh", authHandler.Refresh, limiter.Middleware(true))
 }
 
 // setupAuthRoutes defines all protected auth endpoints

@@ -69,6 +69,8 @@ export type ApiOptions = {
   output?: (chunk: Buffer) => void;
 };
 
+const API_GRACE_MS = 20_000;
+
 export class ApiManager {
   private options: ApiOptions;
   private readonly platform: NodeJS.Platform;
@@ -110,18 +112,18 @@ export class ApiManager {
     await waitForHttp(`${this.localUrl}/health`, timeoutMs, () => (child.exitCode !== null ? `API exited with code ${child.exitCode}` : null));
   }
 
-  /** SIGTERM → 8 s → SIGKILL; `taskkill /t /f` on Windows. */
+  /** SIGTERM → 20 s (the API drains HTTP for 10 s and its workers for 8 s) → SIGKILL; `taskkill /t /f` on Windows. */
   async shutdown(child: ChildProcess) {
     if (child.exitCode !== null || child.signalCode !== null) return;
     if (this.platform === "win32") {
       child.kill();
-      if (await waitForExit(child, 8_000)) return;
+      if (await waitForExit(child, API_GRACE_MS)) return;
       if (child.pid) await taskkill(child.pid);
       await waitForExit(child, 3_000);
       return;
     }
     child.kill("SIGTERM");
-    if (await waitForExit(child, 8_000)) return;
+    if (await waitForExit(child, API_GRACE_MS)) return;
     this.log.warn("api: still running after SIGTERM; killing");
     child.kill("SIGKILL");
     await waitForExit(child, 3_000);
