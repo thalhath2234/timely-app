@@ -402,6 +402,10 @@ export default function ServerSettings() {
 
       <section className="flex flex-col gap-3 rounded-xl border border-border p-4">
         <h3 className="text-sm font-semibold text-foreground">Pair your phone</h3>
+        <p className="text-xs text-muted-foreground">
+          Install Timely on your phone and scan this code. To reach this computer from anywhere,
+          the phone also needs the Tailscale app, signed in with the same account as this computer.
+        </p>
         <PairingQr instance={instance} />
       </section>
 

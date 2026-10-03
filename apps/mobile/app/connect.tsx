@@ -159,7 +159,7 @@ export default function ConnectScreen() {
           onPress={() => void connectTo(address)}
         />
         <Text style={styles.note}>
-          Addresses are used over Tailscale; traffic stays inside your private network even over http.
+          To reach your computer away from home, install the Tailscale app on this phone and sign in with the same account as on the computer. Traffic stays inside that private network even over http.
         </Text>
       </ScrollView>
     </Screen>

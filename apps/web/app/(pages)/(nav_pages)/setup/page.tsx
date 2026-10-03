@@ -188,6 +188,15 @@ export default function SetupPage() {
                   a private link. Tailscale gives you one for free, and nothing is opened to the
                   internet. If you only use Timely on this computer, skip this step.
                 </p>
+                <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+                  <li>Install Tailscale on this computer and sign in.</li>
+                  <li>
+                    Install the Tailscale app on your phone (App Store or Google Play) and sign in
+                    with the <strong className="font-medium text-foreground">same account</strong>.
+                    Leave it connected.
+                  </li>
+                  <li>Turn on Tailscale access below. Timely on the phone then reaches this computer from anywhere.</li>
+                </ol>
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">Tailscale:</span>
                   <StatusBadge summary={tailscale} />
@@ -322,6 +331,12 @@ export default function SetupPage() {
                   Install Timely on your phone, then scan this code. You can always find it again
                   under Settings → Server.
                 </p>
+                {instance.api.tailscaleUrls.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    The phone needs the Tailscale app, signed in with the same account as this
+                    computer, to use the Tailscale address in this code.
+                  </p>
+                )}
                 <div className="rounded-xl border border-border p-4">
                   <PairingQr instance={instance} />
                 </div>
