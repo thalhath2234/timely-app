@@ -90,8 +90,8 @@ func Handler(mcpServer *mcp.Server, verifier mcpauth.TokenVerifier) http.Handler
 
 func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "get_context", Description: "User, workspaces (statuses, labels, custom fields), projects with stages and open/done counts, working hours, saved views, and current time. Call this first."}, s.getContext)
-	registerTool(s, server, &mcp.Tool{Name: "search", Description: "Search tasks, projects, docs, sheets, and events by exact or substring text."}, s.search)
-	registerTool(s, server, &mcp.Tool{Name: "semantic_search", Description: "Meaning/intent search across tasks, projects, docs, sheets, and events. Use when the user asks what is related to a topic or keyword search is too literal. Returns ranked chunks; follow with get_task/get_doc/… for the full record."}, s.semanticSearch)
+	registerTool(s, server, &mcp.Tool{Name: "search", Description: "Keyword search over tasks, projects, docs, sheets, and events: exact title first, then title prefix, title substring, body substring. No embeddings."}, s.search)
+	registerTool(s, server, &mcp.Tool{Name: "semantic_search", Description: "Hybrid search across tasks, projects, docs, sheets, and events: keyword and embedding hits fused, so exact titles and related meaning both rank. Prefer this for most lookups; falls back to keyword-only when no embedding provider is set. Returns ranked chunks; follow with get_task/get_doc/… for the full record."}, s.semanticSearch)
 	registerTool(s, server, &mcp.Tool{Name: "reindex_search", Description: "Rebuild the user's search index (same as POST /search/reindex). Use after bulk imports or if semantic results look stale."}, s.reindexSearch)
 	registerTool(s, server, &mcp.Tool{Name: "get_agenda", Description: "Calendar items, overdue tasks, and unscheduled work for a day or week."}, s.getAgenda)
 	registerTool(s, server, &mcp.Tool{Name: "get_free_time", Description: "Working-hour gaps with no events or task blocks."}, s.getFreeTime)

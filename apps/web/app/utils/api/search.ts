@@ -20,6 +20,11 @@ async function readError(response: Response, fallback: string) {
   }
 }
 
+/**
+ * Hybrid by default: the API fuses keyword and embedding hits and degrades
+ * to keyword-only on its own when no embedding provider is configured.
+ * Pass `semantic = false` to force the plain keyword path.
+ */
 export async function searchItems(
   query: string,
   semantic = true,
@@ -33,10 +38,6 @@ export async function searchItems(
   const response = await apiFetch(`/search?${params.toString()}`, {
     credentials: "include",
   });
-
-  if (response.status === 503 && semantic) {
-    return searchItems(trimmed, false);
-  }
 
   if (!response.ok) {
     throw new Error(await readError(response, "Search failed"));

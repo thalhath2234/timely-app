@@ -3,6 +3,9 @@ package search
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
+	"sort"
 	"strings"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
@@ -20,7 +23,11 @@ type Hit struct {
 }
 
 type Service interface {
+	// Search is keyword-only: ranked substring matching, no embeddings.
 	Search(userID, query string, limit int) ([]Hit, error)
+	// SemanticSearch is hybrid: keyword and vector hits fused with reciprocal
+	// rank fusion. Without an embedding provider it degrades to keyword-only
+	// instead of failing, so callers always get something.
 	SemanticSearch(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error)
 	Reindex(ctx context.Context, userID string) (int, error)
 }
@@ -42,20 +49,11 @@ func (s *service) Search(userID, query string, limit int) ([]Hit, error) {
 	if query == "" {
 		return []Hit{}, nil
 	}
-	if limit <= 0 || limit > 50 {
-		limit = 20
-	}
-	like := "%" + query + "%"
-	perKind := (limit / 5) + 3
-
-	var hits []Hit
-	hits = append(hits, s.tasks(userID, like, perKind)...)
-	hits = append(hits, s.projects(userID, like, perKind)...)
-	hits = append(hits, s.docs(userID, like, perKind)...)
-	hits = append(hits, s.sheets(userID, like, perKind)...)
-	hits = append(hits, s.events(userID, like, perKind)...)
-	if len(hits) > limit {
-		hits = hits[:limit]
+	limit = clampLimit(limit)
+	ranked := s.keyword(userID, query, limit, nil)
+	hits := make([]Hit, 0, len(ranked))
+	for _, kw := range ranked {
+		hits = append(hits, kw.Hit)
 	}
 	return hits, nil
 }
@@ -64,14 +62,32 @@ func (s *service) SemanticSearch(ctx context.Context, userID, query string, limi
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
-	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
-		return nil, embed.ErrDisabled
-	}
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return []Hit{}, nil
 	}
+	limit = clampLimit(limit)
+	kinds = allowedKinds(kinds)
 
+	// Fetch past the limit so an item ranked low in one list can still be
+	// lifted by the other.
+	fetch := limit * 2
+	keyword := s.keyword(userID, query, fetch, kinds)
+
+	semantic, err := s.vector(ctx, userID, query, fetch, kinds)
+	if err != nil {
+		if !errors.Is(err, embed.ErrDisabled) {
+			log.Printf("search: vector query failed, keyword-only results: %v", err)
+		}
+		semantic = nil
+	}
+	return fuse(keyword, semantic, limit), nil
+}
+
+func (s *service) vector(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error) {
+	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
+		return nil, embed.ErrDisabled
+	}
 	n, err := s.indexer.Count(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -81,20 +97,15 @@ func (s *service) SemanticSearch(ctx context.Context, userID, query string, limi
 			return nil, err
 		}
 	}
-
 	raw, err := s.indexer.Query(ctx, userID, query, limit, kinds)
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
 	hits := make([]Hit, 0, len(raw))
 	for _, item := range raw {
-		key := item.Kind + ":" + item.EntityID
-		if item.EntityID == "" || seen[key] || seen[item.EntityID] {
+		if item.EntityID == "" {
 			continue
 		}
-		seen[key] = true
-		seen[item.EntityID] = true
 		hits = append(hits, Hit{
 			Kind:    item.Kind,
 			ID:      item.EntityID,
@@ -117,74 +128,159 @@ func (s *service) Reindex(ctx context.Context, userID string) (int, error) {
 	return s.indexer.ReindexUser(ctx, userID)
 }
 
-func (s *service) tasks(userID, like string, limit int) []Hit {
-	var rows []models.Task
-	_ = s.db.Select("id", "name", "description").
-		Where("user_id = ?", userID).
-		Where("name ILIKE ? OR description ILIKE ?", like, like).
-		Limit(limit).
-		Find(&rows)
-	out := make([]Hit, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, Hit{Kind: "task", ID: row.ID, Title: row.Name, Snippet: snippet(row.Description)})
+// keyword runs the ranked substring query over every requested kind and
+// returns the merged list ordered by tier (exact title, title prefix, title
+// substring, body substring), then by most recently updated.
+func (s *service) keyword(userID, query string, limit int, kinds []string) []keywordHit {
+	want := map[string]bool{}
+	for _, kind := range kinds {
+		want[kind] = true
+	}
+	all := len(kinds) == 0
+	// Per-kind cap: enough that one busy kind cannot push the others out,
+	// but the merge still has room to interleave tiers.
+	perKind := limit
+	if perKind < 5 {
+		perKind = 5
+	}
+
+	var out []keywordHit
+	if all || want["task"] {
+		out = append(out, s.keywordKind(query, perKind, kindQuery{
+			kind: "task", model: &models.Task{},
+			title: "name", body: "description",
+			scope: func(db *gorm.DB) *gorm.DB { return db.Where("user_id = ?", userID) },
+		})...)
+	}
+	if all || want["project"] {
+		out = append(out, s.keywordKind(query, perKind, kindQuery{
+			kind: "project", model: &models.Project{},
+			title: "projects.title", body: "projects.description", id: "projects.id", updated: "projects.updated_at",
+			scope: func(db *gorm.DB) *gorm.DB {
+				return db.Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
+					Where("workspaces.user_id = ?", userID)
+			},
+		})...)
+	}
+	if all || want["doc"] {
+		out = append(out, s.keywordKind(query, perKind, kindQuery{
+			kind: "doc", model: &models.Document{},
+			title: "title", body: "plain_text",
+			scope: func(db *gorm.DB) *gorm.DB { return db.Where("user_id = ?", userID) },
+		})...)
+	}
+	if all || want["sheet"] {
+		out = append(out, s.keywordKind(query, perKind, kindQuery{
+			kind: "sheet", model: &models.Sheet{},
+			title: "title",
+			scope: func(db *gorm.DB) *gorm.DB { return db.Where("user_id = ?", userID) },
+		})...)
+	}
+	if all || want["event"] {
+		out = append(out, s.keywordKind(query, perKind, kindQuery{
+			kind: "event", model: &models.Event{},
+			title: "title", body: "description",
+			scope: func(db *gorm.DB) *gorm.DB { return db.Where("user_id = ?", userID) },
+		})...)
+	}
+
+	// Stable: within a tier the per-kind order (most recent first) and the
+	// kind order (tasks, projects, docs, sheets, events) are preserved.
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Tier > out[j].Tier })
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out
 }
 
-func (s *service) projects(userID, like string, limit int) []Hit {
-	var rows []models.Project
-	_ = s.db.
-		Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
-		Where("workspaces.user_id = ?", userID).
-		Where("projects.title ILIKE ? OR projects.description ILIKE ?", like, like).
-		Select("projects.id", "projects.title", "projects.description").
-		Limit(limit).
-		Find(&rows)
-	out := make([]Hit, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, Hit{Kind: "project", ID: row.ID, Title: row.Title, Snippet: snippet(row.Description)})
+type kindQuery struct {
+	kind    string
+	model   any
+	title   string
+	body    string // empty when the kind has no body column
+	id      string // defaults to "id"
+	updated string // defaults to "updated_at"
+	scope   func(*gorm.DB) *gorm.DB
+}
+
+func (s *service) keywordKind(query string, limit int, q kindQuery) []keywordHit {
+	if q.id == "" {
+		q.id = "id"
+	}
+	if q.updated == "" {
+		q.updated = "updated_at"
+	}
+	escaped := escapeLike(query)
+	like := "%" + escaped + "%"
+	prefix := escaped + "%"
+
+	tier := fmt.Sprintf(
+		"CASE WHEN lower(%[1]s) = lower(?) THEN %[2]d WHEN %[1]s ILIKE ? THEN %[3]d WHEN %[1]s ILIKE ? THEN %[4]d ELSE %[5]d END",
+		q.title, tierExactTitle, tierTitlePrefix, tierTitleMatch, tierBodyMatch,
+	)
+	bodySelect := "'' AS body"
+	match := q.title + " ILIKE ?"
+	matchArgs := []any{like}
+	if q.body != "" {
+		bodySelect = q.body + " AS body"
+		match = "(" + q.title + " ILIKE ? OR " + q.body + " ILIKE ?)"
+		matchArgs = append(matchArgs, like)
+	}
+
+	type row struct {
+		ID    string
+		Title string
+		Body  string
+		Tier  int
+	}
+	var rows []row
+	db := s.db.Model(q.model).
+		Select(q.id+" AS id, "+q.title+" AS title, "+bodySelect+", "+tier+" AS tier", query, prefix, like).
+		Where(match, matchArgs...).
+		Order("tier DESC").
+		Order(q.updated + " DESC").
+		Limit(limit)
+	if q.scope != nil {
+		db = q.scope(db)
+	}
+	if err := db.Scan(&rows).Error; err != nil {
+		log.Printf("search: keyword %s query failed: %v", q.kind, err)
+		return nil
+	}
+
+	out := make([]keywordHit, 0, len(rows))
+	for _, r := range rows {
+		text := r.Body
+		if q.body == "" {
+			text = r.Title
+		}
+		out = append(out, keywordHit{
+			Hit:  Hit{Kind: q.kind, ID: r.ID, Title: r.Title, Snippet: snippet(text)},
+			Tier: r.Tier,
+		})
 	}
 	return out
 }
 
-func (s *service) docs(userID, like string, limit int) []Hit {
-	var rows []models.Document
-	_ = s.db.Select("id", "title", "plain_text").
-		Where("user_id = ?", userID).
-		Where("title ILIKE ? OR plain_text ILIKE ?", like, like).
-		Limit(limit).
-		Find(&rows)
-	out := make([]Hit, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, Hit{Kind: "doc", ID: row.ID, Title: row.Title, Snippet: snippet(row.PlainText)})
+func clampLimit(limit int) int {
+	if limit <= 0 || limit > 50 {
+		return 20
 	}
-	return out
+	return limit
 }
 
-func (s *service) sheets(userID, like string, limit int) []Hit {
-	var rows []models.Sheet
-	_ = s.db.Select("id", "title").
-		Where("user_id = ?", userID).
-		Where("title ILIKE ?", like).
-		Limit(limit).
-		Find(&rows)
-	out := make([]Hit, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, Hit{Kind: "sheet", ID: row.ID, Title: row.Title, Snippet: snippet(row.Title)})
-	}
-	return out
-}
+var searchKinds = map[string]bool{"task": true, "project": true, "doc": true, "sheet": true, "event": true}
 
-func (s *service) events(userID, like string, limit int) []Hit {
-	var rows []models.Event
-	_ = s.db.Select("id", "title", "description").
-		Where("user_id = ?", userID).
-		Where("title ILIKE ? OR description ILIKE ?", like, like).
-		Limit(limit).
-		Find(&rows)
-	out := make([]Hit, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, Hit{Kind: "event", ID: row.ID, Title: row.Title, Snippet: snippet(row.Description)})
+func allowedKinds(kinds []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, kind := range kinds {
+		kind = strings.ToLower(strings.TrimSpace(kind))
+		if !searchKinds[kind] || seen[kind] {
+			continue
+		}
+		seen[kind] = true
+		out = append(out, kind)
 	}
 	return out
 }

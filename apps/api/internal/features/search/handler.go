@@ -24,7 +24,10 @@ func (h *Handler) Search(c *echo.Context) error {
 	}
 
 	query := c.QueryParam("q")
-	if strings.EqualFold(c.QueryParam("mode"), "semantic") {
+	// mode=semantic (or hybrid) fuses keyword and vector hits and never 503s:
+	// without an embedding provider it returns keyword-only results.
+	mode := c.QueryParam("mode")
+	if strings.EqualFold(mode, "semantic") || strings.EqualFold(mode, "hybrid") {
 		kinds := splitKinds(c.QueryParam("kinds"))
 		hits, err := h.service.SemanticSearch(c.Request().Context(), userID, query, 20, kinds)
 		if err != nil {
