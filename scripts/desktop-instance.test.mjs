@@ -57,7 +57,7 @@ test("Tailscale state drives the install hint, the connect hint, and the toggle"
   assert.equal(offline.tone, "warn");
   assert.match(offline.detail, /not connected/);
 
-  assert.equal(describeTailscale(instance.tailscale, false).label, "Connected, sharing off");
+  assert.equal(describeTailscale(instance.tailscale, false).label, "Connected, Tailscale access off");
   const on = describeTailscale(instance.tailscale, true);
   assert.equal(on.tone, "ok");
   assert.match(on.detail, /my-laptop/);
