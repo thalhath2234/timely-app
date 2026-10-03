@@ -6,13 +6,13 @@ import {
   CircleAlert,
   Eye,
   KeyRound,
-  Loader2,
   RefreshCw,
   Search,
   ShieldCheck,
   TerminalSquare,
   Unplug,
 } from "lucide-react";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { cn } from "@/app/utils/cn";
 import {
   useAgentProviders,
@@ -138,7 +138,7 @@ export function ModelPicker({
           />
         </div>
         {saving && (
-          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          <LogoSpinner size={16} className="text-muted-foreground" label="Saving" />
         )}
         {!saving && dirty && allowCustom && (
           <button
@@ -277,9 +277,7 @@ function ProviderCard({
             }
             className={secondaryButton}
           >
-            {makingDefault ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : null}
+            {makingDefault ? <LogoSpinner size={14} label="Saving" /> : null}
             Use as default
           </button>
         )}
@@ -390,7 +388,7 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
                 className={primaryButton}
               >
                 {setKey.isPending ? (
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <LogoSpinner size={14} tone="mono" label="Checking" />
                 ) : (
                   <Check className="size-3.5" />
                 )}
@@ -460,7 +458,7 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
             className="flex items-center gap-2 text-xs text-muted-foreground"
             data-testid="reindex-progress"
           >
-            <Loader2 className="size-3.5 animate-spin" />
+            <LogoSpinner size={14} label="Rebuilding" />
             Rebuilding search index… {reindex.done}
             {reindex.total ? ` / ${reindex.total}` : ""}
           </div>
@@ -579,7 +577,7 @@ function CliCard({
             className={view.connected ? secondaryButton : primaryButton}
           >
             {connect.isPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <LogoSpinner size={14} tone={view.connected ? "brand" : "mono"} label="Checking" />
             ) : (
               <RefreshCw className="size-3.5" />
             )}

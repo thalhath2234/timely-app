@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Link, Redirect, useRouter } from "expo-router";
 import Screen from "../components/ui/Screen";
+import TimelyLogo from "../components/ui/TimelyLogo";
 import { Field, PrimaryButton } from "../components/ui/primitives";
 import { isOnboarded, useAuth } from "../lib/auth/AuthProvider";
 import { colors, createThemedStyleSheet } from "../lib/theme";
@@ -38,6 +39,7 @@ export default function SignupScreen() {
   return (
     <Screen padded>
       <View style={styles.wrap}>
+        <TimelyLogo size={36} style={styles.logo} />
         <Text style={styles.title}>Create account</Text>
         <Text style={styles.sub}>Start planning in Timely</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -57,6 +59,7 @@ export default function SignupScreen() {
 
 const styles = createThemedStyleSheet((colors) => ({
   wrap: { flex: 1, justifyContent: "center", gap: 14 },
+  logo: { marginBottom: 4 },
   title: { color: colors.foreground, fontSize: 34, fontWeight: "700", letterSpacing: -0.8 },
   sub: { color: colors.mutedForeground, fontSize: 15, marginBottom: 10 },
   error: { color: colors.destructive, fontSize: 13 },

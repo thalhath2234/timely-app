@@ -2,7 +2,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowUp, Calendar, Check, Circle, ListTodo, LoaderCircle, RotateCcw, Table2, X } from "lucide-react";
+import { ArrowUp, Calendar, Check, Circle, ListTodo, RotateCcw, Table2, X } from "lucide-react";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { cn } from "@/app/utils/cn";
 import { SHEET_TITLE } from "../sampleData";
 import {
@@ -92,7 +93,7 @@ function Proposal({
                   <Check className="size-2.5 text-background" strokeWidth={3.5} />
                 </motion.span>
               ) : running ? (
-                <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary" />
+                <LogoSpinner size={14} tone="mono" className="text-primary" label="Working" />
               ) : (
                 <Circle className="size-3.5 shrink-0 text-muted-foreground" />
               )}
@@ -188,7 +189,7 @@ function Scene() {
                   transition={{ ...sceneEase, delay: 0.3 }}
                   className="mini-10 flex w-fit items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 font-medium text-muted-foreground"
                 >
-                  <LoaderCircle className="size-2.5 animate-spin" />
+                  <LogoSpinner size={12} label="Working" />
                   Working: reading your calendar and the receipt
                 </motion.p>
               ) : null}

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Keyboard,
   Platform,
   Pressable,
@@ -48,6 +47,7 @@ import BottomSheet from "../ui/BottomSheet";
 import { Field, PrimaryButton } from "../ui/primitives";
 import { useKeyboardAccessory } from "../ui/SheetHost";
 import { buildEditorHtml } from "./editorHtml";
+import TimelyLogo from "../ui/TimelyLogo";
 
 type Picker = { kind: "slash" | "mention"; query: string; from: number; to: number } | null;
 
@@ -421,7 +421,7 @@ export default function RichTextEditor({
                 Could not load the editor. Check that the emulator can reach the internet.
               </Text>
             ) : (
-              <ActivityIndicator color={colors.mutedForeground} />
+              <TimelyLogo size={36} animated />
             )}
           </View>
         ) : null}

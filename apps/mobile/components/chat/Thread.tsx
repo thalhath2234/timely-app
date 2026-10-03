@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import {
   AlertTriangle,
   Ban,
@@ -24,6 +24,7 @@ import ChangeCards from "./ChangeCards";
 import ImagePreview from "./ImagePreview";
 import { dayLabel, isBusy, phaseLabel, timeOfDay } from "./chatMeta";
 import { Action, ChatText, styles as common } from "./shared";
+import { LogoSpinner } from "../ui/TimelyLogo";
 
 const suggestions: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: CalendarDays, title: "Plan my day", text: "Help me plan today." },
@@ -148,7 +149,7 @@ export function StatusCard({
       <View style={styles.statusRow}>
         <View style={[styles.statusIcon, { backgroundColor: `${color}1f` }]}>
           {spinning ? (
-            <ActivityIndicator size="small" color={color} />
+            <LogoSpinner size={18} color={color} />
           ) : (
             <Icon size={18} color={color} />
           )}

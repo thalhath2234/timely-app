@@ -1,10 +1,18 @@
-import { ActivityIndicator, Text, View } from "react-native";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { Text, View } from "react-native";
+import TimelyLogo from "./TimelyLogo";
+import { createThemedStyleSheet } from "../../lib/theme";
 
 export default function StartupLoader() {
   return (
-    <View style={styles.container} accessibilityLiveRegion="polite">
-      <ActivityIndicator accessibilityLabel="Preparing Timely" color={colors.primary} size="large" />
+    <View
+      style={styles.container}
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityState={{ busy: true }}
+      accessibilityLiveRegion="polite"
+      accessibilityLabel="Preparing Timely"
+    >
+      <TimelyLogo size={64} animated />
       <Text style={styles.label}>Preparing Timely</Text>
     </View>
   );
@@ -15,7 +23,7 @@ const styles = createThemedStyleSheet((colors) => ({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 14,
+    gap: 18,
     backgroundColor: colors.background,
   },
   label: {

@@ -2,7 +2,6 @@ import * as Clipboard from "expo-clipboard";
 import { PROVIDER_LABELS, type ProviderId } from "../../lib/api/agentProviders";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -49,6 +48,7 @@ import ReceiptReview from "./ReceiptReview";
 import Thread, { FailureCard, RunStatus, StatusCard, Welcome } from "./Thread";
 import { isBusy, phaseLabel } from "./chatMeta";
 import { Action, IconButton } from "./shared";
+import TimelyLogo from "../ui/TimelyLogo";
 
 type Page = "chat" | "history" | "proposal" | "receipt";
 
@@ -775,9 +775,10 @@ export default function Assistant() {
               ) : (
                 <>
                   {id && query.isLoading ? (
-                    <ActivityIndicator
-                      color={colors.primary}
-                      style={{ marginTop: 24 }}
+                    <TimelyLogo
+                      size={40}
+                      animated
+                      style={{ alignSelf: "center", marginTop: 24 }}
                     />
                   ) : null}
                   {id && !chat && offline ? (

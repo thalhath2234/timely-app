@@ -3,12 +3,15 @@ productName: Timely
 executableName: Timely
 copyright: Copyright © Timely
 
+# App icon: electron/resources/icon.png (1024 px). electron-builder derives the
+# .icns and .ico from it; Linux targets use the PNG directly.
 directories:
   output: release
   buildResources: electron/resources
 
 files:
   - dist-electron/**/*
+  - electron/resources/icon.png
   - package.json
 
 extraResources:

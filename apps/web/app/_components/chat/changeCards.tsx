@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import type { ChatStep } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import ChatText from "./chatText";
@@ -172,10 +173,11 @@ export default function ChangeCards({
                     status.className,
                   )}
                 >
-                  <StatusIcon
-                    className={cn("size-2.5", status.spin && "animate-spin")}
-                    strokeWidth={3}
-                  />
+                  {status.spin ? (
+                    <LogoSpinner size={12} tone="mono" label={status.label} />
+                  ) : (
+                    <StatusIcon className="size-2.5" strokeWidth={3} />
+                  )}
                 </span>
               </div>
               <div className="min-w-0 flex-1">

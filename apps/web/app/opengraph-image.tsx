@@ -85,21 +85,11 @@ export default async function Image() {
       >
         <div style={{ display: "flex", flexDirection: "column", width: 560 }}>
           <div style={{ display: "flex", alignItems: "center", fontFamily: "Display", fontSize: 36, fontWeight: 800 }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 52,
-                height: 52,
-                marginRight: 16,
-                borderRadius: 14,
-                background: "#c0c1ff",
-                color: "#1000a9",
-              }}
-            >
-              T
-            </div>
+            <svg width={52} height={52} viewBox="0 0 32 32" style={{ marginRight: 16 }}>
+              <rect x={4} y={5.5} width={24} height={5.5} rx={2.75} fill="#f5f2ff" />
+              <rect x={4} y={13.25} width={15} height={5.5} rx={2.75} fill="#c0c1ff" />
+              <rect x={4} y={21} width={20} height={5.5} rx={2.75} fill="#f5f2ff" />
+            </svg>
             Timely
           </div>
           <div
