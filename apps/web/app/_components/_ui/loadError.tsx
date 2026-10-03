@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, RefreshCw } from "lucide-react";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { cn } from "@/app/utils/cn";
 
 function describe(error: unknown, fallback: string) {
@@ -44,7 +45,7 @@ export default function LoadError({ what, error, onRetry, retrying, className }:
           disabled={retrying}
           className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
         >
-          <RefreshCw className={cn("size-3.5", retrying && "animate-spin")} />
+          {retrying ? <LogoSpinner size={14} tone="mono" label="Retrying" /> : <RefreshCw className="size-3.5" />}
           {retrying ? "Retrying…" : "Retry"}
         </button>
       ) : null}
@@ -79,7 +80,7 @@ export function LoadErrorBanner({ what, error, onRetry, retrying, className }: L
           disabled={retrying}
           className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 font-medium text-secondary-foreground hover:bg-accent disabled:opacity-60"
         >
-          <RefreshCw className={cn("size-3", retrying && "animate-spin")} />
+          {retrying ? <LogoSpinner size={12} label="Retrying" /> : <RefreshCw className="size-3" />}
           {retrying ? "Retrying…" : "Retry"}
         </button>
       ) : null}

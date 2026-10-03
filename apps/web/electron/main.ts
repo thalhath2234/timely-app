@@ -197,6 +197,16 @@ function attachWindowGuards(win: BrowserWindow, rendererUrl: string) {
   });
 }
 
+/**
+ * The Timely mark, shipped at electron/resources/icon.png. Packaged builds
+ * get their dock/taskbar icon from electron-builder; the window icon covers
+ * `make dev-desktop` and unpacked Linux/Windows builds.
+ */
+function windowIcon(): string | undefined {
+  const icon = path.join(app.getAppPath(), "electron", "resources", "icon.png");
+  return existsSync(icon) ? icon : undefined;
+}
+
 async function createWindow(rendererUrl: string) {
   const win = new BrowserWindow({
     width: 1280,
@@ -204,6 +214,7 @@ async function createWindow(rendererUrl: string) {
     minWidth: 900,
     minHeight: 600,
     title: "Timely",
+    icon: windowIcon(),
     show: false,
     autoHideMenuBar: process.platform === "linux",
     webPreferences: {
@@ -235,6 +246,10 @@ function stopStandaloneServer() {
 async function boot() {
   loadEnvFiles();
   installApplicationMenu();
+  // Packaged macOS builds carry the icon in the bundle; `make dev-desktop`
+  // would otherwise show Electron's default dock icon.
+  const icon = windowIcon();
+  if (process.platform === "darwin" && !app.isPackaged && icon) app.dock?.setIcon(icon);
 
   const rendererUrl = await resolveRendererUrl();
   try {

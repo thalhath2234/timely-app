@@ -9,12 +9,12 @@ import {
   CalendarClock,
   Check,
   Clock,
-  Loader2,
   Moon,
   Plus,
   Star,
   Sun,
 } from "lucide-react";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import ColorChip from "@/app/_components/_ui/colorChip";
@@ -406,7 +406,7 @@ function FocusTaskRow({
               )}
               title="Elapsed in this session"
             >
-              <Loader2 className="size-3.5 animate-spin" />
+              <LogoSpinner size={14} tone="mono" label="Focusing" />
               {formatElapsed(elapsed)}
             </div>
             <Link

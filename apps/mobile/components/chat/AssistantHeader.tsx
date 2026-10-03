@@ -1,7 +1,8 @@
 import { type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { ArrowLeft, Sparkles, X } from "lucide-react-native";
+import { ArrowLeft, X } from "lucide-react-native";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import TimelyLogo from "../ui/TimelyLogo";
 import { IconButton, Pill } from "./shared";
 import { statusMeta } from "./chatMeta";
 
@@ -39,7 +40,7 @@ export default function AssistantHeader({
       </IconButton>
       {!back ? (
         <View style={styles.logo}>
-          <Sparkles size={16} color={colors.primary} />
+          <TimelyLogo size={18} />
         </View>
       ) : null}
       <View style={{ flex: 1, minWidth: 0 }}>

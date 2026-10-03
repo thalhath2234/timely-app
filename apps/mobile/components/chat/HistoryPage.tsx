@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -16,6 +15,7 @@ import ConfirmSheet from "../ui/ConfirmSheet";
 import EmptyState from "../ui/EmptyState";
 import ListEnter from "../ui/ListEnter";
 import { Field, PrimaryButton } from "../ui/primitives";
+import TimelyLogo from "../ui/TimelyLogo";
 import { groupChats, relativeTime, statusMeta, toneColor } from "./chatMeta";
 import { Action } from "./shared";
 
@@ -95,7 +95,7 @@ export default function HistoryPage({
           </View>
         ) : null}
         {loading && !chats.length ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />
+          <TimelyLogo size={40} animated style={{ alignSelf: "center", marginTop: 32 }} />
         ) : null}
         {!loading && !error && !filtered.length ? (
           <EmptyState

@@ -1,7 +1,8 @@
 "use client";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { ImageIcon, LoaderCircle, X } from "lucide-react";
+import { ImageIcon, X } from "lucide-react";
+import TimelyLogo, { SPINNER_LOOP_SECONDS } from "@/app/_components/_ui/timelyLogo";
 import { apiFetch } from "@/app/utils/api/client";
 import {
   chatRequest,
@@ -79,7 +80,7 @@ export function ImagePreview({
           role="status"
           className="flex h-28 items-center justify-center p-6"
         >
-          <LoaderCircle className="size-4 animate-spin" />
+          <TimelyLogo size={20} animated duration={SPINNER_LOOP_SECONDS} />
           <span className="sr-only">Loading image</span>
         </div>
       )}

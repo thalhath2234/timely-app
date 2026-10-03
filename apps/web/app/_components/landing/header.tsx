@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TimelyWordmark } from "@/app/_components/_ui/timelyLogo";
 import GitHubMark from "./githubMark";
 import LoopNav from "./loopNav";
 import { REPO_URL } from "./sampleData";
@@ -12,10 +13,7 @@ export default function Header() {
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-5 sm:px-8">
         <Link href="/" className="flex items-center gap-2.5" aria-label="Timely home">
-          <span className="flex size-8 items-center justify-center rounded-[0.6rem] bg-[#c0c1ff] text-[#1000a9]">
-            <span className="l-display text-base font-extrabold select-none">T</span>
-          </span>
-          <span className="l-display text-xl font-bold">Timely</span>
+          <TimelyWordmark textClassName="l-display font-bold" />
         </Link>
 
         <LoopNav />
