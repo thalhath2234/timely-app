@@ -1,0 +1,15 @@
+{
+  // Declaration-only emit for the converter's .d.ts extraction (see build.mjs).
+  "extends": "../../apps/web/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "incremental": false,
+    "rootDir": "../..",
+    "outDir": "dist/types",
+    "plugins": []
+  },
+  "files": ["index.ts", "../../apps/web/lucide-icon-modules.d.ts", "../../apps/web/view-transitions.d.ts", "../../apps/web/electron-env.d.ts"],
+  "include": []
+}
