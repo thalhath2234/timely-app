@@ -1,11 +1,16 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
+	"time"
+
+	"timely-api/migrations"
 
 	"github.com/pressly/goose/v3"
 	"gorm.io/driver/postgres"
@@ -14,13 +19,49 @@ import (
 
 var DB *gorm.DB
 
-// RunMigrations executes Goose migrations from the migrations directory
+func init() {
+	goose.SetBaseFS(migrations.FS)
+}
+
+// RunMigrations applies the embedded Goose migrations.
 func RunMigrations(db *sql.DB) error {
-	if err := goose.Up(db, "migrations"); err != nil {
+	if err := goose.Up(db, "."); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
 	return nil
+}
+
+// MigrationState reports the database's current schema version and how many
+// embedded migrations are newer than it.
+type MigrationState struct {
+	Version int64 `json:"version"`
+	Pending int   `json:"pending"`
+}
+
+func Migrations(ctx context.Context, db *sql.DB) (MigrationState, error) {
+	current, err := goose.GetDBVersionContext(ctx, db)
+	if err != nil {
+		return MigrationState{}, err
+	}
+	all, err := goose.CollectMigrations(".", 0, math.MaxInt64)
+	if err != nil {
+		return MigrationState{Version: current}, err
+	}
+	pending := 0
+	for _, m := range all {
+		if m.Version > current {
+			pending++
+		}
+	}
+	return MigrationState{Version: current, Pending: pending}, nil
+}
+
+// Ping checks the connection with a short timeout.
+func Ping(ctx context.Context, db *sql.DB) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	return db.PingContext(ctx)
 }
 
 func InitDB() *gorm.DB {
@@ -38,7 +79,7 @@ func InitDB() *gorm.DB {
 	// runs that belong to the main checkout.
 	schema := strings.TrimSpace(os.Getenv("DB_SCHEMA"))
 	if schema != "" {
-		dsn += " search_path=" + schema + ",public" // public keeps extensions such as pgvector reachable
+		dsn += " search_path=" + schema + ",public"
 	}
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})

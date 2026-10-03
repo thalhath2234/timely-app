@@ -52,6 +52,10 @@ func (f *fakeUserRepo) UpdateUser(user *models.User) error {
 	return nil
 }
 
+func (f *fakeUserRepo) CountUsers() (int64, error) {
+	return int64(len(f.byID)), nil
+}
+
 type fakeSessions struct {
 	byID      map[string]*models.UserSession
 	byRefresh map[string]*models.UserSession

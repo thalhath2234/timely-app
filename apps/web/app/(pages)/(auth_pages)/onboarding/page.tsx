@@ -16,6 +16,7 @@ import AuthBrandPanel from "../_components/authBrandPanel";
 import { motion } from "motion/react";
 import { LogoLoader, LogoSpinner, TimelyWordmark } from "@/app/_components/_ui/timelyLogo";
 import { springSoft } from "@/app/_components/_ui/motion";
+import { routeAfterOnboarding } from "@/app/utils/desktopInstance";
 
 const workspaceSchema = z.object({
   name: z
@@ -81,7 +82,11 @@ export default function Onboarding() {
           : old,
       );
 
-      router.replace("/calendar");
+      // Inside the desktop app the first-run wizard (Tailscale, agent
+      // provider, phone pairing) runs once before the calendar.
+      const bridge = window.timelyDesktop?.instance;
+      const instance = bridge ? await bridge.get().catch(() => null) : null;
+      router.replace(routeAfterOnboarding(instance));
     },
   });
 

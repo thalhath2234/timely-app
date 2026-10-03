@@ -52,6 +52,12 @@
       ],
       "expo-secure-store",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the QR code shown in Timely on your computer."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Choose images to discuss with the Timely assistant.",

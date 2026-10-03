@@ -112,6 +112,9 @@ func (s *Service) Register(worker *jobs.Worker) {
 	worker.Handle(models.JobReindexUser, s.handleReindex)
 }
 
+// LocalCLI reports whether host CLIs may be used (CHAT_LOCAL_CLI != off).
+func (s *Service) LocalCLI() bool { return s.localCLI }
+
 // ---- storage ----
 
 func (s *Service) load(db *gorm.DB, userID string) (Settings, error) {

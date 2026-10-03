@@ -32,9 +32,13 @@ Edit the generated file under `apps/api/migrations`. Add `-- +goose Up` and
 section reverse the Up section when reversal is possible. Check the existing
 files for the project's schema and naming conventions.
 
-The `vector` extension is created by a schema migration, so the PostgreSQL
-server must have pgvector installed before that migration runs. The repository's
-Docker Compose database image includes it.
+Migrations are embedded in the API binary (`migrations/embed.go`), so the
+packaged app applies them from any working directory; the `goose` CLI targets
+read the same files from disk. No PostgreSQL extension is required: any
+PostgreSQL 15 or newer works (17 recommended). Embeddings are stored as
+`real[]`; a database created before that change is converted by
+`20261003070129_drop_pgvector.sql` on the next start, and the unused `vector`
+extension can then be dropped by hand if nothing else uses it.
 
 ## Recovery commands
 

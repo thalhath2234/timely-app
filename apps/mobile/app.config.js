@@ -16,13 +16,14 @@ function loadDotEnv(filename) {
   return values;
 }
 
-// The monorepo keeps one .env at the repo root; Expo only reads env files from
-// this directory, so the API URL is read here. Release builds write it there too.
-const env = loadDotEnv("../../.env");
-const fromEnvFile = env.EXPO_PUBLIC_API_URL || "";
-const fromProcess = process.env.EXPO_PUBLIC_API_URL || "";
-const emulatorOnly = fromProcess.includes("10.0.2.2") || fromProcess.includes("localhost");
-const apiUrl = fromEnvFile || (emulatorOnly ? "" : fromProcess) || "";
+// Development convenience only: the phone pairs with a server at runtime
+// (lib/server), so nothing here is required. `EXPO_PUBLIC_API_URL` from the
+// process or the root .env pre-fills the address dev builds use on the
+// emulator; the root .env is skipped for production builds so a release APK
+// never picks up a developer's emulator address.
+const fromProcess = (process.env.EXPO_PUBLIC_API_URL || "").trim();
+const fromEnvFile = process.env.NODE_ENV === "production" ? "" : (loadDotEnv("../../.env").EXPO_PUBLIC_API_URL || "").trim();
+const apiUrl = (fromProcess || fromEnvFile).replace(/\/+$/, "");
 
 module.exports = {
   expo: {
@@ -30,8 +31,6 @@ module.exports = {
     // expo-sharing (SDK 57) registers its config plugin; `expo install --fix`
     // cannot write it into a dynamic config, so it is added here.
     plugins: [...(appJson.expo.plugins ?? []), "expo-sharing"],
-    extra: {
-      apiUrl,
-    },
+    extra: apiUrl ? { apiUrl } : {},
   },
 };

@@ -1,6 +1,6 @@
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import { api, API_URL, ApiError, readError } from "./client";
+import { api, ApiError, getApiUrl, readError, tunnelHeaders } from "./client";
 import { getToken } from "../auth/session";
 
 export type BackupSettings = {
@@ -27,11 +27,11 @@ export function createBackup() { return api<BackupFile>("/backups", { method: "P
 export function deleteBackup(id: string) { return api<void>(`/backups/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 
 async function authenticatedDownload(path: string, filename: string) {
+  const baseUrl = await getApiUrl();
   const token = await getToken();
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...tunnelHeaders(baseUrl) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (API_URL.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
-  const response = await fetch(`${API_URL}${path}`, { headers });
+  const response = await fetch(`${baseUrl}${path}`, { headers });
   if (!response.ok) throw new ApiError(await readError(response, "Download failed"), response.status);
   const target = new File(Paths.cache, filename);
   if (target.exists) target.delete();

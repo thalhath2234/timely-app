@@ -10,13 +10,26 @@ import ApiKeysSettings from "@/app/_components/settings/apiKeysSettings";
 import AgentSettings from "@/app/_components/settings/agentSettings";
 import DataSettings from "@/app/_components/settings/dataSettings";
 import AppearanceSettings from "@/app/_components/settings/appearanceSettings";
+import ServerSettings from "@/app/_components/settings/serverSettings";
+import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import { cn } from "@/app/utils/cn";
 import { AnimatePresence, motion } from "motion/react";
 import { fadeTransition, springSoft } from "@/app/_components/_ui/motion";
 
-type SettingsTab = "account" | "appearance" | "schedule" | "notifications" | "workspaces" | "agent" | "data" | "integrations";
+type SettingsTab =
+  | "account"
+  | "appearance"
+  | "schedule"
+  | "notifications"
+  | "workspaces"
+  | "agent"
+  | "data"
+  | "integrations"
+  | "server";
 
-const TABS: { id: SettingsTab; label: string; description: string }[] = [
+type TabItem = { id: SettingsTab; label: string; description: string };
+
+const TABS: TabItem[] = [
   {
     id: "account",
     label: "Account",
@@ -59,8 +72,16 @@ const TABS: { id: SettingsTab; label: string; description: string }[] = [
   },
 ];
 
+// Only the desktop app hosts its own server; the tab is appended after mount
+// so the list never flashes in a browser.
+const SERVER_TAB: TabItem = {
+  id: "server",
+  label: "Server",
+  description: "Address, pairing, and status",
+};
+
 function isTab(value: string | null): value is SettingsTab {
-  return TABS.some((tab) => tab.id === value);
+  return value === SERVER_TAB.id || TABS.some((tab) => tab.id === value);
 }
 
 export default function SettingsPage() {
@@ -80,6 +101,8 @@ function SettingsContent() {
 
 function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
+  const desktop = useDesktopBridge();
+  const tabs = desktop ? [...TABS, SERVER_TAB] : TABS;
 
   return (
     <main className="flex h-full flex-col overflow-hidden bg-background">
@@ -92,7 +115,7 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
 
       <div className="flex min-h-0 flex-1">
         <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border bg-background p-3">
-          {TABS.map((item) => {
+          {tabs.map((item) => {
             const active = tab === item.id;
             return (
               <button
@@ -140,6 +163,7 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
               {tab === "agent" && <AgentSettings />}
               {tab === "data" && <DataSettings />}
               {tab === "integrations" && <ApiKeysSettings />}
+              {tab === "server" && <ServerSettings />}
             </motion.div>
           </AnimatePresence>
         </div>

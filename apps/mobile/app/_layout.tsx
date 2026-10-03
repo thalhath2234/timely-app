@@ -8,6 +8,7 @@ import { useFonts } from "expo-font";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "../lib/auth/AuthProvider";
+import { ServerProvider } from "../lib/server/ServerProvider";
 import { colors, createThemedStyleSheet, initializeTheme, ThemeRoot } from "../lib/theme";
 import { stackFadeAnimation, stackPushAnimation } from "../lib/motion";
 import ConnectivityBanner from "../components/ConnectivityBanner";
@@ -63,6 +64,7 @@ export default function RootLayout() {
     <ThemeRoot>
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
+        <ServerProvider>
         <AuthProvider>
           <AssistantProvider>
             <View style={styles.shell}>
@@ -77,6 +79,7 @@ export default function RootLayout() {
                 }}
               >
                 <Stack.Screen name="index" options={{ animation: "none" }} />
+                <Stack.Screen name="connect" options={{ animation: stackFadeAnimation(reduceMotion) }} />
                 <Stack.Screen name="login" options={{ animation: stackFadeAnimation(reduceMotion) }} />
                 <Stack.Screen name="signup" options={{ animation: stackPushAnimation(reduceMotion) }} />
                 <Stack.Screen name="onboarding" options={{ animation: stackFadeAnimation(reduceMotion) }} />
@@ -87,6 +90,7 @@ export default function RootLayout() {
             </View>
           </AssistantProvider>
         </AuthProvider>
+        </ServerProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
     </ThemeRoot>

@@ -1,7 +1,7 @@
 import type { Doc, DocContent } from "../types";
 import { getToken } from "../auth/session";
 import { isRichContentEmpty } from "../richText";
-import { API_URL, api, unwrap } from "./client";
+import { api, getApiUrl, tunnelHeaders, unwrap } from "./client";
 
 export type DocWatchEvent = {
   type: "hello" | "updated" | "deleted";
@@ -67,12 +67,12 @@ export function watchDoc(id: string, onEvent: (event: DocWatchEvent) => void) {
 
   void (async () => {
     try {
+      const baseUrl = await getApiUrl();
       const token = await getToken();
-      const headers: Record<string, string> = { Accept: "text/event-stream" };
+      const headers: Record<string, string> = { Accept: "text/event-stream", ...tunnelHeaders(baseUrl) };
       if (token) headers.Authorization = `Bearer ${token}`;
-      if (API_URL.includes("ngrok")) headers["ngrok-skip-browser-warning"] = "true";
 
-      const response = await fetch(`${API_URL}/docs/${id}/watch`, {
+      const response = await fetch(`${baseUrl}/docs/${id}/watch`, {
         headers,
         signal: controller.signal,
       });

@@ -5,10 +5,12 @@ import Screen from "../components/ui/Screen";
 import TimelyLogo from "../components/ui/TimelyLogo";
 import { Field, PrimaryButton } from "../components/ui/primitives";
 import { isOnboarded, useAuth } from "../lib/auth/AuthProvider";
+import { useServer } from "../lib/server/ServerProvider";
 import { colors, createThemedStyleSheet } from "../lib/theme";
 
 export default function SignupScreen() {
   const { token, user, signup } = useAuth();
+  const server = useServer();
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -16,6 +18,7 @@ export default function SignupScreen() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
+  if (server.status === "unconfigured") return <Redirect href="/connect" />;
   if (token && isOnboarded(user)) return <Redirect href="/(app)/(tabs)/home" />;
   if (token) return <Redirect href="/onboarding" />;
 

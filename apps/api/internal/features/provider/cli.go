@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -158,21 +159,76 @@ type Status struct {
 
 var home, _ = os.UserHomeDir()
 
+// candidates lists the install directories searched after PATH, per OS.
+// The UI never adds to this list (ADR 0009); CLAUDE_BIN / CODEX_BIN cover
+// unusual locations.
 func (t *Tool) candidates() []string {
-	dirs := []string{
-		filepath.Join(home, ".local", "bin"),
-		filepath.Join(home, ".claude", "local"),
-		filepath.Join(home, ".codex", "bin"),
-		filepath.Join(home, ".npm-global", "bin"),
-		filepath.Join(home, ".local", "share", "pnpm"),
-		filepath.Join(home, ".volta", "bin"),
-		filepath.Join(home, ".bun", "bin"),
-		"/usr/local/bin", "/opt/homebrew/bin", "/usr/bin",
-	}
-	if matches, _ := filepath.Glob(filepath.Join(home, ".nvm", "versions", "node", "*", "bin")); len(matches) > 0 {
-		dirs = append(dirs, matches...)
+	var dirs []string
+	switch runtime.GOOS {
+	case "windows":
+		profile := os.Getenv("USERPROFILE")
+		if profile == "" {
+			profile = home
+		}
+		for _, dir := range []string{
+			filepath.Join(os.Getenv("APPDATA"), "npm"),
+			filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "claude"),
+			filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "codex"),
+			filepath.Join(profile, ".claude", "local"),
+			filepath.Join(profile, ".local", "bin"),
+			filepath.Join(os.Getenv("ProgramFiles"), "nodejs"),
+		} {
+			if !strings.HasPrefix(dir, string(filepath.Separator)) && filepath.VolumeName(dir) != "" {
+				dirs = append(dirs, dir)
+			}
+		}
+	case "darwin":
+		dirs = []string{
+			"/opt/homebrew/bin", "/usr/local/bin",
+			filepath.Join(home, ".claude", "local"),
+			filepath.Join(home, ".codex", "bin"),
+			filepath.Join(home, "Library", "pnpm"),
+			filepath.Join(home, ".npm-global", "bin"),
+			filepath.Join(home, ".volta", "bin"),
+			filepath.Join(home, ".bun", "bin"),
+			filepath.Join(home, ".local", "bin"),
+		}
+		if matches, _ := filepath.Glob(filepath.Join(home, ".nvm", "versions", "node", "*", "bin")); len(matches) > 0 {
+			dirs = append(dirs, matches...)
+		}
+	default:
+		dirs = []string{
+			filepath.Join(home, ".local", "bin"),
+			filepath.Join(home, ".claude", "local"),
+			filepath.Join(home, ".codex", "bin"),
+			filepath.Join(home, ".npm-global", "bin"),
+			filepath.Join(home, ".local", "share", "pnpm"),
+			filepath.Join(home, ".volta", "bin"),
+			filepath.Join(home, ".bun", "bin"),
+			"/usr/local/bin", "/opt/homebrew/bin", "/usr/bin",
+		}
+		if matches, _ := filepath.Glob(filepath.Join(home, ".nvm", "versions", "node", "*", "bin")); len(matches) > 0 {
+			dirs = append(dirs, matches...)
+		}
 	}
 	return append(dirs, t.Extra...)
+}
+
+// binaryNames are the file names tried in each candidate directory. npm on
+// Windows installs CLIs as .cmd shims next to an extensionless script.
+func (t *Tool) binaryNames() []string {
+	if runtime.GOOS == "windows" {
+		return []string{t.Name + ".exe", t.Name + ".cmd", t.Name + ".bat"}
+	}
+	return []string{t.Name}
+}
+
+func executable(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return runtime.GOOS == "windows" || info.Mode()&0o111 != 0
 }
 
 // Locate honours the env override first, then PATH, then common install
@@ -188,9 +244,10 @@ func (t *Tool) Locate() string {
 		return path
 	}
 	for _, dir := range t.candidates() {
-		path := filepath.Join(dir, t.Name)
-		if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-			return path
+		for _, name := range t.binaryNames() {
+			if path := filepath.Join(dir, name); executable(path) {
+				return path
+			}
 		}
 	}
 	return ""

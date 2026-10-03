@@ -9,6 +9,7 @@ import (
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/instance"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
@@ -40,13 +41,24 @@ type Handlers struct {
 	Search    *search.Handler
 	Notify    *notify.Handler
 	Portable  *portability.Handler
+	Instance  *instance.Handler
 	MCP       http.Handler
 	Sessions  middleware.SessionGuard
+	// AuthLimiter guards /login, /register and /auth/refresh; nil uses the
+	// production limits (20/min per IP, 8/min per account).
+	AuthLimiter *middleware.RateLimiter
 }
 
 func SetupRoutes(e *echo.Echo, h Handlers) {
 	// Public routes
-	setupPublicRoutes(e, h.Auth)
+	limiter := h.AuthLimiter
+	if limiter == nil {
+		limiter = middleware.NewLoginRateLimiter()
+	}
+	setupPublicRoutes(e, h.Auth, limiter)
+	if h.Instance != nil {
+		e.GET("/health", h.Instance.Health)
+	}
 
 	if h.MCP != nil {
 		e.Any("/mcp", echo.WrapHandler(h.MCP))
@@ -61,6 +73,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	}
 	if h.Providers != nil {
 		h.Providers.Routes(protected)
+	}
+	if h.Instance != nil {
+		protected.GET("/instance", h.Instance.Instance)
 	}
 	setupAuthRoutes(protected, h.Auth)
 	setupTaskRoutes(protected, h.Task)
@@ -82,17 +97,17 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 }
 
 // setupPublicRoutes defines all public endpoints
-func setupPublicRoutes(e *echo.Echo, authHandler *auth.Handler) {
+func setupPublicRoutes(e *echo.Echo, authHandler *auth.Handler, limiter *middleware.RateLimiter) {
 	e.GET("/", func(c *echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{
 			"message": "Hello from Timely API",
 		})
 	})
 
-	e.POST("/register", authHandler.Register)
-	e.POST("/login", authHandler.Login)
+	e.POST("/register", authHandler.Register, limiter.Middleware(true))
+	e.POST("/login", authHandler.Login, limiter.Middleware(true))
 	e.POST("/logout", authHandler.Logout)
-	e.POST("/auth/refresh", authHandler.Refresh)
+	e.POST("/auth/refresh", authHandler.Refresh, limiter.Middleware(false))
 }
 
 // setupAuthRoutes defines all protected auth endpoints

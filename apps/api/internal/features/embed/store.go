@@ -6,7 +6,6 @@ import (
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
 
-	"github.com/pgvector/pgvector-go"
 	"gorm.io/gorm/clause"
 )
 
@@ -28,11 +27,13 @@ func (i *indexer) upsert(ctx context.Context, doc Document) error {
 
 	var existing []models.Embedding
 	if err := i.db.WithContext(ctx).
+		Select("id", "chunk_index", "title", "content_hash", "model", "created_at").
 		Where("user_id = ? AND entity_kind = ? AND entity_id = ?", doc.UserID, doc.Kind, doc.EntityID).
 		Order("chunk_index").
 		Find(&existing).Error; err != nil {
 		return err
 	}
+	changed := false
 	byIndex := map[int]models.Embedding{}
 	for _, row := range existing {
 		byIndex[row.ChunkIndex] = row
@@ -49,6 +50,7 @@ func (i *indexer) upsert(ctx context.Context, doc Document) error {
 		if prev, ok := byIndex[idx]; ok && prev.ContentHash == hash && prev.Model == model {
 			if prev.Title != doc.Title {
 				_ = i.db.WithContext(ctx).Model(&models.Embedding{}).Where("id = ?", prev.ID).Update("title", doc.Title).Error
+				changed = true
 			}
 			continue
 		}
@@ -56,6 +58,7 @@ func (i *indexer) upsert(ctx context.Context, doc Document) error {
 	}
 
 	if len(need) > 0 {
+		changed = true
 		texts := make([]string, len(need))
 		for n, item := range need {
 			texts[n] = item.content
@@ -77,7 +80,7 @@ func (i *indexer) upsert(ctx context.Context, doc Document) error {
 				ChunkIndex:  item.index,
 				Title:       doc.Title,
 				Content:     item.content,
-				Embedding:   pgvector.NewVector(vectors[n]),
+				Embedding:   models.Vector(vectors[n]),
 				ContentHash: item.hash,
 				Model:       model,
 				CreatedAt:   now,
@@ -103,10 +106,45 @@ func (i *indexer) upsert(ctx context.Context, doc Document) error {
 		}
 	}
 
-	return i.db.WithContext(ctx).
+	result := i.db.WithContext(ctx).
 		Where("user_id = ? AND entity_kind = ? AND entity_id = ? AND chunk_index >= ?",
 			doc.UserID, doc.Kind, doc.EntityID, len(chunks)).
-		Delete(&models.Embedding{}).Error
+		Delete(&models.Embedding{})
+	if changed || result.RowsAffected > 0 {
+		i.vectors.invalidate(doc.UserID)
+	}
+	return result.Error
+}
+
+// Invalidate drops the account's cached vectors so the next Query reloads
+// them; call it after writing the embeddings table outside this package.
+func (i *indexer) Invalidate(userID string) {
+	if i == nil || userID == "" {
+		return
+	}
+	i.vectors.invalidate(userID)
+}
+
+// loadChunks reads every chunk the account owns into the cache.
+func (i *indexer) loadChunks(ctx context.Context, userID string) ([]cachedChunk, error) {
+	var rows []models.Embedding
+	if err := i.db.WithContext(ctx).
+		Select("entity_kind", "entity_id", "title", "content", "embedding").
+		Where("user_id = ?", userID).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	chunks := make([]cachedChunk, 0, len(rows))
+	for _, row := range rows {
+		chunks = append(chunks, cachedChunk{
+			kind:     row.EntityKind,
+			entityID: row.EntityID,
+			title:    row.Title,
+			content:  row.Content,
+			vec:      []float32(row.Embedding),
+		})
+	}
+	return chunks, nil
 }
 
 func (i *indexer) Count(ctx context.Context, userID string) (int64, error) {
@@ -135,56 +173,11 @@ func (i *indexer) Query(ctx context.Context, userID, query string, limit int, ki
 	if err := CheckDims(vectors); err != nil {
 		return nil, err
 	}
-	vec := pgvector.NewVector(vectors[0])
-	fetch := limit * 3
-	if fetch < 20 {
-		fetch = 20
-	}
-
-	sql := `
-		SELECT entity_kind, entity_id, title, content,
-		       (1 - (embedding <=> ?)) AS score
-		FROM embeddings
-		WHERE user_id = ?
-		` + kindFilterSQL(kinds) + `
-		ORDER BY embedding <=> ?
-		LIMIT ?
-	`
-	args := []any{vec, userID}
-	args = append(args, appendKindArgs(kinds, vec, fetch)...)
-
-	type row struct {
-		EntityKind string  `gorm:"column:entity_kind"`
-		EntityID   string  `gorm:"column:entity_id"`
-		Title      string  `gorm:"column:title"`
-		Content    string  `gorm:"column:content"`
-		Score      float64 `gorm:"column:score"`
-	}
-	var rows []row
-	if err := i.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
+	chunks, err := i.vectors.get(ctx, userID)
+	if err != nil {
 		return nil, err
 	}
-
-	seen := map[string]bool{}
-	hits := make([]Hit, 0, limit)
-	for _, item := range rows {
-		key := item.EntityKind + ":" + item.EntityID
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		hits = append(hits, Hit{
-			Kind:     item.EntityKind,
-			EntityID: item.EntityID,
-			Title:    item.Title,
-			Content:  item.Content,
-			Score:    item.Score,
-		})
-		if len(hits) >= limit {
-			break
-		}
-	}
-	return hits, nil
+	return rank(chunks, vectors[0], kinds, limit), nil
 }
 
 func normalizeKinds(kinds []string) []string {
@@ -202,22 +195,4 @@ func normalizeKinds(kinds []string) []string {
 		out = append(out, kind)
 	}
 	return out
-}
-
-func kindFilterSQL(kinds []string) string {
-	if len(kinds) == 0 {
-		return ""
-	}
-	placeholders := strings.Repeat("?,", len(kinds))
-	placeholders = placeholders[:len(placeholders)-1]
-	return "AND entity_kind IN (" + placeholders + ")"
-}
-
-func appendKindArgs(kinds []string, vec pgvector.Vector, fetch int) []any {
-	args := make([]any, 0, len(kinds)+2)
-	for _, kind := range kinds {
-		args = append(args, kind)
-	}
-	args = append(args, vec, fetch)
-	return args
 }

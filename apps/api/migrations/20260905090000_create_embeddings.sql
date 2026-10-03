@@ -1,6 +1,6 @@
 -- +goose Up
-CREATE EXTENSION IF NOT EXISTS vector;
-
+-- Embeddings are plain real[] (ADR 0011): similarity runs in the API, so a
+-- fresh database needs no extension.
 CREATE TABLE embeddings (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -9,7 +9,7 @@ CREATE TABLE embeddings (
     chunk_index INTEGER NOT NULL DEFAULT 0,
     title TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL,
-    embedding vector(1536) NOT NULL,
+    embedding real[] NOT NULL,
     content_hash TEXT NOT NULL,
     model TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -18,9 +18,7 @@ CREATE TABLE embeddings (
 );
 
 CREATE INDEX idx_embeddings_entity ON embeddings (user_id, entity_kind, entity_id);
-CREATE INDEX idx_embeddings_embedding_hnsw ON embeddings USING hnsw (embedding vector_cosine_ops);
 
 -- +goose Down
-DROP INDEX IF EXISTS idx_embeddings_embedding_hnsw;
 DROP INDEX IF EXISTS idx_embeddings_entity;
 DROP TABLE IF EXISTS embeddings;

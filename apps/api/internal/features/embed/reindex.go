@@ -20,6 +20,8 @@ func (i *indexer) Reindex(ctx context.Context, userID string, progress func(done
 	if userID == "" {
 		return 0, nil
 	}
+	i.vectors.invalidate(userID)
+	defer i.vectors.invalidate(userID)
 	docs, err := i.collect(ctx, userID)
 	if err != nil {
 		return 0, err

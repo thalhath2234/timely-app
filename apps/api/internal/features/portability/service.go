@@ -26,17 +26,21 @@ import (
 var encryptedMagic = []byte("TLBK1")
 
 type Service struct {
-	db    *gorm.DB
-	queue *jobs.Queue
-	dir   string
-	key   [32]byte
+	db           *gorm.DB
+	queue        *jobs.Queue
+	dir          string
+	key          [32]byte
+	afterRestore func(userID string)
+}
+
+// BackupDir is TIMELY_BACKUP_DIR, else <TIMELY_DATA_DIR>/backups, else
+// data/backups under the working directory.
+func BackupDir() string {
+	return utils.ResolveDataPath("TIMELY_BACKUP_DIR", "backups", "data/backups")
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue) *Service {
-	dir := strings.TrimSpace(os.Getenv("TIMELY_BACKUP_DIR"))
-	if dir == "" {
-		dir = "data/backups"
-	}
+	dir := BackupDir()
 	secret := strings.TrimSpace(os.Getenv("TIMELY_BACKUP_KEY"))
 	if secret == "" {
 		secret = os.Getenv("JWT_SECRET")
@@ -47,6 +51,13 @@ func NewService(db *gorm.DB, queue *jobs.Queue) *Service {
 func (s *Service) Register(worker *jobs.Worker) {
 	worker.Handle(models.JobCreateBackup, s.HandleBackup)
 }
+
+// Dir is the backup root this service writes to.
+func (s *Service) Dir() string { return s.dir }
+
+// SetAfterRestore runs fn once a restore has replaced the account's rows,
+// e.g. to drop the account's cached search vectors.
+func (s *Service) SetAfterRestore(fn func(userID string)) { s.afterRestore = fn }
 
 func defaultSettings(userID string) models.BackupSettings {
 	now := time.Now().UTC()
@@ -115,7 +126,7 @@ func (s *Service) CreateEncrypted(userID string) (*models.BackupFile, error) {
 	}
 	id := utils.NewBackupID()
 	accountDir := filepath.Join(s.dir, safeAccountDirectory(userID))
-	if err := os.MkdirAll(accountDir, 0700); err != nil {
+	if err := utils.EnsureDir(accountDir); err != nil {
 		return nil, err
 	}
 	path := filepath.Join(accountDir, id+".tlbk")

@@ -11,6 +11,7 @@ import {
   type ProviderId,
   type ProviderPatch,
 } from "@/app/utils/api/agentProviders";
+import { rescanProviders } from "@/app/utils/api/instance";
 
 export const agentProvidersKey = ["agent-providers"] as const;
 
@@ -67,3 +68,6 @@ export const useSetOpenRouterKey = () =>
   useProviderMutation((key: string) => setOpenRouterKey(key));
 export const useRemoveOpenRouterKey = () =>
   useProviderMutation<void>(() => removeOpenRouterKey());
+/** Drops the server's cached CLI detection and refreshes the provider view. */
+export const useRescanProviders = () =>
+  useProviderMutation<void>(() => rescanProviders());
