@@ -6,7 +6,8 @@
 #   API_URL=https://... scripts/install-apk.sh
 #   make install-apk [API_URL=https://...]
 #
-# The API URL is forwarded to scripts/build-apk.sh (see its header for precedence).
+# The API URL is optional (the phone pairs with a server at runtime) and is
+# forwarded unchanged to scripts/build-apk.sh; see its header.
 #
 # Requires USB debugging. If several devices are attached, set ANDROID_SERIAL.
 set -euo pipefail

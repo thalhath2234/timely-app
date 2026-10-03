@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"timely-api/internal/features/agent"
 	"timely-api/internal/jobs"
@@ -23,6 +24,7 @@ type Service struct {
 	rehearsal  func(*gorm.DB) agent.Catalog
 	provider   Completer
 	completers Completers
+	wg         sync.WaitGroup
 }
 
 // SetRehearsal supplies a catalog without live side effects (no realtime

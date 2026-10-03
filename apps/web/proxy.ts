@@ -11,6 +11,7 @@ const protectedPrefixes = [
   "/projects",
   "/report",
   "/settings",
+  "/setup",
   "/docs",
   "/sheets",
   "/notifications",

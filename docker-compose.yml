@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:pg17
+    image: postgres:17
     environment:
       POSTGRES_USER: ${DB_USER:-timely}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-root123}
@@ -24,13 +24,14 @@ services:
         required: false
     environment:
       API_PORT: 8080
+      API_BIND: 0.0.0.0
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: ${DB_USER:-timely}
       DB_PASSWORD: ${DB_PASSWORD:-root123}
       DB_NAME: ${DB_NAME:-timely_db}
       DB_SSLMODE: disable
-      TIMELY_BACKUP_DIR: /data/backups
+      TIMELY_DATA_DIR: /data
     ports:
       - "8080:8080"
     volumes:

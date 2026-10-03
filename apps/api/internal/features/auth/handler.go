@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -10,15 +11,44 @@ import (
 )
 
 type Handler struct {
-	authService AuthService
-	userRepo    UserRepository
+	authService       AuthService
+	userRepo          UserRepository
+	allowRegistration bool
 }
+
+// RegistrationClosedMessage is returned when ALLOW_REGISTRATION=false and an
+// account already exists.
+const RegistrationClosedMessage = "New accounts are turned off on this server"
 
 func NewHandler(authService AuthService, userRepo UserRepository) *Handler {
 	return &Handler{
-		authService: authService,
-		userRepo:    userRepo,
+		authService:       authService,
+		userRepo:          userRepo,
+		allowRegistration: AllowRegistrationFromEnv(),
 	}
+}
+
+// AllowRegistrationFromEnv reads ALLOW_REGISTRATION (default true).
+func AllowRegistrationFromEnv() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("ALLOW_REGISTRATION")))
+	return value != "false" && value != "0" && value != "off" && value != "no"
+}
+
+// SetAllowRegistration overrides the env setting (tests, embedded hosts).
+func (h *Handler) SetAllowRegistration(allow bool) { h.allowRegistration = allow }
+
+// AllowRegistration is the configured flag, independent of account count.
+func (h *Handler) AllowRegistration() bool { return h.allowRegistration }
+
+// RegistrationOpen reports whether POST /register would accept a new account
+// right now: registration is allowed, or no account exists yet so the first
+// person can still sign up.
+func (h *Handler) RegistrationOpen() bool {
+	if h.allowRegistration {
+		return true
+	}
+	n, err := h.userRepo.CountUsers()
+	return err == nil && n == 0
 }
 
 type authRequest struct {
@@ -67,6 +97,9 @@ func (h *Handler) profileFor(userID, email, name string) userProfileResponse {
 }
 
 func (h *Handler) Register(c *echo.Context) error {
+	if !h.RegistrationOpen() {
+		return echo.NewHTTPError(http.StatusForbidden, RegistrationClosedMessage)
+	}
 	var req authRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")

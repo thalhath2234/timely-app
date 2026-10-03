@@ -48,11 +48,25 @@ Web search is only available when enabled. Call web_search with a public query w
 After tools finish, provide a concise answer or clarification. Do not expose internal tool names, IDs, or JSON in normal prose.`
 
 func (s *Service) Run(ctx context.Context) {
-	go s.cleanImages(ctx)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.cleanImages(ctx)
+	}()
 	// Dedicated execution lanes; model requests never occupy the reminder worker.
 	for i := 0; i < 3; i++ {
-		go s.work(ctx)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.work(ctx)
+		}()
 	}
+}
+
+// Wait blocks until every loop started by Run has returned after its
+// context was cancelled.
+func (s *Service) Wait() {
+	s.wg.Wait()
 }
 func (s *Service) work(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)

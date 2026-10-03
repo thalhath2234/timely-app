@@ -1,18 +1,27 @@
 import * as esbuild from "esbuild";
+import { copyFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 const electronDir = import.meta.dirname;
 const webRoot = path.join(electronDir, "..");
+const outdir = path.join(webRoot, "dist-electron");
 
 await esbuild.build({
   absWorkingDir: webRoot,
-  entryPoints: ["electron/main.ts", "electron/preload.ts"],
+  entryPoints: ["electron/main.ts", "electron/preload.ts", "electron/boot-preload.ts"],
   outdir: "dist-electron",
   bundle: true,
   platform: "node",
   target: "node22",
   format: "cjs",
   sourcemap: true,
-  external: ["electron"],
+  // electron-updater stays a runtime dependency (it is in package.json
+  // "dependencies", so electron-builder ships it) rather than being bundled.
+  external: ["electron", "electron-updater"],
   logLevel: "info",
 });
+
+// The boot screen is a static page loaded by main.ts; electron-builder packs
+// everything under dist-electron, so it travels with the compiled output.
+mkdirSync(outdir, { recursive: true });
+copyFileSync(path.join(electronDir, "boot.html"), path.join(outdir, "boot.html"));

@@ -26,6 +26,10 @@ const nextConfig: NextConfig = {
     "127.0.0.1",
   ],
   async rewrites() {
+    // A rewrite is baked into the standalone output, so the desktop app (whose
+    // API port is chosen at runtime) uses app/api-proxy/[...path]/route.ts
+    // instead; everything else keeps the cheaper rewrite.
+    if (electronBuild) return [];
     return [
       {
         source: "/api-proxy/:path*",

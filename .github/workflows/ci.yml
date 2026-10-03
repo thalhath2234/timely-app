@@ -1,0 +1,50 @@
+# Lint, type-check and unit-test every app. No database is needed: the Go
+# integration tests are gated behind CHAT_TEST_ENV / TIMELY_TEST_POSTGRES.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      - run: make lint-api
+      - run: make test-api
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: make lint-web
+      # next-env.d.ts and the route types are generated, not committed.
+      - run: pnpm --filter @timely/web exec next typegen
+      - run: make typecheck-web
+      - run: make typecheck-mobile
+      # Keep in sync with the `test` target in the Makefile (minus test-api).
+      - run: make test-sheet-formulas
+      - run: make test-mobile-assistant
+      - run: make test-mobile-offline
+      - run: make test-mobile-server-config
+      - run: make test-electron-guards
+      - run: make test-electron-supervisor
+      - run: make test-desktop-instance

@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"timely-api/internal/models"
+	"timely-api/internal/utils"
 )
 
 const maxImageBytes = 10 << 20
@@ -38,11 +39,11 @@ type ImageAttachment struct {
 }
 
 func (ImageAttachment) TableName() string { return "agent_images" }
+
+// imageDirectory is CHAT_IMAGE_DIR, else <TIMELY_DATA_DIR>/chat-images, else a
+// temporary directory (see utils.ResolveDataPath).
 func imageDirectory() string {
-	if value := os.Getenv("CHAT_IMAGE_DIR"); value != "" {
-		return value
-	}
-	return filepath.Join(os.TempDir(), "timely-chat-images")
+	return utils.ResolveDataPath("CHAT_IMAGE_DIR", "chat-images", filepath.Join(os.TempDir(), "timely-chat-images"))
 }
 func imagePath(id string) string { return filepath.Join(imageDirectory(), filepath.Base(id)+".jpg") }
 
@@ -92,7 +93,7 @@ func (s *Service) uploadImage(c *echo.Context) error {
 		name = name[:150]
 	}
 	attachment := ImageAttachment{ID: id("img_"), UserID: user(c), Name: string(name), CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}
-	if err = os.MkdirAll(imageDirectory(), 0700); err != nil {
+	if err = utils.EnsureDir(imageDirectory()); err != nil {
 		return err
 	}
 	err = s.db.Transaction(func(tx *gorm.DB) error {

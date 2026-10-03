@@ -5,16 +5,19 @@ import Screen from "../components/ui/Screen";
 import TimelyLogo from "../components/ui/TimelyLogo";
 import { Field, PrimaryButton } from "../components/ui/primitives";
 import { isOnboarded, useAuth } from "../lib/auth/AuthProvider";
+import { useServer } from "../lib/server/ServerProvider";
 import { colors, createThemedStyleSheet } from "../lib/theme";
 
 export default function LoginScreen() {
   const { token, user, login } = useAuth();
+  const server = useServer();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
+  if (server.status === "unconfigured") return <Redirect href="/connect" />;
   if (token && isOnboarded(user)) return <Redirect href="/(app)/(tabs)/home" />;
   if (token && user) return <Redirect href="/onboarding" />;
 
@@ -61,6 +64,14 @@ export default function LoginScreen() {
             <Text style={styles.link}>Need an account? Create one</Text>
           </Pressable>
         </Link>
+        <Link href="/connect?mode=change" asChild>
+          <Pressable accessibilityRole="button" accessibilityLabel="Change server">
+            <Text style={styles.server} numberOfLines={2}>
+              {server.name ? `${server.name} · ` : ""}
+              {server.activeUrl} · Change
+            </Text>
+          </Pressable>
+        </Link>
       </View>
     </Screen>
   );
@@ -73,4 +84,5 @@ const styles = createThemedStyleSheet((colors) => ({
   sub: { color: colors.mutedForeground, fontSize: 15, marginBottom: 10 },
   error: { color: colors.destructive, fontSize: 13 },
   link: { color: colors.primary, textAlign: "center", marginTop: 8 },
+  server: { color: colors.mutedForeground, fontSize: 12, textAlign: "center", marginTop: 12 },
 }));

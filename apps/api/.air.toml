@@ -11,7 +11,7 @@ tmp_dir = "tmp"
   # Any runtime flags for the server go here as extra array elements.
   entrypoint = ["./tmp/main.exe"]
   delay = 1000
-  exclude_dir = ["assets", "tmp", "vendor", "testdata", "migrations", ".git", ".vscode"]
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "migrations/seeds", ".git", ".vscode"]
   exclude_file = []
   exclude_regex = ["_test.go"]
   exclude_unchanged = false

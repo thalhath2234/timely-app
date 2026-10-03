@@ -4,9 +4,11 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CircleAlert,
+  ExternalLink,
   Eye,
   KeyRound,
   RefreshCw,
+  ScanSearch,
   Search,
   ShieldCheck,
   TerminalSquare,
@@ -21,8 +23,10 @@ import {
   usePatchAgentProviders,
   useProviderModels,
   useRemoveOpenRouterKey,
+  useRescanProviders,
   useSetOpenRouterKey,
 } from "@/app/utils/hooks/agentProviders";
+import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import {
   PROVIDER_LABELS,
   type AgentProviders,
@@ -30,6 +34,11 @@ import {
   type ModelOption,
   type ProviderId,
 } from "@/app/utils/api/agentProviders";
+
+export const CLI_INSTALL_URLS = {
+  claude: "https://docs.anthropic.com/en/docs/claude-code/overview",
+  codex: "https://github.com/openai/codex",
+} as const;
 
 const inputClass =
   "w-full rounded-lg border border-border bg-input/30 px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:opacity-60";
@@ -206,11 +215,11 @@ export function ModelPicker({
   );
 }
 
-function Badge({
+export function Badge({
   tone,
   children,
 }: {
-  tone: "ok" | "warn" | "muted" | "primary";
+  tone: "ok" | "warn" | "muted" | "primary" | "danger";
   children: React.ReactNode;
 }) {
   return (
@@ -222,6 +231,7 @@ function Badge({
         tone === "warn" && "bg-amber-500/12 text-amber-700 dark:text-amber-300",
         tone === "muted" && "bg-muted text-muted-foreground",
         tone === "primary" && "bg-primary/12 text-primary",
+        tone === "danger" && "bg-destructive/12 text-destructive",
       )}
     >
       {children}
@@ -490,6 +500,8 @@ function CliCard({
   const patch = usePatchAgentProviders();
   const connect = useConnectProvider();
   const disconnect = useDisconnectProvider();
+  const rescan = useRescanProviders();
+  const desktop = useDesktopBridge() !== null;
   const models = useProviderModels(
     id,
     undefined,
@@ -498,6 +510,7 @@ function CliCard({
   const [connectError, setConnectError] = useState<string | null>(null);
   const status = view.status;
   const loginCommand = id === "claude" ? "claude auth login" : "codex login";
+  const host = desktop ? "this computer" : "the server";
 
   const onConnect = async () => {
     setConnectError(null);
@@ -514,8 +527,8 @@ function CliCard({
       title={PROVIDER_LABELS[id]}
       description={
         id === "claude"
-          ? "Uses the Claude Code CLI and its sign-in on the server. Runs with every built-in tool disabled."
-          : "Uses the Codex CLI and its sign-in on the server. Runs in a read-only sandbox with the shell disabled."
+          ? `Uses the Claude Code CLI and its sign-in on ${host}. Runs with every built-in tool disabled.`
+          : `Uses the Codex CLI and its sign-in on ${host}. Runs in a read-only sandbox with the shell disabled.`
       }
       isDefault={data.defaultProvider === id}
       ready={view.ready}
@@ -531,7 +544,7 @@ function CliCard({
             </Badge>
           ) : (
             <Badge tone="warn">
-              <CircleAlert className="size-3" /> Not found on the server
+              <CircleAlert className="size-3" /> Not found on {host}
             </Badge>
           )}
           {status.found && status.loggedIn && (
@@ -555,7 +568,13 @@ function CliCard({
             {status.path}
           </p>
         )}
-        {!status.found && (
+        {!status.found && desktop && (
+          <p className="text-xs text-muted-foreground">
+            Install the CLI on this computer and sign in from a terminal, then
+            Re-scan.
+          </p>
+        )}
+        {!status.found && !desktop && (
           <p className="text-xs text-muted-foreground">
             Install the CLI for the OS user that runs the Timely API. If it
             lives somewhere unusual, set{" "}
@@ -565,9 +584,22 @@ function CliCard({
         )}
         {status.found && !status.loggedIn && (
           <p className="text-xs text-muted-foreground">
-            Run <code>{loginCommand}</code> in a terminal on the server, then
+            Run <code>{loginCommand}</code> in a terminal on {host}, then
             press Connect.
           </p>
+        )}
+        {!status.found && (
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={CLI_INSTALL_URLS[id]}
+              target="_blank"
+              rel="noreferrer"
+              className={secondaryButton}
+            >
+              <ExternalLink className="size-3.5" />
+              {id === "claude" ? "Install Claude Code" : "Install Codex"}
+            </a>
+          </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -587,6 +619,20 @@ function CliCard({
                 ? "Reconnect"
                 : "Connect"}
           </button>
+          <button
+            type="button"
+            onClick={() => rescan.mutate()}
+            disabled={rescan.isPending}
+            title="Look for the CLI again after installing or signing in"
+            className={secondaryButton}
+          >
+            {rescan.isPending ? (
+              <LogoSpinner size={14} label="Scanning" />
+            ) : (
+              <ScanSearch className="size-3.5" />
+            )}
+            {rescan.isPending ? "Scanning…" : "Re-scan"}
+          </button>
           {view.connected && (
             <button
               type="button"
@@ -600,6 +646,11 @@ function CliCard({
         </div>
         {connectError && (
           <p className="text-xs text-destructive">{connectError}</p>
+        )}
+        {rescan.error && (
+          <p className="text-xs text-destructive">
+            {errorMessage(rescan.error, "Could not re-scan.")}
+          </p>
         )}
         {view.connected && (
           <p className="text-[11px] text-muted-foreground">

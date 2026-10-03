@@ -199,6 +199,9 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 	if err != nil {
 		return nil, err
 	}
+	if s.afterRestore != nil {
+		s.afterRestore(userID)
+	}
 	return &RestoreResult{RestoredAt: time.Now().UTC(), Counts: counts}, nil
 }
 

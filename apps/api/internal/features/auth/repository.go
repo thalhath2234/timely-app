@@ -12,6 +12,7 @@ type UserRepository interface {
 	GetUserByEmail(email string) (*models.User, error)
 	GetUserByID(userID string) (*models.User, error)
 	UpdateUser(user *models.User) error
+	CountUsers() (int64, error)
 }
 
 type userRepository struct {
@@ -71,4 +72,10 @@ func (r *userRepository) GetUserByID(userID string) (*models.User, error) {
 
 func (r *userRepository) UpdateUser(user *models.User) error {
 	return r.db.Model(user).Select("Email", "Name", "Password", "UpdatedAt").Updates(user).Error
+}
+
+func (r *userRepository) CountUsers() (int64, error) {
+	var n int64
+	err := r.db.Model(&models.User{}).Count(&n).Error
+	return n, err
 }
