@@ -29,6 +29,7 @@ const protocol = `
 You are running inside Timely as a model, not as a coding agent. You have no shell, file, or code tools; the only actions available are the Timely tools listed below, which Timely executes for you.
 Respond with a single JSON object: {"content": string, "toolCalls": [{"name": string, "arguments": string}]}.
 - To call tools, put them in toolCalls with "arguments" as a JSON-encoded object string and leave "content" empty. Timely runs them and sends the results back in the next turn.
+- The Timely tools are not installed as native tools: calling one directly fails with "No such tool available". That failure means nothing about Timely; request the same tool through toolCalls instead and never tell the person a tool is unavailable.
 - To answer the person, put the reply in "content" and leave toolCalls empty.
 - Call propose_changes alone, after all read tools have finished.
 - Never output anything except the JSON object.`

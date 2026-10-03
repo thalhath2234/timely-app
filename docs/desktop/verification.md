@@ -48,6 +48,8 @@ directory, staged linux-x64 sidecars), driven over the Chrome DevTools protocol.
 | Upgrade: config version 0.0.9 with app 0.1.0 → `backups/pre-upgrade-0.0.9-0.1.0-*` copied before Postgres started; data intact (login still works) | pass |
 | SIGTERM to Electron: Next → API → Postgres stopped in order, ports released, no orphan processes | pass |
 | Settings → Agent: Claude Code found through the login-shell PATH, Re-scan and install links present | pass |
-| Tailscale toggle | not testable here (Tailscale not installed); the tab shows the install hint and keeps the toggle disabled |
+| Tailscale access on: the API binds 127.0.0.1 plus the host's Tailscale IPv4 and IPv6 addresses on the same port; off again drops them (AppImage run, `tailscale status` on the host) | pass |
+| Physical phone (Android, Redmi 12 5G on the same tailnet): release APK installed, QR scanned from Settings → Server, sign-in and chat over `http://100.76.98.105:48080` | pass (needed the cleartext config plugin) |
+| Agent runs started from the phone: the "lookup failed twice" and "proposal step isn't available" replies came from Claude Code calling Timely tools natively (`No such tool available`), not from the network path; the provider now runs those rejected calls | pass after fix |
 | Android release APK: `make build-apk` without `API_URL`, fresh `expo prebuild` with the camera module, release bundle check (no dev URLs, `/connect` present) | pass |
-| macOS, Windows, physical phone over Tailscale, code signing (whether electron-builder signs the sidecar binaries under resources/ is unverified), electron-updater against a real release | open |
+| macOS, Windows, code signing (whether electron-builder signs the sidecar binaries under resources/ is unverified), electron-updater against a real release | open |

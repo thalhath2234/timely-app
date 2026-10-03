@@ -413,7 +413,11 @@ Design confirmed after an interview; see ADR 0009 and the `Agent provider` and
   Tool-calling turns use a strict JSON response schema (`content`, `toolCalls`
   with JSON-encoded `arguments`); tool-less turns (image extraction, receipt
   edits, search answers) return the model's raw text. Each turn resends the
-  transcript; no CLI session is reused.
+  transcript; no CLI session is reused. Claude sometimes calls a Timely tool
+  as a native tool anyway; the CLI rejects it ("No such tool available") and
+  the model may then tell the person the tool is unavailable. The provider
+  reads those rejected `tool_use` blocks from the stream and, when the
+  structured answer lists no `toolCalls`, runs them as the turn's tool calls.
 - Models: Claude offers the `fable`, `opus`, `sonnet` and `haiku` aliases plus a
   typed full name; Codex lists the account's models from the app server's
   `model/list` (falling back to `~/.codex/models_cache.json`) and preselects the
