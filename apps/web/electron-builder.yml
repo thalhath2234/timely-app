@@ -4,7 +4,8 @@ executableName: Timely
 copyright: Copyright © Timely
 
 # App icon: electron/resources/icon.png (1024 px). electron-builder derives the
-# .icns and .ico from it; Linux targets use the PNG directly.
+# .icns and .ico from it. Linux points at the directory instead (see linux.icon)
+# so it renders the hicolor size set rather than shipping the lone 1024 px PNG.
 directories:
   output: release
   buildResources: electron/resources
@@ -53,6 +54,10 @@ linux:
     - dir
     - AppImage
   category: Office
+  # A directory holding only icon.png makes electron-builder generate 16-512 px
+  # PNGs. Given the file itself it ships just 1024x1024, a size the hicolor
+  # theme doesn't index, so launchers show a blank icon.
+  icon: electron/resources
   desktop:
     entry:
       StartupWMClass: Timely

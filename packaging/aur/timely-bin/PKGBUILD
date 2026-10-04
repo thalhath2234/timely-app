@@ -7,7 +7,7 @@ _pkgname=Timely
 _tag=v0.1-alpha          # GitHub release tag
 _ver=0.1.0               # version baked into the AppImage filename
 pkgver=0.1.0alpha        # no hyphens allowed; sorts below 0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Private personal planning, scheduling, and notes (prebuilt AppImage)"
 arch=('x86_64')
 url="https://github.com/thalhath2234/timely-app"
@@ -40,6 +40,9 @@ package() {
   cp -a squashfs-root/. "${pkgdir}${_opt}/"
   rm -f "${pkgdir}${_opt}"/{AppRun,.DirIcon,"${_pkgname}".desktop,"${_pkgname}".png}
   rm -rf "${pkgdir}${_opt}/usr"
+  # The AppImage's squashfs stores every directory as 0700, which would leave
+  # /opt/timely-bin unreadable (and the app unlaunchable) for normal users.
+  find "${pkgdir}${_opt}" -type d -exec chmod 755 {} +
 
   # Electron's setuid sandbox helper must be root-owned 4755.
   chmod 4755 "${pkgdir}${_opt}/chrome-sandbox"
@@ -49,8 +52,17 @@ package() {
 
   install -Dm644 squashfs-root/"${_pkgname}".desktop \
     "${pkgdir}/usr/share/applications/timely.desktop"
-  install -Dm644 squashfs-root/usr/share/icons/hicolor/1024x1024/apps/"${_pkgname}".png \
-    "${pkgdir}/usr/share/icons/hicolor/1024x1024/apps/timely.png"
+  # Builds after v0.1-alpha ship the hicolor 16-512 px set; v0.1-alpha has only
+  # 1024x1024, which hicolor doesn't index, so pixmaps (any size) covers it.
+  local _icon _size
+  for _icon in squashfs-root/usr/share/icons/hicolor/*/apps/"${_pkgname}".png; do
+    _size=${_icon#squashfs-root/usr/share/icons/hicolor/}
+    _size=${_size%%/*}
+    [[ ${_size} == 1024x1024 ]] && continue
+    install -Dm644 "${_icon}" "${pkgdir}/usr/share/icons/hicolor/${_size}/apps/timely.png"
+  done
+  install -Dm644 "$(ls squashfs-root/usr/share/icons/hicolor/*/apps/"${_pkgname}".png | sort -V | tail -n1)" \
+    "${pkgdir}/usr/share/pixmaps/timely.png"
   install -Dm644 "LICENSE-${_license_rev}" \
     "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 squashfs-root/LICENSE.electron.txt \
