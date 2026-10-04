@@ -4,9 +4,9 @@
 
 pkgname=timely-bin
 _pkgname=Timely
-_tag=v0.1.1          # GitHub release tag
-_ver=0.1.1               # version baked into the AppImage filename
-pkgver=0.1.1        # no hyphens allowed;
+_tag=v0.1.2          # GitHub release tag
+_ver=0.1.2               # version baked into the AppImage filename
+pkgver=0.1.2        # no hyphens allowed;
 pkgrel=1
 pkgdesc="Private personal planning, scheduling, and notes (prebuilt AppImage)"
 arch=('x86_64')
