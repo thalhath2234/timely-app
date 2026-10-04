@@ -4,7 +4,7 @@ pkgbase = timely-bin
 	pkgrel = 1
 	url = https://github.com/thalhath2234/timely-app
 	arch = x86_64
-	license = LicenseRef-Proprietary
+	license = MIT
 	depends = gtk3
 	depends = nss
 	depends = alsa-lib
@@ -18,6 +18,8 @@ pkgbase = timely-bin
 	options = !strip
 	options = !debug
 	source = Timely-0.1.0-linux-x86_64.AppImage::https://github.com/thalhath2234/timely-app/releases/download/v0.1-alpha/Timely-0.1.0-linux-x86_64.AppImage
+	source = LICENSE-84d57b740eb61625755d9be286a154528190808c::https://raw.githubusercontent.com/thalhath2234/timely-app/84d57b740eb61625755d9be286a154528190808c/LICENSE
 	sha256sums = 88ea599bb06fa99f98d6ca8523b22ee653f3e0c63d5fa4d30dfac61f6c5ff3a4
+	sha256sums = d188c1d24bd091d0be11ea5fc1d0a6c1751b5584370bc8a2ff85673cb2a1ec60
 
 pkgname = timely-bin

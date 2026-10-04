@@ -11,16 +11,18 @@ pkgrel=1
 pkgdesc="Private personal planning, scheduling, and notes (prebuilt AppImage)"
 arch=('x86_64')
 url="https://github.com/thalhath2234/timely-app"
-# TODO: the repo has no LICENSE file yet. Add one and replace with its SPDX id.
-license=('LicenseRef-Proprietary')
+license=('MIT')
 depends=('gtk3' 'nss' 'alsa-lib' 'libxss' 'libxtst' 'libnotify' 'xdg-utils')
 provides=('timely')
 conflicts=('timely')
 options=('!strip' '!debug')
 _appimage="${_pkgname}-${_ver}-linux-x86_64.AppImage"
-source=("${_appimage}::${url}/releases/download/${_tag}/${_appimage}")
+_license_rev=84d57b740eb61625755d9be286a154528190808c  # commit that added LICENSE
+source=("${_appimage}::${url}/releases/download/${_tag}/${_appimage}"
+        "LICENSE-${_license_rev}::https://raw.githubusercontent.com/thalhath2234/timely-app/${_license_rev}/LICENSE")
 noextract=("${_appimage}")
-sha256sums=('88ea599bb06fa99f98d6ca8523b22ee653f3e0c63d5fa4d30dfac61f6c5ff3a4')
+sha256sums=('88ea599bb06fa99f98d6ca8523b22ee653f3e0c63d5fa4d30dfac61f6c5ff3a4'
+            'd188c1d24bd091d0be11ea5fc1d0a6c1751b5584370bc8a2ff85673cb2a1ec60')
 
 prepare() {
   chmod +x "${_appimage}"
@@ -49,6 +51,8 @@ package() {
     "${pkgdir}/usr/share/applications/timely.desktop"
   install -Dm644 squashfs-root/usr/share/icons/hicolor/1024x1024/apps/"${_pkgname}".png \
     "${pkgdir}/usr/share/icons/hicolor/1024x1024/apps/timely.png"
+  install -Dm644 "LICENSE-${_license_rev}" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 squashfs-root/LICENSE.electron.txt \
     "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.electron.txt"
 }
