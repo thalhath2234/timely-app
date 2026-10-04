@@ -39,7 +39,7 @@ import {
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { columnIndexToLetter, createSheetEvaluator, shiftFormula } from "../../lib/sheetFormula";
-import { closeOpenParens, formulaAcceptsAnotherRange, insertFormulaRange, type FormulaRefSpan } from "../../lib/sheetFormulaInput";
+import { closeOpenParens, formulaAcceptsAnotherRange, insertFormulaRange, type FormulaRefSpan } from "@timely/contract/sheetFormulaInput";
 import {
   type CellAddress,
   type CellRange,

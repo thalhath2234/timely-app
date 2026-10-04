@@ -120,7 +120,7 @@ import {
   formulaAcceptsAnotherRange,
   insertFormulaRange,
   type FormulaRefSpan,
-} from "@/app/utils/sheetFormulaInput";
+} from "@timely/contract/sheetFormulaInput";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import {
   openContextMenu,

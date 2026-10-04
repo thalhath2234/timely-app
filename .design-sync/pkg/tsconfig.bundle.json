@@ -3,6 +3,7 @@
     "paths": {
       "@/*": ["../../apps/web/*"],
       "@timely/contract": ["../../packages/contract/src/index.ts"],
+      "@timely/contract/*": ["../../packages/contract/src/*"],
       "next/navigation": ["./shims/next-navigation.ts"],
       "next/link": ["./shims/next-link.tsx"],
       "next/image": ["./shims/next-image.tsx"]

@@ -17,7 +17,8 @@ import {
 // this diagnostic can only pass when the production configuration is correct.
 // The Android reproduction in README.md exercises the complete app.
 //
-// Historical output from the audited build is evidence/offline-mutation.json.
+// Historical output from the audited build was evidence/offline-mutation.json
+// (now only in Git history at c90fd8f).
 // Reruns write to QA_EVIDENCE_FILE, defaulting to the remediation folder.
 const requireMobile = createRequire(
   new URL("../../../apps/mobile/package.json", import.meta.url),

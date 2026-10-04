@@ -32,5 +32,4 @@ The web app reads the repository-root `.env` (loaded in `next.config.ts`), so `J
 ## Docs
 
 - [`FEATURES.md`](FEATURES.md) — feature inventory across web, API and mobile
-- [`NextPhase.md`](NextPhase.md) — roadmap
-- [`docs/adr`](docs/adr) — architecture decisions (canonical copies live in `apps/api/docs/adr`)
+- [`docs/adr`](../../docs/adr) — architecture decisions

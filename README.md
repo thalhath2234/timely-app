@@ -80,7 +80,7 @@ Migrations run automatically when the API starts.
 ## Per-app docs
 
 - API: [`apps/api/setup.md`](apps/api/setup.md), [`apps/api/MIGRATIONS.md`](apps/api/MIGRATIONS.md), Postman/Bruno collection in `apps/api/api-collections.json`
-- Web: [`apps/web/FEATURES.md`](apps/web/FEATURES.md), [`apps/web/NextPhase.md`](apps/web/NextPhase.md)
+- Web: [`apps/web/FEATURES.md`](apps/web/FEATURES.md)
 - Mobile: [`apps/mobile/README.md`](apps/mobile/README.md) (API URL, emulator networking)
 - Domain language: [`CONTEXT.md`](CONTEXT.md); decisions: [`docs/adr/`](docs/adr/)
 - Desktop bundle (sidecars, pairing, release): [`docs/desktop/README.md`](docs/desktop/README.md)
