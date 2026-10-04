@@ -2,7 +2,9 @@
 
 `visuals/INDEX.tsv` indexes **2,587 official images from m3.material.io** — component anatomy diagrams
 with lettered or numbered callouts, size/measurement specs, state grids, placement diagrams, do/don't
-pairs, and full-UI example screens. The image files are omitted from this repo to keep it small.
+pairs, and full-UI example screens. Neither the index nor the images are committed here, to keep the repo
+small: download `INDEX.tsv` from upstream into `visuals/`, or regenerate everything with
+`node scripts/refresh-m3.js images visuals`.
 View or download them from the [upstream skill repository](https://github.com/abhixv/m3-expressive-design-skill/tree/main/skills/m3-expressive/visuals)
 when a written spec is ambiguous or when you need to see how something is actually composed.
 

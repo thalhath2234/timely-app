@@ -2,12 +2,11 @@ import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import * as webFormula from "../apps/web/app/utils/sheetFormula.ts";
 import * as mobileFormula from "../apps/mobile/lib/sheetFormula.ts";
-import * as webInput from "../apps/web/app/utils/sheetFormulaInput.ts";
-import * as mobileInput from "../apps/mobile/lib/sheetFormulaInput.ts";
+import * as input from "../packages/contract/src/sheetFormulaInput.ts";
 
-for (const [platform, formula, input] of [
-  ["web", webFormula, webInput],
-  ["mobile", mobileFormula, mobileInput],
+for (const [platform, formula] of [
+  ["web", webFormula],
+  ["mobile", mobileFormula],
 ]) {
   describe(platform, () => {
     const { createSheetEvaluator, shiftFormula } = formula;

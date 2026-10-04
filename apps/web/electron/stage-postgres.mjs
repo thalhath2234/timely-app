@@ -152,14 +152,26 @@ function extractInnerArchive(jar, target, dest) {
   return name;
 }
 
+// On Windows, prefer the system bsdtar. Under Git Bash (the release workflow's
+// shell) PATH finds Git's GNU tar first, which reads "C:\..." as a remote
+// host:path and fails with "Cannot connect to C: resolve failed".
+function tarCommand() {
+  if (process.platform === "win32") {
+    const systemTar = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+    if (existsSync(systemTar)) return systemTar;
+  }
+  return "tar";
+}
+
 function untarXz(archive, dest) {
   // GNU tar and bsdtar (Windows 10+, macOS) both auto-detect xz on read.
-  if (!hasCommand("tar", ["--version"])) {
+  const tar = tarCommand();
+  if (!hasCommand(tar, ["--version"])) {
     throw new Error(
       "tar was not found on PATH. Install it (Linux/macOS: tar + xz; Windows: tar.exe ships with Windows 10 1803+).",
     );
   }
-  const r = spawnSync("tar", ["-xf", archive, "-C", dest], { encoding: "utf8" });
+  const r = spawnSync(tar, ["-xf", archive, "-C", dest], { encoding: "utf8" });
   if (r.status !== 0) {
     throw new Error(
       `tar -xf ${path.basename(archive)} failed (exit ${r.status}).\n${r.stderr}\n` +

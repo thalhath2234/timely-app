@@ -789,7 +789,7 @@ These are already in the backend — useful if choosing “build UI” vs “bui
 
 ## 22. Explicit gaps (not built)
 
-Grouped so you can pick from current holes. Older planning notes in `NextPhase.md` may describe work that is now implemented.
+Grouped so you can pick from current holes.
 
 ### People and access
 

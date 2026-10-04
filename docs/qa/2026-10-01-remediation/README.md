@@ -2,6 +2,8 @@
 
 Remediation of the findings in [the 2026-10-01 audit](../2026-10-01/README.md). The audit report and its `evidence/` folder are untouched; everything produced after the fixes is in this folder. Finding IDs are the audit's.
 
+> The `evidence/` files linked below were removed from the repository to keep it small. Read any of them from history with `git show c90fd8f:docs/qa/2026-10-01-remediation/evidence/<file>`.
+
 Base commit: `c71a03d` (audit artifacts on top of the audited `453dc59`). The fixes are committed on the worktree branch `t3code/fix-mobile-audit-findings` (`8547877` for the remediation, later commits for verification records); nothing was pushed and no pull request was opened.
 
 ## Status by finding

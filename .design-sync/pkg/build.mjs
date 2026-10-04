@@ -31,6 +31,7 @@ execFileSync(join(WEB, 'node_modules/.bin/tsc'), ['-p', join(PKG, 'tsconfig.json
 const aliasTarget = (spec) => {
   if (spec.startsWith('@/')) return join(TYPES, 'apps/web', spec.slice(2));
   if (spec === '@timely/contract') return join(TYPES, 'packages/contract/src/index');
+  if (spec.startsWith('@timely/contract/')) return join(TYPES, 'packages/contract/src', spec.slice('@timely/contract/'.length));
   return null;
 };
 const walk = (d) => readdirSync(d).flatMap((n) => {
