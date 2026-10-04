@@ -1,0 +1,23 @@
+pkgbase = timely-bin
+	pkgdesc = Private personal planning, scheduling, and notes (prebuilt AppImage)
+	pkgver = 0.1.0alpha
+	pkgrel = 1
+	url = https://github.com/thalhath2234/timely-app
+	arch = x86_64
+	license = LicenseRef-Proprietary
+	depends = gtk3
+	depends = nss
+	depends = alsa-lib
+	depends = libxss
+	depends = libxtst
+	depends = libnotify
+	depends = xdg-utils
+	provides = timely
+	conflicts = timely
+	noextract = Timely-0.1.0-linux-x86_64.AppImage
+	options = !strip
+	options = !debug
+	source = Timely-0.1.0-linux-x86_64.AppImage::https://github.com/thalhath2234/timely-app/releases/download/v0.1-alpha/Timely-0.1.0-linux-x86_64.AppImage
+	sha256sums = 88ea599bb06fa99f98d6ca8523b22ee653f3e0c63d5fa4d30dfac61f6c5ff3a4
+
+pkgname = timely-bin
