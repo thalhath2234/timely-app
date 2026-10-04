@@ -1,0 +1,54 @@
+# Maintainer: Thalhath <thalhathva2@gmail.com>
+# Repackages the AppImage published on GitHub Releases. Bump _tag/_ver/pkgver
+# together and refresh sha256sums with `updpkgsums` (pacman-contrib).
+
+pkgname=timely-bin
+_pkgname=Timely
+_tag=v0.1-alpha          # GitHub release tag
+_ver=0.1.0               # version baked into the AppImage filename
+pkgver=0.1.0alpha        # no hyphens allowed; sorts below 0.1.0
+pkgrel=1
+pkgdesc="Private personal planning, scheduling, and notes (prebuilt AppImage)"
+arch=('x86_64')
+url="https://github.com/thalhath2234/timely-app"
+# TODO: the repo has no LICENSE file yet. Add one and replace with its SPDX id.
+license=('LicenseRef-Proprietary')
+depends=('gtk3' 'nss' 'alsa-lib' 'libxss' 'libxtst' 'libnotify' 'xdg-utils')
+provides=('timely')
+conflicts=('timely')
+options=('!strip' '!debug')
+_appimage="${_pkgname}-${_ver}-linux-x86_64.AppImage"
+source=("${_appimage}::${url}/releases/download/${_tag}/${_appimage}")
+noextract=("${_appimage}")
+sha256sums=('88ea599bb06fa99f98d6ca8523b22ee653f3e0c63d5fa4d30dfac61f6c5ff3a4')
+
+prepare() {
+  chmod +x "${_appimage}"
+  ./"${_appimage}" --appimage-extract >/dev/null
+  # Point the desktop entry at the system binary, drop the AppImage-only keys.
+  sed -i -e 's|^Exec=.*|Exec=timely %U|' \
+         -e 's|^Icon=.*|Icon=timely|' \
+         -e '/^X-AppImage-Version=/d' \
+         squashfs-root/"${_pkgname}".desktop
+}
+
+package() {
+  local _opt="/opt/${pkgname}"
+  install -dm755 "${pkgdir}${_opt}"
+  cp -a squashfs-root/. "${pkgdir}${_opt}/"
+  rm -f "${pkgdir}${_opt}"/{AppRun,.DirIcon,"${_pkgname}".desktop,"${_pkgname}".png}
+  rm -rf "${pkgdir}${_opt}/usr"
+
+  # Electron's setuid sandbox helper must be root-owned 4755.
+  chmod 4755 "${pkgdir}${_opt}/chrome-sandbox"
+
+  install -dm755 "${pkgdir}/usr/bin"
+  ln -s "${_opt}/${_pkgname}" "${pkgdir}/usr/bin/timely"
+
+  install -Dm644 squashfs-root/"${_pkgname}".desktop \
+    "${pkgdir}/usr/share/applications/timely.desktop"
+  install -Dm644 squashfs-root/usr/share/icons/hicolor/1024x1024/apps/"${_pkgname}".png \
+    "${pkgdir}/usr/share/icons/hicolor/1024x1024/apps/timely.png"
+  install -Dm644 squashfs-root/LICENSE.electron.txt \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.electron.txt"
+}
