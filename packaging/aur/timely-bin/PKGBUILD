@@ -4,9 +4,9 @@
 
 pkgname=timely-bin
 _pkgname=Timely
-_tag=v0.1.2          # GitHub release tag
-_ver=0.1.2               # version baked into the AppImage filename
-pkgver=0.1.2        # no hyphens allowed;
+_tag=v0.1.3          # GitHub release tag
+_ver=0.1.3               # version baked into the AppImage filename
+pkgver=0.1.3        # no hyphens allowed;
 pkgrel=1
 pkgdesc="Private personal planning, scheduling, and notes (prebuilt AppImage)"
 arch=('x86_64')
@@ -21,7 +21,7 @@ _license_rev=84d57b740eb61625755d9be286a154528190808c  # commit that added LICEN
 source=("${_appimage}::${url}/releases/download/${_tag}/${_appimage}"
         "LICENSE-${_license_rev}::https://raw.githubusercontent.com/thalhath2234/timely-app/${_license_rev}/LICENSE")
 noextract=("${_appimage}")
-sha256sums=('5b6db20d2569650837b48ac507d57536476fa50305d31c7c21d6b1cc844d5338'
+sha256sums=('a9c0062fca66d5f091219c586aa6a10ee56be7aeb405c9cd9af8c10d718f59f7'
             'd188c1d24bd091d0be11ea5fc1d0a6c1751b5584370bc8a2ff85673cb2a1ec60')
 
 prepare() {
