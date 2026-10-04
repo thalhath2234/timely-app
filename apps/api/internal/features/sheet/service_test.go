@@ -36,3 +36,23 @@ func TestWorkbookTabsCopiesExisting(t *testing.T) {
 		t.Fatal("unknown tab id should fail")
 	}
 }
+
+func TestGridUpdateMirrorsPrimaryIntoFirstTab(t *testing.T) {
+	columns := models.DefaultSheetColumns()
+	tabs := models.SheetTabs{{ID: "tab_a", Name: "A", Columns: columns, Rows: models.DefaultSheetRows(columns, 1)}}
+	nextRows := models.DefaultSheetRows(columns, 3)
+	updates := map[string]any{}
+	err := gridUpdate{Rows: &nextRows}.apply("Budget", columns, models.DefaultSheetRows(columns, 1), nil, tabs, updates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := updates["columns"]; ok {
+		t.Fatal("columns were not part of the update")
+	}
+	if got := updates["rows"].(models.SheetRows); len(got) != 3 {
+		t.Fatalf("rows = %d, want 3", len(got))
+	}
+	if got := updates["tabs"].(models.SheetTabs); len(got[0].Rows) != 3 {
+		t.Fatalf("first tab rows = %d, want 3", len(got[0].Rows))
+	}
+}

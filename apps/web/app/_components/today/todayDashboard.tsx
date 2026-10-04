@@ -50,6 +50,7 @@ import { isInboxTask, isReminderTask } from "@/app/utils/taskFilters";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
 import type { CalendarItem, Task } from "@/app/_types/types";
+import { entityTitleKey } from "@/app/utils/titleMorph";
 
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
@@ -342,6 +343,7 @@ function FocusTaskRow({
             <button
               type="button"
               onClick={onOpen}
+              data-entity-title={entityTitleKey("task", task.id)}
               className={cn(
                 "truncate text-left text-sm font-medium",
                 completed ? "text-muted-foreground line-through" : "text-foreground hover:text-primary",
@@ -1050,7 +1052,12 @@ export default function TodayDashboard() {
                           }
                           className="min-w-0 flex-1 truncate rounded-xl border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent/40"
                         >
-                          {task.name}
+                          <span
+                            data-entity-title={entityTitleKey("task", task.id)}
+                            className="inline-block max-w-full truncate align-bottom"
+                          >
+                            {task.name}
+                          </span>
                           {task.deadline ? (
                             <span className="ml-2 text-xs text-destructive">{task.deadline}</span>
                           ) : null}

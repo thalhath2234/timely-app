@@ -15,6 +15,7 @@ import { chipStyle, laneStyle, resolvedColor, UNSTAGED_COLOR } from "@/app/utils
 import { isCompletedStatus } from "@/app/utils/status";
 import { priorityColor } from "@/app/utils/priority";
 import { sortedStages, stageCode } from "@/app/utils/stages";
+import { entityTitleKey } from "@/app/utils/titleMorph";
 
 export default function StageBoard({
   projectId,
@@ -244,7 +245,12 @@ export default function StageBoard({
                             </ColorChip>
                           ) : null}
                         </div>
-                        <div className="mt-1.5 font-medium text-foreground">{task.name}</div>
+                        <div
+                          data-entity-title={entityTitleKey("task", task.id)}
+                          className="mt-1.5 font-medium text-foreground"
+                        >
+                          {task.name}
+                        </div>
                         <div className="mt-2 flex flex-wrap items-center gap-1">
                           {task.priorityLevel ? (
                             <ColorChip color={priorityColor(task.priorityLevel)} dot={false}>

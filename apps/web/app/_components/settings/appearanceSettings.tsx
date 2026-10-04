@@ -11,7 +11,16 @@ import {
 } from "@/app/utils/theme";
 
 export default function AppearanceSettings() {
-  const { theme, setTheme, accent, setAccent, sidebarAutoHide, setSidebarAutoHide } = usePreferences();
+  const {
+    theme,
+    setTheme,
+    accent,
+    setAccent,
+    sidebarAutoHide,
+    setSidebarAutoHide,
+    reducedMotion,
+    setReducedMotion,
+  } = usePreferences();
   const accentSwatch = accent === "default" ? DEFAULT_ACCENT_HEX : accent;
 
   return (
@@ -95,6 +104,28 @@ export default function AppearanceSettings() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section>
+        <h3 className="text-sm font-semibold">Motion</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Applies to this device. Your system&apos;s reduced-motion setting is always honored.
+        </p>
+        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-border px-3 py-3">
+          <input
+            type="checkbox"
+            autoComplete="off"
+            className="mt-0.5 size-4 accent-primary"
+            checked={reducedMotion}
+            onChange={(event) => setReducedMotion(event.target.checked)}
+          />
+          <span>
+            <span className="block text-sm font-medium">Reduce motion</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Open dialogs, menus, and pages instantly instead of animating them.
+            </span>
+          </span>
+        </label>
       </section>
 
       <section>

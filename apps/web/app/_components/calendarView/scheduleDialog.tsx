@@ -16,7 +16,7 @@ import { buildRecurrenceInput, type RecurrenceDraft } from "@/app/utils/recurren
 import { useAddTaskBlock, useCreateEvent } from "@/app/utils/hooks/calendar";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
-import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
+import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { isUnscheduled } from "@/app/utils/scheduleRank";
 
 export { isUnscheduled };
@@ -183,226 +183,228 @@ function ScheduleDialogPanel({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <>
       <OverlayScrim
-        className="bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
+        className="z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
         onClick={onClose}
       />
-      <OverlayPanel
-        role="dialog"
-        aria-modal="true"
-        aria-label="Add to calendar"
-        className="relative flex w-full max-w-md flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/10"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      <OverlayFrame className="z-50 items-center justify-center p-4">
+        <OverlayPanel
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add to calendar"
+          className="relative flex w-full max-w-md flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/10"
+          onClick={(event) => event.stopPropagation()}
         >
-          <X className="size-4" />
-        </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
 
-        <div className="pr-8">
-          <h2 className="text-base font-semibold text-foreground">Add to calendar</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Place a task by hand, or create an event that blocks the time.
-          </p>
-        </div>
-
-        <div className="flex gap-1 rounded-lg bg-muted/40 p-1" role="tablist">
-          {(
-            [
-              { value: "task", label: "Schedule a task", icon: ListTodo },
-              { value: "event", label: "New event", icon: CalendarDays },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.value}
-              type="button"
-              role="tab"
-              aria-selected={mode === tab.value}
-              onClick={() => {
-                setMode(tab.value);
-                setError(null);
-              }}
-              className={cn(
-                "inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
-                mode === tab.value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <tab.icon className="size-3.5" />
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {mode === "event" && (
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">Title</span>
-            <input
-              autoFocus
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Dentist, team stand-up, gym..."
-              className={fieldClass}
-            />
-          </label>
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">
-              {eventTimeOnly ? "Time" : "When"}
-            </span>
-            {eventTimeOnly ? (
-              <TimeField
-                value={toTimeInputValue(when)}
-                clearable={false}
-                aria-label="Time"
-                onChange={(hhmm) =>
-                  setWhen(toDatetimeLocalValue(applyClockToDate(startDate, hhmm)))
-                }
-              />
-            ) : (
-              <DatePicker
-                mode={mode === "event" && allDay ? "date" : "datetime"}
-                value={when}
-                onChange={setWhen}
-                clearable={false}
-              />
-            )}
-          </label>
-
-          {reminderTask ? (
-            <p className="flex flex-col justify-end text-xs text-muted-foreground">
-              Reminder — pings at this time, no work block.
+          <div className="pr-8">
+            <h2 className="text-base font-semibold text-foreground">Add to calendar</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Place a task by hand, or create an event that blocks the time.
             </p>
-          ) : (
+          </div>
+
+          <div className="flex gap-1 rounded-lg bg-muted/40 p-1" role="tablist">
+            {(
+              [
+                { value: "task", label: "Schedule a task", icon: ListTodo },
+                { value: "event", label: "New event", icon: CalendarDays },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                role="tab"
+                aria-selected={mode === tab.value}
+                onClick={() => {
+                  setMode(tab.value);
+                  setError(null);
+                }}
+                className={cn(
+                  "inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+                  mode === tab.value
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <tab.icon className="size-3.5" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {mode === "event" && (
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">
-                Duration ({formatDuration(Math.max(15, duration || 30))})
-              </span>
+              <span className="text-xs text-muted-foreground">Title</span>
               <input
-                type="number"
-                min={15}
-                step={15}
-                value={duration}
-                onChange={(event) => setDuration(Number(event.target.value) || 30)}
+                autoFocus
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Dentist, team stand-up, gym..."
                 className={fieldClass}
               />
             </label>
           )}
-        </div>
 
-        {mode === "task" ? (
-          <>
-            <div className="flex items-center gap-2 rounded-lg border border-border bg-input/30 px-2 py-1.5">
-              <Search className="size-3.5 shrink-0 text-muted-foreground" />
-              <input
-                autoFocus
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search unscheduled tasks"
-                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              />
-            </div>
-
-            <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
-              {unscheduled.length === 0 ? (
-                <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                  No unscheduled open tasks
-                  {search ? ` matching “${search}”` : ""}.
-                </p>
-              ) : (
-                <ul className="divide-y divide-border">
-                  {unscheduled.map((task) => {
-                    const selected = task.id === selectedTaskId;
-                    return (
-                      <li key={task.id}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedTaskId(task.id)}
-                          className={cn(
-                            "flex w-full items-center gap-3 px-3 py-2 text-left transition-colors",
-                            selected ? "bg-accent text-accent-foreground" : "hover:bg-muted/60",
-                          )}
-                        >
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium">
-                              {task.name}
-                            </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {task.project?.title ?? task.workspace?.name ?? "No project"}
-                              {task.priorityLevel ? ` · ${task.priorityLevel}` : ""}
-                            </span>
-                          </span>
-                          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                            {task.duration > 0 ? formatDuration(task.duration) : "Reminder"}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-            {selectedTask && selectedTask.duration > duration && (
-              <p className="text-[11px] text-muted-foreground">
-                This block covers {formatDuration(duration)} of the{" "}
-                {formatDuration(selectedTask.duration)} estimate. Auto-schedule can fill
-                in the rest.
-              </p>
-            )}
-          </>
-        ) : (
-          <>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={allDay}
-                onChange={(event) => setAllDay(event.target.checked)}
-                className="size-3.5 accent-primary"
-              />
-              All day
-            </label>
-            <div className="flex flex-col gap-1">
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Repeat className="size-3" />
-                Repeat
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">
+                {eventTimeOnly ? "Time" : "When"}
               </span>
-              <RecurrenceEditor
-                value={recurrence}
-                anchor={startDate}
-                onChange={setRecurrence}
-              />
-            </div>
-          </>
-        )}
+              {eventTimeOnly ? (
+                <TimeField
+                  value={toTimeInputValue(when)}
+                  clearable={false}
+                  aria-label="Time"
+                  onChange={(hhmm) =>
+                    setWhen(toDatetimeLocalValue(applyClockToDate(startDate, hhmm)))
+                  }
+                />
+              ) : (
+                <DatePicker
+                  mode={mode === "event" && allDay ? "date" : "datetime"}
+                  value={when}
+                  onChange={setWhen}
+                  clearable={false}
+                />
+              )}
+            </label>
 
-        {error && <p className="text-xs text-destructive">{error}</p>}
+            {reminderTask ? (
+              <p className="flex flex-col justify-end text-xs text-muted-foreground">
+                Reminder — pings at this time, no work block.
+              </p>
+            ) : (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">
+                  Duration ({formatDuration(Math.max(15, duration || 30))})
+                </span>
+                <input
+                  type="number"
+                  min={15}
+                  step={15}
+                  value={duration}
+                  onChange={(event) => setDuration(Number(event.target.value) || 30)}
+                  className={fieldClass}
+                />
+              </label>
+            )}
+          </div>
 
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="cursor-pointer rounded-lg bg-secondary px-3 py-1.5 font-medium text-secondary-foreground transition-colors hover:bg-accent"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={pending || (mode === "task" ? !selectedTaskId : !title.trim())}
-            className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-          >
-            {pending ? "Saving..." : mode === "task" ? "Schedule" : "Create event"}
-          </button>
-        </div>
-      </OverlayPanel>
-    </div>
+          {mode === "task" ? (
+            <>
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-input/30 px-2 py-1.5">
+                <Search className="size-3.5 shrink-0 text-muted-foreground" />
+                <input
+                  autoFocus
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search unscheduled tasks"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
+                {unscheduled.length === 0 ? (
+                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                    No unscheduled open tasks
+                    {search ? ` matching “${search}”` : ""}.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-border">
+                    {unscheduled.map((task) => {
+                      const selected = task.id === selectedTaskId;
+                      return (
+                        <li key={task.id}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTaskId(task.id)}
+                            className={cn(
+                              "flex w-full items-center gap-3 px-3 py-2 text-left transition-colors",
+                              selected ? "bg-accent text-accent-foreground" : "hover:bg-muted/60",
+                            )}
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">
+                                {task.name}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {task.project?.title ?? task.workspace?.name ?? "No project"}
+                                {task.priorityLevel ? ` · ${task.priorityLevel}` : ""}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                              {task.duration > 0 ? formatDuration(task.duration) : "Reminder"}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+              {selectedTask && selectedTask.duration > duration && (
+                <p className="text-[11px] text-muted-foreground">
+                  This block covers {formatDuration(duration)} of the{" "}
+                  {formatDuration(selectedTask.duration)} estimate. Auto-schedule can fill
+                  in the rest.
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={allDay}
+                  onChange={(event) => setAllDay(event.target.checked)}
+                  className="size-3.5 accent-primary"
+                />
+                All day
+              </label>
+              <div className="flex flex-col gap-1">
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Repeat className="size-3" />
+                  Repeat
+                </span>
+                <RecurrenceEditor
+                  value={recurrence}
+                  anchor={startDate}
+                  onChange={setRecurrence}
+                />
+              </div>
+            </>
+          )}
+
+          {error && <p className="text-xs text-destructive">{error}</p>}
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="cursor-pointer rounded-lg bg-secondary px-3 py-1.5 font-medium text-secondary-foreground transition-colors hover:bg-accent"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={pending || (mode === "task" ? !selectedTaskId : !title.trim())}
+              className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            >
+              {pending ? "Saving..." : mode === "task" ? "Schedule" : "Create event"}
+            </button>
+          </div>
+        </OverlayPanel>
+      </OverlayFrame>
+    </>
   );
 }

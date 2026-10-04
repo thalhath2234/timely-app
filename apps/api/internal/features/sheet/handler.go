@@ -197,7 +197,12 @@ type createTemplateRequest struct {
 }
 
 type updateTemplateRequest struct {
-	Name *string `json:"name"`
+	Name    *string              `json:"name"`
+	Icon    *string              `json:"icon"`
+	Columns *models.SheetColumns `json:"columns"`
+	Rows    *models.SheetRows    `json:"rows"`
+	Merges  *models.SheetMerges  `json:"merges"`
+	Tabs    *models.SheetTabs    `json:"tabs"`
 }
 
 type materializeTabRequest struct {
@@ -267,11 +272,15 @@ func (h *Handler) UpdateTemplate(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
 	}
-	if req.Name == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "name is required")
-	}
 
-	template, err := h.sheetService.RenameTemplate(userID, c.Param("id"), *req.Name)
+	template, err := h.sheetService.UpdateTemplate(userID, c.Param("id"), TemplateUpdate{
+		Name:    req.Name,
+		Icon:    req.Icon,
+		Columns: req.Columns,
+		Rows:    req.Rows,
+		Merges:  req.Merges,
+		Tabs:    req.Tabs,
+	})
 	if err != nil {
 		return templateError(err)
 	}

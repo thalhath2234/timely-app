@@ -11,6 +11,7 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import SheetGrid, { type SheetGridHandle } from "../../../components/sheets/SheetGrid";
+import SheetIconPicker from "../../../components/sheets/SheetIconPicker";
 import { useDeleteSheet, useDuplicateSheet, useCreateSheetTemplate, useMaterializeTemplateTab, useSheetQuery, useSheetTemplatesQuery, useUpdateSheet, useWorkspacesQuery } from "../../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../../lib/autosave";
 import { showUndoToast } from "../../../lib/toast";
@@ -20,7 +21,6 @@ import {
   formatCellDisplay,
   normalizeSheet,
   routeParam,
-  SHEET_ICON_CHOICES,
   sheetHref,
   tabsFromSheet,
   workbookPayload,
@@ -364,34 +364,15 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         })}
       </BottomSheet>
 
-      <BottomSheet open={menu === "icon"} onClose={() => setMenu(null)} title="Icon">
-        <View style={styles.iconGrid}>
-          {SHEET_ICON_CHOICES.map((choice) => (
-            <Pressable
-              key={choice}
-              onPress={() => {
-                setIcon(choice);
-                schedule({ icon: choice });
-                setMenu(null);
-              }}
-              hitSlop={6}
-              style={[styles.iconChoice, choice === icon && styles.iconChoiceOn]}
-            >
-              <Text style={styles.icon}>{choice}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Pressable
-          onPress={() => {
-            setIcon("");
-            schedule({ icon: "" });
-            setMenu(null);
-          }}
-          style={styles.removeIcon}
-        >
-          <Text style={styles.removeIconText}>Remove icon</Text>
-        </Pressable>
-      </BottomSheet>
+      <SheetIconPicker
+        open={menu === "icon"}
+        onClose={() => setMenu(null)}
+        value={icon}
+        onSelect={(choice) => {
+          setIcon(choice);
+          schedule({ icon: choice });
+        }}
+      />
 
       <BottomSheet open={menu === "tab"} onClose={closeTabMenu} title="Tab">
         <TextInput
@@ -494,24 +475,6 @@ const styles = createThemedStyleSheet((colors) => ({
     borderTopColor: "#282C37",
     backgroundColor: "#191B22",
   },
-  iconGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  iconChoice: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconChoiceOn: { backgroundColor: colors.accent },
-  removeIcon: {
-    marginTop: 12,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: colors.secondary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  removeIconText: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
   tabBar: {
     flexDirection: "row",
     alignItems: "center",

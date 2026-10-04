@@ -1,6 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
 import AlignCenter from "lucide-react/dist/esm/icons/align-center.mjs";
 import AlignLeft from "lucide-react/dist/esm/icons/align-left.mjs";
 import AlignRight from "lucide-react/dist/esm/icons/align-right.mjs";
@@ -237,6 +247,7 @@ export default function SheetGrid({
   );
   const [typeMenuIndex, setTypeMenuIndex] = useState<number | null>(null);
   const [optionsEditorIndex, setOptionsEditorIndex] = useState<number | null>(null);
+  const columnPopoverAnchorRef = useRef<HTMLDivElement>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -2119,7 +2130,15 @@ export default function SheetGrid({
                   </button>
                 )}
 
-                <div className="relative shrink-0" data-sheet-popover>
+                <div
+                  ref={
+                    typeMenuIndex === index || optionsEditorIndex === index
+                      ? columnPopoverAnchorRef
+                      : undefined
+                  }
+                  className="relative shrink-0"
+                  data-sheet-popover
+                >
                   <button
                     type="button"
                     title="Column type"
@@ -2131,7 +2150,11 @@ export default function SheetGrid({
                     {columnTypeBadge(column.type)}
                   </button>
                   {typeMenuIndex === index ? (
-                    <div className="absolute right-0 top-6 z-40 min-w-28 rounded-md border border-border bg-popover p-1 shadow-lg">
+                    <AnchoredPopover
+                      anchorRef={columnPopoverAnchorRef}
+                      boundsRef={gridRef}
+                      className="min-w-28 rounded-md border border-border bg-popover p-1 shadow-lg"
+                    >
                       {SHEET_COLUMN_TYPES.map((option) => (
                         <button
                           key={option.value}
@@ -2158,12 +2181,13 @@ export default function SheetGrid({
                           Edit options…
                         </button>
                       ) : null}
-                    </div>
+                    </AnchoredPopover>
                   ) : null}
                   {optionsEditorIndex === index ? (
-                    <div
-                      className="absolute right-0 top-6 z-40 w-64 rounded-md border border-border bg-popover p-2 shadow-lg"
-                      onMouseDown={(event) => event.stopPropagation()}
+                    <AnchoredPopover
+                      anchorRef={columnPopoverAnchorRef}
+                      boundsRef={gridRef}
+                      className="w-64 rounded-md border border-border bg-popover p-2 shadow-lg"
                     >
                       <p className="mb-1 text-[11px] font-medium text-foreground">
                         Dropdown options
@@ -2209,7 +2233,7 @@ export default function SheetGrid({
                           Save
                         </button>
                       </div>
-                    </div>
+                    </AnchoredPopover>
                   ) : null}
                 </div>
 
@@ -2726,6 +2750,69 @@ export default function SheetGrid({
         </div>
       </footer>
     </div>
+  );
+}
+
+const POPOVER_GAP = 4;
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * Column-header menus render into `document.body` so the grid's scroll
+ * container cannot clip them. The panel hangs below the anchor, right-aligned
+ * to it, and is clamped to stay inside `boundsRef` and the viewport.
+ */
+function AnchoredPopover({
+  anchorRef,
+  boundsRef,
+  className,
+  children,
+}: {
+  anchorRef: RefObject<HTMLElement | null>;
+  boundsRef: RefObject<HTMLElement | null>;
+  className?: string;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const place = () => {
+      const anchor = anchorRef.current;
+      const panel = panelRef.current;
+      if (!anchor || !panel) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      const bounds = boundsRef.current?.getBoundingClientRect();
+      const width = panel.offsetWidth;
+      const height = panel.offsetHeight;
+      const minLeft = Math.max(VIEWPORT_MARGIN, bounds ? bounds.left + POPOVER_GAP : 0);
+      const maxLeft = window.innerWidth - width - VIEWPORT_MARGIN;
+      const left = Math.max(minLeft, Math.min(anchorRect.right - width, maxLeft));
+      const below = anchorRect.bottom + POPOVER_GAP;
+      const top =
+        below + height > window.innerHeight - VIEWPORT_MARGIN
+          ? Math.max(VIEWPORT_MARGIN, anchorRect.top - height - POPOVER_GAP)
+          : below;
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [anchorRef, boundsRef]);
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      data-sheet-popover
+      className={`fixed left-0 top-0 z-[100] ${className ?? ""}`}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>,
+    document.body,
   );
 }
 

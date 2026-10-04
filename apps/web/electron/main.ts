@@ -54,7 +54,11 @@ ipcMain.on("chat:notify", (event, payload: unknown) => {
   if (deliveredChats.has(key)) return;
   deliveredChats.add(key);
   if (deliveredChats.size > 1000) deliveredChats.delete(deliveredChats.values().next().value!);
-  const notification = new Notification({ title: data.title.slice(0, 100), body: data.body.slice(0, 200) });
+  const notification = new Notification({
+    title: data.title.slice(0, 100),
+    body: data.body.slice(0, 200),
+    icon: notificationIcon(),
+  });
   notification.on("click", () => {
     if (win.isDestroyed()) return;
     showMainWindow();
@@ -157,6 +161,19 @@ function attachWindowGuards(win: BrowserWindow, url: string) {
 function windowIcon(): string | undefined {
   const icon = path.join(app.getAppPath(), "electron", "resources", "icon.png");
   return existsSync(icon) ? icon : undefined;
+}
+
+/**
+ * Linux and Windows notifications show no app icon unless one is passed;
+ * macOS ignores this and uses the bundle icon.
+ */
+let cachedNotificationIcon: Electron.NativeImage | undefined;
+function notificationIcon(): Electron.NativeImage | undefined {
+  if (cachedNotificationIcon) return cachedNotificationIcon;
+  const icon = windowIcon();
+  if (!icon) return undefined;
+  cachedNotificationIcon = nativeImage.createFromPath(icon).resize({ width: 256, height: 256 });
+  return cachedNotificationIcon;
 }
 
 function showMainWindow() {
@@ -324,7 +341,7 @@ function rebuildTrayMenu() {
           if (result && !result.ok) {
             dialog.showErrorBox("Backup failed", result.error);
           } else if (result?.message && Notification.isSupported()) {
-            new Notification({ title: "Timely backup", body: result.message }).show();
+            new Notification({ title: "Timely backup", body: result.message, icon: notificationIcon() }).show();
           }
         },
       },

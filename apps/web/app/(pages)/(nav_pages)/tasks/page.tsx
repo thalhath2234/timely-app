@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -25,9 +25,18 @@ import { useProjects } from "@/app/utils/hooks/projects";
 import { filterTasks } from "@/app/utils/taskFilters";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
 import { useTaskViewsState } from "@/app/utils/hooks/taskViews";
+import { beginOpenMorph, entityTitleKey } from "@/app/utils/titleMorph";
+import { runViewTransition } from "@/app/utils/viewTransition";
 
 /** Project rows are synthesised from their tasks and carry a prefixed id. */
 const PROJECT_ROW_PREFIX = "project-";
+
+/** The `/tasks` query string for an open detail, or "" when none is open. */
+function detailHref(taskId: string | null, projectId: string | null) {
+  if (taskId) return `taskId=${encodeURIComponent(taskId)}`;
+  if (projectId) return `projectId=${encodeURIComponent(projectId)}`;
+  return "";
+}
 
 // useSearchParams needs a Suspense boundary for the page to prerender.
 export default function TasksPage() {
@@ -93,24 +102,38 @@ function Tasks() {
   const stageColors = useMemo(() => stageColorMap(typedProjects), [typedProjects]);
 
   // The open row lives in the URL so an @mention can link straight to it.
-  const detailTaskId = searchParams.get("taskId");
-  const detailProjectId = searchParams.get("projectId");
+  // Clicks set it locally first, inside a view transition (router updates
+  // never start one), and the URL catches up right after that commit.
+  const urlDetail = detailHref(searchParams.get("taskId"), searchParams.get("projectId"));
+  const [detail, setDetail] = useState(urlDetail);
+  const [syncedUrlDetail, setSyncedUrlDetail] = useState(urlDetail);
+  if (urlDetail !== syncedUrlDetail) {
+    // Back/forward or an @mention link changed the URL.
+    setSyncedUrlDetail(urlDetail);
+    setDetail(urlDetail);
+  }
+  const pushedDetail = useRef(urlDetail);
+  useEffect(() => {
+    if (detail === syncedUrlDetail) {
+      pushedDetail.current = detail;
+      return;
+    }
+    if (detail === pushedDetail.current) return;
+    pushedDetail.current = detail;
+    router.push(detail ? `/tasks?${detail}` : "/tasks", { scroll: false });
+  }, [detail, syncedUrlDetail, router]);
+  const detailParams = new URLSearchParams(detail);
+  const detailTaskId = detailParams.get("taskId");
+  const detailProjectId = detailParams.get("projectId");
 
-  const openRow = useCallback(
-    (row: Task) => {
-      const query = row.id.startsWith(PROJECT_ROW_PREFIX)
-        ? `projectId=${encodeURIComponent(row.id.slice(PROJECT_ROW_PREFIX.length))}`
-        : `taskId=${encodeURIComponent(row.id)}`;
+  const openRow = useCallback((row: Task) => {
+    const isProject = row.id.startsWith(PROJECT_ROW_PREFIX);
+    const id = isProject ? row.id.slice(PROJECT_ROW_PREFIX.length) : row.id;
+    beginOpenMorph(entityTitleKey(isProject ? "project" : "task", id));
+    runViewTransition(() => setDetail(isProject ? detailHref(null, id) : detailHref(id, null)));
+  }, []);
 
-      router.push(`/tasks?${query}`, { scroll: false });
-    },
-    [router],
-  );
-
-  const closeDetail = useCallback(
-    () => router.push("/tasks", { scroll: false }),
-    [router],
-  );
+  const closeDetail = useCallback(() => runViewTransition(() => setDetail("")), []);
 
   const listFilters = useMemo(
     () => ({

@@ -4,7 +4,7 @@ import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/app/utils/cn";
-import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
+import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 
 /** Title field shared by the detail panel and the create modals. */
 export const modalTitleClass =
@@ -40,9 +40,9 @@ export function EntityModalShell({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6">
+    <>
       <OverlayScrim
-        className="bg-black/70 backdrop-blur-[6px]"
+        className="z-50 bg-black/70 backdrop-blur-[6px]"
         onPointerDown={(event) => {
           if (event.target !== event.currentTarget) return;
           // Slash/mention menus render on document.body above this overlay.
@@ -51,48 +51,50 @@ export function EntityModalShell({
           onClose();
         }}
       />
-      <OverlayPanel
-        role="dialog"
-        aria-modal="true"
-        className={cn(
-          "relative flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl shadow-black/40",
-          size === "xl"
-            ? "h-[min(942px,calc(100vh-2rem))] max-w-6xl"
-            : "h-[min(860px,calc(100vh-2rem))] max-w-5xl",
-        )}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-5">
-          {headerLeft ?? (
-            <>
-              <Icon className="size-4 text-muted-foreground" />
-              <span className="flex-1 text-sm capitalize text-muted-foreground">
-                {label}
-              </span>
-            </>
+      <OverlayFrame className="z-50 items-center justify-center p-3 md:p-6">
+        <OverlayPanel
+          role="dialog"
+          aria-modal="true"
+          className={cn(
+            "relative flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl shadow-black/40",
+            size === "xl"
+              ? "h-[min(942px,calc(100vh-2rem))] max-w-6xl"
+              : "h-[min(860px,calc(100vh-2rem))] max-w-5xl",
           )}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-5">
+            {headerLeft ?? (
+              <>
+                <Icon className="size-4 text-muted-foreground" />
+                <span className="flex-1 text-sm capitalize text-muted-foreground">
+                  {label}
+                </span>
+              </>
+            )}
 
-          <div className="ml-auto flex items-center gap-2">{headerRight}</div>
+            <div className="ml-auto flex items-center gap-2">{headerRight}</div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close"
-            className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          >
-            <X className="size-3.5" />
-            {closeWithKbd ? (
-              <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
-                ESC
-              </kbd>
-            ) : null}
-          </button>
-        </header>
+            <button
+              type="button"
+              onClick={onClose}
+              title="Close"
+              className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              <X className="size-3.5" />
+              {closeWithKbd ? (
+                <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+                  ESC
+                </kbd>
+              ) : null}
+            </button>
+          </header>
 
-        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">{children}</div>
-        {footer}
-      </OverlayPanel>
-    </div>
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">{children}</div>
+          {footer}
+        </OverlayPanel>
+      </OverlayFrame>
+    </>
   );
 }
 

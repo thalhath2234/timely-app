@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -87,6 +87,12 @@ import ConfirmDialog from "@/app/_components/_ui/confirmDialog";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import TaskExecution from "@/app/_components/_ui/tasks/taskExecution";
 import { runViewTransition } from "@/app/utils/viewTransition";
+import {
+  attachMorphTarget,
+  beginCloseMorph,
+  detachMorphTarget,
+  entityTitleKey,
+} from "@/app/utils/titleMorph";
 
 const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Urgent"];
 const DURATION_PRESETS = [
@@ -491,6 +497,7 @@ function DetailBody({
   const { data: me } = useMe();
   const { data: tasks } = useTasks();
   const [title, setTitle] = useState(view.title);
+  const titleRef = useRef<HTMLInputElement>(null);
   const [labelIds, setLabelIds] = useState(view.labelIds ?? []);
   const [descriptionDirty, setDescriptionDirty] = useState(false);
   const [descriptionSaving, setDescriptionSaving] = useState(false);
@@ -720,6 +727,19 @@ function DetailBody({
     commit(patch);
   };
 
+  // The list title morphs into this input on open and back on close.
+  const morphKey = entityTitleKey(view.kind, view.id);
+  useLayoutEffect(() => {
+    const input = titleRef.current;
+    if (!input) return;
+    attachMorphTarget(input);
+    return () => detachMorphTarget(input);
+  }, []);
+  const closeWithMorph = () => {
+    beginCloseMorph(titleRef.current, morphKey);
+    onClose();
+  };
+
   return (
     <PanelShell
       kind={view.kind}
@@ -731,13 +751,13 @@ function DetailBody({
         stage: stageName ?? "",
       }}
       onToggleComplete={toggleComplete}
-      onClose={onClose}
+      onClose={closeWithMorph}
       onSaveAndClose={() => {
         void (async () => {
           try {
             await saveDescription();
             const saved = await flush();
-            if (saved) onClose();
+            if (saved) closeWithMorph();
           } catch {
             // Keep the panel open so the save failure stays visible.
           }
@@ -767,6 +787,7 @@ function DetailBody({
           ) : null}
         </div>
         <input
+          ref={titleRef}
           value={title}
           onChange={(event) => {
             setTitle(event.target.value);
