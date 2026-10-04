@@ -20,7 +20,8 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "@timely/contract": ["../../packages/contract/src/index.ts"]
+      "@timely/contract": ["../../packages/contract/src/index.ts"],
+      "@timely/contract/*": ["../../packages/contract/src/*"]
     }
   },
   "include": [

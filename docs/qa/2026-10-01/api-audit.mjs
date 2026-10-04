@@ -468,7 +468,8 @@ const evidence = {
   passed: results.filter((r) => r.pass).length,
   failed: results.filter((r) => !r.pass).length,
 };
-// evidence/api-audit.json holds the audited build's result; reruns write to
+// The audited build's result was evidence/api-audit.json (now only in Git
+// history at c90fd8f); reruns write to
 // QA_EVIDENCE_FILE, defaulting to the remediation folder.
 const target =
   process.env.QA_EVIDENCE_FILE ||

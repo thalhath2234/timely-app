@@ -2,6 +2,8 @@
 
 **Release recommendation: hold.** The audit reproduced unauthorized session revocation and loss of offline mobile changes after restart. The web lint gate and dependency checks also fail. No product fixes were made in this audit.
 
+> The `evidence/` files linked below were removed from the repository to keep it small. Read any of them from history with `git show c90fd8f:docs/qa/2026-10-01/evidence/<file>`.
+
 Audited commit: `453dc59262bd28d9300b8810b572fb586c2755a8`, plus the audit scripts and Make targets added here. Scope: web UI, Android app in Expo Go, supporting API, and Linux Electron smoke/static review. This is broad development QA, not an exhaustive production penetration test or device certification.
 
 ## Executed checks

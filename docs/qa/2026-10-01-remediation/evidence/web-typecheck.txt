@@ -1,2 +1,0 @@
-$ tsc --noEmit && tsc --noEmit -p electron/tsconfig.json
-EXIT=0

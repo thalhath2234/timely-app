@@ -1,2 +1,0 @@
-ok  	timely-api/internal/features/portability	0.029s
-EXIT=0

@@ -1,7 +1,0 @@
-> Task :app:assembleRelease
-BUILD SUCCESSFUL in 41s
-COPIED_APK=/tmp/qa-fix/timely-release-x86_64-cleartext.apk
-EXIT=0
-generated-url-valid true
-bundle-has-generated-url true
-EXIT=0
