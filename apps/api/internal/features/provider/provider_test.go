@@ -51,6 +51,16 @@ func TestParseResponseUnwrapsNestedProtocolObject(t *testing.T) {
 		t.Fatalf("nested reply not unwrapped: %+v", got)
 	}
 
+	objectArgs := `{"content":"","toolCalls":[{"name":"propose_changes","arguments":{"summary":"Retype columns"}}]}`
+	fenced := "```json\n" + objectArgs + "\n```"
+	for _, content := range []string{objectArgs, fenced} {
+		raw, _ := json.Marshal(map[string]any{"content": content, "toolCalls": []any{}})
+		got, err := parseResponse(string(raw))
+		if err != nil || len(got.ToolCalls) != 1 || got.ToolCalls[0].Function.Arguments != `{"summary":"Retype columns"}` {
+			t.Fatalf("nested %q not unwrapped: %+v %v", content, got, err)
+		}
+	}
+
 	// JSON the person asked for is content, not protocol.
 	for _, content := range []string{`{"content":"x"}`, `{"content":"x","toolCalls":[],"extra":1}`, `{"total":4760}`, `[1,2]`} {
 		raw, _ := json.Marshal(map[string]any{"content": content, "toolCalls": []any{}})

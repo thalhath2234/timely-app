@@ -246,8 +246,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     extend = false,
     grown?: { cols?: number; rows?: number },
   ) {
-    const colCount = Math.max(columns.length, grown?.cols ?? 0, 1);
-    const rowCount = Math.max(rows.length, grown?.rows ?? 0, 1);
+    // Blank cells past the end are selectable without becoming real rows, so
+    // clamp to what the grid draws rather than to the data.
+    const colCount = Math.max(columns.length + ghostColCount, grown?.cols ?? 0, 1);
+    const rowCount = Math.max(rows.length + ghostRowCount, grown?.rows ?? 0, 1);
     if ("anchor" in next) {
       setRange({
         anchor: clampAddress(next.anchor, colCount, rowCount),
@@ -481,7 +483,8 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     };
   }
 
-  function addColumn(atIndex = columns.length) {
+  function addColumn(at = columns.length) {
+    const atIndex = Math.min(at, columns.length);
     const column = makeColumn(atIndex);
     const nextColumns = [...columns];
     nextColumns.splice(atIndex, 0, column);
@@ -494,6 +497,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   function deleteColumn(index: number) {
     if (columns.length <= 1) return;
     const removed = columns[index];
+    if (!removed) return;
     commit({
       columns: columns.filter((_, i) => i !== index),
       rows: rows.map((row) => {
@@ -515,7 +519,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   }
 
   function deleteRow(index: number) {
-    if (rows.length <= 1) return;
+    if (rows.length <= 1 || index >= rows.length) return;
     commit({ rows: rows.filter((_, i) => i !== index) });
     setSelection({
       col: selected.col,
@@ -834,9 +838,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
 
   function applyFormat(patch: Partial<SheetCellFormat> | null) {
     const span = normalizedRange(range);
-    // Clearing formats past the end has nothing to clear, so only a real
-    // format grows the grid to cover the selection.
-    const grown = patch
+    // Clearing formats past the end has nothing to clear, so only a patch
+    // that sets something grows the grid to cover the selection.
+    const sets = patch != null && Object.values(patch).some((value) => value != null && value !== false);
+    const grown = sets
       ? growGridTo({ columns, rows }, { col: span.maxCol, row: span.maxRow }, makeColumn, emptySheetRow)
       : { columns, rows };
     const nextRows = grown.rows.map((row) => ({

@@ -39,19 +39,38 @@ const callTimeout = 4 * time.Minute
 type cliResponse struct {
 	Content   string `json:"content"`
 	ToolCalls []struct {
-		Name      string `json:"name"`
-		Arguments string `json:"arguments"`
+		Name      string  `json:"name"`
+		Arguments cliArgs `json:"arguments"`
 	} `json:"toolCalls"`
 }
 
-// parseResponse turns the protocol JSON into the runner's wire shape.
-func parseResponse(text string) (chat.WireMessage, error) {
+// cliArgs is the JSON-encoded arguments string the protocol asks for. A nested
+// protocol object (see nestedResponse) isn't held to the response schema, so
+// it may carry the arguments as a plain object; that is kept as raw JSON.
+type cliArgs string
+
+func (a *cliArgs) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		*a = cliArgs(s)
+		return nil
+	}
+	*a = cliArgs(b)
+	return nil
+}
+
+func stripFence(text string) string {
 	text = strings.TrimSpace(text)
 	text = strings.TrimPrefix(text, "```json")
 	text = strings.TrimPrefix(text, "```")
 	text = strings.TrimSuffix(text, "```")
+	return strings.TrimSpace(text)
+}
+
+// parseResponse turns the protocol JSON into the runner's wire shape.
+func parseResponse(text string) (chat.WireMessage, error) {
 	var parsed cliResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(stripFence(text)), &parsed); err != nil {
 		return chat.WireMessage{}, fmt.Errorf("The AI provider returned an unreadable answer; try again")
 	}
 	// Models sometimes put the whole protocol object, JSON-encoded, in
@@ -69,7 +88,7 @@ func parseResponse(text string) (chat.WireMessage, error) {
 		if strings.TrimSpace(call.Name) == "" {
 			continue
 		}
-		args := strings.TrimSpace(call.Arguments)
+		args := strings.TrimSpace(string(call.Arguments))
 		if args == "" {
 			args = "{}"
 		}
@@ -87,7 +106,7 @@ func parseResponse(text string) (chat.WireMessage, error) {
 // the "content" and "toolCalls" keys. A reply that merely contains JSON the
 // person asked for doesn't have that shape and is left alone.
 func nestedResponse(content string) (cliResponse, bool) {
-	content = strings.TrimSpace(content)
+	content = stripFence(content)
 	if !strings.HasPrefix(content, "{") {
 		return cliResponse{}, false
 	}
