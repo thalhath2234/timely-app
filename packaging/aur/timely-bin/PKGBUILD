@@ -21,11 +21,14 @@ _license_rev=84d57b740eb61625755d9be286a154528190808c  # commit that added LICEN
 source=("${_appimage}::${url}/releases/download/${_tag}/${_appimage}"
         "LICENSE-${_license_rev}::https://raw.githubusercontent.com/thalhath2234/timely-app/${_license_rev}/LICENSE")
 noextract=("${_appimage}")
-sha256sums=('33d633da0194437ea923c563a363d37aeeee69335b9e9c54d6b35393997c3ecb'
+sha256sums=('5b6db20d2569650837b48ac507d57536476fa50305d31c7c21d6b1cc844d5338'
             'd188c1d24bd091d0be11ea5fc1d0a6c1751b5584370bc8a2ff85673cb2a1ec60')
 
 prepare() {
   chmod +x "${_appimage}"
+  # makepkg keeps src/ between builds; extracting over an older tree fails when a
+  # path that was a symlink there is a directory now ("mkdir_p error").
+  rm -rf squashfs-root
   ./"${_appimage}" --appimage-extract >/dev/null
   # Point the desktop entry at the system binary, drop the AppImage-only keys.
   sed -i -e 's|^Exec=.*|Exec=timely %U|' \
