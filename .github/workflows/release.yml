@@ -76,7 +76,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: apps/web/.cache/postgres
-          key: zonky-postgres-${{ matrix.target }}-${{ hashFiles('apps/web/electron/targets.mjs') }}
+          # runner.os, not matrix.target: cache keys cannot contain commas and the
+          # mac target is "darwin-x64,darwin-arm64". One desktop job per OS keeps it unique.
+          key: zonky-postgres-${{ runner.os }}-${{ hashFiles('apps/web/electron/targets.mjs') }}
       - run: pnpm install --frozen-lockfile
       - name: Build and package (${{ matrix.target }})
         shell: bash
@@ -123,7 +125,8 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
+      # v3 defaults to installing the removed `tools` package and fails on every run.
+      - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
       - run: pnpm install --frozen-lockfile
       - name: Generate the native Android project
