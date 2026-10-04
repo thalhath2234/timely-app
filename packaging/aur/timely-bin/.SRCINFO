@@ -1,7 +1,7 @@
 pkgbase = timely-bin
 	pkgdesc = Private personal planning, scheduling, and notes (prebuilt AppImage)
 	pkgver = 0.1.0alpha
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/thalhath2234/timely-app
 	arch = x86_64
 	license = MIT
