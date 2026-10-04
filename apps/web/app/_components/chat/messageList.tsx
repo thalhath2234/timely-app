@@ -1,4 +1,6 @@
 "use client";
+
+import TimelyLogo from "@/app/_components/_ui/timelyLogo";
 import { useState } from "react";
 import {
   Ban,
@@ -7,7 +9,6 @@ import {
   History,
   Info,
   RefreshCw,
-  Sparkles,
 } from "lucide-react";
 import type { Chat, ChatMessage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
@@ -144,8 +145,8 @@ export default function MessageList({ chat }: { chat: Chat }) {
               </div>
             ) : (
               <div className="group flex gap-3">
-                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Sparkles className="size-3.5" />
+                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-foreground">
+                  <TimelyLogo size={16} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">

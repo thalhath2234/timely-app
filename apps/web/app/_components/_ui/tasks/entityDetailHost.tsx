@@ -3,14 +3,18 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import EntityDetailPanel from "@/app/_components/_ui/tasks/entityDetailPanel";
-import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
+import { useEntityDetailStore, type EntityDetailState } from "@/app/_store/entityDetailStore";
 import { isTasksListPath, parseTasksEntityHref } from "@/app/utils/entityDetail";
+import { useTransitionStore } from "@/app/utils/hooks/useTransitionStore";
+
+const selectKind = (state: EntityDetailState) => state.kind;
+const selectId = (state: EntityDetailState) => state.id;
 
 export default function EntityDetailHost() {
   const pathname = usePathname();
   const previousPathname = useRef(pathname);
-  const kind = useEntityDetailStore((state) => state.kind);
-  const id = useEntityDetailStore((state) => state.id);
+  const kind = useTransitionStore(useEntityDetailStore, selectKind);
+  const id = useTransitionStore(useEntityDetailStore, selectId);
   const closeEntity = useEntityDetailStore((state) => state.closeEntity);
 
   useEffect(() => {

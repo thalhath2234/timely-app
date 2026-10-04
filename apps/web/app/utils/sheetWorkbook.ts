@@ -21,7 +21,10 @@ export function defaultTabGrid(): { columns: SheetColumn[]; rows: SheetRow[] } {
   return { columns, rows };
 }
 
-export function tabsFromSheet(sheet: Sheet): SheetTab[] {
+/** Works for sheets and templates (pass a template's name as `title`). */
+export function tabsFromSheet(
+  sheet: Pick<Sheet, "title" | "columns" | "rows" | "merges" | "tabs">,
+): SheetTab[] {
   if (sheet.tabs && sheet.tabs.length > 0) {
     return sheet.tabs.map((tab, index) => ({
       ...tab,
@@ -41,13 +44,17 @@ export function tabsFromSheet(sheet: Sheet): SheetTab[] {
   ];
 }
 
+/**
+ * The primary grid is mirrored onto columns/rows/merges for older readers,
+ * and every tab (including the first) is sent so its own name survives.
+ */
 export function workbookPayload(tabs: SheetTab[]) {
   const primary = tabs[0];
   return {
     columns: primary?.columns ?? [],
     rows: primary?.rows ?? [],
     merges: primary?.merges ?? [],
-    tabs: tabs.length > 1 ? tabs : [],
+    tabs,
   };
 }
 

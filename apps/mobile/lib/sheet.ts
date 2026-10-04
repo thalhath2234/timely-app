@@ -14,7 +14,99 @@ export const SHEET_COLUMN_TYPES: { value: SheetColumnType; label: string }[] = [
   { value: "formula", label: "Formula" },
   { value: "date", label: "Date" },
   { value: "boolean", label: "Checkbox" },
+  { value: "select", label: "Dropdown" },
 ];
+
+export const MAX_SELECT_OPTIONS = 200;
+
+export function columnTypeBadge(type: SheetColumnType | undefined) {
+  if (type === "select") return "▾";
+  return type?.[0]?.toUpperCase() ?? "T";
+}
+
+/** Trims, drops blanks and case-insensitive duplicates (first spelling wins). */
+export function normalizeSelectOptions(options: readonly string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const option of options ?? []) {
+    const trimmed = String(option ?? "").trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+    if (out.length >= MAX_SELECT_OPTIONS) break;
+  }
+  return out;
+}
+
+/** The stored spelling of `value` among `options`, or undefined when it is new. */
+export function matchSelectOption(options: readonly string[] | undefined, value: string) {
+  const key = value.trim().toLowerCase();
+  return (options ?? []).find((option) => option.toLowerCase() === key);
+}
+
+/** Parses the one-per-line text of the options editor. */
+export function parseSelectOptions(text: string): string[] {
+  return normalizeSelectOptions(text.split(/\r?\n|,/));
+}
+
+/**
+ * Keeps select columns truthful after any cell change: cell values take the
+ * spelling of the matching option, and values that are not an option yet are
+ * appended to the column. Returns the same arrays when nothing changed.
+ */
+export function syncSelectOptions(
+  columns: SheetColumn[],
+  rows: SheetRow[],
+): { columns: SheetColumn[]; rows: SheetRow[] } {
+  const selectColumns = columns.filter((column) => column.type === "select");
+  if (selectColumns.length === 0) return { columns, rows };
+
+  const nextOptions = new Map<string, string[]>();
+  for (const column of selectColumns) {
+    nextOptions.set(column.id, normalizeSelectOptions(column.options));
+  }
+
+  let rowsChanged = false;
+  const nextRows = rows.map((row) => {
+    let cells: Record<string, string> | null = null;
+    for (const column of selectColumns) {
+      const raw = row.cells?.[column.id] ?? "";
+      const trimmed = raw.trim();
+      if (!trimmed || isFormulaValue(trimmed)) continue;
+      const options = nextOptions.get(column.id)!;
+      const match = matchSelectOption(options, trimmed);
+      let canonical = trimmed;
+      if (match) canonical = match;
+      else if (options.length < MAX_SELECT_OPTIONS) options.push(trimmed);
+      if (canonical !== raw) {
+        cells = cells ?? { ...row.cells };
+        cells[column.id] = canonical;
+      }
+    }
+    if (!cells) return row;
+    rowsChanged = true;
+    return { ...row, cells };
+  });
+
+  let columnsChanged = false;
+  const nextColumns = columns.map((column) => {
+    if (column.type !== "select") return column;
+    const options = nextOptions.get(column.id)!;
+    const before = column.options ?? [];
+    if (before.length === options.length && before.every((option, index) => option === options[index])) {
+      return column;
+    }
+    columnsChanged = true;
+    return { ...column, options };
+  });
+
+  return {
+    columns: columnsChanged ? nextColumns : columns,
+    rows: rowsChanged ? nextRows : rows,
+  };
+}
 
 export function routeParam(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -40,12 +132,19 @@ function cellText(value: unknown): string {
 
 export function normalizeColumns(columns: SheetColumn[] | null | undefined): SheetColumn[] {
   if (!Array.isArray(columns)) return [];
-  return columns.map((column, index) => ({
-    id: column?.id || newSheetId("col"),
-    name: column?.name?.trim() || columnIndexToLetter(index),
-    width: typeof column?.width === "number" && column.width > 0 ? column.width : 140,
-    type: SHEET_COLUMN_TYPES.some((t) => t.value === column?.type) ? column.type : "text",
-  }));
+  return columns.map((column, index) => {
+    const type: SheetColumnType = SHEET_COLUMN_TYPES.some((t) => t.value === column?.type)
+      ? column.type
+      : "text";
+    const next: SheetColumn = {
+      id: column?.id || newSheetId("col"),
+      name: column?.name?.trim() || columnIndexToLetter(index),
+      width: typeof column?.width === "number" && column.width > 0 ? column.width : 140,
+      type,
+    };
+    if (type === "select") next.options = normalizeSelectOptions(column?.options);
+    return next;
+  });
 }
 
 export function normalizeRows(rows: SheetRow[] | null | undefined): SheetRow[] {
@@ -107,7 +206,8 @@ export function defaultTabGrid(): { columns: SheetColumn[]; rows: SheetRow[] } {
   return { columns, rows };
 }
 
-export function tabsFromSheet(sheet: Sheet): SheetTab[] {
+/** Works for sheets and templates (pass `{ ...template, title: template.name }`). */
+export function tabsFromSheet(sheet: Pick<Sheet, "title" | "columns" | "rows" | "merges" | "tabs">): SheetTab[] {
   if (sheet.tabs && sheet.tabs.length > 0) {
     return sheet.tabs.map((tab, index) => normalizeTab(tab, index, sheet.title || "Sheet 1"));
   }
@@ -122,13 +222,17 @@ export function tabsFromSheet(sheet: Sheet): SheetTab[] {
   ];
 }
 
+/**
+ * The primary grid is mirrored onto columns/rows/merges for older readers,
+ * and every tab (including the first) is sent so its own name survives.
+ */
 export function workbookPayload(tabs: SheetTab[]) {
   const primary = tabs[0];
   return {
     columns: primary?.columns ?? [],
     rows: primary?.rows ?? [],
     merges: primary?.merges ?? [],
-    tabs: tabs.length > 1 ? tabs : [],
+    tabs,
   };
 }
 
@@ -188,6 +292,7 @@ export function normalizeTypedCell(type: SheetColumnType | undefined, value: str
     if (["FALSE", "0", "NO", "N"].includes(upper)) return "FALSE";
     return "";
   }
+  if (type === "select") return trimmed;
   return value;
 }
 

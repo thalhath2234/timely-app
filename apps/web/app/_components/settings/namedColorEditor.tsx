@@ -13,6 +13,8 @@ export type NamedColorItem = {
 
 type NamedColorEditorProps = {
   title: string;
+  /** Singular noun for the "New … name" placeholder; derived from `title` when omitted. */
+  noun?: string;
   description: string;
   items: NamedColorItem[];
   emptyLabel: string;
@@ -28,6 +30,7 @@ const DEFAULT_COLOR = "#889096";
 
 export default function NamedColorEditor({
   title,
+  noun = title.toLowerCase().replace(/s$/, ""),
   description,
   items,
   emptyLabel,
@@ -187,7 +190,7 @@ export default function NamedColorEditor({
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder={`New ${title.toLowerCase().replace(/s$/, "")} name`}
+          placeholder={`New ${noun} name`}
           className="min-w-0 flex-1 rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/40"
         />
         <button

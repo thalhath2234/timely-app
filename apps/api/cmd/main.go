@@ -2,9 +2,16 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -12,6 +19,7 @@ import (
 
 	"gorm.io/gorm"
 	"timely-api/internal/blocks"
+	"timely-api/internal/buildinfo"
 	"timely-api/internal/database"
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/apikey"
@@ -21,6 +29,7 @@ import (
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/instance"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/placement"
 	"timely-api/internal/features/portability"
@@ -36,17 +45,27 @@ import (
 	"timely-api/internal/realtime"
 	"timely-api/internal/recurrence"
 	"timely-api/internal/routes"
+	"timely-api/internal/utils"
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v5"
 	echoMiddleware "github.com/labstack/echo/v5/middleware"
 )
 
+// version is set at build time: go build -ldflags "-X main.version=1.2.3".
+var version = "dev"
+
 func main() {
+	buildinfo.Set(version)
 	// Load environment variables from the repo-root .env (the API runs from
 	// apps/api), or from a .env beside the binary when deployed outside the repo.
 	if godotenv.Load("../../.env") != nil && godotenv.Load() != nil {
 		log.Println("Warning: No .env file found or failed to load")
+	}
+	if dir := utils.DataDir(); dir != "" {
+		if err := utils.EnsureDir(dir); err != nil {
+			log.Fatalf("TIMELY_DATA_DIR %s: %v", dir, err)
+		}
 	}
 
 	// Initialize database
@@ -84,6 +103,7 @@ func main() {
 	searchService := search.NewService(db, indexer)
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)
+	portabilityService.SetAfterRestore(indexer.Invalidate)
 	jobWorker := jobs.NewWorker(jobQueue)
 	notifyService.Register(jobWorker)
 	portabilityService.Register(jobWorker)
@@ -110,14 +130,29 @@ func main() {
 	})
 
 	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live) }, chat.NewOpenRouter())
+	// Proposals are rehearsed in a rolled-back transaction; no live doc broadcasts.
+	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil) })
 	providerService := provider.New(db, indexer, jobQueue)
 	providerService.Register(jobWorker)
 	chatService.SetCompleters(providerService)
 
+	authHandler := auth.NewHandler(authService, userRepo)
+	port, bind := listenConfig()
+	instanceHandler := instance.NewHandler(instance.Config{
+		Port:              port,
+		Bind:              bind,
+		DataDir:           utils.DataDir(),
+		BackupDir:         portabilityService.Dir(),
+		AllowRegistration: authHandler.AllowRegistration(),
+		LocalCLI:          providerService.LocalCLI(),
+		RegistrationOpen:  authHandler.RegistrationOpen,
+	}, mustSQLDB(db))
+
 	handlers := routes.Handlers{
 		Chat:      chatService,
 		Providers: providerService,
-		Auth:      auth.NewHandler(authService, userRepo),
+		Auth:      authHandler,
+		Instance:  instanceHandler,
 		Task:      task.NewHandler(taskService),
 		Project:   project.NewHandler(projectService),
 		Workspace: workspace.NewHandler(workspaceService),
@@ -141,12 +176,7 @@ func main() {
 	e.Use(middleware.StructuredLogger())
 	e.Use(echoMiddleware.Recover())
 	e.Use(echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{
-		AllowOrigins: []string{
-			"http://localhost:4001",
-			"http://127.0.0.1:4001",
-			"https://11a5-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
-			"https://7b74-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
-		},
+		AllowOrigins:     corsOrigins(),
 		AllowCredentials: true,
 		AllowHeaders: []string{
 			echo.HeaderOrigin,
@@ -162,27 +192,126 @@ func main() {
 
 	// Setup all routes
 	routes.SetupRoutes(e, handlers)
-	// Start server
-	// API_PORT is the name in the shared .env; PORT is the older name.
-	port := os.Getenv("API_PORT")
-	if port == "" {
-		port = os.Getenv("PORT")
-	}
-	if port == "" {
-		port = "8080"
-	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	go jobWorker.Run(ctx)
+	var background sync.WaitGroup
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		jobWorker.Run(ctx)
+	}()
 	chatService.Run(ctx)
 
-	sc := echo.StartConfig{
-		Address:         ":" + port,
-		GracefulTimeout: 10 * time.Second,
+	servers, listening := listenAll(bind, port, e)
+	if len(servers) == 0 {
+		log.Fatalf("could not bind the API on any of %v port %d", bind, port)
 	}
-	if err := sc.Start(ctx, e); err != nil {
-		log.Fatal(err)
+	instanceHandler.SetListening(listening)
+
+	<-ctx.Done()
+	log.Println("Shutting down")
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
+	for _, srv := range servers {
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("http shutdown: %v", err)
+		}
 	}
+	stopped := make(chan struct{})
+	go func() {
+		background.Wait()
+		chatService.Wait()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(8 * time.Second):
+		log.Println("background loops did not stop in time; exiting anyway")
+	}
+}
+
+// listenConfig reads API_PORT (fallback PORT, default 8080) and API_BIND, a
+// comma-separated list of hosts that defaults to loopback only. Hosting on a
+// server still works with API_BIND=0.0.0.0.
+func listenConfig() (int, []string) {
+	portText := strings.TrimSpace(os.Getenv("API_PORT"))
+	if portText == "" {
+		portText = strings.TrimSpace(os.Getenv("PORT"))
+	}
+	if portText == "" {
+		portText = "8080"
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 0 || port > 65535 {
+		log.Fatalf("API_PORT %q is not a port number", portText)
+	}
+	var bind []string
+	seen := map[string]bool{}
+	for _, host := range strings.Split(os.Getenv("API_BIND"), ",") {
+		host = strings.Trim(strings.TrimSpace(host), "[]")
+		if host == "" || seen[host] {
+			continue
+		}
+		seen[host] = true
+		bind = append(bind, host)
+	}
+	if len(bind) == 0 {
+		bind = []string{"127.0.0.1"}
+	}
+	return port, bind
+}
+
+// listenAll binds one http.Server per host; hosts that fail to bind are
+// logged and skipped so a missing Tailscale address does not stop loopback.
+func listenAll(bind []string, port int, handler http.Handler) ([]*http.Server, []string) {
+	var servers []*http.Server
+	var listening []string
+	for _, host := range bind {
+		addr := net.JoinHostPort(host, strconv.Itoa(port))
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			log.Printf("warning: cannot listen on %s: %v", addr, err)
+			continue
+		}
+		srv := &http.Server{
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		servers = append(servers, srv)
+		listening = append(listening, ln.Addr().String())
+		log.Printf("API listening on http://%s", ln.Addr().String())
+		go func(srv *http.Server, ln net.Listener) {
+			if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("http serve %s: %v", ln.Addr(), err)
+			}
+		}(srv, ln)
+	}
+	return servers, listening
+}
+
+// corsOrigins is the development allow list plus any CORS_ORIGINS entries.
+func corsOrigins() []string {
+	origins := []string{
+		"http://localhost:4001",
+		"http://127.0.0.1:4001",
+		"https://11a5-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
+		"https://7b74-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
+	}
+	for _, origin := range strings.Split(os.Getenv("CORS_ORIGINS"), ",") {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
+}
+
+func mustSQLDB(db *gorm.DB) *sql.DB {
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("database handle: %v", err)
+	}
+	return sqlDB
 }

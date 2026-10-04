@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Trash2 } from "lucide-react";
-import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
+import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 
 export default function ConfirmDialog({
   title,
@@ -43,58 +43,60 @@ export default function ConfirmDialog({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+    <>
       <OverlayScrim
-        className="bg-black/55"
+        className="z-[70] bg-black/55"
         onPointerDown={(event) => {
           if (event.target !== event.currentTarget || pending) return;
           onCancel();
         }}
       />
-      <OverlayPanel
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={description ? descriptionId : undefined}
-        className="relative w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive">
-            <Trash2 className="size-4" />
-          </span>
-          <div className="min-w-0 flex-1 pt-0.5">
-            <h2 id={titleId} className="text-sm font-semibold text-foreground">
-              {title}
-            </h2>
-            {description ? (
-              <p id={descriptionId} className="mt-1 text-sm leading-snug text-muted-foreground">
-                {description}
-              </p>
-            ) : null}
+      <OverlayFrame className="z-[70] items-center justify-center p-4">
+        <OverlayPanel
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          aria-describedby={description ? descriptionId : undefined}
+          className="relative w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive">
+              <Trash2 className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <h2 id={titleId} className="text-sm font-semibold text-foreground">
+                {title}
+              </h2>
+              {description ? (
+                <p id={descriptionId} className="mt-1 text-sm leading-snug text-muted-foreground">
+                  {description}
+                </p>
+              ) : null}
+            </div>
           </div>
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            ref={cancelRef}
-            type="button"
-            onClick={onCancel}
-            disabled={pending}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={pending}
-            className="rounded-lg bg-destructive-container px-3 py-1.5 text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive-container/90 disabled:opacity-60"
-          >
-            {pending ? pendingLabel : confirmLabel}
-          </button>
-        </div>
-      </OverlayPanel>
-    </div>,
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              ref={cancelRef}
+              type="button"
+              onClick={onCancel}
+              disabled={pending}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
+            >
+              {cancelLabel}
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={pending}
+              className="rounded-lg bg-destructive-container px-3 py-1.5 text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive-container/90 disabled:opacity-60"
+            >
+              {pending ? pendingLabel : confirmLabel}
+            </button>
+          </div>
+        </OverlayPanel>
+      </OverlayFrame>
+    </>,
     document.body,
   );
 }

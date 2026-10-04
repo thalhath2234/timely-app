@@ -1,0 +1,436 @@
+{
+  "projectId": "3ef8118c-7eb1-4d4a-89f2-4f3c476fbb6e",
+  "shape": "package",
+  "pkg": "@timely/ui",
+  "globalName": "Timely",
+  "entry": ".design-sync/pkg/index.ts",
+  "buildCmd": "node .design-sync/pkg/build.mjs",
+  "srcDir": "../../apps/web/app/_components",
+  "tsconfig": "tsconfig.bundle.json",
+  "cssEntry": "dist/timely.css",
+  "extraFonts": [
+    "../fonts/fonts.css"
+  ],
+  "provider": {
+    "component": "TimelyProvider",
+    "props": {
+      "animations": false
+    }
+  },
+  "componentSrcMap": {
+    "TimelyProvider": null,
+    "ContextMenuHost": "../../apps/web/app/_components/_ui/contextMenu.tsx",
+    "DateField": "../../apps/web/app/_components/_ui/datePicker.tsx",
+    "TimeField": "../../apps/web/app/_components/_ui/datePicker.tsx",
+    "DateTimeField": "../../apps/web/app/_components/_ui/datePicker.tsx",
+    "LoadErrorBanner": "../../apps/web/app/_components/_ui/loadError.tsx",
+    "QueryFailure": "../../apps/web/app/_components/_ui/loadError.tsx",
+    "AddItemModal": "../../apps/web/app/_components/_ui/modal/addItem.tsx",
+    "EntityModalShell": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
+    "ModalMain": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
+    "ModalSidebar": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
+    "PropertyRow": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
+    "SidebarSectionTitle": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
+    "SearchModal": "../../apps/web/app/_components/_ui/modal/search.tsx",
+    "OverlayScrim": "../../apps/web/app/_components/_ui/motion.tsx",
+    "OverlayPanel": "../../apps/web/app/_components/_ui/motion.tsx",
+    "PopoverView": "../../apps/web/app/_components/_ui/motion.tsx",
+    "PageFade": "../../apps/web/app/_components/_ui/motion.tsx",
+    "SaveStatusBadge": "../../apps/web/app/_components/_ui/saveStatus.tsx",
+    "SidebarButtonIcon": "../../apps/web/app/_components/_ui/sidebarButton.tsx",
+    "TasksTable": "../../apps/web/app/_components/_ui/tasks/tasktable.tsx",
+    "TaskOptionsBar": "../../apps/web/app/_components/_ui/tasks/taskToolbar.tsx",
+    "TaskListStatusBar": "../../apps/web/app/_components/_ui/tasks/taskToolbar.tsx",
+    "CreateLabelInline": "../../apps/web/app/_components/_ui/workspaceQuickCreate.tsx",
+    "CreateCustomFieldInline": "../../apps/web/app/_components/_ui/workspaceQuickCreate.tsx",
+    "ChangeValue": "../../apps/web/app/_components/chat/changeCards.tsx",
+    "ContextChips": "../../apps/web/app/_components/chat/composer.tsx",
+    "StatusPill": "../../apps/web/app/_components/chat/conversation.tsx",
+    "ImagePreview": "../../apps/web/app/_components/chat/imageAttachments.tsx",
+    "PendingImages": "../../apps/web/app/_components/chat/imageAttachments.tsx",
+    "ReceiptSummary": "../../apps/web/app/_components/chat/receiptReview.tsx",
+    "LandingHeader": "../../apps/web/app/_components/landing/header.tsx",
+    "EventBlocks": "../../apps/web/app/_components/landing/miniWeek.tsx",
+    "SceneBox": "../../apps/web/app/_components/landing/scene.tsx",
+    "MiniWindow": "../../apps/web/app/_components/landing/scene.tsx",
+    "SceneButton": "../../apps/web/app/_components/landing/scene.tsx",
+    "Typed": "../../apps/web/app/_components/landing/scene.tsx",
+    "Caret": "../../apps/web/app/_components/landing/scene.tsx",
+    "CountUp": "../../apps/web/app/_components/landing/scene.tsx",
+    "LandingStage": "../../apps/web/app/_components/landing/section.tsx",
+    "LandingSection": "../../apps/web/app/_components/landing/section.tsx",
+    "Sticker": "../../apps/web/app/_components/landing/stickers.tsx",
+    "StickerShape": "../../apps/web/app/_components/landing/stickers.tsx",
+    "ModelPicker": "../../apps/web/app/_components/settings/agentSettings.tsx",
+    "NotificationSettingsPanel": "../../apps/web/app/_components/settings/notificationSettings.tsx"
+  },
+  "overrides": {
+    "ConfirmDialog": {
+      "cardMode": "single",
+      "primaryStory": "DeleteTask",
+      "viewport": "640x420"
+    },
+    "WeekView": {
+      "cardMode": "column",
+      "viewport": "1280x720"
+    },
+    "MonthView": {
+      "cardMode": "column"
+    },
+    "LandingSection": {
+      "cardMode": "column",
+      "viewport": "1280x900"
+    },
+    "LandingHeader": {
+      "cardMode": "column",
+      "viewport": "1280x400"
+    },
+    "LoopNav": {
+      "cardMode": "column",
+      "viewport": "1280x700"
+    },
+    "FeatureIndex": {
+      "cardMode": "column",
+      "viewport": "1280x1000"
+    },
+    "EntityModalShell": {
+      "cardMode": "single",
+      "primaryStory": "TaskDetail",
+      "viewport": "1280x1040"
+    },
+    "ConfirmHost": {
+      "cardMode": "single",
+      "primaryStory": "DeleteFromMenu",
+      "viewport": "640x420"
+    },
+    "ContextMenuHost": {
+      "cardMode": "single",
+      "primaryStory": "TaskRow",
+      "viewport": "480x620"
+    },
+    "ToastHost": {
+      "cardMode": "single",
+      "primaryStory": "Stacked",
+      "viewport": "480x320"
+    },
+    "TaskToolbar": {
+      "cardMode": "column"
+    },
+    "TaskOptionsBar": {
+      "cardMode": "column"
+    },
+    "TaskListStatusBar": {
+      "cardMode": "column"
+    },
+    "AgendaView": {
+      "cardMode": "column"
+    },
+    "DayView": {
+      "cardMode": "column"
+    },
+    "TimeGrid": {
+      "cardMode": "column"
+    },
+    "ChangeCards": {
+      "cardMode": "column"
+    },
+    "ChangeValue": {
+      "cardMode": "column"
+    },
+    "ChatText": {
+      "cardMode": "column"
+    },
+    "Composer": {
+      "cardMode": "column"
+    },
+    "ContextChips": {
+      "cardMode": "column"
+    },
+    "EmptyHero": {
+      "cardMode": "column"
+    },
+    "MessageList": {
+      "cardMode": "column"
+    },
+    "ProposalPanel": {
+      "cardMode": "column"
+    },
+    "ReceiptSummary": {
+      "cardMode": "column"
+    },
+    "StatusPill": {
+      "cardMode": "column"
+    },
+    "CodeBlockView": {
+      "cardMode": "column"
+    },
+    "Caret": {
+      "cardMode": "column"
+    },
+    "EventBlocks": {
+      "cardMode": "column"
+    },
+    "GitHubMark": {
+      "cardMode": "column"
+    },
+    "LandingStage": {
+      "cardMode": "column"
+    },
+    "MiniWeek": {
+      "cardMode": "column"
+    },
+    "MiniWindow": {
+      "cardMode": "column"
+    },
+    "QuickStart": {
+      "cardMode": "column"
+    },
+    "SceneBox": {
+      "cardMode": "column"
+    },
+    "SceneButton": {
+      "cardMode": "column"
+    },
+    "Sticker": {
+      "cardMode": "column"
+    },
+    "StickerShape": {
+      "cardMode": "column"
+    },
+    "Typed": {
+      "cardMode": "column"
+    },
+    "ModalMain": {
+      "cardMode": "column"
+    },
+    "PropertyRow": {
+      "cardMode": "column"
+    },
+    "ColorPicker": {
+      "cardMode": "single",
+      "primaryStory": "Open"
+    },
+    "CustomFieldControl": {
+      "cardMode": "column"
+    },
+    "DatePicker": {
+      "cardMode": "single",
+      "primaryStory": "CalendarOpen"
+    },
+    "DateTimeField": {
+      "cardMode": "single",
+      "primaryStory": "Open"
+    },
+    "EmptyState": {
+      "cardMode": "column"
+    },
+    "ExpandCollapsedListButton": {
+      "cardMode": "column"
+    },
+    "KeyboardShortcuts": {
+      "cardMode": "column"
+    },
+    "LoadError": {
+      "cardMode": "column"
+    },
+    "LoadErrorBanner": {
+      "cardMode": "column"
+    },
+    "OverlayPanel": {
+      "cardMode": "column"
+    },
+    "OverlayScrim": {
+      "cardMode": "column"
+    },
+    "PopoverView": {
+      "cardMode": "column"
+    },
+    "QueryFailure": {
+      "cardMode": "column"
+    },
+    "RecurrenceEditor": {
+      "cardMode": "column"
+    },
+    "SaveStatusBadge": {
+      "cardMode": "column"
+    },
+    "SidebarButtonIcon": {
+      "cardMode": "column"
+    },
+    "TimeField": {
+      "cardMode": "single",
+      "primaryStory": "Open"
+    },
+    "TimezoneSelect": {
+      "cardMode": "column"
+    },
+    "CountUp": {
+      "cardMode": "column"
+    },
+    "AssistantScene": {
+      "cardMode": "column"
+    },
+    "AutoScheduleScene": {
+      "cardMode": "column"
+    },
+    "CaptureScene": {
+      "cardMode": "column"
+    },
+    "ClarifyScene": {
+      "cardMode": "column"
+    },
+    "DocsSheetsScene": {
+      "cardMode": "column"
+    },
+    "EverywhereScene": {
+      "cardMode": "column"
+    },
+    "FocusScene": {
+      "cardMode": "column"
+    },
+    "HeroScene": {
+      "cardMode": "column"
+    },
+    "ReviewScene": {
+      "cardMode": "column"
+    },
+    "SearchScene": {
+      "cardMode": "column"
+    },
+    "TasksTable": {
+      "cardMode": "column"
+    },
+    "KanbanView": {
+      "cardMode": "column"
+    },
+    "GanttView": {
+      "cardMode": "column"
+    },
+    "ProjectTaskList": {
+      "cardMode": "column"
+    },
+    "BulkActionBar": {
+      "cardMode": "single",
+      "primaryStory": "ThreeSelected"
+    },
+    "EntityDetailPanel": {
+      "cardMode": "single",
+      "primaryStory": "TaskDetail",
+      "viewport": "1280x1040"
+    },
+    "AutoScheduleDialog": {
+      "cardMode": "single",
+      "primaryStory": "Preview",
+      "viewport": "900x820"
+    },
+    "AutoScheduleIndicator": {
+      "cardMode": "single",
+      "primaryStory": "Placed",
+      "viewport": "640x320"
+    },
+    "EventDialog": {
+      "cardMode": "single",
+      "primaryStory": "AutoScheduledBlock",
+      "viewport": "900x820"
+    },
+    "ScheduleDialog": {
+      "cardMode": "single",
+      "primaryStory": "ScheduleTask",
+      "viewport": "900x760"
+    },
+    "SearchModal": {
+      "cardMode": "single",
+      "primaryStory": "SearchResults",
+      "viewport": "1000x760"
+    },
+    "AddItemModal": {
+      "cardMode": "single",
+      "primaryStory": "NewTask",
+      "viewport": "1280x1040"
+    },
+    "TodayDashboard": {
+      "cardMode": "column",
+      "viewport": "1280x1000"
+    },
+    "WaitingForSlotRail": {
+      "cardMode": "column"
+    },
+    "AppShell": {
+      "cardMode": "column",
+      "viewport": "1320x860"
+    },
+    "StageBoard": {
+      "cardMode": "column"
+    },
+    "SheetGrid": {
+      "cardMode": "column"
+    },
+    "Conversation": {
+      "cardMode": "column"
+    },
+    "ReceiptReview": {
+      "cardMode": "column"
+    },
+    "RichTextEditor": {
+      "cardMode": "column"
+    },
+    "StageCatalog": {
+      "cardMode": "column"
+    },
+    "ImagePreview": {
+      "cardMode": "column"
+    },
+    "PendingImages": {
+      "cardMode": "column"
+    },
+    "AccountSettings": {
+      "cardMode": "column"
+    },
+    "AgentSettings": {
+      "cardMode": "column"
+    },
+    "ApiKeysSettings": {
+      "cardMode": "column"
+    },
+    "AppearanceSettings": {
+      "cardMode": "column"
+    },
+    "CustomFieldEditor": {
+      "cardMode": "column"
+    },
+    "DataSettings": {
+      "cardMode": "column"
+    },
+    "ModelPicker": {
+      "cardMode": "column"
+    },
+    "NamedColorEditor": {
+      "cardMode": "column"
+    },
+    "NotificationSettingsPanel": {
+      "cardMode": "column"
+    },
+    "WorkingHoursSettings": {
+      "cardMode": "column"
+    },
+    "WorkspaceSettings": {
+      "cardMode": "column"
+    },
+    "TaskExecution": {
+      "cardMode": "column"
+    },
+    "TaskScheduleSection": {
+      "cardMode": "column"
+    },
+    "CreateCustomFieldInline": {
+      "cardMode": "column"
+    },
+    "CreateLabelInline": {
+      "cardMode": "column"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md",
+  "dtsPropsFor": {
+    "Sidebar": "/** Takes no props. The highlighted item follows the current route (outside the app: window.__TIMELY_PATHNAME__, default \"/today\"). */"
+  }
+}

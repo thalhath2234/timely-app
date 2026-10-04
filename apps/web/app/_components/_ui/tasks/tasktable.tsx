@@ -46,6 +46,7 @@ import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { useToastStore } from "@/app/_store/toastStore";
+import { entityTitleKey } from "@/app/utils/titleMorph";
 
 type TasksTableProps = {
   config: Config;
@@ -1081,7 +1082,16 @@ export default function TasksTable({
                   {completed ? <Check className="size-3" aria-hidden /> : null}
                 </button>
               ) : <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: taskEntityColor(task) }} aria-hidden />}
-              <span className={cn("truncate", completed && "line-through")}>{task.name}</span>
+              <span
+                data-entity-title={
+                  task.id.startsWith("project-")
+                    ? entityTitleKey("project", task.id.slice("project-".length))
+                    : entityTitleKey("task", task.id)
+                }
+                className={cn("truncate", completed && "line-through")}
+              >
+                {task.name}
+              </span>
             </span>
           </td>
         );

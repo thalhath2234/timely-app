@@ -37,7 +37,7 @@ import {
   useSplitTaskSeries,
   useUpdateTask,
 } from "@/app/utils/hooks/tasks";
-import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
+import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
 
 type EventDialogProps = {
@@ -120,64 +120,66 @@ function DialogFrame({
           : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <>
       <OverlayScrim
-        className="bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
+        className="z-50 bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
         onClick={onClose}
       />
-      <OverlayPanel
-        role="dialog"
-        aria-modal="true"
-        aria-label={event.title}
-        className="relative flex w-full max-w-sm flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/10"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      <OverlayFrame className="z-50 items-center justify-center p-4">
+        <OverlayPanel
+          role="dialog"
+          aria-modal="true"
+          aria-label={event.title}
+          className="relative flex w-full max-w-sm flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/10"
+          onClick={(e) => e.stopPropagation()}
         >
-          <X className="size-4" />
-        </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
 
-        <div className="flex flex-col gap-2 pr-8">
-          <div className="flex items-center gap-2">
-            <span
-              className="size-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: swatchColor(event.color) }}
-            />
-            <h2 className="text-base font-medium leading-none">{event.title}</h2>
+          <div className="flex flex-col gap-2 pr-8">
+            <div className="flex items-center gap-2">
+              <span
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: swatchColor(event.color) }}
+              />
+              <h2 className="text-base font-medium leading-none">{event.title}</h2>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {event.statusName && (
+                <span className="inline-flex items-center rounded-4xl border border-border px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  {event.statusName}
+                </span>
+              )}
+              {badge && (
+                <span className="inline-flex items-center gap-1 rounded-4xl border border-border px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  <badge.icon className="size-3" />
+                  {badge.label}
+                </span>
+              )}
+              {event.kind === "task" && event.chunkCount > 1 && (
+                <span className="inline-flex items-center rounded-4xl border border-border px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  Part {event.chunkIndex + 1} of {event.chunkCount}
+                </span>
+              )}
+              {event.moved && (
+                <span className="inline-flex items-center rounded-4xl border border-border px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  Moved
+                </span>
+              )}
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            {event.statusName && (
-              <span className="inline-flex items-center rounded-4xl border border-border px-2 py-0.5 text-xs font-normal text-muted-foreground">
-                {event.statusName}
-              </span>
-            )}
-            {badge && (
-              <span className="inline-flex items-center gap-1 rounded-4xl border border-border px-2 py-0.5 text-xs font-normal text-muted-foreground">
-                <badge.icon className="size-3" />
-                {badge.label}
-              </span>
-            )}
-            {event.kind === "task" && event.chunkCount > 1 && (
-              <span className="inline-flex items-center rounded-4xl border border-border px-2 py-0.5 text-xs font-normal text-muted-foreground">
-                Part {event.chunkIndex + 1} of {event.chunkCount}
-              </span>
-            )}
-            {event.moved && (
-              <span className="inline-flex items-center rounded-4xl border border-border px-2 py-0.5 text-xs font-normal text-muted-foreground">
-                Moved
-              </span>
-            )}
-          </div>
-        </div>
-
-        {children}
-      </OverlayPanel>
-    </div>
+          {children}
+        </OverlayPanel>
+      </OverlayFrame>
+    </>
   );
 }
 

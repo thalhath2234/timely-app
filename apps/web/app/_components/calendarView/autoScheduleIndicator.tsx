@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { AlertTriangle, Check, Sparkles, X } from "lucide-react";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { cn } from "@/app/utils/cn";
 import { springSoft, toastVariants } from "@/app/_components/_ui/motion";
@@ -52,7 +53,7 @@ export default function AutoScheduleIndicator({
           )}
           <p className="min-w-0 flex-1 leading-snug">{message}</p>
           {status === "running" ? (
-            <span className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+            <LogoSpinner size={14} label="Auto-scheduling" />
           ) : (
             <button
               type="button"

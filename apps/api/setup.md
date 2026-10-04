@@ -6,8 +6,8 @@ the root [README](../../README.md) covers the other apps.
 ## Prerequisites
 
 - Go 1.25.7 or newer (see [`go.mod`](go.mod)).
-- PostgreSQL with the `vector` extension. `docker compose up -d db` starts the
-  repository's pgvector image on port 5432.
+- PostgreSQL 15 or newer (17 recommended); no extensions are required.
+  `docker compose up -d db` starts a plain `postgres:17` on port 5432.
 - `pnpm` and Make for the repository setup commands.
 
 ## Start locally
@@ -23,8 +23,32 @@ make dev-api             # API on :8080, with live reload
 `make setup` copies the root `.env.example` to the ignored root `.env` if
 needed. Check its database settings and replace `JWT_SECRET` and
 `TIMELY_BACKUP_KEY` before using a nonlocal installation. The API applies
-pending schema migrations at startup. Embedding search needs an
+pending schema migrations at startup; they are embedded in the binary, so a
+packaged build runs from any directory. Embedding search needs an
 `OPENROUTER_API_KEY`; keyword search works without it.
+
+## Listening and host settings
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `API_PORT` (older name `PORT`) | `8080` | TCP port for every listener. |
+| `API_BIND` | `127.0.0.1` | Comma-separated hosts to listen on. Loopback only by default; add a Tailscale address for a phone, or `0.0.0.0` on a server. A host that fails to bind is logged and skipped; the API exits only when none binds. |
+| `ALLOW_REGISTRATION` | `true` | `false` makes `POST /register` answer 403 once one account exists; the first account can always be created. |
+| `TIMELY_DATA_DIR` | unset | Roots every file the API writes: backups in `<dir>/backups`, chat images in `<dir>/chat-images`. Created with mode 0700. |
+| `TIMELY_BACKUP_DIR` | `data/backups` (or `<TIMELY_DATA_DIR>/backups`) | Backup root; a relative value resolves under `TIMELY_DATA_DIR` when that is set. |
+| `CHAT_IMAGE_DIR` | `$TMPDIR/timely-chat-images` (or `<TIMELY_DATA_DIR>/chat-images`) | Chat upload directory; relative values resolve like `TIMELY_BACKUP_DIR`. |
+| `CORS_ORIGINS` | unset | Extra comma-separated browser origins allowed besides the dev list. |
+
+`GET /health` is public and reports the database ping, migration state and
+whether registration is open; it answers 503 when the database is unreachable.
+`GET /instance` (signed in) describes the running process: version, platform,
+bound addresses and data directories. `/login`, `/register` and `/auth/refresh`
+are rate limited to 20 requests per minute per IP and 8 per minute per account.
+`POST /agent/providers/rescan` re-detects the host CLIs.
+
+The release version is baked in with `-ldflags "-X main.version=1.2.3"`; the
+binary reports `dev` otherwise. SIGINT or SIGTERM drains HTTP connections and
+stops the job worker and chat runner before exiting.
 
 For this worktree, use `make dev-worktree-api` to run on port 8081. To run both
 API and web on the worktree ports, use `make dev-worktree`. Leave ports 8080 and
@@ -64,7 +88,8 @@ multi-step changes wait for Apply; navigation does not stop a run. See the
 [feature design](../../docs/ai-agent-design.md) for behavior and checks.
 
 Chat image uploads use an account-scoped temporary directory, by default
-`$TMPDIR/timely-chat-images` (or `/tmp/timely-chat-images`). `CHAT_IMAGE_DIR` can
+`$TMPDIR/timely-chat-images` (or `/tmp/timely-chat-images`), or
+`<TIMELY_DATA_DIR>/chat-images` when the data directory is set. `CHAT_IMAGE_DIR` can
 point to a dedicated private directory shared by API workers on the same server.
 Keep it outside backups and public/static file serving. Uploaded images are not
 stored in PostgreSQL; do not place unrelated files in this directory. Access expires

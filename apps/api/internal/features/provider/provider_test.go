@@ -254,3 +254,47 @@ func TestCheckReportsLoginState(t *testing.T) {
 		t.Fatalf("stderr login report must count: %+v", status)
 	}
 }
+
+func TestClaudeCompleteRunsNativeToolAttemptsTheCLIRejected(t *testing.T) {
+	// The model called get_context as a native tool (rejected by the CLI with
+	// "No such tool available"), then apologised in the structured output
+	// without listing any toolCalls. The attempt is honoured instead.
+	bin, _ := fakeCLI(t, "claude", `echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"get_context","input":{"arguments":"{}"}}]}}'
+echo '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","is_error":true,"content":"<tool_use_error>Error: No such tool available: get_context</tool_use_error>"}]}}'
+echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"get_task","input":{"taskId":"tsk_1"}}]}}'
+echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_3","name":"StructuredOutput","input":{"content":"I could not reach your workspace","toolCalls":[]}}]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"{\"content\":\"I could not reach your workspace\",\"toolCalls\":[]}","structured_output":{"content":"I could not reach your workspace","toolCalls":[]}}'`)
+	specs := []any{
+		map[string]any{"type": "function", "function": map[string]any{"name": "get_context"}},
+		map[string]any{"type": "function", "function": map[string]any{"name": "get_task"}},
+	}
+	got, err := (&Claude{Bin: bin, Model: "sonnet"}).Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, specs, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "" || len(got.ToolCalls) != 2 {
+		t.Fatalf("native attempts must become tool calls: %+v", got)
+	}
+	if got.ToolCalls[0].Function.Name != "get_context" || got.ToolCalls[0].Function.Arguments != "{}" {
+		t.Fatalf("protocol-shaped input must unwrap: %+v", got.ToolCalls[0])
+	}
+	if got.ToolCalls[1].Function.Name != "get_task" || got.ToolCalls[1].Function.Arguments != `{"taskId":"tsk_1"}` {
+		t.Fatalf("plain input must pass through: %+v", got.ToolCalls[1])
+	}
+
+	// A structured answer that does list toolCalls wins over the attempts.
+	bin, _ = fakeCLI(t, "claude", `echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"get_context","input":{"arguments":"{}"}}]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"content":"","toolCalls":[{"name":"get_task","arguments":"{\"taskId\":\"tsk_2\"}"}]}}'`)
+	got, err = (&Claude{Bin: bin, Model: "sonnet"}).Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, specs, false)
+	if err != nil || len(got.ToolCalls) != 1 || got.ToolCalls[0].Function.Name != "get_task" {
+		t.Fatalf("structured toolCalls must win: %+v %v", got, err)
+	}
+
+	// Native calls to tools Timely never offered (or the schema tool) are ignored.
+	bin, _ = fakeCLI(t, "claude", `echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"content":"Hello","toolCalls":[]}}'`)
+	got, err = (&Claude{Bin: bin, Model: "sonnet"}).Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, specs, false)
+	if err != nil || len(got.ToolCalls) != 0 || got.Content != "Hello" {
+		t.Fatalf("unknown native tools must not be run: %+v %v", got, err)
+	}
+}

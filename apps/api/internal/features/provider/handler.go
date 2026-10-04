@@ -15,6 +15,7 @@ func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
 
 func (s *Service) Routes(g *echo.Group) {
 	g.GET("/agent/providers", s.overview)
+	g.POST("/agent/providers/rescan", s.rescan)
 	g.PATCH("/agent/providers", s.configure)
 	g.GET("/agent/providers/:id/models", s.listModels)
 	g.POST("/agent/providers/:id/connect", s.connect)
@@ -75,6 +76,18 @@ func (s *Service) overview(c *echo.Context) error {
 		return err
 	}
 	return c.JSON(200, s.view(c.Request().Context(), row, time.Minute))
+}
+
+// rescan drops the cached CLI detection and detects again, so a person who
+// just installed or signed in to a CLI sees it without waiting for the cache.
+func (s *Service) rescan(c *echo.Context) error {
+	s.claude.Invalidate()
+	s.codex.Invalidate()
+	row, err := s.load(s.db, user(c))
+	if err != nil {
+		return err
+	}
+	return c.JSON(200, s.view(c.Request().Context(), row, 0))
 }
 
 func (s *Service) listModels(c *echo.Context) error {
@@ -315,6 +328,11 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 		*change.target = value
 		if value == "" {
+			continue
+		}
+		// Before Connect a CLI model is only recorded; Connect tests it. Otherwise
+		// a default model that is at capacity could never be changed.
+		if (change.provider == ClaudeCLI && trial.ClaudeConnectedAt == nil) || (change.provider == CodexCLI && trial.CodexConnectedAt == nil) {
 			continue
 		}
 		// Verify the chosen model actually answers before it becomes the default.

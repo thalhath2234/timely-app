@@ -19,6 +19,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import Conversation from "@/app/_components/chat/conversation";
 import {
   groupChats,
@@ -147,7 +148,7 @@ function HistoryRow({
           className="flex min-w-0 flex-1 items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <span className={cn("mt-0.5 shrink-0", tone[meta.tone])}>
-            <Icon className={cn("size-3.5", meta.spin && "animate-spin")} />
+            {meta.spin ? <LogoSpinner size={14} tone="mono" label={meta.label} /> : <Icon className="size-3.5" />}
           </span>
           <span className="min-w-0 flex-1">
             <span

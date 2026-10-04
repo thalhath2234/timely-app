@@ -6,10 +6,12 @@
 #   API_URL=https://... scripts/build-apk.sh
 #   make build-apk [API_URL=https://...]
 #
-# The API endpoint is taken from, in order: --api-url, the positional URL, the
-# API_URL environment variable, then EXPO_PUBLIC_API_URL from the root .env. A
-# trailing slash is removed. The Gradle build runs under systemd-run (12G cap),
-# not in this shell.
+# The API URL is optional: the phone pairs with a server at runtime by scanning
+# the QR code in the desktop app's Settings → Server. When given (--api-url, the
+# positional URL, or the API_URL environment variable) it is only exported as
+# EXPO_PUBLIC_API_URL for the build, which dev builds use as their default; the
+# root .env and lib/api/bundledUrl.ts are never written. A trailing slash is
+# removed. The Gradle build runs under systemd-run (12G cap), not in this shell.
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -126,9 +128,7 @@ echo
 if grep -q '^EXIT=0$' "$LOG" 2>/dev/null && [[ -f "$APK_OUT" ]]; then
   echo "Build succeeded: $APK_OUT"
   ls -lh "$APK_OUT"
-  if [[ -f "$MOBILE_DIR/scripts/check-bundle-url.js" ]]; then
-    node "$MOBILE_DIR/scripts/check-bundle-url.js"
-  fi
+  node "$MOBILE_DIR/scripts/check-release-bundle.js"
   exit 0
 fi
 

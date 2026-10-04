@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Database, Download, FileSpreadsheet, RefreshCw, Trash2, Upload } from "lucide-react";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import {
   createBackup,
   deleteBackup,
@@ -109,7 +110,7 @@ export default function DataSettings() {
             </select>
           </label>
           <button type="button" onClick={() => create.mutate()} disabled={create.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
-            <RefreshCw className={`size-3.5 ${create.isPending ? "animate-spin" : ""}`} /> Create now
+            {create.isPending ? <LogoSpinner size={14} tone="mono" label="Creating backup" /> : <RefreshCw className="size-3.5" />} Create now
           </button>
         </div>
         {current.nextRunAt ? <p className="mt-3 text-xs text-muted-foreground">Next run {new Date(current.nextRunAt).toLocaleString()}</p> : null}

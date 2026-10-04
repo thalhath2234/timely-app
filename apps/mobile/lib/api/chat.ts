@@ -1,6 +1,7 @@
 import { File } from "expo-file-system";
 import { api } from "./client";
 import { isOffline } from "../networkState";
+import { deviceTimezone } from "../format";
 import type { Chat, ChatImage, PendingImage } from "../chat/types";
 
 export function chatRequest<T = Chat>(
@@ -12,6 +13,17 @@ export function chatRequest<T = Chat>(
     return Promise.reject(
       new Error("Reconnect before sending messages or applying changes."),
     );
+  // New messages carry the device zone; the agent uses it when no timezone
+  // is saved in Working hours.
+  const sendsMessage =
+    method === "POST" && (path === "" || path.endsWith("/messages"));
+  if (
+    sendsMessage &&
+    body &&
+    typeof body === "object" &&
+    !(body instanceof FormData)
+  )
+    body = { ...body, timezone: deviceTimezone() };
   return api<T>(`/chats${path}`, { method, body, queueIfOffline: false });
 }
 export async function uploadChatImage(image: PendingImage): Promise<ChatImage> {

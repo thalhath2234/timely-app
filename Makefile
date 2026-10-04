@@ -33,7 +33,7 @@ GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING
 .PHONY: help setup setup-env install tools install-air install-goose \
         dev dev-api dev-web dev-mobile dev-mobile-device dev-desktop launch-electron \
         dev-worktree dev-worktree-api dev-worktree-web \
-        build build-api build-web build-desktop dist-desktop build-apk install-apk apk-status \
+        build build-api build-web build-desktop dist-desktop stage-desktop dev-desktop-hosted build-apk install-apk apk-status \
         emu-start emu-stop emu-status \
         lint lint-api lint-web typecheck typecheck-web typecheck-mobile test test-api check \
         migrate-up migrate-down migrate-status migrate-create migrate-reset migrate-fix migrate-seed migrate-unseed \
@@ -136,22 +136,32 @@ launch-electron:
 build: build-api build-web ## Build API binary and web app
 
 build-api: ## Compile the API to apps/api/bin/timely-api
-	@cd $(API) && go build -o bin/timely-api ./cmd
+	@cd $(API) && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$$(node -p "require('../web/package.json').version")" -o bin/timely-api ./cmd
 	@echo "$(GREEN)✓ $(API)/bin/timely-api$(RESET)"
 
 build-web: ## Production build of the Next.js app
 	@pnpm --filter @timely/web build
 
-build-desktop: ## Package an unpacked Electron app for this OS (release/<platform>-unpacked)
+build-desktop: ## Package an unpacked Electron app for this OS, with the API and Postgres sidecars (release/<platform>-unpacked)
 	@pnpm --filter @timely/web electron:pack
 
-dist-desktop: ## Build a distributable Electron installer for this OS (AppImage / dmg / nsis)
+dist-desktop: ## Build a distributable Electron installer for this OS (AppImage / dmg / nsis). TIMELY_TARGETS=linux-x64,darwin-arm64 for several
 	@pnpm --filter @timely/web electron:dist
 
-build-apk: ## Build the Android release APK (memory-capped, detached). Usage: make build-apk API_URL=https://... (defaults to EXPO_PUBLIC_API_URL in .env)
+.PHONY: stage-desktop
+stage-desktop: ## Cross-compile the API and fetch Postgres 17 for the desktop bundle (TIMELY_TARGETS=... for other OSes)
+	@node $(WEB)/electron/stage-api.mjs
+	@node $(WEB)/electron/stage-postgres.mjs
+
+.PHONY: dev-desktop-hosted
+dev-desktop-hosted: stage-desktop ## Run the Electron shell in hosted mode (its own Postgres + API) against a throwaway user-data dir
+	@pnpm --filter @timely/web electron:compile
+	@pnpm --filter @timely/web electron:hosted
+
+build-apk: ## Build the Android release APK (memory-capped, detached). The phone pairs with a server at runtime; API_URL=... only pre-fills a dev URL
 	@scripts/build-apk.sh $(if $(API_URL),--api-url "$(API_URL)")
 
-install-apk: ## Build the Android release APK and install it on a connected phone. Usage: make install-apk API_URL=https://...
+install-apk: ## Build the Android release APK and install it on a connected phone. Optional API_URL=... as for build-apk
 	@scripts/install-apk.sh $(if $(API_URL),--api-url "$(API_URL)")
 
 apk-status: ## Show status of the detached APK build
@@ -187,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-sheet-formulas test-mobile-assistant test-mobile-offline test-electron-guards ## Run all tests
+test: test-api test-sheet-formulas test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -230,7 +240,7 @@ reset-password: ## Reset a user's password. Usage: make reset-password EMAIL=a@b
 	@cd $(API) && go run ./scripts/reset_password.go -email "$(EMAIL)" -password "$(PASSWORD)"
 
 clean: ## Remove build outputs (keeps node_modules and the native android/ project)
-	@rm -rf $(API)/tmp $(API)/bin/timely-api $(WEB)/.next $(WEB)/out $(WEB)/tmp $(WEB)/dist-electron $(WEB)/release $(WEB)/.electron-next $(MOBILE)/.expo $(MOBILE)/dist
+	@rm -rf $(API)/tmp $(API)/bin/timely-api $(WEB)/.next $(WEB)/out $(WEB)/tmp $(WEB)/dist-electron $(WEB)/release $(WEB)/.electron-next $(WEB)/.electron-api $(WEB)/.electron-postgres $(MOBILE)/.expo $(MOBILE)/dist
 	@echo "$(GREEN)✓ cleaned$(RESET)"
 
 .PHONY: format-api
@@ -239,7 +249,7 @@ format-api: ## Format Go source
 
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
-	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/chat ./internal/features/provider ./cmd -run TestIntegration -count=1
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/chat ./internal/features/provider ./internal/features/search ./cmd -run TestIntegration -count=1
 
 lint-chat: ## Lint the chat UI and Electron integration
 	@pnpm --filter @timely/web exec eslint app/_components/chat app/_store/chatStore.ts app/utils/api/chat.ts app/utils/hooks/chat.ts "app/(pages)/(nav_pages)/chat" electron/main.ts electron/preload.ts
@@ -302,6 +312,16 @@ test-mobile-offline: ## Test the mobile offline queue: durable enqueue, restart,
 
 test-electron-guards: ## Test the desktop shell's window-open origin policy
 	@node --experimental-strip-types --test scripts/electron-guards.test.mjs
+
+.PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance
+test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports, Tailscale detection, backoff, stale pid
+	@node --experimental-strip-types --test scripts/electron-supervisor.test.mjs
+
+test-mobile-server-config: ## Test mobile pairing: QR payload parsing, server order, reachability probe
+	@node --experimental-strip-types --test scripts/mobile-server-config.test.mjs
+
+test-desktop-instance: ## Test the web Settings → Server helpers (pairing payload, status copy)
+	@node --experimental-strip-types --test scripts/desktop-instance.test.mjs
 
 format-qa: ## Format the 2026-10-01 QA scripts and evidence
 	@pnpm exec prettier --write 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'

@@ -4,12 +4,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   ImagePlus,
-  LoaderCircle,
   PanelLeftOpen,
   Plus,
   Sparkles,
   X,
 } from "lucide-react";
+import TimelyLogo, { LogoSpinner, SPINNER_LOOP_SECONDS } from "@/app/_components/_ui/timelyLogo";
 import { chatRequest, type Chat, type ChatContext } from "@/app/utils/api/chat";
 import { chatKey, chatsKey, useChat } from "@/app/utils/hooks/chat";
 import { cn } from "@/app/utils/cn";
@@ -49,7 +49,7 @@ export function StatusPill({
         toneClass[meta.tone],
       )}
     >
-      <Icon className={cn("size-3", meta.spin && "animate-spin")} />
+      {meta.spin ? <LogoSpinner size={12} tone="mono" label={meta.label} /> : <Icon className="size-3" />}
       {status === "running" && phase === "apply" ? "Applying" : meta.label}
     </span>
   );
@@ -423,7 +423,7 @@ export default function Conversation({
               className="mt-5 flex items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-3 text-sm"
             >
               <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <LoaderCircle className="size-3.5 animate-spin" />
+                <TimelyLogo size={16} animated duration={SPINNER_LOOP_SECONDS} tone="mono" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-medium">{phaseLabel(chat?.phase)}</p>

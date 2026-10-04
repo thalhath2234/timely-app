@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CreateSheetPayload,
   UpdateSheetPayload,
+  UpdateSheetTemplatePayload,
   createSheet,
   createSheetTemplate,
   deleteSheet,
@@ -109,8 +110,8 @@ export function useUpdateSheetTemplate() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
-      updateSheetTemplate(id, { name }),
+    mutationFn: ({ id, ...data }: { id: string } & UpdateSheetTemplatePayload) =>
+      updateSheetTemplate(id, data),
     onSuccess: (template) => {
       queryClient.setQueryData<SheetTemplate[]>(sheetTemplatesKey, (list) =>
         list?.map((item) => (item.id === template.id ? template : item)),

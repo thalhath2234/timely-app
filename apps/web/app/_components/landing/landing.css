@@ -1,0 +1,252 @@
+/* ---- Landing page ----
+   A marketing identity of its own: pastel stages on a dark (or cream) canvas,
+   with miniature product UI drawn in the app's real tokens. The app tokens are
+   re-declared for `.landing` in globals.css; everything here is landing-only. */
+
+.landing {
+  --l-canvas: #110f1c;
+  --l-raised: #1a1729;
+  --l-ink: #f5f2ff;
+  --l-ink-soft: #b8b3cc;
+  --l-line: rgb(255 255 255 / 10%);
+  --l-stage-amount: 46%;
+  --l-hue-ink-amount: 48%;
+  --l-hue-ink-base: #ffffff;
+  --l-shape-amount: 62%;
+  --hue: #6e56cf;
+
+  flex-shrink: 0;
+  background: var(--l-canvas);
+  color: var(--l-ink);
+}
+
+[data-landing-theme="light"] .landing {
+  --l-canvas: #fdf7ee;
+  --l-raised: #ffffff;
+  --l-ink: #231d38;
+  --l-ink-soft: #625b78;
+  --l-line: rgb(35 29 56 / 12%);
+  --l-stage-amount: 36%;
+  --l-hue-ink-amount: 62%;
+  --l-hue-ink-base: #1a1030;
+  --l-shape-amount: 50%;
+}
+
+/* The page scrolls the document, so the canvas and scrollbar follow the
+   landing theme rather than the account theme on <html>. */
+html:has(.landing) {
+  background: #110f1c;
+  scrollbar-color: #5b5670 #110f1c;
+  scroll-padding-top: 5.5rem;
+}
+
+html[data-landing-theme="light"]:has(.landing) {
+  background: #fdf7ee;
+  scrollbar-color: #b9b1c9 #fdf7ee;
+}
+
+html:has(.landing) body {
+  background: transparent;
+}
+
+html:has(.landing)::-webkit-scrollbar-track {
+  background: #110f1c;
+}
+
+html:has(.landing)::-webkit-scrollbar-thumb {
+  background: #5b5670;
+}
+
+html[data-landing-theme="light"]:has(.landing)::-webkit-scrollbar-track {
+  background: #fdf7ee;
+}
+
+html[data-landing-theme="light"]:has(.landing)::-webkit-scrollbar-thumb {
+  background: #b9b1c9;
+}
+
+.l-display {
+  font-family: var(--font-landing-display), var(--font-geist-sans), system-ui, sans-serif;
+  letter-spacing: -0.025em;
+}
+
+.l-soft {
+  color: var(--l-ink-soft);
+}
+
+/* Every element that sets --hue derives its pastels here; the amounts come
+   from the theme so one hue reads well on both canvases. */
+.l-hue {
+  --l-stage: color-mix(in oklch, var(--hue) var(--l-stage-amount), white);
+  --l-stage-ink: color-mix(in oklch, var(--hue) 38%, #17102b);
+  --l-hue-ink: color-mix(in oklch, var(--hue) var(--l-hue-ink-amount), var(--l-hue-ink-base));
+  --l-hue-soft: color-mix(in oklch, var(--hue) 20%, transparent);
+}
+
+.l-label {
+  background: var(--l-hue-soft);
+  color: var(--l-hue-ink);
+}
+
+.l-stage {
+  background: var(--l-stage);
+  color: var(--l-stage-ink);
+}
+
+.l-card {
+  background: var(--l-raised);
+  border: 1px solid var(--l-line);
+}
+
+.l-button {
+  background: var(--l-ink);
+  color: var(--l-canvas);
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--hue) 70%, var(--l-canvas));
+  transition:
+    transform 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.l-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 0 color-mix(in oklch, var(--hue) 70%, var(--l-canvas));
+}
+
+.l-button:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 color-mix(in oklch, var(--hue) 70%, var(--l-canvas));
+}
+
+.l-ghost {
+  border: 1px solid var(--l-line);
+  color: var(--l-ink);
+  transition: background-color 120ms ease-out;
+}
+
+.l-ghost:hover {
+  background: color-mix(in oklch, var(--l-ink) 8%, transparent);
+}
+
+.landing :focus-visible {
+  outline-color: var(--l-ink);
+}
+
+/* Theme toggle: both icons render; the theme attribute picks one, so the
+   button never flashes the wrong icon during hydration. */
+.l-theme-moon,
+[data-landing-theme="light"] .l-theme-sun {
+  display: none;
+}
+
+[data-landing-theme="light"] .l-theme-moon {
+  display: block;
+}
+
+/* ---- Decoration ---- */
+
+.l-sticker {
+  filter: drop-shadow(0 3px 0 rgb(23 16 43 / 28%));
+  animation: l-float 7s ease-in-out infinite;
+}
+
+.l-shape {
+  color: color-mix(in oklch, var(--hue) var(--l-shape-amount), white);
+  animation: l-drift 11s ease-in-out infinite;
+}
+
+@keyframes l-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--tilt, -6deg));
+  }
+  50% {
+    transform: translateY(-7px) rotate(calc(var(--tilt, -6deg) + 4deg));
+  }
+}
+
+@keyframes l-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(var(--tilt, 0deg));
+  }
+  50% {
+    transform: translate(4px, -6px) rotate(calc(var(--tilt, 0deg) - 5deg));
+  }
+}
+
+@keyframes l-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 55%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 calc(var(--u) * 7) transparent;
+  }
+}
+
+/* ---- Scenes ----
+   A scene is drawn once at 400 design pixels wide and scales with its box:
+   `--u` is one design pixel, and Tailwind's spacing and radius scales are
+   re-based on it, so `p-3` or `rounded-lg` inside a scene shrink with it. */
+
+.scene-box {
+  container-type: inline-size;
+}
+
+.scene {
+  --u: calc(100cqw / 400);
+  --spacing: calc(var(--u) * 4);
+  --radius: calc(var(--u) * 10);
+
+  position: relative;
+  color: var(--foreground);
+  /* Scaled text lands on fractional sizes; this keeps its letter spacing even. */
+  text-rendering: geometricPrecision;
+  font-size: calc(var(--u) * 12);
+  line-height: 1.35;
+  text-align: left;
+}
+
+.mini-8 {
+  font-size: calc(var(--u) * 8);
+}
+
+.mini-9 {
+  font-size: calc(var(--u) * 9);
+}
+
+.mini-10 {
+  font-size: calc(var(--u) * 10);
+}
+
+.mini-11 {
+  font-size: calc(var(--u) * 11);
+}
+
+.mini-12 {
+  font-size: calc(var(--u) * 12);
+}
+
+.mini-14 {
+  font-size: calc(var(--u) * 14);
+}
+
+.mini-18 {
+  font-size: calc(var(--u) * 18);
+}
+
+.mini-26 {
+  font-size: calc(var(--u) * 26);
+}
+
+.mini-window {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--u) * 14);
+  box-shadow: calc(var(--u) * 6) calc(var(--u) * 6) 0 color-mix(in oklch, var(--l-stage-ink) 55%, transparent);
+  overflow: hidden;
+}
+
+.mini-pulse {
+  animation: l-pulse 1.8s ease-out infinite;
+}

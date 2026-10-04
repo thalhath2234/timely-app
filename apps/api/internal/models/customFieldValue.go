@@ -14,7 +14,7 @@ type CustomFieldValue struct {
 	TaskID        string                 `gorm:"type:text;" json:"taskId,omitempty"`
 	ProjectID     string                 `gorm:"type:text;" json:"projectId,omitempty"`
 	OptionsValue  CustomFieldValueInputs `gorm:"type:jsonb;" json:"-"`
-	Type          string                 `json:"type; not null"`
+	Type          string                 `json:"type"`
 	StringValue   *string                `gorm:"type:text" json:"stringValue,omitempty"`
 	BoolValue     *bool                  `gorm:"-" json:"boolValue,omitempty"`
 

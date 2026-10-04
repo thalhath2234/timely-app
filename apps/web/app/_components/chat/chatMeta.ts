@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Ban,
+  Bell,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -16,6 +17,9 @@ import {
   Sun,
   Table2,
   TextSelect,
+  Timer,
+  Trash2,
+  Undo2,
   type LucideIcon,
 } from "lucide-react";
 import type { ChatStep, ChatSummary } from "@/app/utils/api/chat";
@@ -128,7 +132,47 @@ export function stepMeta(
   };
 }
 
+/** Deletions and clearing blocks remove data; their review cards say so. */
+export function isRemoval(tool: string) {
+  return tool.startsWith("delete_") || tool === "clear_task_blocks";
+}
+
+/** Review label for a step's "before" data. */
+export function beforeLabel(tool: string) {
+  if (isRemoval(tool)) return "What will be removed";
+  if (tool === "undo_schedule") return "Blocks removed and restored";
+  if (
+    tool === "update_working_hours" ||
+    tool === "update_notification_settings"
+  )
+    return "Current settings";
+  return "Existing content";
+}
+
+const timestamp =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+/** Shows ISO timestamps in review details as local date and time. */
+export function readableTimestamp(value: string): string | null {
+  if (!timestamp.test(value)) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export function stepIcon(tool: string): LucideIcon {
+  if (isRemoval(tool)) return Trash2;
+  if (tool.includes("notification") || tool === "snooze_reminder") return Bell;
+  if (tool === "set_today_focus") return Sun;
+  if (tool.includes("focus")) return Timer;
+  if (tool === "update_working_hours") return Clock;
+  if (tool === "undo_schedule") return Undo2;
   if (tool.includes("sheet")) return Table2;
   if (tool.includes("doc")) return FileText;
   if (tool.includes("event") || tool.includes("schedule")) return CalendarDays;
@@ -141,7 +185,8 @@ export function stepTarget(
   step: ChatStep,
 ): { href: string; title: string } | null {
   const result = step.result;
-  if (!result) return null;
+  // A removed object has nothing left to open.
+  if (!result || isRemoval(step.tool)) return null;
   for (const [key, path] of [
     ["sheet", "sheets"],
     ["task", "tasks"],

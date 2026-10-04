@@ -5,10 +5,10 @@ import {
   Check,
   Globe2,
   ImagePlus,
-  LoaderCircle,
   Square,
   X,
 } from "lucide-react";
+import TimelyLogo, { LogoSpinner, SPINNER_LOOP_SECONDS } from "@/app/_components/_ui/timelyLogo";
 import type { ChatContext, ChatImage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import { chipIcon } from "./chatMeta";
@@ -113,7 +113,7 @@ export default function Composer({
                 role="status"
                 className="mb-2 flex items-center gap-2 text-xs text-muted-foreground"
               >
-                <LoaderCircle className="size-3 animate-spin" />
+                <TimelyLogo size={12} animated duration={SPINNER_LOOP_SECONDS} />
                 Uploading image…
               </p>
             )}
@@ -215,7 +215,7 @@ export default function Composer({
                   className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-opacity hover:bg-primary/90 disabled:opacity-30"
                 >
                   {pending ? (
-                    <LoaderCircle className="size-4 animate-spin" />
+                    <LogoSpinner size={16} tone="mono" label="Sending" />
                   ) : (
                     <ArrowUp className="size-4" strokeWidth={2.5} />
                   )}

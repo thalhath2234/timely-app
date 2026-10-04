@@ -87,7 +87,7 @@ func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emp
 	if err != nil {
 		return fail(err)
 	}
-	hours, err := s.Schedule.GetWorkingHours(uid, "")
+	hours, err := s.Schedule.GetWorkingHours(uid, TimezoneFrom(ctx))
 	if err != nil {
 		return fail(err)
 	}
@@ -136,18 +136,22 @@ func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emp
 		})
 	}
 
+	now := time.Now().In(hours.Location(location(ctx, "")))
 	out := map[string]any{
 		"user": map[string]any{
 			"id": user.ID, "email": user.Email, "name": user.Name,
 			"onboardingCompleted": onboarding,
 		},
-		"now":          time.Now().Format(time.RFC3339),
-		"timezone":     hours.Timezone,
-		"workingHours": hours,
-		"workspaces":   workspaces,
-		"projects":     sums,
-		"activeViewId": config.ActiveTaskViewId,
-		"taskViews":    config.TaskViews,
+		"now":      now.Format(time.RFC3339),
+		"today":    now.Format("Monday, 2006-01-02"),
+		"timezone": hours.Timezone,
+		// Default hours follow the person's timezone until they save their own.
+		"workingHoursSaved": !hours.IsDefault,
+		"workingHours":      hours,
+		"workspaces":        workspaces,
+		"projects":          sums,
+		"activeViewId":      config.ActiveTaskViewId,
+		"taskViews":         config.TaskViews,
 	}
 	return reply(fmt.Sprintf("%s — %d workspaces, %d projects, zone %s", user.Email, len(workspaces), len(projects), hours.Timezone), out)
 }
@@ -158,13 +162,8 @@ type rangeIn struct {
 	Timezone string `json:"timezone,omitempty"`
 }
 
-func (s *Server) parseRange(in rangeIn, days int) (time.Time, time.Time, *time.Location, error) {
-	loc := time.Local
-	if in.Timezone != "" {
-		if parsed, err := time.LoadLocation(in.Timezone); err == nil {
-			loc = parsed
-		}
-	}
+func (s *Server) parseRange(ctx context.Context, in rangeIn, days int) (time.Time, time.Time, *time.Location, error) {
+	loc := location(ctx, in.Timezone)
 	now := time.Now().In(loc)
 	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	if in.From != "" {
@@ -190,7 +189,7 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 	if err != nil {
 		return fail(err)
 	}
-	from, to, loc, err := s.parseRange(in, 1)
+	from, to, loc, err := s.parseRange(ctx, in, 1)
 	if err != nil {
 		return fail(err)
 	}
@@ -261,7 +260,7 @@ func (s *Server) getFreeTime(ctx context.Context, req *mcp.CallToolRequest, in r
 	if err != nil {
 		return fail(err)
 	}
-	from, to, loc, err := s.parseRange(in, 1)
+	from, to, loc, err := s.parseRange(ctx, in, 1)
 	if err != nil {
 		return fail(err)
 	}
@@ -270,10 +269,15 @@ func (s *Server) getFreeTime(ctx context.Context, req *mcp.CallToolRequest, in r
 		return fail(err)
 	}
 	minutes := 0
+	lines := []string{}
 	for _, slot := range free {
 		minutes += slot.Minutes()
+		lines = append(lines, fmt.Sprintf("%s (%d min)", span(slot.Start, slot.End, loc), slot.Minutes()))
 	}
-	return reply(fmt.Sprintf("%d free minutes in %d slots", minutes, len(free)), map[string]any{"slots": free, "freeMinutes": minutes})
+	// text states the slots in the person's timezone so answers quote it
+	// instead of re-reading offsets.
+	text := fmt.Sprintf("Free time in %s, %d minutes:\n%s", loc, minutes, strings.Join(lines, "\n"))
+	return reply(fmt.Sprintf("%d free minutes in %d slots", minutes, len(free)), map[string]any{"slots": free, "freeMinutes": minutes, "text": text})
 }
 
 type whatNextIn struct {
@@ -285,7 +289,7 @@ func (s *Server) whatNext(ctx context.Context, req *mcp.CallToolRequest, in what
 	if err != nil {
 		return fail(err)
 	}
-	ranked, err := s.Schedule.Rank(uid, in.Timezone)
+	ranked, err := s.Schedule.Rank(uid, zone(ctx, in.Timezone))
 	if err != nil {
 		return fail(err)
 	}
@@ -322,7 +326,7 @@ func (s *Server) getCalendar(ctx context.Context, req *mcp.CallToolRequest, in r
 	if err != nil {
 		return fail(err)
 	}
-	from, to, _, err := s.parseRange(in, 7)
+	from, to, loc, err := s.parseRange(ctx, in, 7)
 	if err != nil {
 		return fail(err)
 	}
@@ -333,7 +337,15 @@ func (s *Server) getCalendar(ctx context.Context, req *mcp.CallToolRequest, in r
 	if cal.Items == nil {
 		cal.Items = []calendar.Item{}
 	}
-	return reply(fmt.Sprintf("%d calendar items", len(cal.Items)), cal)
+	lines := []string{fmt.Sprintf("Calendar in %s:", loc)}
+	for _, item := range cal.Items {
+		when := span(item.Start, item.End, loc)
+		if item.AllDay {
+			when = item.Start.In(loc).Format("Mon 2006-01-02") + " all day"
+		}
+		lines = append(lines, fmt.Sprintf("- %s %s [%s]", when, item.Title, item.Kind))
+	}
+	return reply(fmt.Sprintf("%d calendar items", len(cal.Items)), map[string]any{"from": cal.From, "to": cal.To, "items": cal.Items, "text": strings.Join(lines, "\n")})
 }
 
 type hoursQueryIn struct {
@@ -345,7 +357,7 @@ func (s *Server) getWorkingHours(ctx context.Context, req *mcp.CallToolRequest, 
 	if err != nil {
 		return fail(err)
 	}
-	hours, err := s.Schedule.GetWorkingHours(uid, in.Timezone)
+	hours, err := s.Schedule.GetWorkingHours(uid, zone(ctx, in.Timezone))
 	if err != nil {
 		return fail(err)
 	}
@@ -377,8 +389,8 @@ type planIn struct {
 	IncludeManual bool     `json:"includeManual,omitempty"`
 }
 
-func (s *Server) planReq(in planIn) schedule.PlanRequest {
-	req := schedule.PlanRequest{TaskIDs: in.TaskIDs, Timezone: in.Timezone, IncludeManual: in.IncludeManual}
+func (s *Server) planReq(ctx context.Context, in planIn) schedule.PlanRequest {
+	req := schedule.PlanRequest{TaskIDs: in.TaskIDs, Timezone: zone(ctx, in.Timezone), IncludeManual: in.IncludeManual}
 	if in.From != "" {
 		req.From = &in.From
 	}
@@ -393,7 +405,7 @@ func (s *Server) autoSchedulePreview(ctx context.Context, req *mcp.CallToolReque
 	if err != nil {
 		return fail(err)
 	}
-	plan, err := s.Schedule.Preview(uid, s.planReq(in))
+	plan, err := s.Schedule.Preview(uid, s.planReq(ctx, in))
 	if err != nil {
 		return fail(err)
 	}
@@ -405,7 +417,7 @@ func (s *Server) autoScheduleApply(ctx context.Context, req *mcp.CallToolRequest
 	if err != nil {
 		return fail(err)
 	}
-	plan, err := s.Schedule.Apply(uid, s.planReq(in))
+	plan, err := s.Schedule.Apply(uid, s.planReq(ctx, in))
 	if err != nil {
 		return fail(err)
 	}
@@ -490,4 +502,13 @@ func (s *Server) clearTaskBlocks(ctx context.Context, req *mcp.CallToolRequest, 
 		return fail(err)
 	}
 	return reply("cleared blocks on "+t.Name, t)
+}
+
+// span formats a time range in loc, e.g. "Tue 2026-10-06 10:00–18:00".
+func span(start, end time.Time, loc *time.Location) string {
+	start, end = start.In(loc), end.In(loc)
+	if start.Format("2006-01-02") == end.Format("2006-01-02") || end.Equal(time.Date(start.Year(), start.Month(), start.Day()+1, 0, 0, 0, 0, loc)) {
+		return fmt.Sprintf("%s–%s", start.Format("Mon 2006-01-02 15:04"), end.Format("15:04"))
+	}
+	return fmt.Sprintf("%s – %s", start.Format("Mon 2006-01-02 15:04"), end.Format("Mon 2006-01-02 15:04"))
 }

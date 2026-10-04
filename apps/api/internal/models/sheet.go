@@ -18,6 +18,9 @@ type SheetColumn struct {
 	Name  string `json:"name"`
 	Width int    `json:"width"`
 	Type  string `json:"type"`
+	// Options lists the choices of a select (dropdown) column. Other column
+	// types keep it empty.
+	Options []string `json:"options,omitempty"`
 }
 
 type SheetColumns []SheetColumn
@@ -236,6 +239,12 @@ const (
 	SheetColumnTypeCurrency = "currency"
 	SheetColumnTypePercent  = "percent"
 	SheetColumnTypeFormula  = "formula"
+	SheetColumnTypeSelect   = "select"
+
+	// MaxSheetSelectOptions caps the dropdown choices of one select column.
+	MaxSheetSelectOptions = 200
+	// MaxSheetSelectOptionLength caps one dropdown choice in bytes.
+	MaxSheetSelectOptionLength = 120
 
 	SheetAlignLeft   = "left"
 	SheetAlignCenter = "center"
@@ -280,9 +289,52 @@ func NormalizeSheetColumnType(colType string) (string, error) {
 		return SheetColumnTypePercent, nil
 	case SheetColumnTypeFormula, "fx", "computed":
 		return SheetColumnTypeFormula, nil
+	case SheetColumnTypeSelect, "dropdown", "choice", "enum":
+		return SheetColumnTypeSelect, nil
 	default:
-		return "", errors.New("column type must be text, number, date, boolean, currency, percent, or formula")
+		return "", errors.New("column type must be text, number, date, boolean, currency, percent, formula, or select")
 	}
+}
+
+// NormalizeSelectOptions trims, de-duplicates (case-insensitively, keeping the
+// first spelling) and caps the choices of a select column.
+func NormalizeSelectOptions(options []string) []string {
+	if len(options) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(options))
+	out := make([]string, 0, len(options))
+	for _, option := range options {
+		trimmed := truncateUTF8Bytes(strings.TrimSpace(option), MaxSheetSelectOptionLength)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, trimmed)
+		if len(out) >= MaxSheetSelectOptions {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// MatchSelectOption returns the stored spelling of value among options when it
+// matches one case-insensitively, and whether it matched.
+func MatchSelectOption(options []string, value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	for _, option := range options {
+		if strings.EqualFold(option, trimmed) {
+			return option, true
+		}
+	}
+	return trimmed, false
 }
 
 func normalizeNumberCell(value string) string {
@@ -344,22 +396,41 @@ func NormalizeTypedCell(colType, value string) string {
 		default:
 			return ""
 		}
+	case SheetColumnTypeSelect:
+		return trimmed
 	}
 	return value
 }
 
-// NormalizeSheetCells rewrites every cell according to its column type.
+// NormalizeSheetCells rewrites every cell according to its column type. Select
+// cells take the spelling of the matching option; a value that is not an
+// option yet is appended to the column's options so the dropdown stays
+// truthful.
 func NormalizeSheetCells(columns SheetColumns, rows SheetRows) {
 	types := make(map[string]string, len(columns))
-	for _, column := range columns {
+	selectIndex := make(map[string]int, len(columns))
+	for i, column := range columns {
 		types[column.ID] = column.Type
+		if column.Type == SheetColumnTypeSelect {
+			selectIndex[column.ID] = i
+		}
 	}
 	for i := range rows {
 		if rows[i].Cells == nil {
 			continue
 		}
 		for colID, value := range rows[i].Cells {
-			rows[i].Cells[colID] = NormalizeTypedCell(types[colID], value)
+			next := NormalizeTypedCell(types[colID], value)
+			if idx, ok := selectIndex[colID]; ok && next != "" && !strings.HasPrefix(next, "=") {
+				matched, found := MatchSelectOption(columns[idx].Options, next)
+				if found {
+					next = matched
+				} else if len(columns[idx].Options) < MaxSheetSelectOptions {
+					next = truncateUTF8Bytes(next, MaxSheetSelectOptionLength)
+					columns[idx].Options = append(columns[idx].Options, next)
+				}
+			}
+			rows[i].Cells[colID] = next
 		}
 		rows[i].Formats = NormalizeCellFormats(rows[i].Formats)
 	}
@@ -581,6 +652,11 @@ func NormalizeSheetColumns(columns SheetColumns) error {
 		columns[i].Type = kind
 		if columns[i].Width < 1 {
 			columns[i].Width = 160
+		}
+		if kind == SheetColumnTypeSelect {
+			columns[i].Options = NormalizeSelectOptions(columns[i].Options)
+		} else {
+			columns[i].Options = nil
 		}
 	}
 	return nil

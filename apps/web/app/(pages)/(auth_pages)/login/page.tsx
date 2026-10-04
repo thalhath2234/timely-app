@@ -8,7 +8,6 @@ import {
   Mail,
   Lock,
   ArrowRight,
-  Loader2,
   AlertCircle,
   Eye,
   EyeOff,
@@ -17,6 +16,7 @@ import { getMe } from "@/app/utils/api/user";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 import AuthBrandPanel from "../_components/authBrandPanel";
 import { motion } from "motion/react";
+import { LogoSpinner, TimelyWordmark } from "@/app/_components/_ui/timelyLogo";
 import { springSoft } from "@/app/_components/_ui/motion";
 
 const fieldClass =
@@ -84,12 +84,13 @@ export default function LoginPage() {
           transition={springSoft}
           className="relative z-10 w-full max-w-[420px] rounded-xl border border-white/10 bg-[#191b22] p-8 shadow-2xl sm:p-9"
         >
-          <div className="mb-6 flex items-center justify-center gap-2.5 md:hidden">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-[#c0c1ff] text-[#1000a9]">
-              <span className="text-sm font-bold select-none">T</span>
-            </div>
-            <span className="text-xl font-semibold tracking-tight">Timely</span>
-          </div>
+          <Link
+            href="/"
+            aria-label="Timely home"
+            className="mx-auto mb-6 flex w-fit items-center justify-center gap-2.5 rounded-lg md:hidden"
+          >
+            <TimelyWordmark />
+          </Link>
 
           <h1 className="text-2xl font-semibold tracking-tight">Welcome Back</h1>
           <p className="mt-1.5 text-sm text-[#908fa0]">
@@ -166,7 +167,7 @@ export default function LoginPage() {
               >
                 {loginMutation.isPending ? (
                   <>
-                    <Loader2 className="size-5 animate-spin" />
+                    <LogoSpinner size={20} tone="mono" label="Signing in" />
                     Signing in...
                   </>
                 ) : (

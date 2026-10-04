@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -77,7 +78,7 @@ func (s *Server) getCapacity(ctx context.Context, req *mcp.CallToolRequest, in c
 		}
 		to = parsed
 	}
-	days, err := s.Schedule.Capacity(uid, from, to, in.Timezone)
+	days, err := s.Schedule.Capacity(uid, from, to, zone(ctx, in.Timezone))
 	if err != nil {
 		return fail(err)
 	}
@@ -94,6 +95,21 @@ func (s *Server) undoSchedule(ctx context.Context, req *mcp.CallToolRequest, _ e
 		return fail(err)
 	}
 	return reply("undid last schedule apply", plan)
+}
+
+func (s *Server) undoSchedulePreview(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	preview, err := s.Schedule.PreviewUndo(uid)
+	if err != nil {
+		return fail(err)
+	}
+	if !preview.CanUndo {
+		return reply("no auto-schedule to undo", preview)
+	}
+	return reply(fmt.Sprintf("undo removes %d blocks and restores %d", len(preview.Remove), len(preview.Restore)), preview)
 }
 
 type pinIn struct {

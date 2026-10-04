@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import {
   Dimensions,
   PanResponder,
@@ -65,12 +65,15 @@ import {
   visitRange,
 } from "../../lib/sheetRange";
 import {
+  SHEET_COLUMN_TYPES,
+  columnTypeBadge,
   emptySheetRow,
   formatCellDisplay,
-  newSheetId,
-  SHEET_COLUMN_TYPES,
   isFormulaValue,
+  newSheetId,
   normalizeTypedCell,
+  parseSelectOptions,
+  syncSelectOptions,
 } from "../../lib/sheet";
 import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRow } from "../../lib/types";
 
@@ -172,6 +175,9 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   const [renameDraft, setRenameDraft] = useState("");
   const [columnMenu, setColumnMenu] = useState<number | null>(null);
   const [typeMenu, setTypeMenu] = useState<number | null>(null);
+  const [selectMenu, setSelectMenu] = useState<Address | null>(null);
+  const [optionsEditor, setOptionsEditor] = useState<number | null>(null);
+  const [optionsDraft, setOptionsDraft] = useState("");
   const [fillOpen, setFillOpen] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -196,6 +202,8 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   const rangeRef = useRef(range);
   const gridViewportRef = useRef<View>(null);
   const formulaInputRef = useRef<TextInput>(null);
+  const cellInputRef = useRef<TextInput>(null);
+  const optionsInputRef = useRef<TextInput>(null);
   const touchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   const gridLockedRef = useRef(false);
   const skipTapRef = useRef(false);
@@ -405,6 +413,14 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   function commit(next: { columns?: SheetColumn[]; rows?: SheetRow[]; merges?: SheetMerge[] }) {
     setPast((prev) => [...prev.slice(-29), snapshot()]);
     setFuture([]);
+    if (next.rows) {
+      // Dropdown columns learn new values as they are typed or pasted.
+      const synced = syncSelectOptions(next.columns ?? columns, next.rows);
+      if (synced.columns !== (next.columns ?? columns) || synced.rows !== next.rows) {
+        onChange({ ...next, columns: synced.columns, rows: synced.rows });
+        return;
+      }
+    }
     onChange(next);
   }
 
@@ -541,9 +557,49 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   }
 
   function setColumnType(index: number, type: SheetColumnType) {
-    commit({
-      columns: columns.map((column, i) => (i === index ? { ...column, type } : column)),
+    const nextColumns = columns.map((column, i) => {
+      if (i !== index) return column;
+      const next: SheetColumn = { ...column, type };
+      if (type !== "select") delete next.options;
+      return next;
     });
+    if (type === "select") {
+      // Existing values become the first options so nothing is lost.
+      const synced = syncSelectOptions(nextColumns, rows);
+      commit({ columns: synced.columns, rows: synced.rows });
+      return;
+    }
+    commit({ columns: nextColumns });
+  }
+
+  function openOptionsEditor(index: number) {
+    setOptionsDraft((columns[index]?.options ?? []).join("\n"));
+    setOptionsEditor(index);
+  }
+
+  function closeOptionsEditor() {
+    optionsInputRef.current?.blur();
+    setOptionsEditor(null);
+  }
+
+  function saveOptions() {
+    const index = optionsEditor;
+    if (index === null) return;
+    const options = parseSelectOptions(optionsDraft);
+    const nextColumns = columns.map((column, i) => (i === index ? { ...column, options } : column));
+    const synced = syncSelectOptions(nextColumns, rows);
+    commit({ columns: synced.columns, rows: synced.rows });
+    closeOptionsEditor();
+  }
+
+  /** Second tap on a selected dropdown cell opens its choices instead of the text editor. */
+  function tapSelectCell(address: Address) {
+    if (skipTapRef.current || isEditingFormula() || !pressWasSelectedRef.current) {
+      tapCell(address);
+      return;
+    }
+    if (editing) commitEdit();
+    setSelectMenu(address);
   }
 
   function sortColumn(index: number, direction: 1 | -1) {
@@ -572,6 +628,11 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     if (!address) return;
     const raw = draftRef.current;
     const value = isFormulaValue(raw) ? closeOpenParens(raw.trim()) : raw;
+    // Blur before the editor unmounts. Android otherwise hands focus to the
+    // first TextInput on the screen (the sheet title) when a focused input
+    // disappears, so the caret appeared in the title after tapping a cell.
+    editingRef.current = null;
+    if (cellInputRef.current?.isFocused()) cellInputRef.current.blur();
     setCellValue(address, value);
     setEditing(null);
     setEditSource(null);
@@ -1222,11 +1283,11 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
                         ) : null}
                         {column && !formulaEditActive ? (
                           <Pressable onPress={() => setTypeMenu(index)} style={styles.typeBadge}>
-                            <Text style={styles.typeText}>{column.type[0]?.toUpperCase()}</Text>
+                            <Text style={styles.typeText}>{columnTypeBadge(column.type)}</Text>
                           </Pressable>
                         ) : column ? (
                           <View style={styles.typeBadge}>
-                            <Text style={styles.typeText}>{column.type[0]?.toUpperCase()}</Text>
+                            <Text style={styles.typeText}>{columnTypeBadge(column.type)}</Text>
                           </View>
                         ) : null}
                       </Pressable>
@@ -1302,6 +1363,8 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
                           setDraft,
                           commitEdit,
                           tapCell,
+                          tapSelectCell,
+                          cellInputRef,
                           onCellPressIn,
                           onCellLongPress,
                           toggleBoolean,
@@ -1593,6 +1656,80 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
             {type.label}
           </SheetOption>
         ))}
+        {typeMenu !== null && columns[typeMenu]?.type === "select" ? (
+          <SheetOption
+            onSelect={() => {
+              const index = typeMenu;
+              setTypeMenu(null);
+              openOptionsEditor(index);
+            }}
+          >
+            Edit dropdown options…
+          </SheetOption>
+        ) : null}
+      </BottomSheet>
+
+      <BottomSheet
+        open={selectMenu !== null}
+        onClose={() => setSelectMenu(null)}
+        title={(selectMenu && columns[selectMenu.col]?.name) || "Choose"}
+      >
+        {(selectMenu ? (columns[selectMenu.col]?.options ?? []) : []).map((option) => (
+          <SheetOption
+            key={option}
+            selected={selectMenu !== null && rawAt(selectMenu).trim() === option}
+            onSelect={() => {
+              if (selectMenu) setCellValue(selectMenu, option);
+              setSelectMenu(null);
+            }}
+          >
+            {option}
+          </SheetOption>
+        ))}
+        {selectMenu && rawAt(selectMenu).trim() ? (
+          <SheetOption
+            onSelect={() => {
+              setCellValue(selectMenu, "");
+              setSelectMenu(null);
+            }}
+            leading={<Eraser size={16} color={KINETIC.text} />}
+          >
+            Clear
+          </SheetOption>
+        ) : null}
+        <SheetOption
+          onSelect={() => {
+            const address = selectMenu;
+            setSelectMenu(null);
+            if (address) startEditing(address, "cell", "");
+          }}
+          leading={<Plus size={16} color={KINETIC.text} />}
+        >
+          Add option…
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            const address = selectMenu;
+            setSelectMenu(null);
+            if (address) openOptionsEditor(address.col);
+          }}
+        >
+          Edit options…
+        </SheetOption>
+      </BottomSheet>
+
+      <BottomSheet open={optionsEditor !== null} onClose={closeOptionsEditor} title="Dropdown options">
+        <TextInput
+          ref={optionsInputRef}
+          multiline
+          value={optionsDraft}
+          onChangeText={setOptionsDraft}
+          placeholder="One option per line"
+          placeholderTextColor={colors.mutedForeground}
+          style={styles.optionsInput}
+        />
+        <Text style={styles.optionsHint}>Values already in the column stay listed.</Text>
+        <SheetOption onSelect={saveOptions}>Save</SheetOption>
       </BottomSheet>
 
       <BottomSheet open={fillOpen} onClose={() => setFillOpen(false)} title="Fill color">
@@ -1681,6 +1818,8 @@ function renderCell({
   setDraft,
   commitEdit,
   tapCell,
+  tapSelectCell,
+  cellInputRef,
   onCellPressIn,
   onCellLongPress,
   toggleBoolean,
@@ -1703,6 +1842,8 @@ function renderCell({
   setDraft: (value: string) => void;
   commitEdit: () => void;
   tapCell: (address: Address) => void;
+  tapSelectCell: (address: Address) => void;
+  cellInputRef: RefObject<TextInput | null>;
   onCellPressIn: (col: number, row: number, event: GestureResponderEvent) => void;
   onCellLongPress: (col: number, row: number) => void;
   toggleBoolean: (address: Address) => void;
@@ -1779,6 +1920,7 @@ function renderCell({
   const format = row.formats?.[column.id];
   const display = formatCellDisplay(evaluator.displayAt(colIndex, rowIndex), format, column.type);
   const booleanCol = column.type === "boolean" && !rawAt(address).startsWith("=");
+  const selectCol = column.type === "select" && !rawAt(address).startsWith("=");
   const spanWidth = displayMerge
     ? columns.slice(displayMerge.startCol, displayMerge.startCol + displayMerge.colSpan).reduce((sum, item) => sum + colWidth(item), 0)
     : colWidth(column);
@@ -1799,7 +1941,7 @@ function renderCell({
       onPressIn={(event) => onCellPressIn(colIndex, rowIndex, event)}
       onLongPress={() => onCellLongPress(colIndex, rowIndex)}
       delayLongPress={450}
-      onPress={() => (booleanCol ? toggleBoolean(address) : tapCell(address))}
+      onPress={() => (booleanCol ? toggleBoolean(address) : selectCol ? tapSelectCell(address) : tapCell(address))}
       style={[
         styles.cell,
         displayMerge && displayMerge.rowSpan > 1
@@ -1815,6 +1957,7 @@ function renderCell({
     >
       {isEditing && editSource === "cell" ? (
         <TextInput
+          ref={cellInputRef}
           autoFocus
           value={draft}
           onChangeText={setDraft}
@@ -1823,6 +1966,11 @@ function renderCell({
           keyboardType={column.type === "number" ? "decimal-pad" : "default"}
           style={styles.cellInput}
         />
+      ) : selectCol && display ? (
+        <View style={styles.selectChip}>
+          <Text numberOfLines={1} style={styles.selectChipText}>{display}</Text>
+          <Text style={styles.selectChevron}>▾</Text>
+        </View>
       ) : booleanCol ? (
         <Text style={[styles.cellText, styles.boolText]}>
           {display.trim().toUpperCase() === "TRUE" ? "☑" : "☐"}
@@ -2013,6 +2161,35 @@ const styles = createThemedStyleSheet((colors) => ({
   cellText: { color: KINETIC.text, fontSize: 12 },
   numText: { textAlign: "right", fontVariant: ["tabular-nums"] },
   boolText: { textAlign: "center", fontSize: 16 },
+  selectChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: KINETIC.border,
+    backgroundColor: KINETIC.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  selectChipText: { color: colors.foreground, fontSize: 12, flexShrink: 1 },
+  selectChevron: { color: colors.mutedForeground, fontSize: 10 },
+  optionsInput: {
+    minHeight: 120,
+    maxHeight: 220,
+    color: colors.foreground,
+    fontSize: 14,
+    textAlignVertical: "top",
+    borderWidth: 1,
+    borderColor: KINETIC.border,
+    borderRadius: 8,
+    padding: 10,
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  optionsHint: { color: colors.mutedForeground, fontSize: 12, marginHorizontal: 16, marginBottom: 8 },
   cellInput: { color: colors.foreground, fontSize: 13, padding: 0 },
   drawer: { flexShrink: 0, height: 248, backgroundColor: KINETIC.surface, borderTopWidth: 1, borderTopColor: KINETIC.divider },
   drawerCollapsed: { height: 58 },

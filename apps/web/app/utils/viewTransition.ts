@@ -1,9 +1,11 @@
 import { startTransition } from "react";
 
-function prefersReducedMotion() {
+/** The OS setting, or the in-app "Reduce motion" toggle in Appearance. */
+export function prefersReducedMotion() {
   return (
     typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    (document.documentElement.classList.contains("reduce-motion") ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches)
   );
 }
 

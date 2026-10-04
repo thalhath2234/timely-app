@@ -1,11 +1,12 @@
 import { type ReactNode } from "react";
-import { ActivityIndicator, Text, View, ScrollView } from "react-native";
+import { Text, View, ScrollView } from "react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
 import RichDoc from "../docs/RichDoc";
 import { fromMarkdown } from "../../lib/markdown";
 import AnimatedPressable from "../ui/AnimatedPressable";
-import { toneColor, type Tone } from "./chatMeta";
+import { readableTimestamp, toneColor, type Tone } from "./chatMeta";
+import { LogoSpinner } from "../ui/TimelyLogo";
 
 /** Text button; `primary` fills, `tone="destructive"` outlines in red. */
 export function Action({
@@ -48,7 +49,7 @@ export function Action({
       ]}
     >
       {busy ? (
-        <ActivityIndicator size="small" color={color} />
+        <LogoSpinner size={compact ? 15 : 17} color={color} />
       ) : Icon ? (
         <Icon size={compact ? 15 : 17} color={color} />
       ) : null}
@@ -151,7 +152,7 @@ export function DetailValue({
       <Text selectable style={styles.text}>
         {/^\$\d+\./.test(value)
           ? `From change ${Number(value.slice(1).split(".")[0]) + 1}`
-          : value}
+          : (readableTimestamp(value) ?? value)}
       </Text>
     );
   if (typeof value !== "object")

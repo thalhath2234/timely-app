@@ -1,0 +1,16 @@
+/* Tailwind input for the design-sync stylesheet: the app's own globals + landing
+   styles, compiled against every class used in apps/web/app and the authored
+   previews. build.mjs runs the Tailwind CLI from apps/web so automatic source
+   detection covers the app exactly as `next build` does. */
+@import "../../apps/web/app/globals.css";
+@import "../../apps/web/app/_components/landing/landing.css";
+@source "../../apps/web/app";
+@source "../previews";
+@source "./provider.tsx";
+
+/* next/font sets these on <html> (apps/web/app/layout.tsx) and the landing root (apps/web/app/page.tsx). */
+:root {
+  --font-geist-sans: "Inter";
+  --font-geist-mono: "JetBrains Mono";
+  --font-landing-display: "Bricolage Grotesque";
+}

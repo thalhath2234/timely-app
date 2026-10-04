@@ -2,18 +2,21 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { onlineManager, useQueryClient } from "@tanstack/react-query";
-import { motion } from "motion/react";
+import { motion, MotionConfig } from "motion/react";
 import { getConfig, updateAppearanceConfig } from "@/app/utils/api/worksapce";
 import { useClientGate } from "@/app/_components/_ui/motion";
 import {
   applyDocumentAppearance,
+  applyDocumentReducedMotion,
   isAccentPreference,
   isThemePreference,
   readStoredAccent,
+  readStoredReducedMotion,
   readStoredSidebarAutoHide,
   readStoredTheme,
   subscribeStoredAppearance,
   writeStoredAccent,
+  writeStoredReducedMotion,
   writeStoredSidebarAutoHide,
   writeStoredTheme,
   type AccentPreference,
@@ -29,6 +32,8 @@ type Preferences = {
   setAccent: (accent: AccentPreference) => void;
   sidebarAutoHide: boolean;
   setSidebarAutoHide: (hide: boolean) => void;
+  reducedMotion: boolean;
+  setReducedMotion: (reduce: boolean) => void;
 };
 
 const PreferencesContext = createContext<Preferences>({
@@ -38,6 +43,8 @@ const PreferencesContext = createContext<Preferences>({
   setAccent: () => undefined,
   sidebarAutoHide: false,
   setSidebarAutoHide: () => undefined,
+  reducedMotion: true,
+  setReducedMotion: () => undefined,
 });
 
 export function usePreferences() { return useContext(PreferencesContext); }
@@ -57,6 +64,7 @@ function appearanceFromConfig(value: { theme?: string; accent?: string } | undef
 const serverTheme = (): ThemePreference => "system";
 const serverAccent = (): AccentPreference => "default";
 const serverSidebarAutoHide = () => false;
+const serverReducedMotion = () => true;
 
 export default function ClientRuntime({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
@@ -70,6 +78,11 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
     subscribeStoredAppearance,
     readStoredSidebarAutoHide,
     serverSidebarAutoHide,
+  );
+  const reducedMotion = useSyncExternalStore(
+    subscribeStoredAppearance,
+    readStoredReducedMotion,
+    serverReducedMotion,
   );
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipPersist = useRef(true);
@@ -120,6 +133,11 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
   }, [theme, accent, hydrated]);
 
   useEffect(() => {
+    if (!hydrated) return;
+    applyDocumentReducedMotion(reducedMotion);
+  }, [reducedMotion, hydrated]);
+
+  useEffect(() => {
     if (!hydrated || skipPersist.current || !accountReady.current) return;
     if (persistTimer.current) clearTimeout(persistTimer.current);
     persistTimer.current = setTimeout(() => {
@@ -153,22 +171,26 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
     setAccent: writeStoredAccent,
     sidebarAutoHide,
     setSidebarAutoHide: writeStoredSidebarAutoHide,
-  }), [theme, accent, sidebarAutoHide]);
+    reducedMotion,
+    setReducedMotion: writeStoredReducedMotion,
+  }), [theme, accent, sidebarAutoHide, reducedMotion]);
 
   return (
     <PreferencesContext.Provider value={value}>
-      {!online ? (
-        <motion.div
-          role="status"
-          aria-live="polite"
-          initial={{ y: -40, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="fixed inset-x-0 top-0 z-[100] bg-warning px-3 py-1.5 text-center text-xs font-medium text-black shadow"
-        >
-          Offline · showing saved data, which may be out of date
-        </motion.div>
-      ) : null}
-      {children}
+      <MotionConfig reducedMotion={reducedMotion ? "always" : "user"}>
+        {!online ? (
+          <motion.div
+            role="status"
+            aria-live="polite"
+            initial={{ y: -40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="fixed inset-x-0 top-0 z-[100] bg-warning px-3 py-1.5 text-center text-xs font-medium text-black shadow"
+          >
+            Offline · showing saved data, which may be out of date
+          </motion.div>
+        ) : null}
+        {children}
+      </MotionConfig>
     </PreferencesContext.Provider>
   );
 }

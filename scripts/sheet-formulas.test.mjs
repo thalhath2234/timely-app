@@ -117,5 +117,50 @@ for (const [platform, formula, input] of [
         assert.equal(findFormulaRefAt(`=LEN("${reference}")`, 7), null);
       });
     }
+
+    // Dates live in cells as YYYY-MM-DD text; 2026-10-03 is a Saturday.
+    for (const [formula, expected] of [
+      ['=WEEKDAY("2026-10-03")', { type: "number", value: 7 }],
+      ['=WEEKDAY("2026-10-03",2)', { type: "number", value: 6 }],
+      ['=WEEKDAY("2026-10-04",2)', { type: "number", value: 7 }],
+      ['=WEEKDAY("2026-10-03",3)', { type: "number", value: 5 }],
+      ['=TEXT("2026-10-03","dddd")', { type: "text", value: "Saturday" }],
+      [
+        '=TEXT("2026-10-03","ddd d mmm yyyy")',
+        { type: "text", value: "Sat 3 Oct 2026" },
+      ],
+      [
+        '=TEXT("2026-10-03T15:04:05Z","mmmm")',
+        { type: "text", value: "October" },
+      ],
+      ['=TEXT("2026-01-05","dd/mm/yy")', { type: "text", value: "05/01/26" }],
+      ['=TEXT(1234.5,"#,##0.00")', { type: "text", value: "1,234.50" }],
+      ['=TEXT(0.256,"0.0%")', { type: "text", value: "25.6%" }],
+      ['=YEAR("2026-10-03")', { type: "number", value: 2026 }],
+      ['=MONTH("2026-10-03")', { type: "number", value: 10 }],
+      ['=DAY("2026-10-03")', { type: "number", value: 3 }],
+      ["=DATE(2026,10,3)", { type: "text", value: "2026-10-03" }],
+      ["=DATE(2026,13,1)", { type: "text", value: "2027-01-01" }],
+      ['=DAYS("2026-10-03","2026-09-30")', { type: "number", value: 3 }],
+      ['=WEEKDAY("not a date")', { type: "error", message: "#VALUE!" }],
+      ['=WEEKDAY("2026-10-03",9)', { type: "error", message: "#NUM!" }],
+    ]) {
+      test(formula, () => assert.deepEqual(evaluate(formula), expected));
+    }
+    test("date functions read date cells by reference", () => {
+      const dateColumn = { id: "when", name: "When", type: "date", width: 100 };
+      const rows = [
+        { id: "r1", cells: { c0: '=TEXT(O1,"dddd")', when: "2026-10-05" } },
+      ];
+      assert.deepEqual(
+        createSheetEvaluator([...columns, dateColumn], rows).valueAt(0, 0),
+        { type: "text", value: "Monday" },
+      );
+    });
+    test("TODAY is an ISO date", () => {
+      const result = evaluate("=TODAY()");
+      assert.equal(result.type, "text");
+      assert.match(result.value, /^\d{4}-\d{2}-\d{2}$/);
+    });
   });
 }

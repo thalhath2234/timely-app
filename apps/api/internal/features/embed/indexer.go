@@ -33,11 +33,13 @@ var (
 // An empty key means the account has none of its own.
 type Credentials func(userID string) (key, model string)
 
-// Indexer stores and queries OpenRouter embeddings in pgvector.
+// IndexQueue defers embedding work to the job worker.
 type IndexQueue interface {
 	EnqueueIndex(userID, kind, entityID, title, body string) error
 }
 
+// Indexer stores OpenRouter embeddings as real[] rows and ranks them in
+// memory per account (ADR 0011).
 type Indexer interface {
 	Enabled() bool
 	EnabledFor(userID string) bool
@@ -50,6 +52,7 @@ type Indexer interface {
 	IndexSheet(*models.Sheet)
 	IndexEvent(*models.Event)
 	Delete(userID, kind, entityID string)
+	Invalidate(userID string)
 	Query(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error)
 	Count(ctx context.Context, userID string) (int64, error)
 	ReindexUser(ctx context.Context, userID string) (int, error)
@@ -79,6 +82,7 @@ type indexer struct {
 	model   string
 	queue   IndexQueue
 	resolve Credentials
+	vectors *vectorCache
 }
 
 func New(db *gorm.DB) Indexer {
@@ -87,12 +91,14 @@ func New(db *gorm.DB) Indexer {
 	if model == "" {
 		model = defaultModel
 	}
-	return &indexer{
+	i := &indexer{
 		db:     db,
 		http:   defaultHTTPClient(),
 		apiKey: key,
 		model:  model,
 	}
+	i.vectors = newVectorCache(cacheTTL, i.loadChunks)
+	return i
 }
 
 // Enabled reports whether any account could be indexed: a server key exists or
@@ -239,4 +245,5 @@ func (i *indexer) Delete(userID, kind, entityID string) {
 		Delete(&models.Embedding{}).Error; err != nil {
 		log.Printf("embed delete %s/%s: %v", kind, entityID, err)
 	}
+	i.vectors.invalidate(userID)
 }

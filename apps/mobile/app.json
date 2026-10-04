@@ -20,13 +20,12 @@
         "android.permission.RECEIVE_BOOT_COMPLETED"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#1a1b22",
+        "backgroundColor": "#111319",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "bundler": "metro",
@@ -38,6 +37,7 @@
       [
         "expo-notifications",
         {
+          "icon": "./assets/images/notification-icon.png",
           "color": "#8b7cf7",
           "defaultChannel": "reminders"
         }
@@ -47,10 +47,16 @@
         {
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#1a1b22"
+          "backgroundColor": "#111319"
         }
       ],
       "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the QR code shown in Timely on your computer."
+        }
+      ],
       [
         "expo-image-picker",
         {

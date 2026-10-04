@@ -50,7 +50,7 @@ type Server struct {
 }
 
 // SheetFormulaHelp is shared by external MCP and the in-app tool catalog.
-const SheetFormulaHelp = "Formulas start with = and use same-tab A1 coordinates (data starts at row 1, headers excluded). Supported ranges: N2:N21 (bounded), N:N (whole column), 2:2 (whole row), N2:N (row 2 onward), B2:2 (column B onward). Whole/open ranges include future rows or columns. Use SUM to add ranges: =B5+SUM(N2:N), not =B5+N2:N. SUM, AVERAGE, MIN, MAX, PRODUCT, COUNT and COUNTA accept ranges. Keep the formula cell outside its own range to avoid #CYCLE!. Cross-tab references are unsupported. Formulas are stored verbatim and evaluated by the web/desktop/mobile clients; tool responses contain raw formulas, not calculated results. Existing positional references are not automatically rewritten after structural edits."
+const SheetFormulaHelp = "Formulas start with = and use same-tab A1 coordinates (data starts at row 1, headers excluded). Supported ranges: N2:N21 (bounded), N:N (whole column), 2:2 (whole row), N2:N (row 2 onward), B2:2 (column B onward). Whole/open ranges include future rows or columns. Use SUM to add ranges: =B5+SUM(N2:N), not =B5+N2:N. SUM, AVERAGE, MIN, MAX, PRODUCT, COUNT and COUNTA accept ranges. Date helpers: TODAY(), DATE(y,m,d), YEAR, MONTH, DAY, WEEKDAY(date[,type]) (1=Sun..7=Sat; type 2 = 1=Mon..7=Sun), DAYS(end,start), TEXT(value,format) with date tokens dddd/ddd (weekday name), mmmm/mmm (month name), yyyy, mm, dd. =TEXT(A1,\"dddd\") gives the weekday of a date cell. Keep the formula cell outside its own range to avoid #CYCLE!. Cross-tab references are unsupported. Formulas are stored verbatim and evaluated by the web/desktop/mobile clients; tool responses contain raw formulas, not calculated results. Existing positional references are not automatically rewritten after structural edits."
 
 func New(deps Deps) *mcp.Server {
 	s := &Server{Deps: deps}
@@ -71,7 +71,7 @@ Duplicate with duplicate_task / duplicate_project (checklist copied; no blocks/c
 Auto-schedule v2: preview shows add/move/remove/pin, skip messages, capacity, and deadline risk. Recurring work occurrences in the horizon are placed without creating extra task rows. Frozen hours, locked tasks, and manual pins stay put. undo_schedule reverts the last apply. Scores from what_next and the engine are ordering hints, not certainty.
 bulk_update_tasks applies one patch to many tasks: complete/reopen, status, priority, project, stage, deadline, and labelIds (replaces the full set; [] clears).
 Archive docs/sheets with archive_doc / archive_sheet (archived=false unarchives). list_docs/list_sheets archived=true lists the archive. Prefer archive over delete.
-Sheet columns are text, number, date, boolean, currency, percent, or formula; update_sheet_cells coerces literal values to the column type. ` + SheetFormulaHelp + `
+Sheet columns are text, number, date, boolean, currency, percent, formula, or select (dropdown with options); update_sheet_cells coerces literal values to the column type and appends unknown select values to the options. A sheet is a workbook of tabs; the first tab is the primary grid and is renamed with rename_sheet_tab (tabId empty). ` + SheetFormulaHelp + `
 Saved views can filter by project, priority, labels, stage, completed, overdue, scheduled, recurring, and showReminders. renderMode is list, kanban, or gantt.
 Destructive deletes of a workspace, project, or document require confirm=true. Deleting a doc does not cascade to subpages; the tool reports descendantCount.`,
 	})
@@ -90,8 +90,8 @@ func Handler(mcpServer *mcp.Server, verifier mcpauth.TokenVerifier) http.Handler
 
 func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "get_context", Description: "User, workspaces (statuses, labels, custom fields), projects with stages and open/done counts, working hours, saved views, and current time. Call this first."}, s.getContext)
-	registerTool(s, server, &mcp.Tool{Name: "search", Description: "Search tasks, projects, docs, sheets, and events by exact or substring text."}, s.search)
-	registerTool(s, server, &mcp.Tool{Name: "semantic_search", Description: "Meaning/intent search across tasks, projects, docs, sheets, and events. Use when the user asks what is related to a topic or keyword search is too literal. Returns ranked chunks; follow with get_task/get_doc/… for the full record."}, s.semanticSearch)
+	registerTool(s, server, &mcp.Tool{Name: "search", Description: "Keyword search over tasks, projects, docs, sheets, and events: exact title first, then title prefix, title substring, body substring. No embeddings."}, s.search)
+	registerTool(s, server, &mcp.Tool{Name: "semantic_search", Description: "Hybrid search across tasks, projects, docs, sheets, and events: keyword and embedding hits fused, so exact titles and related meaning both rank. Prefer this for most lookups; falls back to keyword-only when no embedding provider is set. Returns ranked chunks; follow with get_task/get_doc/… for the full record."}, s.semanticSearch)
 	registerTool(s, server, &mcp.Tool{Name: "reindex_search", Description: "Rebuild the user's search index (same as POST /search/reindex). Use after bulk imports or if semantic results look stale."}, s.reindexSearch)
 	registerTool(s, server, &mcp.Tool{Name: "get_agenda", Description: "Calendar items, overdue tasks, and unscheduled work for a day or week."}, s.getAgenda)
 	registerTool(s, server, &mcp.Tool{Name: "get_free_time", Description: "Working-hour gaps with no events or task blocks."}, s.getFreeTime)
@@ -166,7 +166,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "update_event", Description: "Partial-update an event."}, s.updateEvent)
 	registerTool(s, server, &mcp.Tool{Name: "delete_event", Description: "Delete an event (whole series)."}, s.deleteEvent)
 	registerTool(s, server, &mcp.Tool{Name: "edit_event_occurrence", Description: "skip, restore, or move one event occurrence."}, s.editEventOccurrence)
-	registerTool(s, server, &mcp.Tool{Name: "split_event_series", Description: "This-and-future split of a recurring event."}, s.splitEventSeries)
+	registerTool(s, server, &mcp.Tool{Name: "split_event_series", Description: "This-and-future split of a recurring event. To move future occurrences to a new time, pass start (and end) for the first changed occurrence."}, s.splitEventSeries)
 
 	registerTool(s, server, &mcp.Tool{Name: "get_calendar", Description: "Unified calendar items in a date range."}, s.getCalendar)
 	registerTool(s, server, &mcp.Tool{Name: "get_working_hours", Description: "Weekly availability template."}, s.getWorkingHours)
@@ -177,6 +177,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "auto_schedule_preview", Description: "Preview engine v2 placement without writing. Recurring work occurrences in the horizon are placed as blocks (not new task rows). Returns proposals (with why), skipped (reason+message), changes (add/move/remove/pin), capacity, and risks. Scores are ordering hints, not certainty."}, s.autoSchedulePreview)
 	registerTool(s, server, &mcp.Tool{Name: "auto_schedule_apply", Description: "Apply engine placement. Idempotent per user (advisory lock). Frozen/locked/manual pins stay. Stores a revision for undo_schedule. POST /schedule/reschedule is an alias."}, s.autoScheduleApply)
 	registerTool(s, server, &mcp.Tool{Name: "undo_schedule", Description: "Undo the last auto-schedule apply by restoring the previous engine blocks."}, s.undoSchedule)
+	registerTool(s, server, &mcp.Tool{Name: "undo_schedule_preview", Description: "Show what undo_schedule would change: the engine blocks it removes and the earlier blocks it restores. canUndo=false when there is nothing to undo."}, s.undoSchedulePreview)
 	registerTool(s, server, &mcp.Tool{Name: "pin_task", Description: "Lock or unlock a task so the engine will not move its blocks (scheduleLocked)."}, s.pinTask)
 	registerTool(s, server, &mcp.Tool{Name: "pin_block", Description: "Lock or unlock one calendar block. Locking turns it into a manual pin."}, s.pinBlock)
 	registerTool(s, server, &mcp.Tool{Name: "schedule_task", Description: "Pin a manual time block on a one-off work task. On a reminder (duration 0) this only sets the ping time."}, s.scheduleTask)
@@ -195,14 +196,17 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "list_sheets", Description: "List active sheets by default. archived=true lists the archive."}, s.listSheets)
 	registerTool(s, server, &mcp.Tool{Name: "get_sheet", Description: "Get a sheet as a markdown table plus raw grid. " + SheetFormulaHelp}, s.getSheet)
 	registerTool(s, server, &mcp.Tool{Name: "create_sheet", Description: "Create a sheet."}, s.createSheet)
-	registerTool(s, server, &mcp.Tool{Name: "update_sheet", Description: "Update sheet metadata or grid. Supplied rows, columns, merges and tabs replace those arrays; preserve unrelated data. Use update_sheet_cells for a primary-tab cell edit, or tabs for another tab. " + SheetFormulaHelp}, s.updateSheet)
+	registerTool(s, server, &mcp.Tool{Name: "update_sheet", Description: "Update sheet metadata or grid. Supplied rows, columns, merges and tabs replace those arrays; preserve unrelated data. Use update_sheet_cells for a primary-tab cell edit, or tabs for another tab. Every tab, including the first, carries its own name; rename_sheet_tab renames one without resending the grid. " + SheetFormulaHelp}, s.updateSheet)
 	registerTool(s, server, &mcp.Tool{Name: "archive_sheet", Description: "Archive a sheet (archived=false unarchives). Prefer this over delete."}, s.archiveSheet)
-	registerTool(s, server, &mcp.Tool{Name: "add_sheet_column", Description: "Add a column. Type is text, number, date, boolean, currency, percent, or formula (default text)."}, s.addSheetColumn)
-	registerTool(s, server, &mcp.Tool{Name: "update_sheet_column", Description: "Rename or retype a column (text, number, date, boolean, currency, percent, formula). Retyping may clear incompatible values."}, s.updateSheetColumn)
+	registerTool(s, server, &mcp.Tool{Name: "add_sheet_column", Description: "Add a column. Type is text, number, date, boolean, currency, percent, formula, or select (default text). Pass options for a select column."}, s.addSheetColumn)
+	registerTool(s, server, &mcp.Tool{Name: "update_sheet_column", Description: "Rename, retype or re-option a column (text, number, date, boolean, currency, percent, formula, select). Retyping may clear incompatible values; options replaces a select column's choices."}, s.updateSheetColumn)
 	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_column", Description: "Delete a column."}, s.deleteSheetColumn)
 	registerTool(s, server, &mcp.Tool{Name: "add_sheet_rows", Description: "Append empty rows."}, s.addSheetRows)
 	registerTool(s, server, &mcp.Tool{Name: "update_sheet_cells", Description: "Set cells in one primary-tab row by row id and column ids from get_sheet. Literal values are coerced to the column type (number, date YYYY-MM-DD, boolean TRUE/FALSE). " + SheetFormulaHelp}, s.updateSheetCells)
 	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_rows", Description: "Delete rows by id."}, s.deleteSheetRows)
+	registerTool(s, server, &mcp.Tool{Name: "add_sheet_tab", Description: "Append a blank tab (A-D, 20 rows) to a sheet's workbook. Fill it with update_sheet tabs."}, s.addSheetTab)
+	registerTool(s, server, &mcp.Tool{Name: "rename_sheet_tab", Description: "Rename a tab. Empty tabId renames the first (primary) tab, which otherwise shows the sheet title."}, s.renameSheetTab)
+	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_tab", Description: "Delete a tab by id. The next tab becomes the primary grid; a workbook keeps at least one tab."}, s.deleteSheetTab)
 	registerTool(s, server, &mcp.Tool{Name: "duplicate_sheet", Description: "Duplicate a sheet, including columns, rows, merges, and tabs."}, s.duplicateSheet)
 	registerTool(s, server, &mcp.Tool{Name: "delete_sheet", Description: "Delete a sheet."}, s.deleteSheet)
 	registerTool(s, server, &mcp.Tool{Name: "list_sheet_templates", Description: "List saved sheet templates."}, s.listSheetTemplates)

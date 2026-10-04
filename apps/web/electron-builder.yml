@@ -3,17 +3,33 @@ productName: Timely
 executableName: Timely
 copyright: Copyright © Timely
 
+# App icon: electron/resources/icon.png (1024 px). electron-builder derives the
+# .icns and .ico from it; Linux targets use the PNG directly.
 directories:
   output: release
   buildResources: electron/resources
 
 files:
   - dist-electron/**/*
+  - electron/resources/icon.png
   - package.json
+  - "!.cache/**"
+  - "!.electron-api/**"
+  - "!.electron-postgres/**"
+  - "!.electron-next/**"
 
+# Sidecars live outside the asar. The per-target staging directories are named
+# after electron-builder's ${os}-${arch} macros (linux-x64, mac-arm64, win-x64;
+# see electron/targets.mjs) so one static config serves every target.
+# Binding layout (docs/desktop/README.md): resources/api, resources/postgres,
+# resources/next-server.
 extraResources:
   - from: .electron-next
     to: next-server
+  - from: .electron-api/${os}-${arch}
+    to: api
+  - from: .electron-postgres/${os}-${arch}
+    to: postgres
 
 extraMetadata:
   name: timely-desktop
@@ -23,24 +39,54 @@ asar: true
 npmRebuild: false
 nodeGypRebuild: false
 
+# electron-updater reads latest*.yml from the GitHub release assets.
+# Uploading happens only when electron-builder runs with --publish always
+# (release.yml does that for v* tags with GH_TOKEN).
+publish:
+  provider: github
+  owner: thalhath2234
+  repo: timely-app
+  releaseType: release
+
 linux:
   target:
     - dir
     - AppImage
   category: Office
   desktop:
-    StartupWMClass: Timely
+    entry:
+      StartupWMClass: Timely
   artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
 
 mac:
   target:
     - dmg
+    - zip # required by electron-updater on macOS
     - dir
   category: public.app-category.productivity
   artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+  # Signing: electron-builder picks the Developer ID certificate from
+  # CSC_LINK / CSC_KEY_PASSWORD; with neither set (and
+  # CSC_IDENTITY_AUTO_DISCOVERY=false) the build is unsigned.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: electron/resources/entitlements.mac.plist
+  entitlementsInherit: electron/resources/entitlements.mac.plist
+  # Notarization runs only when APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD +
+  # APPLE_TEAM_ID are set; otherwise electron-builder logs a warning and skips.
+  notarize: true
 
 win:
   target:
     - nsis
     - dir
   artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+  # Signing: set WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD to a .pfx and
+  # electron-builder signs the executable and the installer with signtool.
+  # Without them the build is unsigned (SmartScreen warns on first run).
+
+nsis:
+  oneClick: false
+  perMachine: false # Postgres refuses to run elevated; keep the install per-user
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false

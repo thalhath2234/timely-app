@@ -1,7 +1,7 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import {
   Check,
@@ -34,6 +34,7 @@ import { showUndoToast } from "../../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { taskEntityColor } from "../../../lib/entityColor";
+import TimelyLogo from "../../../components/ui/TimelyLogo";
 
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
@@ -249,7 +250,7 @@ export default function HomeScreen() {
       >
         {today.isPending && !data ? (
           <View style={styles.loader}>
-            <ActivityIndicator color={colors.primary} size="large" />
+            <TimelyLogo size={44} animated />
           </View>
         ) : networkCopy ? (
           <EmptyState icon={Sun} title="Couldn't load today" description={networkCopy} />

@@ -34,6 +34,9 @@ export default function KeyboardShortcuts() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // Widgets that handle their own typing without an <input>, such as the
+      // sheet grid, prevent default on the keys they consume.
+      if (event.defaultPrevented) return;
       if (isTypingTarget(event.target)) return;
       if (document.querySelector('[role="dialog"]')) return;
 

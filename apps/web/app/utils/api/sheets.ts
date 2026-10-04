@@ -146,9 +146,18 @@ export async function createSheetTemplate(data: {
   return resData.template ?? resData;
 }
 
+export interface UpdateSheetTemplatePayload {
+  name?: string;
+  icon?: string;
+  columns?: SheetColumn[];
+  rows?: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
+}
+
 export async function updateSheetTemplate(
   id: string,
-  data: { name: string },
+  data: UpdateSheetTemplatePayload,
 ): Promise<SheetTemplate> {
   const response = await apiFetch(`/sheet-templates/${id}`, {
     method: "PUT",

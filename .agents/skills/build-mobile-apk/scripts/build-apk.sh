@@ -27,35 +27,18 @@ case "$ANDROID_ARCHITECTURES" in
   arm64-v8a|x86_64) ;;
   *) echo "unsupported Android architecture: $ANDROID_ARCHITECTURES" >&2; exit 1 ;;
 esac
+# Optional. The phone pairs with a server at runtime (Settings → Server QR
+# code), so a release APK needs no API address. When one is given it is only
+# exported as EXPO_PUBLIC_API_URL for the build, which dev builds read; the
+# root .env and lib/api/bundledUrl.ts are never written.
 API_URL="${1:-}"
-
-# The monorepo keeps one .env at the repo root (two levels above apps/mobile).
-ENV_FILE="$(cd "$APP_DIR/../.." && pwd)/.env"
-
-ENV_URL=""
-if [[ -f "$ENV_FILE" ]]; then
-  ENV_URL=$(awk -F= '/^EXPO_PUBLIC_API_URL=/{sub(/^[^=]*=/, ""); print; exit}' "$ENV_FILE")
-fi
-API_URL="${API_URL:-$ENV_URL}"
 API_URL="${API_URL%/}"
-if [[ -z "$API_URL" ]]; then
-  echo "missing API URL (pass as arg or set EXPO_PUBLIC_API_URL in $ENV_FILE)" >&2
+if [[ -n "$API_URL" && ! "$API_URL" =~ ^https?:// ]]; then
+  echo "API URL must start with http:// or https://: $API_URL" >&2
   exit 1
 fi
 
-# Record the URL in the root .env, touching only its own line.
-if [[ "$API_URL" != "$ENV_URL" ]]; then
-  if grep -q '^EXPO_PUBLIC_API_URL=' "$ENV_FILE" 2>/dev/null; then
-    updated=$(API_URL="$API_URL" awk '/^EXPO_PUBLIC_API_URL=/{print "EXPO_PUBLIC_API_URL=" ENVIRON["API_URL"]; next} {print}' "$ENV_FILE")
-    printf '%s\n' "$updated" > "$ENV_FILE"
-  else
-    printf 'EXPO_PUBLIC_API_URL=%s\n' "$API_URL" >> "$ENV_FILE"
-  fi
-fi
-
-mkdir -p "$APP_DIR/lib/api"
-printf 'export const BUNDLED_API_URL = "%s";\n' "$API_URL" > "$APP_DIR/lib/api/bundledUrl.ts"
-(cd "$APP_DIR" && node -e "require('./app.config.js')")
+(cd "$APP_DIR" && NODE_ENV=production node -e "require('./app.config.js')")
 
 export JAVA_HOME ANDROID_HOME
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
@@ -81,12 +64,12 @@ systemd-run --user \
   --setenv=JAVA_HOME="$JAVA_HOME" \
   --setenv=ANDROID_HOME="$ANDROID_HOME" \
   --setenv=ANDROID_SDK_ROOT="$ANDROID_HOME" \
-  --setenv=EXPO_PUBLIC_API_URL="$API_URL" \
+  ${API_URL:+--setenv=EXPO_PUBLIC_API_URL="$API_URL"} \
   --setenv=NODE_ENV=production \
   --setenv=PATH="$JAVA_HOME/bin:/home/thalhath/.local/bin:$ANDROID_HOME/platform-tools:/usr/local/bin:/usr/bin" \
   /bin/bash -lc "
     exec >>$LOG 2>&1
-    echo API_URL=$API_URL
+    echo API_URL=${API_URL:-'<none: paired at runtime>'}
     echo JAVA=\$(java -version 2>&1 | head -n1)
     if [ ! -x android/gradlew ]; then
       echo 'Generating Android project under the build memory cap'
@@ -104,7 +87,7 @@ systemd-run --user \
 
 echo "started $UNIT.service"
 echo "app=$APP_DIR"
-echo "api=$API_URL"
+echo "api=${API_URL:-<none: paired at runtime>}"
 echo "log=$LOG"
 echo "apk=$APK_OUT"
 systemctl --user show "$UNIT.service" -p MemoryMax -p ActiveState -p SubState --no-pager

@@ -19,7 +19,10 @@ import (
 	"timely-api/internal/realtime"
 )
 
-func TestIntegrationRealAgentToolsShareTransaction(t *testing.T) {
+// agentToolsDB migrates an isolated PostgreSQL schema and seeds one account so
+// the real chat catalog can be exercised end to end.
+func agentToolsDB(t *testing.T) (*gorm.DB, string) {
+	t.Helper()
 	file := os.Getenv("CHAT_TEST_ENV")
 	if file == "" {
 		t.Skip("run make test-chat-integration")
@@ -61,21 +64,32 @@ func TestIntegrationRealAgentToolsShareTransaction(t *testing.T) {
 	if err := db.Exec("INSERT INTO configs (id,user_id) VALUES (?,?)", "cfg_test", uid).Error; err != nil {
 		t.Fatal(err)
 	}
+	return db, uid
+}
+
+// agentToolCaller runs catalog tools for uid inside tx and fails the test on error.
+func agentToolCaller(t *testing.T, tx *gorm.DB, uid string) func(name string, args map[string]any) map[string]any {
+	t.Helper()
+	tools := chatCatalog(tx, realtime.NewHub())
+	return func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		raw, _ := json.Marshal(args)
+		out, err := tools[name].Call(context.Background(), uid, raw)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		bytes, _ := json.Marshal(out)
+		var result map[string]any
+		json.Unmarshal(bytes, &result)
+		return result
+	}
+}
+
+func TestIntegrationRealAgentToolsShareTransaction(t *testing.T) {
+	db, uid := agentToolsDB(t)
 	rollback := fmt.Errorf("rollback test")
 	createAll := func(tx *gorm.DB) error {
-		tools := chatCatalog(tx, realtime.NewHub())
-		call := func(name string, args map[string]any) map[string]any {
-			t.Helper()
-			raw, _ := json.Marshal(args)
-			out, err := tools[name].Call(context.Background(), uid, raw)
-			if err != nil {
-				t.Fatalf("%s: %v", name, err)
-			}
-			bytes, _ := json.Marshal(out)
-			var result map[string]any
-			json.Unmarshal(bytes, &result)
-			return result
-		}
+		call := agentToolCaller(t, tx, uid)
 		ws := call("create_workspace", map[string]any{"name": "Personal"})
 		pr := call("create_project", map[string]any{"title": "PDF prototype", "workspaceId": ws["id"]})
 		call("create_doc", map[string]any{"title": "Plan", "markdown": "# Initial plan\n\nBuild merge and split.", "workspaceId": ws["id"], "projectId": pr["id"]})

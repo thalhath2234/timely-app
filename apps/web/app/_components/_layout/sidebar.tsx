@@ -2,6 +2,7 @@
 
 import { Plus, Search, LogOut } from "lucide-react";
 import SidebarButton from "@/app/_components/_ui/sidebarButton";
+import TimelyLogo from "@/app/_components/_ui/timelyLogo";
 import {
   SidebarProps,
   SIDEBAR_ITEMS,
@@ -152,6 +153,7 @@ export default function Sidebar() {
     >
       <div className="flex items-center justify-center h-auto">
         <div className="flex flex-col items-center justify-center gap-y-2">
+          <TimelyLogo size={26} title="Timely" className="mb-1 text-sidebar-foreground" />
           <div className="relative" ref={addMenuRef}>
             <button
               type="button"
@@ -230,7 +232,7 @@ export default function Sidebar() {
           return (
             <div
               key={item.name}
-              className="relative"
+              className="relative isolate"
               onContextMenu={(event) =>
                 openMenu(event, [
                   {

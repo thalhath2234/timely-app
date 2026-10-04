@@ -1,6 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
 import AlignCenter from "lucide-react/dist/esm/icons/align-center.mjs";
 import AlignLeft from "lucide-react/dist/esm/icons/align-left.mjs";
 import AlignRight from "lucide-react/dist/esm/icons/align-right.mjs";
@@ -63,7 +73,9 @@ import {
   normalizeTypedCell,
   setCellFormat,
   isEmptyCellFormat,
+  parseSelectOptions,
   SHEET_COLUMN_TYPES,
+  syncSelectOptions,
   toggleNumberFormat,
 } from "@/app/utils/sheetColumns";
 import {
@@ -110,7 +122,11 @@ import {
   type FormulaRefSpan,
 } from "@/app/utils/sheetFormulaInput";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
-import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
+import {
+  openContextMenu,
+  tidyEntries,
+  type ContextMenuEntry,
+} from "@/app/_store/contextMenuStore";
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 640;
@@ -230,6 +246,8 @@ export default function SheetGrid({
     null,
   );
   const [typeMenuIndex, setTypeMenuIndex] = useState<number | null>(null);
+  const [optionsEditorIndex, setOptionsEditorIndex] = useState<number | null>(null);
+  const columnPopoverAnchorRef = useRef<HTMLDivElement>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -283,6 +301,14 @@ export default function SheetGrid({
       past: [...current.past.slice(-79), { columns, rows, merges }],
       future: [],
     }));
+    if (next.rows) {
+      // Dropdown columns learn new values as they are typed or pasted.
+      const synced = syncSelectOptions(next.columns ?? columns, next.rows);
+      if (synced.columns !== (next.columns ?? columns) || synced.rows !== next.rows) {
+        persist({ ...next, columns: synced.columns, rows: synced.rows });
+        return;
+      }
+    }
     persist(next);
   };
 
@@ -460,12 +486,71 @@ export default function SheetGrid({
   };
 
   const setColumnType = (index: number, type: SheetColumnType) => {
-    commit({
-      columns: columns.map((column, columnIndex) =>
-        columnIndex === index ? { ...column, type } : column,
-      ),
+    const nextColumns = columns.map((column, columnIndex) => {
+      if (columnIndex !== index) return column;
+      const next: SheetColumn = { ...column, type };
+      if (type !== "select") delete next.options;
+      return next;
     });
+    if (type === "select") {
+      // Existing values become the first options so nothing is lost.
+      const synced = syncSelectOptions(nextColumns, rows);
+      commit({ columns: synced.columns, rows: synced.rows });
+    } else {
+      commit({ columns: nextColumns });
+    }
     setTypeMenuIndex(null);
+  };
+
+  const saveSelectOptions = (index: number, text: string) => {
+    const options = parseSelectOptions(text);
+    const nextColumns = columns.map((column, columnIndex) =>
+      columnIndex === index ? { ...column, options } : column,
+    );
+    const synced = syncSelectOptions(nextColumns, rows);
+    commit({ columns: synced.columns, rows: synced.rows });
+    setOptionsEditorIndex(null);
+  };
+
+  const openSelectMenu = (address: CellAddress) => {
+    const column = columns[address.col];
+    if (!column || column.type !== "select") return;
+    const raw = rawAt(address);
+    if (isFormulaValue(raw)) return;
+    const cell = gridRef.current?.querySelector<HTMLElement>(
+      `[data-cell="${address.col}-${address.row}"]`,
+    );
+    const rect = cell?.getBoundingClientRect();
+    if (!rect) return;
+    const current = raw.trim();
+    const options = column.options ?? [];
+    const items = tidyEntries([
+      ...options.map<ContextMenuEntry>((option) => ({
+        kind: "action",
+        label: option,
+        checked: option === current,
+        onSelect: () => setCellValue(address, option),
+      })),
+      { kind: "separator" },
+      current !== "" && {
+        kind: "action" as const,
+        label: "Clear",
+        onSelect: () => setCellValue(address, ""),
+      },
+      {
+        kind: "action",
+        label: "Add option…",
+        icon: Plus,
+        onSelect: () => startEditing(address, ""),
+      },
+      {
+        kind: "action",
+        label: "Edit options…",
+        icon: Pencil,
+        onSelect: () => setOptionsEditorIndex(address.col),
+      },
+    ]);
+    openContextMenu({ x: rect.left, y: rect.bottom, items, title: column.name });
   };
 
   const toggleBoolean = (address: CellAddress) => {
@@ -829,9 +914,18 @@ export default function SheetGrid({
           { col: selected.col + (event.shiftKey ? -1 : 1), row: selected.row },
         );
       case "Enter":
-      case "F2":
+      case "F2": {
         event.preventDefault();
+        const column = columns[selected.col];
+        if (
+          event.key === "Enter" &&
+          column?.type === "select" &&
+          !isFormulaValue(rawAt(selected))
+        ) {
+          return openSelectMenu(selected);
+        }
         return startEditing(selected);
+      }
       case "Delete":
       case "Backspace":
         event.preventDefault();
@@ -939,18 +1033,20 @@ export default function SheetGrid({
   }, [columns, persist, zoom]);
 
   useEffect(() => {
-    if (openMenu == null && typeMenuIndex == null) return;
+    if (openMenu == null && typeMenuIndex == null && optionsEditorIndex == null) return;
     const close = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest("[data-sheet-popover]")) return;
       setOpenMenu(null);
       setTypeMenuIndex(null);
+      setOptionsEditorIndex(null);
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (editing) return;
       setOpenMenu(null);
       setTypeMenuIndex(null);
+      setOptionsEditorIndex(null);
     };
     document.addEventListener("pointerdown", close);
     window.addEventListener("keydown", onKey);
@@ -958,7 +1054,7 @@ export default function SheetGrid({
       document.removeEventListener("pointerdown", close);
       window.removeEventListener("keydown", onKey);
     };
-  }, [editing, openMenu, typeMenuIndex]);
+  }, [editing, openMenu, optionsEditorIndex, typeMenuIndex]);
 
   const commitEditRef = useRef(commitEdit);
   useEffect(() => {
@@ -1212,6 +1308,12 @@ export default function SheetGrid({
           checked: column?.type === option.value,
           onSelect: () => setColumnType(index, option.value),
         })),
+      },
+      column?.type === "select" && {
+        kind: "action" as const,
+        label: "Edit dropdown options…",
+        icon: ChevronDown,
+        onSelect: () => setOptionsEditorIndex(index),
       },
       { kind: "separator" },
       {
@@ -2028,7 +2130,15 @@ export default function SheetGrid({
                   </button>
                 )}
 
-                <div className="relative shrink-0" data-sheet-popover>
+                <div
+                  ref={
+                    typeMenuIndex === index || optionsEditorIndex === index
+                      ? columnPopoverAnchorRef
+                      : undefined
+                  }
+                  className="relative shrink-0"
+                  data-sheet-popover
+                >
                   <button
                     type="button"
                     title="Column type"
@@ -2040,7 +2150,11 @@ export default function SheetGrid({
                     {columnTypeBadge(column.type)}
                   </button>
                   {typeMenuIndex === index ? (
-                    <div className="absolute right-0 top-6 z-40 min-w-28 rounded-md border border-border bg-popover p-1 shadow-lg">
+                    <AnchoredPopover
+                      anchorRef={columnPopoverAnchorRef}
+                      boundsRef={gridRef}
+                      className="min-w-28 rounded-md border border-border bg-popover p-1 shadow-lg"
+                    >
                       {SHEET_COLUMN_TYPES.map((option) => (
                         <button
                           key={option.value}
@@ -2055,7 +2169,71 @@ export default function SheetGrid({
                           {option.label}
                         </button>
                       ))}
-                    </div>
+                      {column.type === "select" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTypeMenuIndex(null);
+                            setOptionsEditorIndex(index);
+                          }}
+                          className="mt-1 block w-full rounded border-t border-border px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent"
+                        >
+                          Edit options…
+                        </button>
+                      ) : null}
+                    </AnchoredPopover>
+                  ) : null}
+                  {optionsEditorIndex === index ? (
+                    <AnchoredPopover
+                      anchorRef={columnPopoverAnchorRef}
+                      boundsRef={gridRef}
+                      className="w-64 rounded-md border border-border bg-popover p-2 shadow-lg"
+                    >
+                      <p className="mb-1 text-[11px] font-medium text-foreground">
+                        Dropdown options
+                      </p>
+                      <textarea
+                        autoFocus
+                        defaultValue={(column.options ?? []).join("\n")}
+                        placeholder={"One option per line"}
+                        rows={6}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setOptionsEditorIndex(null);
+                          }
+                          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                            event.preventDefault();
+                            saveSelectOptions(index, event.currentTarget.value);
+                          }
+                        }}
+                        className="w-full resize-y rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none focus:border-ring"
+                      />
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        Values already in the column stay listed.
+                      </p>
+                      <div className="mt-2 flex justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setOptionsEditorIndex(null)}
+                          className="rounded px-2 py-1 text-[11px] hover:bg-accent"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            const textarea = event.currentTarget
+                              .closest("[data-sheet-popover]")
+                              ?.querySelector("textarea");
+                            saveSelectOptions(index, textarea?.value ?? "");
+                          }}
+                          className="rounded bg-primary px-2 py-1 text-[11px] text-primary-foreground hover:bg-primary/90"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </AnchoredPopover>
                   ) : null}
                 </div>
 
@@ -2231,6 +2409,7 @@ export default function SheetGrid({
                     }}
                   >
                   <div
+                    data-cell={`${colIndex}-${rowIndex}`}
                     onMouseDown={(event) => {
                       if (isEditingFormula && !isEditing) {
                         event.preventDefault();
@@ -2297,10 +2476,9 @@ export default function SheetGrid({
                       });
                     }}
                     onClick={() => {
-                      if (!isSelected) return;
-                      if (column.type === "boolean" && !isFormulaValue(raw)) {
-                        toggleBoolean(address);
-                      }
+                      if (!isSelected || isFormulaValue(raw)) return;
+                      if (column.type === "boolean") toggleBoolean(address);
+                      if (column.type === "select") openSelectMenu(address);
                     }}
                     className={`flex min-w-0 border-b border-r border-border px-2 text-sm ${
                       isVerticalOrigin ? "absolute inset-x-0 top-0 z-[8]" : "relative h-full"
@@ -2403,6 +2581,19 @@ export default function SheetGrid({
                         }}
                         className="absolute inset-0 w-full select-text bg-card px-2 py-1 text-left font-sans text-sm text-foreground outline-none ring-2 ring-inset ring-ring"
                       />
+                    ) : column.type === "select" && !isFormulaValue(raw) && display ? (
+                      <span
+                        title="Click to choose"
+                        className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] font-medium text-secondary-foreground"
+                      >
+                        <span className="truncate">{display}</span>
+                        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+                      </span>
+                    ) : column.type === "select" && !isFormulaValue(raw) && isSelected ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                        Choose
+                        <ChevronDown className="size-3" />
+                      </span>
                     ) : chip ? (
                       <span
                         className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium ${chip.className}`}
@@ -2559,6 +2750,69 @@ export default function SheetGrid({
         </div>
       </footer>
     </div>
+  );
+}
+
+const POPOVER_GAP = 4;
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * Column-header menus render into `document.body` so the grid's scroll
+ * container cannot clip them. The panel hangs below the anchor, right-aligned
+ * to it, and is clamped to stay inside `boundsRef` and the viewport.
+ */
+function AnchoredPopover({
+  anchorRef,
+  boundsRef,
+  className,
+  children,
+}: {
+  anchorRef: RefObject<HTMLElement | null>;
+  boundsRef: RefObject<HTMLElement | null>;
+  className?: string;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const place = () => {
+      const anchor = anchorRef.current;
+      const panel = panelRef.current;
+      if (!anchor || !panel) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      const bounds = boundsRef.current?.getBoundingClientRect();
+      const width = panel.offsetWidth;
+      const height = panel.offsetHeight;
+      const minLeft = Math.max(VIEWPORT_MARGIN, bounds ? bounds.left + POPOVER_GAP : 0);
+      const maxLeft = window.innerWidth - width - VIEWPORT_MARGIN;
+      const left = Math.max(minLeft, Math.min(anchorRect.right - width, maxLeft));
+      const below = anchorRect.bottom + POPOVER_GAP;
+      const top =
+        below + height > window.innerHeight - VIEWPORT_MARGIN
+          ? Math.max(VIEWPORT_MARGIN, anchorRect.top - height - POPOVER_GAP)
+          : below;
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [anchorRef, boundsRef]);
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      data-sheet-popover
+      className={`fixed left-0 top-0 z-[100] ${className ?? ""}`}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>,
+    document.body,
   );
 }
 

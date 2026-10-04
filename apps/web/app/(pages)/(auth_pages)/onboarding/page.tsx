@@ -11,10 +11,12 @@ import { z } from "zod";
 import { useConfig } from "@/app/utils/hooks/workspaces";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 import { getMe } from "@/app/utils/api/user";
-import { ArrowRight, Layers, Loader2 } from "lucide-react";
+import { ArrowRight, Layers } from "lucide-react";
 import AuthBrandPanel from "../_components/authBrandPanel";
 import { motion } from "motion/react";
+import { LogoLoader, LogoSpinner, TimelyWordmark } from "@/app/_components/_ui/timelyLogo";
 import { springSoft } from "@/app/_components/_ui/motion";
+import { routeAfterOnboarding } from "@/app/utils/desktopInstance";
 
 const workspaceSchema = z.object({
   name: z
@@ -80,7 +82,11 @@ export default function Onboarding() {
           : old,
       );
 
-      router.replace("/calendar");
+      // Inside the desktop app the first-run wizard (Tailscale, agent
+      // provider, phone pairing) runs once before the calendar.
+      const bridge = window.timelyDesktop?.instance;
+      const instance = bridge ? await bridge.get().catch(() => null) : null;
+      router.replace(routeAfterOnboarding(instance));
     },
   });
 
@@ -96,7 +102,11 @@ export default function Onboarding() {
   };
 
   if (isConfigLoading || isOnboardingDone) {
-    return <div className="min-h-screen bg-[#0c0e14]" />;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0c0e14]">
+        <LogoLoader label="Preparing Timely" className="min-h-0 text-[#e2e2eb]" />
+      </div>
+    );
   }
 
   return (
@@ -113,10 +123,7 @@ export default function Onboarding() {
           className="relative z-10 w-full max-w-[420px] rounded-xl border border-white/10 bg-[#191b22] p-8 shadow-2xl sm:p-9"
         >
           <div className="mb-6 flex items-center justify-center gap-2.5 md:hidden">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-[#c0c1ff] text-[#1000a9]">
-              <span className="text-sm font-bold select-none">T</span>
-            </div>
-            <span className="text-xl font-semibold tracking-tight">Timely</span>
+            <TimelyWordmark />
           </div>
 
           <span className="inline-flex rounded-full border border-[#c0c1ff]/20 bg-[#c0c1ff]/10 px-2.5 py-1 text-[0.6875rem] font-medium tracking-[0.08em] text-[#c0c1ff] uppercase">
@@ -163,7 +170,7 @@ export default function Onboarding() {
             >
               {isPending ? (
                 <>
-                  <Loader2 className="size-5 animate-spin" />
+                  <LogoSpinner size={20} tone="mono" label="Creating" />
                   Creating...
                 </>
               ) : (

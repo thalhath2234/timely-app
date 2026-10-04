@@ -6,7 +6,10 @@ on the API host. The API host, not the client, finds and runs the CLIs so web,
 desktop and mobile share one behaviour and runs still outlive chat views
 (ADR 0008). A CLI is driven as a pure model with every built-in tool disabled;
 the runner keeps the tool loop, proposals, approval and safe retries (ADR 0007)
-in one place rather than delegating them to the CLI's own agent loop.
+in one place rather than delegating them to the CLI's own agent loop. When the
+model calls a Timely tool natively regardless, the provider treats the rejected
+call as the turn's tool request instead of letting the run end with "tool
+unavailable".
 
 Provider and model are fixed when a queued run is claimed, so a run finishes on
 the provider it started with. If the selected provider is unusable (missing

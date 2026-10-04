@@ -1,13 +1,14 @@
 import { ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Bot, Brain, ChevronRight, Clock, Database, FolderKanban, Inbox, KeyRound, Tag } from "lucide-react-native";
+import { Bell, Bot, Brain, ChevronRight, Clock, Database, FolderKanban, Inbox, KeyRound, Server, Tag } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { SectionLabel } from "../../../components/ui/primitives";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import AppearanceCard from "../../../components/settings/AppearanceCard";
 import { useAuth } from "../../../lib/auth/AuthProvider";
+import { useServer } from "../../../lib/server/ServerProvider";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 function Row({
@@ -44,6 +45,10 @@ export default function SettingsIndex() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const server = useServer();
+  const serverMeta = server.activeUrl
+    ? `${server.name ? `${server.name} · ` : ""}${server.activeUrl}`
+    : "Not paired";
   const initials = (user?.name ?? user?.email ?? "T")
     .split(" ")
     .map((p) => p[0])
@@ -83,6 +88,10 @@ export default function SettingsIndex() {
             meta="Spaces, statuses, labels, and fields"
             onPress={() => router.push("/(app)/settings/workspaces")}
           />
+        </View>
+        <SectionLabel>Desktop</SectionLabel>
+        <View style={styles.group}>
+          <Row icon={Server} title="Server" meta={serverMeta} onPress={() => router.push("/(app)/settings/server")} />
         </View>
         <SectionLabel>Preferences & tools</SectionLabel>
         <View style={styles.group}>

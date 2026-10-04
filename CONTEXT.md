@@ -57,6 +57,10 @@ _Avoid_: locked block (pinning is only one way to choose a time)
 A Block whose time Auto-schedule chose.
 _Avoid_: automatic block, scheduled block
 
+**Pinned**:
+A Block, or all Blocks of one Work, that neither Auto-schedule nor manual placement may move or remove. An Event's time is kept the same way.
+_Avoid_: locked, frozen (frozen is the near-term window the engine leaves alone)
+
 **Auto-schedule**:
 The Preview, Apply, and Undo operation that places Work within Working hours around existing busy time. It does not place or move Events.
 _Avoid_: schedule, reschedule (when referring to this operation)
@@ -104,3 +108,21 @@ _Avoid_: missed, skipped, late
 **Missed**:
 An occurrence of Work whose calendar time has ended while the Work remains incomplete. Missed is not Overdue unless its deadline has also passed.
 _Avoid_: overdue (deadline only), skipped
+
+### Desktop host and devices
+
+**Desktop host**:
+The Timely desktop app when it runs its own database and API as supervised sidecars (ADR 0011). It keeps serving while its window is hidden and stops serving when the person quits it.
+_Avoid_: backend, local install, machine (the Desktop host is an app, not hardware)
+
+**Server address**:
+An `http://host:port` the phone uses to reach a Desktop host or any other Timely API. A Desktop host has a loopback address and, when allowed, Tailscale addresses.
+_Avoid_: endpoint, API URL (in copy), base URL
+
+**Pair**:
+Giving the phone a Desktop host's Server addresses by scanning the QR code in Settings → Server or pasting one address. Pairing checks the address with a health call; it does not sign in.
+_Avoid_: connect (reserved for Agent providers), link, sync (sync is what happens after Pair)
+
+**Tailscale access**:
+The Settings → Server switch that lets the API listen on the host's Tailscale addresses in addition to loopback. Off means loopback only; there is no LAN or public option.
+_Avoid_: remote access, expose, port forwarding

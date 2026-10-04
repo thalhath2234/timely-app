@@ -45,6 +45,8 @@ export function columnTypeBadge(type: SheetColumnType | undefined) {
       return "D";
     case "boolean":
       return "☐";
+    case "select":
+      return "▾";
     default:
       return "T";
   }

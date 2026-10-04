@@ -1,0 +1,7 @@
+{
+  "name": "@timely/ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "design-sync wrapper: re-exports the Timely web app's components (apps/web/app/_components) as one package for claude.ai/design. Built by .design-sync/pkg/build.mjs into dist/ (gitignored).",
+  "types": "dist/index.d.ts"
+}

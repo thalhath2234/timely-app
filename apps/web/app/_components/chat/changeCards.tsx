@@ -1,10 +1,18 @@
 "use client";
 import Link from "next/link";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import type { ChatStep } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import ChatText from "./chatText";
-import { stepIcon, stepMeta, stepTarget } from "./chatMeta";
+import {
+  beforeLabel,
+  isRemoval,
+  readableTimestamp,
+  stepIcon,
+  stepMeta,
+  stepTarget,
+} from "./chatMeta";
 
 function label(key: string) {
   return key
@@ -24,6 +32,8 @@ export function Value({
   if (typeof value === "string") {
     if (field === "markdown" || field === "description")
       return <ChatText text={value} />;
+    const time = readableTimestamp(value);
+    if (time) return <span title={value}>{time}</span>;
     if (/^\$\d+\./.test(value))
       return (
         <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
@@ -131,12 +141,13 @@ export default function ChangeCards({
         const status = stepMeta(step.status, index === activeIndex);
         const StatusIcon = status.icon;
         const link = stepTarget(step);
+        const removal = isRemoval(step.tool);
         return (
           <li
             key={index}
             className={cn(
               "overflow-hidden rounded-xl border bg-card transition-colors",
-              step.status === "failed"
+              step.status === "failed" || (removal && step.status === "pending")
                 ? "border-destructive/40"
                 : "border-border",
               muted && "opacity-80",
@@ -144,7 +155,14 @@ export default function ChangeCards({
           >
             <div className="flex items-start gap-3 p-3.5">
               <div className="relative shrink-0">
-                <div className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <div
+                  className={cn(
+                    "flex size-9 items-center justify-center rounded-lg",
+                    removal
+                      ? "bg-destructive/10 text-destructive"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
                   <Icon className="size-4" />
                 </div>
                 <span
@@ -155,10 +173,11 @@ export default function ChangeCards({
                     status.className,
                   )}
                 >
-                  <StatusIcon
-                    className={cn("size-2.5", status.spin && "animate-spin")}
-                    strokeWidth={3}
-                  />
+                  {status.spin ? (
+                    <LogoSpinner size={12} tone="mono" label={status.label} />
+                  ) : (
+                    <StatusIcon className="size-2.5" strokeWidth={3} />
+                  )}
                 </span>
               </div>
               <div className="min-w-0 flex-1">
@@ -175,6 +194,11 @@ export default function ChangeCards({
                   >
                     {step.summary}
                   </span>
+                  {removal && (
+                    <span className="shrink-0 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                      Removes
+                    </span>
+                  )}
                 </p>
                 {step.status === "failed" && step.error && (
                   <p
@@ -195,7 +219,10 @@ export default function ChangeCards({
                 )}
               </div>
             </div>
-            <details className="group border-t border-border/60">
+            <details
+              className="group border-t border-border/60"
+              open={removal && step.status === "pending" ? true : undefined}
+            >
               <summary className="flex cursor-pointer list-none items-center gap-2 px-3.5 py-2 text-xs text-muted-foreground hover:bg-muted/40 hover:text-foreground">
                 <ChevronRight className="size-3 transition-transform group-open:rotate-90" />
                 Review details
@@ -203,9 +230,17 @@ export default function ChangeCards({
               <div className="max-h-96 overflow-auto border-t border-border/60 bg-muted/20 p-3.5">
                 <Value value={step.arguments} />
                 {step.before && (
-                  <details className="mt-4 border-t border-border pt-3">
-                    <summary className="cursor-pointer text-xs font-medium">
-                      Existing content
+                  <details
+                    className="mt-4 border-t border-border pt-3"
+                    open={removal ? true : undefined}
+                  >
+                    <summary
+                      className={cn(
+                        "cursor-pointer text-xs font-medium",
+                        removal && "text-destructive",
+                      )}
+                    >
+                      {beforeLabel(step.tool)}
                     </summary>
                     <div className="mt-3">
                       <Value value={step.before} />

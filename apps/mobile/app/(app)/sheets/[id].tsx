@@ -11,6 +11,7 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import SheetGrid, { type SheetGridHandle } from "../../../components/sheets/SheetGrid";
+import SheetIconPicker from "../../../components/sheets/SheetIconPicker";
 import { useDeleteSheet, useDuplicateSheet, useCreateSheetTemplate, useMaterializeTemplateTab, useSheetQuery, useSheetTemplatesQuery, useUpdateSheet, useWorkspacesQuery } from "../../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../../lib/autosave";
 import { showUndoToast } from "../../../lib/toast";
@@ -20,7 +21,6 @@ import {
   formatCellDisplay,
   normalizeSheet,
   routeParam,
-  SHEET_ICON_CHOICES,
   sheetHref,
   tabsFromSheet,
   workbookPayload,
@@ -84,6 +84,13 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
     save.mutateAsync({ id: sheet.id, data: patch }),
   );
   const gridRef = useRef<SheetGridHandle>(null);
+  const tabInputRef = useRef<TextInput>(null);
+  // Blur before the bottom sheet unmounts its input: Android otherwise moves
+  // focus to the first TextInput on screen (the sheet title).
+  const closeTabMenu = () => {
+    tabInputRef.current?.blur();
+    setMenu(null);
+  };
   // An active cell draft is unsaved work too: the grid commits it on blur or
   // Enter, but neither fires when the screen is popped. Leaving first commits
   // the draft into the autosave patch and flushes it; the confirmation only
@@ -357,37 +364,19 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         })}
       </BottomSheet>
 
-      <BottomSheet open={menu === "icon"} onClose={() => setMenu(null)} title="Icon">
-        <View style={styles.iconGrid}>
-          {SHEET_ICON_CHOICES.map((choice) => (
-            <Pressable
-              key={choice}
-              onPress={() => {
-                setIcon(choice);
-                schedule({ icon: choice });
-                setMenu(null);
-              }}
-              hitSlop={6}
-              style={[styles.iconChoice, choice === icon && styles.iconChoiceOn]}
-            >
-              <Text style={styles.icon}>{choice}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Pressable
-          onPress={() => {
-            setIcon("");
-            schedule({ icon: "" });
-            setMenu(null);
-          }}
-          style={styles.removeIcon}
-        >
-          <Text style={styles.removeIconText}>Remove icon</Text>
-        </Pressable>
-      </BottomSheet>
+      <SheetIconPicker
+        open={menu === "icon"}
+        onClose={() => setMenu(null)}
+        value={icon}
+        onSelect={(choice) => {
+          setIcon(choice);
+          schedule({ icon: choice });
+        }}
+      />
 
-      <BottomSheet open={menu === "tab"} onClose={() => setMenu(null)} title="Tab">
+      <BottomSheet open={menu === "tab"} onClose={closeTabMenu} title="Tab">
         <TextInput
+          ref={tabInputRef}
           value={tabDraft}
           onChangeText={setTabDraft}
           placeholder="Tab name"
@@ -400,7 +389,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
             if (editingTabId && name) {
               persistTabs(tabs.map((tab) => (tab.id === editingTabId ? { ...tab, name } : tab)));
             }
-            setMenu(null);
+            closeTabMenu();
           }}
         >
           Rename
@@ -409,7 +398,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
           <SheetOption
             onSelect={() => {
               if (editingTabId) persistTabs(tabs.filter((tab) => tab.id !== editingTabId));
-              setMenu(null);
+              closeTabMenu();
             }}
             leading={<Trash2 size={16} color={colors.destructive} />}
           >
@@ -486,24 +475,6 @@ const styles = createThemedStyleSheet((colors) => ({
     borderTopColor: "#282C37",
     backgroundColor: "#191B22",
   },
-  iconGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  iconChoice: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconChoiceOn: { backgroundColor: colors.accent },
-  removeIcon: {
-    marginTop: 12,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: colors.secondary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  removeIconText: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
   tabBar: {
     flexDirection: "row",
     alignItems: "center",

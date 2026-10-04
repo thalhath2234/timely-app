@@ -9,8 +9,13 @@ import (
 
 // An allowlist, not a name-based denylist: new Hermes tools do not silently gain
 // in-app authority. Every mutation passes through proposal validation.
-var readTools = names(`get_context search semantic_search get_agenda get_free_time what_next list_workspaces get_workspace list_projects get_project list_tasks get_task list_inbox get_today list_events get_event get_calendar get_working_hours get_capacity get_schedule_settings auto_schedule_preview list_docs get_doc list_sheets get_sheet list_sheet_templates get_sheet_template`)
-var writeTools = names(`create_workspace rename_workspace create_status update_status create_label update_label create_custom_field update_custom_field create_project update_project complete_project reopen_project create_stage update_stage reorder_stages create_task update_task bulk_update_tasks complete_task reopen_task move_task_to_status move_task_to_stage set_task_labels set_task_custom_field set_task_dependency add_task_comment set_task_recurrence clear_task_recurrence edit_task_occurrence split_task_series capture_inbox_item clarify_inbox_item add_checklist_item update_checklist_item toggle_checklist_item create_event update_event edit_event_occurrence split_event_series auto_schedule_apply schedule_task pin_task pin_block move_block create_doc update_doc append_to_doc create_sheet_template update_sheet_template create_sheet update_sheet add_sheet_column update_sheet_column delete_sheet_column add_sheet_rows delete_sheet_rows update_sheet_cells`)
+var readTools = names(`get_context search semantic_search get_agenda get_free_time what_next list_workspaces get_workspace list_projects get_project list_tasks get_task list_inbox get_today list_events get_event get_calendar get_working_hours get_capacity get_schedule_settings auto_schedule_preview list_docs get_doc list_sheets get_sheet list_sheet_templates get_sheet_template list_notifications unread_notification_count get_notification_settings undo_schedule_preview`)
+var writeTools = names(`create_workspace rename_workspace create_status update_status create_label update_label create_custom_field update_custom_field create_project update_project complete_project reopen_project create_stage update_stage reorder_stages create_task update_task bulk_update_tasks complete_task reopen_task move_task_to_status move_task_to_stage set_task_labels set_task_custom_field set_task_dependency add_task_comment set_task_recurrence clear_task_recurrence edit_task_occurrence split_task_series capture_inbox_item clarify_inbox_item add_checklist_item update_checklist_item toggle_checklist_item create_event update_event edit_event_occurrence split_event_series auto_schedule_apply schedule_task pin_task pin_block move_block create_doc update_doc append_to_doc create_sheet_template update_sheet_template create_sheet update_sheet add_sheet_column update_sheet_column delete_sheet_column add_sheet_rows delete_sheet_rows update_sheet_cells add_sheet_tab rename_sheet_tab delete_sheet_tab
+	update_working_hours delete_task delete_event delete_doc delete_sheet delete_label delete_stage delete_checklist_item delete_block clear_task_blocks
+	mark_notification_read start_focus pause_focus stop_focus set_today_focus snooze_reminder undo_schedule update_notification_settings`)
+
+// Settings and calendar-wide changes always need review, like deletions.
+var reviewedTools = names(`update_working_hours update_notification_settings undo_schedule clear_task_blocks`)
 
 func names(s string) map[string]bool {
 	out := map[string]bool{}
@@ -55,6 +60,13 @@ func needsApproval(steps []Step, direct bool) bool {
 				return true
 			}
 		}
+	case "mark_notification_read":
+		// An empty id marks every unread notification.
+		id, _ := args["id"].(string)
+		return id == ""
+	}
+	if reviewedTools[s.Tool] {
+		return true
 	}
 	return strings.Contains(s.Tool, "recurrence") || strings.Contains(s.Tool, "occurrence") || strings.Contains(s.Tool, "series") || strings.HasPrefix(s.Tool, "delete_") || strings.HasPrefix(s.Tool, "bulk_") || s.Tool == "auto_schedule_apply" || s.Tool == "add_sheet_rows"
 }

@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   Text,
@@ -32,6 +31,7 @@ import {
   type ProviderId,
 } from "../../../lib/api/agentProviders";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { LogoSpinner } from "../../../components/ui/TimelyLogo";
 
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
@@ -139,7 +139,7 @@ function ModelPicker({
           ) : null}
         </View>
         {saving ? (
-          <ActivityIndicator size="small" color={colors.mutedForeground} />
+          <LogoSpinner size={16} color={colors.mutedForeground} />
         ) : (
           <ChevronDown size={16} color={colors.mutedForeground} />
         )}
@@ -377,7 +377,7 @@ function OpenRouterCard({
         </Text>
         {reindexActive ? (
           <View style={styles.row}>
-            <ActivityIndicator size="small" color={colors.mutedForeground} />
+            <LogoSpinner size={16} color={colors.mutedForeground} />
             <Text style={styles.meta}>
               Rebuilding search index… {reindex.done}
               {reindex.total ? ` / ${reindex.total}` : ""}

@@ -113,6 +113,18 @@ export function useViewOpen(initial = false) {
   return [open, setOpen] as const;
 }
 
+/*
+ * React only runs an enter/exit <ViewTransition> that is the top-most node
+ * being inserted or removed; one inside a freshly inserted wrapper <div> never
+ * animates. So an overlay is two sibling layers rather than one wrapper:
+ *
+ *   <OverlayScrim className="z-50 ..." />
+ *   <OverlayFrame className="z-50 items-center justify-center p-4">
+ *     <OverlayPanel>...</OverlayPanel>
+ *   </OverlayFrame>
+ *
+ * The frame ignores the pointer, so clicks beside the panel reach the scrim.
+ */
 export function OverlayScrim({
   className,
   onPointerDown,
@@ -125,7 +137,7 @@ export function OverlayScrim({
   return (
     <ViewTransition enter="scrim-in" exit="scrim-out" default="none">
       <div
-        className={cn("absolute inset-0 bg-black/70", className)}
+        className={cn("fixed inset-0 bg-black/70", className)}
         onPointerDown={onPointerDown}
         onClick={onClick}
       />
@@ -133,18 +145,17 @@ export function OverlayScrim({
   );
 }
 
-export function OverlayPanel({
-  children,
-  className,
-  ...rest
-}: React.ComponentProps<"div">) {
+/** Full-screen layout layer that positions the panel and animates it in and out. */
+export function OverlayFrame({ className, children }: { className?: string; children: ReactNode }) {
   return (
     <ViewTransition enter="panel-in" exit="panel-out" default="none">
-      <div className={className} {...rest}>
-        {children}
-      </div>
+      <div className={cn("pointer-events-none fixed inset-0 flex", className)}>{children}</div>
     </ViewTransition>
   );
+}
+
+export function OverlayPanel({ className, ...rest }: React.ComponentProps<"div">) {
+  return <div className={cn("pointer-events-auto", className)} {...rest} />;
 }
 
 export function PopoverView({ children }: { children: ReactNode }) {
