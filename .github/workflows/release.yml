@@ -28,7 +28,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: version
         run: |
           version=$(node -p "require('./apps/web/package.json').version")
@@ -62,18 +62,18 @@ jobs:
             target: win32-x64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5 # version from package.json "packageManager"
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: apps/api/go.mod
           cache-dependency-path: apps/api/go.sum
       - name: Cache PostgreSQL downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: apps/web/.cache/postgres
           # runner.os, not matrix.target: cache keys cannot contain commas and the
@@ -99,7 +99,7 @@ jobs:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: node electron/pack.mjs --target "${{ matrix.target }}" --publish "$PUBLISH"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: desktop-${{ matrix.target }}
           if-no-files-found: error
@@ -115,19 +115,19 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
       # v3 defaults to installing the removed `tools` package and fails on every run.
       - uses: android-actions/setup-android@v4
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
       - run: pnpm install --frozen-lockfile
       - name: Generate the native Android project
         working-directory: apps/mobile
@@ -157,7 +157,7 @@ jobs:
           ./gradlew app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon "${signing[@]}"
           cp app/build/outputs/apk/release/app-release*.apk \
              "$GITHUB_WORKSPACE/Timely-${{ needs.prepare.outputs.version }}-android-arm64.apk"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: android-arm64
           if-no-files-found: error
