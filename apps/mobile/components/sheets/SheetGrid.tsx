@@ -75,6 +75,7 @@ import {
   parseSelectOptions,
   syncSelectOptions,
 } from "../../lib/sheet";
+import { growGridTo, isPastGrid } from "../../lib/sheetGrow";
 import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRow } from "../../lib/types";
 
 const MIN_WIDTH = 82;
@@ -449,10 +450,15 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   };
 
   function setCellValue(address: Address, value: string) {
-    const column = columns[address.col];
+    const grid = { columns, rows };
+    // Leaving a blank cell past the end blank is not an edit.
+    if (isPastGrid(grid, address) && value.trim() === "") return;
+    const grown = growGridTo(grid, address, makeColumn, emptySheetRow);
+    const column = grown.columns[address.col];
     if (!column) return;
     commit({
-      rows: rows.map((row, index) =>
+      columns: grown.columns !== columns ? grown.columns : undefined,
+      rows: grown.rows.map((row, index) =>
         index === address.row
           ? {
               ...row,
@@ -518,33 +524,18 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   }
 
   function materialize(address: Address) {
-    let nextColumns = columns;
-    let nextRows = rows;
-    if (address.col >= nextColumns.length) {
-      const extra: SheetColumn[] = [];
-      for (let i = nextColumns.length; i <= address.col; i += 1) extra.push(makeColumn(i));
-      nextColumns = [...nextColumns, ...extra];
-      nextRows = nextRows.map((row) => {
-        const cells = { ...row.cells };
-        for (const column of extra) cells[column.id] = "";
-        return { ...row, cells };
-      });
-    }
-    if (address.row >= nextRows.length) {
-      const extraRows: SheetRow[] = [];
-      for (let i = nextRows.length; i <= address.row; i += 1) extraRows.push(emptySheetRow(nextColumns));
-      nextRows = [...nextRows, ...extraRows];
-    }
-    if (nextColumns !== columns || nextRows !== rows) {
+    const grown = growGridTo({ columns, rows }, address, makeColumn, emptySheetRow);
+    if (grown.columns !== columns || grown.rows !== rows) {
       commit({
-        columns: nextColumns !== columns ? nextColumns : undefined,
-        rows: nextRows !== rows ? nextRows : undefined,
+        columns: grown.columns !== columns ? grown.columns : undefined,
+        rows: grown.rows !== rows ? grown.rows : undefined,
       });
     }
   }
 
+  // Selecting past the end only moves the selection; the grid grows when a
+  // value or format is written there (see growGridTo).
   function selectGrown(address: Address) {
-    materialize(address);
     setSelection(address, false, { cols: address.col + 1, rows: address.row + 1 });
   }
 
@@ -614,7 +605,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   }
 
   function startEditing(address: Address, source: "formula" | "cell", initial?: string) {
-    setSelection(address);
+    // The in-cell editor needs a real cell to render in; the formula bar
+    // doesn't, and setCellValue grows the grid if a value is committed.
+    if (source === "cell") materialize(address);
+    setSelection(address, false, { cols: address.col + 1, rows: address.row + 1 });
     setDraft(initial ?? rawAt(address));
     setEditing(address);
     setEditSource(source);
@@ -800,7 +794,15 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     }
     if (editing) commitEdit();
     if (address.col >= columns.length || address.row >= rows.length) {
-      selectGrown(address);
+      // Second tap on a blank cell past the end acts like it would on a real
+      // cell of that column; setCellValue grows the grid once a value lands.
+      const type = columns[address.col]?.type;
+      if (!pressWasSelectedRef.current) selectGrown(address);
+      else if (type === "boolean") {
+        setCellValue(address, "TRUE");
+        selectGrown(address);
+      } else if (type === "select") setSelectMenu(address);
+      else startEditing(address, "cell");
       return;
     }
     const mergeAt = findMerge(merges, address);
@@ -831,12 +833,18 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   }
 
   function applyFormat(patch: Partial<SheetCellFormat> | null) {
-    const nextRows = rows.map((row) => ({
+    const span = normalizedRange(range);
+    // Clearing formats past the end has nothing to clear, so only a real
+    // format grows the grid to cover the selection.
+    const grown = patch
+      ? growGridTo({ columns, rows }, { col: span.maxCol, row: span.maxRow }, makeColumn, emptySheetRow)
+      : { columns, rows };
+    const nextRows = grown.rows.map((row) => ({
       ...row,
       formats: { ...(row.formats ?? {}) },
     }));
     visitRange(range, (address) => {
-      const column = columns[address.col];
+      const column = grown.columns[address.col];
       const row = nextRows[address.row];
       if (!column || !row) return;
       const current = { ...(row.formats[column.id] ?? {}) };
@@ -850,6 +858,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
       else row.formats[column.id] = nextFormat;
     });
     commit({
+      columns: grown.columns !== columns ? grown.columns : undefined,
       rows: nextRows.map((row) => ({
         ...row,
         formats: Object.keys(row.formats).length ? row.formats : undefined,

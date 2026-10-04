@@ -54,6 +54,16 @@ func parseResponse(text string) (chat.WireMessage, error) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &parsed); err != nil {
 		return chat.WireMessage{}, fmt.Errorf("The AI provider returned an unreadable answer; try again")
 	}
+	// Models sometimes put the whole protocol object, JSON-encoded, in
+	// "content" and leave toolCalls empty; shown as-is, the person sees raw JSON
+	// instead of the proposal.
+	for len(parsed.ToolCalls) == 0 {
+		inner, ok := nestedResponse(parsed.Content)
+		if !ok {
+			break
+		}
+		parsed = inner
+	}
 	out := chat.WireMessage{Role: "assistant", Content: parsed.Content}
 	for i, call := range parsed.ToolCalls {
 		if strings.TrimSpace(call.Name) == "" {
@@ -71,6 +81,25 @@ func parseResponse(text string) (chat.WireMessage, error) {
 		out.ToolCalls = append(out.ToolCalls, tc)
 	}
 	return out, nil
+}
+
+// nestedResponse reports whether content is itself a protocol object: exactly
+// the "content" and "toolCalls" keys. A reply that merely contains JSON the
+// person asked for doesn't have that shape and is left alone.
+func nestedResponse(content string) (cliResponse, bool) {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, "{") {
+		return cliResponse{}, false
+	}
+	var keys map[string]json.RawMessage
+	if json.Unmarshal([]byte(content), &keys) != nil || len(keys) != 2 || keys["content"] == nil || keys["toolCalls"] == nil {
+		return cliResponse{}, false
+	}
+	var inner cliResponse
+	if json.Unmarshal([]byte(content), &inner) != nil {
+		return cliResponse{}, false
+	}
+	return inner, true
 }
 
 // render splits the wire transcript into the system prompt and the user-facing

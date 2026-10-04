@@ -27,6 +27,39 @@ func TestParseResponseMapsToolCalls(t *testing.T) {
 	}
 }
 
+// Seen from Sonnet: the protocol object JSON-encoded inside "content", which
+// reached the chat as raw JSON instead of a proposal.
+func TestParseResponseUnwrapsNestedProtocolObject(t *testing.T) {
+	inner := `{"content":"","toolCalls":[{"name":"propose_changes","arguments":"{\"summary\":\"Retype columns\"}"}]}`
+	outer, _ := json.Marshal(map[string]any{"content": inner, "toolCalls": []any{}})
+	got, err := parseResponse(string(outer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "" || len(got.ToolCalls) != 1 || got.ToolCalls[0].Function.Name != "propose_changes" || got.ToolCalls[0].Function.Arguments != `{"summary":"Retype columns"}` {
+		t.Fatalf("nested object not unwrapped: %+v", got)
+	}
+
+	twice, _ := json.Marshal(map[string]any{"content": string(outer), "toolCalls": []any{}})
+	if got, err := parseResponse(string(twice)); err != nil || len(got.ToolCalls) != 1 {
+		t.Fatalf("doubly nested object not unwrapped: %+v %v", got, err)
+	}
+
+	reply, _ := json.Marshal(map[string]any{"content": "Done.", "toolCalls": []any{}})
+	nestedReply, _ := json.Marshal(map[string]any{"content": string(reply), "toolCalls": []any{}})
+	if got, _ := parseResponse(string(nestedReply)); got.Content != "Done." || len(got.ToolCalls) != 0 {
+		t.Fatalf("nested reply not unwrapped: %+v", got)
+	}
+
+	// JSON the person asked for is content, not protocol.
+	for _, content := range []string{`{"content":"x"}`, `{"content":"x","toolCalls":[],"extra":1}`, `{"total":4760}`, `[1,2]`} {
+		raw, _ := json.Marshal(map[string]any{"content": content, "toolCalls": []any{}})
+		if got, _ := parseResponse(string(raw)); got.Content != content {
+			t.Fatalf("content %s was rewritten to %+v", content, got)
+		}
+	}
+}
+
 func TestRenderKeepsSystemAndToolsOutOfTranscript(t *testing.T) {
 	messages := []chat.WireMessage{
 		{Role: "system", Content: "SYSTEM RULES"},

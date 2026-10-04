@@ -266,12 +266,12 @@ install-browser: ## Install Chromium for browser checks
 	@pnpm exec playwright install chromium
 
 .PHONY: test-sheet-formulas lint-sheet-formulas format-sheet-formulas
-test-sheet-formulas: ## Test web and mobile sheet formula evaluation and range editing
-	@node --experimental-strip-types --test scripts/sheet-formulas.test.mjs
+test-sheet-formulas: ## Test web and mobile sheet formula evaluation, range editing and grid growth
+	@node --experimental-strip-types --test scripts/sheet-formulas.test.mjs scripts/sheet-grid-grow.test.mjs
 lint-sheet-formulas: ## Lint the web sheet formula evaluator
 	@pnpm --filter @timely/web exec eslint app/utils/sheetFormula.ts
 format-sheet-formulas: ## Format sheet formula helpers and tests
-	@pnpm exec prettier --write apps/web/app/utils/sheetFormula.ts apps/mobile/lib/sheetFormula.ts packages/contract/src/sheetFormulaInput.ts scripts/sheet-formulas.test.mjs
+	@pnpm exec prettier --write apps/web/app/utils/sheetFormula.ts apps/mobile/lib/sheetFormula.ts packages/contract/src/sheetFormulaInput.ts scripts/sheet-formulas.test.mjs apps/mobile/lib/sheetGrow.ts scripts/sheet-grid-grow.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing
