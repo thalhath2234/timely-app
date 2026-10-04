@@ -874,11 +874,22 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   function mergeSelection() {
     const span = normalizedRange(range);
     if (span.minCol === span.maxCol && span.minRow === span.maxRow) {
-      if (selected.col >= columns.length - 1) return;
+      if (selected.col >= columns.length - 1 || selected.row >= rows.length) return;
       commit({ merges: mergeAll(merges, { anchor: selected, focus: { col: selected.col + 1, row: selected.row } }) });
       return;
     }
-    commit({ merges: mergeAll(merges, range) });
+    // A selection can reach past the end; merge only the cells that exist so
+    // the merge doesn't cover (and later swallow) rows that aren't there.
+    const maxCol = Math.min(span.maxCol, columns.length - 1);
+    const maxRow = Math.min(span.maxRow, rows.length - 1);
+    if (span.minCol > maxCol || span.minRow > maxRow) return;
+    if (span.minCol === maxCol && span.minRow === maxRow) return;
+    commit({
+      merges: mergeAll(merges, {
+        anchor: { col: span.minCol, row: span.minRow },
+        focus: { col: maxCol, row: maxRow },
+      }),
+    });
   }
 
   function unmergeSelection() {
