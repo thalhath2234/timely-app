@@ -2,6 +2,7 @@ package sheet
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
@@ -50,9 +51,12 @@ type SheetService interface {
 	AddRows(userID, sheetID string, count int) (*models.Sheet, error)
 	UpdateCells(userID, sheetID, rowID string, cells map[string]string) (*models.Sheet, error)
 	DeleteRows(userID, sheetID string, rowIDs []string) (*models.Sheet, error)
-	AddColumn(userID, sheetID, name, colType string) (*models.Sheet, error)
-	UpdateColumn(userID, sheetID, columnID, name, colType string, width *int) (*models.Sheet, error)
+	AddColumn(userID, sheetID, name, colType string, options []string) (*models.Sheet, error)
+	UpdateColumn(userID, sheetID, columnID, name, colType string, width *int, options *[]string) (*models.Sheet, error)
 	DeleteColumn(userID, sheetID, columnID string) (*models.Sheet, error)
+	AddTab(userID, sheetID, name string) (*models.Sheet, models.SheetTab, error)
+	RenameTab(userID, sheetID, tabID, name string) (*models.Sheet, error)
+	DeleteTab(userID, sheetID, tabID string) (*models.Sheet, error)
 
 	ListTemplates(userID string) ([]models.SheetTemplate, error)
 	GetTemplate(userID, templateID string) (*models.SheetTemplate, error)
@@ -557,7 +561,7 @@ func (s *sheetService) DeleteRows(userID, sheetID string, rowIDs []string) (*mod
 	return s.Update(userID, sheetID, SheetUpdate{Rows: &rows})
 }
 
-func (s *sheetService) AddColumn(userID, sheetID, name, colType string) (*models.Sheet, error) {
+func (s *sheetService) AddColumn(userID, sheetID, name, colType string, options []string) (*models.Sheet, error) {
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, err
@@ -576,6 +580,9 @@ func (s *sheetService) AddColumn(userID, sheetID, name, colType string) (*models
 		Width: 160,
 		Type:  normalizedType,
 	}
+	if normalizedType == models.SheetColumnTypeSelect {
+		column.Options = models.NormalizeSelectOptions(options)
+	}
 	columns := append(models.SheetColumns{}, current.Columns...)
 	columns = append(columns, column)
 	rows := append(models.SheetRows{}, current.Rows...)
@@ -588,7 +595,7 @@ func (s *sheetService) AddColumn(userID, sheetID, name, colType string) (*models
 	return s.Update(userID, sheetID, SheetUpdate{Columns: &columns, Rows: &rows})
 }
 
-func (s *sheetService) UpdateColumn(userID, sheetID, columnID, name, colType string, width *int) (*models.Sheet, error) {
+func (s *sheetService) UpdateColumn(userID, sheetID, columnID, name, colType string, width *int, options *[]string) (*models.Sheet, error) {
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, err
@@ -613,11 +620,110 @@ func (s *sheetService) UpdateColumn(userID, sheetID, columnID, name, colType str
 		if width != nil && *width > 0 {
 			columns[i].Width = *width
 		}
+		if options != nil {
+			columns[i].Options = models.NormalizeSelectOptions(*options)
+		}
 	}
 	if !found {
 		return nil, errors.New("column not found")
 	}
 	return s.Update(userID, sheetID, SheetUpdate{Columns: &columns})
+}
+
+// workbookTabs returns a copy of the sheet's tabs. A sheet that still stores
+// only the primary grid gets it wrapped as the first tab so tab operations
+// (rename, delete, add) have something to address.
+func workbookTabs(current *models.Sheet) models.SheetTabs {
+	if len(current.Tabs) > 0 {
+		return append(models.SheetTabs{}, current.Tabs...)
+	}
+	return models.SheetTabs{{
+		ID:      utils.PrefixedUUID("tab"),
+		Name:    normalizeTitle(current.Title),
+		Columns: current.Columns,
+		Rows:    current.Rows,
+		Merges:  current.Merges,
+	}}
+}
+
+// findTab resolves tabID to an index. An empty id means the first (primary) tab.
+func findTab(tabs models.SheetTabs, tabID string) (int, error) {
+	if strings.TrimSpace(tabID) == "" {
+		return 0, nil
+	}
+	for i, tab := range tabs {
+		if tab.ID == tabID {
+			return i, nil
+		}
+	}
+	return -1, errors.New("tab not found")
+}
+
+func (s *sheetService) AddTab(userID, sheetID, name string) (*models.Sheet, models.SheetTab, error) {
+	current, err := s.repo.GetSheetByID(userID, sheetID)
+	if err != nil {
+		return nil, models.SheetTab{}, err
+	}
+	tabs := workbookTabs(current)
+	if len(tabs) >= maxTabs {
+		return nil, models.SheetTab{}, errors.New("too many tabs")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = fmt.Sprintf("Sheet %d", len(tabs)+1)
+	}
+	columns := models.DefaultSheetColumns()
+	tab := models.SheetTab{
+		ID:      utils.PrefixedUUID("tab"),
+		Name:    name,
+		Columns: columns,
+		Rows:    models.DefaultSheetRows(columns, 20),
+		Merges:  models.SheetMerges{},
+	}
+	tabs = append(tabs, tab)
+	sh, err := s.Update(userID, sheetID, SheetUpdate{Tabs: &tabs})
+	if err != nil {
+		return nil, models.SheetTab{}, err
+	}
+	return sh, tab, nil
+}
+
+func (s *sheetService) RenameTab(userID, sheetID, tabID, name string) (*models.Sheet, error) {
+	current, err := s.repo.GetSheetByID(userID, sheetID)
+	if err != nil {
+		return nil, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("tab name is required")
+	}
+	tabs := workbookTabs(current)
+	idx, err := findTab(tabs, tabID)
+	if err != nil {
+		return nil, err
+	}
+	tabs[idx].Name = name
+	return s.Update(userID, sheetID, SheetUpdate{Tabs: &tabs})
+}
+
+func (s *sheetService) DeleteTab(userID, sheetID, tabID string) (*models.Sheet, error) {
+	current, err := s.repo.GetSheetByID(userID, sheetID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(tabID) == "" {
+		return nil, errors.New("tabId is required")
+	}
+	tabs := workbookTabs(current)
+	if len(tabs) <= 1 {
+		return nil, errors.New("a workbook needs at least one tab")
+	}
+	idx, err := findTab(tabs, tabID)
+	if err != nil {
+		return nil, err
+	}
+	tabs = append(tabs[:idx], tabs[idx+1:]...)
+	return s.Update(userID, sheetID, SheetUpdate{Tabs: &tabs})
 }
 
 func (s *sheetService) DeleteColumn(userID, sheetID, columnID string) (*models.Sheet, error) {

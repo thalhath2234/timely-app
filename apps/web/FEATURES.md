@@ -394,8 +394,9 @@ Default new sheet: columns A–D + empty rows.
 ### Grid (desktop + native)
 
 - Formula bar and range selection; Enter/F2 to edit; type-to-edit; arrows/Tab; Delete/Backspace clear; column resize; rename headers; add/delete rows and columns; min 1 row/column; autosave.
-- Desktop and native expose column types: text, number, currency, percent, formula, date, and boolean/checkbox. MCP column and cell tools use the same model; cells are coerced server-side.
-- Multi-tab workbooks: add, rename, switch, and delete tabs. Each tab keeps its own grid and merged ranges.
+- Desktop and native expose column types: text, number, currency, percent, formula, date, boolean/checkbox, and select (dropdown). A select column carries an `options` list; the cell shows a chip and a second click/tap (or Enter on desktop) opens the choices, with "Add option" and "Edit options" entries. Typing or pasting a value that is not an option yet appends it to the column, on the clients and server-side. MCP column and cell tools use the same model (`options` on add/update column); cells are coerced server-side.
+- Multi-tab workbooks: add, rename, switch, and delete tabs. Each tab keeps its own grid and merged ranges. Every tab, including the first, keeps its own name (clients always send the full `tabs` array); MCP exposes `add_sheet_tab`, `rename_sheet_tab` (empty `tabId` = first tab) and `delete_sheet_tab`.
+- Formula date helpers: `TODAY()`, `DATE(y,m,d)`, `YEAR`, `MONTH`, `DAY`, `WEEKDAY(date[,type])`, `DAYS(end,start)` and `TEXT(value,format)` with `dddd`/`ddd`/`mmmm`/`mmm`/`yyyy`/`mm`/`dd` tokens, so `=TEXT(A1,"dddd")` derives a weekday name from a date cell.
 - Toolbar and range tools: undo/redo, copy/paste, fill handle, merged cells, number formats, text and fill colors, typography, alignment, borders, and wrapping. Row filtering and column sorting are available in the editor; they are not saved sheet views.
 - Save a whole workbook or one tab as a reusable personal template. The Sheets home lists templates with preview, rename, delete, and create-from-template actions. New tabs can also be made from a template tab. Templates retain formulas, values, formatting, and merges; instances receive fresh row/column/tab IDs.
 - Desktop can export the active tab as CSV.

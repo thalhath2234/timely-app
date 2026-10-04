@@ -300,6 +300,201 @@ function numericArgs(values: EvalValue[]): number[] | CellResult {
   return numbers;
 }
 
+/* ------------------------------------------------------------------ */
+/* Dates                                                               */
+/* ------------------------------------------------------------------ */
+
+type CalendarDate = { year: number; month: number; day: number };
+
+const WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** Excel's serial-date epoch (day 1 = 1900-01-01, with the Lotus leap bug). */
+const SERIAL_EPOCH_UTC = Date.UTC(1899, 11, 30);
+const DAY_MS = 86_400_000;
+
+function calendarFromUtc(ms: number): CalendarDate {
+  const date = new Date(ms);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  };
+}
+
+function utcFromCalendar(date: CalendarDate): number {
+  return Date.UTC(date.year, date.month - 1, date.day);
+}
+
+function todayCalendar(): CalendarDate {
+  const now = new Date();
+  return {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    day: now.getDate(),
+  };
+}
+
+/**
+ * Reads a cell as a calendar date. Date columns store YYYY-MM-DD; typed text
+ * may also be an ISO timestamp or anything Date.parse understands; numbers are
+ * treated as spreadsheet serial dates.
+ */
+function toCalendarDate(result: CellResult): CalendarDate | CellResult {
+  if (isError(result)) return result;
+  if (result.type === "empty") return error("#VALUE!");
+  if (result.type === "boolean") return error("#VALUE!");
+  if (result.type === "number") {
+    if (!Number.isFinite(result.value)) return error("#NUM!");
+    return calendarFromUtc(
+      SERIAL_EPOCH_UTC + Math.floor(result.value) * DAY_MS,
+    );
+  }
+  const trimmed = result.value.trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(trimmed);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    const probe = new Date(Date.UTC(year, month - 1, day));
+    if (
+      probe.getUTCFullYear() !== year ||
+      probe.getUTCMonth() !== month - 1 ||
+      probe.getUTCDate() !== day
+    ) {
+      return error("#VALUE!");
+    }
+    return { year, month, day };
+  }
+  if (trimmed === "") return error("#VALUE!");
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return error("#VALUE!");
+  return {
+    year: parsed.getFullYear(),
+    month: parsed.getMonth() + 1,
+    day: parsed.getDate(),
+  };
+}
+
+function isCalendarDate(
+  value: CalendarDate | CellResult,
+): value is CalendarDate {
+  return "year" in value;
+}
+
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function isoDate(date: CalendarDate): string {
+  return `${date.year}-${pad2(date.month)}-${pad2(date.day)}`;
+}
+
+/** 0 = Sunday … 6 = Saturday, independent of the local time zone. */
+function weekdayIndex(date: CalendarDate): number {
+  return new Date(utcFromCalendar(date)).getUTCDay();
+}
+
+/** Excel WEEKDAY return types: 1 → Sun=1..Sat=7, 2 → Mon=1..Sun=7, 3 → Mon=0..Sun=6. */
+function weekdayNumber(date: CalendarDate, type: number): number | CellResult {
+  const sunday0 = weekdayIndex(date);
+  switch (type) {
+    case 1:
+      return sunday0 + 1;
+    case 2:
+      return ((sunday0 + 6) % 7) + 1;
+    case 3:
+      return (sunday0 + 6) % 7;
+    default:
+      return error("#NUM!");
+  }
+}
+
+const DATE_TOKEN_RE = /dddd|ddd|dd|d|mmmm|mmm|mm|m|yyyy|yy/gi;
+
+function looksLikeDateFormat(format: string) {
+  return /d|m|y/i.test(format) && !/[#0]/.test(format);
+}
+
+function formatDateText(date: CalendarDate, format: string): string {
+  return format.replace(DATE_TOKEN_RE, (token) => {
+    switch (token.toLowerCase()) {
+      case "dddd":
+        return WEEKDAY_NAMES[weekdayIndex(date)];
+      case "ddd":
+        return WEEKDAY_NAMES[weekdayIndex(date)].slice(0, 3);
+      case "dd":
+        return pad2(date.day);
+      case "d":
+        return String(date.day);
+      case "mmmm":
+        return MONTH_NAMES[date.month - 1];
+      case "mmm":
+        return MONTH_NAMES[date.month - 1].slice(0, 3);
+      case "mm":
+        return pad2(date.month);
+      case "m":
+        return String(date.month);
+      case "yyyy":
+        return String(date.year);
+      case "yy":
+        return pad2(date.year % 100);
+      default:
+        return token;
+    }
+  });
+}
+
+/** Number patterns: 0, 0.00, #,##0, #,##0.00, 0%, 0.0%. Anything else prints plainly. */
+function formatNumberText(value: number, format: string): string {
+  const percent = format.includes("%");
+  const scaled = percent ? value * 100 : value;
+  const decimalsMatch = /\.(0+)/.exec(format);
+  const decimals = decimalsMatch ? decimalsMatch[1].length : 0;
+  const grouped = format.includes(",");
+  const body = grouped
+    ? scaled.toLocaleString("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      })
+    : scaled.toFixed(decimals);
+  return percent ? `${body}%` : body;
+}
+
+function textFunction(value: CellResult, format: string): CellResult {
+  if (isError(value)) return value;
+  if (looksLikeDateFormat(format)) {
+    const date = toCalendarDate(value);
+    if (!isCalendarDate(date)) return date;
+    return { type: "text", value: formatDateText(date, format) };
+  }
+  const numeric = toNumber(value);
+  if (typeof numeric !== "number") return numeric;
+  if (!/[#0]/.test(format)) return { type: "text", value: toText(value) };
+  return { type: "text", value: formatNumberText(numeric, format) };
+}
+
 function callFunction(name: string, args: EvalValue[]): CellResult {
   const single = (index: number): CellResult => {
     const value = args[index];
@@ -450,6 +645,63 @@ function callFunction(name: string, args: EvalValue[]): CellResult {
 
     case "TRIM":
       return { type: "text", value: toText(single(0)).trim() };
+
+    case "TODAY":
+      return { type: "text", value: isoDate(todayCalendar()) };
+
+    case "DATE": {
+      const year = toNumber(single(0));
+      const month = toNumber(single(1));
+      const day = toNumber(single(2));
+      if (typeof year !== "number") return year;
+      if (typeof month !== "number") return month;
+      if (typeof day !== "number") return day;
+      const ms = Date.UTC(
+        Math.trunc(year),
+        Math.trunc(month) - 1,
+        Math.trunc(day),
+      );
+      if (!Number.isFinite(ms)) return error("#NUM!");
+      return { type: "text", value: isoDate(calendarFromUtc(ms)) };
+    }
+
+    case "YEAR":
+    case "MONTH":
+    case "DAY": {
+      const date = toCalendarDate(single(0));
+      if (!isCalendarDate(date)) return date;
+      const value =
+        name === "YEAR" ? date.year : name === "MONTH" ? date.month : date.day;
+      return { type: "number", value };
+    }
+
+    case "WEEKDAY": {
+      const date = toCalendarDate(single(0));
+      if (!isCalendarDate(date)) return date;
+      const typeArg = args.length > 1 ? toNumber(single(1)) : 1;
+      if (typeof typeArg !== "number") return typeArg;
+      const value = weekdayNumber(date, Math.trunc(typeArg) || 1);
+      return typeof value === "number" ? { type: "number", value } : value;
+    }
+
+    case "DAYS": {
+      const end = toCalendarDate(single(0));
+      if (!isCalendarDate(end)) return end;
+      const start = toCalendarDate(single(1));
+      if (!isCalendarDate(start)) return start;
+      return {
+        type: "number",
+        value: Math.round(
+          (utcFromCalendar(end) - utcFromCalendar(start)) / DAY_MS,
+        ),
+      };
+    }
+
+    case "TEXT": {
+      const format = single(1);
+      if (isError(format)) return format;
+      return textFunction(single(0), toText(format));
+    }
 
     default:
       return error("#NAME?");

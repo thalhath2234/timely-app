@@ -84,6 +84,13 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
     save.mutateAsync({ id: sheet.id, data: patch }),
   );
   const gridRef = useRef<SheetGridHandle>(null);
+  const tabInputRef = useRef<TextInput>(null);
+  // Blur before the bottom sheet unmounts its input: Android otherwise moves
+  // focus to the first TextInput on screen (the sheet title).
+  const closeTabMenu = () => {
+    tabInputRef.current?.blur();
+    setMenu(null);
+  };
   // An active cell draft is unsaved work too: the grid commits it on blur or
   // Enter, but neither fires when the screen is popped. Leaving first commits
   // the draft into the autosave patch and flushes it; the confirmation only
@@ -386,8 +393,9 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         </Pressable>
       </BottomSheet>
 
-      <BottomSheet open={menu === "tab"} onClose={() => setMenu(null)} title="Tab">
+      <BottomSheet open={menu === "tab"} onClose={closeTabMenu} title="Tab">
         <TextInput
+          ref={tabInputRef}
           value={tabDraft}
           onChangeText={setTabDraft}
           placeholder="Tab name"
@@ -400,7 +408,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
             if (editingTabId && name) {
               persistTabs(tabs.map((tab) => (tab.id === editingTabId ? { ...tab, name } : tab)));
             }
-            setMenu(null);
+            closeTabMenu();
           }}
         >
           Rename
@@ -409,7 +417,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
           <SheetOption
             onSelect={() => {
               if (editingTabId) persistTabs(tabs.filter((tab) => tab.id !== editingTabId));
-              setMenu(null);
+              closeTabMenu();
             }}
             leading={<Trash2 size={16} color={colors.destructive} />}
           >
