@@ -69,6 +69,22 @@ stageApi(targets);
 const { stagePostgres } = await load("stage-postgres.mjs");
 await stagePostgres(targets);
 
+// GitHub Actions passes a missing secret as an empty string, and
+// electron-builder reads an empty CSC_LINK / WIN_CSC_LINK as a certificate
+// path: it resolves to the working directory and fails with "apps/web not a
+// file" (v0.1.2 macOS release job). Unset means unsigned, so drop them.
+for (const name of [
+  "CSC_LINK",
+  "CSC_KEY_PASSWORD",
+  "WIN_CSC_LINK",
+  "WIN_CSC_KEY_PASSWORD",
+  "APPLE_ID",
+  "APPLE_APP_SPECIFIC_PASSWORD",
+  "APPLE_TEAM_ID",
+]) {
+  if (process.env[name] === "") delete process.env[name];
+}
+
 await run("pnpm", [
   "exec",
   "electron-builder",

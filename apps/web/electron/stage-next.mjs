@@ -4,7 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
-  realpathSync,
+  readlinkSync,
   rmSync,
 } from "node:fs";
 import path from "node:path";
@@ -14,6 +14,8 @@ const standalone = path.join(webRoot, ".next", "standalone");
 const staticDir = path.join(webRoot, ".next", "static");
 const publicDir = path.join(webRoot, "public");
 const staged = path.join(webRoot, ".electron-next");
+// Next traces from the workspace root, so standalone mirrors its layout.
+const workspaceRoot = path.join(webRoot, "..", "..");
 
 // Copy a tree. `filter` forces Node's JavaScript copier: the native fast path
 // used when no filter is given aborts the whole process on Windows instead of
@@ -33,6 +35,43 @@ function listPackages(dir) {
         ? readdirSync(path.join(dir, name)).map((sub) => `${name}/${sub}`)
         : [name],
     );
+}
+
+// Where a path really lives, following links by reading them. realpathSync
+// stats through each link instead, and on Windows that throws EPERM for the
+// standalone tree: Next recreates pnpm's links there with fs.symlink() and no
+// type, so a link whose target was not copied yet becomes a file symlink to a
+// directory, which Windows refuses to stat (v0.1.2 win32 release job).
+// Windows junctions also keep absolute targets into the workspace's own
+// node_modules; inStandalone maps those back to the traced copy so only traced
+// files ship.
+function inStandalone(target) {
+  const rel = path.relative(workspaceRoot, target);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return target;
+  if (!path.relative(standalone, target).startsWith("..")) return target;
+  const mirrored = path.join(standalone, rel);
+  return existsSync(mirrored) ? mirrored : target;
+}
+
+function resolveLinks(target, depth = 0) {
+  if (depth > 40) throw new Error(`Too many levels of links: ${target}`);
+  const { root } = path.parse(target);
+  let current = root;
+  for (const part of path.relative(root, target).split(path.sep)) {
+    if (!part) continue;
+    const next = path.join(current, part);
+    if (lstatSync(next).isSymbolicLink()) {
+      // Windows can report links in the \\?\ long-path form.
+      const link = readlinkSync(next).replace(/^\\\\\?\\/, "");
+      current = resolveLinks(
+        inStandalone(path.resolve(current, link)),
+        depth + 1,
+      );
+    } else {
+      current = next;
+    }
+  }
+  return current;
 }
 
 // The standalone output is a pnpm layout: <app>/node_modules/next links into
@@ -67,7 +106,7 @@ function flattenNodeModules(appModules) {
       const { name, dir } = pkg.shift();
       if (placed.has(name)) continue;
       placed.add(name);
-      const real = realpathSync(dir);
+      const real = resolveLinks(dir);
       copyTree(real, path.join(dest, name));
       if (!real.startsWith(store + path.sep)) continue;
       // pnpm puts a package's dependencies next to it: .pnpm/<id>/node_modules.
