@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/sheet"
 	"timely-api/internal/models"
@@ -361,6 +362,60 @@ func (s *Server) updateSheet(ctx context.Context, req *mcp.CallToolRequest, in u
 	return reply("updated "+sh.Title, sheetPayload(sh))
 }
 
+type addTabIn struct {
+	SheetID string `json:"sheetId"`
+	Name    string `json:"name,omitempty" jsonschema:"defaults to Sheet N"`
+}
+
+func (s *Server) addSheetTab(ctx context.Context, req *mcp.CallToolRequest, in addTabIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	sh, tab, err := s.Sheets.AddTab(uid, in.SheetID, in.Name)
+	if err != nil {
+		return fail(err)
+	}
+	payload := sheetPayload(sh)
+	payload["tab"] = tab
+	return reply("added tab "+tab.Name, payload)
+}
+
+type renameTabIn struct {
+	SheetID string `json:"sheetId"`
+	TabID   string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty renames the first (primary) tab"`
+	Name    string `json:"name"`
+}
+
+func (s *Server) renameSheetTab(ctx context.Context, req *mcp.CallToolRequest, in renameTabIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	sh, err := s.Sheets.RenameTab(uid, in.SheetID, in.TabID, in.Name)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("renamed tab to "+strings.TrimSpace(in.Name), sheetPayload(sh))
+}
+
+type deleteTabIn struct {
+	SheetID string `json:"sheetId"`
+	TabID   string `json:"tabId"`
+}
+
+func (s *Server) deleteSheetTab(ctx context.Context, req *mcp.CallToolRequest, in deleteTabIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	sh, err := s.Sheets.DeleteTab(uid, in.SheetID, in.TabID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("deleted tab", sheetPayload(sh))
+}
+
 type archiveSheetIn struct {
 	SheetID  string `json:"sheetId"`
 	Archived *bool  `json:"archived,omitempty" jsonschema:"default true; false unarchives"`
@@ -387,9 +442,10 @@ func (s *Server) archiveSheet(ctx context.Context, req *mcp.CallToolRequest, in 
 }
 
 type addColIn struct {
-	SheetID string `json:"sheetId"`
-	Name    string `json:"name"`
-	Type    string `json:"type,omitempty" jsonschema:"text, number, date, boolean, currency, percent, or formula"`
+	SheetID string   `json:"sheetId"`
+	Name    string   `json:"name"`
+	Type    string   `json:"type,omitempty" jsonschema:"text, number, date, boolean, currency, percent, formula, or select"`
+	Options []string `json:"options,omitempty" jsonschema:"dropdown choices for a select column"`
 }
 
 func (s *Server) addSheetColumn(ctx context.Context, req *mcp.CallToolRequest, in addColIn) (*mcp.CallToolResult, any, error) {
@@ -397,7 +453,7 @@ func (s *Server) addSheetColumn(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return fail(err)
 	}
-	sh, err := s.Sheets.AddColumn(uid, in.SheetID, in.Name, in.Type)
+	sh, err := s.Sheets.AddColumn(uid, in.SheetID, in.Name, in.Type, in.Options)
 	if err != nil {
 		return fail(err)
 	}
@@ -405,11 +461,12 @@ func (s *Server) addSheetColumn(ctx context.Context, req *mcp.CallToolRequest, i
 }
 
 type updateColIn struct {
-	SheetID  string `json:"sheetId"`
-	ColumnID string `json:"columnId"`
-	Name     string `json:"name,omitempty"`
-	Type     string `json:"type,omitempty" jsonschema:"text, number, date, boolean, currency, percent, or formula"`
-	Width    *int   `json:"width,omitempty"`
+	SheetID  string    `json:"sheetId"`
+	ColumnID string    `json:"columnId"`
+	Name     string    `json:"name,omitempty"`
+	Type     string    `json:"type,omitempty" jsonschema:"text, number, date, boolean, currency, percent, formula, or select"`
+	Width    *int      `json:"width,omitempty"`
+	Options  *[]string `json:"options,omitempty" jsonschema:"replaces the dropdown choices of a select column; cell values not listed are appended automatically"`
 }
 
 func (s *Server) updateSheetColumn(ctx context.Context, req *mcp.CallToolRequest, in updateColIn) (*mcp.CallToolResult, any, error) {
@@ -417,7 +474,7 @@ func (s *Server) updateSheetColumn(ctx context.Context, req *mcp.CallToolRequest
 	if err != nil {
 		return fail(err)
 	}
-	sh, err := s.Sheets.UpdateColumn(uid, in.SheetID, in.ColumnID, in.Name, in.Type, in.Width)
+	sh, err := s.Sheets.UpdateColumn(uid, in.SheetID, in.ColumnID, in.Name, in.Type, in.Width, in.Options)
 	if err != nil {
 		return fail(err)
 	}

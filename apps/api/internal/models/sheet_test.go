@@ -139,3 +139,62 @@ func TestNormalizeMerges(t *testing.T) {
 		t.Fatalf("got %#v", got)
 	}
 }
+
+func TestNormalizeSelectOptions(t *testing.T) {
+	got := NormalizeSelectOptions([]string{" Todo ", "todo", "", "Done", "DONE", "Blocked"})
+	want := []string{"Todo", "Done", "Blocked"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("NormalizeSelectOptions = %v, want %v", got, want)
+	}
+	if NormalizeSelectOptions(nil) != nil || NormalizeSelectOptions([]string{" "}) != nil {
+		t.Fatal("empty option lists should normalize to nil")
+	}
+}
+
+func TestNormalizeSheetColumnTypeSelectAliases(t *testing.T) {
+	for _, alias := range []string{"select", "dropdown", "choice", "enum", "Select"} {
+		got, err := NormalizeSheetColumnType(alias)
+		if err != nil || got != SheetColumnTypeSelect {
+			t.Fatalf("%q: got %q %v", alias, got, err)
+		}
+	}
+}
+
+func TestNormalizeSheetColumnsClearsOptionsOffSelect(t *testing.T) {
+	columns := SheetColumns{
+		{ID: "a", Type: "select", Options: []string{"x", "X", "y"}},
+		{ID: "b", Type: "text", Options: []string{"stale"}},
+	}
+	if err := NormalizeSheetColumns(columns); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(columns[0].Options, "|") != "x|y" {
+		t.Fatalf("select options = %v", columns[0].Options)
+	}
+	if columns[1].Options != nil {
+		t.Fatalf("text column kept options %v", columns[1].Options)
+	}
+}
+
+func TestNormalizeSheetCellsSelect(t *testing.T) {
+	columns := SheetColumns{{ID: "s", Type: "select", Options: []string{"Todo", "Done"}}}
+	rows := SheetRows{
+		{ID: "r1", Cells: map[string]string{"s": " done "}},
+		{ID: "r2", Cells: map[string]string{"s": "Blocked"}},
+		{ID: "r3", Cells: map[string]string{"s": ""}},
+		{ID: "r4", Cells: map[string]string{"s": "=A1"}},
+	}
+	NormalizeSheetCells(columns, rows)
+	if rows[0].Cells["s"] != "Done" {
+		t.Fatalf("expected option spelling, got %q", rows[0].Cells["s"])
+	}
+	if rows[1].Cells["s"] != "Blocked" {
+		t.Fatalf("new value kept, got %q", rows[1].Cells["s"])
+	}
+	if strings.Join(columns[0].Options, "|") != "Todo|Done|Blocked" {
+		t.Fatalf("options after cells = %v", columns[0].Options)
+	}
+	if rows[2].Cells["s"] != "" || rows[3].Cells["s"] != "=A1" {
+		t.Fatalf("empty/formula cells changed: %v %v", rows[2].Cells, rows[3].Cells)
+	}
+}

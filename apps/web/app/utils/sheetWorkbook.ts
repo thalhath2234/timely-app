@@ -41,13 +41,17 @@ export function tabsFromSheet(sheet: Sheet): SheetTab[] {
   ];
 }
 
+/**
+ * The primary grid is mirrored onto columns/rows/merges for older readers,
+ * and every tab (including the first) is sent so its own name survives.
+ */
 export function workbookPayload(tabs: SheetTab[]) {
   const primary = tabs[0];
   return {
     columns: primary?.columns ?? [],
     rows: primary?.rows ?? [],
     merges: primary?.merges ?? [],
-    tabs: tabs.length > 1 ? tabs : [],
+    tabs,
   };
 }
 

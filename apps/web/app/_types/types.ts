@@ -591,7 +591,8 @@ export type SheetColumnType =
   | "boolean"
   | "currency"
   | "percent"
-  | "formula";
+  | "formula"
+  | "select";
 
 export type SheetAlign = "left" | "center" | "right";
 export type SheetVerticalAlign = "top" | "middle" | "bottom";
@@ -630,6 +631,8 @@ export interface SheetColumn {
   name: string;
   width: number;
   type: SheetColumnType;
+  /** Dropdown choices of a select column; absent for other types. */
+  options?: string[];
 }
 
 export interface SheetRow {

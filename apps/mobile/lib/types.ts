@@ -556,7 +556,8 @@ export type SheetColumnType =
   | "boolean"
   | "currency"
   | "percent"
-  | "formula";
+  | "formula"
+  | "select";
 
 export interface SheetCellFormat {
   bold?: boolean;
@@ -582,6 +583,8 @@ export interface SheetColumn {
   name: string;
   width: number;
   type: SheetColumnType;
+  /** Dropdown choices of a select column; absent for other types. */
+  options?: string[];
 }
 
 export interface SheetRow {
