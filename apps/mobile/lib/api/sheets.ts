@@ -26,6 +26,16 @@ export type UpdateSheetPayload = {
   archived?: boolean;
 };
 
+/** Any subset; omitted fields are left untouched. Tabs mirror the first tab like sheets. */
+export type UpdateSheetTemplatePayload = {
+  name?: string;
+  icon?: string;
+  columns?: SheetColumn[];
+  rows?: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
+};
+
 export async function getSheets() {
   const res = await api<Sheet[] | { sheets: Sheet[] }>("/sheets");
   const list = unwrap(res, "sheets");
@@ -65,6 +75,14 @@ export async function getSheetTemplates() {
 export async function createSheetTemplate(data: { sheetId: string; name?: string; tabId?: string }) {
   const res = await api<SheetTemplate | { template: SheetTemplate }>("/sheet-templates", {
     method: "POST",
+    body: data,
+  });
+  return unwrap(res, "template");
+}
+
+export async function updateSheetTemplate(id: string, data: UpdateSheetTemplatePayload) {
+  const res = await api<SheetTemplate | { template: SheetTemplate }>(`/sheet-templates/${id}`, {
+    method: "PUT",
     body: data,
   });
   return unwrap(res, "template");

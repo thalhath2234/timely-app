@@ -3,8 +3,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClie
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus } from "./api/tasks";
 import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
-import type { Doc, MentionEntityType, NotificationSettings, Project, Sheet, Task, TaskViewConfig } from "./types";
-import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, materializeTemplateTab } from "./api/sheets";
+import type { Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig } from "./types";
+import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, updateSheetTemplate, deleteSheetTemplate, materializeTemplateTab } from "./api/sheets";
 import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject, getProjectActivity } from "./api/projects";
 import { getWorkspaces, getConfig, updateConfig, updateTaskViewsConfig } from "./api/workspaces";
 import {
@@ -693,6 +693,31 @@ export function useCreateSheetTemplate() {
   return useMutation({
     mutationFn: createSheetTemplate,
     onSuccess: () => client.invalidateQueries({ queryKey: keys.sheetTemplates }),
+  });
+}
+
+export function useUpdateSheetTemplate() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof updateSheetTemplate>[1] }) =>
+      updateSheetTemplate(id, data),
+    onSuccess: (template) => {
+      client.setQueryData<SheetTemplate[]>(keys.sheetTemplates, (list) =>
+        list?.map((item) => (item.id === template.id ? template : item)),
+      );
+    },
+  });
+}
+
+export function useDeleteSheetTemplate() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: deleteSheetTemplate,
+    onSuccess: (_result, id) => {
+      client.setQueryData<SheetTemplate[]>(keys.sheetTemplates, (list) =>
+        list?.filter((item) => item.id !== id),
+      );
+    },
   });
 }
 

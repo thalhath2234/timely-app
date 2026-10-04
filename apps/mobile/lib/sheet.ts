@@ -206,7 +206,8 @@ export function defaultTabGrid(): { columns: SheetColumn[]; rows: SheetRow[] } {
   return { columns, rows };
 }
 
-export function tabsFromSheet(sheet: Sheet): SheetTab[] {
+/** Works for sheets and templates (pass `{ ...template, title: template.name }`). */
+export function tabsFromSheet(sheet: Pick<Sheet, "title" | "columns" | "rows" | "merges" | "tabs">): SheetTab[] {
   if (sheet.tabs && sheet.tabs.length > 0) {
     return sheet.tabs.map((tab, index) => normalizeTab(tab, index, sheet.title || "Sheet 1"));
   }

@@ -4,6 +4,7 @@ export type AccentPreference = "default" | `#${string}`;
 export const THEME_STORAGE_KEY = "timely.theme";
 export const ACCENT_STORAGE_KEY = "timely.accent";
 export const SIDEBAR_AUTO_HIDE_STORAGE_KEY = "timely.sidebarAutoHide";
+export const REDUCED_MOTION_STORAGE_KEY = "timely.reducedMotion";
 
 export const DEFAULT_ACCENT_HEX = "#6E56CF";
 
@@ -56,6 +57,12 @@ export function readStoredSidebarAutoHide(): boolean {
   return localStorage.getItem(SIDEBAR_AUTO_HIDE_STORAGE_KEY) === "true";
 }
 
+/** On unless the user has turned it off on this device. */
+export function readStoredReducedMotion(): boolean {
+  if (typeof window === "undefined") return true;
+  return localStorage.getItem(REDUCED_MOTION_STORAGE_KEY) !== "false";
+}
+
 // The stored preferences are an external store for React: components read
 // them with useSyncExternalStore (server snapshot = defaults, so hydration
 // matches), and every write below notifies subscribers in this tab. Other
@@ -88,6 +95,17 @@ export function writeStoredAccent(accent: AccentPreference) {
 export function writeStoredSidebarAutoHide(hide: boolean) {
   localStorage.setItem(SIDEBAR_AUTO_HIDE_STORAGE_KEY, hide ? "true" : "false");
   notifyStoredAppearance();
+}
+
+export function writeStoredReducedMotion(reduce: boolean) {
+  localStorage.setItem(REDUCED_MOTION_STORAGE_KEY, reduce ? "true" : "false");
+  notifyStoredAppearance();
+}
+
+/** The `reduce-motion` class mirrors the OS reduced-motion media query in CSS. */
+export function applyDocumentReducedMotion(reduce: boolean) {
+  if (typeof document === "undefined") return;
+  document.documentElement.classList.toggle("reduce-motion", reduce);
 }
 
 function srgbToLinear(channel: number): number {

@@ -40,11 +40,7 @@ import {
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { addTabMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
 import { registerSheetFlush } from "@/app/utils/sheetFlush";
-
-const ICON_CHOICES = [
-  "📊", "📈", "📉", "🧮", "💰", "📋", "🗓️", "⚙️",
-  "🎯", "🔢", "📦", "🏷️", "⏱️", "✅", "⭐", "🧾",
-];
+import { SHEET_ICON_CHOICES } from "@/app/_components/sheets/sheetIcons";
 
 const KINETIC_THEME = {
   "--background": "#111319",
@@ -206,7 +202,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
             {isIconPickerOpen && (
               <div className="absolute left-0 top-9 z-50 w-64 rounded-lg border border-border bg-card p-2 shadow-xl">
                 <div className="grid grid-cols-8 gap-1">
-                  {ICON_CHOICES.map((icon) => (
+                  {SHEET_ICON_CHOICES.map((icon) => (
                     <button
                       key={icon}
                       type="button"

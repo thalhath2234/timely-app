@@ -13,6 +13,7 @@ import { Check, ChevronRight } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 import { PopoverView, useClientGate } from "@/app/_components/_ui/motion";
 import { runViewTransition } from "@/app/utils/viewTransition";
+import { useTransitionStore } from "@/app/utils/hooks/useTransitionStore";
 import {
   closeContextMenu,
   openContextMenu,
@@ -469,9 +470,11 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
 /* Host                                                                */
 /* ------------------------------------------------------------------ */
 
+const selectMenu = (state: ReturnType<typeof useContextMenuStore.getState>) => state.menu;
+
 /** Mounted once per app shell; renders whichever menu the store holds. */
 export default function ContextMenuHost() {
-  const menu = useContextMenuStore((state) => state.menu);
+  const menu = useTransitionStore(useContextMenuStore, selectMenu);
   const restoreFocus = useRef<HTMLElement | null>(null);
   const mounted = useClientGate();
 

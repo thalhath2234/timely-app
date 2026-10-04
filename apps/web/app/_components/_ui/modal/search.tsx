@@ -8,7 +8,8 @@ import { useSearch } from "@/app/utils/hooks/search";
 import type { SearchHit } from "@/app/utils/api/search";
 import { cn } from "@/app/utils/cn";
 import { openTasksEntity } from "@/app/utils/entityDetail";
-import { OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
+import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
+import { useTransitionStore } from "@/app/utils/hooks/useTransitionStore";
 
 const categories = [
   { id: "all", label: "All", icon: LayoutGrid },
@@ -31,8 +32,11 @@ function hrefFor(hit: SearchHit): string {
   }
 }
 
+const selectSearchMode = (state: ReturnType<typeof useSidebarStore.getState>) => state.searchMode;
+
 export default function SearchModal(props: DemoProps) {
-  const { searchMode, setSearchMode } = useSidebarStore();
+  const searchMode = useTransitionStore(useSidebarStore, selectSearchMode);
+  const setSearchMode = useSidebarStore((state) => state.setSearchMode);
   const closeSearch = useCallback(() => setSearchMode(false), [setSearchMode]);
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
@@ -48,10 +52,12 @@ export default function SearchModal(props: DemoProps) {
   }, [setSearchMode, closeSearch]);
 
   return searchMode ? (
-    <div className="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[12vh] sm:pt-[16vh]">
-      <OverlayScrim className="bg-black/35 supports-backdrop-filter:backdrop-blur-xs" onClick={closeSearch} />
-      <SearchPanel onClose={closeSearch} {...props} />
-    </div>
+    <>
+      <OverlayScrim className="z-50 bg-black/35 supports-backdrop-filter:backdrop-blur-xs" onClick={closeSearch} />
+      <OverlayFrame className="z-50 items-start justify-center px-3 pt-[12vh] sm:pt-[16vh]">
+        <SearchPanel onClose={closeSearch} {...props} />
+      </OverlayFrame>
+    </>
   ) : null;
 }
 
