@@ -207,6 +207,7 @@ function showMainWindow() {
 }
 
 async function createWindow(url: string) {
+  const isWindows = process.platform === "win32";
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -226,9 +227,14 @@ async function createWindow(url: string) {
     },
   });
 
+  // Windows: no File/Edit/View/Window bar (the menu stays installed so its
+  // shortcuts still work) and the window opens maximized above the taskbar.
+  if (isWindows) win.setMenuBarVisibility(false);
+
   attachWindowGuards(win, url);
   attachPermissionGuards(win, url);
   win.once("ready-to-show", () => {
+    if (isWindows) win.maximize();
     win.show();
     closeBootWindow();
   });
