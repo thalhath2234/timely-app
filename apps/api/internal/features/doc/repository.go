@@ -14,6 +14,7 @@ type DocumentRepository interface {
 	UpdateDocument(userID string, documentID string, updates map[string]any) (*models.Document, error)
 	DeleteDocument(userID string, documentID string) error
 	WorkspaceBelongsToUser(userID string, workspaceID string) (bool, error)
+	ProjectBelongsToUser(userID string, projectID string) (bool, error)
 	DefaultWorkspaceID(userID string) (string, error)
 }
 
@@ -148,6 +149,23 @@ func (r *documentRepository) WorkspaceBelongsToUser(userID string, workspaceID s
 		Model(&models.Workspace{}).
 		Where("id = ?", workspaceID).
 		Where("user_id = ?", userID).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
+// Projects have no user column, so ownership goes through their workspace.
+func (r *documentRepository) ProjectBelongsToUser(userID string, projectID string) (bool, error) {
+	var count int64
+
+	err := r.db.
+		Model(&models.Project{}).
+		Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
+		Where("projects.id = ?", projectID).
+		Where("workspaces.user_id = ?", userID).
 		Count(&count).Error
 	if err != nil {
 		return false, err

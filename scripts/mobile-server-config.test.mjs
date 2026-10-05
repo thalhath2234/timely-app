@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createServerStore,
+  isInsecureServerUrl,
   normalizeServerConfig,
   orderCandidates,
   parseHealthPayload,
@@ -197,4 +198,22 @@ test("parseHealthPayload keeps the contract fields and rejects other servers", (
   });
   assert.equal(parseHealthPayload({ ok: true }), null);
   assert.equal(parseHealthPayload("<html>"), null);
+});
+
+test("plain http is flagged only outside loopback and Tailscale", () => {
+  for (const url of [
+    "http://127.0.0.1:48080",
+    "http://localhost:8080",
+    "http://10.0.2.2:8080",
+    "http://100.101.102.103:48080",
+    "http://[fd7a:115c:a1e0::1]:48080",
+    "http://desktop.tail1234.ts.net:48080",
+    "https://192.168.1.20:8080",
+    "https://timely.example.com",
+  ]) {
+    assert.equal(isInsecureServerUrl(url), false, url);
+  }
+  for (const url of ["http://192.168.1.20:8080", "http://100.128.0.1:8080", "http://timely.example.com", "http://[2001:db8::1]:80"]) {
+    assert.equal(isInsecureServerUrl(url), true, url);
+  }
 });

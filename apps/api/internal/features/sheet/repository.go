@@ -14,6 +14,7 @@ type SheetRepository interface {
 	UpdateSheet(userID string, sheetID string, updates map[string]any) (*models.Sheet, error)
 	DeleteSheet(userID string, sheetID string) error
 	WorkspaceBelongsToUser(userID string, workspaceID string) (bool, error)
+	ProjectBelongsToUser(userID string, projectID string) (bool, error)
 	DefaultWorkspaceID(userID string) (string, error)
 
 	CreateTemplate(template *models.SheetTemplate) (*models.SheetTemplate, error)
@@ -147,6 +148,23 @@ func (r *sheetRepository) WorkspaceBelongsToUser(userID string, workspaceID stri
 		Model(&models.Workspace{}).
 		Where("id = ?", workspaceID).
 		Where("user_id = ?", userID).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
+// Projects have no user column, so ownership goes through their workspace.
+func (r *sheetRepository) ProjectBelongsToUser(userID string, projectID string) (bool, error) {
+	var count int64
+
+	err := r.db.
+		Model(&models.Project{}).
+		Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
+		Where("projects.id = ?", projectID).
+		Where("workspaces.user_id = ?", userID).
 		Count(&count).Error
 	if err != nil {
 		return false, err

@@ -78,7 +78,7 @@ export function defaultConfig(version: string): DesktopConfig {
     version,
     ...DEFAULT_PORTS,
     tailscaleEnabled: false,
-    allowRegistration: true,
+    allowRegistration: false,
     setupDone: false,
     secrets: {},
   };
@@ -122,7 +122,7 @@ export function loadConfig(file: string, fallbackVersion: string): { config: Des
       apiPort: isPort(data.apiPort) ? data.apiPort : defaults.apiPort,
       webPort: isPort(data.webPort) ? data.webPort : defaults.webPort,
       tailscaleEnabled: data.tailscaleEnabled === true,
-      allowRegistration: data.allowRegistration !== false,
+      allowRegistration: data.allowRegistration === true,
       setupDone: data.setupDone === true,
       secrets,
       lostSecrets: readLostSecrets(data.lostSecrets),

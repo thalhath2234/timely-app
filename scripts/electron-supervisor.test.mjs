@@ -18,7 +18,7 @@ import { checkPrivileges } from "../apps/web/electron/supervisor/guards.ts";
 import { pairingPayload, tailscaleUrls } from "../apps/web/electron/supervisor/index.ts";
 import { resolveResourceDirs, userPaths } from "../apps/web/electron/supervisor/paths.ts";
 import { findFreePort, isPortFree, listenPort, reconcilePorts } from "../apps/web/electron/supervisor/ports.ts";
-import { classifyPidFile, parsePostmasterPid, probePostgres } from "../apps/web/electron/supervisor/postgres.ts";
+import { classifyPidFile, isPostgresCommand, parsePostmasterPid, probePostgres } from "../apps/web/electron/supervisor/postgres.ts";
 import { fallbackPath, lastLine } from "../apps/web/electron/supervisor/shellEnv.ts";
 import { DEFAULT_BACKOFF, initialBackoff, planRestart } from "../apps/web/electron/supervisor/sidecar.ts";
 import {
@@ -50,7 +50,7 @@ test("config: missing file yields defaults and is not reported as existing", () 
       { ...DEFAULT_PORTS },
     );
     assert.equal(config.tailscaleEnabled, false);
-    assert.equal(config.allowRegistration, true);
+    assert.equal(config.allowRegistration, false);
     assert.equal(config.setupDone, false);
     assert.deepEqual(config.secrets, {});
   } finally {
@@ -515,5 +515,14 @@ test("config file is readable only by the owner after save", () => {
     assert.equal(JSON.parse(readFileSync(file, "utf8")).version, "0.1.0");
   } finally {
     cleanup();
+  }
+});
+
+test("only a postgres command counts as the orphaned postmaster", () => {
+  for (const comm of ["postgres\n", "/opt/Timely/resources/postgres/bin/postgres", "postmaster"]) {
+    assert.equal(isPostgresCommand(comm), true, comm);
+  }
+  for (const comm of ["", "bash", "firefox", "/usr/bin/postgres-exporter"]) {
+    assert.equal(isPostgresCommand(comm), false, comm);
   }
 });

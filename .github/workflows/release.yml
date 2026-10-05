@@ -5,8 +5,9 @@
 # (electron-updater) and the APK. workflow_dispatch builds the same artifacts
 # as workflow artifacts only (nothing is published).
 #
-# All signing secrets are optional; without them the builds are unsigned
-# (see docs/desktop/README.md, "Build and release").
+# Desktop signing secrets are optional; without them the builds are unsigned
+# (see docs/desktop/README.md, "Build and release"). The Android keystore
+# secrets are required for tagged releases.
 
 name: release
 
@@ -16,8 +17,9 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Read-only by default; only the jobs that publish to the Release get write.
 permissions:
-  contents: write
+  contents: read
 
 env:
   PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
@@ -25,10 +27,14 @@ env:
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - id: version
         run: |
           version=$(node -p "require('./apps/web/package.json').version")
@@ -61,19 +67,24 @@ jobs:
           - os: windows-latest
             target: win32-x64
     runs-on: ${{ matrix.os }}
+    # electron-builder uploads the installers and update manifests itself.
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5 # version from package.json "packageManager"
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: pnpm
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: apps/api/go.mod
           cache-dependency-path: apps/api/go.sum
       - name: Cache PostgreSQL downloads
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: apps/web/.cache/postgres
           # runner.os, not matrix.target: cache keys cannot contain commas and the
@@ -99,7 +110,7 @@ jobs:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: node electron/pack.mjs --target "${{ matrix.target }}" --publish "$PUBLISH"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: desktop-${{ matrix.target }}
           if-no-files-found: error
@@ -115,19 +126,21 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: pnpm
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: 17
       # v3 defaults to installing the removed `tools` package and fails on every run.
-      - uses: android-actions/setup-android@v4
-      - uses: gradle/actions/setup-gradle@v5
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+      - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
       - run: pnpm install --frozen-lockfile
       - name: Generate the native Android project
         working-directory: apps/mobile
@@ -135,8 +148,8 @@ jobs:
       - name: Build the release APK
         working-directory: apps/mobile/android
         env:
-          # Optional. Without a keystore the APK is signed with the debug key
-          # that `expo prebuild` configures.
+          # Required for tagged releases: the debug key `expo prebuild` falls
+          # back to is public, so anyone could sign an "update" to the app.
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -151,19 +164,37 @@ jobs:
               "-Pandroid.injected.signing.key.alias=$ANDROID_KEY_ALIAS"
               "-Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD"
             )
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set; refusing to publish an APK signed with the public debug key"
+            exit 1
           else
-            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set; the APK is signed with the debug key"
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set; this test APK is signed with the debug key"
           fi
           ./gradlew app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon "${signing[@]}"
           cp app/build/outputs/apk/release/app-release*.apk \
              "$GITHUB_WORKSPACE/Timely-${{ needs.prepare.outputs.version }}-android-arm64.apk"
-      - uses: actions/upload-artifact@v6
+      - name: Remove the keystore
+        if: always()
+        run: rm -f apps/mobile/android/app/release.keystore
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: android-arm64
           if-no-files-found: error
           path: Timely-*-android-arm64.apk
+
+  # Separate from the build so `pnpm install` and Gradle never run with a
+  # token that can write to the Release.
+  android-release:
+    needs: android
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: android-arm64
       - name: Attach the APK to the release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" Timely-*-android-arm64.apk --repo "$GITHUB_REPOSITORY" --clobber

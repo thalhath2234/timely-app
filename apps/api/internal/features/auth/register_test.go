@@ -55,7 +55,7 @@ func TestRegisterClosedAfterFirstAccount(t *testing.T) {
 	}
 }
 
-func TestRegisterOpenByDefault(t *testing.T) {
+func TestRegisterOpenWhenAllowed(t *testing.T) {
 	h := newRegisterFixture(t, true)
 	for _, email := range []string{"a@example.com", "b@example.com"} {
 		if code, msg := postRegister(t, h, email); code != http.StatusCreated {
@@ -65,7 +65,7 @@ func TestRegisterOpenByDefault(t *testing.T) {
 }
 
 func TestAllowRegistrationFromEnv(t *testing.T) {
-	for value, want := range map[string]bool{"": true, "true": true, "false": false, "0": false, "FALSE": false, "yes": true} {
+	for value, want := range map[string]bool{"": false, "true": true, "TRUE": true, "1": true, "false": false, "0": false, "FALSE": false, "yes": true} {
 		t.Setenv("ALLOW_REGISTRATION", value)
 		if got := AllowRegistrationFromEnv(); got != want {
 			t.Fatalf("ALLOW_REGISTRATION=%q: got %v", value, got)

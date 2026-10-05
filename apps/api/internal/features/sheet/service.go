@@ -108,6 +108,11 @@ func (s *sheetService) Create(sheet *models.Sheet) (*models.Sheet, error) {
 			return nil, errors.New("workspace not found")
 		}
 	}
+	if sheet.ProjectID != nil && *sheet.ProjectID != "" {
+		if err := s.assertProject(sheet.UserID, *sheet.ProjectID); err != nil {
+			return nil, err
+		}
+	}
 
 	if len(sheet.Columns) == 0 && len(sheet.Tabs) == 0 {
 		sheet.Columns = models.DefaultSheetColumns()
@@ -174,6 +179,9 @@ func (s *sheetService) Update(userID string, sheetID string, update SheetUpdate)
 		if *update.ProjectID == "" {
 			updates["project_id"] = nil
 		} else {
+			if err := s.assertProject(userID, *update.ProjectID); err != nil {
+				return nil, err
+			}
 			updates["project_id"] = *update.ProjectID
 		}
 	}
@@ -804,4 +812,17 @@ func (s *sheetService) DeleteColumn(userID, sheetID, columnID string) (*models.S
 		delete(rows[i].Cells, columnID)
 	}
 	return s.Update(userID, sheetID, SheetUpdate{Columns: &columns, Rows: &rows})
+}
+
+// assertProject rejects a project the user does not own, so a sheet cannot be
+// linked to (and preload) another account's project.
+func (s *sheetService) assertProject(userID, projectID string) error {
+	owned, err := s.repo.ProjectBelongsToUser(userID, projectID)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return errors.New("project not found")
+	}
+	return nil
 }

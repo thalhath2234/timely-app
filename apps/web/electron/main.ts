@@ -430,6 +430,11 @@ async function bootHosted() {
     echo: !app.isPackaged,
   });
   if (!encryptionAvailable) supervisor.log.warn("safeStorage encryption unavailable; secrets are stored with the plain: prefix (file mode 0600)");
+  // Without a keyring Linux falls back to "basic_text", whose key is public:
+  // the secrets are then only as safe as config.json's 0600 file mode.
+  if (encryptionAvailable && process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text") {
+    supervisor.log.warn("safeStorage is using the basic_text backend (no keyring); secrets in config.json are protected only by file mode 0600");
+  }
 
   supervisor.on("boot", (progress) => {
     bootSteps[progress.step] = progress;

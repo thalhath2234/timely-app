@@ -17,7 +17,8 @@ FROM node:22-alpine
 WORKDIR /repo
 RUN corepack enable
 
-COPY --from=builder /repo .
+COPY --from=builder --chown=node:node /repo .
+USER node
 
 EXPOSE 4001
 CMD ["pnpm", "--filter", "@timely/web", "start"]

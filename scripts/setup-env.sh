@@ -22,5 +22,19 @@ fi
 
 cp "$REPO_ROOT/.env.example" "$DEST"
 chmod 600 "$DEST"
-echo "created $DEST from .env.example"
-echo "Replace JWT_SECRET, and update EXPO_PUBLIC_API_URL before using a physical phone."
+
+# The API refuses to start with the placeholder secrets, so generate real ones.
+random_secret() { openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64; }
+tmp=$(mktemp "$DEST.XXXXXX")
+jwt=$(random_secret)
+backup=$(random_secret)
+awk -v jwt="$jwt" -v backup="$backup" '
+  /^JWT_SECRET=replace-with-/ { print "JWT_SECRET=" jwt; next }
+  /^TIMELY_BACKUP_KEY=replace-with-/ { print "TIMELY_BACKUP_KEY=" backup; next }
+  { print }
+' "$DEST" > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$DEST"
+
+echo "created $DEST from .env.example with fresh JWT_SECRET and TIMELY_BACKUP_KEY"
+echo "Update EXPO_PUBLIC_API_URL before using a physical phone."

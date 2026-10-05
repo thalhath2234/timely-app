@@ -45,6 +45,21 @@ export function isPidAlive(pid: number): boolean {
   }
 }
 
+/** Whether `pid` runs a postgres binary, by its command name (`ps`, Unix only). */
+export function isPostgresProcess(pid: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("ps", ["-p", String(pid), "-o", "comm="], { timeout: 5_000 }, (error, stdout) => {
+      resolve(!error && isPostgresCommand(stdout));
+    });
+  });
+}
+
+/** `ps -o comm=` output for a postmaster: "postgres", or a path ending in it. */
+export function isPostgresCommand(comm: string): boolean {
+  const name = path.basename(comm.trim());
+  return name === "postgres" || name === "postmaster";
+}
+
 export type PidFileState = { kind: "none" } | { kind: "stale"; pid: number } | { kind: "alive"; pid: number; port?: number };
 
 /**
@@ -299,6 +314,13 @@ export class PostgresManager {
   private async stopOrphan(pid: number) {
     if (this.platform === "win32") {
       await this.run(this.bin("pg_ctl"), ["stop", "-m", "fast", "-w", "-t", "15", "-D", this.options.pgData], undefined, 20_000);
+      return;
+    }
+    // After a crash and reboot the pid may now belong to an unrelated process
+    // of the same user; only signal it if it is really a postgres server.
+    if (!(await isPostgresProcess(pid))) {
+      this.log.warn(`postgres: pid ${pid} from postmaster.pid is not a postgres server; treating the file as stale`);
+      removePidFile(this.options.pgData);
       return;
     }
     for (const [signal, waitMs] of [["SIGTERM", 10_000], ["SIGINT", 5_000], ["SIGKILL", 2_000]] as const) {

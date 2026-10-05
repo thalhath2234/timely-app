@@ -5,8 +5,10 @@ services:
       POSTGRES_USER: ${DB_USER:-timely}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-root123}
       POSTGRES_DB: ${DB_NAME:-timely_db}
+    # Loopback only: Docker's published ports bypass host firewalls, and the
+    # api container reaches the database over the compose network anyway.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

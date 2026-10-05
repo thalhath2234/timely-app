@@ -7,6 +7,7 @@ package instance
 import (
 	"context"
 	"database/sql"
+	"log"
 	"net/http"
 	"runtime"
 	"sync"
@@ -88,8 +89,11 @@ func (h *Handler) Health(c *echo.Context) error {
 		out.Status, out.DB = "degraded", "no database"
 		return c.JSON(http.StatusServiceUnavailable, out)
 	}
+	// /health is public, so driver errors (host, user, database name) go to
+	// the log, not the response.
 	if err := database.Ping(ctx, h.db); err != nil {
-		out.Status, out.DB = "degraded", err.Error()
+		log.Printf("health: database ping failed: %v", err)
+		out.Status, out.DB = "degraded", "unreachable"
 		return c.JSON(http.StatusServiceUnavailable, out)
 	}
 	stateCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -97,7 +101,8 @@ func (h *Handler) Health(c *echo.Context) error {
 	if state, err := database.Migrations(stateCtx, h.db); err == nil {
 		out.Migrations = state
 	} else {
-		out.Status, out.DB = "degraded", err.Error()
+		log.Printf("health: reading migrations failed: %v", err)
+		out.Status, out.DB = "degraded", "migrations unavailable"
 		return c.JSON(http.StatusServiceUnavailable, out)
 	}
 	return c.JSON(http.StatusOK, out)

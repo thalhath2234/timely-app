@@ -166,14 +166,19 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 			return err
 		}
 		var refs []deferredRef
+		owned := newRestoreOwnership(tx, userID)
 		for _, spec := range exportTables {
 			for _, raw := range backup.Rows[spec.name] {
 				var row map[string]any
 				if err := json.Unmarshal(raw, &row); err != nil {
 					return err
 				}
-				if _, ok := row["user_id"]; ok {
+				_, hasUser := row["user_id"]
+				if hasUser {
 					row["user_id"] = userID
+				}
+				if err := checkRestoreParents(spec.name, row, owned.has); err != nil {
+					return err
 				}
 				for _, col := range deferredColumns(spec.name) {
 					if value := row[col]; value != nil && value != "" {
@@ -186,9 +191,15 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 					return fmt.Errorf("restore %s: %w", spec.name, err)
 				}
 				counts[spec.name]++
+				if hasUser || len(restoreParents[spec.name]) > 0 {
+					owned.add(spec.name, fmt.Sprint(row["id"]))
+				}
 			}
 		}
 		for _, ref := range refs {
+			if !owned.has(ref.table, fmt.Sprint(ref.value)) {
+				continue
+			}
 			query := fmt.Sprintf(`UPDATE %q SET %q = ? WHERE id = ?`, ref.table, ref.column)
 			if err := tx.Exec(query, ref.value, ref.id).Error; err != nil {
 				return fmt.Errorf("restore relationship %s.%s: %w", ref.table, ref.column, err)
@@ -203,6 +214,98 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 		s.afterRestore(userID)
 	}
 	return &RestoreResult{RestoredAt: time.Now().UTC(), Counts: counts}, nil
+}
+
+type parentRef struct {
+	column, table string
+	required      bool
+}
+
+// restoreParents lists the columns of a restored row that point at another
+// row and the table that row lives in. Restore keeps backup ids, so without
+// this a crafted backup could hang statuses, stages, values or tasks off
+// another account's workspace, project or field. Tables without a user_id
+// are owned only through their required parent.
+var restoreParents = map[string][]parentRef{
+	"statuses":              {{"workspace_id", "workspaces", true}},
+	"lables":                {{"workspace_id", "workspaces", true}},
+	"custom_fields":         {{"workspace_id", "workspaces", true}},
+	"projects":              {{"workspace_id", "workspaces", true}},
+	"stages":                {{"project_id", "projects", true}},
+	"tasks":                 {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}, {"status_id", "statuses", false}, {"stage_id", "stages", false}},
+	"custom_field_values":   {{"custom_field_id", "custom_fields", true}, {"task_id", "tasks", false}, {"project_id", "projects", false}},
+	"documents":             {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}},
+	"sheets":                {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}},
+	"recurrence_exceptions": {{"rule_id", "recurrence_rules", true}},
+}
+
+// checkRestoreParents vets a row's parents against rows restored earlier from
+// this backup or already owned by the restoring user. A foreign or missing
+// required parent rejects the restore; a foreign optional link is dropped so
+// the row stays the user's but no longer points elsewhere.
+func checkRestoreParents(table string, row map[string]any, owned func(table, id string) bool) error {
+	for _, ref := range restoreParents[table] {
+		value := row[ref.column]
+		if value == nil || value == "" {
+			if ref.required {
+				return fmt.Errorf("restore %s %v: %s is required", table, row["id"], ref.column)
+			}
+			continue
+		}
+		if owned(ref.table, fmt.Sprint(value)) {
+			continue
+		}
+		if ref.required {
+			return fmt.Errorf("restore %s %v: %s %v not found", table, row["id"], ref.column, value)
+		}
+		row[ref.column] = nil
+	}
+	return nil
+}
+
+// ownedQueries prove that an existing row belongs to the user, for parents
+// that are not in the backup itself.
+var ownedQueries = map[string]string{
+	"workspaces":       `SELECT count(*) FROM workspaces WHERE id = ? AND user_id = ?`,
+	"statuses":         `SELECT count(*) FROM statuses x JOIN workspaces w ON w.id = x.workspace_id WHERE x.id = ? AND w.user_id = ?`,
+	"custom_fields":    `SELECT count(*) FROM custom_fields x JOIN workspaces w ON w.id = x.workspace_id WHERE x.id = ? AND w.user_id = ?`,
+	"projects":         `SELECT count(*) FROM projects x JOIN workspaces w ON w.id = x.workspace_id WHERE x.id = ? AND w.user_id = ?`,
+	"stages":           `SELECT count(*) FROM stages x JOIN projects p ON p.id = x.project_id JOIN workspaces w ON w.id = p.workspace_id WHERE x.id = ? AND w.user_id = ?`,
+	"tasks":            `SELECT count(*) FROM tasks WHERE id = ? AND user_id = ?`,
+	"documents":        `SELECT count(*) FROM documents WHERE id = ? AND user_id = ?`,
+	"recurrence_rules": `SELECT count(*) FROM recurrence_rules WHERE id = ? AND user_id = ?`,
+}
+
+type restoreOwnership struct {
+	tx       *gorm.DB
+	userID   string
+	restored map[string]map[string]bool
+}
+
+func newRestoreOwnership(tx *gorm.DB, userID string) *restoreOwnership {
+	return &restoreOwnership{tx: tx, userID: userID, restored: map[string]map[string]bool{}}
+}
+
+func (o *restoreOwnership) add(table, id string) {
+	if o.restored[table] == nil {
+		o.restored[table] = map[string]bool{}
+	}
+	o.restored[table][id] = true
+}
+
+func (o *restoreOwnership) has(table, id string) bool {
+	if o.restored[table][id] {
+		return true
+	}
+	query, ok := ownedQueries[table]
+	if !ok {
+		return false
+	}
+	var count int64
+	if err := o.tx.Raw(query, id, o.userID).Scan(&count).Error; err != nil {
+		return false
+	}
+	return count > 0
 }
 
 func deferredColumns(table string) []string {

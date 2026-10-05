@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Alert, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { ScanLine, X } from "lucide-react-native";
@@ -9,9 +9,24 @@ import TimelyLogo from "../components/ui/TimelyLogo";
 import AnimatedPressable from "../components/ui/AnimatedPressable";
 import { Field, PrimaryButton } from "../components/ui/primitives";
 import { useAuth } from "../lib/auth/AuthProvider";
-import { parsePairingInput } from "../lib/server";
+import { isInsecureServerUrl, parsePairingInput } from "../lib/server";
 import { useServer } from "../lib/server/ServerProvider";
 import { colors, createThemedStyleSheet } from "../lib/theme";
+
+/** Asks before sending a password over plain http outside Tailscale. */
+function confirmInsecure(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      "Unencrypted connection",
+      `${url} uses plain http outside Tailscale. Anyone on the same network could read your password. Connect anyway?`,
+      [
+        { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+        { text: "Connect", style: "destructive", onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+}
 
 const INVALID_INPUT =
   "Enter an address that starts with http:// or https://, or scan the QR code shown in Timely on your computer.";
@@ -58,6 +73,7 @@ export default function ConnectScreen() {
       setError(INVALID_INPUT);
       return;
     }
+    if (parsed.urls.every(isInsecureServerUrl) && !(await confirmInsecure(parsed.urls[0]))) return;
     setError("");
     setPending(parsed.urls.length > 1 ? "Trying each address…" : "Connecting…");
     try {
