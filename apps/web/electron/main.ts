@@ -13,7 +13,7 @@ import {
 } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { isOpenableExternally, isSameOrigin } from "./origin";
+import { isOpenableExternally, isPermissionAllowed, isSameOrigin } from "./origin";
 import { waitForHttp } from "./supervisor/api";
 import { makeSealer } from "./supervisor/config";
 import { checkPrivileges } from "./supervisor/guards";
@@ -151,6 +151,25 @@ function attachWindowGuards(win: BrowserWindow, url: string) {
     event.preventDefault();
     if (isOpenableExternally(target)) void shell.openExternal(target);
   });
+
+  // Same-origin popups (e.g. "open doc in new window") get the same guards,
+  // or a link clicked inside them would open the target page in-app.
+  win.webContents.on("did-create-window", (child) => attachWindowGuards(child, url));
+}
+
+/**
+ * Electron grants every web permission by default. Only the renderer's own
+ * origin may use the few the app needs (clipboard, fullscreen).
+ */
+function attachPermissionGuards(win: BrowserWindow, url: string) {
+  const origin = new URL(url).origin;
+  const session = win.webContents.session;
+  session.setPermissionRequestHandler((_contents, permission, callback, details) => {
+    callback(isPermissionAllowed(permission, details.requestingUrl, origin));
+  });
+  session.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
+    isPermissionAllowed(permission, requestingOrigin, origin),
+  );
 }
 
 /**
@@ -208,6 +227,7 @@ async function createWindow(url: string) {
   });
 
   attachWindowGuards(win, url);
+  attachPermissionGuards(win, url);
   win.once("ready-to-show", () => {
     win.show();
     closeBootWindow();
