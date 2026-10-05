@@ -12,9 +12,12 @@ RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /out/timely-
 FROM alpine:3.21
 
 WORKDIR /app
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates \
+  && adduser -D -H -u 10001 timely \
+  && mkdir -p /data && chown timely:timely /data
 # Migrations are embedded in the binary; nothing else is needed at runtime.
 COPY --from=builder /out/timely-api /app/timely-api
+USER timely
 
 # Containers must listen on every interface; the default is loopback only.
 ENV API_BIND=0.0.0.0

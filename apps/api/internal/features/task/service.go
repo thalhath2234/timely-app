@@ -207,6 +207,7 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 		task.PriorityLevel = nil
 		task.Deadline = nil
 		task.StartDate = nil
+		customFieldValues = nil
 	}
 	if task.Kind == models.KindReminder {
 		task.Duration = 0
@@ -220,6 +221,9 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 	if err := s.assertTaskScope(userID, task.WorkspaceID, task.ProjectID, task.BlockedByID); err != nil {
 		return nil, err
 	}
+	if err := s.assertStatusAndStage(userID, task.WorkspaceID, task.ProjectID, task.StatusID, task.StageID); err != nil {
+		return nil, err
+	}
 	if err := normalizeTaskPriority(task.PriorityLevel); err != nil {
 		return nil, err
 	}
@@ -231,6 +235,10 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 
 	task.ID = utils.NewTaskID()
 
+	customFieldValues, err = s.prepareCustomFieldValues(task, customFieldValues)
+	if err != nil {
+		return nil, err
+	}
 	for _, cfv := range customFieldValues {
 		cfv.ID = utils.NewCustomFieldValueID()
 	}
@@ -486,6 +494,16 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 
 	before, err := s.taskRepo.GetTaskByIdForUser(userID, taskID)
 	if err != nil {
+		return nil, err
+	}
+
+	// Status and stage are checked against the workspace and project the row
+	// will have after this update.
+	if err := s.assertStatusAndStage(userID,
+		mergedID(update.WorkspaceID, before.WorkspaceID),
+		mergedID(update.ProjectID, before.ProjectID),
+		update.StatusID, update.StageID,
+	); err != nil {
 		return nil, err
 	}
 
@@ -1317,4 +1335,54 @@ func (s *taskService) assertTaskScope(userID string, workspaceID, projectID, blo
 		}
 	}
 	return nil
+}
+
+// assertStatusAndStage rejects a status outside the task's workspace and a
+// stage outside the task's project, so a client cannot attach a task to
+// another tenant's board column. The workspace must already be checked as the
+// caller's; the project is checked here.
+func (s *taskService) assertStatusAndStage(userID string, workspaceID, projectID, statusID, stageID *string) error {
+	if statusID != nil && *statusID != "" {
+		if workspaceID == nil || *workspaceID == "" {
+			return gorm.ErrRecordNotFound
+		}
+		statuses, err := s.taskRepo.GetWorkspaceStatuses(*workspaceID)
+		if err != nil {
+			return err
+		}
+		found := false
+		for i := range statuses {
+			if statuses[i].ID == *statusID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return gorm.ErrRecordNotFound
+		}
+	}
+	if stageID != nil && *stageID != "" {
+		if projectID == nil || *projectID == "" {
+			return gorm.ErrRecordNotFound
+		}
+		if _, err := s.projectRepo.GetProjectByIdForUser(userID, *projectID); err != nil {
+			return gorm.ErrRecordNotFound
+		}
+		if _, err := s.projectRepo.GetStageById(*projectID, *stageID); err != nil {
+			return gorm.ErrRecordNotFound
+		}
+	}
+	return nil
+}
+
+// mergedID is the value a nullable id column holds after an update: the
+// update when sent ("" clears it), otherwise the current value.
+func mergedID(update, current *string) *string {
+	if update == nil {
+		return current
+	}
+	if *update == "" {
+		return nil
+	}
+	return update
 }

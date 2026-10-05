@@ -86,6 +86,13 @@ func (s *projectService) Create(userID string, project *models.Project, customFi
 	if err := normalizeProjectPriority(project.PriorityLevel); err != nil {
 		return nil, err
 	}
+	if err := s.assertStatus(*project.WorkspaceID, project.StatusID); err != nil {
+		return nil, err
+	}
+	customFieldValues, err = s.prepareCustomFieldValues(*project.WorkspaceID, customFieldValues)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, cfv := range customFieldValues {
 		cfv.ID = utils.NewCustomFieldValueID()
@@ -227,6 +234,18 @@ func (s *projectService) Update(userID string, projectID string, update ProjectU
 			return nil, err
 		}
 	}
+	if update.StatusID != nil && *update.StatusID != "" {
+		current, err := s.repo.GetProjectByIdForUser(userID, projectID)
+		if err != nil {
+			return nil, err
+		}
+		if current.WorkspaceID == nil {
+			return nil, gorm.ErrRecordNotFound
+		}
+		if err := s.assertStatus(*current.WorkspaceID, update.StatusID); err != nil {
+			return nil, err
+		}
+	}
 	for column, value := range nullableColumns {
 		if value == nil {
 			continue
@@ -248,6 +267,70 @@ func (s *projectService) Update(userID string, projectID string, update ProjectU
 	}
 	s.indexProject(project)
 	return project, nil
+}
+
+// assertStatus rejects a status that is not one of the workspace's own, so a
+// project cannot point at another account's status. The workspace must
+// already be checked as the caller's.
+func (s *projectService) assertStatus(workspaceID string, statusID *string) error {
+	if statusID == nil || *statusID == "" {
+		return nil
+	}
+	if _, err := s.repo.GetWorkspaceStatus(workspaceID, *statusID); err != nil {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// prepareCustomFieldValues checks every value against its field definition in
+// the project's workspace and takes the type from that definition, so a
+// client cannot write a value for another workspace or invent an option.
+func (s *projectService) prepareCustomFieldValues(workspaceID string, values []*models.CustomFieldValue) ([]*models.CustomFieldValue, error) {
+	if len(values) == 0 {
+		return values, nil
+	}
+	fieldIDs := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value.CustomFieldID == "" {
+			return nil, errors.New("custom field id is required")
+		}
+		if _, exists := seen[value.CustomFieldID]; exists {
+			return nil, errors.New("duplicate custom field id")
+		}
+		seen[value.CustomFieldID] = struct{}{}
+		fieldIDs = append(fieldIDs, value.CustomFieldID)
+	}
+
+	fields, err := s.repo.GetCustomFieldsByIDs(workspaceID, fieldIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(fields) != len(fieldIDs) {
+		return nil, errors.New("invalid custom field ids")
+	}
+	definitions := make(map[string]models.CustomField, len(fields))
+	for _, field := range fields {
+		definitions[field.ID] = field
+	}
+
+	for _, value := range values {
+		field := definitions[value.CustomFieldID]
+		value.Type = string(field.Type)
+		if len(value.OptionsValue) == 0 {
+			continue
+		}
+		allowed := make(map[string]struct{}, len(field.Options.Options))
+		for _, option := range field.Options.Options {
+			allowed[option.ID] = struct{}{}
+		}
+		for _, option := range value.OptionsValue {
+			if _, ok := allowed[option.Id]; !ok {
+				return nil, errors.New("invalid custom field option")
+			}
+		}
+	}
+	return values, nil
 }
 
 func (s *projectService) Delete(userID, projectID string) error {

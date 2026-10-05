@@ -62,6 +62,15 @@ func main() {
 	if godotenv.Load("../../.env") != nil && godotenv.Load() != nil {
 		log.Println("Warning: No .env file found or failed to load")
 	}
+	if err := auth.CheckSecret("JWT_SECRET", os.Getenv("JWT_SECRET")); err != nil {
+		log.Fatal(err)
+	}
+	if key := os.Getenv("TIMELY_BACKUP_KEY"); key != "" {
+		// Not fatal: changing the key makes existing encrypted backups unreadable.
+		if err := auth.CheckSecret("TIMELY_BACKUP_KEY", key); err != nil {
+			log.Printf("Warning: %v", err)
+		}
+	}
 	if dir := utils.DataDir(); dir != "" {
 		if err := utils.EnsureDir(dir); err != nil {
 			log.Fatalf("TIMELY_DATA_DIR %s: %v", dir, err)
@@ -171,12 +180,23 @@ func main() {
 
 	// Create Echo instance
 	e := echo.New()
+	// The web app reaches the API through its Next.js proxy, so the client is
+	// the nearest untrusted address in X-Forwarded-For, not the proxy's own.
+	// Without this every web user shares one sign-in rate-limit bucket.
+	e.IPExtractor = echo.ExtractIPFromXFFHeader()
 
 	e.Use(middleware.RequestID())
+	e.Use(echoMiddleware.BodyLimitWithConfig(echoMiddleware.BodyLimitConfig{
+		// Restores carry a whole account export; everything else is small.
+		Skipper:    func(c *echo.Context) bool { return c.Request().URL.Path == "/restore" },
+		LimitBytes: maxRequestBodyBytes,
+	}))
 	e.Use(middleware.StructuredLogger())
 	e.Use(echoMiddleware.Recover())
+	origins := corsOrigins()
+	e.Use(middleware.CrossSiteGuard(origins))
 	e.Use(echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{
-		AllowOrigins:     corsOrigins(),
+		AllowOrigins:     origins,
 		AllowCredentials: true,
 		AllowHeaders: []string{
 			echo.HeaderOrigin,
@@ -291,13 +311,15 @@ func listenAll(bind []string, port int, handler http.Handler) ([]*http.Server, [
 	return servers, listening
 }
 
+// maxRequestBodyBytes caps request bodies, unauthenticated ones included, so
+// a few oversized requests cannot exhaust the API's memory.
+const maxRequestBodyBytes = 25 << 20
+
 // corsOrigins is the development allow list plus any CORS_ORIGINS entries.
 func corsOrigins() []string {
 	origins := []string{
 		"http://localhost:4001",
 		"http://127.0.0.1:4001",
-		"https://11a5-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
-		"https://7b74-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
 	}
 	for _, origin := range strings.Split(os.Getenv("CORS_ORIGINS"), ",") {
 		origin = strings.TrimSpace(origin)

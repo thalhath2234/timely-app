@@ -19,11 +19,10 @@ const nextConfig: NextConfig = {
         outputFileTracingRoot: repoRoot,
       }
     : {}),
+  // Extra dev hosts (e.g. a tunnel) come from DEV_ORIGINS, comma-separated.
   allowedDevOrigins: [
-    "11a5-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
-    "7b74-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
-    "*.ngrok-free.app",
     "127.0.0.1",
+    ...(process.env.DEV_ORIGINS ?? "").split(",").map((host) => host.trim()).filter(Boolean),
   ],
   async rewrites() {
     // A rewrite is baked into the standalone output, so the desktop app (whose

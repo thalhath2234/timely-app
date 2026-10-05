@@ -45,7 +45,7 @@ Guard rails before anything starts:
   "apiPort": 48080,
   "webPort": 44001,
   "tailscaleEnabled": false,
-  "allowRegistration": true,
+  "allowRegistration": false,
   "setupDone": false,
   "secrets": {
     "jwtSecret": "<safeStorage sealed, base64>",
@@ -111,7 +111,8 @@ Returns 503 with `"status": "degraded"` and `"db": "<error>"` when the database 
 ```
 
 `POST /register` returns 403 `{"message": "New accounts are turned off on this server"}` when
-`ALLOW_REGISTRATION=false` and at least one account exists.
+`ALLOW_REGISTRATION` is not `true` and at least one account exists. Sign-ups after the first
+account are off by default.
 
 `/login`, `/register`, `/auth/refresh` are rate limited: 20 requests per minute per IP and 8 per
 minute per account (email). Over the limit returns 429 with `Retry-After`.

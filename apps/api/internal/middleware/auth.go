@@ -2,10 +2,8 @@ package middleware
 
 import (
 	"net/http"
-	"os"
 	"timely-api/internal/features/auth"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
 )
 
@@ -25,20 +23,14 @@ func JWTMiddleware(guard SessionGuard) echo.MiddlewareFunc {
 				tokenString = cookie.Value
 			}
 
-			claims := &auth.JWTClaims{}
-			token, err := jwt.ParseWithClaims(
-				tokenString,
-				claims,
-				func(token *jwt.Token) (interface{}, error) {
-					return []byte(os.Getenv("JWT_SECRET")), nil
-				},
-			)
-
-			if err != nil || !token.Valid {
+			claims, err := auth.ParseAccessToken(tokenString)
+			if err != nil {
 				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
 			}
 
-			if guard != nil && !guard.SessionIsActive(claims.SessionID) {
+			// Every token the API issues names its session; one without a
+			// session could never be revoked, so it is not accepted.
+			if claims.SessionID == "" || (guard != nil && !guard.SessionIsActive(claims.SessionID)) {
 				return echo.NewHTTPError(http.StatusUnauthorized, "Invalid or expired token")
 			}
 

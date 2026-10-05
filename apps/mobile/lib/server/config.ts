@@ -60,6 +60,33 @@ function cleanName(value: unknown): string | undefined {
 }
 
 /**
+ * True for a plain-http address the phone would reach over an ordinary
+ * network, where anyone on the same Wi-Fi can read the password and tokens.
+ * Loopback, the emulator's host alias and Tailscale (100.64.0.0/10,
+ * fd7a:115c:a1e0::/48, *.ts.net) are encrypted or local, so they pass.
+ */
+export function isInsecureServerUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:") return false;
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "10.0.2.2" || host === "::1" || host.endsWith(".ts.net")) return false;
+  const v4 = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 127) return false;
+    if (a === 100 && b >= 64 && b <= 127) return false;
+    return true;
+  }
+  if (host.startsWith("fd7a:115c:a1e0:")) return false;
+  return true;
+}
+
+/**
  * Accepts the QR payload or a bare URL. Returns null when the text is neither.
  * Invalid entries inside a payload are skipped; a payload with no usable URL is rejected.
  */

@@ -24,3 +24,10 @@ export function isOpenableExternally(url: string): boolean {
     return false;
   }
 }
+
+const RENDERER_PERMISSIONS = new Set(["clipboard-read", "clipboard-sanitized-write", "fullscreen"]);
+
+/** Whether a web permission may be granted to `url`: only ours, only what the app uses. */
+export function isPermissionAllowed(permission: string, url: string, origin: string): boolean {
+  return RENDERER_PERMISSIONS.has(permission) && isSameOrigin(url, origin);
+}

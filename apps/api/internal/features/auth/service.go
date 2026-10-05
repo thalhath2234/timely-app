@@ -298,6 +298,7 @@ func (s *authService) UpdateProfile(
 		return nil, "", errors.New("user not found")
 	}
 
+	credentialsChanged := false
 	email = NormalizeEmail(email)
 	if email != "" && email != user.Email {
 		if !ValidateEmail(email) {
@@ -308,6 +309,7 @@ func (s *authService) UpdateProfile(
 			return nil, "", errors.New("email is already in use")
 		}
 		user.Email = email
+		credentialsChanged = true
 	}
 
 	user.Name = trimName(name)
@@ -327,10 +329,19 @@ func (s *authService) UpdateProfile(
 			return nil, "", err
 		}
 		user.Password = string(hashed)
+		credentialsChanged = true
 	}
 
 	if err := s.repo.UpdateUser(user); err != nil {
 		return nil, "", err
+	}
+
+	// A new password or email signs out every other device, so a stolen
+	// refresh token stops working once the owner changes their credentials.
+	if credentialsChanged && sessionID != "" {
+		if _, err := s.sessions.RevokeOthers(userID, sessionID); err != nil {
+			return nil, "", err
+		}
 	}
 
 	token, err := s.issueAccessToken(user, sessionID)

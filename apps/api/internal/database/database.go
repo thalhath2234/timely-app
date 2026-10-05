@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,10 @@ import (
 )
 
 var DB *gorm.DB
+
+
+// schemaName is what DB_SCHEMA may contain; it is spliced into SQL and the DSN.
+var schemaName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 func init() {
 	goose.SetBaseFS(migrations.FS)
@@ -78,6 +83,9 @@ func InitDB() *gorm.DB {
 	// schema of a shared database, so a worktree API never claims jobs or chat
 	// runs that belong to the main checkout.
 	schema := strings.TrimSpace(os.Getenv("DB_SCHEMA"))
+	if schema != "" && !schemaName.MatchString(schema) {
+		log.Fatalf("DB_SCHEMA %q must be a plain lowercase identifier (letters, digits, underscores)", schema)
+	}
 	if schema != "" {
 		dsn += " search_path=" + schema + ",public"
 	}

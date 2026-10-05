@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Keyboard,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -10,6 +11,7 @@ import {
   Dimensions,
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
 import {
   AtSign,
   Bold,
@@ -150,6 +152,27 @@ function readKeyboardCover() {
   return 0;
 }
 
+// The editor page is loaded from inline HTML under this base URL. Anything
+// else that tries to load in the WebView (a clicked link, a redirect) would
+// get the native bridge, so it is opened in the browser or dropped instead.
+const EDITOR_ORIGIN = "https://localhost";
+
+function isEditorUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  if (url === "about:blank") return true;
+  try {
+    return new URL(url).origin === EDITOR_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
+function onShouldStartLoad(request: ShouldStartLoadRequest): boolean {
+  if (isEditorUrl(request.url)) return true;
+  if (/^(https?|mailto):/i.test(request.url)) void Linking.openURL(request.url).catch(() => undefined);
+  return false;
+}
+
 export default function RichTextEditor({
   content,
   onChange,
@@ -241,6 +264,8 @@ export default function RichTextEditor({
   }, [applyRemoteIfIdle, syncKey]);
 
   function onMessage(event: WebViewMessageEvent) {
+    // Only the editor page itself may drive the document.
+    if (!isEditorUrl(event.nativeEvent.url)) return;
     try {
       const msg = JSON.parse(event.nativeEvent.data) as {
         type: string;
@@ -402,7 +427,8 @@ export default function RichTextEditor({
           key={themeKey}
           ref={webRef}
           source={{ html, baseUrl: "https://localhost" }}
-          originWhitelist={["*"]}
+          originWhitelist={[EDITOR_ORIGIN]}
+          onShouldStartLoadWithRequest={onShouldStartLoad}
           javaScriptEnabled
           domStorageEnabled
           hideKeyboardAccessoryView

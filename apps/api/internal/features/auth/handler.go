@@ -28,10 +28,12 @@ func NewHandler(authService AuthService, userRepo UserRepository) *Handler {
 	}
 }
 
-// AllowRegistrationFromEnv reads ALLOW_REGISTRATION (default true).
+// AllowRegistrationFromEnv reads ALLOW_REGISTRATION (default false: only the
+// first account can sign up, so a server reachable from a network is not open
+// to strangers unless the owner turns sign-ups on).
 func AllowRegistrationFromEnv() bool {
 	value := strings.TrimSpace(strings.ToLower(os.Getenv("ALLOW_REGISTRATION")))
-	return value != "false" && value != "0" && value != "off" && value != "no"
+	return value == "true" || value == "1" || value == "on" || value == "yes"
 }
 
 // SetAllowRegistration overrides the env setting (tests, embedded hosts).
