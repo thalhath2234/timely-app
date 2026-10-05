@@ -474,6 +474,18 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     });
   }
 
+  /** Empties every cell in the current selection, not just the active one. */
+  function clearSelection() {
+    const nextRows = rows.map((row) => ({ ...row, cells: { ...row.cells } }));
+    visitRange(range, (address) => {
+      const column = columns[address.col];
+      const row = nextRows[address.row];
+      if (!column || !row) return;
+      row.cells[column.id] = "";
+    });
+    commit({ rows: nextRows });
+  }
+
   function makeColumn(index: number): SheetColumn {
     return {
       id: newSheetId("col"),
@@ -1522,7 +1534,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
                 <View style={styles.actionStrip}>
                   <Tool icon={<Undo2 size={16} color={KINETIC.text} />} caption="Undo" disabled={past.length === 0} onPress={undo} />
                   <Tool icon={<Redo2 size={16} color={KINETIC.text} />} caption="Redo" disabled={future.length === 0} onPress={redo} />
-                  <Tool icon={<Eraser size={16} color={KINETIC.text} />} caption="Clear" onPress={() => setCellValue(selected, "")} />
+                  <Tool icon={<Eraser size={16} color={KINETIC.text} />} caption="Clear" onPress={clearSelection} />
                   <Tool icon={<PaintBucket size={16} color={selectedFormat?.fillColor || KINETIC.text} />} caption="Fill" onPress={() => setFillOpen(true)} />
                 </View>
                 <Text style={styles.sectionLabel}>FONT & STYLE</Text>
