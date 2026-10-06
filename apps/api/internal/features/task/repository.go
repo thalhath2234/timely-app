@@ -14,6 +14,9 @@ type TaskRepository interface {
 	CreateTask(task *models.Task, customFieldValues []*models.CustomFieldValue) (*models.Task, error)
 	GetLabelsByIds(workspaceID string, labelIDs []string) ([]*models.Lable, error)
 	GetAllTaskByUser(userID string) ([]models.Task, error)
+	// GetWorkingHours is the person's saved Working hours; gorm.ErrRecordNotFound
+	// when they have no config yet.
+	GetWorkingHours(userID string) (models.WorkingHours, error)
 	GetTaskById(taskId string) (*models.Task, error)
 	GetTaskByIdForUser(userID string, taskID string) (*models.Task, error)
 	UpdateTask(userID string, taskID string, updates map[string]any) (*models.Task, error)
@@ -33,6 +36,14 @@ type taskRepository struct {
 
 func NewTaskRepository(db *gorm.DB) TaskRepository {
 	return &taskRepository{db: db}
+}
+
+func (r *taskRepository) GetWorkingHours(userID string) (models.WorkingHours, error) {
+	var config models.Config
+	if err := r.db.Select("working_hours").Where("user_id = ?", userID).First(&config).Error; err != nil {
+		return models.WorkingHours{}, err
+	}
+	return config.WorkingHours, nil
 }
 
 func (r *taskRepository) DB() *gorm.DB {

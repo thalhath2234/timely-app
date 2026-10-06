@@ -128,6 +128,9 @@ type TaskFilter struct {
 	// Kind filters by task | reminder | inbox. Inbox is also accepted via Inbox=true.
 	Kind  string
 	Inbox *bool
+	// Timezone is the client's IANA zone. The Overdue filter uses it as "today"
+	// only when the person has no saved Working hours timezone.
+	Timezone string
 }
 
 type workspaceOwner interface {
@@ -1104,7 +1107,15 @@ func (s *taskService) List(userID string, filter TaskFilter) ([]models.Task, err
 		return nil, err
 	}
 	annotateProgress(tasks)
-	return applyTaskFilter(tasks, filter), nil
+	var today Today
+	if filter.Overdue != nil && *filter.Overdue {
+		hours, err := s.taskRepo.GetWorkingHours(userID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		today = TodayFor(hours, filter.Timezone, time.Now())
+	}
+	return applyTaskFilter(tasks, filter, today), nil
 }
 
 func (s *taskService) Delete(userID, taskID string) error {
@@ -1151,7 +1162,9 @@ func (s *taskService) BulkUpdate(userID string, ids []string, update TaskUpdate)
 	return out, nil
 }
 
-func applyTaskFilter(tasks []models.Task, filter TaskFilter) []models.Task {
+// applyTaskFilter narrows tasks by filter. today is only read by the Overdue
+// filter, so callers that do not set it may pass the zero Today.
+func applyTaskFilter(tasks []models.Task, filter TaskFilter, today Today) []models.Task {
 	wantedWorkspaces := setOf(filter.WorkspaceIDs)
 	wantedProjects := setOf(filter.ProjectIDs)
 	wantedStatuses := setOf(filter.StatusIDs)
@@ -1188,7 +1201,7 @@ func applyTaskFilter(tasks []models.Task, filter TaskFilter) []models.Task {
 			}
 		}
 		if filter.Overdue != nil && *filter.Overdue {
-			if !IsOverdue(t, time.Now()) {
+			if !IsOverdue(t, today) {
 				continue
 			}
 		}

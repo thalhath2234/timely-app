@@ -201,14 +201,17 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 	if err != nil {
 		return fail(err)
 	}
-	now := time.Now().In(loc)
+	hours, err := s.Schedule.GetWorkingHours(uid, zone(ctx, in.Timezone))
+	if err != nil {
+		return fail(err)
+	}
+	// Overdue and Unscheduled are judged on today in the Working hours
+	// timezone, like /today and what_next; the range zone only frames items.
+	today := task.TodayFor(hours.WorkingHours, zone(ctx, in.Timezone), time.Now())
 	overdue := make([]map[string]string, 0)
 	unscheduled := make([]map[string]string, 0)
 	for _, t := range tasks {
-		if t.IsCompleted() || t.IsReminder() {
-			continue
-		}
-		if task.IsOverdue(t, now) && !task.HasRemainingSchedule(t, now) {
+		if task.IsOverdue(t, today) {
 			entry := map[string]string{"id": t.ID, "name": t.Name}
 			if t.Deadline != nil && *t.Deadline != "" {
 				entry["deadline"] = *t.Deadline
@@ -218,7 +221,7 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 			}
 			overdue = append(overdue, entry)
 		}
-		if !t.IsRecurring() && len(t.Blocks) == 0 {
+		if task.IsUnscheduled(t, today) {
 			unscheduled = append(unscheduled, map[string]string{"id": t.ID, "name": t.Name})
 		}
 	}

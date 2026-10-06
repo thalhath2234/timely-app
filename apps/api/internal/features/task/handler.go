@@ -312,6 +312,7 @@ func parseTaskFilter(c *echo.Context) TaskFilter {
 		Sort:          c.QueryParam("sort"),
 		Limit:         parseIntQuery(c.QueryParam("limit")),
 		Offset:        parseIntQuery(c.QueryParam("offset")),
+		Timezone:      c.QueryParam("timezone"),
 	}
 }
 
