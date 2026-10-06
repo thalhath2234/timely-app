@@ -74,7 +74,7 @@ export const OpenRouterOnly = () => (
         {
         defaultProvider: "openrouter",
         localCli: false,
-        openrouter: { keySet: true, keyHint: "sk-or-…4f2a", serverKey: false, chatModel: "anthropic/claude-haiku-4.5", embedModel: "openai/text-embedding-3-small", ready: true },
+        openrouter: { keySet: true, keyHint: "sk-or-…4f2a", chatModel: "anthropic/claude-haiku-4.5", embedModel: "openai/text-embedding-3-small", ready: true },
         claude: { enabled: false, status: { found: false, loggedIn: false }, connected: false, model: "", ready: false },
         codex: { enabled: false, status: { found: false, loggedIn: false }, connected: false, model: "", ready: false },
         reindex: { status: "running", done: 128, total: 214, updatedAt: "2024-05-15T11:58:00Z" },

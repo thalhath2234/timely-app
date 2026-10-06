@@ -94,7 +94,8 @@ func NewOpenRouter() *OpenRouter {
 	if model == "" {
 		model = "z-ai/glm-5.3-flash"
 	}
-	return &OpenRouter{Key: os.Getenv("OPENROUTER_API_KEY"), Model: model, URL: "https://openrouter.ai/api/v1/chat/completions", Client: &http.Client{Timeout: 4 * time.Minute}}
+	// No key: only keys an account saves in Settings → Agent are used.
+	return &OpenRouter{Model: model, URL: "https://openrouter.ai/api/v1/chat/completions", Client: &http.Client{Timeout: 4 * time.Minute}}
 }
 
 // Only model inference is retried here; no domain tool executes until a complete
@@ -136,7 +137,7 @@ func RetryTransient(ctx context.Context, call func() (WireMessage, error)) (Wire
 func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
 	var empty WireMessage
 	if p.Key == "" {
-		return empty, fmt.Errorf("Chat needs OPENROUTER_API_KEY configured on the API server")
+		return empty, fmt.Errorf("Add an OpenRouter API key in Settings → Agent")
 	}
 	sensitive := false
 	wire := make([]any, 0, len(messages))

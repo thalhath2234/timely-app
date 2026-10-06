@@ -36,7 +36,6 @@ type cliView struct {
 type openRouterView struct {
 	KeySet     bool   `json:"keySet"`
 	KeyHint    string `json:"keyHint,omitempty"`
-	ServerKey  bool   `json:"serverKey"`
 	ChatModel  string `json:"chatModel"`
 	EmbedModel string `json:"embedModel"`
 	Ready      bool   `json:"ready"`
@@ -54,12 +53,12 @@ type overview struct {
 
 func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) overview {
 	out := overview{DefaultProvider: row.DefaultProvider, LocalCLI: s.localCLI, Reindex: row.Reindex}
-	out.OpenRouter = openRouterView{KeySet: row.OpenRouterKey != "", KeyHint: row.OpenRouterKeyHint, ServerKey: s.envKey != "", ChatModel: s.chatModel(row, OpenRouter)}
+	out.OpenRouter = openRouterView{KeySet: row.OpenRouterKey != "", KeyHint: row.OpenRouterKeyHint, ChatModel: s.chatModel(row, OpenRouter)}
 	out.OpenRouter.EmbedModel = row.OpenRouterEmbedModel
 	if out.OpenRouter.EmbedModel == "" {
 		out.OpenRouter.EmbedModel = s.envEmbed
 	}
-	out.OpenRouter.Ready = out.OpenRouter.KeySet || out.OpenRouter.ServerKey
+	out.OpenRouter.Ready = out.OpenRouter.KeySet
 	rows, _ := s.apiRows(s.db.WithContext(ctx), row.UserID)
 	out.APIs = s.apiViews(rows)
 	if s.localCLI {
@@ -288,9 +287,6 @@ func (s *Service) removeKey(c *echo.Context) error {
 	})
 	if err != nil {
 		return err
-	}
-	if s.envKey != "" {
-		_ = s.enqueueReindex(user(c))
 	}
 	return c.JSON(200, s.view(c.Request().Context(), row, time.Minute))
 }

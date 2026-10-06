@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	ErrDisabled   = errors.New("semantic search is not configured (add an OpenRouter key in Settings → Agent or set OPENROUTER_API_KEY)")
+	ErrDisabled   = errors.New("semantic search is not configured (add an OpenRouter key in Settings → Agent)")
 	ErrEmptyQuery = errors.New("query is empty")
 )
 
@@ -78,7 +78,6 @@ type Hit struct {
 type indexer struct {
 	db      *gorm.DB
 	http    *http.Client
-	apiKey  string
 	model   string
 	queue   IndexQueue
 	resolve Credentials
@@ -86,25 +85,23 @@ type indexer struct {
 }
 
 func New(db *gorm.DB) Indexer {
-	key := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 	model := strings.TrimSpace(os.Getenv("OPENROUTER_EMBED_MODEL"))
 	if model == "" {
 		model = defaultModel
 	}
 	i := &indexer{
-		db:     db,
-		http:   defaultHTTPClient(),
-		apiKey: key,
-		model:  model,
+		db:    db,
+		http:  defaultHTTPClient(),
+		model: model,
 	}
 	i.vectors = newVectorCache(cacheTTL, i.loadChunks)
 	return i
 }
 
-// Enabled reports whether any account could be indexed: a server key exists or
-// accounts may supply their own. Per-account checks use EnabledFor.
+// Enabled reports whether any account could be indexed: accounts supply their
+// own OpenRouter key; there is no server key. Per-account checks use EnabledFor.
 func (i *indexer) Enabled() bool {
-	return i != nil && (i.apiKey != "" || i.resolve != nil)
+	return i != nil && i.resolve != nil
 }
 
 func (i *indexer) EnabledFor(userID string) bool {
@@ -116,7 +113,7 @@ func (i *indexer) SetCredentials(resolve Credentials) {
 	i.resolve = resolve
 }
 
-// credentials prefers the account's own key and model, then the server's.
+// credentials returns the account's own key and embedding model.
 func (i *indexer) credentials(userID string) (string, string) {
 	if i == nil {
 		return "", ""
@@ -129,7 +126,7 @@ func (i *indexer) credentials(userID string) (string, string) {
 			return key, model
 		}
 	}
-	return i.apiKey, i.model
+	return "", i.model
 }
 
 func (i *indexer) SetQueue(queue IndexQueue) {

@@ -426,8 +426,8 @@ Design confirmed after an interview; see ADR 0009 and the `Agent provider` and
   catalogue with a vision badge. Saving a chat model runs a test call.
 - OpenRouter keys are per account, AES-256-GCM encrypted under
   `TIMELY_BACKUP_KEY` (falling back to `JWT_SECRET`), shown only as a hint, and
-  validated with a test call before saving. The server `OPENROUTER_API_KEY`
-  remains the fallback. The account key also drives semantic-search embeddings
+  validated with a test call before saving. There is no server-wide key
+  (`OPENROUTER_API_KEY` is no longer read). The account key also drives semantic-search embeddings
   (`embed.Credentials`); the embedding model is pickable and probed for the
   1536-dimension index width before saving. A key or embedding-model change
   queues a `reindex_user` job whose progress the Agent tab shows.

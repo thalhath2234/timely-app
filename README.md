@@ -65,9 +65,9 @@ chat runs and jobs with the main one.
 
 All three apps read one `.env` at the repository root: DB credentials, the
 JWT secret, and the mobile `EXPO_PUBLIC_API_URL`. Before first use, replace
-`JWT_SECRET` and `TIMELY_BACKUP_KEY` with random values (`openssl rand -base64 32`);
-`OPENROUTER_API_KEY` is optional and enables semantic search and the in-app
-chat model. Edit it as needed and restart the dev servers afterwards. The file is copied into compatible managed
+`JWT_SECRET` and `TIMELY_BACKUP_KEY` with random values (`openssl rand -base64 32`).
+Model keys (OpenRouter and the direct API providers) are not set here: each
+account adds its own in Settings → Agent. Edit the file as needed and restart the dev servers afterwards. The file is copied into compatible managed
 worktrees via `.worktreeinclude`; run `make setup-env` to seed it explicitly.
 Migrations run automatically when the API starts.
 

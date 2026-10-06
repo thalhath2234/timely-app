@@ -348,10 +348,6 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
                 <KeyRound className="size-3" /> Key saved{" "}
                 {data.openrouter.keyHint}
               </Badge>
-            ) : data.openrouter.serverKey ? (
-              <Badge tone="muted">
-                <KeyRound className="size-3" /> Using the server’s key
-              </Badge>
             ) : (
               <Badge tone="warn">
                 <CircleAlert className="size-3" /> No key
@@ -370,7 +366,7 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
                 onClick={() => {
                   if (
                     window.confirm(
-                      "Remove your OpenRouter key? Chats will fall back to the server key if there is one.",
+                      "Remove your OpenRouter key? OpenRouter chats and semantic search stop until you add one again.",
                     )
                   ) {
                     removeKey.mutate();

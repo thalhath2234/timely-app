@@ -108,7 +108,8 @@ func call(t *testing.T, s *Service, userID, method, path string, body any) (int,
 func TestIntegrationProviderSettingsFlow(t *testing.T) {
 	db := integrationDB(t)
 	t.Setenv("JWT_SECRET", "integration-secret")
-	t.Setenv("OPENROUTER_API_KEY", "")
+	// A server-wide key is ignored: only keys an account saves are used.
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-v1-goodkey")
 	t.Setenv("CHAT_LOCAL_CLI", "")
 
 	// A fake OpenRouter accepts only one key so the stored secret is exercised end to end.
@@ -138,6 +139,12 @@ esac`)
 	// No key anywhere: runs must fail loudly, never fall back.
 	if _, err := s.Completer(context.Background(), "user-a", "", ""); err == nil || !strings.Contains(err.Error(), "OpenRouter API key") {
 		t.Fatalf("missing key must be explained: %v", err)
+	}
+	if _, body := call(t, s, "user-a", http.MethodGet, "/agent/providers", nil); body["openrouter"].(map[string]any)["ready"] != false {
+		t.Fatal("a server env key must not make OpenRouter ready")
+	}
+	if key, _ := s.embedCredentials("user-a"); key != "" {
+		t.Fatal("embeddings must not use a server env key")
 	}
 	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/openrouter/key", map[string]string{"key": "sk-or-v1-badkey"}); code != 409 {
 		t.Fatalf("bad key accepted: %d %v", code, body)
@@ -246,7 +253,6 @@ esac`)
 func TestIntegrationDirectAPIProviders(t *testing.T) {
 	db := integrationDB(t)
 	t.Setenv("JWT_SECRET", "integration-secret")
-	t.Setenv("OPENROUTER_API_KEY", "")
 	t.Setenv("OLLAMA_BASE_URL", "")
 
 	// A fake Ollama: lists two tool-calling models without a key and answers chat calls.

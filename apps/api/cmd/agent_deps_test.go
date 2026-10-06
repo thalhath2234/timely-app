@@ -56,7 +56,6 @@ func agentToolsDB(t *testing.T) (*gorm.DB, string) {
 	if err = goose.Up(sqlDB, "../migrations"); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("OPENROUTER_API_KEY", "unused-test-key")
 	uid := "usr_agent_test"
 	if err = db.Create(&models.User{ID: uid, Email: "agent@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
 		t.Fatal(err)

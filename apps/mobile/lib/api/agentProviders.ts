@@ -55,7 +55,6 @@ export type CliProviderView = {
 export type OpenRouterView = {
   keySet: boolean;
   keyHint?: string;
-  serverKey: boolean;
   chatModel: string;
   embedModel: string;
   ready: boolean;

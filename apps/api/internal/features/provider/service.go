@@ -72,7 +72,6 @@ type Service struct {
 	claude   *Tool
 	codex    *Tool
 	localCLI bool
-	envKey   string
 	envChat  string
 	envEmbed string
 
@@ -99,7 +98,6 @@ func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
 		claude:   &Tool{Name: "claude", EnvVar: "CLAUDE_BIN"},
 		codex:    &Tool{Name: "codex", EnvVar: "CODEX_BIN"},
 		localCLI: !strings.EqualFold(strings.TrimSpace(os.Getenv("CHAT_LOCAL_CLI")), "off"),
-		envKey:   strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")),
 		envChat:  chatModel, envEmbed: embedModel,
 		key: sha256.Sum256([]byte("timely-agent-provider:" + secret)),
 
@@ -211,12 +209,9 @@ func hint(key string) string {
 
 // ---- resolution for chat runs ----
 
-// openRouterKey prefers the account's key and falls back to the server's.
+// openRouterKey is the account's own key; there is no server-wide key.
 func (s *Service) openRouterKey(row Settings) (string, error) {
-	if row.OpenRouterKey != "" {
-		return s.decrypt(row.OpenRouterKey)
-	}
-	return s.envKey, nil
+	return s.decrypt(row.OpenRouterKey)
 }
 
 func (s *Service) chatModel(row Settings, provider string) string {
@@ -303,7 +298,7 @@ func (s *Service) build(row Settings, provider, model string) (chat.Completer, e
 			return nil, err
 		}
 		if key == "" {
-			return nil, fmt.Errorf("Add an OpenRouter API key in Settings → Agent (or set OPENROUTER_API_KEY on the server)")
+			return nil, fmt.Errorf("Add an OpenRouter API key in Settings → Agent")
 		}
 		return &chat.OpenRouter{Key: key, Model: model, URL: s.openRouterURL, Client: &http.Client{Timeout: 4 * time.Minute}}, nil
 	case ClaudeCLI:

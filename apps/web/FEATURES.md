@@ -430,7 +430,7 @@ A public demo of the palette with sample data lives at `/demo/command-palette`.
 
 - Keyword: ILIKE across those five kinds.
 - Semantic: OpenRouter embeddings (default `openai/text-embedding-3-small`, 1536 dims) → pgvector cosine. Optional `kinds=` filter. Index writes enqueue an `index_entity` job (goroutine fallback if the queue is unset); `POST /search/reindex`; auto-reindex if empty.
-- Each account can set its own OpenRouter key and embedding model (Settings → Agent; the model must produce 1536 dims). Changing either enqueues a `reindex_user` job with visible progress. Without a personal key it falls back to the server `OPENROUTER_API_KEY`; with neither, semantic search is off.
+- Each account can set its own OpenRouter key and embedding model (Settings → Agent; the model must produce 1536 dims). Changing either enqueues a `reindex_user` job with visible progress. Without a personal key semantic search is off (there is no server key).
 
 ---
 
@@ -548,12 +548,12 @@ There are two agent surfaces over **one tool catalog**: the in-app chat (desktop
 
 ### Providers (ADR 0009)
 
-- **OpenRouter** (default): personal encrypted key or the server `OPENROUTER_API_KEY`; default chat model `z-ai/glm-5.3-flash` (`OPENROUTER_CHAT_MODEL`). Web search via the `web` plugin.
+- **OpenRouter** (default): personal encrypted key only (no server key); default chat model `z-ai/glm-5.3-flash` (`OPENROUTER_CHAT_MODEL`). Web search via the `web` plugin.
 - **Direct API providers**: registry in `apps/api/internal/features/provider/registry.go`. Each model routes to one adapter: chat completions (Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, NVIDIA, most OpenCode models), Responses API (OpenAI, OpenCode GPT/Grok/Muse), Anthropic Messages via the official Go SDK (Anthropic with native web search, OpenCode Claude/Qwen), or Ollama's native `/api/chat` with a 32k context (`OLLAMA_NUM_CTX`). Only Anthropic has web search among direct providers. Keys live in `agent_api_keys`, per account and provider; providers whose model list is public (NVIDIA, OpenCode, Ollama Cloud) or absent (Z.ai) get a test call when a key is saved. Kimi/Z.ai reasoning text, Anthropic thinking blocks and Gemini thought signatures are echoed back within a tool loop; DeepSeek thinking is off. `OLLAMA_BASE_URL` sets the default Ollama address.
 - **Claude Code CLI**: models fable, opus, sonnet (default), haiku or a full name; runs `claude -p` with every built-in tool disabled.
 - **Codex CLI**: `codex exec --ephemeral -s read-only` with the shell disabled; default model from `~/.codex/config.toml`.
 - Connect checks the binary, sign-in, and one test call. Disconnecting the default provider resets it to OpenRouter. Provider and model are fixed when a run starts; there is never a silent fallback.
-- Env: `OPENROUTER_API_KEY`, `OPENROUTER_CHAT_MODEL`, `OPENROUTER_EMBED_MODEL`, `CHAT_LOCAL_CLI=off`, `CLAUDE_BIN`, `CODEX_BIN`, `CHAT_IMAGE_DIR`; stored keys are encrypted with `TIMELY_BACKUP_KEY` (or `JWT_SECRET`).
+- Env: `OPENROUTER_CHAT_MODEL`, `OPENROUTER_EMBED_MODEL`, `CHAT_LOCAL_CLI=off`, `CLAUDE_BIN`, `CODEX_BIN`, `CHAT_IMAGE_DIR`; stored keys are encrypted with `TIMELY_BACKUP_KEY` (or `JWT_SECRET`).
 
 ### Hermes / MCP
 

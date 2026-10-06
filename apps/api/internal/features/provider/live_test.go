@@ -20,7 +20,7 @@ import (
 // TIMELY_LIVE_KEY_<ID> (ID upper-cased, "-" as "_", e.g.
 // TIMELY_LIVE_KEY_OPENCODE_ZEN), TIMELY_LIVE_BASE_<ID> to pick another listed
 // endpoint, and TIMELY_LIVE_MODEL_<ID> to pin a model. TIMELY_LIVE_OLLAMA=1
-// checks a key-less local Ollama. OPENROUTER_API_KEY also runs OpenRouter
+// checks a key-less local Ollama. TIMELY_LIVE_KEY_OPENROUTER runs OpenRouter
 // through the generic OpenAI-compatible client.
 func TestLiveProviders(t *testing.T) {
 	if os.Getenv("TIMELY_LIVE_PROVIDERS") == "" {
@@ -33,9 +33,6 @@ func TestLiveProviders(t *testing.T) {
 	for _, spec := range specs {
 		env := strings.ToUpper(strings.ReplaceAll(spec.ID, "-", "_"))
 		key := os.Getenv("TIMELY_LIVE_KEY_" + env)
-		if spec.ID == "openrouter" && key == "" {
-			key = os.Getenv("OPENROUTER_API_KEY")
-		}
 		if key == "" && !(spec.KeyOptional && os.Getenv("TIMELY_LIVE_"+env) != "") {
 			continue
 		}
@@ -74,7 +71,7 @@ func TestLiveProviders(t *testing.T) {
 		})
 	}
 	if ran == 0 {
-		t.Skip("no TIMELY_LIVE_KEY_* or OPENROUTER_API_KEY set")
+		t.Skip("no TIMELY_LIVE_KEY_* set")
 	}
 }
 

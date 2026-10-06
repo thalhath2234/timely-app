@@ -47,6 +47,8 @@ the person's own machine, takes a typed http(s) address. Choosing a direct
 provider is the same consent as choosing a CLI: data goes to that provider and
 the zero-data-retention route does not apply. Direct providers other than
 Anthropic have no web search, so their runs do not offer the web_search tool.
-Embeddings stay on OpenRouter. Subscription plans whose terms restrict them to
+Embeddings stay on OpenRouter. Only keys an account saves are used; the
+server-wide `OPENROUTER_API_KEY` fallback was removed, so a shared instance
+never spends one account's (or the operator's) credit on another's runs. Subscription plans whose terms restrict them to
 the vendor's coding tools (Z.ai GLM Coding Plan, Kimi For Coding) are not
 offered.

@@ -276,8 +276,6 @@ function OpenRouterCard({
         <View style={[styles.row, { flexWrap: "wrap" }]}>
           {data.openrouter.keySet ? (
             <Badge tone="ok">Key saved {data.openrouter.keyHint}</Badge>
-          ) : data.openrouter.serverKey ? (
-            <Badge tone="muted">Using the server’s key</Badge>
           ) : (
             <Badge tone="warn">No key</Badge>
           )}
@@ -295,7 +293,7 @@ function OpenRouterCard({
               onPress={() =>
                 confirm({
                   title: "Remove your OpenRouter key?",
-                  message: "Chats fall back to the server key if there is one.",
+                  message: "OpenRouter chats and semantic search stop until you add one again.",
                   confirmLabel: "Remove",
                   onConfirm: () => removeKey.mutate(),
                 })
