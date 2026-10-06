@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 )
 
@@ -46,5 +48,16 @@ func TestPrepareCreateTaskRejectsInboxAndKeepsReminder(t *testing.T) {
 	in, err := prepareCreateTask(createTaskIn{Name: "Ping", Kind: models.KindReminder, ScheduleAt: "2026-09-28T12:00:00Z"})
 	if err != nil || in.Kind != models.KindReminder || in.Duration != nil {
 		t.Fatalf("reminder = %+v, %v", in, err)
+	}
+}
+
+func TestCreateTaskErrorAsksForWorkspace(t *testing.T) {
+	got := createTaskError(task.ErrWorkspaceRequired)
+	if got == nil || !strings.Contains(got.Error(), "ask the user which workspace") {
+		t.Fatalf("error = %v, want workspace prompt", got)
+	}
+	other := errors.New("boom")
+	if createTaskError(other) != other {
+		t.Fatal("other errors must pass through")
 	}
 }

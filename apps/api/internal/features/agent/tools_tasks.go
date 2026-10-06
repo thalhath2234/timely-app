@@ -122,6 +122,14 @@ type createTaskIn struct {
 // module owns the rule, this only words the next step for the agent.
 var errAskWorkspace = errors.New("ask the user which workspace to use for this task, then retry create_task")
 
+// createTaskError words task.Create's errors for the model.
+func createTaskError(err error) error {
+	if errors.Is(err, task.ErrWorkspaceRequired) {
+		return errAskWorkspace
+	}
+	return err
+}
+
 // prepareCreateTask makes the default create_task intent Work. Work without
 // an estimate gets 30 minutes. That default is agent-only: HTTP clients that
 // omit a duration create an Inbox item, a Reminder or are rejected, so it
@@ -192,11 +200,8 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 		rec = in.Recurrence.model()
 	}
 	created, err := s.tasksFor(req).Create(t, cfValues(in.CustomFields), rec)
-	if errors.Is(err, task.ErrWorkspaceRequired) {
-		return fail(errAskWorkspace)
-	}
 	if err != nil {
-		return fail(err)
+		return fail(createTaskError(err))
 	}
 	return reply("created "+created.Name, taskPayload(created))
 }
