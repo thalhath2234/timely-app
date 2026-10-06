@@ -18,7 +18,6 @@ import (
 	_ "time/tzdata" // IANA zones for recurrence and working hours, even on hosts without a zoneinfo directory
 
 	"gorm.io/gorm"
-	"timely-api/internal/blocks"
 	"timely-api/internal/buildinfo"
 	"timely-api/internal/database"
 	"timely-api/internal/features/agent"
@@ -90,8 +89,7 @@ func main() {
 	eventRepo := event.NewEventRepository(db)
 	scheduleRepo := schedule.NewRepository(db)
 	recurrenceStore := recurrence.NewStore(db)
-	blockStore := blocks.NewStore(db)
-	place := placement.New(blockStore, scheduleRepo.GetWorkingHours)
+	place := placement.New(db, scheduleRepo.GetWorkingHours)
 
 	sessionRepo := auth.NewSessionRepository(db)
 	authService := auth.NewAuthService(userRepo, workspaceRepo, sessionRepo)
@@ -108,7 +106,7 @@ func main() {
 	sheetService := sheet.NewSheetService(sheetRepo, indexer)
 	eventService := event.NewEventService(eventRepo, recurrenceStore, place, indexer)
 	calendarService := calendar.NewService(taskRepo, eventRepo, scheduleRepo.GetWorkingHours)
-	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, blockStore, place)
+	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, place)
 	searchService := search.NewService(db, indexer)
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)

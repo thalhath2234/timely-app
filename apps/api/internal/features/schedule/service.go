@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	"timely-api/internal/blocks"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/placement"
 	"timely-api/internal/features/task"
@@ -133,12 +132,11 @@ type service struct {
 	repo      Repository
 	tasks     task.TaskRepository
 	events    event.EventRepository
-	blocks    *blocks.Store
 	placement *placement.Service
 }
 
-func NewService(repo Repository, tasks task.TaskRepository, events event.EventRepository, blockStore *blocks.Store, place *placement.Service) Service {
-	return &service{repo: repo, tasks: tasks, events: events, blocks: blockStore, placement: place}
+func NewService(repo Repository, tasks task.TaskRepository, events event.EventRepository, place *placement.Service) Service {
+	return &service{repo: repo, tasks: tasks, events: events, placement: place}
 }
 
 func (s *service) GetWorkingHours(userID, fallbackTimezone string) (*WorkingHoursResponse, error) {
@@ -189,52 +187,41 @@ func (s *service) Apply(userID string, req PlanRequest) (*PlanResponse, error) {
 		return nil, err
 	}
 
-	err = s.blocks.DB().Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", userID).Error; err != nil {
-			return err
+	var next []models.ScheduledBlock
+	for _, proposal := range plan.Proposals {
+		for _, block := range proposal.Blocks {
+			next = append(next, models.ScheduledBlock{
+				TaskID:          proposal.TaskID,
+				UserID:          userID,
+				StartAt:         block.Start,
+				EndAt:           block.End,
+				Source:          models.BlockSourceEngine,
+				ChunkIndex:      block.ChunkIndex,
+				OccurrenceStart: proposal.OccurrenceStart,
+			})
 		}
-		store := s.blocks.WithTx(tx)
-		snapshot, err := snapshotEngineBlocks(tx, userID, candidateIDs, plan.From, plan.To)
-		if err != nil {
-			return err
-		}
-		if err := store.DeleteEngineBlocksInRange(tx, candidateIDs, plan.From, plan.To, freezeUntil); err != nil {
-			return err
-		}
-		for _, id := range replaceManual {
-			if err := store.DeleteForTask(id, models.BlockSourceManual); err != nil {
-				return err
+	}
+	err = s.placement.ApplyAutoSchedule(userID, placement.AutoScheduleApply{
+		CandidateIDs:     candidateIDs,
+		From:             plan.From,
+		To:               plan.To,
+		FreezeUntil:      freezeUntil,
+		ReplaceManualIDs: replaceManual,
+		Next:             next,
+		Revision: func(replaced []models.ScheduledBlock) (*models.ScheduleRevision, error) {
+			raw, err := json.Marshal(revisionSnapshot{Blocks: replaced, TaskIDs: candidateIDs})
+			if err != nil {
+				return nil, err
 			}
-		}
-		var next []models.ScheduledBlock
-		for _, proposal := range plan.Proposals {
-			for _, block := range proposal.Blocks {
-				next = append(next, models.ScheduledBlock{
-					TaskID:          proposal.TaskID,
-					UserID:          userID,
-					StartAt:         block.Start,
-					EndAt:           block.End,
-					Source:          models.BlockSourceEngine,
-					ChunkIndex:      block.ChunkIndex,
-					OccurrenceStart: proposal.OccurrenceStart,
-				})
-			}
-		}
-		if err := store.InsertMany(tx, next); err != nil {
-			return err
-		}
-		raw, err := json.Marshal(revisionSnapshot{Blocks: snapshot, TaskIDs: candidateIDs})
-		if err != nil {
-			return err
-		}
-		return tx.Create(&models.ScheduleRevision{
-			ID:          utils.NewScheduleRevisionID(),
-			UserID:      userID,
-			CreatedAt:   utils.GetCurrentTimestamp(),
-			HorizonFrom: plan.From.UTC().Format(time.RFC3339),
-			HorizonTo:   plan.To.UTC().Format(time.RFC3339),
-			Snapshot:    raw,
-		}).Error
+			return &models.ScheduleRevision{
+				ID:          utils.NewScheduleRevisionID(),
+				UserID:      userID,
+				CreatedAt:   utils.GetCurrentTimestamp(),
+				HorizonFrom: plan.From.UTC().Format(time.RFC3339),
+				HorizonTo:   plan.To.UTC().Format(time.RFC3339),
+				Snapshot:    raw,
+			}, nil
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -597,78 +584,27 @@ func (s *service) AddBlock(userID, taskID string, input BlockInput) (*models.Tas
 		return nil, errors.New("invalid start")
 	}
 	if t.IsReminder() {
-		if err := s.blocks.DeleteForTask(taskID, ""); err != nil {
+		if err := s.placement.PlacePing(userID, t, start); err != nil {
 			return nil, err
 		}
-		return s.tasks.UpdateTask(userID, taskID, map[string]any{
-			"scheduled_on": start.Format(time.RFC3339),
-		})
+		return s.tasks.GetTaskByIdForUser(userID, taskID)
 	}
-	end, err := resolveEnd(start, input.End, input.DurationMinutes, t.Duration)
+	end, err := placement.ResolveEnd(start, input.End, input.DurationMinutes, t.Duration)
 	if err != nil {
 		return nil, err
 	}
-
-	block := models.ScheduledBlock{
-		TaskID:  taskID,
-		UserID:  userID,
-		StartAt: start,
-		EndAt:   end,
-		Source:  models.BlockSourceManual,
-	}
-	keepID := ""
-	if input.Replace {
-		next := []models.ScheduledBlock{block}
-		err = s.blocks.ReplaceForTask(taskID, userID, "", next)
-		if len(next) > 0 {
-			keepID = next[0].ID
-		}
-	} else {
-		block.ChunkIndex = len(t.Blocks)
-		created, createErr := s.blocks.Create(&block)
-		err = createErr
-		if created != nil {
-			keepID = created.ID
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := s.displaceOverlapping(userID, start, end, keepID); err != nil {
+	if err := s.placement.PlaceByHand(userID, t, start, end, input.Replace); err != nil {
 		return nil, err
 	}
 	return s.tasks.GetTaskByIdForUser(userID, taskID)
 }
 
-func (s *service) MoveBlock(userID, blockID string, startRaw string, endRaw *string) (*models.ScheduledBlock, error) {
-	block, err := s.blocks.Get(userID, blockID)
-	if err != nil {
-		return nil, err
-	}
-	start, err := recurrence.ParseTime(startRaw)
-	if err != nil {
-		return nil, errors.New("invalid start")
-	}
-	length := int(block.EndAt.Sub(block.StartAt).Minutes())
-	end, err := resolveEnd(start, endRaw, nil, length)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.blocks.Move(block, start, end); err != nil {
-		return nil, err
-	}
-	if err := s.displaceOverlapping(userID, start, end, block.ID); err != nil {
-		return nil, err
-	}
-	return block, nil
+func (s *service) MoveBlock(userID, blockID string, start string, end *string) (*models.ScheduledBlock, error) {
+	return s.placement.MoveByHand(userID, blockID, start, end)
 }
 
 func (s *service) DeleteBlock(userID, blockID string) error {
-	block, err := s.blocks.Get(userID, blockID)
-	if err != nil {
-		return err
-	}
-	return s.blocks.Delete(block)
+	return s.placement.DeleteBlock(userID, blockID)
 }
 
 func (s *service) ClearBlocks(userID, taskID string) (*models.Task, error) {
@@ -676,38 +612,10 @@ func (s *service) ClearBlocks(userID, taskID string) (*models.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.blocks.DeleteForTask(taskID, ""); err != nil {
+	if err := s.placement.ClearTimes(userID, t); err != nil {
 		return nil, err
 	}
-	if t.IsReminder() {
-		if _, err := s.tasks.UpdateTask(userID, taskID, map[string]any{
-			"scheduled_on": nil,
-		}); err != nil {
-			return nil, err
-		}
-	}
 	return s.tasks.GetTaskByIdForUser(userID, taskID)
-}
-
-func resolveEnd(start time.Time, endRaw *string, durationMinutes *int, fallbackMinutes int) (time.Time, error) {
-	if endRaw != nil && *endRaw != "" {
-		end, err := recurrence.ParseTime(*endRaw)
-		if err != nil {
-			return time.Time{}, errors.New("invalid end")
-		}
-		if !end.After(start) {
-			return time.Time{}, errors.New("block must end after it starts")
-		}
-		return end, nil
-	}
-	minutes := fallbackMinutes
-	if durationMinutes != nil && *durationMinutes > 0 {
-		minutes = *durationMinutes
-	}
-	if minutes <= 0 {
-		minutes = 30
-	}
-	return start.Add(time.Duration(minutes) * time.Minute), nil
 }
 
 func hasManualBlock(t *models.Task) bool {
@@ -752,60 +660,6 @@ func derefString(value *string) string {
 
 func occurrenceCandidateID(taskID string, original time.Time) string {
 	return taskID + "@" + original.UTC().Format(time.RFC3339)
-}
-
-// displaceOverlapping drops other replaceable work blocks that cover
-// [start, end) so the block the user just placed can keep that slot. The
-// schedule engine then re-places those tasks in the next free time.
-// keepBlockID is the pin. Time the person protected stays put and simply
-// overlaps: a pinned block, every block of a pinned task, and an Event's time.
-func (s *service) displaceOverlapping(userID string, start, end time.Time, keepBlockID string) error {
-	blocks, err := s.blocks.ListInRange(userID, start, end)
-	if err != nil {
-		return err
-	}
-	lockedTasks, err := s.lockedTaskIDs(blocks)
-	if err != nil {
-		return err
-	}
-	for i := range blocks {
-		block := &blocks[i]
-		if keepBlockID != "" && block.ID == keepBlockID {
-			continue
-		}
-		if block.Locked || block.EventID != nil || block.TaskID == "" || lockedTasks[block.TaskID] {
-			continue
-		}
-		if err := s.blocks.Delete(block); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// lockedTaskIDs returns the tasks among the blocks' owners that are pinned
-// as a whole (scheduleLocked).
-func (s *service) lockedTaskIDs(blocks []models.ScheduledBlock) (map[string]bool, error) {
-	ids := []string{}
-	for i := range blocks {
-		if blocks[i].TaskID != "" {
-			ids = append(ids, blocks[i].TaskID)
-		}
-	}
-	locked := map[string]bool{}
-	if len(ids) == 0 {
-		return locked, nil
-	}
-	var lockedIDs []string
-	if err := s.blocks.DB().Model(&models.Task{}).
-		Where("id IN ? AND schedule_locked = ?", ids, true).
-		Pluck("id", &lockedIDs).Error; err != nil {
-		return nil, err
-	}
-	for _, id := range lockedIDs {
-		locked[id] = true
-	}
-	return locked, nil
 }
 
 func (s *service) FreeTime(userID string, from, to time.Time, timezone string) ([]Interval, error) {

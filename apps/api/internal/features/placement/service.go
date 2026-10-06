@@ -1,35 +1,40 @@
-// Package placement is the only face for writing times on the calendar.
-// Auto-schedule Preview/Apply/Undo live in the schedule feature and call this
-// store; Clarify, drag, pin, and Event times call it directly. Calendar items
-// (the grid) are a different list — see ADR 0004 and 0006.
+// Package placement is the only writer of Blocks and Reminder pings (ADR 0004).
+// Auto-schedule Preview and Rank live in the schedule feature, which hands every
+// write here (ApplyAutoSchedule, UndoAutoSchedule); Clarify, drag, pin, and
+// Event times call Placement directly. The Block store is private to this
+// package. Calendar items (the grid) are a different list — see ADR 0004 and 0006.
 package placement
 
 import (
 	"errors"
 	"time"
-	"timely-api/internal/blocks"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
+
+	"gorm.io/gorm"
 )
 
 type HoursLookup func(userID string) (models.WorkingHours, error)
 
 type Service struct {
-	blocks *blocks.Store
+	blocks *blockStore
 	hours  HoursLookup
 }
 
-func New(store *blocks.Store, hours HoursLookup) *Service {
-	return &Service{blocks: store, hours: hours}
+func New(db *gorm.DB, hours HoursLookup) *Service {
+	return &Service{blocks: newBlockStore(db), hours: hours}
 }
 
-func (s *Service) Store() *blocks.Store {
-	return s.blocks
-}
-
+// workingHours is the only Working-hours fallback Placement uses: no lookup, a
+// lookup error, or no saved row all give the empty WorkingHours{}. Empty means
+// "the person never saved hours", which placeLocation needs in order to keep
+// an Event's own zone. The calendar grid read (calendar.service.workingHours)
+// deliberately differs: it substitutes DefaultWorkingHours("UTC") because a read
+// has no Event zone to keep and must draw every day in one zone. The windows
+// are identical either way (WindowsOn treats empty as Monday–Friday 09:00–17:00).
 func (s *Service) workingHours(userID string) models.WorkingHours {
 	if s == nil || s.hours == nil {
-		return models.DefaultWorkingHours("UTC")
+		return models.WorkingHours{}
 	}
 	hours, err := s.hours(userID)
 	if err != nil || hours.IsEmpty() {
@@ -58,7 +63,11 @@ func placeLocation(hours models.WorkingHours, event *models.Event) *time.Locatio
 	return loc
 }
 
-// PlaceWork writes one Manual block of duration minutes starting at start.
+// PlaceWork writes one Manual block of duration minutes starting at start. It
+// replaces the task's own Blocks and leaves every other Work Block where it is,
+// even when they overlap: this is the Clarify / task create / update_task
+// scheduledOn path. Whether it should push aside overlapping Work the way
+// PlaceByHand does is an open product question; do not change it silently.
 func (s *Service) PlaceWork(userID string, task *models.Task, start time.Time, duration int) error {
 	if s == nil || s.blocks == nil {
 		return nil
@@ -73,7 +82,8 @@ func (s *Service) PlaceWork(userID string, task *models.Task, start time.Time, d
 	}})
 }
 
-// PlacePing stores a Reminder time. It does not reserve a Block.
+// PlacePing stores a Reminder ping time. It does not reserve a Block, so the
+// task's Blocks are dropped and scheduled_on carries the ping.
 func (s *Service) PlacePing(userID string, task *models.Task, start time.Time) error {
 	if s == nil || s.blocks == nil {
 		return nil
@@ -82,15 +92,49 @@ func (s *Service) PlacePing(userID string, task *models.Task, start time.Time) e
 		return err
 	}
 	return s.blocks.DB().Model(&models.Task{}).
-		Where("id = ?", task.ID).
+		Where("id = ? AND user_id = ?", task.ID, userID).
 		Update("scheduled_on", start).Error
 }
 
+// ClearTask removes the task's Blocks. A Reminder's ping is not a Block; use
+// ClearTimes to drop that too.
 func (s *Service) ClearTask(taskID string) error {
 	if s == nil || s.blocks == nil {
 		return nil
 	}
 	return s.blocks.DeleteForTask(taskID, "")
+}
+
+// ClearTimes removes everything that puts the task on the calendar: its Blocks
+// and, for a Reminder, its ping.
+func (s *Service) ClearTimes(userID string, task *models.Task) error {
+	if s == nil || s.blocks == nil {
+		return nil
+	}
+	if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
+		return err
+	}
+	if !task.IsReminder() {
+		return nil
+	}
+	return s.blocks.DB().Model(&models.Task{}).
+		Where("id = ? AND user_id = ?", task.ID, userID).
+		Update("scheduled_on", nil).Error
+}
+
+// PlaceSeries turns the task into a series: its calendar presence comes from
+// expanded occurrences, so any one-off Blocks are dropped and scheduled_on
+// mirrors the series start (dtstart) for list sorting. It is not a ping.
+func (s *Service) PlaceSeries(userID string, task *models.Task, dtstart time.Time) error {
+	if s == nil || s.blocks == nil {
+		return nil
+	}
+	if err := s.blocks.DeleteForTask(task.ID, ""); err != nil {
+		return err
+	}
+	return s.blocks.DB().Model(&models.Task{}).
+		Where("id = ? AND user_id = ?", task.ID, userID).
+		Update("scheduled_on", dtstart).Error
 }
 
 func (s *Service) ReplaceWork(taskID, userID string, next []models.ScheduledBlock) error {

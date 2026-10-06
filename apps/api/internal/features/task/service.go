@@ -316,12 +316,7 @@ func (s *taskService) applyRecurrence(userID string, task *models.Task, rec *mod
 	if err != nil {
 		return err
 	}
-	if err := s.placement.ClearTask(task.ID); err != nil {
-		return err
-	}
-	return s.taskRepo.DB().Model(&models.Task{}).
-		Where("id = ?", task.ID).
-		Update("scheduled_on", rule.Dtstart).Error
+	return s.placement.PlaceSeries(userID, task, rule.Dtstart)
 }
 
 // placeSingleBlock is the compatibility path for clients that still send
@@ -676,15 +671,7 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 
 	switch {
 	case update.ScheduledOn != nil && *update.ScheduledOn == "":
-		if err := s.placement.ClearTask(task.ID); err != nil {
-			return err
-		}
-		if task.IsReminder() {
-			return s.taskRepo.DB().Model(&models.Task{}).
-				Where("id = ?", task.ID).
-				Update("scheduled_on", nil).Error
-		}
-		return nil
+		return s.placement.ClearTimes(userID, task)
 	case update.ScheduledOn != nil:
 		return s.placeSingleBlock(userID, task, *update.ScheduledOn, task.Duration)
 	case update.Duration != nil && task.IsReminder():
@@ -693,15 +680,10 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 			start := task.Blocks[0].StartAt
 			keep = &start
 		}
-		if err := s.placement.ClearTask(task.ID); err != nil {
-			return err
-		}
 		if keep != nil {
-			return s.taskRepo.DB().Model(&models.Task{}).
-				Where("id = ?", task.ID).
-				Update("scheduled_on", *keep).Error
+			return s.placement.PlacePing(userID, task, *keep)
 		}
-		return nil
+		return s.placement.ClearTask(task.ID)
 	case update.Duration != nil && task.Duration > 0 && len(task.Blocks) == 0 && task.ScheduledOn != nil && *task.ScheduledOn != "":
 		return s.placeSingleBlock(userID, task, *task.ScheduledOn, task.Duration)
 	case update.Duration != nil && len(task.Blocks) == 1 && task.Duration > 0:
