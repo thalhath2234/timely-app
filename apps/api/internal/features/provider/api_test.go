@@ -3,11 +3,13 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"timely-api/internal/features/chat"
 )
@@ -282,7 +284,7 @@ func TestResolveBaseOnlyAllowsTypedURLsForSelfHosted(t *testing.T) {
 	if got, err := s.resolveBase(ollama, "http://10.0.0.5:11434", ""); err != nil || got != "http://10.0.0.5:11434" {
 		t.Fatalf("%q %v", got, err)
 	}
-	for _, bad := range []string{"file:///etc/passwd", "http://user:pw@host/v1", "http://host/v1?x=1", "localhost:11434"} {
+	for _, bad := range []string{"file:///etc/passwd", "http://user:pw@host/v1", "http://host/v1?x=1", "localhost:11434", "http://169.254.169.254", "http://[fe80::1]:11434", "http://0.0.0.0:11434"} {
 		if _, err := s.resolveBase(ollama, bad, ""); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
@@ -536,5 +538,20 @@ func TestOpenCodeMessagesKeepThePathPrefix(t *testing.T) {
 	}
 	if got, err := c.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); err != nil || got.Content != "OK" {
 		t.Fatalf("%v %v", got, err)
+	}
+}
+
+func TestKeyChecksNeverUseAStaleList(t *testing.T) {
+	c := newCatalogue()
+	ok := func() ([]ModelOption, error) { return []ModelOption{{ID: "m"}}, nil }
+	fail := func() ([]ModelOption, error) { return nil, errors.New("revoked") }
+	if _, err := c.get("k", time.Hour, ok); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := c.get("k", 0, fail); err == nil || list != nil {
+		t.Fatalf("a forced refresh must report the failure: %v %v", list, err)
+	}
+	if list, err := c.get("k", 0, ok); err != nil || len(list) != 1 {
+		t.Fatalf("%v %v", list, err)
 	}
 }

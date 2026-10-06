@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -136,6 +137,10 @@ func (s *Service) resolveBase(spec *apiProvider, requested, current string) (str
 	u, err := url.Parse(requested)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(requested) > 300 {
 		return "", errors.New("Enter a plain http:// or https:// address, such as http://192.168.1.20:11434")
+	}
+	// Link-local addresses host cloud metadata services; Ollama never lives there.
+	if ip := net.ParseIP(u.Hostname()); ip != nil && (ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
+		return "", errors.New("That address is not allowed for Ollama")
 	}
 	return requested, nil
 }
@@ -285,6 +290,10 @@ func (s *Service) setAPIKey(c *echo.Context) error {
 	base, err := s.resolveBase(spec, in.BaseURL, row.BaseURL)
 	if err != nil {
 		return echo.NewHTTPError(400, err.Error())
+	}
+	if spec.KeyOptional && in.Key == "" && row.BaseURL != "" && base != row.BaseURL {
+		// A saved key belongs to its address (Ollama Cloud); never send it to another.
+		key, sealed = "", ""
 	}
 	list, err := s.apiModelList(ctx, spec, base, key, 0)
 	if err != nil {

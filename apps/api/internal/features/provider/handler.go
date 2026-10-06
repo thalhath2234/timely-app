@@ -355,7 +355,7 @@ func (s *Service) configure(c *echo.Context) error {
 			return err
 		}
 		if !found {
-			return echo.NewHTTPError(409, "Add a "+spec.Label+" API key first")
+			return echo.NewHTTPError(409, "Connect "+spec.Label+" first")
 		}
 		if api.Model == model {
 			continue

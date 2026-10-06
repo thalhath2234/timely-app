@@ -57,13 +57,16 @@ func (c *catalogue) get(key string, maxAge time.Duration, load func() ([]ModelOp
 	}
 	c.mu.Unlock()
 	list, err := load()
-	if err != nil {
+	if err != nil && maxAge > 0 {
+		// A forced refresh (maxAge 0, used to check a key) never falls back.
 		c.mu.Lock()
 		stale, ok := c.cached[key]
 		c.mu.Unlock()
 		if ok {
 			return stale, nil
 		}
+	}
+	if err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
