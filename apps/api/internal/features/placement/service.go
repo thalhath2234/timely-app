@@ -1,4 +1,6 @@
-// Package placement is the only writer of Blocks and Reminder pings (ADR 0004).
+// Package placement is the only writer of Blocks (ADR 0004) and of Reminder
+// pings made by placing. Plain task-field edits that also carry scheduled_on
+// (task update, Inbox conversion) and account restore stay outside it.
 // Auto-schedule Preview and Rank live in the schedule feature, which hands every
 // write here (ApplyAutoSchedule, UndoAutoSchedule); Clarify, drag, pin, and
 // Event times call Placement directly. The Block store is private to this

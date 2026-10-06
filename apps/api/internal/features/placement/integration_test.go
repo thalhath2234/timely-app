@@ -446,6 +446,53 @@ func TestIntegrationAutoScheduleApplyAndUndo(t *testing.T) {
 	}
 }
 
+// Apply keeps Engine blocks that start inside the freeze window, replaces a
+// Manual block only for tasks the person agreed to replace, and a Block that
+// merely ends where a new one starts is not displaced.
+func TestIntegrationAutoScheduleApplyScope(t *testing.T) {
+	f := newFixture(t)
+	frozen := f.task(models.KindTask, 30)
+	replaceable := f.task(models.KindTask, 30)
+	kept := f.task(models.KindTask, 30)
+	for _, b := range []models.ScheduledBlock{
+		{TaskID: frozen.ID, StartAt: at(9, 0), EndAt: at(9, 30), Source: models.BlockSourceEngine},
+		{TaskID: replaceable.ID, StartAt: at(12, 0), EndAt: at(12, 30), Source: models.BlockSourceManual},
+		{TaskID: kept.ID, StartAt: at(13, 0), EndAt: at(13, 30), Source: models.BlockSourceManual},
+	} {
+		b.ID, b.UserID = utils.NewBlockID(), testUser
+		if err := f.db.Create(&b).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := f.svc.ApplyAutoSchedule(testUser, AutoScheduleApply{
+		CandidateIDs: []string{frozen.ID, replaceable.ID},
+		From:         at(0, 0), To: at(23, 59),
+		FreezeUntil:      at(10, 0),
+		ReplaceManualIDs: []string{replaceable.ID},
+		Next:             []models.ScheduledBlock{{TaskID: replaceable.ID, UserID: testUser, StartAt: at(15, 0), EndAt: at(15, 30), Source: models.BlockSourceEngine}},
+		Revision:         func([]models.ScheduledBlock) (*models.ScheduleRevision, error) { return revision(), nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.blocks(frozen.ID); len(got) != 1 || !got[0].StartAt.Equal(at(9, 0)) {
+		t.Fatalf("frozen Engine block = %+v, want it kept", got)
+	}
+	if got := f.blocks(replaceable.ID); len(got) != 1 || !got[0].StartAt.Equal(at(15, 0)) {
+		t.Fatalf("replaced task = %+v, want only the new Engine block", got)
+	}
+	if len(f.blocks(kept.ID)) != 1 {
+		t.Fatal("Apply removed a Manual block it was not allowed to replace")
+	}
+
+	// A Block ending exactly where the new one starts stays.
+	touching := f.task(models.KindTask, 30)
+	f.placeByHand(touching, at(13, 30), false)
+	if len(f.blocks(kept.ID)) != 1 {
+		t.Fatal("placing next to a Block displaced it")
+	}
+}
+
 // A failing revision rolls the Block writes back with it.
 func TestIntegrationAutoScheduleApplyIsAtomic(t *testing.T) {
 	f := newFixture(t)
