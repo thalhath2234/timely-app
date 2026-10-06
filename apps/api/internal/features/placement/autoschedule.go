@@ -1,6 +1,7 @@
 package placement
 
 import (
+	"errors"
 	"time"
 	"timely-api/internal/models"
 
@@ -38,6 +39,12 @@ type AutoScheduleUndo struct {
 // for one user serialize. Pinned blocks and Manual blocks outside
 // ReplaceManualIDs are never touched.
 func (s *Service) ApplyAutoSchedule(userID string, in AutoScheduleApply) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	if in.Revision == nil {
+		return errors.New("auto-schedule apply needs a revision so it can be undone")
+	}
 	return s.blocks.DB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", userID).Error; err != nil {
 			return err
@@ -69,6 +76,9 @@ func (s *Service) ApplyAutoSchedule(userID string, in AutoScheduleApply) error {
 // UndoAutoSchedule removes the Engine blocks an Apply wrote, restores the ones
 // it replaced, and deletes the revision, in one transaction.
 func (s *Service) UndoAutoSchedule(userID string, in AutoScheduleUndo) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
 	return s.blocks.DB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", userID).Error; err != nil {
 			return err
@@ -87,6 +97,9 @@ func (s *Service) UndoAutoSchedule(userID string, in AutoScheduleUndo) error {
 // EngineBlocksInRange lists the user's Engine blocks for the tasks that overlap
 // [from, to), so a preview can say what an Undo would remove.
 func (s *Service) EngineBlocksInRange(userID string, taskIDs []string, from, to time.Time) ([]models.ScheduledBlock, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
 	return s.blocks.engineBlocksInRange(userID, taskIDs, from, to)
 }
 

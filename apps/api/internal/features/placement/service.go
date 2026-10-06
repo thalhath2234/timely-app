@@ -1,6 +1,7 @@
 // Package placement is the only writer of Blocks (ADR 0004) and of Reminder
 // pings made by placing. Plain task-field edits that also carry scheduled_on
-// (task update, Inbox conversion) and account restore stay outside it.
+// (task update, Inbox conversion), the new task row that continues a series
+// (task.Split), and account restore stay outside it.
 // Auto-schedule Preview and Rank live in the schedule feature, which hands every
 // write here (ApplyAutoSchedule, UndoAutoSchedule); Clarify, drag, pin, and
 // Event times call Placement directly. The Block store is private to this
@@ -25,6 +26,20 @@ type Service struct {
 
 func New(db *gorm.DB, hours HoursLookup) *Service {
 	return &Service{blocks: newBlockStore(db), hours: hours}
+}
+
+// errNotConfigured is what entry points that return a value or a Block report
+// on an unwired Service. The older write helpers (PlaceWork, PlacePing,
+// ClearTask, ...) keep their silent no-op so callers whose tests pass a nil
+// Placement still run; a hand placement or an Auto-schedule Apply that quietly
+// did nothing would look like success, so those fail loudly instead.
+var errNotConfigured = errors.New("placement is not configured")
+
+func (s *Service) ready() error {
+	if s == nil || s.blocks == nil {
+		return errNotConfigured
+	}
+	return nil
 }
 
 // workingHours is the only Working-hours fallback Placement uses: no lookup, a
