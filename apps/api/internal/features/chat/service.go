@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/sheet"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
 	"unicode/utf8"
@@ -21,6 +22,7 @@ import (
 type Service struct {
 	db         *gorm.DB
 	factory    func(*gorm.DB) agent.Catalog
+	rows       func(*gorm.DB) rowFinder
 	rehearsal  func(*gorm.DB) agent.Catalog
 	provider   Completer
 	completers Completers
@@ -32,7 +34,8 @@ type Service struct {
 func (s *Service) SetRehearsal(factory func(*gorm.DB) agent.Catalog) { s.rehearsal = factory }
 
 func New(db *gorm.DB, factory func(*gorm.DB) agent.Catalog, provider Completer) *Service {
-	return &Service{db: db, factory: factory, provider: provider}
+	rows := func(tx *gorm.DB) rowFinder { return sheet.NewRowFinder(sheet.NewSheetRepository(tx)) }
+	return &Service{db: db, factory: factory, rows: rows, provider: provider}
 }
 
 // SetCompleters switches runs to per-account provider selection. The fixed
