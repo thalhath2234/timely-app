@@ -13,10 +13,11 @@ var (
 	cellReference  = regexp.MustCompile(`(:?)(\$?[A-Z]{1,3}\$?)(\d+)\b`)
 )
 
-// TabsOf returns a sheet's tabs without copying them. A sheet that still stores
-// only the primary grid gets it presented as one "Expenses" tab, so callers can
-// treat every sheet as a workbook. Unlike workbookTabs it never writes, so the
-// tab id is the stable placeholder "primary".
+// TabsOf returns a sheet's tabs, aliasing the stored slices rather than copying
+// them. A sheet that still stores only the primary grid gets it presented as one
+// "Expenses" tab with the stable id "primary", so callers can treat every sheet
+// as a workbook. workbookTabs differs: it copies the tabs and names a wrapped
+// primary grid after the sheet title with a fresh tab id.
 func TabsOf(s models.Sheet) models.SheetTabs {
 	if len(s.Tabs) > 0 {
 		return s.Tabs

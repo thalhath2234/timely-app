@@ -19,7 +19,8 @@ type RowMatch struct {
 type RowFinder interface {
 	// FindRows runs match over every tab of the account's non-archived sheets
 	// (a primary-grid-only sheet counts as one tab) and returns the rows it
-	// selected. Other accounts' sheets are never visible.
+	// selected. Other accounts' sheets are never visible. Results follow the
+	// sheets' updated_at DESC order, then tab order, then row order.
 	FindRows(userID string, match TabMatcher) ([]RowMatch, error)
 }
 
