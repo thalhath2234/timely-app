@@ -24,7 +24,9 @@ import (
 
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
-func chatCatalog(db *gorm.DB, live *realtime.Hub) agent.Catalog {
+// creds supplies each account's own embedding key, as for the REST indexer;
+// without it nothing the agent writes would be indexed.
+func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent.Catalog {
 	tasks := task.NewTaskRepository(db)
 	projects := project.NewProjectRepository(db)
 	workspaces := workspace.NewWorkspaceRepository(db)
@@ -35,6 +37,9 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub) agent.Catalog {
 	place := placement.New(blockStore, sched.GetWorkingHours)
 	indexer := embed.New(db)
 	indexer.SetQueue(jobs.NewQueue(db))
+	if creds != nil {
+		indexer.SetCredentials(creds)
+	}
 	taskService := task.NewTaskService(tasks, projects, workspaces, rules, place, indexer)
 	projectService := project.NewProjectService(projects, workspaces, indexer)
 	projectService.SetTaskCopier(taskService)

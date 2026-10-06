@@ -5,9 +5,12 @@ import {
   getAgentProviders,
   listProviderModels,
   patchAgentProviders,
+  removeApiProviderKey,
   removeOpenRouterKey,
+  setApiProviderKey,
   setOpenRouterKey,
   type AgentProviders,
+  type ApiProviderId,
   type ProviderId,
   type ProviderPatch,
 } from "@/app/utils/api/agentProviders";
@@ -68,6 +71,13 @@ export const useSetOpenRouterKey = () =>
   useProviderMutation((key: string) => setOpenRouterKey(key));
 export const useRemoveOpenRouterKey = () =>
   useProviderMutation<void>(() => removeOpenRouterKey());
+export const useSetApiProviderKey = () =>
+  useProviderMutation(
+    (vars: { id: ApiProviderId; key: string; baseUrl?: string }) =>
+      setApiProviderKey(vars.id, vars.key, vars.baseUrl),
+  );
+export const useRemoveApiProviderKey = () =>
+  useProviderMutation((id: ApiProviderId) => removeApiProviderKey(id));
 /** Drops the server's cached CLI detection and refreshes the provider view. */
 export const useRescanProviders = () =>
   useProviderMutation<void>(() => rescanProviders());

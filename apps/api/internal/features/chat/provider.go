@@ -20,6 +20,9 @@ type ToolCall struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	} `json:"function"`
+	// ExtraContent carries provider state that must be echoed back with the
+	// call, such as Gemini's thought signature.
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 type WireMessage struct {
 	ImageURLs        []string          `json:"-"`
@@ -30,6 +33,12 @@ type WireMessage struct {
 	ToolCallID       string            `json:"tool_call_id,omitempty"`
 	Annotations      []json.RawMessage `json:"annotations,omitempty"`
 	ReasoningDetails []json.RawMessage `json:"reasoning_details,omitempty"`
+	// ReasoningContent is the thinking text DeepSeek and Kimi return; their
+	// thinking modes need it echoed back within a tool loop.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	// ThinkingBlocks are Anthropic thinking blocks, replayed unchanged on the
+	// assistant turn that produced them.
+	ThinkingBlocks []json.RawMessage `json:"thinking_blocks,omitempty"`
 }
 type Completer interface {
 	Complete(context.Context, []WireMessage, []any, bool) (WireMessage, error)
@@ -43,12 +52,26 @@ type Completers interface {
 	Completer(ctx context.Context, userID, provider, model string) (Completer, error)
 }
 
+// Searcher is implemented by completers that may lack web search. The runner
+// offers the web_search tool only when CanSearch reports true.
+type Searcher interface {
+	CanSearch() bool
+}
+
 type completerKey struct{}
 
 // WithCompleter attaches the run's client to the context so every model call in
 // the run (planning, receipts, vision, search) uses the same provider.
 func WithCompleter(ctx context.Context, c Completer) context.Context {
 	return context.WithValue(ctx, completerKey{}, c)
+}
+
+// canSearch reports whether the run's provider can answer web searches.
+func canSearch(ctx context.Context) bool {
+	if c, ok := ctx.Value(completerKey{}).(Searcher); ok && c != nil {
+		return c.CanSearch()
+	}
+	return true
 }
 
 func (s *Service) complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
@@ -71,16 +94,23 @@ func NewOpenRouter() *OpenRouter {
 	if model == "" {
 		model = "z-ai/glm-5.3-flash"
 	}
-	return &OpenRouter{Key: os.Getenv("OPENROUTER_API_KEY"), Model: model, URL: "https://openrouter.ai/api/v1/chat/completions", Client: &http.Client{Timeout: 4 * time.Minute}}
+	// No key: only keys an account saves in Settings → Agent are used.
+	return &OpenRouter{Model: model, URL: "https://openrouter.ai/api/v1/chat/completions", Client: &http.Client{Timeout: 4 * time.Minute}}
 }
 
 // Only model inference is retried here; no domain tool executes until a complete
 // response has been accepted. A failed attempt cannot replay an app mutation.
 func (p *OpenRouter) Complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	return RetryTransient(ctx, func() (WireMessage, error) { return p.completeOnce(ctx, messages, tools, search) })
+}
+
+// RetryTransient runs one model call and retries it once after a network
+// timeout or a cut-off body. Other errors and cancellation return at once.
+func RetryTransient(ctx context.Context, call func() (WireMessage, error)) (WireMessage, error) {
 	var result WireMessage
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
-		result, err = p.completeOnce(ctx, messages, tools, search)
+		result, err = call()
 		if err == nil {
 			return result, nil
 		}
@@ -107,12 +137,20 @@ func (p *OpenRouter) Complete(ctx context.Context, messages []WireMessage, tools
 func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
 	var empty WireMessage
 	if p.Key == "" {
-		return empty, fmt.Errorf("Chat needs OPENROUTER_API_KEY configured on the API server")
+		return empty, fmt.Errorf("Add an OpenRouter API key in Settings → Agent")
 	}
 	sensitive := false
 	wire := make([]any, 0, len(messages))
 	for _, m := range messages {
 		sensitive = sensitive || m.Sensitive || len(m.ImageURLs) > 0
+		// Fields other providers return are not OpenRouter's to read.
+		m.ReasoningContent, m.ThinkingBlocks = "", nil
+		if len(m.ToolCalls) > 0 {
+			m.ToolCalls = append([]ToolCall(nil), m.ToolCalls...)
+			for i := range m.ToolCalls {
+				m.ToolCalls[i].ExtraContent = nil
+			}
+		}
 		if len(m.ImageURLs) == 0 {
 			wire = append(wire, m)
 			continue

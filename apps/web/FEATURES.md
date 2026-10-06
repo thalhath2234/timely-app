@@ -14,7 +14,7 @@ Timely is a **multi-account, single-user personal productivity system**. Multipl
 | --- | --- |
 | **Desktop web / Electron** | Full product: sidebar, AI Chat, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors, command palette; the same web app also has an Electron shell with native chat notifications |
 | **Native app** | Expo Android/iOS: Home, Calendar, Tasks, Search (command palette), Files tabs; pinch-to-open AI assistant with camera/receipt capture; Inbox/Today, local reminder notifications (permission on first launch), working hours, API keys, export |
-| **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue, in-app agent runner with OpenRouter / Claude Code / Codex providers |
+| **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue, in-app agent runner with OpenRouter, direct API (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, Ollama, NVIDIA, OpenCode Zen/Go), Claude Code and Codex providers |
 | **Hermes / MCP** | 147 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can, including export/backup/restore and sheet templates |
 
 Ownership is always “this user owns this row.” No members, roles, invites, or resource ACLs.
@@ -430,7 +430,7 @@ A public demo of the palette with sample data lives at `/demo/command-palette`.
 
 - Keyword: ILIKE across those five kinds.
 - Semantic: OpenRouter embeddings (default `openai/text-embedding-3-small`, 1536 dims) → pgvector cosine. Optional `kinds=` filter. Index writes enqueue an `index_entity` job (goroutine fallback if the queue is unset); `POST /search/reindex`; auto-reindex if empty.
-- Each account can set its own OpenRouter key and embedding model (Settings → Agent; the model must produce 1536 dims). Changing either enqueues a `reindex_user` job with visible progress. Without a personal key it falls back to the server `OPENROUTER_API_KEY`; with neither, semantic search is off.
+- Each account can set its own OpenRouter key and embedding model (Settings → Agent; the model must produce 1536 dims). Changing either enqueues a `reindex_user` job with visible progress. Without a personal key semantic search is off (there is no server key).
 
 ---
 
@@ -475,8 +475,9 @@ Picker → Name and color / Statuses / Labels / Custom fields (including Yes/No)
 
 ### Agent (desktop `?tab=agent`, native `settings/agent`)
 
-- Three provider cards: **OpenRouter**, **Claude Code**, **Codex**. “Use as default” is enabled only once a provider is ready; badges show Default / Ready / Connected.
+- Provider cards: **OpenRouter**, the direct API providers, **Claude Code**, **Codex**. “Use as default” is enabled only once a provider is ready; badges show Default / Ready / Connected.
 - OpenRouter: personal API key (add / replace / remove; validated with a test call, stored encrypted, shown only as a hint), searchable chat-model picker (tool-calling models; custom names allowed), and embedding-model picker with reindex progress.
+- Direct API providers (Anthropic API, OpenAI API, Google Gemini, DeepSeek, xAI Grok, Mistral, Z.ai, Kimi, Ollama, NVIDIA NIM, OpenCode Zen, OpenCode Go): one compact row each until set up. Key (checked by listing the provider's models; stored encrypted; hint only), endpoint choice where the provider has several (Z.ai international / China, Kimi international / China, Ollama local / Cloud / typed address), searchable model picker, Disconnect. Providers without web search say so.
 - Claude Code / Codex: CLI found + version + path, signed-in account, Connect / Reconnect (one-word test call) / Disconnect, model picker. Hints point at `CLAUDE_BIN` / `CODEX_BIN` and `claude auth login` / `codex login` on the server. Hidden when the server sets `CHAT_LOCAL_CLI=off`.
 - Saving a model runs a test call. Privacy note: zero data retention for private images applies only to OpenRouter. Timely never switches providers silently, and a running chat finishes on the provider it started with.
 
@@ -547,11 +548,12 @@ There are two agent surfaces over **one tool catalog**: the in-app chat (desktop
 
 ### Providers (ADR 0009)
 
-- **OpenRouter** (default): personal encrypted key or the server `OPENROUTER_API_KEY`; default chat model `z-ai/glm-5.3-flash` (`OPENROUTER_CHAT_MODEL`). Web search via the `web` plugin.
+- **OpenRouter** (default): personal encrypted key only (no server key); default chat model `z-ai/glm-5.3-flash` (`OPENROUTER_CHAT_MODEL`). Web search via the `web` plugin.
+- **Direct API providers**: registry in `apps/api/internal/features/provider/registry.go`. Each model routes to one adapter: chat completions (Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, NVIDIA, most OpenCode models), Responses API (OpenAI, OpenCode GPT/Grok/Muse), Anthropic Messages via the official Go SDK (Anthropic with native web search, OpenCode Claude/Qwen), or Ollama's native `/api/chat` with a 32k context (`OLLAMA_NUM_CTX`). Only Anthropic has web search among direct providers. Keys live in `agent_api_keys`, per account and provider; providers whose model list is public (NVIDIA, OpenCode, Ollama Cloud) or absent (Z.ai) get a test call when a key is saved. Kimi/Z.ai reasoning text, Anthropic thinking blocks and Gemini thought signatures are echoed back within a tool loop; DeepSeek thinking is off. `OLLAMA_BASE_URL` sets the default Ollama address.
 - **Claude Code CLI**: models fable, opus, sonnet (default), haiku or a full name; runs `claude -p` with every built-in tool disabled.
 - **Codex CLI**: `codex exec --ephemeral -s read-only` with the shell disabled; default model from `~/.codex/config.toml`.
 - Connect checks the binary, sign-in, and one test call. Disconnecting the default provider resets it to OpenRouter. Provider and model are fixed when a run starts; there is never a silent fallback.
-- Env: `OPENROUTER_API_KEY`, `OPENROUTER_CHAT_MODEL`, `OPENROUTER_EMBED_MODEL`, `CHAT_LOCAL_CLI=off`, `CLAUDE_BIN`, `CODEX_BIN`, `CHAT_IMAGE_DIR`; stored keys are encrypted with `TIMELY_BACKUP_KEY` (or `JWT_SECRET`).
+- Env: `OPENROUTER_CHAT_MODEL`, `OPENROUTER_EMBED_MODEL`, `CHAT_LOCAL_CLI=off`, `CLAUDE_BIN`, `CODEX_BIN`, `CHAT_IMAGE_DIR`; stored keys are encrypted with `TIMELY_BACKUP_KEY` (or `JWT_SECRET`).
 
 ### Hermes / MCP
 
@@ -763,7 +765,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 **Chat:** `GET/POST /chats`, `GET/PATCH/DELETE /chats/:id`, `POST /chats/:id/{messages,approve,reject,stop,retry,read,receipt}`, `POST /chats/:id/images/{confirm,discard}`, `POST /chats/images`, `GET/DELETE /chats/images/:imageId`
 
-**Agent providers:** `GET/PATCH /agent/providers`, `GET /agent/providers/:id/models` (`?kind=embed` for OpenRouter), `POST /agent/providers/:id/{connect,disconnect}`, `POST/DELETE /agent/providers/openrouter/key`
+**Agent providers:** `GET/PATCH /agent/providers`, `GET /agent/providers/:id/models` (`?kind=embed` for OpenRouter), `POST /agent/providers/:id/{connect,disconnect}`, `POST/DELETE /agent/providers/:id/key` (OpenRouter or a direct API provider; body `{key, baseUrl}`), `PATCH` also takes `models: {<id>: <model>}`
 
 **Portability:** full versioned JSON export + replace-mode transactional restore; task CSV; calendar ICS; document Markdown; encrypted server backup create/list/download/delete; backup schedule + retention settings
 

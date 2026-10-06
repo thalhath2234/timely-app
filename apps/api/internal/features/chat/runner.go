@@ -212,7 +212,7 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 		"reply":     map[string]any{"type": "string", "description": "Answer to any question in the person's message that is not about the changes (e.g. what weekday tomorrow is); empty string when there is none. Shown as its own message next to the summary."},
 		"remaining": map[string]any{"type": "string", "description": "When the request needs more than 30 changes: exactly what is left after this batch (Timely continues with it automatically once this batch is applied). Empty string when this proposal completes the request."},
 		"language":  map[string]any{"type": "string", "description": "BCP 47 tag of the language the person writes in, e.g. en, ja, es."}, "steps": map[string]any{"type": "array", "minItems": 1, "maxItems": 30, "items": map[string]any{"type": "object", "properties": map[string]any{"tool": map[string]any{"type": "string"}, "summary": map[string]any{"type": "string"}, "arguments": map[string]any{"type": "object"}}, "required": []string{"tool", "summary", "arguments"}}}}, "required": []string{"summary", "steps", "direct", "reply", "remaining", "language"}}))
-	if c.WebSearch && !c.Sensitive {
+	if c.WebSearch && !c.Sensitive && canSearch(ctx) {
 		specs = append(specs, toolSpec("web_search", "Research a public question. Returns an answer with source links.", map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}, "required": []string{"query"}}))
 	}
 	system := instruction + timeContext(time.Now(), loc, source) + "\nWrite tool schemas:\n" + string(raw(writes))
@@ -306,7 +306,7 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 				})
 			}
 			var result any
-			if name == "web_search" && c.WebSearch && !c.Sensitive {
+			if name == "web_search" && c.WebSearch && !c.Sensitive && canSearch(ctx) {
 				var in struct {
 					Query string `json:"query"`
 				}

@@ -41,11 +41,12 @@ type catalogue struct {
 	mu      sync.Mutex
 	fetched map[string]time.Time
 	cached  map[string][]ModelOption
+	effort  map[string]bool // Anthropic models that accept output_config.effort
 	client  *http.Client
 }
 
 func newCatalogue() *catalogue {
-	return &catalogue{fetched: map[string]time.Time{}, cached: map[string][]ModelOption{}, client: &http.Client{Timeout: 20 * time.Second}}
+	return &catalogue{fetched: map[string]time.Time{}, cached: map[string][]ModelOption{}, effort: map[string]bool{}, client: &http.Client{Timeout: 20 * time.Second}}
 }
 
 func (c *catalogue) get(key string, maxAge time.Duration, load func() ([]ModelOption, error)) ([]ModelOption, error) {
@@ -56,13 +57,16 @@ func (c *catalogue) get(key string, maxAge time.Duration, load func() ([]ModelOp
 	}
 	c.mu.Unlock()
 	list, err := load()
-	if err != nil {
+	if err != nil && maxAge > 0 {
+		// A forced refresh (maxAge 0, used to check a key) never falls back.
 		c.mu.Lock()
 		stale, ok := c.cached[key]
 		c.mu.Unlock()
 		if ok {
 			return stale, nil
 		}
+	}
+	if err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
