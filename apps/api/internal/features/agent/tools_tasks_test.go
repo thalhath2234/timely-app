@@ -26,11 +26,9 @@ func TestPrepareCreateTaskDefaultsWorkDuration(t *testing.T) {
 			}
 		})
 	}
-	for _, in := range []createTaskIn{{Name: "Bug"}, {Name: "Bug", Duration: &explicitDuration}} {
-		_, err := prepareCreateTask(in)
-		if err == nil || !strings.Contains(err.Error(), "workspace") {
-			t.Fatalf("error = %v, want workspace prompt", err)
-		}
+	// A missing workspace is task.Create's rule; prepareCreateTask leaves it alone.
+	if got, err := prepareCreateTask(createTaskIn{Name: "Bug"}); err != nil || got.Duration == nil || *got.Duration != 30 {
+		t.Fatalf("prepared task = %+v, error = %v, want 30-minute work", got, err)
 	}
 	_, err := prepareCreateTask(createTaskIn{Name: "Bug", WorkspaceID: "ws_personal", Duration: &zeroDuration})
 	if err == nil || !strings.Contains(err.Error(), "duration") {

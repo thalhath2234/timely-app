@@ -2,9 +2,12 @@ package task
 
 import (
 	"errors"
+	"net/http"
 	"testing"
 
 	"timely-api/internal/models"
+
+	"github.com/labstack/echo/v5"
 )
 
 type memRepo struct {
@@ -163,5 +166,13 @@ func TestClarifyReminderNeedsPing(t *testing.T) {
 	}
 	if _, err := repo.GetTaskById(inbox.ID); err != nil {
 		t.Fatal("inbox item must remain")
+	}
+}
+
+func TestTaskErrorKeepsWorkspaceRequiredAsBadRequest(t *testing.T) {
+	err := taskError(ErrWorkspaceRequired)
+	var httpErr *echo.HTTPError
+	if !errors.As(err, &httpErr) || httpErr.Code != http.StatusBadRequest || httpErr.Message != "workspaceId is required" {
+		t.Fatalf("got %v, want 400 workspaceId is required", err)
 	}
 }
