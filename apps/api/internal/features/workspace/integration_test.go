@@ -172,10 +172,18 @@ func TestIntegrationWorkspaceCannotReachOwnChildThroughForeignWorkspace(t *testi
 	must(t, f.svc.DeleteStatuses(f.other, f.status, f.otherWs))
 	must(t, f.svc.DeleteLabels(f.other, f.label, f.otherWs))
 	must(t, f.svc.DeleteCustomFields(f.other, f.field, f.otherWs))
-	if count(t, f.db, &models.Status{}, "id = ?", f.status) != 1 ||
-		count(t, f.db, &models.Lable{}, "id = ?", f.label) != 1 ||
-		count(t, f.db, &models.CustomField{}, "id = ?", f.field) != 1 {
-		t.Fatal("child rows deleted through another workspace")
+	// Updates match on id and workspace_id too. They don't report a missing
+	// row, so only assert that nothing was written.
+	_, err := f.svc.UpdateStatuses(f.other, &models.Status{ID: f.status, Name: "Hijacked", Color: "#999999", WorkspaceID: f.otherWs})
+	must(t, err)
+	_, err = f.svc.UpdateLabels(f.other, &models.Lable{ID: f.label, Name: "Hijacked", Color: "#999999", WorkspaceID: f.otherWs})
+	must(t, err)
+	_, err = f.svc.UpdateCustomFields(f.other, &models.CustomField{ID: f.field, Name: "Hijacked", Type: models.CustomFieldTypeText, WorkspaceID: f.otherWs})
+	must(t, err)
+	if count(t, f.db, &models.Status{}, "id = ? AND name = ? AND color = ?", f.status, "Review", "#111111") != 1 ||
+		count(t, f.db, &models.Lable{}, "id = ? AND name = ? AND color = ?", f.label, "Bug", "#222222") != 1 ||
+		count(t, f.db, &models.CustomField{}, "id = ? AND name = ? AND type = ?", f.field, "Estimate", models.CustomFieldTypeNumber) != 1 {
+		t.Fatal("child rows modified or deleted through another workspace")
 	}
 }
 
