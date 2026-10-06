@@ -17,6 +17,7 @@ type Tool struct {
 	Name        string                                                      `json:"name"`
 	Description string                                                      `json:"description"`
 	Parameters  *jsonschema.Schema                                          `json:"parameters"`
+	Authority   Authority                                                   `json:"-"`
 	Call        func(context.Context, string, json.RawMessage) (any, error) `json:"-"`
 }
 type Catalog map[string]Tool
@@ -27,7 +28,10 @@ func NewCatalog(deps Deps) Catalog {
 	return s.catalog
 }
 
-func registerTool[I, O any](s *Server, server *mcp.Server, tool *mcp.Tool, handler func(context.Context, *mcp.CallToolRequest, I) (*mcp.CallToolResult, O, error)) {
+// registerTool is the one declaration of a tool: its schema and handler for
+// both MCP and the in-app catalog, and its authority for the chat agent.
+func registerTool[I, O any](s *Server, server *mcp.Server, tool *mcp.Tool, authority Authority, handler func(context.Context, *mcp.CallToolRequest, I) (*mcp.CallToolResult, O, error)) {
+	authority.validate(tool.Name)
 	if server != nil {
 		mcp.AddTool(server, tool, handler)
 	}
@@ -53,7 +57,7 @@ func registerTool[I, O any](s *Server, server *mcp.Server, tool *mcp.Tool, handl
 	if tool.Name == "create_task" {
 		description = "Create Work in an explicitly named or unambiguous attached workspace. Default duration 30 minutes. kind=reminder requires scheduleAt. Never infer an Inbox capture. Descriptions accept markdown."
 	}
-	s.catalog[tool.Name] = Tool{Name: tool.Name, Description: description, Parameters: schema,
+	s.catalog[tool.Name] = Tool{Name: tool.Name, Description: description, Parameters: schema, Authority: authority,
 		Call: func(ctx context.Context, uid string, raw json.RawMessage) (any, error) {
 			if uid == "" {
 				return nil, fmt.Errorf("not authenticated")

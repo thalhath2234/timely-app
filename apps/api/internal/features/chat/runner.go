@@ -202,10 +202,10 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 	sort.Strings(keys)
 	for _, name := range keys {
 		t := catalog[name]
-		if readTools[name] {
+		if isReadTool(name) {
 			specs = append(specs, toolSpec(name, t.Description, t.Parameters))
 		}
-		if writeTools[name] {
+		if isWriteTool(name) {
 			writes = append(writes, t)
 		}
 	}
@@ -319,12 +319,12 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 				} else {
 					err = fmt.Errorf("Invalid search query")
 				}
-			} else if readTools[name] && catalog[name].Call != nil {
+			} else if isReadTool(name) && catalog[name].Call != nil {
 				result, err = catalog[name].Call(ctx, c.UserID, args)
 				if key, ok := snapshotRead(name, args); ok && err == nil {
 					reads[key] = hash(result)
 				}
-			} else if writeTools[name] {
+			} else if isWriteTool(name) {
 				err = fmt.Errorf("%s changes data, so it is never called directly. Call propose_changes alone with steps [{\"tool\": %q, \"summary\": \"...\", \"arguments\": {...}}]; Timely checks it and applies it or asks the person to review it. This action is available: do not tell the person otherwise", name, name)
 			} else {
 				err = fmt.Errorf("Unknown tool %q. Use only the listed read tools, web_search when it is listed, and propose_changes for every change", name)
@@ -430,31 +430,20 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 				seen[key] = true
 			}
 		}
-		// Settings replace current values; the review shows those values.
-		if read, ok := settingsReads[steps[i].Tool]; ok {
-			result, err := catalog[read].Call(ctx, uid, raw(map[string]any{}))
+		// A tool can declare a read whose result is the "before" of its change:
+		// the current settings it replaces, the blocks an undo restores, the
+		// placement an apply would make.
+		if authority, ok := agent.AuthorityOf(steps[i].Tool); ok && authority.Showing != "" {
+			readArgs := raw(map[string]any{})
+			if authority.ShowingStepArguments {
+				readArgs = steps[i].Arguments
+			}
+			result, err := catalog[authority.Showing].Call(ctx, uid, readArgs)
 			if err != nil {
-				return nil, fmt.Errorf("step %d (%s) cannot read the current settings: %w", i+1, steps[i].Tool, err)
+				return nil, fmt.Errorf("step %d (%s) cannot read %s for review: %w", i+1, steps[i].Tool, authority.Showing, err)
 			}
 			steps[i].Before = raw(result)
-			out = append(out, Snapshot{Tool: read, Arguments: raw(map[string]any{}), Hash: hash(result)})
-		}
-		if steps[i].Tool == "undo_schedule" {
-			// The review lists the blocks the undo removes and restores.
-			result, err := catalog["undo_schedule_preview"].Call(ctx, uid, raw(map[string]any{}))
-			if err != nil {
-				return nil, fmt.Errorf("step %d (undo_schedule) cannot preview the undo: %w", i+1, err)
-			}
-			steps[i].Before = raw(result)
-			out = append(out, Snapshot{Tool: "undo_schedule_preview", Arguments: raw(map[string]any{}), Hash: hash(result)})
-		}
-		if steps[i].Tool == "auto_schedule_apply" {
-			result, err := catalog["auto_schedule_preview"].Call(ctx, uid, steps[i].Arguments)
-			if err != nil {
-				return nil, err
-			}
-			steps[i].Before = raw(result)
-			out = append(out, Snapshot{Tool: "auto_schedule_preview", Arguments: steps[i].Arguments, Hash: hash(result)})
+			out = append(out, Snapshot{Tool: authority.Showing, Arguments: readArgs, Hash: hash(result)})
 		}
 		// A reviewed placement reserves a calendar span; anything that lands
 		// there after approval must be reviewed too, since placing by hand
@@ -578,7 +567,7 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 				if err != nil {
 					return err
 				}
-				if !writeTools[row.Plan[i].Tool] {
+				if !isWriteTool(row.Plan[i].Tool) {
 					return fmt.Errorf("Action not permitted")
 				}
 				result, err := catalog[row.Plan[i].Tool].Call(ctx, row.UserID, raw(value))
@@ -671,8 +660,6 @@ func serializationFailure(err error) bool {
 	// Tool handlers sometimes flatten the driver error into text.
 	return strings.Contains(err.Error(), "SQLSTATE 40001") || strings.Contains(err.Error(), "SQLSTATE 40P01")
 }
-
-var settingsReads = map[string]string{"update_working_hours": "get_working_hours", "update_notification_settings": "get_notification_settings"}
 
 // maxBatches bounds automatic continuation for one request.
 const maxBatches = 10

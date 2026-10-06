@@ -47,24 +47,37 @@ func TestApprovalBoundaries(t *testing.T) {
 	}
 }
 func TestCatalogScope(t *testing.T) {
-	if !writeTools["create_sheet_template"] || !writeTools["update_sheet_template"] {
+	if !isWriteTool("create_sheet_template") || !isWriteTool("update_sheet_template") {
 		t.Fatal("chat cannot create or rename reusable templates")
 	}
 	catalog := agent.NewCatalog(agent.Deps{})
-	for name := range writeTools {
-		if catalog[name].Call == nil {
-			t.Errorf("missing shared Hermes handler %s", name)
+	reads, writes := 0, 0
+	for name, tool := range catalog {
+		if isReadTool(name) || isWriteTool(name) {
+			if tool.Call == nil {
+				t.Errorf("missing shared Hermes handler %s", name)
+			}
+		}
+		if isReadTool(name) && isWriteTool(name) {
+			t.Errorf("%s is both read and write", name)
+		}
+		if isReadTool(name) {
+			reads++
+		}
+		if isWriteTool(name) {
+			writes++
 		}
 	}
-	for name := range readTools {
-		if catalog[name].Call == nil {
-			t.Errorf("missing read handler %s", name)
-		}
+	if reads == 0 || writes == 0 {
+		t.Fatalf("chat sees %d read and %d write tools", reads, writes)
 	}
 	for _, name := range []string{"delete_workspace", "delete_project", "delete_status", "delete_custom_field", "delete_backup", "restore_account", "update_profile", "update_account_config", "clear_notifications", "create_backup", "export_account"} {
-		if writeTools[name] || readTools[name] {
+		if isWriteTool(name) || isReadTool(name) {
 			t.Errorf("unexpected authority for %s", name)
 		}
+	}
+	if isWriteTool("no_such_tool") || isReadTool("no_such_tool") || !needsApproval([]Step{{Tool: "no_such_tool", Arguments: raw(map[string]any{})}}, true) {
+		t.Error("an undeclared tool must be unavailable and always reviewed")
 	}
 }
 func TestReferencesUseCompletedResults(t *testing.T) {
