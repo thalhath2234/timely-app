@@ -5,6 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./sheetFormulaInput": "./src/sheetFormulaInput.ts"
+    "./sheetCell": "./src/sheetCell.ts",
+    "./sheetCsv": "./src/sheetCsv.ts",
+    "./sheetFormula": "./src/sheetFormula.ts",
+    "./sheetFormulaInput": "./src/sheetFormulaInput.ts",
+    "./sheetRange": "./src/sheetRange.ts",
+    "./sheetTypes": "./src/sheetTypes.ts"
   }
 }

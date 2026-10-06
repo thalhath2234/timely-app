@@ -1,5 +1,6 @@
 import type { Sheet, SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRow, SheetTab } from "./types";
-import { columnIndexToLetter } from "./sheetFormula";
+import { isFormulaValue } from "@timely/contract/sheetCell";
+import { columnIndexToLetter } from "@timely/contract/sheetFormula";
 
 export const SHEET_ICON_CHOICES = [
   "📊", "📈", "📉", "🧮", "💰", "📋", "🗓️", "⚙️",
@@ -262,38 +263,6 @@ export function addWorkbookTab(tabs: SheetTab[], from?: SheetTab): SheetTab[] {
       merges: [] as SheetMerge[],
     },
   ];
-}
-
-export function isFormulaValue(value: string) {
-  return value.trim().startsWith("=");
-}
-
-export function normalizeTypedCell(type: SheetColumnType | undefined, value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed || isFormulaValue(trimmed) || !type || type === "text") return value;
-  if (type === "number" || type === "currency" || type === "percent" || type === "formula") {
-    const hadPercent = trimmed.endsWith("%");
-    const parsed = Number(trimmed.replace(/%/g, "").replace(/,/g, "").trim());
-    if (!Number.isFinite(parsed)) return "";
-    return String(hadPercent ? parsed / 100 : parsed);
-  }
-  if (type === "date") {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-    const parsed = new Date(trimmed);
-    if (Number.isNaN(parsed.getTime())) return "";
-    const year = parsed.getFullYear();
-    const month = String(parsed.getMonth() + 1).padStart(2, "0");
-    const day = String(parsed.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }
-  if (type === "boolean") {
-    const upper = trimmed.toUpperCase();
-    if (["TRUE", "1", "YES", "Y"].includes(upper)) return "TRUE";
-    if (["FALSE", "0", "NO", "N"].includes(upper)) return "FALSE";
-    return "";
-  }
-  if (type === "select") return trimmed;
-  return value;
 }
 
 export function formatCellDisplay(

@@ -30,7 +30,7 @@ import {
 import { useAutosave } from "@/app/utils/hooks/useAutosave";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
-import { createSheetEvaluator } from "@/app/utils/sheetFormula";
+import { createSheetEvaluator } from "@timely/contract/sheetFormula";
 import { downloadCsv, sheetToCsv } from "@/app/utils/sheetCsv";
 import {
   addWorkbookTab,

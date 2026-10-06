@@ -1,4 +1,4 @@
-import type { SheetMerge } from "./types";
+import type { SheetMerge } from "./sheetTypes";
 
 export interface CellAddress {
   col: number;
@@ -156,16 +156,25 @@ export function isExactMergeSelection(range: CellRange, merge: SheetMerge) {
   return sameRange(range, rangeFromMerge(merge));
 }
 
-export function activeCellInRange(range: CellRange, merges: SheetMerge[]): CellAddress {
+export function activeCellInRange(
+  range: CellRange,
+  merges: SheetMerge[],
+): CellAddress {
   const merge = findMerge(merges, range.focus);
   if (!merge) return range.focus;
-  if (isExactMergeSelection(range, merge) || !isMergeOrigin(merge, range.focus)) {
+  if (
+    isExactMergeSelection(range, merge) ||
+    !isMergeOrigin(merge, range.focus)
+  ) {
     return { col: merge.startCol, row: merge.startRow };
   }
   return range.focus;
 }
 
-export function selectionAddressLabel(range: CellRange, merges: SheetMerge[] = []) {
+export function selectionAddressLabel(
+  range: CellRange,
+  merges: SheetMerge[] = [],
+) {
   const merge = findMerge(merges, range.anchor);
   if (merge && isExactMergeSelection(range, merge)) {
     return rangeAddressLabel({
@@ -187,7 +196,10 @@ export function rangesOverlap(a: CellRange, b: CellRange) {
   );
 }
 
-export function unmergeRange(merges: SheetMerge[], range: CellRange): SheetMerge[] {
+export function unmergeRange(
+  merges: SheetMerge[],
+  range: CellRange,
+): SheetMerge[] {
   return merges.filter((merge) => !rangesOverlap(rangeFromMerge(merge), range));
 }
 
@@ -201,7 +213,10 @@ export function mergeAll(merges: SheetMerge[], range: CellRange): SheetMerge[] {
   return addMerge(merges, range);
 }
 
-export function mergeHorizontally(merges: SheetMerge[], range: CellRange): SheetMerge[] {
+export function mergeHorizontally(
+  merges: SheetMerge[],
+  range: CellRange,
+): SheetMerge[] {
   const { minCol, maxCol, minRow, maxRow } = normalizedRange(range);
   if (maxCol === minCol) return merges;
   let next = unmergeRange(merges, range);
@@ -214,7 +229,10 @@ export function mergeHorizontally(merges: SheetMerge[], range: CellRange): Sheet
   return next;
 }
 
-export function mergeVertically(merges: SheetMerge[], range: CellRange): SheetMerge[] {
+export function mergeVertically(
+  merges: SheetMerge[],
+  range: CellRange,
+): SheetMerge[] {
   const { minCol, maxCol, minRow, maxRow } = normalizedRange(range);
   if (maxRow === minRow) return merges;
   let next = unmergeRange(merges, range);
@@ -238,9 +256,16 @@ export function guessAggregateRange(
   rowCount: number,
   isNumeric: (address: CellAddress) => boolean,
 ): CellRange | null {
-  const expandHorizontal = (row: number, aroundCol: number): CellRange | null => {
+  const expandHorizontal = (
+    row: number,
+    aroundCol: number,
+  ): CellRange | null => {
     let seed = -1;
-    if (aroundCol >= 0 && aroundCol < colCount && isNumeric({ col: aroundCol, row })) {
+    if (
+      aroundCol >= 0 &&
+      aroundCol < colCount &&
+      isNumeric({ col: aroundCol, row })
+    ) {
       seed = aroundCol;
     } else {
       for (let col = aroundCol - 1; col >= 0; col -= 1) {
@@ -262,13 +287,18 @@ export function guessAggregateRange(
     let minCol = seed;
     let maxCol = seed;
     while (minCol > 0 && isNumeric({ col: minCol - 1, row })) minCol -= 1;
-    while (maxCol < colCount - 1 && isNumeric({ col: maxCol + 1, row })) maxCol += 1;
+    while (maxCol < colCount - 1 && isNumeric({ col: maxCol + 1, row }))
+      maxCol += 1;
     return { anchor: { col: minCol, row }, focus: { col: maxCol, row } };
   };
 
   const expandVertical = (col: number, aroundRow: number): CellRange | null => {
     let seed = -1;
-    if (aroundRow >= 0 && aroundRow < rowCount && isNumeric({ col, row: aroundRow })) {
+    if (
+      aroundRow >= 0 &&
+      aroundRow < rowCount &&
+      isNumeric({ col, row: aroundRow })
+    ) {
       seed = aroundRow;
     } else {
       for (let row = aroundRow; row >= 0; row -= 1) {
@@ -282,7 +312,8 @@ export function guessAggregateRange(
     let minRow = seed;
     let maxRow = seed;
     while (minRow > 0 && isNumeric({ col, row: minRow - 1 })) minRow -= 1;
-    while (maxRow < rowCount - 1 && isNumeric({ col, row: maxRow + 1 })) maxRow += 1;
+    while (maxRow < rowCount - 1 && isNumeric({ col, row: maxRow + 1 }))
+      maxRow += 1;
     if (maxRow < aroundRow) maxRow = aroundRow;
     return { anchor: { col, row: minRow }, focus: { col, row: maxRow } };
   };
@@ -300,7 +331,10 @@ export function guessAggregateRange(
   return null;
 }
 
-export function toggleMerge(merges: SheetMerge[], range: CellRange): SheetMerge[] {
+export function toggleMerge(
+  merges: SheetMerge[],
+  range: CellRange,
+): SheetMerge[] {
   const next = mergeFromRange(range);
   if (next.colSpan === 1 && next.rowSpan === 1) return merges;
   const existing = merges.find(

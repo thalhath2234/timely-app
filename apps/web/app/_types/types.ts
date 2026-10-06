@@ -1,6 +1,7 @@
 import type { TaskKind } from "@timely/contract";
+import type { SheetColumn, SheetColumnType, SheetMerge } from "@timely/contract/sheetTypes";
 
-export type { TaskKind };
+export type { SheetColumn, SheetColumnType, SheetMerge, TaskKind };
 
 export type SidebarProps = {
   name: string;
@@ -584,16 +585,6 @@ export interface Doc {
   updatedAt: string;
 }
 
-export type SheetColumnType =
-  | "text"
-  | "number"
-  | "date"
-  | "boolean"
-  | "currency"
-  | "percent"
-  | "formula"
-  | "select";
-
 export type SheetAlign = "left" | "center" | "right";
 export type SheetVerticalAlign = "top" | "middle" | "bottom";
 export type SheetNumberFormat =
@@ -626,26 +617,10 @@ export interface SheetCellFormat {
   note?: string;
 }
 
-export interface SheetColumn {
-  id: string;
-  name: string;
-  width: number;
-  type: SheetColumnType;
-  /** Dropdown choices of a select column; absent for other types. */
-  options?: string[];
-}
-
 export interface SheetRow {
   id: string;
   cells: Record<string, string>;
   formats?: Record<string, SheetCellFormat>;
-}
-
-export interface SheetMerge {
-  startCol: number;
-  startRow: number;
-  colSpan: number;
-  rowSpan: number;
 }
 
 export interface SheetTab {
