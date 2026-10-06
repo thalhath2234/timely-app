@@ -60,7 +60,7 @@ describe("sheet CSV", () => {
   });
 
   test("csvToGrid reads the header and pads short rows", () => {
-    const { columns, rows } = csvToGrid("﻿Name,Qty\r\nApple,3\nPear\n", ids());
+    const { columns, rows } = csvToGrid("\uFEFFName,Qty\r\nApple,3\nPear\n", ids());
     assert.deepEqual(
       columns.map((c) => [c.id, c.name, c.type, c.width]),
       [

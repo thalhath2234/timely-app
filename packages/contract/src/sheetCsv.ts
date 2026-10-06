@@ -1,3 +1,4 @@
+// Package self-import: Node strip-types cannot resolve an extensionless relative value import.
 import { columnIndexToLetter } from "@timely/contract/sheetFormula";
 import type { SheetColumn, SheetRow } from "./sheetTypes";
 
@@ -70,7 +71,7 @@ export function csvToGrid(
   { newColumnId, newRowId }: SheetIdFactory,
 ): { columns: SheetColumn[]; rows: SheetRow[] } {
   const lines = text
-    .replace(/^﻿/, "")
+    .replace(/^\uFEFF/, "")
     .split(/\r?\n/)
     .filter((line) => line.length > 0);
   if (lines.length === 0) {
