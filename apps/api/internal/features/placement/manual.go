@@ -39,6 +39,9 @@ func ResolveEnd(start time.Time, endRaw *string, durationMinutes *int, fallbackM
 // existing Blocks are swapped for the new one, otherwise it is added as another
 // chunk. The task must be Work (not an Inbox item, Reminder, or series).
 func (s *Service) PlaceByHand(userID string, task *models.Task, start, end time.Time, replace bool) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
 	block := models.ScheduledBlock{
 		TaskID:  task.ID,
 		UserID:  userID,
@@ -72,6 +75,9 @@ func (s *Service) PlaceByHand(userID string, task *models.Task, start, end time.
 // aside other replaceable Work the way PlaceByHand does. A missing end keeps the
 // Block's length.
 func (s *Service) MoveByHand(userID, blockID, startRaw string, endRaw *string) (*models.ScheduledBlock, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
 	block, err := s.blocks.Get(userID, blockID)
 	if err != nil {
 		return nil, err
@@ -96,6 +102,9 @@ func (s *Service) MoveByHand(userID, blockID, startRaw string, endRaw *string) (
 
 // DeleteBlock removes one Block.
 func (s *Service) DeleteBlock(userID, blockID string) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
 	block, err := s.blocks.Get(userID, blockID)
 	if err != nil {
 		return err
@@ -106,6 +115,9 @@ func (s *Service) DeleteBlock(userID, blockID string) error {
 // PinBlock sets whether one Block is Pinned. Pinning a Block makes it a Manual
 // block, since the person chose to keep that time.
 func (s *Service) PinBlock(userID, blockID string, locked bool) (*models.ScheduledBlock, error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
 	block, err := s.blocks.Get(userID, blockID)
 	if err != nil {
 		return nil, err

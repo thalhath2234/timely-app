@@ -122,6 +122,34 @@ func (f *fixture) eventBlocks(eventID string) int {
 	return int(n)
 }
 
+// span is a Block's interval, compared by instant.
+type span struct{ start, end time.Time }
+
+func (f *fixture) spans(where string, id string) []span {
+	f.t.Helper()
+	var rows []models.ScheduledBlock
+	if err := f.db.Where(where, id).Order("start_at").Find(&rows).Error; err != nil {
+		f.t.Fatal(err)
+	}
+	out := make([]span, len(rows))
+	for i, row := range rows {
+		out[i] = span{row.StartAt, row.EndAt}
+	}
+	return out
+}
+
+func sameSpans(a, b []span) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !a[i].start.Equal(b[i].start) || !a[i].end.Equal(b[i].end) {
+			return false
+		}
+	}
+	return true
+}
+
 func (f *fixture) reload(id string) *models.Task {
 	f.t.Helper()
 	var task models.Task
@@ -177,16 +205,17 @@ func TestIntegrationPlaceByHandPushesAsideWorkButKeepsProtectedTime(t *testing.T
 	for _, slot := range []struct {
 		name  string
 		start time.Time
-		keep  func() int
+		keep  func() []span
 	}{
-		{"Pinned Block", at(13, 0), func() int { return len(f.blocks(pinnedBlock.ID)) }},
-		{"Pinned Work", at(14, 0), func() int { return len(f.blocks(pinnedTask.ID)) }},
-		{"Event", at(15, 0), func() int { return f.eventBlocks(event.ID) }},
+		{"Pinned Block", at(13, 0), func() []span { return f.spans("task_id = ?", pinnedBlock.ID) }},
+		{"Pinned Work", at(14, 0), func() []span { return f.spans("task_id = ?", pinnedTask.ID) }},
+		{"Event", at(15, 0), func() []span { return f.spans("event_id = ?", event.ID) }},
 	} {
 		mover := f.task(models.KindTask, 30)
+		before := slot.keep()
 		f.placeByHand(mover, slot.start, false)
-		if slot.keep() != 1 {
-			t.Fatalf("placing over a %s deleted it", slot.name)
+		if len(before) != 1 || !sameSpans(before, slot.keep()) {
+			t.Fatalf("placing over a %s changed it: before %v, after %v", slot.name, before, slot.keep())
 		}
 		if len(f.blocks(mover.ID)) != 1 {
 			t.Fatalf("the new Block over a %s was not kept", slot.name)
@@ -291,6 +320,7 @@ func TestIntegrationMoveByHandKeepsLengthAndPushesAsideWork(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	protectedBefore := f.spans("task_id = ?", protected.ID)
 	moved, err := f.svc.MoveByHand(testUser, f.blocks(mover.ID)[0].ID, at(12, 0).Format(time.RFC3339), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -301,8 +331,8 @@ func TestIntegrationMoveByHandKeepsLengthAndPushesAsideWork(t *testing.T) {
 	if len(f.blocks(loose.ID)) != 0 {
 		t.Fatal("moving over replaceable Work did not push it aside")
 	}
-	if len(f.blocks(protected.ID)) != 1 {
-		t.Fatal("moving over a Pinned Block deleted it")
+	if !sameSpans(protectedBefore, f.spans("task_id = ?", protected.ID)) || len(protectedBefore) != 1 {
+		t.Fatal("moving over a Pinned Block changed it")
 	}
 	if _, err := f.svc.MoveByHand(testUser, moved.ID, "not a time", nil); err == nil {
 		t.Fatal("accepted an invalid start")
@@ -510,6 +540,31 @@ func TestIntegrationAutoScheduleApplyIsAtomic(t *testing.T) {
 	}
 	if len(f.blocks(task.ID)) != 0 {
 		t.Fatal("a failed Apply left Blocks behind")
+	}
+}
+
+func TestIntegrationUnconfiguredPlacementFailsLoudly(t *testing.T) {
+	var s *Service
+	if err := s.PlaceByHand(testUser, &models.Task{}, at(9, 0), at(9, 30), false); err == nil {
+		t.Fatal("PlaceByHand on a nil Service reported success")
+	}
+	if err := s.ApplyAutoSchedule(testUser, AutoScheduleApply{}); err == nil {
+		t.Fatal("ApplyAutoSchedule on a nil Service reported success")
+	}
+}
+
+func TestIntegrationApplyNeedsARevision(t *testing.T) {
+	f := newFixture(t)
+	task := f.task(models.KindTask, 30)
+	err := f.svc.ApplyAutoSchedule(testUser, AutoScheduleApply{
+		CandidateIDs: []string{task.ID}, From: at(0, 0), To: at(23, 59),
+		Next: []models.ScheduledBlock{{TaskID: task.ID, UserID: testUser, StartAt: at(11, 0), EndAt: at(11, 30), Source: models.BlockSourceEngine}},
+	})
+	if err == nil {
+		t.Fatal("apply without a revision succeeded")
+	}
+	if len(f.blocks(task.ID)) != 0 {
+		t.Fatal("apply without a revision wrote Blocks")
 	}
 }
 
