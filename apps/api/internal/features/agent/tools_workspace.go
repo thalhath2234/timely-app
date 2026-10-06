@@ -107,10 +107,7 @@ func (s *Server) createStatus(ctx context.Context, req *mcp.CallToolRequest, in 
 	if err != nil {
 		return fail(err)
 	}
-	if _, err := s.Workspaces.GetWorkspaceById(uid, in.WorkspaceID); err != nil {
-		return fail(err)
-	}
-	status, err := s.Workspaces.CreateStatuses(&models.Status{
+	status, err := s.Workspaces.CreateStatuses(uid, &models.Status{
 		Name:        in.Name,
 		Color:       in.Color,
 		WorkspaceID: in.WorkspaceID,
@@ -133,10 +130,7 @@ func (s *Server) updateStatus(ctx context.Context, req *mcp.CallToolRequest, in 
 	if err != nil {
 		return fail(err)
 	}
-	if _, err := s.Workspaces.GetWorkspaceById(uid, in.WorkspaceID); err != nil {
-		return fail(err)
-	}
-	status, err := s.Workspaces.UpdateStatuses(&models.Status{
+	status, err := s.Workspaces.UpdateStatuses(uid, &models.Status{
 		ID:          in.ID,
 		Name:        in.Name,
 		Color:       in.Color,
@@ -158,10 +152,7 @@ func (s *Server) deleteStatus(ctx context.Context, req *mcp.CallToolRequest, in 
 	if err != nil {
 		return fail(err)
 	}
-	if _, err := s.Workspaces.GetWorkspaceById(uid, in.WorkspaceID); err != nil {
-		return fail(err)
-	}
-	if err := s.Workspaces.DeleteStatuses(in.ID, in.WorkspaceID); err != nil {
+	if err := s.Workspaces.DeleteStatuses(uid, in.ID, in.WorkspaceID); err != nil {
 		return fail(err)
 	}
 	return reply("status deleted", map[string]string{"id": in.ID})
@@ -172,10 +163,7 @@ func (s *Server) createLabel(ctx context.Context, req *mcp.CallToolRequest, in n
 	if err != nil {
 		return fail(err)
 	}
-	if _, err := s.Workspaces.GetWorkspaceById(uid, in.WorkspaceID); err != nil {
-		return fail(err)
-	}
-	label, err := s.Workspaces.CreateLables(&models.Lable{
+	label, err := s.Workspaces.CreateLabels(uid, &models.Lable{
 		Name:        in.Name,
 		Color:       in.Color,
 		WorkspaceID: in.WorkspaceID,
@@ -191,10 +179,7 @@ func (s *Server) updateLabel(ctx context.Context, req *mcp.CallToolRequest, in u
 	if err != nil {
 		return fail(err)
 	}
-	if _, err := s.Workspaces.GetWorkspaceById(uid, in.WorkspaceID); err != nil {
-		return fail(err)
-	}
-	label, err := s.Workspaces.UpdateLables(&models.Lable{
+	label, err := s.Workspaces.UpdateLabels(uid, &models.Lable{
 		ID:          in.ID,
 		Name:        in.Name,
 		Color:       in.Color,
@@ -211,10 +196,7 @@ func (s *Server) deleteLabel(ctx context.Context, req *mcp.CallToolRequest, in d
 	if err != nil {
 		return fail(err)
 	}
-	if _, err := s.Workspaces.GetWorkspaceById(uid, in.WorkspaceID); err != nil {
-		return fail(err)
-	}
-	if err := s.Workspaces.DeleteLables(in.ID, in.WorkspaceID); err != nil {
+	if err := s.Workspaces.DeleteLabels(uid, in.ID, in.WorkspaceID); err != nil {
 		return fail(err)
 	}
 	return reply("label deleted", map[string]string{"id": in.ID})
@@ -249,10 +231,7 @@ func (s *Server) createCustomField(ctx context.Context, req *mcp.CallToolRequest
 	if err != nil {
 		return fail(err)
 	}
-	if _, err := s.Workspaces.GetWorkspaceById(uid, in.WorkspaceID); err != nil {
-		return fail(err)
-	}
-	field, err := s.Workspaces.CreateCustomFields(&models.CustomField{
+	field, err := s.Workspaces.CreateCustomFields(uid, &models.CustomField{
 		Name:        in.Name,
 		Type:        models.CustomFieldType(in.Type),
 		WorkspaceID: in.WorkspaceID,
@@ -303,7 +282,7 @@ func (s *Server) updateCustomField(ctx context.Context, req *mcp.CallToolRequest
 	if in.Options != nil {
 		options = cfOptions(in.Options)
 	}
-	field, err := s.Workspaces.UpdateCustomFields(&models.CustomField{
+	field, err := s.Workspaces.UpdateCustomFields(uid, &models.CustomField{
 		ID:          in.ID,
 		Name:        name,
 		Type:        cfType,
@@ -321,10 +300,7 @@ func (s *Server) deleteCustomField(ctx context.Context, req *mcp.CallToolRequest
 	if err != nil {
 		return fail(err)
 	}
-	if _, err := s.Workspaces.GetWorkspaceById(uid, in.WorkspaceID); err != nil {
-		return fail(err)
-	}
-	if err := s.Workspaces.DeleteCustomFields(in.ID, in.WorkspaceID); err != nil {
+	if err := s.Workspaces.DeleteCustomFields(uid, in.ID, in.WorkspaceID); err != nil {
 		return fail(err)
 	}
 	return reply("custom field deleted", map[string]string{"id": in.ID})
