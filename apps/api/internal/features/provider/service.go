@@ -105,7 +105,7 @@ func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
 		ollamaURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/"),
 	}
 	if indexer != nil {
-		indexer.SetCredentials(s.embedCredentials)
+		indexer.SetCredentials(s.EmbedCredentials)
 	}
 	return s
 }
@@ -332,8 +332,8 @@ func (s *Service) build(row Settings, provider, model string) (chat.Completer, e
 	return nil, fmt.Errorf("Unknown AI provider %q. Pick one in Settings → Agent", provider)
 }
 
-// embedCredentials feeds the indexer the account's key and embedding model.
-func (s *Service) embedCredentials(userID string) (string, string) {
+// EmbedCredentials feeds an indexer the account's key and embedding model.
+func (s *Service) EmbedCredentials(userID string) (string, string) {
 	row, err := s.load(s.db, userID)
 	if err != nil {
 		return "", ""

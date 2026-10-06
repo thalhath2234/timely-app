@@ -53,7 +53,8 @@ func agentToolsDB(t *testing.T) (*gorm.DB, string) {
 	t.Cleanup(func() { sqlDB.Close() })
 	goose.SetTableName(schema + ".goose_db_version")
 	t.Cleanup(func() { goose.SetTableName("goose_db_version") })
-	if err = goose.Up(sqlDB, "../migrations"); err != nil {
+	// internal/database sets goose's base FS to the embedded migrations.
+	if err = goose.Up(sqlDB, "."); err != nil {
 		t.Fatal(err)
 	}
 	uid := "usr_agent_test"
@@ -69,7 +70,8 @@ func agentToolsDB(t *testing.T) (*gorm.DB, string) {
 // agentToolCaller runs catalog tools for uid inside tx and fails the test on error.
 func agentToolCaller(t *testing.T, tx *gorm.DB, uid string) func(name string, args map[string]any) map[string]any {
 	t.Helper()
-	tools := chatCatalog(tx, realtime.NewHub())
+	// A key makes indexing enqueue jobs, which must roll back with the transaction.
+	tools := chatCatalog(tx, realtime.NewHub(), func(string) (string, string) { return "unused-test-key", "" })
 	return func(name string, args map[string]any) map[string]any {
 		t.Helper()
 		raw, _ := json.Marshal(args)
@@ -130,5 +132,10 @@ func TestIntegrationRealAgentToolsShareTransaction(t *testing.T) {
 	db.Model(&models.Sheet{}).Count(&count)
 	if count != 1 {
 		t.Fatal("sheet missing after commit")
+	}
+	// Agent writes are indexed with the account's own key.
+	db.Model(&models.Job{}).Where("kind = ?", models.JobIndexEntity).Count(&count)
+	if count == 0 {
+		t.Fatal("agent writes must queue index jobs when the account has a key")
 	}
 }

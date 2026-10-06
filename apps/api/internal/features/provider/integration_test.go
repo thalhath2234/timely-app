@@ -143,7 +143,7 @@ esac`)
 	if _, body := call(t, s, "user-a", http.MethodGet, "/agent/providers", nil); body["openrouter"].(map[string]any)["ready"] != false {
 		t.Fatal("a server env key must not make OpenRouter ready")
 	}
-	if key, _ := s.embedCredentials("user-a"); key != "" {
+	if key, _ := s.EmbedCredentials("user-a"); key != "" {
 		t.Fatal("embeddings must not use a server env key")
 	}
 	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/openrouter/key", map[string]string{"key": "sk-or-v1-badkey"}); code != 409 {
