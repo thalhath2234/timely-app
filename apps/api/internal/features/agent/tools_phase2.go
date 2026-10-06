@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 
@@ -67,14 +68,14 @@ func (s *Server) clarifyInboxItem(ctx context.Context, req *mcp.CallToolRequest,
 	}
 	t, err := s.tasksFor(req).Clarify(uid, in.TaskID, task.ClarifyInput{
 		Kind:          kind,
-		WorkspaceID:   strPtr(in.WorkspaceID),
+		WorkspaceID:   strPtr(strings.TrimSpace(in.WorkspaceID)),
 		Duration:      duration,
 		ProjectID:     strPtr(in.ProjectID),
 		PriorityLevel: strPtr(in.PriorityLevel),
 		ScheduledOn:   strPtr(in.ScheduleAt),
 	})
 	if err != nil {
-		return fail(err)
+		return fail(createTaskError(err))
 	}
 	return reply("clarified "+t.Name, taskPayload(t))
 }

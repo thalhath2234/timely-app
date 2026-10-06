@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 )
 
@@ -26,11 +28,9 @@ func TestPrepareCreateTaskDefaultsWorkDuration(t *testing.T) {
 			}
 		})
 	}
-	for _, in := range []createTaskIn{{Name: "Bug"}, {Name: "Bug", Duration: &explicitDuration}} {
-		_, err := prepareCreateTask(in)
-		if err == nil || !strings.Contains(err.Error(), "workspace") {
-			t.Fatalf("error = %v, want workspace prompt", err)
-		}
+	// A missing workspace is task.Create's rule; prepareCreateTask leaves it alone.
+	if got, err := prepareCreateTask(createTaskIn{Name: "Bug"}); err != nil || got.Duration == nil || *got.Duration != 30 {
+		t.Fatalf("prepared task = %+v, error = %v, want 30-minute work", got, err)
 	}
 	_, err := prepareCreateTask(createTaskIn{Name: "Bug", WorkspaceID: "ws_personal", Duration: &zeroDuration})
 	if err == nil || !strings.Contains(err.Error(), "duration") {
@@ -48,5 +48,16 @@ func TestPrepareCreateTaskRejectsInboxAndKeepsReminder(t *testing.T) {
 	in, err := prepareCreateTask(createTaskIn{Name: "Ping", Kind: models.KindReminder, ScheduleAt: "2026-09-28T12:00:00Z"})
 	if err != nil || in.Kind != models.KindReminder || in.Duration != nil {
 		t.Fatalf("reminder = %+v, %v", in, err)
+	}
+}
+
+func TestCreateTaskErrorAsksForWorkspace(t *testing.T) {
+	got := createTaskError(task.ErrWorkspaceRequired)
+	if got == nil || !strings.Contains(got.Error(), "ask the user which workspace") {
+		t.Fatalf("error = %v, want workspace prompt", got)
+	}
+	other := errors.New("boom")
+	if createTaskError(other) != other {
+		t.Fatal("other errors must pass through")
 	}
 }

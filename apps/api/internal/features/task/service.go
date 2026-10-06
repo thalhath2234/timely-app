@@ -162,7 +162,19 @@ func NewTaskService(
 	}
 }
 
+// ErrWorkspaceRequired is returned when Work is created without a workspace.
+var ErrWorkspaceRequired = errors.New("workspaceId is required")
+
+// Create owns the per-kind creation rules, so every caller (HTTP, agent,
+// Clarify) gets the same result: Work needs a workspace and a duration, an
+// Inbox item keeps only its title, and a Reminder keeps no project, status or
+// stage and a workspace only when it carries labels or custom fields.
 func (s *taskService) Create(task *models.Task, customFieldValues []*models.CustomFieldValue, rec *models.RecurrenceInput) (*models.Task, error) {
+	hasRecurrence := rec != nil && rec.RRule != ""
+	task.Kind = models.ResolveCreateKind(task.Kind, task.Duration, task.ScheduledOn, hasRecurrence)
+	if task.Kind == models.KindTask && (task.WorkspaceID == nil || *task.WorkspaceID == "") {
+		return nil, ErrWorkspaceRequired
+	}
 	name, err := normalizeName(task.Name)
 	if err != nil {
 		return nil, err
@@ -187,13 +199,8 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 	}
 
 	userID := deref(task.UserID)
-	hasRecurrence := rec != nil && rec.RRule != ""
-	task.Kind = models.ResolveCreateKind(task.Kind, task.Duration, task.ScheduledOn, hasRecurrence)
 	if task.Kind == models.KindTask && task.Duration <= 0 {
 		return nil, errors.New("work tasks need a duration greater than 0")
-	}
-	if task.Kind == models.KindTask && (task.WorkspaceID == nil || *task.WorkspaceID == "") {
-		return nil, errors.New("workspaceId is required")
 	}
 	if task.Kind == models.KindInbox {
 		task.Duration = 0
@@ -211,6 +218,12 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 	}
 	if task.Kind == models.KindReminder {
 		task.Duration = 0
+		task.ProjectID = nil
+		task.StatusID = nil
+		task.StageID = nil
+		if len(task.LabelIDs) == 0 && len(customFieldValues) == 0 {
+			task.WorkspaceID = nil
+		}
 		if !reminderHasPing(task.ScheduledOn, hasRecurrence) {
 			return nil, errReminderNeedsPing
 		}

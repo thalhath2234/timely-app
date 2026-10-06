@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"timely-api/internal/features/task"
@@ -117,8 +118,22 @@ type createTaskIn struct {
 	Recurrence    *recIn      `json:"recurrence,omitempty"`
 }
 
+// errAskWorkspace is what the model sees when Work has no workspace; the task
+// module owns the rule, this only words the next step for the agent.
+var errAskWorkspace = errors.New("ask the user which workspace to use for this task, then retry create_task")
+
+// createTaskError words task.Create's errors for the model.
+func createTaskError(err error) error {
+	if errors.Is(err, task.ErrWorkspaceRequired) {
+		return errAskWorkspace
+	}
+	return err
+}
+
 // prepareCreateTask makes the default create_task intent Work. Work without
-// an estimate gets 30 minutes; Hermes asks for a missing workspace.
+// an estimate gets 30 minutes. That default is agent-only: HTTP clients that
+// omit a duration create an Inbox item, a Reminder or are rejected, so it
+// cannot live in task.Create.
 func prepareCreateTask(in createTaskIn) (createTaskIn, error) {
 	if in.Kind == "" {
 		in.Kind = models.KindTask
@@ -132,9 +147,6 @@ func prepareCreateTask(in createTaskIn) (createTaskIn, error) {
 	}
 	in.Kind = kind
 	if in.Kind == models.KindTask {
-		if strings.TrimSpace(in.WorkspaceID) == "" {
-			return in, fmt.Errorf("ask the user which workspace to use for this task, then retry create_task")
-		}
 		if in.Duration == nil {
 			defaultDuration := 30
 			in.Duration = &defaultDuration
@@ -162,18 +174,10 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	if in.Duration != nil {
 		duration = *in.Duration
 	}
-	if kind == models.KindReminder {
-		in.ProjectID = ""
-		in.StatusID = ""
-		in.StageID = ""
-		if len(in.LabelIDs) == 0 && len(in.CustomFields) == 0 {
-			in.WorkspaceID = ""
-		}
-	}
 	t := &models.Task{
 		Name:          in.Name,
 		UserID:        &uid,
-		WorkspaceID:   strPtr(in.WorkspaceID),
+		WorkspaceID:   strPtr(strings.TrimSpace(in.WorkspaceID)),
 		Duration:      duration,
 		Kind:          kind,
 		Deadline:      strPtr(in.Deadline),
@@ -197,7 +201,7 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	}
 	created, err := s.tasksFor(req).Create(t, cfValues(in.CustomFields), rec)
 	if err != nil {
-		return fail(err)
+		return fail(createTaskError(err))
 	}
 	return reply("created "+created.Name, taskPayload(created))
 }
