@@ -11,13 +11,14 @@ type WorkspaceRepository interface {
 	CreateWorkspace(workspace *models.Workspace, defaultStatuses []models.Status) error
 	GetAllWorkspaceByUser(userID string) ([]models.Workspace, error)
 	GetWorkspaceById(userID string, workspaceID string) (*models.Workspace, error)
-	UpdateWorkspace(workspace *models.Workspace) error
+	UpdateWorkspace(userID string, workspace *models.Workspace) error
+	EnsureWorkspaceOwned(userID string, workspaceID string) error
 	GetAllCustomFields(userID string) ([]models.CustomField, error)
-	CreateLables(lable *models.Lable) (*models.Lable, error)
+	CreateLabels(lable *models.Lable) (*models.Lable, error)
 	CreateStatuses(status *models.Status) (*models.Status, error)
 	CreateCustomFields(customField *models.CustomField) (*models.CustomField, error)
-	UpdateLables(lable *models.Lable) (*models.Lable, error)
-	DeleteLables(lableID string, workspaceID string) error
+	UpdateLabels(lable *models.Lable) (*models.Lable, error)
+	DeleteLabels(lableID string, workspaceID string) error
 	UpdateStatuses(status *models.Status) (*models.Status, error)
 	DeleteStatuses(statusID string, workspaceID string) error
 	UpdateCustomFields(customField *models.CustomField) (*models.CustomField, error)
@@ -84,17 +85,39 @@ func (r *workspaceRepository) GetWorkspaceById(userID string, workspaceID string
 	return &workspace, nil
 }
 
-func (r *workspaceRepository) UpdateWorkspace(workspace *models.Workspace) error {
-	return r.db.Model(&models.Workspace{}).
-		Where("id = ?", workspace.ID).
+func (r *workspaceRepository) UpdateWorkspace(userID string, workspace *models.Workspace) error {
+	result := r.db.Model(&models.Workspace{}).
+		Where("id = ? AND user_id = ?", workspace.ID, userID).
 		Updates(map[string]any{
 			"name":       workspace.Name,
 			"color":      workspace.Color,
 			"updated_at": workspace.UpdatedAt,
-		}).Error
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
-func (r *workspaceRepository) CreateLables(lable *models.Lable) (*models.Lable, error) {
+// EnsureWorkspaceOwned returns gorm.ErrRecordNotFound unless the workspace
+// belongs to the user.
+func (r *workspaceRepository) EnsureWorkspaceOwned(userID string, workspaceID string) error {
+	var count int64
+	if err := r.db.Model(&models.Workspace{}).
+		Where("id = ? AND user_id = ?", workspaceID, userID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *workspaceRepository) CreateLabels(lable *models.Lable) (*models.Lable, error) {
 	if err := r.db.Create(lable).Error; err != nil {
 		return nil, err
 	}
@@ -118,7 +141,7 @@ func (r *workspaceRepository) CreateCustomFields(customField *models.CustomField
 	return customField, nil
 }
 
-func (r *workspaceRepository) UpdateLables(lable *models.Lable) (*models.Lable, error) {
+func (r *workspaceRepository) UpdateLabels(lable *models.Lable) (*models.Lable, error) {
 	if err := r.db.Model(&models.Lable{}).
 		Where("id = ? AND workspace_id = ?", lable.ID, lable.WorkspaceID).
 		Updates(map[string]any{
@@ -132,7 +155,7 @@ func (r *workspaceRepository) UpdateLables(lable *models.Lable) (*models.Lable, 
 	return lable, nil
 }
 
-func (r *workspaceRepository) DeleteLables(lableID string, workspaceID string) error {
+func (r *workspaceRepository) DeleteLabels(lableID string, workspaceID string) error {
 	return r.db.Where("id = ? AND workspace_id = ?", lableID, workspaceID).Delete(&models.Lable{}).Error
 }
 
