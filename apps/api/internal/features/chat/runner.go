@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/placement"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
 )
@@ -471,8 +472,8 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 }
 
 // placementInterval is the span a manual placement step reserves, resolved
-// the way the schedule service resolves it: an explicit end, else a duration,
-// else the moved block's length or the task's estimate.
+// the way Placement resolves it (placement.ResolveEnd): an explicit end, else a
+// duration, else the moved block's length or the task's estimate.
 func placementInterval(tool string, args map[string]any, task, block any) (time.Time, time.Time, bool) {
 	if tool != "schedule_task" && tool != "move_block" {
 		return time.Time{}, time.Time{}, false
@@ -482,34 +483,36 @@ func placementInterval(tool string, args map[string]any, task, block any) (time.
 	if err != nil {
 		return time.Time{}, time.Time{}, false
 	}
-	if endRaw, _ := args["end"].(string); endRaw != "" {
-		if end, err := recurrence.ParseTime(endRaw); err == nil && end.After(start) {
-			return start, end, true
-		}
-	}
-	minutes := 0
+	endRaw, _ := args["end"].(string)
+	var minutes *int
 	if v, ok := args["durationMinutes"].(float64); ok && v > 0 {
-		minutes = int(v)
+		m := int(v)
+		minutes = &m
 	}
-	if minutes <= 0 && tool == "move_block" {
+	// Without an explicit duration the span is the moved block's length, else
+	// the task's estimate.
+	fallback := 0
+	if tool == "move_block" {
 		if b, ok := block.(models.ScheduledBlock); ok {
-			minutes = int(b.EndAt.Sub(b.StartAt).Minutes())
+			fallback = int(b.EndAt.Sub(b.StartAt).Minutes())
 		}
 	}
-	if minutes <= 0 && task != nil {
+	if fallback <= 0 && task != nil {
 		var read struct {
 			Task struct {
 				Duration int `json:"duration"`
 			} `json:"task"`
 		}
 		if err := json.Unmarshal(raw(task), &read); err == nil {
-			minutes = read.Task.Duration
+			fallback = read.Task.Duration
 		}
 	}
-	if minutes <= 0 {
-		minutes = 30
+	// An unusable end falls back to the duration rather than failing the review.
+	end, err := placement.ResolveEnd(start, &endRaw, minutes, fallback)
+	if err != nil {
+		end, _ = placement.ResolveEnd(start, nil, minutes, fallback)
 	}
-	return start, start.Add(time.Duration(minutes) * time.Minute), true
+	return start, end, true
 }
 
 // Block reads remain account-scoped even though Hermes exposes them via calendar views.

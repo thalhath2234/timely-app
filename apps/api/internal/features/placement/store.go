@@ -1,7 +1,4 @@
-// Package blocks persists the calendar intervals reserved for tasks and keeps
-// tasks.scheduled_on in sync with them. It is shared by the task feature (manual
-// placement) and the schedule feature (engine placement).
-package blocks
+package placement
 
 import (
 	"time"
@@ -11,19 +8,21 @@ import (
 	"gorm.io/gorm"
 )
 
-type Store struct {
+// blockStore persists the calendar intervals reserved for tasks and Events and
+// keeps tasks.scheduled_on in sync with them. Only Placement holds one.
+type blockStore struct {
 	db *gorm.DB
 }
 
-func NewStore(db *gorm.DB) *Store {
-	return &Store{db: db}
+func newBlockStore(db *gorm.DB) *blockStore {
+	return &blockStore{db: db}
 }
 
-func (s *Store) WithTx(tx *gorm.DB) *Store {
-	return &Store{db: tx}
+func (s *blockStore) WithTx(tx *gorm.DB) *blockStore {
+	return &blockStore{db: tx}
 }
 
-func (s *Store) Get(userID, blockID string) (*models.ScheduledBlock, error) {
+func (s *blockStore) Get(userID, blockID string) (*models.ScheduledBlock, error) {
 	var block models.ScheduledBlock
 	err := s.db.Where("id = ? AND user_id = ?", blockID, userID).First(&block).Error
 	if err != nil {
@@ -32,14 +31,14 @@ func (s *Store) Get(userID, blockID string) (*models.ScheduledBlock, error) {
 	return &block, nil
 }
 
-func (s *Store) ListForTask(taskID string) ([]models.ScheduledBlock, error) {
+func (s *blockStore) ListForTask(taskID string) ([]models.ScheduledBlock, error) {
 	var out []models.ScheduledBlock
 	err := s.db.Where("task_id = ?", taskID).Order("start_at ASC").Find(&out).Error
 	return out, err
 }
 
 // ListInRange returns the user's blocks overlapping [from, to).
-func (s *Store) ListInRange(userID string, from, to time.Time) ([]models.ScheduledBlock, error) {
+func (s *blockStore) ListInRange(userID string, from, to time.Time) ([]models.ScheduledBlock, error) {
 	var out []models.ScheduledBlock
 	err := s.db.
 		Where("user_id = ? AND start_at < ? AND end_at > ?", userID, to, from).
@@ -49,7 +48,7 @@ func (s *Store) ListInRange(userID string, from, to time.Time) ([]models.Schedul
 }
 
 // Create adds one block and refreshes the task's scheduled_on.
-func (s *Store) Create(block *models.ScheduledBlock) (*models.ScheduledBlock, error) {
+func (s *blockStore) Create(block *models.ScheduledBlock) (*models.ScheduledBlock, error) {
 	if block.ID == "" {
 		block.ID = utils.NewBlockID()
 	}
@@ -70,7 +69,7 @@ func (s *Store) Create(block *models.ScheduledBlock) (*models.ScheduledBlock, er
 
 // Move changes one block's interval. A block moved by hand becomes manual so
 // the engine stops rewriting it.
-func (s *Store) Move(block *models.ScheduledBlock, start, end time.Time) error {
+func (s *blockStore) Move(block *models.ScheduledBlock, start, end time.Time) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		block.StartAt = start
 		block.EndAt = end
@@ -82,7 +81,7 @@ func (s *Store) Move(block *models.ScheduledBlock, start, end time.Time) error {
 	})
 }
 
-func (s *Store) Delete(block *models.ScheduledBlock) error {
+func (s *blockStore) Delete(block *models.ScheduledBlock) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Delete(block).Error; err != nil {
 			return err
@@ -93,7 +92,7 @@ func (s *Store) Delete(block *models.ScheduledBlock) error {
 
 // ReplaceForTask drops the task's blocks (all of them, or only `source` when
 // given) and writes the new set in one transaction.
-func (s *Store) ReplaceForTask(taskID, userID, source string, next []models.ScheduledBlock) error {
+func (s *blockStore) ReplaceForTask(taskID, userID, source string, next []models.ScheduledBlock) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		query := tx.Where("task_id = ?", taskID)
 		if source != "" {
@@ -120,13 +119,13 @@ func (s *Store) ReplaceForTask(taskID, userID, source string, next []models.Sche
 }
 
 // DeleteForTask removes the task's blocks, optionally only those of `source`.
-func (s *Store) DeleteForTask(taskID, source string) error {
+func (s *blockStore) DeleteForTask(taskID, source string) error {
 	return s.ReplaceForTask(taskID, "", source, nil)
 }
 
 // DeleteEngineBlocksInRange clears replaceable engine blocks overlapping
 // [from, to). Locked blocks and anything that starts before freezeUntil stay.
-func (s *Store) DeleteEngineBlocksInRange(tx *gorm.DB, taskIDs []string, from, to, freezeUntil time.Time) error {
+func (s *blockStore) DeleteEngineBlocksInRange(tx *gorm.DB, taskIDs []string, from, to, freezeUntil time.Time) error {
 	if len(taskIDs) == 0 {
 		return nil
 	}
@@ -146,27 +145,8 @@ func (s *Store) DeleteEngineBlocksInRange(tx *gorm.DB, taskIDs []string, from, t
 	return nil
 }
 
-// DeleteEngineBlocksForTasks clears engine-owned blocks for many tasks so a
-// reschedule starts from a clean slate. Manual blocks are never touched here.
-func (s *Store) DeleteEngineBlocksForTasks(tx *gorm.DB, taskIDs []string) error {
-	if len(taskIDs) == 0 {
-		return nil
-	}
-	if err := tx.
-		Where("task_id IN ? AND source = ?", taskIDs, models.BlockSourceEngine).
-		Delete(&models.ScheduledBlock{}).Error; err != nil {
-		return err
-	}
-	for _, id := range taskIDs {
-		if err := syncScheduledOn(tx, id); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // InsertMany writes prepared blocks and refreshes their tasks' scheduled_on.
-func (s *Store) InsertMany(tx *gorm.DB, next []models.ScheduledBlock) error {
+func (s *blockStore) InsertMany(tx *gorm.DB, next []models.ScheduledBlock) error {
 	if len(next) == 0 {
 		return nil
 	}
@@ -191,15 +171,13 @@ func (s *Store) InsertMany(tx *gorm.DB, next []models.ScheduledBlock) error {
 }
 
 // DB exposes the underlying handle for callers that need a transaction.
-func (s *Store) DB() *gorm.DB {
+func (s *blockStore) DB() *gorm.DB {
 	return s.db
 }
 
-// syncScheduledOn mirrors the earliest block start onto the task so list views
-// and sorting keep working without knowing about blocks.
 // ReplaceForEvent drops the Event's blocks and writes the new Manual set.
 // task_id stays NULL so the Work FK does not fire.
-func (s *Store) ReplaceForEvent(eventID, userID string, next []models.ScheduledBlock) error {
+func (s *blockStore) ReplaceForEvent(eventID, userID string, next []models.ScheduledBlock) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("event_id = ?", eventID).Delete(&models.ScheduledBlock{}).Error; err != nil {
 			return err
@@ -226,12 +204,14 @@ func (s *Store) ReplaceForEvent(eventID, userID string, next []models.ScheduledB
 	})
 }
 
-func (s *Store) ListForEvent(eventID string) ([]models.ScheduledBlock, error) {
+func (s *blockStore) ListForEvent(eventID string) ([]models.ScheduledBlock, error) {
 	var out []models.ScheduledBlock
 	err := s.db.Where("event_id = ?", eventID).Order("start_at ASC").Find(&out).Error
 	return out, err
 }
 
+// syncScheduledOn mirrors the earliest block start onto the task so list views
+// and sorting keep working without knowing about blocks.
 func syncScheduledOn(tx *gorm.DB, taskID string) error {
 	if taskID == "" {
 		return nil

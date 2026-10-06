@@ -20,7 +20,6 @@ import (
 
 var DB *gorm.DB
 
-
 // schemaName is what DB_SCHEMA may contain; it is spliced into SQL and the DSN.
 var schemaName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
