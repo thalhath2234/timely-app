@@ -153,9 +153,7 @@ export function customFieldGroupLabel(task: Task, fieldId: string) {
   const value = task.customFieldValues?.find((entry) => entry.customFieldId === fieldId);
   if (!value) return "Empty";
   if (value.stringValue?.trim()) return value.stringValue.trim();
-  if (value.numberValue != null) return String(value.numberValue);
   if (value.boolValue != null) return value.boolValue ? "Yes" : "No";
-  if (value.dateValue) return value.dateValue.slice(0, 10);
   if (value.optionValue?.length) {
     return value.optionValue.map((option) => option.value).filter(Boolean).join(", ") || "Empty";
   }

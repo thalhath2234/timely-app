@@ -17,9 +17,7 @@ export function toCustomFieldDrafts(
   return fields.map((field) => {
     const match = saved.find((value) => value.customFieldId === field.id);
     let stringValue = match?.stringValue ?? "";
-    if (!stringValue && match?.dateValue) stringValue = match.dateValue.slice(0, 10);
     if (!stringValue && match?.boolValue != null) stringValue = match.boolValue ? "true" : "false";
-    if (!stringValue && match?.numberValue != null) stringValue = String(match.numberValue);
     return {
       id: field.id,
       type: field.type,

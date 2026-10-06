@@ -277,8 +277,6 @@ function getCustomFieldDisplayValue(task: Task, fieldId: string): string {
   }
 
   if (value.stringValue) return value.stringValue;
-  if (typeof value.numberValue === "number") return String(value.numberValue);
-  if (value.dateValue) return formatDate(value.dateValue);
   if (typeof value.boolValue === "boolean") return value.boolValue ? "Yes" : "No";
 
   return "-";
@@ -496,7 +494,6 @@ function buildProjectRows(tasks: Task[]): Task[] {
       id: `project-${projectId}`,
       name: project?.title || "Untitled project",
       description: project?.description || "",
-      timeChunks: 0,
       duration: totalDuration,
       deadline: project?.deadline || null,
       startDate: project?.startDate || null,

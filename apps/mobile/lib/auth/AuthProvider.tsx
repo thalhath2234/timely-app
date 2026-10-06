@@ -28,9 +28,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 function onboarded(user: User | null) {
   if (!user) return false;
-  return Boolean(
-    user.is_on_boarding_completed || user.isOnBoardingCompleted,
-  );
+  return Boolean(user.is_on_boarding_completed);
 }
 
 async function withOnboardingState(user: User): Promise<User> {
