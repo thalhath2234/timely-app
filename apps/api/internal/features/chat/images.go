@@ -271,7 +271,7 @@ func (s *Service) extractImages(ctx context.Context, c *Conversation) error {
 		row.Status = "idle"
 		row.Phase = "review"
 		if extracted.Receipt != nil {
-			row.ImageReview.Duplicates = findReceiptDuplicates(tx, row.UserID, *extracted.Receipt)
+			row.ImageReview.Duplicates = s.findReceiptDuplicates(tx, row.UserID, *extracted.Receipt)
 			m := message("assistant", tr(row.Language, txtReceiptReview))
 			m.Receipt = extracted.Receipt
 			row.Messages = append(row.Messages, m)
