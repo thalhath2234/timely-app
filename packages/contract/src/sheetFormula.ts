@@ -1,4 +1,4 @@
-import type { SheetColumn, SheetRow } from "./types";
+import type { SheetColumn, SheetRow } from "./sheetTypes";
 
 export type CellResult =
   | { type: "number"; value: number }

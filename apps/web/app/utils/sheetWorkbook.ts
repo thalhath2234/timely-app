@@ -1,6 +1,6 @@
 import type { Sheet, SheetColumn, SheetRow, SheetTab } from "@/app/_types/types";
 import { newColumnId, newRowId, newTabId } from "@/app/utils/sheetColumns";
-import { columnIndexToLetter } from "@/app/utils/sheetFormula";
+import { columnIndexToLetter } from "@timely/contract/sheetFormula";
 
 export function emptySheetRow(columns: SheetColumn[]): SheetRow {
   const cells: Record<string, string> = {};

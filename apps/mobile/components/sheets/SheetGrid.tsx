@@ -38,7 +38,7 @@ import {
 } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
-import { columnIndexToLetter, createSheetEvaluator, shiftFormula } from "../../lib/sheetFormula";
+import { columnIndexToLetter, createSheetEvaluator, shiftFormula } from "@timely/contract/sheetFormula";
 import { closeOpenParens, formulaAcceptsAnotherRange, insertFormulaRange, type FormulaRefSpan } from "@timely/contract/sheetFormulaInput";
 import {
   type CellAddress,
@@ -63,15 +63,14 @@ import {
   selectionAddressLabel,
   unmergeRange,
   visitRange,
-} from "../../lib/sheetRange";
+} from "@timely/contract/sheetRange";
+import { isFormulaValue, normalizeTypedCell } from "@timely/contract/sheetCell";
 import {
   SHEET_COLUMN_TYPES,
   columnTypeBadge,
   emptySheetRow,
   formatCellDisplay,
-  isFormulaValue,
   newSheetId,
-  normalizeTypedCell,
   parseSelectOptions,
   syncSelectOptions,
 } from "../../lib/sheet";

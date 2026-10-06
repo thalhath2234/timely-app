@@ -270,12 +270,12 @@ install-browser: ## Install Chromium for browser checks
 	@pnpm exec playwright install chromium
 
 .PHONY: test-sheet-formulas lint-sheet-formulas format-sheet-formulas
-test-sheet-formulas: ## Test web and mobile sheet formula evaluation, range editing and grid growth
-	@node --experimental-strip-types --test scripts/sheet-formulas.test.mjs scripts/sheet-grid-grow.test.mjs
-lint-sheet-formulas: ## Lint the web sheet formula evaluator
-	@pnpm --filter @timely/web exec eslint app/utils/sheetFormula.ts
-format-sheet-formulas: ## Format sheet formula helpers and tests
-	@pnpm exec prettier --write apps/web/app/utils/sheetFormula.ts apps/mobile/lib/sheetFormula.ts packages/contract/src/sheetFormulaInput.ts scripts/sheet-formulas.test.mjs apps/mobile/lib/sheetGrow.ts scripts/sheet-grid-grow.test.mjs
+test-sheet-formulas: ## Test the shared sheet logic (formulas, ranges, cells, CSV) and grid growth
+	@node --experimental-strip-types --test scripts/sheet-formulas.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs scripts/sheet-grid-grow.test.mjs
+lint-sheet-formulas: ## Lint the shared sheet logic in packages/contract
+	@apps/web/node_modules/.bin/eslint -c apps/web/eslint.config.mjs packages/contract/src/sheetFormula.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts
+format-sheet-formulas: ## Format shared sheet logic and tests
+	@pnpm exec prettier --write packages/contract/src/sheetFormula.ts packages/contract/src/sheetFormulaInput.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts scripts/sheet-formulas.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs apps/mobile/lib/sheetGrow.ts scripts/sheet-grid-grow.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing
