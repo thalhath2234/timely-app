@@ -76,7 +76,7 @@ func main() {
 	transport := &mcp.StreamableClientTransport{
 		Endpoint: base + "/mcp",
 		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
 			Transport: roundTripper{token: created.Key},
 		},
 		DisableStandaloneSSE: true,
