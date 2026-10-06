@@ -188,7 +188,7 @@ Deep links: `?taskId=`, `?projectId=`.
 
 ### Filters on API (also used by agent)
 
-workspace(s), project(s), status(es), label(s), priority, stage, completed, overdue, dueBefore/After, scheduled, recurring, reminders, kind, inbox, text `q`, sort, limit/offset (default 200).
+workspace(s), project(s), status(es), label(s), priority, stage, completed, overdue, dueBefore/After, scheduled, recurring, reminders, kind, inbox, text `q`, sort, limit/offset (default 200), and an optional IANA `timezone` used as the Overdue "today" only when no Working hours timezone is saved.
 
 ### Native task UX
 
