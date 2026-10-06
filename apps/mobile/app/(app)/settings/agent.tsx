@@ -1,5 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  Keyboard,
+  Linking,
   Pressable,
   ScrollView,
   Text,
@@ -20,12 +22,15 @@ import {
   useDisconnectProvider,
   usePatchAgentProviders,
   useProviderModelsQuery,
+  useRemoveApiProviderKey,
   useRemoveOpenRouterKey,
+  useSetApiProviderKey,
   useSetOpenRouterKey,
 } from "../../../lib/hooks";
 import {
   PROVIDER_LABELS,
   type AgentProviders,
+  type ApiProviderView,
   type CliProviderView,
   type ModelOption,
   type ProviderId,
@@ -399,6 +404,222 @@ function OpenRouterCard({
   );
 }
 
+const CUSTOM_ENDPOINT = "custom";
+
+/** A direct API provider, rendered from the server's catalog. Until a key is
+ * saved it stays one compact row. */
+function ApiProviderCard({
+  data,
+  view,
+  confirm,
+}: {
+  data: AgentProviders;
+  view: ApiProviderView;
+  confirm: (req: ConfirmRequest) => void;
+}) {
+  const patch = usePatchAgentProviders();
+  const setKey = useSetApiProviderKey();
+  const removeKey = useRemoveApiProviderKey();
+  const models = useProviderModelsQuery(view.id, undefined, view.connected);
+  const [opened, setOpen] = useState(false);
+  const open = opened || view.connected;
+  const [editing, setEditing] = useState(!view.connected);
+  const [key, setKeyValue] = useState("");
+  const matched = view.endpoints.find((item) => item.baseUrl === view.baseUrl);
+  const [endpoint, setEndpoint] = useState(
+    matched?.id ?? (view.customUrl ? CUSTOM_ENDPOINT : view.endpoints[0]?.id),
+  );
+  const [customUrl, setCustomUrl] = useState(matched ? "" : view.baseUrl);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const showEndpoints = view.endpoints.length > 1 || view.customUrl;
+  const baseUrl =
+    endpoint === CUSTOM_ENDPOINT
+      ? customUrl.trim()
+      : view.endpoints.find((item) => item.id === endpoint)?.baseUrl;
+  const endpointChanged = (baseUrl ?? "") !== view.baseUrl;
+  const canSave =
+    !setKey.isPending &&
+    (key.trim().length >= 8 ||
+      (view.connected && endpointChanged && key.trim() === "") ||
+      (view.keyOptional && key.trim() === ""));
+
+  if (!open) {
+    return (
+      <View style={styles.card} testID={`provider-${view.id}`}>
+        <Text style={styles.title}>{view.label}</Text>
+        <Text style={styles.meta}>{view.description}</Text>
+        <Pressable accessibilityRole="button" onPress={() => setOpen(true)}>
+          <Text style={styles.link}>
+            {view.keyOptional ? "Set up" : "Add key"}
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <ProviderCard
+      id={view.id}
+      data={data}
+      ready={view.ready}
+      description={view.description}
+    >
+      {!editing ? (
+        <View style={[styles.row, { flexWrap: "wrap" }]}>
+          {view.keySet ? (
+            <Badge tone="ok">Key saved {view.keyHint}</Badge>
+          ) : (
+            <Badge tone="muted">No key needed</Badge>
+          )}
+          {showEndpoints ? (
+            <Badge tone="muted">{matched?.label ?? view.baseUrl}</Badge>
+          ) : null}
+          <Pressable accessibilityRole="button" onPress={() => setEditing(true)}>
+            <Text style={styles.link}>{view.keySet ? "Replace" : "Change"}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() =>
+              confirm({
+                title: `Disconnect ${view.label}?`,
+                message: "The saved key is deleted.",
+                confirmLabel: "Disconnect",
+                onConfirm: () =>
+                  removeKey.mutate(view.id, {
+                    onSuccess: () => {
+                      setOpen(false);
+                      setEditing(true);
+                    },
+                  }),
+              })
+            }
+          >
+            <Text style={styles.danger}>Disconnect</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={{ gap: 8 }}>
+          {showEndpoints ? (
+            <View style={{ gap: 4 }}>
+              <Text style={styles.label}>Endpoint</Text>
+              {view.endpoints.map((item) => (
+                <SheetOption
+                  key={item.id}
+                  selected={endpoint === item.id}
+                  onSelect={() => setEndpoint(item.id)}
+                >
+                  {item.label}
+                </SheetOption>
+              ))}
+              {view.customUrl ? (
+                <SheetOption
+                  selected={endpoint === CUSTOM_ENDPOINT}
+                  onSelect={() => setEndpoint(CUSTOM_ENDPOINT)}
+                >
+                  Another address…
+                </SheetOption>
+              ) : null}
+            </View>
+          ) : null}
+          {endpoint === CUSTOM_ENDPOINT ? (
+            <Field
+              value={customUrl}
+              onChangeText={setCustomUrl}
+              placeholder="http://192.168.1.20:11434"
+              keyboardType="url"
+            />
+          ) : null}
+          <Field
+            value={key}
+            onChangeText={setKeyValue}
+            placeholder={
+              view.keySet
+                ? "Leave empty to keep the saved key"
+                : view.keyOptional
+                  ? "API key (only for Ollama Cloud)"
+                  : (view.keyPlaceholder ?? "API key")
+            }
+            secure
+          />
+          <Text style={styles.meta}>
+            Stored encrypted on the server and never shown again. Saving checks
+            the key with the provider.
+          </Text>
+          <Pressable
+            accessibilityRole="link"
+            onPress={() => void Linking.openURL(view.keyUrl)}
+          >
+            <Text style={styles.link}>Get a key</Text>
+          </Pressable>
+          {keyError ? <Text style={styles.error}>{keyError}</Text> : null}
+          <PrimaryButton
+            label={
+              setKey.isPending
+                ? "Checking…"
+                : view.connected
+                  ? "Save"
+                  : "Connect"
+            }
+            disabled={!canSave}
+            onPress={() => {
+              setKeyError(null);
+              setKey.mutate(
+                { id: view.id, key: key.trim(), baseUrl },
+                {
+                  onSuccess: () => {
+                    // Blur first: unmounting a focused input on Android moves
+                    // focus to another field.
+                    Keyboard.dismiss();
+                    setKeyValue("");
+                    setEditing(false);
+                  },
+                  onError: (err) =>
+                    setKeyError(errorMessage(err, "Could not save the key.")),
+                },
+              );
+            }}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              Keyboard.dismiss();
+              setKeyError(null);
+              if (view.connected) setEditing(false);
+              else setOpen(false);
+            }}
+          >
+            <Text style={styles.link}>Cancel</Text>
+          </Pressable>
+        </View>
+      )}
+      {view.connected ? (
+        <ModelPicker
+          label="Chat model"
+          value={view.model}
+          options={models.data}
+          loading={models.isLoading}
+          loadError={
+            models.error
+              ? errorMessage(models.error, "Could not load models.")
+              : null
+          }
+          saving={
+            patch.isPending && patch.variables?.models?.[view.id] !== undefined
+          }
+          onSave={(model) => patch.mutateAsync({ models: { [view.id]: model } })}
+          allowCustom
+        />
+      ) : null}
+      {!view.search ? (
+        <Text style={styles.meta}>
+          No web search with this provider: chats that have it switched on
+          answer without it.
+        </Text>
+      ) : null}
+    </ProviderCard>
+  );
+}
+
 function CliCard({
   id,
   data,
@@ -565,6 +786,20 @@ export default function AgentSettings() {
         {data ? (
           <>
             <OpenRouterCard data={data} confirm={setConfirm} />
+            <Text style={styles.label}>Direct API providers</Text>
+            <Text style={styles.meta}>
+              Use a provider’s own API key instead of OpenRouter. Saving a key
+              checks it; choosing a model or making it the default sends one
+              tiny test request.
+            </Text>
+            {data.apiProviders.map((view) => (
+              <ApiProviderCard
+                key={view.id}
+                data={data}
+                view={view}
+                confirm={setConfirm}
+              />
+            ))}
             {data.localCli ? (
               <>
                 <CliCard id="claude" data={data} view={data.claude} />
@@ -579,8 +814,9 @@ export default function AgentSettings() {
             <View style={styles.sub}>
               <Text style={styles.label}>Privacy</Text>
               <Text style={styles.meta}>
-                With Claude Code or Codex selected, text, images, receipts and
-                web search all go to that provider under your own subscription.
+                With Claude Code, Codex or a direct API provider selected, text,
+                images, receipts and web search all go to that provider under
+                your own subscription or key.
                 The zero-data-retention guarantee for private images applies
                 only to OpenRouter. If the selected provider is unavailable, the
                 run fails with a message — Timely never switches providers

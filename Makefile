@@ -247,6 +247,10 @@ clean: ## Remove build outputs (keeps node_modules and the native android/ proje
 format-api: ## Format Go source
 	@git ls-files -m -o --exclude-standard -- 'apps/api/*.go' 'apps/api/**/*.go' | xargs -r gofmt -w
 
+.PHONY: test-providers-live
+test-providers-live: ## Call real agent provider APIs (tool round trip + image) for every key set: TIMELY_LIVE_KEY_<ID>, OPENROUTER_API_KEY
+	@cd $(API) && TIMELY_LIVE_PROVIDERS=1 OPENROUTER_API_KEY="$(OPENROUTER_API_KEY)" go test ./internal/features/provider -run TestLiveProviders -count=1 -v
+
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
 	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/chat ./internal/features/provider ./internal/features/search ./cmd -run TestIntegration -count=1

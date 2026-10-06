@@ -35,9 +35,12 @@ import {
   getAgentProviders,
   listProviderModels,
   patchAgentProviders,
+  removeApiProviderKey,
   removeOpenRouterKey,
+  setApiProviderKey,
   setOpenRouterKey,
   type AgentProviders,
+  type ApiProviderId,
   type ProviderId,
   type ProviderPatch,
 } from "./api/agentProviders";
@@ -365,6 +368,12 @@ export const useDisconnectProvider = () =>
   useAgentProviderMutation((id: "claude" | "codex") => disconnectProvider(id));
 export const useSetOpenRouterKey = () => useAgentProviderMutation((key: string) => setOpenRouterKey(key));
 export const useRemoveOpenRouterKey = () => useAgentProviderMutation<void>(() => removeOpenRouterKey());
+export const useSetApiProviderKey = () =>
+  useAgentProviderMutation((vars: { id: ApiProviderId; key: string; baseUrl?: string }) =>
+    setApiProviderKey(vars.id, vars.key, vars.baseUrl),
+  );
+export const useRemoveApiProviderKey = () =>
+  useAgentProviderMutation((id: ApiProviderId) => removeApiProviderKey(id));
 
 export function useInvalidateAll() {
   const client = useQueryClient();

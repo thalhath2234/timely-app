@@ -1,6 +1,7 @@
 // Package provider lets each account choose which model runs the in-app
-// agent: OpenRouter with the account's own key, or the Claude Code / Codex
-// CLIs installed and signed in on the API host. See ADR 0009.
+// agent: OpenRouter or a direct API provider (registry.go) with the account's
+// own key, or the Claude Code / Codex CLIs installed and signed in on the API
+// host. See ADR 0009.
 package provider
 
 import (
@@ -76,6 +77,8 @@ type Service struct {
 	envEmbed string
 
 	openRouterURL string // overridable for tests
+	anthropicURL  string // overridable for tests
+	ollamaURL     string // OLLAMA_BASE_URL: the default Ollama address
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
@@ -101,6 +104,7 @@ func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
 		key: sha256.Sum256([]byte("timely-agent-provider:" + secret)),
 
 		openRouterURL: "https://openrouter.ai/api/v1/chat/completions",
+		ollamaURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/"),
 	}
 	if indexer != nil {
 		indexer.SetCredentials(s.embedCredentials)
@@ -254,6 +258,13 @@ func (s *Service) Resolve(ctx context.Context, userID string) (string, string, e
 	if (provider == ClaudeCLI || provider == CodexCLI) && !s.localCLI {
 		return provider, "", fmt.Errorf("Local CLIs are turned off on this server (CHAT_LOCAL_CLI=off). Pick another provider in Settings → Agent")
 	}
+	if spec := apiProviderByID(provider); spec != nil {
+		api, _, err := s.apiRow(s.db.WithContext(ctx), userID, provider)
+		if err != nil {
+			return provider, "", err
+		}
+		return provider, api.Model, nil
+	}
 	return provider, s.chatModel(row, provider), nil
 }
 
@@ -264,6 +275,19 @@ func (s *Service) Completer(ctx context.Context, userID, provider, model string)
 	}
 	if provider == "" {
 		provider = row.DefaultProvider
+	}
+	if spec := apiProviderByID(provider); spec != nil {
+		api, found, err := s.apiRow(s.db.WithContext(ctx), userID, provider)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, fmt.Errorf("%s is not connected. Add its key in Settings → Agent", spec.Label)
+		}
+		if model == "" {
+			model = api.Model
+		}
+		return s.buildAPI(spec, api, model)
 	}
 	if model == "" {
 		model = s.chatModel(row, provider)

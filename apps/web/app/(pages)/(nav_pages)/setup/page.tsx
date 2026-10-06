@@ -265,8 +265,10 @@ export default function SetupPage() {
                   </a>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Prefer a subscription you already pay for? The next step covers Claude Code and
-                  Codex.
+                  Already have a key from Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai,
+                  Kimi, NVIDIA or OpenCode, or run Ollama? Add it under Direct API providers in
+                  Settings → Agent instead. Prefer a subscription you already pay for? The next step
+                  covers Claude Code and Codex.
                 </p>
               </>
             )}

@@ -6,6 +6,7 @@ import {
   CircleAlert,
   ExternalLink,
   Eye,
+  Globe,
   KeyRound,
   RefreshCw,
   ScanSearch,
@@ -22,14 +23,17 @@ import {
   useDisconnectProvider,
   usePatchAgentProviders,
   useProviderModels,
+  useRemoveApiProviderKey,
   useRemoveOpenRouterKey,
   useRescanProviders,
+  useSetApiProviderKey,
   useSetOpenRouterKey,
 } from "@/app/utils/hooks/agentProviders";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import {
   PROVIDER_LABELS,
   type AgentProviders,
+  type ApiProviderView,
   type CliProviderView,
   type ModelOption,
   type ProviderId,
@@ -488,6 +492,248 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
   );
 }
 
+const CUSTOM_ENDPOINT = "custom";
+
+/** A direct API provider (Anthropic, OpenAI, Gemini, DeepSeek, …). Rendered
+ * from the server's catalog; until a key is saved it stays one compact row. */
+function ApiProviderCard({
+  data,
+  view,
+}: {
+  data: AgentProviders;
+  view: ApiProviderView;
+}) {
+  const patch = usePatchAgentProviders();
+  const setKey = useSetApiProviderKey();
+  const removeKey = useRemoveApiProviderKey();
+  const models = useProviderModels(view.id, undefined, view.connected);
+  const [opened, setOpen] = useState(false);
+  const open = opened || view.connected;
+  const [editingKey, setEditingKey] = useState(!view.connected);
+  const [key, setKeyValue] = useState("");
+  const matched = view.endpoints.find(
+    (endpoint) => endpoint.baseUrl === view.baseUrl,
+  );
+  const [endpoint, setEndpoint] = useState(
+    matched?.id ?? (view.customUrl ? CUSTOM_ENDPOINT : view.endpoints[0]?.id),
+  );
+  const [customUrl, setCustomUrl] = useState(matched ? "" : view.baseUrl);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const showEndpoints = view.endpoints.length > 1 || view.customUrl;
+  const baseUrl =
+    endpoint === CUSTOM_ENDPOINT
+      ? customUrl.trim()
+      : view.endpoints.find((item) => item.id === endpoint)?.baseUrl;
+  const endpointChanged = (baseUrl ?? "") !== view.baseUrl;
+  const canSave =
+    !setKey.isPending &&
+    (key.trim().length >= 8 ||
+      (view.connected && endpointChanged && key.trim() === "") ||
+      (view.keyOptional && key.trim() === ""));
+
+  const onSave = async (event: FormEvent) => {
+    event.preventDefault();
+    setKeyError(null);
+    try {
+      await setKey.mutateAsync({ id: view.id, key: key.trim(), baseUrl });
+      setKeyValue("");
+      setEditingKey(false);
+    } catch (err) {
+      setKeyError(errorMessage(err, "Could not save the key."));
+    }
+  };
+
+  if (!open) {
+    return (
+      <div
+        data-provider={view.id}
+        className="flex items-center justify-between gap-3 rounded-xl border border-border px-4 py-3"
+      >
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-foreground">{view.label}</h3>
+          <p className="truncate text-xs text-muted-foreground">
+            {view.description}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={cn(secondaryButton, "shrink-0")}
+        >
+          <KeyRound className="size-3.5" />
+          {view.keyOptional ? "Set up" : "Add key"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ProviderCard
+      id={view.id}
+      title={view.label}
+      description={view.description}
+      isDefault={data.defaultProvider === view.id}
+      ready={view.ready}
+      onMakeDefault={() => patch.mutate({ defaultProvider: view.id })}
+      makingDefault={patch.isPending && patch.variables?.defaultProvider === view.id}
+    >
+      {!editingKey ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {view.keySet ? (
+            <Badge tone="ok">
+              <KeyRound className="size-3" /> Key saved {view.keyHint}
+            </Badge>
+          ) : (
+            <Badge tone="muted">No key needed</Badge>
+          )}
+          {showEndpoints && (
+            <Badge tone="muted">
+              <Globe className="size-3" /> {matched?.label ?? view.baseUrl}
+            </Badge>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditingKey(true)}
+            className={secondaryButton}
+          >
+            {view.keySet ? "Replace" : "Change"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Disconnect ${view.label}? The saved key is deleted.`,
+                )
+              ) {
+                removeKey.mutate(view.id, {
+                  onSuccess: () => {
+                    setOpen(false);
+                    setEditingKey(true);
+                  },
+                });
+              }
+            }}
+            disabled={removeKey.isPending}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-destructive hover:bg-destructive/10"
+          >
+            <Unplug className="size-3.5" /> Disconnect
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={onSave} className="flex flex-col gap-2">
+          {showEndpoints && (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Endpoint</span>
+              <select
+                value={endpoint}
+                onChange={(event) => setEndpoint(event.target.value)}
+                className={inputClass}
+                disabled={setKey.isPending}
+              >
+                {view.endpoints.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+                {view.customUrl && (
+                  <option value={CUSTOM_ENDPOINT}>Another address…</option>
+                )}
+              </select>
+            </label>
+          )}
+          {endpoint === CUSTOM_ENDPOINT && (
+            <input
+              value={customUrl}
+              onChange={(event) => setCustomUrl(event.target.value)}
+              placeholder="http://192.168.1.20:11434"
+              aria-label={`${view.label} address`}
+              className={inputClass}
+              disabled={setKey.isPending}
+            />
+          )}
+          <div className="flex items-center gap-2">
+            <input
+              type="password"
+              autoComplete="off"
+              value={key}
+              onChange={(event) => setKeyValue(event.target.value)}
+              placeholder={
+                view.keySet
+                  ? "Leave empty to keep the saved key"
+                  : view.keyOptional
+                    ? "API key (only for Ollama Cloud)"
+                    : (view.keyPlaceholder ?? "API key")
+              }
+              aria-label={`${view.label} API key`}
+              className={inputClass}
+              disabled={setKey.isPending}
+            />
+            <button type="submit" disabled={!canSave} className={primaryButton}>
+              {setKey.isPending ? (
+                <LogoSpinner size={14} tone="mono" label="Checking" />
+              ) : (
+                <Check className="size-3.5" />
+              )}
+              {setKey.isPending ? "Checking…" : view.connected ? "Save" : "Connect"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setKeyError(null);
+                if (view.connected) setEditingKey(false);
+                else setOpen(false);
+              }}
+              className={secondaryButton}
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Stored encrypted on the server and never shown again. Saving checks
+            the key with the provider.{" "}
+            <a
+              href={view.keyUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline"
+            >
+              Get a key
+            </a>
+          </p>
+          {keyError && <p className="text-xs text-destructive">{keyError}</p>}
+        </form>
+      )}
+
+      {view.connected && (
+        <ModelPicker
+          label="Chat model"
+          value={view.model}
+          options={models.data}
+          loading={models.isLoading}
+          loadError={
+            models.error
+              ? errorMessage(models.error, "Could not load models.")
+              : null
+          }
+          saving={
+            patch.isPending && patch.variables?.models?.[view.id] !== undefined
+          }
+          onSave={(model) => patch.mutateAsync({ models: { [view.id]: model } })}
+          allowCustom
+          placeholder="Search models…"
+        />
+      )}
+      {!view.search && (
+        <p className="text-[11px] text-muted-foreground">
+          No web search with this provider: chats that have it switched on
+          answer without it.
+        </p>
+      )}
+    </ProviderCard>
+  );
+}
+
 function CliCard({
   id,
   data,
@@ -734,6 +980,21 @@ export default function AgentSettings() {
       {data && (
         <>
           <OpenRouterCard data={data} />
+          <div className="flex flex-col gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
+                Direct API providers
+              </h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Use a provider&apos;s own API key instead of OpenRouter. Saving a
+                key checks it; choosing a model or making it the default sends
+                one tiny test request.
+              </p>
+            </div>
+            {data.apiProviders.map((view) => (
+              <ApiProviderCard key={view.id} data={data} view={view} />
+            ))}
+          </div>
           {data.localCli ? (
             <>
               <CliCard id="claude" data={data} view={data.claude} />
@@ -748,10 +1009,10 @@ export default function AgentSettings() {
           <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
             <p className="font-medium text-foreground">Privacy</p>
             <p className="mt-1">
-              With Claude Code or Codex selected, text, images, receipts and web
-              search all go to that provider under your own subscription. The
-              zero-data-retention guarantee for private images applies only to
-              OpenRouter. If the selected provider is unavailable, the run fails
+              With Claude Code, Codex or a direct API provider selected, text,
+              images, receipts and web search all go to that provider under your
+              own subscription or key. The zero-data-retention guarantee for
+              private images applies only to OpenRouter. If the selected provider is unavailable, the run fails
               with a message — Timely never switches providers silently.
             </p>
           </div>

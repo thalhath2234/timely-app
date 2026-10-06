@@ -20,8 +20,8 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/agent/providers/:id/models", s.listModels)
 	g.POST("/agent/providers/:id/connect", s.connect)
 	g.POST("/agent/providers/:id/disconnect", s.disconnect)
-	g.POST("/agent/providers/openrouter/key", s.setKey)
-	g.DELETE("/agent/providers/openrouter/key", s.removeKey)
+	g.POST("/agent/providers/:id/key", s.setAPIKey)
+	g.DELETE("/agent/providers/:id/key", s.removeAPIKey)
 }
 
 type cliView struct {
@@ -48,6 +48,7 @@ type overview struct {
 	OpenRouter      openRouterView `json:"openrouter"`
 	Claude          cliView        `json:"claude"`
 	Codex           cliView        `json:"codex"`
+	APIs            []apiView      `json:"apiProviders"`
 	Reindex         ReindexState   `json:"reindex"`
 }
 
@@ -59,6 +60,8 @@ func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) 
 		out.OpenRouter.EmbedModel = s.envEmbed
 	}
 	out.OpenRouter.Ready = out.OpenRouter.KeySet || out.OpenRouter.ServerKey
+	rows, _ := s.apiRows(s.db.WithContext(ctx), row.UserID)
+	out.APIs = s.apiViews(rows)
 	if s.localCLI {
 		claude := s.claude.Check(ctx, maxAge)
 		out.Claude = cliView{Enabled: true, Status: claude, Connected: row.ClaudeConnectedAt != nil, ConnectedAt: row.ClaudeConnectedAt, Model: s.chatModel(row, ClaudeCLI)}
@@ -113,7 +116,31 @@ func (s *Service) listModels(c *echo.Context) error {
 		}
 		list, err = s.models.CodexModels(ctx, bin)
 	default:
-		return echo.NewHTTPError(404, "Unknown provider")
+		spec := apiProviderByID(c.Param("id"))
+		if spec == nil {
+			return echo.NewHTTPError(404, "Unknown provider")
+		}
+		row, found, err := s.apiRow(s.db, user(c), spec.ID)
+		if err != nil {
+			return err
+		}
+		if !found && !spec.KeyOptional {
+			return echo.NewHTTPError(409, "Add a "+spec.Label+" API key first")
+		}
+		key, err := s.apiKey(row)
+		if err != nil {
+			return echo.NewHTTPError(409, err.Error())
+		}
+		base := row.BaseURL
+		if base == "" {
+			base = s.defaultBase(spec)
+		}
+		list, err = s.apiModelList(ctx, spec, base, key, 10*time.Minute)
+		if err == nil && row.Model != "" {
+			for i := range list {
+				list[i].Default = list[i].ID == row.Model
+			}
+		}
 	}
 	if err != nil {
 		return echo.NewHTTPError(502, err.Error())
@@ -278,6 +305,8 @@ func (s *Service) configure(c *echo.Context) error {
 		OpenRouterEmbedModel *string `json:"openrouterEmbedModel"`
 		ClaudeModel          *string `json:"claudeModel"`
 		CodexModel           *string `json:"codexModel"`
+		// Models sets the chat model of direct API providers, keyed by id.
+		Models map[string]string `json:"models"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid settings")
@@ -304,8 +333,42 @@ func (s *Service) configure(c *echo.Context) error {
 		case OpenRouter, ClaudeCLI, CodexCLI:
 			trial.DefaultProvider = *in.DefaultProvider
 		default:
+			if apiProviderByID(*in.DefaultProvider) == nil {
+				return echo.NewHTTPError(400, "Unknown provider")
+			}
+			trial.DefaultProvider = *in.DefaultProvider
+		}
+	}
+	// Direct API models are verified with a test call before they are saved.
+	apiChanges := map[string]APIKey{}
+	for id, value := range in.Models {
+		spec := apiProviderByID(id)
+		if spec == nil {
 			return echo.NewHTTPError(400, "Unknown provider")
 		}
+		model, ok := clean(&value)
+		if !ok || model == "" {
+			return echo.NewHTTPError(400, "Model names cannot be empty or contain spaces")
+		}
+		api, found, err := s.apiRow(s.db, user(c), id)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return echo.NewHTTPError(409, "Add a "+spec.Label+" API key first")
+		}
+		if api.Model == model {
+			continue
+		}
+		completer, err := s.buildAPI(spec, api, model)
+		if err != nil {
+			return echo.NewHTTPError(409, err.Error())
+		}
+		if err := testCompleter(ctx, completer); err != nil {
+			return echo.NewHTTPError(409, err.Error())
+		}
+		api.Model = model
+		apiChanges[id] = api
 	}
 	for _, change := range []struct {
 		provider string
@@ -370,9 +433,35 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 	}
 	if trial.DefaultProvider != row.DefaultProvider {
-		// Switching the default requires the target to be usable right now.
-		if _, err := s.build(trial, trial.DefaultProvider, s.chatModel(trial, trial.DefaultProvider)); err != nil {
+		// Switching the default requires the target to be usable right now. A
+		// direct API provider also answers a test call, since its model was
+		// picked automatically when the key was saved.
+		if spec := apiProviderByID(trial.DefaultProvider); spec != nil {
+			api, found, err := s.apiRow(s.db, user(c), spec.ID)
+			if err != nil {
+				return err
+			}
+			if changed, ok := apiChanges[spec.ID]; ok {
+				api = changed
+			} else {
+				if !found {
+					return echo.NewHTTPError(409, "Add a "+spec.Label+" API key first")
+				}
+				completer, err := s.buildAPI(spec, api, api.Model)
+				if err != nil {
+					return echo.NewHTTPError(409, err.Error())
+				}
+				if err := testCompleter(ctx, completer); err != nil {
+					return echo.NewHTTPError(409, err.Error())
+				}
+			}
+		} else if _, err := s.build(trial, trial.DefaultProvider, s.chatModel(trial, trial.DefaultProvider)); err != nil {
 			return echo.NewHTTPError(409, err.Error())
+		}
+	}
+	for _, api := range apiChanges {
+		if err := s.saveAPIRow(&api); err != nil {
+			return err
 		}
 	}
 	row, err = s.update(user(c), func(row *Settings) error {

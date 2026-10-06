@@ -74,7 +74,12 @@ The [API collection](api-collections.json) contains sample requests. Run
 
 ## In-app agent
 
-Chat uses the server's `OPENROUTER_API_KEY` and defaults to
+Each account can also use a direct API provider (Anthropic, OpenAI, Gemini,
+DeepSeek, xAI, Mistral, Z.ai, Kimi, Ollama, NVIDIA, OpenCode Zen/Go) with its
+own key from Settings → Agent; set `OLLAMA_BASE_URL` if Ollama is not on
+`localhost:11434` and `OLLAMA_NUM_CTX` to change the 32k context Timely asks
+Ollama for. Without one,
+chat uses the server's `OPENROUTER_API_KEY` and defaults to
 `OPENROUTER_CHAT_MODEL=z-ai/glm-5.3-flash`, with low reasoning effort for interactive tool use. The key is never returned to the web or
 Electron renderer. Startup migrations create conversation storage and enable
 agent notifications. Agent execution runs separately from reminder jobs. Model
