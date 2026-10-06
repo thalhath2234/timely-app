@@ -225,3 +225,25 @@ func TestIntegrationCreateInboxClearsFields(t *testing.T) {
 		t.Fatal("inbox kept priority")
 	}
 }
+
+func TestIntegrationClarifyReminderClearsBogusBoardIDs(t *testing.T) {
+	f := newKindFixture(t)
+	inbox, err := f.svc.Capture(kindTestUser, "Call bank")
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	got, err := f.svc.Clarify(kindTestUser, inbox.ID, ClarifyInput{
+		Kind: models.KindReminder, ScheduledOn: f.id(kindPing),
+		WorkspaceID: f.id("wsp_missing"), ProjectID: f.id("prj_missing"), StatusID: f.id("sts_missing"), StageID: f.id("stg_missing"),
+	})
+	if err != nil {
+		t.Fatalf("clarify: %v", err)
+	}
+	var stored models.Task
+	if err := f.db.First(&stored, "id = ?", got.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.WorkspaceID != nil || stored.ProjectID != nil || stored.StatusID != nil || stored.StageID != nil {
+		t.Fatalf("stored workspace=%v project=%v status=%v stage=%v, want all nil", stored.WorkspaceID, stored.ProjectID, stored.StatusID, stored.StageID)
+	}
+}
