@@ -220,13 +220,7 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 		customFieldValues = nil
 	}
 	if task.Kind == models.KindReminder {
-		task.Duration = 0
-		task.ProjectID = nil
-		task.StatusID = nil
-		task.StageID = nil
-		if len(task.LabelIDs) == 0 && len(customFieldValues) == 0 {
-			task.WorkspaceID = nil
-		}
+		applyReminderRules(task, len(task.LabelIDs) > 0 || len(customFieldValues) > 0)
 		if !reminderHasPing(task.ScheduledOn, hasRecurrence) {
 			return nil, errReminderNeedsPing
 		}
@@ -311,6 +305,19 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 	}
 	s.indexTask(created)
 	return created, nil
+}
+
+// applyReminderRules is what a Reminder keeps: no estimate, no project, status
+// or stage, and a workspace only when labels or custom fields need one. Create
+// and a kind change to Reminder (applyKindUpdate) share it.
+func applyReminderRules(task *models.Task, keepWorkspace bool) {
+	task.Duration = 0
+	task.ProjectID = nil
+	task.StatusID = nil
+	task.StageID = nil
+	if !keepWorkspace {
+		task.WorkspaceID = nil
+	}
 }
 
 // applyRecurrence turns the task into a series. Its calendar presence comes

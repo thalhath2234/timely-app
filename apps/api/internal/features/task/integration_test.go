@@ -316,3 +316,42 @@ func TestIntegrationUpdateScheduledOnPlacesByHand(t *testing.T) {
 		t.Fatalf("Event time changed: before %v, after %v", eventSpans, got)
 	}
 }
+
+func TestIntegrationUpdateWorkToReminderDropsBoardFields(t *testing.T) {
+	f := newKindFixture(t)
+	work, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, nil)
+	if err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+	reminder := models.KindReminder
+	got, err := f.svc.Update(kindTestUser, work.ID, TaskUpdate{Kind: &reminder, ScheduledOn: f.id(kindPing)})
+	if err != nil {
+		t.Fatalf("update to reminder: %v", err)
+	}
+	if got.Kind != models.KindReminder || got.Duration != 0 {
+		t.Fatalf("kind=%s duration=%d", got.Kind, got.Duration)
+	}
+	assertNoBoardFields(t, got)
+	if got.WorkspaceID != nil {
+		t.Fatalf("workspace=%v, a bare reminder keeps none", *got.WorkspaceID)
+	}
+}
+
+func TestIntegrationUpdateWorkToReminderWithLabelKeepsWorkspace(t *testing.T) {
+	f := newKindFixture(t)
+	in := f.board(models.KindTask, 30, nil)
+	in.LabelIDs = models.LabelInputs{{Id: f.label}}
+	work, err := f.svc.Create(in, nil, nil)
+	if err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+	reminder := models.KindReminder
+	got, err := f.svc.Update(kindTestUser, work.ID, TaskUpdate{Kind: &reminder, ScheduledOn: f.id(kindPing)})
+	if err != nil {
+		t.Fatalf("update to reminder: %v", err)
+	}
+	assertNoBoardFields(t, got)
+	if got.WorkspaceID == nil || *got.WorkspaceID != f.workspace {
+		t.Fatalf("workspace=%v, want %s kept for the label", got.WorkspaceID, f.workspace)
+	}
+}

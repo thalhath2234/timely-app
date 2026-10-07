@@ -439,7 +439,32 @@ func (s *taskService) applyKindUpdate(userID string, before *models.Task, update
 		updates["scheduled_on"] = nil
 	}
 	if kind == models.KindReminder {
-		updates["duration"] = 0
+		labels := before.LabelIDs
+		if update.LabelIDs != nil {
+			labels = *update.LabelIDs
+		}
+		fields := len(before.CustomFieldValues)
+		if update.CustomFieldValues != nil {
+			fields = len(*update.CustomFieldValues)
+		}
+		row := models.Task{
+			WorkspaceID: workspaceID,
+			ProjectID:   mergedID(update.ProjectID, before.ProjectID),
+			StatusID:    mergedID(update.StatusID, before.StatusID),
+			StageID:     mergedID(update.StageID, before.StageID),
+		}
+		applyReminderRules(&row, len(labels) > 0 || fields > 0)
+		updates["duration"] = row.Duration
+		for column, kept := range map[string]*string{
+			"workspace_id": row.WorkspaceID,
+			"project_id":   row.ProjectID,
+			"status_id":    row.StatusID,
+			"stage_id":     row.StageID,
+		} {
+			if kept == nil {
+				updates[column] = nil
+			}
+		}
 	}
 	if kind != before.Kind || update.Kind != nil {
 		updates["kind"] = kind
