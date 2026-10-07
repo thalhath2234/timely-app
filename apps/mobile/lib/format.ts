@@ -111,7 +111,7 @@ export function formatRelativeStamp(stamp: string, today: string) {
  * `formatRelativeStamp` for an instant: its day and "today" are both read in
  * the Working hours timezone (`timeZone`; undefined is the device zone).
  */
-export function formatRelativeDay(d: Date, timeZone?: string | null) {
+export function formatRelativeDay(d: Date, timeZone: string | null | undefined) {
   return formatRelativeStamp(dateInZone(d, timeZone), todayInZone(timeZone));
 }
 
