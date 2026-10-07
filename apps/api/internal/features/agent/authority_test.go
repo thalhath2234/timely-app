@@ -34,12 +34,11 @@ var expectedAuthority = []struct {
 	set_task_labels set_today_focus snooze_reminder start_focus stop_focus toggle_checklist_item
 	update_checklist_item update_custom_field update_label update_project update_sheet_template update_stage
 	update_status`},
-	// Always need an Agent proposal: deletions, recurring series, bulk edits, settings, calendar-wide changes.
+	// Always need an Agent proposal: removing a component of an entity (not the entity), recurring series, bulk edits, calendar-wide changes.
 	{Write, Reviewed, `
 	add_sheet_rows auto_schedule_apply bulk_update_tasks clear_task_blocks clear_task_recurrence delete_block
-	delete_checklist_item delete_doc delete_event delete_label delete_sheet delete_sheet_column delete_sheet_rows
-	delete_sheet_tab delete_stage delete_task edit_event_occurrence edit_task_occurrence set_task_recurrence
-	split_event_series split_task_series undo_schedule update_notification_settings update_working_hours`},
+	delete_checklist_item delete_sheet_column delete_sheet_rows delete_sheet_tab edit_event_occurrence
+	edit_task_occurrence set_task_recurrence split_event_series split_task_series undo_schedule`},
 	// Need an Agent proposal depending on their arguments (TestArgumentRules).
 	{Write, ReviewedWhen, `
 	create_sheet mark_notification_read update_doc update_event update_sheet update_sheet_cells
@@ -52,10 +51,11 @@ var expectedAuthority = []struct {
 	list_task_activity list_task_views materialize_sheet_template_tab reindex_search replace_checklist
 	reschedule_urgent restore_account retry_job set_active_task_view set_project_task_view update_account_config
 	update_backup_settings update_profile update_schedule_settings update_task_view`},
-	// External MCP only, and would be reviewed if chat ever gained them.
+	// External MCP only, and would be reviewed if chat ever gained them: whole-object deletion and settings (ADR 0007).
 	{MCPOnly, Reviewed, `
-	delete_backup delete_custom_field delete_project delete_sheet_template delete_status delete_task_view
-	delete_workspace`},
+	delete_backup delete_custom_field delete_doc delete_event delete_label delete_project delete_sheet
+	delete_sheet_template delete_stage delete_status delete_task delete_task_view delete_workspace
+	update_notification_settings update_working_hours`},
 }
 
 func TestEveryToolDeclaresAuthority(t *testing.T) {
@@ -155,6 +155,8 @@ func TestArgumentRules(t *testing.T) {
 		{"update_sheet", map[string]any{"title": "x"}, false},
 		{"update_sheet", map[string]any{"merges": nil}, true},
 		{"update_sheet_column", map[string]any{"type": "number"}, true},
+		{"update_sheet_column", map[string]any{"options": []any{"a"}}, true},
+		{"update_sheet_column", map[string]any{"name": "Cost", "width": 120}, false},
 		{"create_sheet", map[string]any{"templateId": ""}, false},
 		{"create_sheet", map[string]any{"templateId": "tst"}, true},
 		{"update_doc", map[string]any{"markdown": ""}, true},
@@ -163,6 +165,7 @@ func TestArgumentRules(t *testing.T) {
 		{"mark_notification_read", map[string]any{"id": "ntf"}, false},
 		{"mark_notification_read", nil, true},
 		{"delete_task", nil, true},
+		{"delete_sheet_rows", nil, true},
 		{"create_task", nil, false},
 	}
 	for _, tt := range tests {
@@ -185,10 +188,8 @@ func TestReviewShowsCurrentState(t *testing.T) {
 		read     string
 		withArgs bool
 	}{
-		"update_working_hours":         {"get_working_hours", false},
-		"update_notification_settings": {"get_notification_settings", false},
-		"undo_schedule":                {"undo_schedule_preview", false},
-		"auto_schedule_apply":          {"auto_schedule_preview", true},
+		"undo_schedule":       {"undo_schedule_preview", false},
+		"auto_schedule_apply": {"auto_schedule_preview", true},
 	}
 	catalog := NewCatalog(Deps{})
 	for name, tool := range catalog {
@@ -198,6 +199,26 @@ func TestReviewShowsCurrentState(t *testing.T) {
 		}
 		if ok && catalog[w.read].Authority.Access != Read {
 			t.Errorf("%s shows %s, which is not a read tool", name, w.read)
+		}
+	}
+}
+
+// Whole-object deletion and settings are outside the in-app agent's initial
+// authority (ADR 0007); removing a component of an entity is not.
+func TestChatCannotDeleteWholeObjectsOrChangeSettings(t *testing.T) {
+	for _, name := range strings.Fields(`delete_task delete_event delete_doc delete_sheet delete_label delete_stage
+		delete_project delete_workspace delete_status delete_custom_field delete_sheet_template delete_task_view
+		update_working_hours update_notification_settings update_schedule_settings update_account_config
+		update_backup_settings create_backup restore_account`) {
+		authority, ok := AuthorityOf(name)
+		if !ok || authority.Access != MCPOnly {
+			t.Errorf("%s must be MCP-only, got %+v", name, authority.Access)
+		}
+	}
+	for _, name := range strings.Fields(`delete_block delete_checklist_item delete_sheet_column delete_sheet_rows delete_sheet_tab`) {
+		authority, ok := AuthorityOf(name)
+		if !ok || authority.Access != Write || authority.Approval != Reviewed {
+			t.Errorf("%s must be a reviewed chat write", name)
 		}
 	}
 }

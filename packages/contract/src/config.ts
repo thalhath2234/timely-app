@@ -10,6 +10,7 @@ export type TaskViewSortBy =
   | "name"
   | "deadline"
   | "startDate"
+  | "scheduledOn"
   | "createdAt"
   | "priority"
   | "status"

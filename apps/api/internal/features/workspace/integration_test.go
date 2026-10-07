@@ -166,24 +166,53 @@ func TestIntegrationWorkspaceCrossAccountIsNotFoundAndWritesNothing(t *testing.T
 
 func TestIntegrationWorkspaceCannotReachOwnChildThroughForeignWorkspace(t *testing.T) {
 	f := newFixture(t)
-	// The caller owns otherWs, but names the owner's child ids under it.
-	// The call succeeds against the caller's own workspace and must not touch
-	// rows that live in the owner's workspace.
-	must(t, f.svc.DeleteStatuses(f.other, f.status, f.otherWs))
-	must(t, f.svc.DeleteLabels(f.other, f.label, f.otherWs))
-	must(t, f.svc.DeleteCustomFields(f.other, f.field, f.otherWs))
-	// Updates match on id and workspace_id too. They don't report a missing
-	// row, so only assert that nothing was written.
+	// The caller owns otherWs, but names the owner's child ids under it. The
+	// workspace is theirs, the child is not: not-found, and nothing is touched.
+	notFound := func(name string, err error) {
+		t.Helper()
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Fatalf("%s: want record not found, got %v", name, err)
+		}
+	}
+	notFound("DeleteStatuses", f.svc.DeleteStatuses(f.other, f.status, f.otherWs))
+	notFound("DeleteLabels", f.svc.DeleteLabels(f.other, f.label, f.otherWs))
+	notFound("DeleteCustomFields", f.svc.DeleteCustomFields(f.other, f.field, f.otherWs))
 	_, err := f.svc.UpdateStatuses(f.other, &models.Status{ID: f.status, Name: "Hijacked", Color: "#999999", WorkspaceID: f.otherWs})
-	must(t, err)
+	notFound("UpdateStatuses", err)
 	_, err = f.svc.UpdateLabels(f.other, &models.Lable{ID: f.label, Name: "Hijacked", Color: "#999999", WorkspaceID: f.otherWs})
-	must(t, err)
+	notFound("UpdateLabels", err)
 	_, err = f.svc.UpdateCustomFields(f.other, &models.CustomField{ID: f.field, Name: "Hijacked", Type: models.CustomFieldTypeText, WorkspaceID: f.otherWs})
-	must(t, err)
+	notFound("UpdateCustomFields", err)
 	if count(t, f.db, &models.Status{}, "id = ? AND name = ? AND color = ?", f.status, "Review", "#111111") != 1 ||
 		count(t, f.db, &models.Lable{}, "id = ? AND name = ? AND color = ?", f.label, "Bug", "#222222") != 1 ||
 		count(t, f.db, &models.CustomField{}, "id = ? AND name = ? AND type = ?", f.field, "Estimate", models.CustomFieldTypeNumber) != 1 {
 		t.Fatal("child rows modified or deleted through another workspace")
+	}
+}
+
+// An id that exists nowhere is the same not-found as one in another account.
+func TestIntegrationWorkspaceUnknownChildIsNotFound(t *testing.T) {
+	f := newFixture(t)
+	_, err := f.svc.UpdateLabels(f.owner, &models.Lable{ID: "missing", Name: "x", Color: "#000000", WorkspaceID: f.ws})
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("UpdateLabels: want record not found, got %v", err)
+	}
+	if err := f.svc.DeleteStatuses(f.owner, "missing", f.ws); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("DeleteStatuses: want record not found, got %v", err)
+	}
+}
+
+// Updating a child to the values it already has is not a missing row: Postgres
+// reports matched rows, not changed rows.
+func TestIntegrationWorkspaceIdempotentChildUpdateSucceeds(t *testing.T) {
+	f := newFixture(t)
+	for i := 0; i < 2; i++ {
+		_, err := f.svc.UpdateStatuses(f.owner, &models.Status{ID: f.status, Name: "Review", Color: "#111111", WorkspaceID: f.ws})
+		must(t, err)
+		_, err = f.svc.UpdateLabels(f.owner, &models.Lable{ID: f.label, Name: "Bug", Color: "#222222", WorkspaceID: f.ws})
+		must(t, err)
+		_, err = f.svc.UpdateCustomFields(f.owner, &models.CustomField{ID: f.field, Name: "Estimate", Type: models.CustomFieldTypeNumber, WorkspaceID: f.ws})
+		must(t, err)
 	}
 }
 
