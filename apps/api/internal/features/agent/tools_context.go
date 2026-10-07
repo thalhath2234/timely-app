@@ -238,7 +238,7 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 		}
 		agendaItems = append(agendaItems, item)
 	}
-	lines := []string{fmt.Sprintf("Agenda %s → %s (%s)", from.In(loc).Format("Mon Jan 2 15:04"), to.In(loc).Format("Mon Jan 2 15:04"), loc)}
+	lines := []string{fmt.Sprintf("Agenda %s → %s (%s)", from.In(loc).Format("Mon Jan 2 15:04"), to.In(loc).Format("Mon Jan 2 15:04"), zoneLabel(models.ZoneName(loc)))}
 	for _, item := range agendaItems {
 		stamp := item.Start.In(loc).Format("15:04")
 		if item.AllDay {
@@ -273,7 +273,7 @@ func (s *Server) getFreeTime(ctx context.Context, req *mcp.CallToolRequest, in r
 	if err != nil {
 		return fail(err)
 	}
-	free, err := s.Schedule.FreeTime(uid, from, to, loc.String())
+	free, err := s.Schedule.FreeTime(uid, from, to, models.ZoneName(loc))
 	if err != nil {
 		return fail(err)
 	}
@@ -284,7 +284,7 @@ func (s *Server) getFreeTime(ctx context.Context, req *mcp.CallToolRequest, in r
 	}
 	// text states the slots in the person's timezone so answers quote it
 	// instead of re-reading offsets.
-	text := fmt.Sprintf("Free time in %s, %d minutes:\n%s", loc, minutes, strings.Join(lines, "\n"))
+	text := fmt.Sprintf("Free time in %s, %d minutes:\n%s", zoneLabel(models.ZoneName(loc)), minutes, strings.Join(lines, "\n"))
 	return reply(fmt.Sprintf("%d free minutes in %d slots", minutes, len(free)), map[string]any{"slots": free, "freeMinutes": minutes, "text": text})
 }
 
@@ -345,7 +345,7 @@ func (s *Server) getCalendar(ctx context.Context, req *mcp.CallToolRequest, in r
 	if cal.Items == nil {
 		cal.Items = []calendar.Item{}
 	}
-	lines := []string{fmt.Sprintf("Calendar in %s:", loc)}
+	lines := []string{fmt.Sprintf("Calendar in %s:", zoneLabel(models.ZoneName(loc)))}
 	for _, item := range cal.Items {
 		when := span(item.Start, item.End, loc)
 		if item.AllDay {

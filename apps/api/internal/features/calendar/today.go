@@ -62,7 +62,7 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 
 	out := &TodayResponse{
 		Date:           dayStamp,
-		Timezone:       loc.String(),
+		Timezone:       models.ClientZoneName(loc),
 		TodayFocus:     []models.Task{},
 		Items:          rangeRes.Items,
 		Overdue:        []models.Task{},

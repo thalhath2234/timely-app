@@ -28,7 +28,8 @@ func ParseInput(input models.RecurrenceInput) (*Rule, time.Time, *time.Location,
 	loc := time.UTC
 	if input.Timezone != "" {
 		parsed, err := time.LoadLocation(input.Timezone)
-		if err != nil {
+		// "Local" would be stored as a zone name nothing else can resolve.
+		if err != nil || input.Timezone == "Local" {
 			return nil, time.Time{}, nil, errors.New("unknown timezone")
 		}
 		loc = parsed

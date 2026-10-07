@@ -37,3 +37,16 @@ func TestExpandDoesNotDuplicateOrResurrectCancelledExceptions(t *testing.T) {
 		t.Fatalf("got %d occurrences", len(items))
 	}
 }
+
+// "Local" is Go's name for the server's zone; stored on a rule it could not be
+// resolved again, so it is refused like any unknown zone.
+func TestParseInputRefusesLocalAsAZoneName(t *testing.T) {
+	input := models.RecurrenceInput{RRule: "FREQ=DAILY", Dtstart: "2026-12-07T09:00:00Z", Timezone: "Local"}
+	if _, _, _, err := ParseInput(input); err == nil {
+		t.Fatal("Local was accepted as a recurrence timezone")
+	}
+	input.Timezone = "Europe/Berlin"
+	if _, _, loc, err := ParseInput(input); err != nil || loc.String() != "Europe/Berlin" {
+		t.Fatalf("Europe/Berlin: loc %v, err %v", loc, err)
+	}
+}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 	"timely-api/internal/features/calendar"
@@ -142,5 +143,55 @@ func TestGetAgendaDefaultHoursFollowServerZone(t *testing.T) {
 	hours, ok := out.(*schedule.WorkingHoursResponse)
 	if !ok || !hours.IsDefault || hours.Timezone != "" || len(hours.Days["mon"]) != 1 {
 		t.Fatalf("working hours = %#v, want the default week with no zone", out)
+	}
+}
+
+type emptyFreeTime struct {
+	schedule.Service
+	zones *[]string
+}
+
+func (emptyFreeTime) GetWorkingHours(string, string) (*schedule.WorkingHoursResponse, error) {
+	return &schedule.WorkingHoursResponse{WorkingHours: models.DefaultWorkingHours(""), IsDefault: true}, nil
+}
+
+func (f emptyFreeTime) FreeTime(_ string, _, _ time.Time, timezone string) ([]schedule.Interval, error) {
+	*f.zones = append(*f.zones, timezone)
+	return []schedule.Interval{}, nil
+}
+
+// The server's zone is named "Local" by Go. The agent tools neither hand that
+// name on as a timezone argument nor write it into the text the model reads.
+func TestAgentToolsNeverNameTheServerZoneLocal(t *testing.T) {
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Local", 9*60*60)
+
+	var zones []string
+	srv := &Server{Deps: Deps{
+		Tasks:    agendaTasks{},
+		Calendar: agendaCalendar{},
+		Schedule: emptyFreeTime{zones: &zones},
+	}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &mcpauth.TokenInfo{UserID: "usr_1"}}}
+
+	result, out, err := srv.getFreeTime(context.Background(), req, rangeIn{})
+	if err != nil || result.IsError {
+		t.Fatalf("get_free_time: %v %v", err, result)
+	}
+	text, _ := out.(map[string]any)["text"].(string)
+	if strings.Contains(text, "Local") || !strings.Contains(text, "the server's timezone") {
+		t.Fatalf("free time text = %q, want the server's timezone, not Local", text)
+	}
+	if len(zones) != 1 || zones[0] != "" {
+		t.Fatalf("FreeTime was asked for zones %q, want one unnamed", zones)
+	}
+
+	_, out, err = srv.getAgenda(context.Background(), req, rangeIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := out.(map[string]any)["text"].(string); strings.Contains(text, "Local") {
+		t.Fatalf("agenda text = %q", text)
 	}
 }

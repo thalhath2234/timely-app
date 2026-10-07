@@ -118,6 +118,7 @@ export interface FreeTimeResponse {
 export interface SchedulePlan {
   from: string;
   to: string;
+  /** IANA name of the day-boundary zone; "" when the server's own zone has no resolvable name. */
   timezone: string;
   proposals: ScheduleProposal[];
   skipped: ScheduleSkipped[];

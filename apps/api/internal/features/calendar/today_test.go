@@ -44,3 +44,28 @@ func TestTodayJudgesOverdueInWorkingHoursZone(t *testing.T) {
 		t.Fatalf("overdue = %v, want only the task due before the Working hours date", got.Overdue)
 	}
 }
+
+// The server's own zone is named "Local" by Go; a client cannot resolve that, so
+// Today reports the server's IANA name or none.
+func TestTodayNeverNamesTheServerZoneLocal(t *testing.T) {
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Local", 9*60*60)
+
+	svc := NewService(todayTasks{}, noEvents{}, func(string) (models.WorkingHours, error) { return models.WorkingHours{}, nil })
+	for _, tz := range []string{"", "Local"} {
+		t.Setenv("TZ", "Asia/Tokyo")
+		got, err := svc.Today("usr_1", "", tz)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Timezone != "Asia/Tokyo" {
+			t.Fatalf("timezone for %q = %q, want the server's IANA name", tz, got.Timezone)
+		}
+	}
+	t.Setenv("TZ", "")
+	got, err := svc.Today("usr_1", "", "")
+	if err != nil || got.Timezone == "Local" {
+		t.Fatalf("timezone = %q (err %v), want an IANA name or none", got.Timezone, err)
+	}
+}

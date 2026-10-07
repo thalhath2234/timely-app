@@ -256,11 +256,7 @@ func (s NotificationSettings) Location(fallback string) *time.Location {
 // The server's own zone has none (Go calls it "Local", which nothing else can
 // resolve), so it is "" for "unknown, use the server's".
 func (s NotificationSettings) ZoneName(fallback string) string {
-	loc := s.Location(fallback)
-	if loc == time.Local {
-		return ""
-	}
-	return loc.String()
+	return ZoneName(s.Location(fallback))
 }
 
 func (s NotificationSettings) QuietEnd(now time.Time) time.Time {

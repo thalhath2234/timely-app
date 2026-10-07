@@ -135,3 +135,29 @@ func TestIntegrationNotificationZoneFollowsWorkingHours(t *testing.T) {
 		t.Fatalf("timezone = %q (err %v), want Europe/Berlin", settings.Timezone, err)
 	}
 }
+
+// Go calls the server's zone "Local". It must not become a stored timezone: an
+// explicit "Local" setting is refused, and a digest job (which reaches
+// Notification.Data) carries no zone name rather than "Local".
+func TestIntegrationLocalIsNeverStoredAsATimezone(t *testing.T) {
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Local", 12*60*60)
+	local := time.Now().In(time.Local)
+	svc, db := zoneService(t, models.NotificationSettings{DigestMorning: true, MorningDigestAt: local.Format("15:04")})
+
+	if _, err := svc.UpdateSettings(zoneTestUser, models.NotificationSettings{Timezone: "Local", DigestMorning: true}); err == nil {
+		t.Fatal(`UpdateSettings accepted "Local" as a timezone`)
+	}
+
+	if err := svc.sweepDigests(zoneTestUser, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var job models.Job
+	if err := db.Where("user_id = ? AND kind = ?", zoneTestUser, models.JobDailyDigest).First(&job).Error; err != nil {
+		t.Fatalf("no digest job was queued: %v", err)
+	}
+	if tz := job.Payload.String("timezone"); tz != "" {
+		t.Fatalf("digest timezone = %q, want none for the server's zone", tz)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -71,7 +72,7 @@ func (s *Service) GetSettings(userID string) (models.NotificationSettings, error
 func (s *Service) UpdateSettings(userID string, settings models.NotificationSettings) (models.NotificationSettings, error) {
 	normalized := settings.Normalized()
 	if tz := strings.TrimSpace(normalized.Timezone); tz != "" {
-		if _, err := time.LoadLocation(tz); err != nil {
+		if _, err := time.LoadLocation(tz); err != nil || tz == "Local" {
 			return models.NotificationSettings{}, fmt.Errorf("invalid timezone %q", tz)
 		}
 		normalized.Timezone = tz
@@ -349,7 +350,10 @@ func (s *Service) notificationDay(userID string, settings models.NotificationSet
 }
 
 func (s *Service) notificationToday(userID string) task.Today {
-	settings, _ := s.repo.GetSettings(userID)
+	settings, err := s.repo.GetSettings(userID)
+	if err != nil {
+		log.Printf("notify: read settings for %s: %v", userID, err)
+	}
 	return s.notificationDay(userID, settings, time.Now())
 }
 
@@ -566,7 +570,7 @@ func (s *Service) sweepDigests(userID string, now time.Time) error {
 					UserID:    userID,
 					Kind:      models.JobDailyDigest,
 					DedupeKey: key,
-					Payload:   models.JobPayload{"kind": kind, "date": day, "timezone": loc.String()},
+					Payload:   models.JobPayload{"kind": kind, "date": day, "timezone": models.ZoneName(loc)},
 				}); err != nil {
 					return err
 				}
@@ -582,7 +586,7 @@ func (s *Service) sweepDigests(userID string, now time.Time) error {
 					UserID:    userID,
 					Kind:      models.JobDailyDigest,
 					DedupeKey: key,
-					Payload:   models.JobPayload{"kind": kind, "date": day, "timezone": loc.String()},
+					Payload:   models.JobPayload{"kind": kind, "date": day, "timezone": models.ZoneName(loc)},
 				}); err != nil {
 					return err
 				}
