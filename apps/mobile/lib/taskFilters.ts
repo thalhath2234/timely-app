@@ -1,5 +1,5 @@
 import type { Task, TaskViewConfig } from "./types";
-import { isTaskOverdue } from "./overdue";
+import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { statusNameKey } from "./status";
 import { taskHasDate } from "./taskDates";
 
@@ -109,7 +109,12 @@ export function extraFiltersActive(filters: ExtraTaskFilters, defaultShowComplet
 }
 
 /** Overlay status/priority/label/stage/flag filters without re-applying reminder/inbox rules. */
-export function applyExtraFilters(tasks: Task[], filters: ExtraTaskFilters): Task[] {
+export function applyExtraFilters(
+  tasks: Task[],
+  filters: ExtraTaskFilters,
+  timeZone?: string | null,
+): Task[] {
+  const today = todayInZone(timeZone);
   const wantedWorkspaces = new Set(filters.workspaceIds ?? []);
   const wantedStatuses = new Set(filters.statusIds);
   const wantedStatusKeys = new Set(filters.statusKeys ?? []);
@@ -120,7 +125,7 @@ export function applyExtraFilters(tasks: Task[], filters: ExtraTaskFilters): Tas
 
   return tasks.filter((task) => {
     if (!filters.showCompleted && task.completedAt) return false;
-    if (filters.onlyOverdue && !isTaskOverdue(task)) return false;
+    if (filters.onlyOverdue && !isOverdue(task, today)) return false;
     if (filters.onlyScheduled && !task.scheduledOn && !(task.blocks && task.blocks.length > 0)) {
       return false;
     }
@@ -159,7 +164,16 @@ export function applyExtraFilters(tasks: Task[], filters: ExtraTaskFilters): Tas
   });
 }
 
-export function filterTasks(tasks: Task[], filters: TaskListFilters): Task[] {
+/**
+ * `timeZone` is the Working hours timezone the Overdue filter is judged in;
+ * undefined means the device zone.
+ */
+export function filterTasks(
+  tasks: Task[],
+  filters: TaskListFilters,
+  timeZone?: string | null,
+): Task[] {
+  const today = todayInZone(timeZone);
   const wantedWorkspaces = new Set(filters.workspaceIds);
   const wantedStatuses = new Set(filters.statusIds);
   const wantedProjects = new Set(filters.projectIds);
@@ -176,7 +190,7 @@ export function filterTasks(tasks: Task[], filters: TaskListFilters): Task[] {
     }
 
     if (!filters.showCompleted && task.completedAt) return false;
-    if (filters.onlyOverdue && !isTaskOverdue(task)) return false;
+    if (filters.onlyOverdue && !isOverdue(task, today)) return false;
     if (filters.onlyScheduled && !task.scheduledOn && !(task.blocks && task.blocks.length > 0)) {
       return false;
     }

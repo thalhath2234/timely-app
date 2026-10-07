@@ -22,7 +22,7 @@ import { useDocs } from "@/app/utils/hooks/docs";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { useSheets } from "@/app/utils/hooks/sheets";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useWorkingHoursZone, useWorkspaces } from "@/app/utils/hooks/workspaces";
 import {
   buildReportData,
   formatRelative,
@@ -57,6 +57,7 @@ const PRIORITY_TINT: Record<string, string> = {
 
 export default function ReportPage() {
   const tasksQuery = useTasks();
+  const timeZone = useWorkingHoursZone();
   const projectsQuery = useProjects();
   const docsQuery = useDocs();
   const sheetsQuery = useSheets();
@@ -177,8 +178,9 @@ export default function ReportPage() {
         docs: (docs ?? []) as Doc[],
         sheets: (sheets ?? []) as Sheet[],
         workspaces: (workspaces ?? []) as Workspace[],
+        timeZone,
       }),
-    [tasks, projects, docs, sheets, workspaces],
+    [tasks, projects, docs, sheets, workspaces, timeZone],
   );
 
   if (isLoading) {

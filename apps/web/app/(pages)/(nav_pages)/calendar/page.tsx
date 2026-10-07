@@ -36,6 +36,7 @@ import {
   viewRange,
   type CalendarEvent,
 } from "@/app/utils/calendar";
+import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
 import { overdueAgendaTasks, taskToCalendarItem } from "@/app/utils/overdue";
 import { cn } from "@/app/utils/cn";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
@@ -71,14 +72,15 @@ function CalendarContent() {
   const commitBlock = useCommitCalendarBlock();
   const applySchedule = useApplySchedule();
 
+  const timeZone = useWorkingHoursZone();
   const typedTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
   const events = useMemo(
     () => toCalendarEvents(calendar?.items ?? []),
     [calendar],
   );
   const overdueEvents = useMemo(
-    () => toCalendarEvents(overdueAgendaTasks(typedTasks).map(taskToCalendarItem)),
-    [typedTasks],
+    () => toCalendarEvents(overdueAgendaTasks(typedTasks, timeZone).map(taskToCalendarItem)),
+    [typedTasks, timeZone],
   );
   const legend = useMemo(() => eventLegend(events), [events]);
   const unscheduledCount = rankQuery.data?.length ?? 0;

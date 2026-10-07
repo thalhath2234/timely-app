@@ -31,6 +31,7 @@ import {
   useSaveTask,
   useTasksQuery,
   useWorkingHoursQuery,
+  useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
@@ -109,12 +110,13 @@ export default function CalendarScreen() {
   const workspaceOptions = useMemo(() => workspaces.map((space) => ({ id: space.id, title: space.name, color: space.color, count: projects.filter((project) => project.workspaceId === space.id).length })), [workspaces, projects]);
   const projectOptions = useMemo(() => scopedProjects.map((project) => ({ id: project.id, title: project.title || "Untitled project", color: project.color, count: tasks.filter((task) => task.projectId === project.id && !task.completedAt).length })), [scopedProjects, tasks]);
   const hoursQ = useWorkingHoursQuery();
+  const workingHoursZone = useWorkingHoursZone();
   const overdue = useMemo(
     () =>
-      overdueAgendaTasks(tasks)
+      overdueAgendaTasks(tasks, workingHoursZone)
         .map(taskToCalendarItem)
         .filter((item) => matchesCalendarScope(item, workspaceId, projectId)),
-    [tasks, workspaceId, projectId],
+    [tasks, workingHoursZone, workspaceId, projectId],
   );
   const waiting = useMemo(
     () =>

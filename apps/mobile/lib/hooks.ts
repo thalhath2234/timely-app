@@ -205,6 +205,16 @@ export function useConfigQuery() {
   return useQuery({ queryKey: keys.config, queryFn: getConfig, staleTime: 30_000, placeholderData: keepPreviousData });
 }
 
+/**
+ * The Working hours timezone: the zone the server judges Overdue and
+ * Unscheduled in. Undefined (device zone) until config loads or when none is
+ * saved.
+ */
+export function useWorkingHoursZone(): string | undefined {
+  const { data } = useConfigQuery();
+  return data?.workingHours?.timezone || undefined;
+}
+
 export function useUpdateAppearance() {
   const client = useQueryClient();
   return useMutation({

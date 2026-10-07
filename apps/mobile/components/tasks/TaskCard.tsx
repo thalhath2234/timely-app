@@ -3,7 +3,9 @@ import { Pressable, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { CalendarDays, Check } from "lucide-react-native";
 import type { Task } from "../../lib/types";
-import { formatDateAndTime, formatDueDate, formatDuration, formatRelativeDay, isOverdue, PRIORITY_META } from "../../lib/format";
+import { formatDateAndTime, formatDueDate, formatDuration, formatRelativeDay, PRIORITY_META } from "../../lib/format";
+import { isOverdue, todayInZone } from "@timely/contract/workStatus";
+import { useWorkingHoursZone } from "../../lib/hooks";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { Dot } from "../ui/primitives";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -24,7 +26,7 @@ function TaskCard({
 }) {
   const router = useRouter();
   const done = Boolean(task.completedAt);
-  const overdue = isOverdue(task.deadline, task.completedAt);
+  const overdue = isOverdue(task, todayInZone(useWorkingHoursZone()));
   const due = formatDueDate(task.deadline);
   const scheduled = task.scheduledOn || task.blocks?.[0]?.start;
   const scheduledLabel = scheduled

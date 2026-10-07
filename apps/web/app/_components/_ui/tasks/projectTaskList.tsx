@@ -122,8 +122,8 @@ export default function ProjectTaskList({
   );
 
   const dataRows = useMemo(
-    () => filterTasks(allTasks, listFilters),
-    [allTasks, listFilters],
+    () => filterTasks(allTasks, listFilters, typedConfig?.workingHours?.timezone),
+    [allTasks, listFilters, typedConfig?.workingHours?.timezone],
   );
   const scopedTotal = useMemo(
     () =>

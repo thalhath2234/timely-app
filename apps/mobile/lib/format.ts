@@ -109,11 +109,6 @@ export function formatDueDate(iso: string | null | undefined) {
   return formatShortDate(iso);
 }
 
-export function isOverdue(iso: string | null | undefined, completedAt?: string | null) {
-  if (!iso || completedAt) return false;
-  return startOfDay(new Date(iso)).getTime() < startOfDay(new Date()).getTime();
-}
-
 export function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.round(diff / 60_000);

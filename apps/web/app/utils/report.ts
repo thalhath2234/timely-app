@@ -9,7 +9,7 @@ import {
   Workspace,
 } from "@/app/_types/types";
 import { extractMentions } from "@/app/utils/richText";
-import { isTaskOverdue } from "@/app/utils/overdue";
+import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { isInboxTask, isReminderTask } from "@/app/utils/taskFilters";
 import {
   nextTaskSlot,
@@ -120,6 +120,8 @@ export function buildReportData(input: {
   docs: Doc[];
   sheets: Sheet[];
   workspaces: Workspace[];
+  /** Working hours timezone; Overdue is judged on its date. Undefined: device zone. */
+  timeZone?: string | null;
 }): ReportData {
   const { projects, docs, sheets, workspaces } = input;
   const today = startOfToday();
@@ -144,7 +146,7 @@ export function buildReportData(input: {
   for (const task of openTasks) {
     // Same overdue rule as Calendar / Today: a past deadline, or every
     // reserved block already ended before today.
-    if (isTaskOverdue(task, now)) {
+    if (isOverdue(task, todayInZone(input.timeZone, now))) {
       const deadline = taskDeadlineDate(task);
       const slot = deadline ? null : nextTaskSlot(task, now);
       const when = deadline ?? slot?.end ?? now;

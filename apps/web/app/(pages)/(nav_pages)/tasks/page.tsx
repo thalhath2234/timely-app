@@ -168,7 +168,7 @@ function Tasks() {
   );
 
   const dataRows = useMemo(() => {
-    const filtered = filterTasks(allTasks, listFilters);
+    const filtered = filterTasks(allTasks, listFilters, typedConfig?.workingHours?.timezone);
     if (dataMode === "task" || showReminders) return filtered;
 
     const projects = new Map<string, Task[]>();
@@ -213,7 +213,7 @@ function Tasks() {
         labels: [],
       } as Task;
     });
-  }, [allTasks, dataMode, listFilters, showReminders]);
+  }, [allTasks, dataMode, listFilters, showReminders, typedConfig?.workingHours?.timezone]);
 
   const getGroupLabel = useCallback(
     (task: Task, groupBy: TaskListGroupField): string => {
@@ -250,17 +250,17 @@ function Tasks() {
   const filteredDataRows = dataRows;
   const dataCount = filteredDataRows.length;
   const headerTaskCount = useMemo(
-    () => filterTasks(allTasks, { ...listFilters, showReminders: false }).length,
-    [allTasks, listFilters],
+    () => filterTasks(allTasks, { ...listFilters, showReminders: false }, typedConfig?.workingHours?.timezone).length,
+    [allTasks, listFilters, typedConfig?.workingHours?.timezone],
   );
   const headerProjectCount = useMemo(() => {
     const ids = new Set<string>();
-    for (const task of filterTasks(allTasks, listFilters)) {
+    for (const task of filterTasks(allTasks, listFilters, typedConfig?.workingHours?.timezone)) {
       const projectId = task.project?.id || task.projectId;
       if (projectId) ids.add(projectId);
     }
     return ids.size;
-  }, [allTasks, listFilters]);
+  }, [allTasks, listFilters, typedConfig?.workingHours?.timezone]);
 
   if (isLoading) {
     return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
