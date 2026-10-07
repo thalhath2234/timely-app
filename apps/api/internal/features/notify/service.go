@@ -56,14 +56,15 @@ func (s *Service) Register(worker *jobs.Worker) {
 
 // GetSettings returns the stored preferences with the *effective* timezone
 // filled in: an explicit notification timezone wins, otherwise the working
-// hours timezone, otherwise UTC. Digest and quiet-hour jobs use the same
+// hours timezone, otherwise the server's own zone (reported as "" since it has
+// no IANA name). Digest and quiet-hour jobs use the same
 // resolution, so what the settings screen shows is what the scheduler uses.
 func (s *Service) GetSettings(userID string) (models.NotificationSettings, error) {
 	settings, err := s.repo.GetSettings(userID)
 	if err != nil {
 		return settings, err
 	}
-	settings.Timezone = settings.Location(s.repo.WorkingHoursTimezone(userID)).String()
+	settings.Timezone = settings.ZoneName(s.repo.WorkingHoursTimezone(userID))
 	return settings, nil
 }
 
@@ -78,7 +79,7 @@ func (s *Service) UpdateSettings(userID string, settings models.NotificationSett
 	if err := s.repo.UpdateSettings(userID, normalized); err != nil {
 		return models.NotificationSettings{}, err
 	}
-	normalized.Timezone = normalized.Location(s.repo.WorkingHoursTimezone(userID)).String()
+	normalized.Timezone = normalized.ZoneName(s.repo.WorkingHoursTimezone(userID))
 	return normalized, nil
 }
 
@@ -132,20 +133,11 @@ func (s *Service) PrioritizeOverdue(userID, taskID string) (*schedule.PlanRespon
 	return plan, nil
 }
 
+// notificationTimezone is the zone name Auto-schedule is asked to use, "" when
+// it is the server's own.
 func (s *Service) notificationTimezone(userID string) string {
-	settings, err := s.repo.GetSettings(userID)
-	if err != nil {
-		return "UTC"
-	}
-	return settings.Location(s.repo.WorkingHoursTimezone(userID)).String()
-}
-
-func timeLocation(name string) *time.Location {
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		return time.UTC
-	}
-	return loc
+	settings, _ := s.repo.GetSettings(userID)
+	return settings.ZoneName(s.repo.WorkingHoursTimezone(userID))
 }
 
 func (s *Service) RegisterDevice(userID, token, platform string) (*models.PushDevice, error) {
@@ -357,7 +349,8 @@ func (s *Service) notificationDay(userID string, settings models.NotificationSet
 }
 
 func (s *Service) notificationToday(userID string) task.Today {
-	return task.TodayAt(time.Now(), timeLocation(s.notificationTimezone(userID)))
+	settings, _ := s.repo.GetSettings(userID)
+	return s.notificationDay(userID, settings, time.Now())
 }
 
 const startLead = 10 * time.Minute
