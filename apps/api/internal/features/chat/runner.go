@@ -459,19 +459,34 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 
 // placementInterval is the span a manual placement step reserves, resolved
 // the way Placement resolves it (placement.ResolveEnd): an explicit end, else a
-// duration, else the moved block's length or the task's estimate.
+// duration, else the moved block's length or the task's estimate. update_task
+// places by hand when it sets scheduledOn on Work (ADR 0010); a Reminder's
+// ping and a series' anchor reserve nothing.
 func placementInterval(tool string, args map[string]any, task, block any) (time.Time, time.Time, bool) {
-	if tool != "schedule_task" && tool != "move_block" {
-		return time.Time{}, time.Time{}, false
+	none := func() (time.Time, time.Time, bool) { return time.Time{}, time.Time{}, false }
+	startKey := "start"
+	switch tool {
+	case "schedule_task", "move_block":
+	case "update_task":
+		startKey = "scheduledOn"
+		if v, _ := args[startKey].(string); v == "" {
+			startKey = "scheduleAt"
+		}
+	default:
+		return none()
 	}
-	startRaw, _ := args["start"].(string)
+	startRaw, _ := args[startKey].(string)
 	start, err := recurrence.ParseTime(startRaw)
 	if err != nil {
-		return time.Time{}, time.Time{}, false
+		return none()
 	}
 	endRaw, _ := args["end"].(string)
 	var minutes *int
-	if v, ok := args["durationMinutes"].(float64); ok && v > 0 {
+	field := "durationMinutes"
+	if tool == "update_task" {
+		field = "duration"
+	}
+	if v, ok := args[field].(float64); ok && v > 0 {
 		m := int(v)
 		minutes = &m
 	}
@@ -483,14 +498,29 @@ func placementInterval(tool string, args map[string]any, task, block any) (time.
 			fallback = int(b.EndAt.Sub(b.StartAt).Minutes())
 		}
 	}
-	if fallback <= 0 && task != nil {
-		var read struct {
-			Task struct {
-				Duration int `json:"duration"`
-			} `json:"task"`
-		}
-		if err := json.Unmarshal(raw(task), &read); err == nil {
+	var read struct {
+		Task struct {
+			Duration   int             `json:"duration"`
+			Kind       string          `json:"kind"`
+			Recurrence json.RawMessage `json:"recurrence"`
+		} `json:"task"`
+	}
+	if task != nil {
+		if err := json.Unmarshal(raw(task), &read); err == nil && fallback <= 0 {
 			fallback = read.Task.Duration
+		}
+	}
+	if tool == "update_task" {
+		kind := read.Task.Kind
+		if v, ok := args["kind"].(string); ok && v != "" {
+			kind = v
+		}
+		if v, ok := args[field].(float64); ok && v <= 0 {
+			return none() // a zero estimate makes it a Reminder
+		}
+		series := args["recurrence"] != nil || (len(read.Task.Recurrence) > 0 && string(read.Task.Recurrence) != "null")
+		if kind == models.KindReminder || kind == models.KindInbox || series || (minutes == nil && fallback <= 0) {
+			return none()
 		}
 	}
 	// An unusable end falls back to the duration rather than failing the review.

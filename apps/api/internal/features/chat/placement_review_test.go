@@ -89,3 +89,42 @@ func TestIntegrationPlacementReviewsCalendarInterval(t *testing.T) {
 		t.Fatalf("placement applied over a conflict that appeared after review: writes=%d review=%v phase=%s status=%s", writes, c.ForceReview, c.Phase, c.Status)
 	}
 }
+
+// update_task that sets scheduledOn places Work by hand (ADR 0010), so it
+// reserves a span like schedule_task; a Reminder ping and a series anchor do not.
+func TestPlacementIntervalCoversUpdateTask(t *testing.T) {
+	start := time.Date(2026, 12, 1, 4, 0, 0, 0, time.UTC)
+	work := map[string]any{"task": map[string]any{"id": "tsk_a", "kind": "task", "duration": 30}}
+	reminder := map[string]any{"task": map[string]any{"id": "tsk_a", "kind": "reminder", "duration": 0}}
+	series := map[string]any{"task": map[string]any{"id": "tsk_a", "kind": "task", "duration": 30, "recurrence": map[string]any{"rrule": "FREQ=DAILY"}}}
+	on := "2026-12-01T13:00:00+09:00"
+
+	for name, tc := range map[string]struct {
+		args map[string]any
+		task any
+		want time.Duration // 0 means no reservation
+	}{
+		"uses the task estimate":      {map[string]any{"scheduledOn": on}, work, 30 * time.Minute},
+		"scheduleAt alias":            {map[string]any{"scheduleAt": on}, work, 30 * time.Minute},
+		"duration arg wins":           {map[string]any{"scheduledOn": on, "duration": float64(90)}, work, 90 * time.Minute},
+		"no time set":                 {map[string]any{"name": "x"}, work, 0},
+		"clearing the time":           {map[string]any{"scheduledOn": ""}, work, 0},
+		"reminder ping":               {map[string]any{"scheduledOn": on}, reminder, 0},
+		"becoming a reminder":         {map[string]any{"scheduledOn": on, "kind": "reminder"}, work, 0},
+		"zero estimate is a ping":     {map[string]any{"scheduledOn": on, "duration": float64(0)}, work, 0},
+		"series anchor":               {map[string]any{"scheduledOn": on}, series, 0},
+		"series set in the same call": {map[string]any{"scheduledOn": on, "recurrence": map[string]any{"rrule": "FREQ=DAILY"}}, work, 0},
+		"no estimate to reserve":      {map[string]any{"scheduledOn": on}, map[string]any{"task": map[string]any{"kind": "task"}}, 0},
+	} {
+		from, to, ok := placementInterval("update_task", tc.args, tc.task, nil)
+		if tc.want == 0 {
+			if ok {
+				t.Errorf("%s: reserved %v-%v, want nothing", name, from, to)
+			}
+			continue
+		}
+		if !ok || !from.Equal(start) || to.Sub(from) != tc.want {
+			t.Errorf("%s: span = %v-%v (ok %v), want %v long from %v", name, from, to, ok, tc.want, start)
+		}
+	}
+}
