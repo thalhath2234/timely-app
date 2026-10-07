@@ -164,12 +164,7 @@ export function getGmtLabel() {
   return `GMT${sign}${hh}`;
 }
 
-/**
- * The views offer a "Scheduled date" sort that the server rejects: PUT /config
- * answers 400 "invalid sortBy value" for `scheduledOn`. Kept app-local so the
- * mismatch stays visible; the wire type is `TaskViewSortBy`.
- */
-export type TaskListSortBy = TaskViewSortBy | "scheduledOn";
+export type TaskListSortBy = TaskViewSortBy;
 
 export type TaskListGroupBy =
   | "none"
