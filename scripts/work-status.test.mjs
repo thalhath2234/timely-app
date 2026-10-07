@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import {
+  addDaysToDate,
   dateInZone,
+  daysBetween,
   isOverdue,
   isUnscheduled,
   todayInZone,
@@ -151,5 +153,46 @@ describe("isUnscheduled", () => {
     assert.equal(isUnscheduled(work({ completedAt: "2026-10-06T10:00:00Z" }), "UTC", now), false);
     assert.equal(isUnscheduled(work({ kind: "reminder" }), "UTC", now), false);
     assert.equal(isUnscheduled(work({ kind: "inbox" }), "UTC", now), false);
+  });
+});
+
+describe("addDaysToDate / daysBetween", () => {
+  test("move across month, year and leap boundaries", () => {
+    assert.equal(addDaysToDate("2026-10-07", 14), "2026-10-21");
+    assert.equal(addDaysToDate("2026-10-30", 2), "2026-11-01");
+    assert.equal(addDaysToDate("2026-12-31", 1), "2027-01-01");
+    assert.equal(addDaysToDate("2028-02-28", 1), "2028-02-29");
+    assert.equal(addDaysToDate("2026-03-01", -1), "2026-02-28");
+    assert.equal(addDaysToDate("2026-10-07T09:00:00Z", 1), "2026-10-08");
+  });
+
+  test("count whole days, unaffected by DST", () => {
+    assert.equal(daysBetween("2026-10-07", "2026-10-07"), 0);
+    assert.equal(daysBetween("2026-10-07", "2026-10-08"), 1);
+    assert.equal(daysBetween("2026-10-07", "2026-10-06"), -1);
+    assert.equal(daysBetween("2026-03-07", "2026-03-09"), 2);
+    assert.equal(daysBetween("2026-10-31", "2026-11-02"), 2);
+    assert.equal(daysBetween("2026-10-07", "2026-10-21T10:00:00Z"), 14);
+  });
+
+  test("a day label near midnight agrees with isOverdue in the same zone", () => {
+    // 03:00 UTC on the 7th is still the evening of the 6th in Los Angeles.
+    const now = new Date("2026-10-07T03:00:00Z");
+    const task = { kind: "task", deadline: "2026-10-06" };
+    for (const [zone, days, overdue] of [
+      ["UTC", -1, true],
+      ["America/Los_Angeles", 0, false],
+      ["Pacific/Auckland", -1, true],
+    ]) {
+      const today = todayInZone(zone, now);
+      assert.equal(daysBetween(today, task.deadline), days, zone);
+      assert.equal(isOverdue(task, today), overdue, zone);
+    }
+  });
+
+  test("a 14 day horizon is inclusive of its last date", () => {
+    const today = todayInZone("America/Los_Angeles", new Date("2026-10-07T03:00:00Z"));
+    assert.equal(today, "2026-10-06");
+    assert.equal(addDaysToDate(today, 14), "2026-10-20");
   });
 });
