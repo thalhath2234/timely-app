@@ -4,6 +4,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3 } from "lucid
 import BottomSheet from "./BottomSheet";
 import { formatMonthYear, isSameDay, startOfDay } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { reseedPicker, snapMinute, type PickerSeed } from "../../lib/pickerSeed";
 import AnimatedPressable from "./AnimatedPressable";
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -27,10 +28,6 @@ function monthCells(month: Date): (Date | null)[] {
   }
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
-}
-
-function snapMinute(raw: number) {
-  return (Math.round(raw / 15) * 15) % 60;
 }
 
 function hour12(hours24: number) {
@@ -91,14 +88,19 @@ export default function DateTimeSheet({
   const [hour, setHour] = useState(initial.getHours());
   const [minute, setMinute] = useState(snapMinute(initial.getMinutes()));
   const wasOpen = useRef(false);
+  const seed = useRef<PickerSeed | null>(null);
 
+  // Fill the picker when the sheet opens, and again if `value` arrives or
+  // changes while it is open and still untouched (a suggested slot that was
+  // still loading).
   useEffect(() => {
-    if (open && !wasOpen.current) {
-      const next = value ?? new Date();
-      setMonth(startOfMonth(next));
-      setDay(startOfDay(next));
-      setHour(next.getHours());
-      setMinute(snapMinute(next.getMinutes()));
+    const next = reseedPicker({ open, wasOpen: wasOpen.current, value, seed: seed.current, current: { month, day, hour, minute } });
+    if (next) {
+      seed.current = next;
+      setMonth(next.picker.month);
+      setDay(next.picker.day);
+      setHour(next.picker.hour);
+      setMinute(next.picker.minute);
     }
     wasOpen.current = open;
   }, [open, value]);

@@ -462,6 +462,7 @@ export function useSaveTask() {
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
       client.invalidateQueries({ queryKey: keys.today });
     },
   });
@@ -484,6 +485,7 @@ export function useEditTaskOccurrence() {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: keys.tasks });
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
     },
   });
 }
@@ -584,6 +586,7 @@ export function useBulkUpdateTasks() {
       tasks?.forEach((task) => cacheTask(client, task));
       client.invalidateQueries({ queryKey: keys.tasks });
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
     },
   });
 }
@@ -953,6 +956,7 @@ export function useClearTaskBlocks() {
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
     },
   });
 }
