@@ -152,9 +152,6 @@ export interface Schedule extends BaseEntity {
 }
 
 /**
- * A task row of any `kind`. "Work" in CONTEXT.md is `kind: "task"`.
- */
-/**
  * A task row of any `kind`; "Work" in CONTEXT.md is `kind: "task"`. The server
  * always sends the fields marked `?` below (and `recurrence`/`blocks` may be
  * JSON null). They are optional here only because the clients build synthetic
@@ -212,13 +209,13 @@ export interface Task {
   blockedBy?: Task | null;
 
   customFieldValues?: TaskCustomFieldValue[];
-  labelIds?: TaskLabelId[];
+  labelIds?: TaskLabelId[] | null;
   labels?: Label[];
 
   /** Set when the task repeats (haircut every 4 weeks, run every Tuesday). */
   recurrence?: RecurrenceRule | null;
   /** Calendar time reserved for a one-off task; empty when unscheduled. */
-  blocks?: ScheduledBlock[];
+  blocks?: ScheduledBlock[] | null;
 }
 
 /** Payload for attaching a recurrence rule to a task or event. */
@@ -248,7 +245,7 @@ export interface RecurrenceRule extends RecurrenceInput {
   ownerType: "task" | "event";
   ownerId: string;
   userId: string;
-  exceptions: RecurrenceException[];
+  exceptions: RecurrenceException[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -286,7 +283,7 @@ export interface CalendarEventEntity {
   projectId: string | null;
   taskId: string | null;
   recurrence: RecurrenceRule | null;
-  blocks: ScheduledBlock[];
+  blocks: ScheduledBlock[] | null;
   createdAt: string;
   updatedAt: string;
 }
