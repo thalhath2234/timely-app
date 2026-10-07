@@ -1,31 +1,10 @@
-import type { CustomFieldValueInput, DocContent, Project, ProjectActivityEntry, Stage } from "../types";
+import type { Project, ProjectActivityEntry, Stage } from "../types";
+import type { CreateProjectPayload, UpdateProjectPayload } from "@timely/contract/entities";
 import { api, unwrap } from "./client";
 
-export type CreateProjectPayload = {
-  title: string;
-  workspaceId: string;
-  description?: string;
-  descriptionRich?: DocContent;
-  statusId?: string;
-  deadline?: string;
-  startDate?: string;
-  priorityLevel?: string;
-  color?: string;
-  doesHaveStages?: boolean;
-};
-
-export type UpdateProjectPayload = {
-  title?: string;
-  description?: string;
-  descriptionRich?: DocContent;
-  statusId?: string;
-  deadline?: string;
-  startDate?: string;
-  completedAt?: string;
-  priorityLevel?: string;
-  color?: string;
-  doesHaveStages?: boolean;
-  customFieldValues?: CustomFieldValueInput[];
+export type {
+  CreateProjectPayload,
+  UpdateProjectPayload,
 };
 
 export function getProjects() {

@@ -15,6 +15,8 @@ type Repository interface {
 	SaveRevision(rev *models.ScheduleRevision) error
 	LatestRevision(userID string) (*models.ScheduleRevision, error)
 	DeleteRevision(userID, id string) error
+	// TaskNames maps the user's task ids to their names.
+	TaskNames(userID string, ids []string) (map[string]string, error)
 }
 
 type repository struct {
@@ -26,12 +28,7 @@ func NewRepository(db *gorm.DB) Repository {
 }
 
 func (r *repository) GetWorkingHours(userID string) (models.WorkingHours, error) {
-	var config models.Config
-	err := r.db.Select("working_hours").Where("user_id = ?", userID).First(&config).Error
-	if err != nil {
-		return models.WorkingHours{}, err
-	}
-	return config.WorkingHours, nil
+	return models.LoadWorkingHours(r.db, userID)
 }
 
 func (r *repository) UpdateWorkingHours(userID string, hours models.WorkingHours) error {
@@ -108,4 +105,19 @@ func (r *repository) LatestRevision(userID string) (*models.ScheduleRevision, er
 
 func (r *repository) DeleteRevision(userID, id string) error {
 	return r.db.Where("id = ? AND user_id = ?", id, userID).Delete(&models.ScheduleRevision{}).Error
+}
+
+func (r *repository) TaskNames(userID string, ids []string) (map[string]string, error) {
+	names := map[string]string{}
+	if len(ids) == 0 {
+		return names, nil
+	}
+	var rows []struct{ ID, Name string }
+	if err := r.db.Table("tasks").Select("id, name").Where("user_id = ? AND id IN ?", userID, ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		names[row.ID] = row.Name
+	}
+	return names, nil
 }

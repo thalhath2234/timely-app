@@ -24,8 +24,8 @@ make dev-api             # API on :8080, with live reload
 needed. Check its database settings and replace `JWT_SECRET` and
 `TIMELY_BACKUP_KEY` before using a nonlocal installation. The API applies
 pending schema migrations at startup; they are embedded in the binary, so a
-packaged build runs from any directory. Embedding search needs an
-`OPENROUTER_API_KEY`; keyword search works without it.
+packaged build runs from any directory. Embedding search needs the account's
+own OpenRouter key (Settings → Agent); keyword search works without it.
 
 ## Listening and host settings
 
@@ -74,9 +74,13 @@ The [API collection](api-collections.json) contains sample requests. Run
 
 ## In-app agent
 
-Chat uses the server's `OPENROUTER_API_KEY` and defaults to
-`OPENROUTER_CHAT_MODEL=z-ai/glm-5.3-flash`, with low reasoning effort for interactive tool use. The key is never returned to the web or
-Electron renderer. Startup migrations create conversation storage and enable
+Chat uses only keys an account saves in Settings → Agent: OpenRouter or a
+direct API provider (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai,
+Kimi, Ollama, NVIDIA, OpenCode Zen/Go). There is no server-wide key. Set
+`OLLAMA_BASE_URL` if Ollama is not on `localhost:11434` and `OLLAMA_NUM_CTX`
+to change the 32k context Timely asks Ollama for. OpenRouter chat defaults to
+`OPENROUTER_CHAT_MODEL=z-ai/glm-5.3-flash`, with low reasoning effort for
+interactive tool use. Keys are never returned to the web or Electron renderer. Startup migrations create conversation storage and enable
 agent notifications. Agent execution runs separately from reminder jobs. Model
 requests allow up to four minutes and retry one transient timeout or truncated
 response within the ten-minute run limit. Worker heartbeats keep long requests

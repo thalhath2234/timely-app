@@ -107,3 +107,22 @@ func TestAppearanceNormalize(t *testing.T) {
 		t.Fatal("expected invalid accent")
 	}
 }
+
+// The task list offers every contract sort, including "Scheduled date"; a view
+// saved with one must validate or PUT /config answers 400.
+func TestTaskViewConfigAcceptsEverySortBy(t *testing.T) {
+	for _, sortBy := range []SortByField{
+		SortByName, SortByDeadline, SortByStartDate, SortByScheduledOn, SortByCreatedAt, SortByPriority, SortByStatus, SortByProject,
+	} {
+		view := DefaultTaskViews()[0]
+		view.SortBy = sortBy
+		if err := view.Validate(nil); err != nil {
+			t.Errorf("sortBy %q rejected: %v", sortBy, err)
+		}
+	}
+	view := DefaultTaskViews()[0]
+	view.SortBy = "scheduled"
+	if err := view.Validate(nil); err == nil {
+		t.Error("an unknown sortBy was accepted")
+	}
+}

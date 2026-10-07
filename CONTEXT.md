@@ -80,7 +80,7 @@ An attempt to carry out a request in a conversation, with progress and results r
 _Avoid_: task (Work is a separate concept)
 
 **Agent provider**:
-The model source an account's Agent runs use: OpenRouter with the account's own key, or the Claude Code or Codex CLI installed and signed in on the API host. Each account has one default provider and a model per provider; a run keeps the provider it started with.
+The model source an account's Agent runs use: OpenRouter or a direct API provider (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, Ollama, NVIDIA, OpenCode) with the account's own key, or the Claude Code or Codex CLI installed and signed in on the API host. Each account has one default provider and a model per provider; a run keeps the provider it started with.
 _Avoid_: backend, engine (Auto-schedule is the engine), LLM (in copy)
 
 **Connect**:

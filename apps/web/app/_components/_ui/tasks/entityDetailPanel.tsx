@@ -141,8 +141,10 @@ interface DetailPatch {
   scheduleLocked?: boolean;
   contiguous?: boolean;
   minChunkMinutes?: number;
-  preferredChunkMinutes?: number | null;
-  earliestStartAt?: string | null;
+  /** 0 clears it. */
+  preferredChunkMinutes?: number;
+  /** Empty string clears it. */
+  earliestStartAt?: string;
   preferredWindows?: PreferredWindow[];
 }
 

@@ -1,6 +1,7 @@
 // Package provider lets each account choose which model runs the in-app
-// agent: OpenRouter with the account's own key, or the Claude Code / Codex
-// CLIs installed and signed in on the API host. See ADR 0009.
+// agent: OpenRouter or a direct API provider (registry.go) with the account's
+// own key, or the Claude Code / Codex CLIs installed and signed in on the API
+// host. See ADR 0009.
 package provider
 
 import (
@@ -71,11 +72,12 @@ type Service struct {
 	claude   *Tool
 	codex    *Tool
 	localCLI bool
-	envKey   string
 	envChat  string
 	envEmbed string
 
 	openRouterURL string // overridable for tests
+	anthropicURL  string // overridable for tests
+	ollamaURL     string // OLLAMA_BASE_URL: the default Ollama address
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
@@ -96,14 +98,14 @@ func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
 		claude:   &Tool{Name: "claude", EnvVar: "CLAUDE_BIN"},
 		codex:    &Tool{Name: "codex", EnvVar: "CODEX_BIN"},
 		localCLI: !strings.EqualFold(strings.TrimSpace(os.Getenv("CHAT_LOCAL_CLI")), "off"),
-		envKey:   strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")),
 		envChat:  chatModel, envEmbed: embedModel,
 		key: sha256.Sum256([]byte("timely-agent-provider:" + secret)),
 
 		openRouterURL: "https://openrouter.ai/api/v1/chat/completions",
+		ollamaURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/"),
 	}
 	if indexer != nil {
-		indexer.SetCredentials(s.embedCredentials)
+		indexer.SetCredentials(s.EmbedCredentials)
 	}
 	return s
 }
@@ -207,12 +209,9 @@ func hint(key string) string {
 
 // ---- resolution for chat runs ----
 
-// openRouterKey prefers the account's key and falls back to the server's.
+// openRouterKey is the account's own key; there is no server-wide key.
 func (s *Service) openRouterKey(row Settings) (string, error) {
-	if row.OpenRouterKey != "" {
-		return s.decrypt(row.OpenRouterKey)
-	}
-	return s.envKey, nil
+	return s.decrypt(row.OpenRouterKey)
 }
 
 func (s *Service) chatModel(row Settings, provider string) string {
@@ -254,6 +253,13 @@ func (s *Service) Resolve(ctx context.Context, userID string) (string, string, e
 	if (provider == ClaudeCLI || provider == CodexCLI) && !s.localCLI {
 		return provider, "", fmt.Errorf("Local CLIs are turned off on this server (CHAT_LOCAL_CLI=off). Pick another provider in Settings → Agent")
 	}
+	if spec := apiProviderByID(provider); spec != nil {
+		api, _, err := s.apiRow(s.db.WithContext(ctx), userID, provider)
+		if err != nil {
+			return provider, "", err
+		}
+		return provider, api.Model, nil
+	}
 	return provider, s.chatModel(row, provider), nil
 }
 
@@ -264,6 +270,19 @@ func (s *Service) Completer(ctx context.Context, userID, provider, model string)
 	}
 	if provider == "" {
 		provider = row.DefaultProvider
+	}
+	if spec := apiProviderByID(provider); spec != nil {
+		api, found, err := s.apiRow(s.db.WithContext(ctx), userID, provider)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, fmt.Errorf("%s is not connected. Add its key in Settings → Agent", spec.Label)
+		}
+		if model == "" {
+			model = api.Model
+		}
+		return s.buildAPI(spec, api, model)
 	}
 	if model == "" {
 		model = s.chatModel(row, provider)
@@ -279,7 +298,7 @@ func (s *Service) build(row Settings, provider, model string) (chat.Completer, e
 			return nil, err
 		}
 		if key == "" {
-			return nil, fmt.Errorf("Add an OpenRouter API key in Settings → Agent (or set OPENROUTER_API_KEY on the server)")
+			return nil, fmt.Errorf("Add an OpenRouter API key in Settings → Agent")
 		}
 		return &chat.OpenRouter{Key: key, Model: model, URL: s.openRouterURL, Client: &http.Client{Timeout: 4 * time.Minute}}, nil
 	case ClaudeCLI:
@@ -313,8 +332,8 @@ func (s *Service) build(row Settings, provider, model string) (chat.Completer, e
 	return nil, fmt.Errorf("Unknown AI provider %q. Pick one in Settings → Agent", provider)
 }
 
-// embedCredentials feeds the indexer the account's key and embedding model.
-func (s *Service) embedCredentials(userID string) (string, string) {
+// EmbedCredentials feeds an indexer the account's key and embedding model.
+func (s *Service) EmbedCredentials(userID string) (string, string) {
 	row, err := s.load(s.db, userID)
 	if err != nil {
 		return "", ""

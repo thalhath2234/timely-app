@@ -20,11 +20,12 @@ import {
   useProjectsQuery,
   useSaveTask,
   useTasksQuery,
+  useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { addDays, startOfDay, toDateInputValue } from "../../../lib/format";
 import { PRIORITIES, priorityRank } from "../../../lib/priority";
-import { isTaskOverdue } from "../../../lib/overdue";
+import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { taskEntityColor } from "../../../lib/entityColor";
 import {
   mergeStatusesByName,
@@ -159,6 +160,7 @@ export default function TasksScreen() {
   const bulk = useBulkUpdateTasks();
   const remove = useDeleteTask();
   const tasks = tasksQ.data ?? [];
+  const workingHoursZone = useWorkingHoursZone();
   const workspaces = spacesQ.data ?? [];
   const networkCopy = needsNetworkCopy(tasksQ);
   const views = nativeViews.views;
@@ -193,10 +195,10 @@ export default function TasksScreen() {
 
   const visible = useMemo(() => {
     if (!activeView || activeView.dataMode === "project") return [];
-    return filterTasks(tasks, filtersFromView(activeView))
+    return filterTasks(tasks, filtersFromView(activeView), workingHoursZone)
       .filter((task) => (projectId ? task.projectId === projectId : true))
       .sort((a, b) => sortTasks(a, b, activeView));
-  }, [tasks, projectId, activeView]);
+  }, [tasks, projectId, activeView, workingHoursZone]);
 
   const groups = useMemo(() => {
     const map = new Map<string, { title: string; color: string | null; tasks: Task[] }>();
@@ -347,9 +349,12 @@ export default function TasksScreen() {
   }, [save]);
 
   const openCount = useMemo(() => visible.filter((task) => !task.completedAt).length, [visible]);
+  // One date for the whole list: cards take it as a prop instead of each
+  // subscribing to the Working hours config.
+  const today = todayInZone(workingHoursZone);
   const overdueCount = useMemo(
-    () => visible.filter((task) => isTaskOverdue(task)).length,
-    [visible],
+    () => visible.filter((task) => isOverdue(task, today)).length,
+    [visible, today],
   );
   const filtersOn = viewHasCustomFilters(activeView);
   const listRefreshing = tasksQ.isRefetching && !tasksQ.isPending;
@@ -366,6 +371,7 @@ export default function TasksScreen() {
       <View style={styles.cardWrap}>
         <TaskCard
           task={item}
+          today={today}
           selected={selectedIds.includes(item.id)}
           selecting={selecting}
           onSelect={toggleSelect}
@@ -373,7 +379,7 @@ export default function TasksScreen() {
         />
       </View>
     ),
-    [selectedIds, selecting, toggleSelect, toggleComplete],
+    [selectedIds, selecting, today, toggleSelect, toggleComplete],
   );
 
   const renderSectionHeader = useCallback(
@@ -475,6 +481,7 @@ export default function TasksScreen() {
       {boardMode && !networkCopy && visible.length > 0 ? (
         <MobileKanban
           columns={boardCols}
+          today={today}
           selectedIds={selectedIds}
           selecting={selecting}
           onSelect={toggleSelect}

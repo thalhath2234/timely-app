@@ -34,6 +34,16 @@ export function useConfig() {
   });
 }
 
+/**
+ * The Working hours timezone: the zone the server judges Overdue and
+ * Unscheduled in. Undefined (device zone) until config loads or when none is
+ * saved.
+ */
+export function useWorkingHoursZone(): string | undefined {
+  const { data } = useConfig();
+  return data?.workingHours?.timezone || undefined;
+}
+
 export function useUpdateTaskViewsConfig() {
   return useMutation({
     mutationFn: updateTaskViewsConfig,

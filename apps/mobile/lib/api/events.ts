@@ -1,31 +1,23 @@
-import type { CalendarEventEntity, RecurrenceInput } from "../types";
+import type { CalendarEventEntity } from "../types";
+import type {
+  CreateEventPayload,
+  EventOccurrencePayload,
+  SplitEventSeriesPayload,
+  UpdateEventPayload as WireUpdateEventPayload,
+} from "@timely/contract/calendar";
 import { api, unwrap } from "./client";
+import { clearNulls, type Clearable } from "./clearable";
 
-export type CreateEventPayload = {
-  title: string;
-  description?: string;
-  start: string;
-  end: string;
-  allDay?: boolean;
-  color?: string;
-  workspaceId?: string;
-  projectId?: string;
-  taskId?: string;
-  recurrence?: RecurrenceInput;
+export type {
+  CreateEventPayload,
+  EventOccurrencePayload,
+  SplitEventSeriesPayload,
 };
 
-export type UpdateEventPayload = {
-  title?: string;
-  description?: string;
-  start?: string;
-  end?: string;
-  allDay?: boolean;
-  color?: string | null;
-  workspaceId?: string;
-  projectId?: string | null;
-  taskId?: string;
-  recurrence?: RecurrenceInput | null;
-};
+const CLEARABLE_EVENT_FIELDS = ["color", "projectId"] as const;
+
+/** `UpdateEventPayload` from the contract, plus `null` meaning "clear" on `color` and `projectId`. */
+export type UpdateEventPayload = Clearable<WireUpdateEventPayload, (typeof CLEARABLE_EVENT_FIELDS)[number]>;
 
 export function getEvents() {
   return api<CalendarEventEntity[]>("/events");
@@ -37,7 +29,7 @@ export function getEvent(id: string) {
 
 export async function splitEventSeries(
   id: string,
-  data: { fromStart: string; recurrence?: RecurrenceInput; title?: string; start?: string; end?: string },
+  data: SplitEventSeriesPayload,
 ) {
   const res = await api<CalendarEventEntity | { event: CalendarEventEntity }>(`/events/${id}/recurrence/split`, {
     method: "POST",
@@ -57,7 +49,7 @@ export async function createEvent(data: CreateEventPayload) {
 export async function updateEvent(id: string, data: UpdateEventPayload) {
   const res = await api<CalendarEventEntity | { event: CalendarEventEntity }>(`/events/${id}`, {
     method: "PUT",
-    body: data,
+    body: clearNulls<WireUpdateEventPayload>(data, CLEARABLE_EVENT_FIELDS),
   });
   return unwrap(res, "event");
 }
@@ -68,7 +60,7 @@ export function deleteEvent(id: string) {
 
 export async function editEventOccurrence(
   id: string,
-  data: { originalStart: string; action: "skip" | "restore" | "move"; newStart?: string; newEnd?: string },
+  data: EventOccurrencePayload,
 ) {
   const res = await api<CalendarEventEntity | { event: CalendarEventEntity }>(`/events/${id}/occurrences`, {
     method: "PUT",

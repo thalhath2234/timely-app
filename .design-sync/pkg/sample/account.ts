@@ -53,7 +53,6 @@ export function buildAgentProviders(clock: Clock): AgentProviders {
     openrouter: {
       keySet: true,
       keyHint: "sk-or-…4f2a",
-      serverKey: false,
       chatModel: "anthropic/claude-sonnet-4.5",
       embedModel: "openai/text-embedding-3-small",
       ready: true,

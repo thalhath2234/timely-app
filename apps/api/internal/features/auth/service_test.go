@@ -210,3 +210,34 @@ func TestRevokeOtherSessionsKeepsCurrent(t *testing.T) {
 		t.Fatal("current session should stay active")
 	}
 }
+
+func TestPasswordChangeSignsOutOtherSessions(t *testing.T) {
+	t.Setenv("JWT_SECRET", "test-secret-test-secret-test-secret")
+	svc := NewAuthService(&fakeUserRepo{}, fakeWorkspaceRepo{}, &fakeSessions{})
+	user, phone, err := svc.Register("Ada", "ada@example.com", "password123", "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, laptop, err := svc.Login("ada@example.com", "password123", "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A name-only edit keeps every device signed in.
+	if _, _, err := svc.UpdateProfile(user.ID, "Ada L", "", "", "", laptop.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.SessionIsActive(phone.SessionID) {
+		t.Fatal("name change should not revoke other sessions")
+	}
+
+	if _, _, err := svc.UpdateProfile(user.ID, "Ada L", "", "password123", "new-password-1", laptop.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if svc.SessionIsActive(phone.SessionID) {
+		t.Fatal("password change should revoke other sessions")
+	}
+	if !svc.SessionIsActive(laptop.SessionID) {
+		t.Fatal("password change should keep the current session")
+	}
+}

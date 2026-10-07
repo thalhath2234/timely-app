@@ -1,5 +1,10 @@
 import type { DeviceSession, User } from "../types";
+import type { UpdateMePayload } from "@timely/contract/account";
 import { api, unwrap } from "./client";
+
+export type {
+  UpdateMePayload,
+};
 
 export type AuthSession = {
   message?: string;
@@ -28,13 +33,6 @@ export function refreshSession(refreshToken: string) {
 export function getMe() {
   return api<User>("/me");
 }
-
-export type UpdateMePayload = {
-  name: string;
-  email: string;
-  currentPassword?: string;
-  newPassword?: string;
-};
 
 export function updateMe(payload: UpdateMePayload) {
   return api<User>("/me", { method: "PUT", body: payload });

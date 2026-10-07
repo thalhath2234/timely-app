@@ -18,11 +18,12 @@ import {
 } from "lucide-react";
 import { MENTION_TYPE_LABELS, mentionHref } from "@/app/_components/editor/mention";
 import { Doc, Project, Sheet, Task, Workspace, type MentionEntityType } from "@/app/_types/types";
+import { todayInZone } from "@timely/contract/workStatus";
 import { useDocs } from "@/app/utils/hooks/docs";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { useSheets } from "@/app/utils/hooks/sheets";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useWorkingHoursZone, useWorkspaces } from "@/app/utils/hooks/workspaces";
 import {
   buildReportData,
   formatRelative,
@@ -57,6 +58,8 @@ const PRIORITY_TINT: Record<string, string> = {
 
 export default function ReportPage() {
   const tasksQuery = useTasks();
+  const timeZone = useWorkingHoursZone();
+  const today = todayInZone(timeZone);
   const projectsQuery = useProjects();
   const docsQuery = useDocs();
   const sheetsQuery = useSheets();
@@ -177,8 +180,9 @@ export default function ReportPage() {
         docs: (docs ?? []) as Doc[],
         sheets: (sheets ?? []) as Sheet[],
         workspaces: (workspaces ?? []) as Workspace[],
+        timeZone,
       }),
-    [tasks, projects, docs, sheets, workspaces],
+    [tasks, projects, docs, sheets, workspaces, timeZone],
   );
 
   if (isLoading) {
@@ -279,6 +283,7 @@ export default function ReportPage() {
                   <DeadlineRow
                     key={item.id}
                     item={item}
+                    today={today}
                     tone="danger"
                     onContextMenu={(event) => openEntityMenu(event, "task", item.id, item.name)}
                   />
@@ -337,6 +342,7 @@ export default function ReportPage() {
                   <DeadlineRow
                     key={item.id}
                     item={item}
+                    today={today}
                     tone="neutral"
                     onContextMenu={(event) => openEntityMenu(event, "task", item.id, item.name)}
                   />
@@ -569,10 +575,13 @@ function EmptyState({ text }: { text: string }) {
 
 function DeadlineRow({
   item,
+  today,
   tone,
   onContextMenu,
 }: {
   item: DeadlineItem;
+  /** Today's date in the Working hours zone, for the relative label. */
+  today: string;
   tone: "danger" | "neutral";
   onContextMenu: (event: ReactMouseEvent) => void;
 }) {
@@ -606,7 +615,7 @@ function DeadlineRow({
         >
           {formatReportDate(item.deadline)}
           <span className="ml-1 opacity-80">
-            ({formatRelative(item.deadline)})
+            ({formatRelative(item.day, today)})
           </span>
         </span>
       </Link>

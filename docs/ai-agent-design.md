@@ -394,8 +394,9 @@ delete, proposal review, discard, failed-step retry and Stop in Chromium.
 Design confirmed after an interview; see ADR 0009 and the `Agent provider` and
 `Connect` terms in `CONTEXT.md`.
 
-- Settings → Agent (web and mobile) shows three provider cards: OpenRouter,
-  Claude Code and Codex. Several can be set up at once; one is the default for
+- Settings → Agent (web and mobile) shows provider cards for OpenRouter, the
+  direct API providers (rendered from the server's registry) and Claude Code
+  and Codex. Several can be set up at once; one is the default for
   new runs. Each card keeps its own model. A run records the provider and model
   it was claimed with and finishes on them; the chat header shows that label.
 - Claude Code and Codex are found and run on the API host for the OS user that
@@ -425,11 +426,30 @@ Design confirmed after an interview; see ADR 0009 and the `Agent provider` and
   catalogue with a vision badge. Saving a chat model runs a test call.
 - OpenRouter keys are per account, AES-256-GCM encrypted under
   `TIMELY_BACKUP_KEY` (falling back to `JWT_SECRET`), shown only as a hint, and
-  validated with a test call before saving. The server `OPENROUTER_API_KEY`
-  remains the fallback. The account key also drives semantic-search embeddings
+  validated with a test call before saving. There is no server-wide key
+  (`OPENROUTER_API_KEY` is no longer read). The account key also drives semantic-search embeddings
   (`embed.Credentials`); the embedding model is pickable and probed for the
   1536-dimension index width before saving. A key or embedding-model change
   queues a `reindex_user` job whose progress the Agent tab shows.
+- Direct API providers (`provider/registry.go`) store an encrypted key, endpoint
+  and model per account in `agent_api_keys`. Saving a key lists the provider's
+  models (no tokens); choosing a model or making the provider the default runs
+  a test call. `Compat` serves every OpenAI-compatible provider and rebuilds
+  each outgoing message from a whitelist, so OpenRouter annotations never reach
+  Mistral and DeepSeek reasoning never reaches OpenAI; `reasoning_content`
+  (DeepSeek, Kimi, Z.ai thinking) and tool-call `extra_content` (Gemini thought
+  signatures) are kept in the transcript and echoed only to the provider that
+  produced them. OpenAI (all models) and OpenCode's GPT/Grok/Muse models use
+  `Responses` (`store: false`, non-strict function tools). `Anthropic` uses
+  the Messages API via the Go SDK (also for OpenCode's Claude/Qwen models),
+  sets low effort where the model supports it, replays thinking blocks on the
+  turn that produced them, and retries once without them when the API rejects
+  them (a resumed run rebuilds the system prompt). `Ollama` uses native
+  `/api/chat` with `num_ctx` 32768 because the OpenAI-compatible endpoint
+  cannot raise the context window. DeepSeek runs with thinking off: with tools
+  it requires reasoning on every earlier assistant turn, which stored replies
+  lack. Only Anthropic offers web search among the direct providers; for the
+  others the runner leaves the `web_search` tool out (`chat.Searcher`).
 - Failures never fall back to another provider: the run fails with a message
   naming the fix (missing binary, signed out, usage limit, unusable model, no
   key), consistent with the existing no-fallback image route.

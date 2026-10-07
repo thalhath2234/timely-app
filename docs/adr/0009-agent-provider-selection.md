@@ -28,3 +28,27 @@ server execute an arbitrary file. `CHAT_LOCAL_CLI=off` hides host CLIs on a
 shared instance. The account's OpenRouter key also drives its semantic-search
 embeddings; changing the key or embedding model re-indexes that account in the
 background, and the embedding model must match the index width.
+
+Direct API providers (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai,
+Kimi, Ollama, NVIDIA, OpenCode Zen and Go) sit beside OpenRouter, each with its
+own encrypted per-account key, endpoint and model. They are rows in one
+registry, not separate code paths. Each model is routed to one of four
+protocol adapters: OpenAI chat completions (with per-provider knobs such as
+the token field, temperature, and which reasoning fields must be echoed back
+in a tool loop), the OpenAI Responses API (OpenAI's newest models call tools
+only there; OpenCode serves GPT and Grok there), the Anthropic Messages API
+through the official SDK (Anthropic, and OpenCode's Claude and Qwen models),
+and Ollama's native chat API (its OpenAI-compatible endpoint cannot raise the
+context window, which would silently cut the system prompt). A key is checked by
+listing the provider's models, which spends no tokens; the chosen model, and
+the provider when it becomes the default, are checked with one test call.
+Hosted providers accept only their listed endpoints; only Ollama, which runs on
+the person's own machine, takes a typed http(s) address. Choosing a direct
+provider is the same consent as choosing a CLI: data goes to that provider and
+the zero-data-retention route does not apply. Direct providers other than
+Anthropic have no web search, so their runs do not offer the web_search tool.
+Embeddings stay on OpenRouter. Only keys an account saves are used; the
+server-wide `OPENROUTER_API_KEY` fallback was removed, so a shared instance
+never spends one account's (or the operator's) credit on another's runs. Subscription plans whose terms restrict them to
+the vendor's coding tools (Z.ai GLM Coding Plan, Kimi For Coding) are not
+offered.

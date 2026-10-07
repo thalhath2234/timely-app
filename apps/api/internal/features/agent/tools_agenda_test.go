@@ -1,0 +1,197 @@
+package agent
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+	"timely-api/internal/features/calendar"
+	"timely-api/internal/features/schedule"
+	"timely-api/internal/features/task"
+	"timely-api/internal/models"
+
+	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+type agendaTasks struct {
+	task.TaskService
+	tasks []models.Task
+}
+
+func (f agendaTasks) List(string, task.TaskFilter) ([]models.Task, error) { return f.tasks, nil }
+
+type agendaCalendar struct{ calendar.Service }
+
+func (agendaCalendar) Range(string, time.Time, time.Time) (*calendar.Response, error) {
+	return &calendar.Response{}, nil
+}
+
+type agendaSchedule struct {
+	schedule.Service
+	hours models.WorkingHours
+}
+
+func (f agendaSchedule) GetWorkingHours(string, string) (*schedule.WorkingHoursResponse, error) {
+	return &schedule.WorkingHoursResponse{WorkingHours: f.hours}, nil
+}
+
+func agendaIDs(t *testing.T, out any, key string) map[string]bool {
+	t.Helper()
+	rows, ok := out.(map[string]any)[key].([]map[string]string)
+	if !ok {
+		t.Fatalf("%s = %#v", key, out.(map[string]any)[key])
+	}
+	ids := map[string]bool{}
+	for _, row := range rows {
+		ids[row["id"]] = true
+	}
+	return ids
+}
+
+// get_agenda judges Unscheduled and Overdue with the shared Work status
+// predicates: a future Block does not hide Work from today's Unscheduled list,
+// and Overdue Work stays listed even with a Block still ahead (as on /today).
+func TestGetAgendaUsesSharedWorkStatus(t *testing.T) {
+	hours := models.DefaultWorkingHours("UTC")
+	dayStart := task.TodayFor(hours, "", time.Now()).Start()
+	onToday := []models.ScheduledBlock{{StartAt: dayStart.Add(time.Hour), EndAt: dayStart.Add(2 * time.Hour)}}
+	onLater := []models.ScheduledBlock{{StartAt: dayStart.AddDate(0, 0, 3), EndAt: dayStart.AddDate(0, 0, 3).Add(time.Hour)}}
+	past := "2000-01-01"
+	work := func(id string) models.Task { return models.Task{ID: id, Name: id, Kind: models.KindTask, Duration: 30} }
+
+	noBlock := work("no_block")
+	futureBlock := work("future_block")
+	futureBlock.Blocks = onLater
+	placedToday := work("placed_today")
+	placedToday.Blocks = onToday
+	overdueFuture := work("overdue_future_block")
+	overdueFuture.Deadline = &past
+	overdueFuture.Blocks = onLater
+	inbox := models.Task{ID: "inbox", Name: "inbox", Kind: models.KindInbox}
+	done := work("done")
+	completedAt := "2026-01-01T00:00:00Z"
+	done.CompletedAt = &completedAt
+
+	srv := &Server{Deps: Deps{
+		Tasks:    agendaTasks{tasks: []models.Task{noBlock, futureBlock, placedToday, overdueFuture, inbox, done}},
+		Calendar: agendaCalendar{},
+		Schedule: agendaSchedule{hours: hours},
+	}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &mcpauth.TokenInfo{UserID: "usr_1"}}}
+	_, out, err := srv.getAgenda(context.Background(), req, rangeIn{Timezone: "UTC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unscheduled := agendaIDs(t, out, "unscheduled")
+	for _, id := range []string{"no_block", "future_block", "overdue_future_block"} {
+		if !unscheduled[id] {
+			t.Errorf("%s should be Unscheduled today, got %v", id, unscheduled)
+		}
+	}
+	for _, id := range []string{"placed_today", "inbox", "done"} {
+		if unscheduled[id] {
+			t.Errorf("%s must not be Unscheduled, got %v", id, unscheduled)
+		}
+	}
+	overdue := agendaIDs(t, out, "overdue")
+	if len(overdue) != 1 || !overdue["overdue_future_block"] {
+		t.Errorf("overdue = %v, want only overdue_future_block", overdue)
+	}
+}
+
+type noSavedHours struct{ schedule.Repository }
+
+func (noSavedHours) GetWorkingHours(string) (models.WorkingHours, error) {
+	return models.WorkingHours{}, nil
+}
+
+// With no saved Working hours and no timezone from the caller, the agent judges
+// Overdue in the server's zone (ADR 0011), not in UTC through the default
+// hours, and get_working_hours does not claim a zone it does not know.
+func TestGetAgendaDefaultHoursFollowServerZone(t *testing.T) {
+	// The server's zone is a day ahead of UTC right now: its clock reads 00:01
+	// tomorrow, so a deadline of today in UTC is Overdue there only.
+	now := time.Now().UTC()
+	untilMidnight := time.Duration(24*60-(now.Hour()*60+now.Minute())+1) * time.Minute
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Server", int(untilMidnight.Seconds()))
+	utcToday := now.Format("2006-01-02")
+
+	late := models.Task{ID: "late", Name: "late", Kind: models.KindTask, Duration: 30, Deadline: &utcToday}
+	srv := &Server{Deps: Deps{
+		Tasks:    agendaTasks{tasks: []models.Task{late}},
+		Calendar: agendaCalendar{},
+		Schedule: schedule.NewService(noSavedHours{}, nil, nil, nil),
+	}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &mcpauth.TokenInfo{UserID: "usr_1"}}}
+
+	_, out, err := srv.getAgenda(context.Background(), req, rangeIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overdue := agendaIDs(t, out, "overdue"); !overdue["late"] {
+		t.Errorf("a deadline of yesterday in the server's zone should be Overdue, got %v", overdue)
+	}
+
+	_, out, err = srv.getWorkingHours(context.Background(), req, hoursQueryIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hours, ok := out.(*schedule.WorkingHoursResponse)
+	if !ok || !hours.IsDefault || hours.Timezone != "" || len(hours.Days["mon"]) != 1 {
+		t.Fatalf("working hours = %#v, want the default week with no zone", out)
+	}
+}
+
+type emptyFreeTime struct {
+	schedule.Service
+	zones *[]string
+}
+
+func (emptyFreeTime) GetWorkingHours(string, string) (*schedule.WorkingHoursResponse, error) {
+	return &schedule.WorkingHoursResponse{WorkingHours: models.DefaultWorkingHours(""), IsDefault: true}, nil
+}
+
+func (f emptyFreeTime) FreeTime(_ string, _, _ time.Time, timezone string) ([]schedule.Interval, error) {
+	*f.zones = append(*f.zones, timezone)
+	return []schedule.Interval{}, nil
+}
+
+// The server's zone is named "Local" by Go. The agent tools neither hand that
+// name on as a timezone argument nor write it into the text the model reads.
+func TestAgentToolsNeverNameTheServerZoneLocal(t *testing.T) {
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Local", 9*60*60)
+
+	var zones []string
+	srv := &Server{Deps: Deps{
+		Tasks:    agendaTasks{},
+		Calendar: agendaCalendar{},
+		Schedule: emptyFreeTime{zones: &zones},
+	}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &mcpauth.TokenInfo{UserID: "usr_1"}}}
+
+	result, out, err := srv.getFreeTime(context.Background(), req, rangeIn{})
+	if err != nil || result.IsError {
+		t.Fatalf("get_free_time: %v %v", err, result)
+	}
+	text, _ := out.(map[string]any)["text"].(string)
+	if strings.Contains(text, "Local") || !strings.Contains(text, "the server's timezone") {
+		t.Fatalf("free time text = %q, want the server's timezone, not Local", text)
+	}
+	if len(zones) != 1 || zones[0] != "" {
+		t.Fatalf("FreeTime was asked for zones %q, want one unnamed", zones)
+	}
+
+	_, out, err = srv.getAgenda(context.Background(), req, rangeIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := out.(map[string]any)["text"].(string); strings.Contains(text, "Local") {
+		t.Fatalf("agenda text = %q", text)
+	}
+}

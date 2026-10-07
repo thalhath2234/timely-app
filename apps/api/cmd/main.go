@@ -18,7 +18,6 @@ import (
 	_ "time/tzdata" // IANA zones for recurrence and working hours, even on hosts without a zoneinfo directory
 
 	"gorm.io/gorm"
-	"timely-api/internal/blocks"
 	"timely-api/internal/buildinfo"
 	"timely-api/internal/database"
 	"timely-api/internal/features/agent"
@@ -62,6 +61,15 @@ func main() {
 	if godotenv.Load("../../.env") != nil && godotenv.Load() != nil {
 		log.Println("Warning: No .env file found or failed to load")
 	}
+	if err := auth.CheckSecret("JWT_SECRET", os.Getenv("JWT_SECRET")); err != nil {
+		log.Fatal(err)
+	}
+	if key := os.Getenv("TIMELY_BACKUP_KEY"); key != "" {
+		// Not fatal: changing the key makes existing encrypted backups unreadable.
+		if err := auth.CheckSecret("TIMELY_BACKUP_KEY", key); err != nil {
+			log.Printf("Warning: %v", err)
+		}
+	}
 	if dir := utils.DataDir(); dir != "" {
 		if err := utils.EnsureDir(dir); err != nil {
 			log.Fatalf("TIMELY_DATA_DIR %s: %v", dir, err)
@@ -81,8 +89,7 @@ func main() {
 	eventRepo := event.NewEventRepository(db)
 	scheduleRepo := schedule.NewRepository(db)
 	recurrenceStore := recurrence.NewStore(db)
-	blockStore := blocks.NewStore(db)
-	place := placement.New(blockStore, scheduleRepo.GetWorkingHours)
+	place := placement.New(db, scheduleRepo.GetWorkingHours)
 
 	sessionRepo := auth.NewSessionRepository(db)
 	authService := auth.NewAuthService(userRepo, workspaceRepo, sessionRepo)
@@ -99,7 +106,7 @@ func main() {
 	sheetService := sheet.NewSheetService(sheetRepo, indexer)
 	eventService := event.NewEventService(eventRepo, recurrenceStore, place, indexer)
 	calendarService := calendar.NewService(taskRepo, eventRepo, scheduleRepo.GetWorkingHours)
-	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, blockStore, place)
+	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, place)
 	searchService := search.NewService(db, indexer)
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)
@@ -129,11 +136,11 @@ func main() {
 		Portable:   portabilityService,
 	})
 
-	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live) }, chat.NewOpenRouter())
-	// Proposals are rehearsed in a rolled-back transaction; no live doc broadcasts.
-	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil) })
 	providerService := provider.New(db, indexer, jobQueue)
 	providerService.Register(jobWorker)
+	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) }, chat.NewOpenRouter())
+	// Proposals are rehearsed in a rolled-back transaction; no live doc broadcasts.
+	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, providerService.EmbedCredentials) })
 	chatService.SetCompleters(providerService)
 
 	authHandler := auth.NewHandler(authService, userRepo)
@@ -171,12 +178,23 @@ func main() {
 
 	// Create Echo instance
 	e := echo.New()
+	// The web app reaches the API through its Next.js proxy, so the client is
+	// the nearest untrusted address in X-Forwarded-For, not the proxy's own.
+	// Without this every web user shares one sign-in rate-limit bucket.
+	e.IPExtractor = echo.ExtractIPFromXFFHeader()
 
 	e.Use(middleware.RequestID())
+	e.Use(echoMiddleware.BodyLimitWithConfig(echoMiddleware.BodyLimitConfig{
+		// Restores carry a whole account export; everything else is small.
+		Skipper:    func(c *echo.Context) bool { return c.Request().URL.Path == "/restore" },
+		LimitBytes: maxRequestBodyBytes,
+	}))
 	e.Use(middleware.StructuredLogger())
 	e.Use(echoMiddleware.Recover())
+	origins := corsOrigins()
+	e.Use(middleware.CrossSiteGuard(origins))
 	e.Use(echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{
-		AllowOrigins:     corsOrigins(),
+		AllowOrigins:     origins,
 		AllowCredentials: true,
 		AllowHeaders: []string{
 			echo.HeaderOrigin,
@@ -291,13 +309,15 @@ func listenAll(bind []string, port int, handler http.Handler) ([]*http.Server, [
 	return servers, listening
 }
 
+// maxRequestBodyBytes caps request bodies, unauthenticated ones included, so
+// a few oversized requests cannot exhaust the API's memory.
+const maxRequestBodyBytes = 25 << 20
+
 // corsOrigins is the development allow list plus any CORS_ORIGINS entries.
 func corsOrigins() []string {
 	origins := []string{
 		"http://localhost:4001",
 		"http://127.0.0.1:4001",
-		"https://11a5-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
-		"https://7b74-2405-1204-c198-100-7700-a5ae-3ecc-d52c.ngrok-free.app",
 	}
 	for _, origin := range strings.Split(os.Getenv("CORS_ORIGINS"), ",") {
 		origin = strings.TrimSpace(origin)

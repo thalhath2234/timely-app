@@ -73,6 +73,11 @@ func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (
 		clone.StatusID = nil
 		clone.StageID = nil
 	}
+	if clone.Kind == models.KindReminder {
+		// A Reminder is its ping; Create refuses one without it. A repeating
+		// Reminder's scheduled_on mirrors its series start, so this covers both.
+		clone.ScheduledOn = src.ScheduledOn
+	}
 	created, err := s.Create(clone, nil, nil)
 	if err != nil {
 		return nil, err
@@ -106,6 +111,11 @@ func (s *taskService) CopyProjectTasks(userID, fromProjectID, toProjectID string
 	for i := range tasks {
 		t := tasks[i]
 		if deref(t.ProjectID) != fromProjectID {
+			continue
+		}
+		// A Reminder belongs to no project; a copy would be a free-floating
+		// ping at the same time as the original.
+		if t.IsReminder() {
 			continue
 		}
 		var stage *string
@@ -421,7 +431,7 @@ func (s *taskService) applyKindUpdate(userID string, before *models.Task, update
 			return errors.New("work tasks need a duration greater than 0")
 		}
 		if workspaceID == nil || strings.TrimSpace(*workspaceID) == "" {
-			return errors.New("workspaceId is required")
+			return ErrWorkspaceRequired
 		}
 		// Clarifying an inbox item (or converting a reminder) must land on the
 		// board as a normal task: give it the workspace default status when
@@ -440,6 +450,35 @@ func (s *taskService) applyKindUpdate(userID string, before *models.Task, update
 	}
 	if kind == models.KindReminder {
 		updates["duration"] = 0
+	}
+	// Only the change of kind clears the board fields; a Reminder that stays
+	// one keeps what the person sets on it (its workspace picker).
+	if kind == models.KindReminder && before.Kind != models.KindReminder {
+		labels := before.LabelIDs
+		if update.LabelIDs != nil {
+			labels = *update.LabelIDs
+		}
+		fields := len(before.CustomFieldValues)
+		if update.CustomFieldValues != nil {
+			fields = len(*update.CustomFieldValues)
+		}
+		row := models.Task{
+			WorkspaceID: workspaceID,
+			ProjectID:   mergedID(update.ProjectID, before.ProjectID),
+			StatusID:    mergedID(update.StatusID, before.StatusID),
+			StageID:     mergedID(update.StageID, before.StageID),
+		}
+		applyReminderRules(&row, len(labels) > 0 || fields > 0)
+		for column, kept := range map[string]*string{
+			"workspace_id": row.WorkspaceID,
+			"project_id":   row.ProjectID,
+			"status_id":    row.StatusID,
+			"stage_id":     row.StageID,
+		} {
+			if kept == nil {
+				updates[column] = nil
+			}
+		}
 	}
 	if kind != before.Kind || update.Kind != nil {
 		updates["kind"] = kind

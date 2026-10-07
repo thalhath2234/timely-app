@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
+
+	"timely-api/internal/realtime"
 )
 
 // A duration-only edit is the smallest Work estimate change. It must land
@@ -89,5 +93,32 @@ func TestIntegrationManualPlacementKeepsProtectedBlocks(t *testing.T) {
 	}
 	if len(blocksOf(mover)) != 1 {
 		t.Fatal("the moved block itself was lost")
+	}
+}
+
+// One patch cannot place many tasks: each would push the others aside (ADR
+// 0010). The tool does not offer scheduledOn or scheduleAt in a bulk patch, and
+// the call is refused rather than silently dropping them.
+func TestIntegrationBulkUpdateToolRefusesScheduling(t *testing.T) {
+	db, uid := agentToolsDB(t)
+	call := agentToolCaller(t, db, uid)
+	ws := call("create_workspace", map[string]any{"name": "Audit"})
+	taskID := call("create_task", map[string]any{"name": "Bulk", "workspaceId": ws["id"], "duration": 30})["task"].(map[string]any)["id"]
+
+	tools := chatCatalog(db, realtime.NewHub(), func(string) (string, string) { return "unused-test-key", "" })
+	for _, field := range []string{"scheduledOn", "scheduleAt"} {
+		raw, _ := json.Marshal(map[string]any{"ids": []any{taskID}, "update": map[string]any{field: "2026-12-02T09:00:00Z"}})
+		if _, err := tools["bulk_update_tasks"].Call(context.Background(), uid, raw); err == nil {
+			t.Fatalf("bulk_update_tasks accepted %s", field)
+		}
+	}
+	update := tools["bulk_update_tasks"].Parameters.Properties["update"]
+	for _, field := range []string{"scheduledOn", "scheduleAt"} {
+		if _, ok := update.Properties[field]; ok {
+			t.Fatalf("bulk_update_tasks schema still offers %s", field)
+		}
+	}
+	if blocks := call("get_task", map[string]any{"taskId": taskID})["task"].(map[string]any)["blocks"]; len(blocks.([]any)) != 0 {
+		t.Fatalf("a refused bulk update placed Blocks: %v", blocks)
 	}
 }

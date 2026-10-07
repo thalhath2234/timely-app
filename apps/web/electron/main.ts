@@ -13,7 +13,7 @@ import {
 } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { isOpenableExternally, isSameOrigin } from "./origin";
+import { isOpenableExternally, isPermissionAllowed, isSameOrigin } from "./origin";
 import { waitForHttp } from "./supervisor/api";
 import { makeSealer } from "./supervisor/config";
 import { checkPrivileges } from "./supervisor/guards";
@@ -151,6 +151,25 @@ function attachWindowGuards(win: BrowserWindow, url: string) {
     event.preventDefault();
     if (isOpenableExternally(target)) void shell.openExternal(target);
   });
+
+  // Same-origin popups (e.g. "open doc in new window") get the same guards,
+  // or a link clicked inside them would open the target page in-app.
+  win.webContents.on("did-create-window", (child) => attachWindowGuards(child, url));
+}
+
+/**
+ * Electron grants every web permission by default. Only the renderer's own
+ * origin may use the few the app needs (clipboard, fullscreen).
+ */
+function attachPermissionGuards(win: BrowserWindow, url: string) {
+  const origin = new URL(url).origin;
+  const session = win.webContents.session;
+  session.setPermissionRequestHandler((_contents, permission, callback, details) => {
+    callback(isPermissionAllowed(permission, details.requestingUrl, origin));
+  });
+  session.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
+    isPermissionAllowed(permission, requestingOrigin, origin),
+  );
 }
 
 /**
@@ -188,6 +207,7 @@ function showMainWindow() {
 }
 
 async function createWindow(url: string) {
+  const isWindows = process.platform === "win32";
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -207,8 +227,14 @@ async function createWindow(url: string) {
     },
   });
 
+  // Windows: no File/Edit/View/Window bar (the menu stays installed so its
+  // shortcuts still work) and the window opens maximized above the taskbar.
+  if (isWindows) win.setMenuBarVisibility(false);
+
   attachWindowGuards(win, url);
+  attachPermissionGuards(win, url);
   win.once("ready-to-show", () => {
+    if (isWindows) win.maximize();
     win.show();
     closeBootWindow();
   });
@@ -410,6 +436,11 @@ async function bootHosted() {
     echo: !app.isPackaged,
   });
   if (!encryptionAvailable) supervisor.log.warn("safeStorage encryption unavailable; secrets are stored with the plain: prefix (file mode 0600)");
+  // Without a keyring Linux falls back to "basic_text", whose key is public:
+  // the secrets are then only as safe as config.json's 0600 file mode.
+  if (encryptionAvailable && process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text") {
+    supervisor.log.warn("safeStorage is using the basic_text backend (no keyring); secrets in config.json are protected only by file mode 0600");
+  }
 
   supervisor.on("boot", (progress) => {
     bootSteps[progress.step] = progress;

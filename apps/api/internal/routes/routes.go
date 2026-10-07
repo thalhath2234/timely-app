@@ -176,6 +176,7 @@ func setupScheduleRoutes(g *echo.Group, scheduleHandler *schedule.Handler) {
 	g.GET("/schedule/settings", scheduleHandler.GetSettings)
 	g.PUT("/schedule/settings", scheduleHandler.UpdateSettings)
 	g.GET("/schedule/capacity", scheduleHandler.Capacity)
+	g.GET("/schedule/free-time", scheduleHandler.FreeTime)
 	g.GET("/schedule/rank", scheduleHandler.Rank)
 	g.PUT("/tasks/:id/schedule-lock", scheduleHandler.PinTask)
 	g.PUT("/blocks/:id/lock", scheduleHandler.PinBlock)

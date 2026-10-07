@@ -21,6 +21,8 @@ type ProjectRepository interface {
 	NextStageOrder(projectID string) (int, error)
 	ListTaskActivity(userID, projectID string, limit int) ([]ProjectActivityEntry, error)
 	CountByWorkspace(workspaceID string) (int64, error)
+	GetWorkspaceStatus(workspaceID, statusID string) (*models.Status, error)
+	GetCustomFieldsByIDs(workspaceID string, fieldIDs []string) ([]models.CustomField, error)
 }
 
 // ProjectActivityEntry is one recorded change on a task inside the project,
@@ -118,6 +120,26 @@ func (r *projectRepository) CountByWorkspace(workspaceID string) (int64, error) 
 	var count int64
 	err := r.db.Model(&models.Project{}).Where("workspace_id = ?", workspaceID).Count(&count).Error
 	return count, err
+}
+
+func (r *projectRepository) GetWorkspaceStatus(workspaceID, statusID string) (*models.Status, error) {
+	var status models.Status
+	err := r.db.Where("workspace_id = ? AND id = ?", workspaceID, statusID).First(&status).Error
+	if err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+func (r *projectRepository) GetCustomFieldsByIDs(workspaceID string, fieldIDs []string) ([]models.CustomField, error) {
+	if len(fieldIDs) == 0 {
+		return nil, nil
+	}
+	var fields []models.CustomField
+	if err := r.db.Where("workspace_id = ? AND id IN ?", workspaceID, fieldIDs).Find(&fields).Error; err != nil {
+		return nil, err
+	}
+	return fields, nil
 }
 
 func (r *projectRepository) GetAllProjectByUser(userID string) ([]models.Project, error) {

@@ -128,6 +128,9 @@ type TaskFilter struct {
 	// Kind filters by task | reminder | inbox. Inbox is also accepted via Inbox=true.
 	Kind  string
 	Inbox *bool
+	// Timezone is the client's IANA zone. The Overdue filter uses it as "today"
+	// only when the person has no saved Working hours timezone.
+	Timezone string
 }
 
 type workspaceOwner interface {
@@ -162,7 +165,19 @@ func NewTaskService(
 	}
 }
 
+// ErrWorkspaceRequired is returned when Work is created without a workspace.
+var ErrWorkspaceRequired = errors.New("workspaceId is required")
+
+// Create owns the per-kind creation rules, so every caller (HTTP, agent,
+// Clarify) gets the same result: Work needs a workspace and a duration, an
+// Inbox item keeps only its title, and a Reminder keeps no project, status or
+// stage and a workspace only when it carries labels or custom fields.
 func (s *taskService) Create(task *models.Task, customFieldValues []*models.CustomFieldValue, rec *models.RecurrenceInput) (*models.Task, error) {
+	hasRecurrence := rec != nil && rec.RRule != ""
+	task.Kind = models.ResolveCreateKind(task.Kind, task.Duration, task.ScheduledOn, hasRecurrence)
+	if task.Kind == models.KindTask && (task.WorkspaceID == nil || *task.WorkspaceID == "") {
+		return nil, ErrWorkspaceRequired
+	}
 	name, err := normalizeName(task.Name)
 	if err != nil {
 		return nil, err
@@ -187,13 +202,8 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 	}
 
 	userID := deref(task.UserID)
-	hasRecurrence := rec != nil && rec.RRule != ""
-	task.Kind = models.ResolveCreateKind(task.Kind, task.Duration, task.ScheduledOn, hasRecurrence)
 	if task.Kind == models.KindTask && task.Duration <= 0 {
 		return nil, errors.New("work tasks need a duration greater than 0")
-	}
-	if task.Kind == models.KindTask && (task.WorkspaceID == nil || *task.WorkspaceID == "") {
-		return nil, errors.New("workspaceId is required")
 	}
 	if task.Kind == models.KindInbox {
 		task.Duration = 0
@@ -207,9 +217,10 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 		task.PriorityLevel = nil
 		task.Deadline = nil
 		task.StartDate = nil
+		customFieldValues = nil
 	}
 	if task.Kind == models.KindReminder {
-		task.Duration = 0
+		applyReminderRules(task, len(task.LabelIDs) > 0 || len(customFieldValues) > 0)
 		if !reminderHasPing(task.ScheduledOn, hasRecurrence) {
 			return nil, errReminderNeedsPing
 		}
@@ -218,6 +229,9 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 		task.Checklist = models.Checklist{}
 	}
 	if err := s.assertTaskScope(userID, task.WorkspaceID, task.ProjectID, task.BlockedByID); err != nil {
+		return nil, err
+	}
+	if err := s.assertStatusAndStage(userID, task.WorkspaceID, task.ProjectID, task.StatusID, task.StageID); err != nil {
 		return nil, err
 	}
 	if err := normalizeTaskPriority(task.PriorityLevel); err != nil {
@@ -231,6 +245,10 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 
 	task.ID = utils.NewTaskID()
 
+	customFieldValues, err = s.prepareCustomFieldValues(task, customFieldValues)
+	if err != nil {
+		return nil, err
+	}
 	for _, cfv := range customFieldValues {
 		cfv.ID = utils.NewCustomFieldValueID()
 	}
@@ -289,6 +307,19 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 	return created, nil
 }
 
+// applyReminderRules is what a Reminder keeps: no estimate, no project, status
+// or stage, and a workspace only when labels or custom fields need one. Create
+// and a kind change to Reminder (applyKindUpdate) share it.
+func applyReminderRules(task *models.Task, keepWorkspace bool) {
+	task.Duration = 0
+	task.ProjectID = nil
+	task.StatusID = nil
+	task.StageID = nil
+	if !keepWorkspace {
+		task.WorkspaceID = nil
+	}
+}
+
 // applyRecurrence turns the task into a series. Its calendar presence comes
 // from expanded occurrences, so any one-off blocks are dropped and
 // scheduled_on mirrors the series start for list sorting.
@@ -308,12 +339,7 @@ func (s *taskService) applyRecurrence(userID string, task *models.Task, rec *mod
 	if err != nil {
 		return err
 	}
-	if err := s.placement.ClearTask(task.ID); err != nil {
-		return err
-	}
-	return s.taskRepo.DB().Model(&models.Task{}).
-		Where("id = ?", task.ID).
-		Update("scheduled_on", rule.Dtstart).Error
+	return s.placement.PlaceSeries(userID, task, rule.Dtstart)
 }
 
 // placeSingleBlock is the compatibility path for clients that still send
@@ -327,6 +353,22 @@ func (s *taskService) placeSingleBlock(userID string, task *models.Task, schedul
 		return s.placement.PlacePing(userID, task, start)
 	}
 	return s.placement.PlaceWork(userID, task, start, duration)
+}
+
+// placeByHand handles a scheduledOn the person set on an existing task (PATCH,
+// update_task). A Work Block placed this way is placed by hand: it replaces the
+// task's own Blocks and pushes aside other replaceable Work, but keeps Pinned
+// time and an Event's time (ADR 0010). A Reminder just takes the new ping.
+func (s *taskService) placeByHand(userID string, task *models.Task, scheduledOn string) error {
+	start, err := recurrence.ParseTime(scheduledOn)
+	if err != nil {
+		return errors.New("invalid scheduledOn")
+	}
+	if task.Duration <= 0 {
+		return s.placement.PlacePing(userID, task, start)
+	}
+	end := start.Add(time.Duration(task.Duration) * time.Minute)
+	return s.placement.PlaceByHand(userID, task, start, end, true)
 }
 
 func (s *taskService) GetAllTaskByUser(userID string) ([]models.Task, error) {
@@ -486,6 +528,16 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 
 	before, err := s.taskRepo.GetTaskByIdForUser(userID, taskID)
 	if err != nil {
+		return nil, err
+	}
+
+	// Status and stage are checked against the workspace and project the row
+	// will have after this update.
+	if err := s.assertStatusAndStage(userID,
+		mergedID(update.WorkspaceID, before.WorkspaceID),
+		mergedID(update.ProjectID, before.ProjectID),
+		update.StatusID, update.StageID,
+	); err != nil {
 		return nil, err
 	}
 
@@ -658,32 +710,19 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 
 	switch {
 	case update.ScheduledOn != nil && *update.ScheduledOn == "":
-		if err := s.placement.ClearTask(task.ID); err != nil {
-			return err
-		}
-		if task.IsReminder() {
-			return s.taskRepo.DB().Model(&models.Task{}).
-				Where("id = ?", task.ID).
-				Update("scheduled_on", nil).Error
-		}
-		return nil
+		return s.placement.ClearTimes(userID, task)
 	case update.ScheduledOn != nil:
-		return s.placeSingleBlock(userID, task, *update.ScheduledOn, task.Duration)
+		return s.placeByHand(userID, task, *update.ScheduledOn)
 	case update.Duration != nil && task.IsReminder():
 		var keep *time.Time
 		if len(task.Blocks) > 0 {
 			start := task.Blocks[0].StartAt
 			keep = &start
 		}
-		if err := s.placement.ClearTask(task.ID); err != nil {
-			return err
-		}
 		if keep != nil {
-			return s.taskRepo.DB().Model(&models.Task{}).
-				Where("id = ?", task.ID).
-				Update("scheduled_on", *keep).Error
+			return s.placement.PlacePing(userID, task, *keep)
 		}
-		return nil
+		return s.placement.ClearTask(task.ID)
 	case update.Duration != nil && task.Duration > 0 && len(task.Blocks) == 0 && task.ScheduledOn != nil && *task.ScheduledOn != "":
 		return s.placeSingleBlock(userID, task, *task.ScheduledOn, task.Duration)
 	case update.Duration != nil && len(task.Blocks) == 1 && task.Duration > 0:
@@ -846,7 +885,7 @@ func (s *taskService) Split(userID, taskID string, input SplitInput) (*models.Ta
 		if err := store.PreserveFutureExceptions(source.Recurrence, rule, fromStart); err != nil {
 			return err
 		}
-		return tx.Model(&models.Task{}).Where("id = ?", next.ID).Update("scheduled_on", rule.Dtstart).Error
+		return s.placement.WithTx(tx).PlaceSeries(userID, next, rule.Dtstart)
 	})
 	if err != nil {
 		return nil, err
@@ -1104,7 +1143,14 @@ func (s *taskService) List(userID string, filter TaskFilter) ([]models.Task, err
 		return nil, err
 	}
 	annotateProgress(tasks)
-	return applyTaskFilter(tasks, filter), nil
+	var today Today
+	if filter.Overdue != nil && *filter.Overdue {
+		today, err = TodayForUser(s.taskRepo.GetWorkingHours, userID, filter.Timezone, time.Now())
+		if err != nil {
+			return nil, err
+		}
+	}
+	return applyTaskFilter(tasks, filter, today), nil
 }
 
 func (s *taskService) Delete(userID, taskID string) error {
@@ -1140,6 +1186,11 @@ func (s *taskService) BulkUpdate(userID string, ids []string, update TaskUpdate)
 	if len(ids) > maxBulkIDs {
 		return nil, errors.New("too many task ids (max 50)")
 	}
+	// Each task placed by hand pushes the others aside (ADR 0010), so N of
+	// them in one patch would leave only the last with a Block.
+	if update.ScheduledOn != nil {
+		return nil, errBulkSchedule
+	}
 	out := make([]models.Task, 0, len(ids))
 	for _, id := range ids {
 		task, err := s.Update(userID, id, update)
@@ -1151,7 +1202,9 @@ func (s *taskService) BulkUpdate(userID string, ids []string, update TaskUpdate)
 	return out, nil
 }
 
-func applyTaskFilter(tasks []models.Task, filter TaskFilter) []models.Task {
+// applyTaskFilter narrows tasks by filter. today is only read by the Overdue
+// filter, so callers that do not set it may pass the zero Today.
+func applyTaskFilter(tasks []models.Task, filter TaskFilter, today Today) []models.Task {
 	wantedWorkspaces := setOf(filter.WorkspaceIDs)
 	wantedProjects := setOf(filter.ProjectIDs)
 	wantedStatuses := setOf(filter.StatusIDs)
@@ -1188,7 +1241,7 @@ func applyTaskFilter(tasks []models.Task, filter TaskFilter) []models.Task {
 			}
 		}
 		if filter.Overdue != nil && *filter.Overdue {
-			if !IsOverdue(t, time.Now()) {
+			if !IsOverdue(t, today) {
 				continue
 			}
 		}
@@ -1317,4 +1370,54 @@ func (s *taskService) assertTaskScope(userID string, workspaceID, projectID, blo
 		}
 	}
 	return nil
+}
+
+// assertStatusAndStage rejects a status outside the task's workspace and a
+// stage outside the task's project, so a client cannot attach a task to
+// another tenant's board column. The workspace must already be checked as the
+// caller's; the project is checked here.
+func (s *taskService) assertStatusAndStage(userID string, workspaceID, projectID, statusID, stageID *string) error {
+	if statusID != nil && *statusID != "" {
+		if workspaceID == nil || *workspaceID == "" {
+			return gorm.ErrRecordNotFound
+		}
+		statuses, err := s.taskRepo.GetWorkspaceStatuses(*workspaceID)
+		if err != nil {
+			return err
+		}
+		found := false
+		for i := range statuses {
+			if statuses[i].ID == *statusID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return gorm.ErrRecordNotFound
+		}
+	}
+	if stageID != nil && *stageID != "" {
+		if projectID == nil || *projectID == "" {
+			return gorm.ErrRecordNotFound
+		}
+		if _, err := s.projectRepo.GetProjectByIdForUser(userID, *projectID); err != nil {
+			return gorm.ErrRecordNotFound
+		}
+		if _, err := s.projectRepo.GetStageById(*projectID, *stageID); err != nil {
+			return gorm.ErrRecordNotFound
+		}
+	}
+	return nil
+}
+
+// mergedID is the value a nullable id column holds after an update: the
+// update when sent ("" clears it), otherwise the current value.
+func mergedID(update, current *string) *string {
+	if update == nil {
+		return current
+	}
+	if *update == "" {
+		return nil
+	}
+	return update
 }

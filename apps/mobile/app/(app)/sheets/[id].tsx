@@ -26,7 +26,7 @@ import {
   workbookPayload,
 } from "../../../lib/sheet";
 import { sheetToCsv } from "../../../lib/sheetCsv";
-import { createSheetEvaluator } from "../../../lib/sheetFormula";
+import { createSheetEvaluator } from "@timely/contract/sheetFormula";
 import { timeAgo } from "../../../lib/format";
 import type { UpdateSheetPayload } from "../../../lib/api/sheets";
 import type { Sheet, SheetTab } from "../../../lib/types";

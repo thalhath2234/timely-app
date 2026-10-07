@@ -5,11 +5,10 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"timely-api/internal/features/placement"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
 	"timely-api/internal/utils"
-
-	"gorm.io/gorm"
 )
 
 func (s *service) GetSettings(userID string) (models.ScheduleSettings, error) {
@@ -42,20 +41,7 @@ func (s *service) PinTask(userID, taskID string, locked bool) (*models.Task, err
 }
 
 func (s *service) PinBlock(userID, blockID string, locked bool) (*models.ScheduledBlock, error) {
-	block, err := s.blocks.Get(userID, blockID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.blocks.DB().Model(block).Updates(map[string]any{
-		"locked":     locked,
-		"source":     models.BlockSourceManual,
-		"updated_at": utils.GetCurrentTimestamp(),
-	}).Error; err != nil {
-		return nil, err
-	}
-	block.Locked = locked
-	block.Source = models.BlockSourceManual
-	return block, nil
+	return s.placement.PinBlock(userID, blockID, locked)
 }
 
 // revisionSnapshot is what Apply stores for Undo: the engine blocks it
@@ -128,18 +114,12 @@ func (s *service) Undo(userID string) (*PlanResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = s.blocks.DB().Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", userID).Error; err != nil {
-			return err
-		}
-		store := s.blocks.WithTx(tx)
-		if err := store.DeleteEngineBlocksInRange(tx, ids, from, to, time.Time{}); err != nil {
-			return err
-		}
-		if err := store.InsertMany(tx, snapshot.Blocks); err != nil {
-			return err
-		}
-		return tx.Where("id = ? AND user_id = ?", rev.ID, userID).Delete(&models.ScheduleRevision{}).Error
+	err = s.placement.UndoAutoSchedule(userID, placement.AutoScheduleUndo{
+		RevisionID: rev.ID,
+		TaskIDs:    ids,
+		From:       from,
+		To:         to,
+		Restore:    snapshot.Blocks,
 	})
 	if err != nil {
 		return nil, err
@@ -174,19 +154,13 @@ func (s *service) PreviewUndo(userID string) (*UndoPreview, error) {
 	if err != nil {
 		return &UndoPreview{Remove: []UndoBlock{}, Restore: []UndoBlock{}}, nil
 	}
-	current, err := snapshotEngineBlocks(s.blocks.DB(), userID, ids, from, to)
+	current, err := s.placement.EngineBlocksInRange(userID, ids, from, to)
 	if err != nil {
 		return nil, err
 	}
-	names := map[string]string{}
-	if len(ids) > 0 {
-		var rows []struct{ ID, Name string }
-		if err := s.blocks.DB().Table("tasks").Select("id, name").Where("user_id = ? AND id IN ?", userID, ids).Scan(&rows).Error; err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			names[row.ID] = row.Name
-		}
+	names, err := s.repo.TaskNames(userID, ids)
+	if err != nil {
+		return nil, err
 	}
 	list := func(blocks []models.ScheduledBlock) []UndoBlock {
 		out := make([]UndoBlock, 0, len(blocks))
@@ -315,23 +289,8 @@ type blockSnap struct {
 	OccurrenceStart *time.Time `json:"occurrenceStart,omitempty"`
 }
 
-func snapshotEngineBlocks(tx *gorm.DB, userID string, taskIDs []string, from, to time.Time) ([]models.ScheduledBlock, error) {
-	if len(taskIDs) == 0 {
-		return []models.ScheduledBlock{}, nil
-	}
-	var out []models.ScheduledBlock
-	err := tx.Where("user_id = ? AND task_id IN ? AND source = ? AND start_at < ? AND end_at > ?",
-		userID, taskIDs, models.BlockSourceEngine, to, from).
-		Order("start_at ASC").
-		Find(&out).Error
-	if out == nil {
-		out = []models.ScheduledBlock{}
-	}
-	return out, err
-}
-
 // currentEngineBlocks returns the engine blocks Apply is allowed to replace,
-// using exactly the predicate of Store.DeleteEngineBlocksInRange: candidate
+// using exactly the predicate of Placement's Engine-block delete: candidate
 // tasks only, engine source, not locked, overlapping [from, to), and not
 // starting inside the freeze window. Preview "remove" rows are derived from
 // this map, so anything outside the predicate must not appear here or the
@@ -502,18 +461,4 @@ func dayCapacity(from, to time.Time, loc *time.Location, hours models.WorkingHou
 		day = next
 	}
 	return out
-}
-
-// DayLocation is the single day-boundary location shared by Auto-schedule,
-// free-time, and Rank: saved Working hours win, then the client's timezone,
-// then UTC. Using one resolver keeps "today" identical between placing Work
-// and listing what is still Unscheduled for a new account without saved hours.
-func DayLocation(hours models.WorkingHours, clientTimezone string) *time.Location {
-	loc := time.UTC
-	if clientTimezone != "" {
-		if parsed, err := time.LoadLocation(clientTimezone); err == nil {
-			loc = parsed
-		}
-	}
-	return hours.Location(loc)
 }

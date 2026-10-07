@@ -8,7 +8,7 @@ import type {
   TaskListDataMode,
   TaskListGroupField,
   TaskListGroupSortDirection,
-  TaskListSortBy,
+  TaskViewSortBy,
   TaskListSortDirection,
   TaskRenderMode,
   TaskViewConfig,
@@ -46,7 +46,7 @@ function sanitizeProjectGroupFields(
   return next.length > 0 ? next : fallback;
 }
 
-function sanitizeSortBy(sortBy: TaskListSortBy | undefined): TaskListSortBy {
+function sanitizeSortBy(sortBy: TaskViewSortBy | undefined): TaskViewSortBy {
   return sortBy && sortBy !== "project" ? sortBy : "deadline";
 }
 
@@ -104,7 +104,7 @@ export function usePersistedProjectTaskView(project: Project) {
   const [showReminders, setShowReminders] = useState(false);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [groupValueOrders, setGroupValueOrders] = useState<Record<string, string[]>>({});
-  const [sortBy, setSortBy] = useState<TaskListSortBy>("deadline");
+  const [sortBy, setSortBy] = useState<TaskViewSortBy>("deadline");
   const [sortDirection, setSortDirection] = useState<TaskListSortDirection>("asc");
   const [optionsVisible, setOptionsVisible] = useState(true);
   const [ready, setReady] = useState(false);

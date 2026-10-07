@@ -75,7 +75,7 @@ export default function MobileAgenda({
         <View key={group.date.toISOString()}>
           <View style={styles.head}>
             <Text style={[styles.day, isSameDay(group.date, today) && { color: colors.primary }]}>
-              {formatRelativeDay(group.date)}
+              {formatRelativeDay(group.date, undefined)}
             </Text>
             <Text style={styles.meta}>
               {group.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {group.items.length}

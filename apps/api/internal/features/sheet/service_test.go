@@ -56,3 +56,26 @@ func TestGridUpdateMirrorsPrimaryIntoFirstTab(t *testing.T) {
 		t.Fatalf("first tab rows = %d, want 3", len(got[0].Rows))
 	}
 }
+
+type projectScopeRepo struct {
+	SheetRepository
+}
+
+func (projectScopeRepo) WorkspaceBelongsToUser(userID, workspaceID string) (bool, error) {
+	return true, nil
+}
+
+func (projectScopeRepo) ProjectBelongsToUser(userID, projectID string) (bool, error) {
+	return projectID == "pr_mine", nil
+}
+
+func TestSheetRejectsForeignProject(t *testing.T) {
+	svc := NewSheetService(projectScopeRepo{}, nil)
+	theirs := "pr_theirs"
+	if _, err := svc.Update("usr_1", "sht_1", SheetUpdate{ProjectID: &theirs}); err == nil || err.Error() != "project not found" {
+		t.Fatalf("update: expected project not found, got %v", err)
+	}
+	if _, err := svc.Create(&models.Sheet{UserID: "usr_1", WorkspaceID: "ws_1", ProjectID: &theirs}); err == nil || err.Error() != "project not found" {
+		t.Fatalf("create: expected project not found, got %v", err)
+	}
+}

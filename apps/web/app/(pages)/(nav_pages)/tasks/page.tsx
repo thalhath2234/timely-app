@@ -168,7 +168,7 @@ function Tasks() {
   );
 
   const dataRows = useMemo(() => {
-    const filtered = filterTasks(allTasks, listFilters);
+    const filtered = filterTasks(allTasks, listFilters, typedConfig?.workingHours?.timezone);
     if (dataMode === "task" || showReminders) return filtered;
 
     const projects = new Map<string, Task[]>();
@@ -189,7 +189,6 @@ function Tasks() {
         id: `project-${projectId}`,
         name: project?.title || "Untitled project",
         description: project?.description || "",
-        timeChunks: 0,
         duration: totalDuration,
         deadline: project?.deadline || null,
         startDate: project?.startDate || null,
@@ -214,7 +213,7 @@ function Tasks() {
         labels: [],
       } as Task;
     });
-  }, [allTasks, dataMode, listFilters, showReminders]);
+  }, [allTasks, dataMode, listFilters, showReminders, typedConfig?.workingHours?.timezone]);
 
   const getGroupLabel = useCallback(
     (task: Task, groupBy: TaskListGroupField): string => {
@@ -228,8 +227,6 @@ function Tasks() {
         if (!value) return "-";
         if (value.optionValue?.length) return value.optionValue.map((option) => option.value).join(", ");
         if (value.stringValue) return value.stringValue;
-        if (typeof value.numberValue === "number") return String(value.numberValue);
-        if (value.dateValue) return value.dateValue;
         if (typeof value.boolValue === "boolean") return value.boolValue ? "Yes" : "No";
         return "-";
       }
@@ -253,17 +250,17 @@ function Tasks() {
   const filteredDataRows = dataRows;
   const dataCount = filteredDataRows.length;
   const headerTaskCount = useMemo(
-    () => filterTasks(allTasks, { ...listFilters, showReminders: false }).length,
-    [allTasks, listFilters],
+    () => filterTasks(allTasks, { ...listFilters, showReminders: false }, typedConfig?.workingHours?.timezone).length,
+    [allTasks, listFilters, typedConfig?.workingHours?.timezone],
   );
   const headerProjectCount = useMemo(() => {
     const ids = new Set<string>();
-    for (const task of filterTasks(allTasks, listFilters)) {
+    for (const task of filterTasks(allTasks, listFilters, typedConfig?.workingHours?.timezone)) {
       const projectId = task.project?.id || task.projectId;
       if (projectId) ids.add(projectId);
     }
     return ids.size;
-  }, [allTasks, listFilters]);
+  }, [allTasks, listFilters, typedConfig?.workingHours?.timezone]);
 
   if (isLoading) {
     return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;

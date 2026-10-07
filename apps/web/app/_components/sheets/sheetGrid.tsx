@@ -64,13 +64,12 @@ import {
   columnIndexToLetter,
   createSheetEvaluator,
   shiftFormula,
-} from "@/app/utils/sheetFormula";
+} from "@timely/contract/sheetFormula";
+import { isFormulaValue, normalizeTypedCell } from "@timely/contract/sheetCell";
 import {
   isBooleanTrue,
-  isFormulaValue,
   newColumnId,
   newRowId,
-  normalizeTypedCell,
   setCellFormat,
   isEmptyCellFormat,
   parseSelectOptions,
@@ -114,7 +113,7 @@ import {
   selectionStats,
   unmergeRange,
   visitRange,
-} from "@/app/utils/sheetRange";
+} from "@timely/contract/sheetRange";
 import {
   closeOpenParens,
   formulaAcceptsAnotherRange,

@@ -1,7 +1,16 @@
 import type { Doc, DocContent } from "../types";
+import type { CreateDocPayload, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
 import { getToken } from "../auth/session";
 import { isRichContentEmpty } from "../richText";
 import { api, getApiUrl, tunnelHeaders, unwrap } from "./client";
+import { clearNulls, type Clearable } from "./clearable";
+
+export type { CreateDocPayload };
+
+const CLEARABLE_DOC_FIELDS = ["parentId", "projectId"] as const;
+
+/** `UpdateDocPayload` from the contract, plus `null` meaning "clear" on `parentId` and `projectId`. */
+export type UpdateDocPayload = Clearable<WireUpdateDocPayload, (typeof CLEARABLE_DOC_FIELDS)[number]>;
 
 export type DocWatchEvent = {
   type: "hello" | "updated" | "deleted";
@@ -9,28 +18,6 @@ export type DocWatchEvent = {
   id: string;
   updatedAt?: string;
   document?: Doc;
-};
-
-export type CreateDocPayload = {
-  title?: string;
-  icon?: string;
-  content?: DocContent;
-  plainText?: string;
-  parentId?: string | null;
-  workspaceId?: string;
-  projectId?: string | null;
-};
-
-export type UpdateDocPayload = {
-  title?: string;
-  icon?: string;
-  content?: DocContent;
-  plainText?: string;
-  parentId?: string | null;
-  projectId?: string | null;
-  isFavorite?: boolean;
-  archived?: boolean;
-  order?: number;
 };
 
 export function getDocs() {
@@ -47,7 +34,10 @@ export async function createDoc(data: CreateDocPayload = {}) {
 }
 
 export async function updateDoc(id: string, data: UpdateDocPayload) {
-  const res = await api<Doc | { document: Doc }>(`/docs/${id}`, { method: "PUT", body: data });
+  const res = await api<Doc | { document: Doc }>(`/docs/${id}`, {
+    method: "PUT",
+    body: clearNulls<WireUpdateDocPayload>(data, CLEARABLE_DOC_FIELDS),
+  });
   const saved = unwrap(res, "document");
   if (data.content && !isRichContentEmpty(data.content) && isRichContentEmpty(saved.content)) {
     throw new Error("Document body was not persisted");

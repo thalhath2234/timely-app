@@ -122,8 +122,8 @@ export default function ProjectTaskList({
   );
 
   const dataRows = useMemo(
-    () => filterTasks(allTasks, listFilters),
-    [allTasks, listFilters],
+    () => filterTasks(allTasks, listFilters, typedConfig?.workingHours?.timezone),
+    [allTasks, listFilters, typedConfig?.workingHours?.timezone],
   );
   const scopedTotal = useMemo(
     () =>
@@ -147,8 +147,6 @@ export default function ProjectTaskList({
         if (!value) return "-";
         if (value.optionValue?.length) return value.optionValue.map((option) => option.value).join(", ");
         if (value.stringValue) return value.stringValue;
-        if (typeof value.numberValue === "number") return String(value.numberValue);
-        if (value.dateValue) return value.dateValue;
         if (typeof value.boolValue === "boolean") return value.boolValue ? "Yes" : "No";
         return "-";
       }

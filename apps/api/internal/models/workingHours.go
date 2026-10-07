@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // WorkingWindow is one availability span inside a day, "HH:MM" local time.
@@ -30,11 +32,10 @@ func WeekdayKey(day time.Weekday) string {
 	return weekdayKeys[int(day)]
 }
 
-// DefaultWorkingHours is Monday to Friday, 09:00 to 17:00.
+// DefaultWorkingHours is Monday to Friday, 09:00 to 17:00. An empty timezone
+// stays empty ("no zone saved or known"), so the day boundary still falls
+// through to the client's zone and then the server's rather than to UTC.
 func DefaultWorkingHours(timezone string) WorkingHours {
-	if timezone == "" {
-		timezone = "UTC"
-	}
 	days := map[string][]WorkingWindow{}
 	for _, key := range []string{"mon", "tue", "wed", "thu", "fri"} {
 		days[key] = []WorkingWindow{{Start: "09:00", End: "17:00"}}
@@ -54,7 +55,7 @@ func (w WorkingHours) IsEmpty() bool {
 func (w WorkingHours) WindowsOn(day time.Time) []WorkingWindow {
 	hours := w
 	if hours.IsEmpty() {
-		hours = DefaultWorkingHours("UTC")
+		hours = DefaultWorkingHours("")
 	}
 	windows := hours.Days[WeekdayKey(day.Weekday())]
 	if len(windows) == 0 {
@@ -87,6 +88,17 @@ func (w WorkingHours) IntervalsOn(day time.Time, loc *time.Location) [][2]time.T
 	return out
 }
 
+// LoadWorkingHours is the one reader of a person's saved Working hours. It
+// returns gorm.ErrRecordNotFound when they have no config row yet; a row with
+// no saved hours gives the empty WorkingHours.
+func LoadWorkingHours(db *gorm.DB, userID string) (WorkingHours, error) {
+	var config Config
+	if err := db.Select("working_hours").Where("user_id = ?", userID).First(&config).Error; err != nil {
+		return WorkingHours{}, err
+	}
+	return config.WorkingHours, nil
+}
+
 // Location resolves the configured zone, falling back to the given default.
 func (w WorkingHours) Location(fallback *time.Location) *time.Location {
 	if w.Timezone == "" {
@@ -102,7 +114,7 @@ func (w WorkingHours) Location(fallback *time.Location) *time.Location {
 // Validate checks the windows are well formed and non-overlapping per day.
 func (w WorkingHours) Validate() error {
 	if w.Timezone != "" {
-		if _, err := time.LoadLocation(w.Timezone); err != nil {
+		if _, err := time.LoadLocation(w.Timezone); err != nil || w.Timezone == "Local" {
 			return fmt.Errorf("unknown timezone %q", w.Timezone)
 		}
 	}

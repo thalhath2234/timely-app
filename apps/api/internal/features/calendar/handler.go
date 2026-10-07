@@ -48,6 +48,13 @@ func (s *service) workingHours(userID string) models.WorkingHours {
 	return hours
 }
 
+// workDay is today in the person's Working hours timezone (the client's zone,
+// then the server's, when none is saved). Overdue and Unscheduled are judged
+// against it, whatever day or zone the Today view itself is showing.
+func (s *service) workDay(userID, clientTimezone string) (task.Today, error) {
+	return task.TodayForUser(task.HoursLookup(s.hours), userID, clientTimezone, time.Now())
+}
+
 func (s *service) Range(userID string, from, to time.Time) (*Response, error) {
 	if userID == "" {
 		return nil, errors.New("user not authenticated")

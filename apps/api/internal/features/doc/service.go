@@ -78,6 +78,11 @@ func (s *documentService) Create(document *models.Document) (*models.Document, e
 			return nil, errors.New("workspace not found")
 		}
 	}
+	if document.ProjectID != nil && *document.ProjectID != "" {
+		if err := s.assertProject(document.UserID, *document.ProjectID); err != nil {
+			return nil, err
+		}
+	}
 
 	if document.ParentID != nil {
 		if _, err := s.repo.GetDocumentByID(document.UserID, *document.ParentID); err != nil {
@@ -167,6 +172,9 @@ func (s *documentService) Update(userID string, documentID string, update Docume
 		if *update.ProjectID == "" {
 			updates["project_id"] = nil
 		} else {
+			if err := s.assertProject(userID, *update.ProjectID); err != nil {
+				return nil, err
+			}
 			updates["project_id"] = *update.ProjectID
 		}
 	}
@@ -289,4 +297,17 @@ func normalizeTitle(title string) string {
 		return trimmed[:maxTitleLength]
 	}
 	return trimmed
+}
+
+// assertProject rejects a project the user does not own, so a document cannot be
+// linked to (and preload) another account's project.
+func (s *documentService) assertProject(userID, projectID string) error {
+	owned, err := s.repo.ProjectBelongsToUser(userID, projectID)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return errors.New("project not found")
+	}
+	return nil
 }
