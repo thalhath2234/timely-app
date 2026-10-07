@@ -56,3 +56,37 @@ test("soft line breaks are spaces unless breaks is set", () => {
   const kept = fromMarkdown("one\ntwo", { breaks: true }).content.content[0].content;
   assert.deepEqual(kept.map((node) => node.type), ["text", "hardBreak", "text"]);
 });
+
+test("handwritten extras read like GitHub and Obsidian", () => {
+  const src = [
+    "---",
+    "title: x",
+    "---",
+    "> [!tip] Keep it short",
+    "> One line, then a list:",
+    "> - a",
+    "",
+    "> [!NOTE]",
+    "> Just a note[^n].",
+    "",
+    "$$x^2$$",
+    "",
+    "Price $5 and $x$, [[Page]] and [^missing].",
+    "",
+    "[^n]: Defined later.",
+  ].join("\n");
+  const { content } = fromMarkdown(src);
+  const types = content.content.map((node) => node.type);
+  assert.deepEqual(types, ["frontmatter", "callout", "callout", "mathBlock", "paragraph", "footnote"]);
+  assert.deepEqual(content.content[0].content, [{ type: "text", text: "title: x" }]);
+  assert.deepEqual(content.content[1].attrs, { kind: "tip", title: "Keep it short" });
+  assert.deepEqual(content.content[1].content.map((node) => node.type), ["paragraph", "bulletList"]);
+  assert.deepEqual(content.content[2].content[0].content.map((node) => node.type), ["text", "footnoteRef", "text"]);
+  assert.deepEqual(content.content[3].content, [{ type: "text", text: "x^2" }]);
+  const inline = content.content[4].content;
+  assert.deepEqual(inline[0], { type: "text", text: "Price $5 and " });
+  assert.deepEqual(inline[1], { type: "mathInline", attrs: { latex: "x" } });
+  assert.deepEqual(inline[3], { type: "wikiLink", attrs: { target: "Page", embed: false } });
+  assert.deepEqual(inline[4], { type: "text", text: " and [^missing]." });
+  assert.deepEqual(content.content[5].attrs, { label: "n" });
+});

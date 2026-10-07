@@ -19,9 +19,21 @@ var (
 	markdownParser = goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 		goldmark.WithParserOptions(
-			parser.WithInlineParsers(util.Prioritized(&highlightParser{}, 500)),
+			parser.WithBlockParsers(
+				util.Prioritized(&mathBlockParser{}, 500),
+				util.Prioritized(&footnoteDefParser{}, 999),
+			),
+			parser.WithInlineParsers(
+				util.Prioritized(&footnoteRefParser{}, 150),
+				util.Prioritized(&wikiLinkParser{}, 150),
+				util.Prioritized(&highlightParser{}, 500),
+				util.Prioritized(&mathInlineParser{}, 500),
+			),
 		),
 	).Parser()
+	calloutHeadRe = regexp.MustCompile(`^\[!([A-Za-z]+)\][ \t]*(.*?)[ \t]*$`)
+	// Frontmatter is a --- fenced block that starts on the first line.
+	frontmatterRe = regexp.MustCompile(`^---\n((?:.*\n)*?)---(?:\n|$)`)
 	mentionHrefRe = regexp.MustCompile(`^timely://(task|project|doc|sheet)/(.+)$`)
 	brTagRe       = regexp.MustCompile(`(?i)^<br\s*/?>$`)
 )
@@ -31,9 +43,14 @@ var (
 // packages/contract/src/markdown.ts.
 func FromMarkdown(src string) (models.JSONMap, string) {
 	source := []byte(strings.ReplaceAll(src, "\r\n", "\n"))
-	root := markdownParser.Parse(text.NewReader(source))
-	r := reader{source: source}
-	content := r.blocks(root)
+	var content []any
+	if m := frontmatterRe.FindSubmatch(source); m != nil {
+		content = append(content, rawBlockNode("frontmatter", strings.TrimSuffix(string(m[1]), "\n")))
+		source = source[len(m[0]):]
+	}
+	r := reader{source: source, pc: parser.NewContext()}
+	root := markdownParser.Parse(text.NewReader(source), parser.WithContext(r.pc))
+	content = append(content, r.blocks(root)...)
 	if len(content) == 0 {
 		content = []any{paragraphNode(nil)}
 	}
@@ -44,63 +61,127 @@ func FromMarkdown(src string) (models.JSONMap, string) {
 
 type reader struct {
 	source []byte
+	// Shared with sub-parses (a callout's first paragraph) so footnote
+	// references inside them still resolve.
+	pc parser.Context
+}
+
+// parse converts a slice of Markdown source with the same parser state.
+func (r reader) parse(src []byte) []any {
+	sub := reader{source: src, pc: r.pc}
+	return sub.blocks(markdownParser.Parse(text.NewReader(src), parser.WithContext(r.pc)))
 }
 
 func (r reader) blocks(parent ast.Node) []any {
 	var out []any
 	for n := parent.FirstChild(); n != nil; n = n.NextSibling() {
-		switch b := n.(type) {
-		case *ast.Heading:
-			out = append(out, withContent(map[string]any{"type": "heading", "attrs": map[string]any{"level": b.Level}}, r.inline(b)))
-		case *ast.Paragraph, *ast.TextBlock:
-			if r.isOnlyBreak(n) {
-				out = append(out, paragraphNode(nil))
-			} else {
-				out = append(out, paragraphNode(r.inline(n)))
+		out = append(out, r.block(n)...)
+	}
+	return out
+}
+
+// block converts one block node; most give one editor node.
+func (r reader) block(n ast.Node) []any {
+	var out []any
+	switch b := n.(type) {
+	case *ast.Heading:
+		out = append(out, withContent(map[string]any{"type": "heading", "attrs": map[string]any{"level": b.Level}}, r.inline(b)))
+	case *ast.Paragraph, *ast.TextBlock:
+		if r.isOnlyBreak(n) {
+			out = append(out, paragraphNode(nil))
+		} else {
+			out = append(out, paragraphNode(r.inline(n)))
+		}
+	case *ast.ThematicBreak:
+		out = append(out, map[string]any{"type": "horizontalRule"})
+	case *ast.FencedCodeBlock:
+		out = append(out, codeBlockNode(normalizeLanguage(string(b.Language(r.source))), r.lines(b.Lines())))
+	case *ast.CodeBlock:
+		out = append(out, codeBlockNode("", strings.TrimSuffix(r.lines(b.Lines()), "\n")))
+	case *ast.Blockquote:
+		if callout := r.callout(b); callout != nil {
+			out = append(out, callout)
+			return out
+		}
+		content := r.blocks(b)
+		if len(content) == 0 {
+			content = []any{paragraphNode(nil)}
+		}
+		out = append(out, map[string]any{"type": "blockquote", "content": content})
+	case *mathBlockNode:
+		out = append(out, rawBlockNode("mathBlock", r.lines(b.Lines())))
+	case *footnoteDefNode:
+		content := r.blocks(b)
+		if len(content) == 0 {
+			content = []any{paragraphNode(nil)}
+		}
+		out = append(out, map[string]any{"type": "footnote", "attrs": map[string]any{"label": b.label}, "content": content})
+	case *ast.List:
+		out = append(out, r.list(b))
+	case *east.Table:
+		out = append(out, r.table(b))
+	case *ast.HTMLBlock:
+		raw := strings.TrimSpace(r.lines(b.Lines()))
+		if b.HasClosure() {
+			raw = strings.TrimSpace(raw + "\n" + string(b.ClosureLine.Value(r.source)))
+		}
+		if brTagRe.MatchString(raw) {
+			out = append(out, paragraphNode(nil))
+			return out
+		}
+		// Other raw HTML has no editor equivalent; keep its source as text.
+		var content []any
+		for i, line := range strings.Split(raw, "\n") {
+			if i > 0 {
+				content = append(content, map[string]any{"type": "hardBreak"})
 			}
-		case *ast.ThematicBreak:
-			out = append(out, map[string]any{"type": "horizontalRule"})
-		case *ast.FencedCodeBlock:
-			out = append(out, codeBlockNode(normalizeLanguage(string(b.Language(r.source))), r.lines(b.Lines())))
-		case *ast.CodeBlock:
-			out = append(out, codeBlockNode("", strings.TrimSuffix(r.lines(b.Lines()), "\n")))
-		case *ast.Blockquote:
-			content := r.blocks(b)
-			if len(content) == 0 {
-				content = []any{paragraphNode(nil)}
+			if line != "" {
+				content = append(content, map[string]any{"type": "text", "text": line})
 			}
-			out = append(out, map[string]any{"type": "blockquote", "content": content})
-		case *ast.List:
-			out = append(out, r.list(b))
-		case *east.Table:
-			out = append(out, r.table(b))
-		case *ast.HTMLBlock:
-			raw := strings.TrimSpace(r.lines(b.Lines()))
-			if b.HasClosure() {
-				raw = strings.TrimSpace(raw + "\n" + string(b.ClosureLine.Value(r.source)))
-			}
-			if brTagRe.MatchString(raw) {
-				out = append(out, paragraphNode(nil))
-				continue
-			}
-			// Other raw HTML has no editor equivalent; keep its source as text.
-			var content []any
-			for i, line := range strings.Split(raw, "\n") {
-				if i > 0 {
-					content = append(content, map[string]any{"type": "hardBreak"})
-				}
-				if line != "" {
-					content = append(content, map[string]any{"type": "text", "text": line})
-				}
-			}
-			out = append(out, paragraphNode(content))
-		default:
-			if n.HasChildren() {
-				out = append(out, r.blocks(n)...)
-			}
+		}
+		out = append(out, paragraphNode(content))
+	default:
+		if n.HasChildren() {
+			out = append(out, r.blocks(n)...)
 		}
 	}
 	return out
+}
+
+// callout reads a quote whose first line is [!KIND] or [!KIND] Title, as
+// GitHub and Obsidian write them. The marker may be a paragraph of its own
+// (how ToMarkdown writes it) or the first line of the body's paragraph.
+func (r reader) callout(quote *ast.Blockquote) map[string]any {
+	first, ok := quote.FirstChild().(*ast.Paragraph)
+	if !ok || first.Lines().Len() == 0 {
+		return nil
+	}
+	seg := first.Lines().At(0)
+	head := strings.TrimRight(string(seg.Value(r.source)), "\n")
+	m := calloutHeadRe.FindStringSubmatch(head)
+	if m == nil {
+		return nil
+	}
+	attrs := map[string]any{"kind": strings.ToLower(m[1])}
+	if m[2] != "" {
+		attrs["title"] = unescapeMarkdown(m[2])
+	}
+	var content []any
+	if first.Lines().Len() > 1 {
+		var rest strings.Builder
+		for i := 1; i < first.Lines().Len(); i++ {
+			line := first.Lines().At(i)
+			rest.Write(line.Value(r.source))
+		}
+		content = append(content, r.parse([]byte(rest.String()))...)
+	}
+	for n := first.NextSibling(); n != nil; n = n.NextSibling() {
+		content = append(content, r.block(n)...)
+	}
+	if len(content) == 0 {
+		content = []any{paragraphNode(nil)}
+	}
+	return map[string]any{"type": "callout", "attrs": attrs, "content": content}
 }
 
 func (r reader) list(list *ast.List) map[string]any {
@@ -255,6 +336,16 @@ func (r reader) inlineInto(parent ast.Node, inherited []any, out *[]any) {
 			r.inlineInto(v, addMark(marks, map[string]any{"type": "strike"}), out)
 		case *highlightNode:
 			r.inlineInto(v, addMark(marks, map[string]any{"type": "highlight"}), out)
+		case *mathInlineNode:
+			*out = append(*out, map[string]any{"type": "mathInline", "attrs": map[string]any{"latex": v.latex}})
+		case *footnoteRefNode:
+			*out = append(*out, map[string]any{"type": "footnoteRef", "attrs": map[string]any{"label": v.label}})
+		case *wikiLinkNode:
+			attrs := map[string]any{"target": v.target, "embed": v.embed}
+			if v.alias != "" {
+				attrs["alias"] = v.alias
+			}
+			*out = append(*out, map[string]any{"type": "wikiLink", "attrs": attrs})
 		case *ast.CodeSpan:
 			var b strings.Builder
 			for c := v.FirstChild(); c != nil; c = c.NextSibling() {
@@ -408,6 +499,15 @@ func paragraphNode(content []any) map[string]any {
 	return withContent(map[string]any{"type": "paragraph"}, content)
 }
 
+// rawBlockNode holds verbatim text (a formula, frontmatter) as one text node.
+func rawBlockNode(kind, body string) map[string]any {
+	node := map[string]any{"type": kind}
+	if body != "" {
+		node["content"] = []any{map[string]any{"type": "text", "text": body}}
+	}
+	return node
+}
+
 func codeBlockNode(language, code string) map[string]any {
 	var lang any
 	if language != "" {
@@ -472,6 +572,19 @@ func plainText(nodes []any) string {
 			attrs, _ := asMap(n["attrs"])
 			alt, _ := attrs["alt"].(string)
 			b.WriteString(alt)
+		case "mathInline":
+			attrs, _ := asMap(n["attrs"])
+			latex, _ := attrs["latex"].(string)
+			b.WriteString(latex)
+		case "wikiLink":
+			attrs, _ := asMap(n["attrs"])
+			label, _ := attrs["alias"].(string)
+			if label == "" {
+				label, _ = attrs["target"].(string)
+			}
+			b.WriteString(label)
+		case "footnoteRef":
+			// Reference markers carry no words worth searching.
 		default:
 			b.WriteString(plainText(asSlice(n["content"])))
 		}
@@ -479,7 +592,7 @@ func plainText(nodes []any) string {
 	return b.String()
 }
 
-var inlineTypes = map[string]bool{"text": true, "hardBreak": true, "mention": true, "image": true}
+var inlineTypes = map[string]bool{"text": true, "hardBreak": true, "mention": true, "image": true, "mathInline": true, "footnoteRef": true, "wikiLink": true}
 
 func blockTexts(nodes []any, out *[]string) {
 	for _, raw := range nodes {

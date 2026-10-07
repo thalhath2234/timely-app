@@ -18,7 +18,13 @@ func ToMarkdown(doc models.JSONMap) string {
 	if doc == nil {
 		return ""
 	}
-	return strings.TrimSpace(renderBlocks(asSlice(doc["content"]), true))
+	content := asSlice(doc["content"])
+	out := strings.TrimSpace(renderBlocks(content, true))
+	// A divider on the first line would read as the start of frontmatter.
+	if first, ok := asMap(firstOf(content)); ok && first["type"] != "frontmatter" && (strings.HasPrefix(out, "---\n") || out == "---") {
+		out = "***" + out[3:]
+	}
+	return out
 }
 
 // renderBlocks renders block nodes as Markdown blocks separated by blank
@@ -82,15 +88,35 @@ func renderBlock(n map[string]any) string {
 	case "bulletList", "orderedList", "taskList":
 		return renderList(n, false)
 	case "blockquote":
-		lines := strings.Split(renderBlocks(asSlice(n["content"]), true), "\n")
-		for i, line := range lines {
-			if line == "" {
-				lines[i] = ">"
-			} else {
-				lines[i] = "> " + line
-			}
+		return quoteLines(renderBlocks(asSlice(n["content"]), true))
+	case "callout":
+		// > [!NOTE] Title, then the body as its own quoted paragraphs.
+		kind, _ := attrOf(n, "kind").(string)
+		if kind == "" {
+			kind = "note"
 		}
-		return strings.Join(lines, "\n")
+		head := "[!" + strings.ToUpper(kind) + "]"
+		if title, _ := attrOf(n, "title").(string); title != "" {
+			head += " " + escapeText(title)
+		}
+		body := renderBlocks(asSlice(n["content"]), true)
+		if body != "" {
+			head += "\n\n" + body
+		}
+		return quoteLines(head)
+	case "mathBlock":
+		return "$$\n" + textContent(asSlice(n["content"])) + "\n$$"
+	case "frontmatter":
+		return "---\n" + textContent(asSlice(n["content"])) + "\n---"
+	case "footnote":
+		label, _ := attrOf(n, "label").(string)
+		body := renderBlocks(asSlice(n["content"]), true)
+		// The body starts on the marker line when it is a paragraph; lists
+		// and code go on their own lines. Continuation lines are indented.
+		if first, ok := asMap(firstOf(asSlice(n["content"]))); ok && first["type"] == "paragraph" {
+			return "[^" + label + "]: " + indentContinuation(body, 4)
+		}
+		return "[^" + label + "]:\n" + indentContinuation("\n"+body, 4)[1:]
 	case "codeBlock":
 		lang := ""
 		if attrs, ok := asMap(n["attrs"]); ok {
@@ -109,6 +135,26 @@ func renderBlock(n map[string]any) string {
 	default:
 		return escapeLineStarts(renderInline([]any{n}, "\\\n"))
 	}
+}
+
+// quoteLines prefixes every line with "> " (">" on blank lines).
+func quoteLines(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if line == "" {
+			lines[i] = ">"
+		} else {
+			lines[i] = "> " + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func firstOf(nodes []any) any {
+	if len(nodes) == 0 {
+		return nil
+	}
+	return nodes[0]
 }
 
 var (
@@ -150,7 +196,7 @@ func escapeText(text string) string {
 	var b strings.Builder
 	for i, r := range runes {
 		switch r {
-		case '\\', '*', '`', '[', ']', '~':
+		case '\\', '*', '`', '[', ']', '~', '$':
 			b.WriteRune('\\')
 		case '_':
 			if i == 0 || i == len(runes)-1 || !isWordRune(runes[i-1]) || !isWordRune(runes[i+1]) {
@@ -468,6 +514,23 @@ func collectInline(nodes []any, hardBreak string) []inlineSegment {
 			out = append(out, inlineSegment{atom: true, text: "![" + escapeText(alt) + "](" + dest + ")"})
 		case "hardBreak":
 			out = append(out, inlineSegment{atom: true, text: hardBreak})
+		case "mathInline":
+			latex, _ := attrOf(n, "latex").(string)
+			out = append(out, inlineSegment{atom: true, text: "$" + latex + "$"})
+		case "footnoteRef":
+			label, _ := attrOf(n, "label").(string)
+			out = append(out, inlineSegment{atom: true, text: "[^" + label + "]"})
+		case "wikiLink":
+			target, _ := attrOf(n, "target").(string)
+			alias, _ := attrOf(n, "alias").(string)
+			text := "[[" + target
+			if alias != "" {
+				text += "|" + alias
+			}
+			if embed, _ := attrOf(n, "embed").(bool); embed {
+				text = "!" + text
+			}
+			out = append(out, inlineSegment{atom: true, text: text + "]]"})
 		default:
 			out = append(out, collectInline(asSlice(n["content"]), hardBreak)...)
 		}

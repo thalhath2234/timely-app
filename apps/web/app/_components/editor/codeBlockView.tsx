@@ -4,7 +4,9 @@ import { useState } from "react";
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { Check, Copy } from "lucide-react";
 import { normalizeCodeLanguage } from "@/app/utils/markdown";
+import MapPreview from "./mapPreview";
 import MermaidPreview from "./mermaidPreview";
+import StlPreview from "./stlPreview";
 
 const LANGUAGES = [
   "",
@@ -22,6 +24,9 @@ const LANGUAGES = [
   "sql",
   "markdown",
   "mermaid",
+  "geojson",
+  "topojson",
+  "stl",
 ];
 
 export default function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
@@ -78,6 +83,8 @@ export default function CodeBlockView({ node, updateAttributes }: NodeViewProps)
         <NodeViewContent />
       </pre>
       {language === "mermaid" && <MermaidPreview code={node.textContent} />}
+      {(language === "geojson" || language === "topojson") && <MapPreview code={node.textContent} />}
+      {language === "stl" && <StlPreview code={node.textContent} />}
     </NodeViewWrapper>
   );
 }

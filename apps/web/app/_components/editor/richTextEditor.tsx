@@ -1,6 +1,7 @@
 "use client";
 
 import { useSidebarStore } from "@/app/_store/sidebarStore";
+import { useToastStore } from "@/app/_store/toastStore";
 import { DocContent } from "@/app/_types/types";
 import { openTasksEntityHref } from "@/app/utils/entityDetail";
 import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
@@ -50,7 +51,12 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AutoCapitalize } from "./autoCapitalize";
+import { Callout } from "./callout";
 import CodeBlockView from "./codeBlockView";
+import { Footnote, FootnoteRef } from "./footnotes";
+import { DocumentWithFrontmatter, Frontmatter } from "./frontmatter";
+import { MathBlock, MathInline } from "./mathNodes";
+import { WikiLink, wikiLinkPage } from "./wikiLink";
 import { CodeHighlight } from "./codeHighlight";
 import { dismissSuggestionAndQuery } from "./dismissSuggestion";
 import { DotBulletShortcut } from "./dotBullet";
@@ -215,7 +221,10 @@ export default function RichTextEditor({
         : "Type '/' for commands, '@' to mention, or just start writing...";
 
     const list: Extensions = [
+      // Frontmatter may only come first, which the document node enforces.
+      DocumentWithFrontmatter,
       StarterKit.configure({
+        document: false,
         // The toolbar offers H1-H3; H4-H6 exist so Markdown imports keep them.
         heading: { levels: [1, 2, 3, 4, 5, 6] },
         codeBlock: false,
@@ -270,6 +279,15 @@ export default function RichTextEditor({
         table: { resizable: true, handleWidth: 6, cellMinWidth: 80 },
       }),
       DotBulletShortcut,
+      // Markdown extras (see docs/markdown.md): math, callouts, footnotes,
+      // frontmatter and [[wiki links]].
+      MathInline,
+      MathBlock,
+      Callout,
+      FootnoteRef,
+      Footnote,
+      Frontmatter,
+      WikiLink,
     ];
 
     if (enableSlashCommands) {
@@ -415,6 +433,34 @@ export default function RichTextEditor({
 
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
+
+      // A footnote marker scrolls to its note.
+      const footnoteRef = target?.closest?.("sup[data-footnote-ref]");
+      if (footnoteRef) {
+        const label = footnoteRef.getAttribute("data-label") ?? "";
+        const note = element.querySelector(`[data-footnote="${CSS.escape(label)}"]`);
+        if (note) {
+          event.preventDefault();
+          note.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        return;
+      }
+
+      // A [[wiki link]] opens the doc with that title, if there is one.
+      const wikiLink = target?.closest?.("a[data-wiki-link]");
+      if (wikiLink) {
+        event.preventDefault();
+        event.stopPropagation();
+        const page = wikiLinkPage(wikiLink.getAttribute("data-target") ?? "");
+        const wanted = page.toLowerCase();
+        const doc = mentionBox
+          .get()
+          .find((item) => item.entityType === "doc" && item.label.trim().toLowerCase() === wanted);
+        if (doc) router.push(`/docs/${doc.id}`);
+        else useToastStore.getState().show(`No page named "${page}" yet.`);
+        return;
+      }
+
       const mention = target?.closest?.("a[data-mention]");
       const internalLink =
         mention ??
@@ -435,7 +481,7 @@ export default function RichTextEditor({
 
     element.addEventListener("click", handleClick, true);
     return () => element.removeEventListener("click", handleClick, true);
-  }, [editor, router]);
+  }, [editor, mentionBox, router]);
 
   // Search (Ctrl+K) owns that shortcut — close editor overlays so they do
   // not sit under the search palette.

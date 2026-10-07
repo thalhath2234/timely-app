@@ -1,3 +1,8 @@
+---
+title: Project plan
+tags: [plan, v1]
+---
+
 # Project plan
 
 Plain, **bold**, *italic*, ***both***, ~~struck~~, `a < b`, ==marked==, <u>under</u> and a [link with **bold**](https://example.com/a_b?x=1&y=2).
@@ -52,6 +57,7 @@ plain
 | --- | --- |
 | a \| b | `x\|y` |
 | **l1**<br>l2 |  |
+| [[Roadmap\|the plan]] | x |
 
 ![A pic](https://example.com/pic.png "Pic") [@Haircut](timely://task/t1) [Subpage](timely://doc/d1)
 
@@ -60,3 +66,31 @@ plain
 ###### Six
 
 &#32;Leading space
+
+## Extras
+
+Energy $E = mc^2$ costs \$5 or \$10, see note[^1] and [[Roadmap]], [[Roadmap#Q3|later]] or ![[Diagram]].
+
+$$
+\int_0^1 x^2 \, dx = \frac{1}{3}
+$$
+
+> [!NOTE]
+>
+> Plain note.
+
+> [!WARNING] Careful \*now\*
+>
+> First line\
+> second
+>
+> - item
+
+[^1]: The note, with **bold**.
+
+    Second paragraph.
+
+[^list]:
+    1. Only a list
+
+Unused \[^list\]

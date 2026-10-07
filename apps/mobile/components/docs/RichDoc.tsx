@@ -64,6 +64,32 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
       return <View style={styles.hr} />;
     case "table":
       return <Table rows={node.content ?? []} />;
+    case "callout": {
+      const kind = String(node.attrs?.kind || "note");
+      const label = kind.charAt(0).toUpperCase() + kind.slice(1);
+      const title = node.attrs?.title ? String(node.attrs.title) : "";
+      return (
+        <View style={[styles.quote, styles.callout]}>
+          <Text style={styles.calloutHead}>{title ? `${label}: ${title}` : label}</Text>
+          {(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}
+        </View>
+      );
+    }
+    case "mathBlock":
+    case "frontmatter":
+      // Read-only text shows the TeX / YAML source as code.
+      return (
+        <ScrollView horizontal style={styles.code} contentContainerStyle={styles.codeInner}>
+          <Text style={styles.codeText}>{plain(node)}</Text>
+        </ScrollView>
+      );
+    case "footnote":
+      return (
+        <View style={styles.li}>
+          <Text style={[styles.bullet, styles.mention]}>[{String(node.attrs?.label ?? "")}]</Text>
+          <View style={styles.liBody}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>
+        </View>
+      );
     default:
       return (
         <Text style={styles.p}>
@@ -120,6 +146,27 @@ function Inline({ nodes, onLink }: { nodes?: Node[]; onLink?: (href: string) => 
             </Text>
           );
         }
+        if (node.type === "mathInline") {
+          return (
+            <Text key={i} style={styles.inlineCode}>
+              {String(node.attrs?.latex ?? "")}
+            </Text>
+          );
+        }
+        if (node.type === "footnoteRef") {
+          return (
+            <Text key={i} style={styles.mention}>
+              [{String(node.attrs?.label ?? "")}]
+            </Text>
+          );
+        }
+        if (node.type === "wikiLink") {
+          return (
+            <Text key={i} style={styles.mention}>
+              {String(node.attrs?.alias || node.attrs?.target || "page")}
+            </Text>
+          );
+        }
         if (node.type === "image") {
           // Inline images in read-only text show as a link to the picture.
           const src = node.attrs?.src;
@@ -173,6 +220,8 @@ function plain(node?: Node): string {
     return node.attrs?.appearance === "page" ? label : `@${label}`;
   }
   if (node.type === "hardBreak") return "\n";
+  if (node.type === "mathInline") return String(node.attrs?.latex ?? "");
+  if (node.type === "wikiLink") return String(node.attrs?.alias || node.attrs?.target || "");
   return (node.content ?? []).map(plain).join("");
 }
 
@@ -193,6 +242,8 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingLeft: 12,
     gap: 8,
   },
+  callout: { backgroundColor: colors.accent, borderRadius: 8, paddingVertical: 8, paddingRight: 12 },
+  calloutHead: { color: colors.primary, fontWeight: "700", fontSize: 14 },
   code: {
     borderRadius: 10,
     backgroundColor: colors.card,

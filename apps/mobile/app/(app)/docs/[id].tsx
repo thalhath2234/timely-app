@@ -201,6 +201,13 @@ function DocEditor({ docId }: { docId: string }) {
           setWordCount(countWords(plainText));
           schedule({ content, plainText });
         }}
+        onWikiLink={(target) => {
+          // [[Page]] names a doc by title; open it when there is one.
+          const wanted = target.split("#")[0].trim().toLowerCase();
+          const hit = docs.find((d) => (d.title || "").trim().toLowerCase() === wanted);
+          if (hit) router.push(`/(app)/docs/${hit.id}`);
+          else Alert.alert("No page yet", `There is no page named "${target.split("#")[0].trim()}".`);
+        }}
         onCreateSubpage={async () => {
           const page = await createDoc.mutateAsync({
             title: "Untitled",

@@ -24,6 +24,7 @@ import {
   Heading2,
   Heading3,
   Highlighter,
+  Info,
   Italic,
   Link2,
   List,
@@ -33,6 +34,7 @@ import {
   Plus,
   Quote,
   Sheet as SheetIcon,
+  Sigma,
   Strikethrough,
   Table2,
   Trash2,
@@ -66,6 +68,13 @@ const SLASH: {
   { title: "Quote", description: "Capture a quotation", cmd: "quote", shortcut: ">", keywords: ["blockquote"] },
   { title: "Code block", description: "Monospaced code", cmd: "code", shortcut: "```", keywords: ["pre"] },
   { title: "Diagram", description: "Mermaid flowchart or other diagram", cmd: "diagram", keywords: ["mermaid", "flowchart", "chart", "graph"] },
+  { title: "Callout", description: "Note, tip, warning or caution box", cmd: "callout", keywords: ["note", "tip", "warning", "caution", "important", "alert"] },
+  { title: "Formula", description: "Inline math, like $E = mc^2$", cmd: "math", keywords: ["math", "latex", "tex", "inline"] },
+  { title: "Equation", description: "A displayed formula on its own line", cmd: "mathBlock", keywords: ["math", "latex", "tex", "block"] },
+  { title: "Footnote", description: "A numbered note at the end of the page", cmd: "footnote", keywords: ["reference", "citation", "note"] },
+  { title: "Properties", description: "Key: value lines at the top (frontmatter)", cmd: "frontmatter", keywords: ["frontmatter", "yaml", "metadata", "tags"] },
+  { title: "Map", description: "Draw GeoJSON or TopoJSON shapes", cmd: "map", keywords: ["geojson", "topojson", "geo", "location"] },
+  { title: "3D model", description: "Show an ASCII STL model", cmd: "stl", keywords: ["stl", "3d", "model", "mesh"] },
   { title: "Table", description: "Insert a 3×3 table", cmd: "table", keywords: ["grid"] },
   { title: "Divider", description: "Line — type - then space", cmd: "hr", shortcut: "-", keywords: ["hr", "rule"] },
   { title: "Link", description: "Add a URL to the selected text", cmd: "linkPrompt", shortcut: "[]", keywords: ["url", "href", "anchor"] },
@@ -87,6 +96,8 @@ const FORMAT_TOOLS = [
   { label: "Quote", Icon: Quote, cmd: "quote" },
   { label: "Inline code", Icon: Code, cmd: "inlineCode" },
   { label: "Code block", Icon: Code2, cmd: "code" },
+  { label: "Callout", Icon: Info, cmd: "callout" },
+  { label: "Formula", Icon: Sigma, cmd: "math" },
   { label: "Link", Icon: Link2, cmd: "linkPrompt" },
   { label: "Table", Icon: Table2, cmd: "table" },
   { label: "Divider", Icon: Minus, cmd: "hr" },
@@ -172,6 +183,7 @@ export default function RichTextEditor({
   onFocusChange,
   onSelectionChange,
   onCreateSubpage,
+  onWikiLink,
   placeholder = "Start writing. Type '/' for blocks, '@' to mention…",
   syncKey = 0,
   compact = false,
@@ -181,6 +193,8 @@ export default function RichTextEditor({
   onFocusChange?: (focused: boolean) => void;
   onSelectionChange?: (text: string) => void;
   onCreateSubpage?: () => Promise<{ id: string; title?: string | null } | null>;
+  /** A tapped [[wiki link]]; the target is the page title it names. */
+  onWikiLink?: (target: string) => void;
   placeholder?: string;
   /** Increment when remote content should replace the local draft. */
   syncKey?: number;
@@ -202,6 +216,9 @@ export default function RichTextEditor({
   const [active, setActive] = useState<EditorActive>({});
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("https://");
+  const [mathEdit, setMathEdit] = useState<{ pos: number; latex: string } | null>(null);
+  const onWikiLinkRef = useRef(onWikiLink);
+  onWikiLinkRef.current = onWikiLink;
   const [linkRange, setLinkRange] = useState<{ from: number; to: number } | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [barHeight, setBarHeight] = useState(56);
@@ -270,7 +287,14 @@ export default function RichTextEditor({
         inTable?: boolean;
         selectedText?: string;
         active?: EditorActive;
+        pos?: number;
+        latex?: string;
+        target?: string;
       };
+      if (msg.type === "mathEdit" && typeof msg.pos === "number") {
+        setMathEdit({ pos: msg.pos, latex: msg.latex ?? "" });
+      }
+      if (msg.type === "wikilink") onWikiLinkRef.current?.(msg.target ?? "");
       if (msg.type === "change" && msg.content) {
         appliedRef.current = JSON.stringify(msg.content);
         onChange({ content: msg.content, plainText: msg.plainText ?? "" });
@@ -359,6 +383,10 @@ export default function RichTextEditor({
   }
 
   function applyFormat(cmd: string) {
+    if (cmd === "callout" && active.callout) {
+      run("paragraph");
+      return;
+    }
     if (cmd === "linkPrompt") {
       if (active.link) {
         run("unsetLink");
@@ -547,8 +575,32 @@ export default function RichTextEditor({
           </Pressable>
         ) : null}
       </BottomSheet>
+
+      <BottomSheet open={mathEdit !== null} onClose={() => closeMath(true)} title="Formula">
+        <Field
+          value={mathEdit?.latex ?? ""}
+          onChangeText={(latex) => setMathEdit((current) => (current ? { ...current, latex } : current))}
+          placeholder="TeX, e.g. E = mc^2"
+          autoCapitalize="none"
+        />
+        <View style={{ height: 12 }} />
+        <PrimaryButton label="Apply formula" onPress={() => closeMath(false)} />
+        <Pressable onPress={() => closeMath(true)} style={{ paddingVertical: 14, alignItems: "center" }}>
+          <Text style={{ color: colors.destructive, fontWeight: "600" }}>{mathEdit?.latex ? "Cancel" : "Remove"}</Text>
+        </Pressable>
+      </BottomSheet>
     </View>
   );
+
+  /** Writes the formula back (an empty one removes the node). */
+  function closeMath(cancel: boolean) {
+    const edit = mathEdit;
+    setMathEdit(null);
+    if (!edit) return;
+    // Cancelling a brand-new, still empty formula removes it.
+    if (cancel && edit.latex.trim()) return;
+    run("setMath", { pos: edit.pos, latex: cancel ? "" : edit.latex });
+  }
 }
 
 const styles = createThemedStyleSheet((colors) => ({

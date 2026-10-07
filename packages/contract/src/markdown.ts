@@ -15,6 +15,10 @@ import type { DocContent } from "./documents";
  *   <u>underline</u>, hard breaks, a paragraph holding only `<br>` is an
  *   empty paragraph, [@Label](timely://task/id) is a mention and
  *   [Label](timely://doc/id) a subpage link.
+ *
+ * Plus the extras GitHub and Obsidian read: $math$ and $$ blocks,
+ * > [!NOTE] callouts, [^footnotes], --- frontmatter at the top of the file
+ * and [[wiki links]] (![[embeds]]). The Go side is apps/api/internal/richtext.
  */
 
 type Attrs = Record<string, unknown>;
@@ -89,7 +93,136 @@ const highlightExtension: TokenizerAndRendererExtension = {
   renderer: () => "",
 };
 
-const parser = new Marked({ gfm: true, extensions: [highlightExtension] });
+// $x$ and $$x$$ on one line. No space just inside the dollars, and the
+// closing dollar is not followed by a digit, so "$5 and $10" stays text.
+const mathInlineRe = /^\$(?:\$([^$\n]+?)\$|([^\s$](?:[^$\n]*?[^\s$\\])?))\$(?![0-9])/;
+
+const mathInlineExtension: TokenizerAndRendererExtension = {
+  name: "mathInline",
+  level: "inline",
+  start(src) {
+    const index = src.indexOf("$");
+    return index < 0 ? undefined : index;
+  },
+  tokenizer(src) {
+    const match = mathInlineRe.exec(src);
+    if (!match) return undefined;
+    return { type: "mathInline", raw: match[0], latex: match[1] ?? match[2] };
+  },
+  renderer: () => "",
+};
+
+// $$ on its own line opens a block that the next $$ line closes; $$x$$ on
+// one line is a whole block. Text after the opening $$ is the first line.
+const mathBlockRe = /^\$\$[ \t]*(?:([^\n]*?)[ \t]*\$\$[ \t]*(?:\n|$)|([^\n]*)\n([\s\S]*?)\n[ \t]*\$\$[ \t]*(?:\n|$))/;
+
+const mathBlockExtension: TokenizerAndRendererExtension = {
+  name: "mathBlock",
+  level: "block",
+  start(src) {
+    const match = /(^|\n)\$\$/.exec(src);
+    return match ? match.index + match[1].length : undefined;
+  },
+  tokenizer(src) {
+    const match = mathBlockRe.exec(src);
+    if (!match) return undefined;
+    const text = match[1] !== undefined
+      ? match[1]
+      : (match[2].trim() ? `${match[2].trim()}\n` : "") + match[3];
+    return { type: "mathBlock", raw: match[0], text };
+  },
+  renderer: () => "",
+};
+
+/** Labels defined in the file being parsed; [^x] is a reference only when
+ * x is defined, as in GitHub and Obsidian. Set per fromMarkdown call. */
+let definedFootnotes = new Set<string>();
+
+// [^label]: text, with continuation lines indented four spaces.
+const footnoteDefRe = /^\[\^([^\s[\]]+)\]:(?:[ \t]+([^\n]*)|[ \t]*)(?:\n|$)((?:[ \t]*\n|(?: {4}|\t)[^\n]*(?:\n|$))*)/;
+
+const footnoteDefExtension: TokenizerAndRendererExtension = {
+  name: "footnoteDef",
+  level: "block",
+  start(src) {
+    const match = /(^|\n)\[\^/.exec(src);
+    return match ? match.index + match[1].length : undefined;
+  },
+  tokenizer(src) {
+    const match = footnoteDefRe.exec(src);
+    if (!match) return undefined;
+    const continuation = match[3].replace(/^(?: {4}|\t)/gm, "");
+    const body = `${match[2] ?? ""}\n${continuation}`;
+    return {
+      type: "footnoteDef",
+      raw: match[0],
+      label: match[1],
+      tokens: this.lexer.blockTokens(body),
+    };
+  },
+  renderer: () => "",
+};
+
+const footnoteRefExtension: TokenizerAndRendererExtension = {
+  name: "footnoteRef",
+  level: "inline",
+  start(src) {
+    const index = src.indexOf("[^");
+    return index < 0 ? undefined : index;
+  },
+  tokenizer(src) {
+    const match = /^\[\^([^\s[\]]+)\]/.exec(src);
+    if (!match || !definedFootnotes.has(match[1])) return undefined;
+    return { type: "footnoteRef", raw: match[0], label: match[1] };
+  },
+  renderer: () => "",
+};
+
+// [[Page]], [[Page|alias]] and ![[Page]]; inside a table cell the separator
+// may still be written \|.
+const wikiLinkRe = /^(!?)\[\[((?:\\\||[^[\]|\n])+?)(?:\\?\|((?:\\\||[^[\]|\n])*))?\]\]/;
+
+const wikiLinkExtension: TokenizerAndRendererExtension = {
+  name: "wikiLink",
+  level: "inline",
+  start(src) {
+    const index = src.indexOf("[[");
+    if (index < 0) return undefined;
+    return index > 0 && src[index - 1] === "!" ? index - 1 : index;
+  },
+  tokenizer(src) {
+    const match = wikiLinkRe.exec(src);
+    if (!match) return undefined;
+    return {
+      type: "wikiLink",
+      raw: match[0],
+      embed: match[1] === "!",
+      target: match[2].replace(/\\\|/g, "|"),
+      alias: match[3]?.replace(/\\\|/g, "|") ?? "",
+    };
+  },
+  renderer: () => "",
+};
+
+const parser = new Marked({
+  gfm: true,
+  extensions: [
+    highlightExtension,
+    mathInlineExtension,
+    mathBlockExtension,
+    footnoteDefExtension,
+    footnoteRefExtension,
+    wikiLinkExtension,
+  ],
+});
+
+const frontmatterRe = /^---\n((?:.*\n)*?)---(?:\n|$)/;
+const calloutHeadRe = /^\[!([A-Za-z]+)\][ \t]*(.*?)[ \t]*$/;
+
+/** Resolves backslash escapes and entities in text taken from a raw line. */
+function unescapeRaw(text: string) {
+  return decodeEntities(text.replace(/\\([!-/:-@[-`{-~])/g, "$1"));
+}
 
 const ENTITIES: Record<string, string> = {
   amp: "&",
@@ -193,6 +326,19 @@ class InlineBuilder {
         case "br":
           this.nodes.push({ type: "hardBreak" });
           break;
+        case "mathInline":
+          this.nodes.push({ type: "mathInline", attrs: { latex: String((token as Tokens.Generic).latex) } });
+          break;
+        case "footnoteRef":
+          this.nodes.push({ type: "footnoteRef", attrs: { label: String((token as Tokens.Generic).label) } });
+          break;
+        case "wikiLink": {
+          const link = token as Tokens.Generic;
+          const attrs: Attrs = { target: String(link.target), embed: Boolean(link.embed) };
+          if (link.alias) attrs.alias = String(link.alias);
+          this.nodes.push({ type: "wikiLink", attrs });
+          break;
+        }
         case "image": {
           const image = token as Tokens.Image;
           const attrs: Attrs = { src: image.href };
@@ -266,6 +412,29 @@ function listItemContent(item: Tokens.ListItem, options: FromMarkdownOptions) {
   return children;
 }
 
+/** A block holding verbatim text (a formula, frontmatter) as one text node. */
+function rawBlock(type: string, text: string): MarkdownNode {
+  return text ? { type, content: [{ type: "text", text }] } : { type };
+}
+
+/** A quote whose first line is [!KIND] or [!KIND] Title is a callout. The
+ * marker may be a paragraph of its own (how the exporter writes it) or the
+ * first line of the body's paragraph (how people type it). */
+function calloutOf(quote: Tokens.Blockquote, options: FromMarkdownOptions): MarkdownNode | null {
+  const [first, ...rest] = quote.tokens;
+  if (first?.type !== "paragraph") return null;
+  const text = (first as Tokens.Paragraph).text;
+  const newline = text.indexOf("\n");
+  const head = newline < 0 ? text : text.slice(0, newline);
+  const match = calloutHeadRe.exec(head);
+  if (!match) return null;
+  const attrs: Attrs = { kind: match[1].toLowerCase(), title: match[2] ? unescapeRaw(match[2]) : null };
+  const content: MarkdownNode[] = [];
+  if (newline >= 0) content.push(...blocksOf(parser.lexer(text.slice(newline + 1)), options));
+  content.push(...blocksOf(rest, options));
+  return { type: "callout", attrs, content: content.length ? content : [paragraph()] };
+}
+
 function blocksOf(tokens: Token[], options: FromMarkdownOptions): MarkdownNode[] {
   const out: MarkdownNode[] = [];
   for (const token of tokens) {
@@ -303,8 +472,26 @@ function blocksOf(tokens: Token[], options: FromMarkdownOptions): MarkdownNode[]
         out.push({ type: "horizontalRule" });
         break;
       case "blockquote": {
+        const callout = calloutOf(token as Tokens.Blockquote, options);
+        if (callout) {
+          out.push(callout);
+          break;
+        }
         const content = blocksOf((token as Tokens.Blockquote).tokens, options);
         out.push({ type: "blockquote", content: content.length ? content : [paragraph()] });
+        break;
+      }
+      case "mathBlock":
+        out.push(rawBlock("mathBlock", String((token as Tokens.Generic).text)));
+        break;
+      case "footnoteDef": {
+        const def = token as Tokens.Generic;
+        const content = blocksOf(def.tokens ?? [], options);
+        out.push({
+          type: "footnote",
+          attrs: { label: String(def.label) },
+          content: content.length ? content : [paragraph()],
+        });
         break;
       }
       case "list": {
@@ -391,14 +578,19 @@ function plainOf(nodes: MarkdownNode[] | undefined): string {
         return node.attrs?.appearance === "page" ? label : `@${label}`;
       }
       if (node.type === "image") return String(node.attrs?.alt ?? "");
+      if (node.type === "mathInline") return String(node.attrs?.latex ?? "");
+      if (node.type === "wikiLink") return String(node.attrs?.alias || node.attrs?.target || "");
+      if (node.type === "footnoteRef") return "";
       return plainOf(node.content);
     })
     .join("");
 }
 
+const INLINE_TYPES = new Set(["text", "hardBreak", "mention", "image", "mathInline", "footnoteRef", "wikiLink"]);
+
 function blockTexts(nodes: MarkdownNode[], out: string[]) {
   for (const node of nodes) {
-    const hasBlocks = node.content?.some((child) => child.type !== "text" && child.type !== "hardBreak" && child.type !== "mention" && child.type !== "image");
+    const hasBlocks = node.content?.some((child) => !INLINE_TYPES.has(child.type));
     if (node.type === "codeBlock" || !hasBlocks) {
       const text = plainOf(node.content);
       if (text) out.push(text);
@@ -413,8 +605,17 @@ export function fromMarkdown(
   src: string,
   options: FromMarkdownOptions = {},
 ): { content: DocContent; plainText: string } {
-  const tokens = parser.lexer(src.replace(/\r\n?/g, "\n"));
-  const content = blocksOf(tokens, options);
+  let source = src.replace(/\r\n?/g, "\n");
+  const content: MarkdownNode[] = [];
+  const front = frontmatterRe.exec(source);
+  if (front) {
+    content.push(rawBlock("frontmatter", front[1].replace(/\n$/, "")));
+    source = source.slice(front[0].length);
+  }
+  definedFootnotes = new Set(
+    [...source.matchAll(/^\[\^([^\s[\]]+)\]:(?:[ \t]|$)/gm)].map((match) => match[1]),
+  );
+  content.push(...blocksOf(parser.lexer(source), options));
   if (content.length === 0) content.push(paragraph());
   const texts: string[] = [];
   blockTexts(content, texts);
