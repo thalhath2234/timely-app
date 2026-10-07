@@ -63,7 +63,7 @@ export default function CalendarItemRow({
       : "All day"
     : isReminderItem(item)
       ? `${formatTime(item.start)} · Reminder`
-      : `${formatTimeRange(item.start, item.end)}${overdue ? ` · ${formatRelativeDay(new Date(item.start))}` : ""}`;
+      : `${formatTimeRange(item.start, item.end)}${overdue ? ` · ${formatRelativeDay(new Date(item.start))}` : ""}${item.kind === "task" && item.chunkCount > 1 ? ` · Part ${item.chunkIndex + 1} of ${item.chunkCount}` : ""}`;
 
   return (
     <AnimatedPressable onPress={() => onOpen(item)} style={[styles.row, timeline && styles.timelineRow]}>

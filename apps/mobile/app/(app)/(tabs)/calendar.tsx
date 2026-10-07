@@ -35,7 +35,6 @@ import {
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
-import { mergeCalendarItems } from "../../../lib/calendarMerge";
 import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
 import { calendarBusy, findNextFreeSlot, type BusyInterval } from "../../../lib/nextFreeSlot";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
@@ -63,6 +62,8 @@ function calendarWindow(anchor: Date) {
     to: new Date(anchor.getFullYear(), anchor.getMonth() + 2, 1),
   };
 }
+
+const EMPTY_ITEMS: CalendarItem[] = [];
 
 export default function CalendarScreen() {
   const router = useRouter();
@@ -98,10 +99,9 @@ export default function CalendarScreen() {
     () => projects.filter((project) => (workspaceId ? project.workspaceId === workspaceId : true)),
     [projects, workspaceId],
   );
-  const occupancy = useMemo(
-    () => mergeCalendarItems(query.data?.items ?? []),
-    [query.data?.items],
-  );
+  // The Range endpoint's Calendar items are the grid (ADR 0006): one bar per
+  // Block, drawn as returned.
+  const occupancy = query.data?.items ?? EMPTY_ITEMS;
   const items = useMemo(
     () => occupancy.filter((item) => matchesCalendarScope(item, workspaceId, projectId)),
     [occupancy, workspaceId, projectId],
