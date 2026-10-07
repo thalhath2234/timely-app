@@ -518,7 +518,15 @@ func placementInterval(tool string, args map[string]any, task, block any) (time.
 		if v, ok := args[field].(float64); ok && v <= 0 {
 			return none() // a zero estimate makes it a Reminder
 		}
-		series := args["recurrence"] != nil || (len(read.Task.Recurrence) > 0 && string(read.Task.Recurrence) != "null")
+		// The call decides the series when it sets or clears recurrence;
+		// otherwise the task's current rule does.
+		series := len(read.Task.Recurrence) > 0 && string(read.Task.Recurrence) != "null"
+		if clear, _ := args["clearRecurrence"].(bool); clear {
+			series = false
+		} else if rule, ok := args["recurrence"].(map[string]any); ok {
+			rrule, _ := rule["rrule"].(string)
+			series = rrule != ""
+		}
 		if kind == models.KindReminder || kind == models.KindInbox || series || (minutes == nil && fallback <= 0) {
 			return none()
 		}

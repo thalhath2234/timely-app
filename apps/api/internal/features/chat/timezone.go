@@ -58,7 +58,11 @@ func timeContext(now time.Time, loc *time.Location, source string) string {
 	case "device":
 		fmt.Fprintf(&b, " The person's timezone is %s (from their device; no timezone is saved in Working hours).", loc)
 	default:
-		fmt.Fprintf(&b, " The person's timezone is unknown, so the server's timezone (%s, UTC%s) is used: say which timezone times are in, and ask which timezone they mean when an exact time matters.", loc, local.Format("-07:00"))
+		name := loc.String()
+		if name == "Local" {
+			name, _ = local.Zone()
+		}
+		fmt.Fprintf(&b, " The person's timezone is unknown, so the server's timezone (%s, UTC%s) is used: say which timezone times are in, and ask which timezone they mean when an exact time matters.", name, local.Format("-07:00"))
 	}
 	fmt.Fprintf(&b, " Local now: %s (UTC%s).", local.Format("Monday, 2006-01-02 15:04"), local.Format("-07:00"))
 	b.WriteString(" Interpret dates and times the person mentions in this timezone and write timestamps with that date's UTC offset in this timezone. Tool results already show times in this timezone; describe them that way.")

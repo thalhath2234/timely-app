@@ -114,6 +114,8 @@ func TestPlacementIntervalCoversUpdateTask(t *testing.T) {
 		"zero estimate is a ping":     {map[string]any{"scheduledOn": on, "duration": float64(0)}, work, 0},
 		"series anchor":               {map[string]any{"scheduledOn": on}, series, 0},
 		"series set in the same call": {map[string]any{"scheduledOn": on, "recurrence": map[string]any{"rrule": "FREQ=DAILY"}}, work, 0},
+		"clearing the series":         {map[string]any{"scheduledOn": on, "clearRecurrence": true}, series, 30 * time.Minute},
+		"empty rule clears series":    {map[string]any{"scheduledOn": on, "recurrence": map[string]any{"rrule": ""}}, series, 30 * time.Minute},
 		"no estimate to reserve":      {map[string]any{"scheduledOn": on}, map[string]any{"task": map[string]any{"kind": "task"}}, 0},
 	} {
 		from, to, ok := placementInterval("update_task", tc.args, tc.task, nil)

@@ -256,7 +256,7 @@ func (s *Service) extractImages(ctx context.Context, c *Conversation) error {
 	if err := s.db.WithContext(ctx).Select("working_hours").Where("user_id = ?", c.UserID).First(&config).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	today := time.Now().In(config.WorkingHours.Location(time.UTC)).Format("2006-01-02")
+	today := time.Now().In(config.WorkingHours.Location(time.Local)).Format("2006-01-02")
 	extracted, err := s.extractReceipt(ctx, request, today)
 	if err != nil {
 		return err
