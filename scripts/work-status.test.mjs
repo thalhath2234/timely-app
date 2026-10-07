@@ -147,6 +147,28 @@ describe("isUnscheduled", () => {
     // Postgres style offsets parse too.
     const pg = work({ scheduledOn: "2026-10-07 09:00:00+00" });
     assert.equal(isUnscheduled(pg, "UTC", now), false);
+    // Every offset shape the pattern accepts: "+00", "+0530", "+05:30".
+    const at = (offset) =>
+      work({ blocks: [{ start: `2026-10-07T20:30:00${offset}`, end: `2026-10-07T21:30:00${offset}` }] });
+    for (const [offset, covered] of [
+      ["+00", true],
+      ["+0000", true],
+      ["+00:00", true],
+      ["-0500", false],
+      ["-05:00", false],
+      ["+0530", true],
+      ["+05:30", true],
+      ["+05", true],
+    ]) {
+      // 20:30 on the 7th, shifted by the offset: only the zones east of UTC
+      // keep it on the 7th in UTC; -05 pushes it to 01:30 on the 8th.
+      assert.equal(isUnscheduled(at(offset), "UTC", now) === false, covered, offset);
+    }
+    const nearMidnight = work({
+      blocks: [{ start: "2026-10-07T00:30:00+0530", end: "2026-10-07T01:30:00+0530" }],
+    });
+    assert.equal(isUnscheduled(nearMidnight, "UTC", new Date("2026-10-06T20:00:00Z")), false);
+    assert.equal(isUnscheduled(nearMidnight, "UTC", new Date("2026-10-07T20:00:00Z")), true);
   });
 
   test("completed Work, Reminders and Inbox items are never Unscheduled", () => {

@@ -119,8 +119,8 @@ function timestampDate(value: string, timeZone?: string | null): string | null {
   if (!OFFSET_SUFFIX.test(text.slice(time + 1))) {
     return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : null;
   }
-  // Postgres writes a bare "+00" offset; Date wants "+00:00".
-  const normalized = text.replace(/([+-]\d{2})$/, "$1:00");
+  // Date wants "+00:00": Postgres writes a bare "+00", and "+0530" has no colon.
+  const normalized = text.replace(/([+-]\d{2})(\d{2})$/, "$1:$2").replace(/([+-]\d{2})$/, "$1:00");
   const instant = new Date(normalized);
   return Number.isNaN(instant.getTime()) ? null : dateInZone(instant, timeZone);
 }
