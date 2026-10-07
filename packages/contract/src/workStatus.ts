@@ -67,6 +67,26 @@ export function todayInZone(timeZone?: string | null, now: Date = new Date()): s
   return dateInZone(now, timeZone);
 }
 
+/** `date` (`YYYY-MM-DD`) moved by whole calendar `days`, as a `YYYY-MM-DD` stamp. */
+export function addDaysToDate(date: string, days: number): string {
+  const [year, month, day] = date.slice(0, 10).split("-").map(Number);
+  const moved = new Date(Date.UTC(year, month - 1, day + days));
+  return `${pad(moved.getUTCFullYear(), 4)}-${pad(moved.getUTCMonth() + 1, 2)}-${pad(moved.getUTCDate(), 2)}`;
+}
+
+/**
+ * Whole calendar days from `from` to `to` (both `YYYY-MM-DD`): positive when
+ * `to` is later. Pure date arithmetic, so a DST change never skews it. Pair it
+ * with `todayInZone` so "Yesterday" and "3d overdue" agree with `isOverdue`.
+ */
+export function daysBetween(from: string, to: string): number {
+  const parse = (stamp: string) => {
+    const [year, month, day] = stamp.slice(0, 10).split("-").map(Number);
+    return Date.UTC(year, month - 1, day);
+  };
+  return Math.round((parse(to) - parse(from)) / 86_400_000);
+}
+
 /**
  * Open Work whose deadline date is before `today` (`YYYY-MM-DD`). Inbox items,
  * Reminders and completed Work never count; a past Block alone does not make
@@ -99,8 +119,8 @@ function timestampDate(value: string, timeZone?: string | null): string | null {
   if (!OFFSET_SUFFIX.test(text.slice(time + 1))) {
     return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : null;
   }
-  // Postgres writes a bare "+00" offset; Date wants "+00:00".
-  const normalized = text.replace(/([+-]\d{2})$/, "$1:00");
+  // Date wants "+00:00": Postgres writes a bare "+00", and "+0530" has no colon.
+  const normalized = text.replace(/([+-]\d{2})(\d{2})$/, "$1:$2").replace(/([+-]\d{2})$/, "$1:00");
   const instant = new Date(normalized);
   return Number.isNaN(instant.getTime()) ? null : dateInZone(instant, timeZone);
 }

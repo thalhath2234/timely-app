@@ -1,6 +1,5 @@
 import type { Task, TaskViewConfig } from "./types";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
-import { statusNameKey } from "./status";
 import { taskHasDate } from "./taskDates";
 
 export type TaskListFilters = {
@@ -59,109 +58,6 @@ export function filtersFromView(view: TaskViewConfig): TaskListFilters {
 
 function hasAny(values: string[]) {
   return values.length > 0;
-}
-
-export type ExtraTaskFilters = {
-  workspaceIds: string[];
-  statusIds: string[];
-  statusKeys: string[];
-  priorityLevels: string[];
-  labelIds: string[];
-  stageIds: string[];
-  projectIds: string[];
-  onlyOverdue: boolean;
-  onlyScheduled: boolean;
-  onlyRecurring: boolean;
-  onlyDated: boolean;
-  showCompleted: boolean;
-};
-
-export const EMPTY_EXTRA_FILTERS: ExtraTaskFilters = {
-  workspaceIds: [],
-  statusIds: [],
-  statusKeys: [],
-  priorityLevels: [],
-  labelIds: [],
-  stageIds: [],
-  projectIds: [],
-  onlyOverdue: false,
-  onlyScheduled: false,
-  onlyRecurring: false,
-  onlyDated: false,
-  showCompleted: true,
-};
-
-export function extraFiltersActive(filters: ExtraTaskFilters, defaultShowCompleted = true) {
-  return (
-    filters.workspaceIds.length > 0 ||
-    filters.statusIds.length > 0 ||
-    (filters.statusKeys?.length ?? 0) > 0 ||
-    filters.priorityLevels.length > 0 ||
-    filters.labelIds.length > 0 ||
-    filters.stageIds.length > 0 ||
-    filters.projectIds.length > 0 ||
-    filters.onlyOverdue ||
-    filters.onlyScheduled ||
-    filters.onlyRecurring ||
-    filters.onlyDated ||
-    filters.showCompleted !== defaultShowCompleted
-  );
-}
-
-/** Overlay status/priority/label/stage/flag filters without re-applying reminder/inbox rules. */
-export function applyExtraFilters(
-  tasks: Task[],
-  filters: ExtraTaskFilters,
-  timeZone?: string | null,
-): Task[] {
-  const today = todayInZone(timeZone);
-  const wantedWorkspaces = new Set(filters.workspaceIds ?? []);
-  const wantedStatuses = new Set(filters.statusIds);
-  const wantedStatusKeys = new Set(filters.statusKeys ?? []);
-  const wantedPriorities = new Set(filters.priorityLevels.map((level) => level.toLowerCase()));
-  const wantedLabels = new Set(filters.labelIds);
-  const wantedStages = new Set(filters.stageIds);
-  const wantedProjects = new Set(filters.projectIds ?? []);
-
-  return tasks.filter((task) => {
-    if (!filters.showCompleted && task.completedAt) return false;
-    if (filters.onlyOverdue && !isOverdue(task, today)) return false;
-    if (filters.onlyScheduled && !task.scheduledOn && !(task.blocks && task.blocks.length > 0)) {
-      return false;
-    }
-    if (filters.onlyRecurring && !task.recurrence) return false;
-    if (filters.onlyDated && !taskHasDate(task)) return false;
-    if (hasAny(filters.workspaceIds ?? [])) {
-      const workspaceId = task.workspace?.id || task.workspaceId;
-      if (!workspaceId || !wantedWorkspaces.has(workspaceId)) return false;
-    }
-    if (hasAny(filters.statusIds) || hasAny(filters.statusKeys ?? [])) {
-      const statusId = task.status?.id || task.statusId;
-      const key = statusNameKey(task.status?.name);
-      const idOk = Boolean(statusId && wantedStatuses.has(statusId));
-      const keyOk = Boolean(key && wantedStatusKeys.has(key));
-      if (!idOk && !keyOk) return false;
-    }
-    if (hasAny(filters.priorityLevels)) {
-      const level = (task.priorityLevel ?? "").toLowerCase();
-      if (!level || !wantedPriorities.has(level)) return false;
-    }
-    if (hasAny(filters.labelIds)) {
-      const ids = [
-        ...(task.labels ?? []).map((label) => label.id),
-        ...(task.labelIds ?? []).map((label) => label.id),
-      ];
-      if (!ids.some((id) => wantedLabels.has(id))) return false;
-    }
-    if (hasAny(filters.stageIds)) {
-      if (!task.stageId || !wantedStages.has(task.stageId)) return false;
-    }
-    if (hasAny(filters.projectIds ?? [])) {
-      const projectId = task.project?.id || task.projectId;
-      if (!projectId || !wantedProjects.has(projectId)) return false;
-    }
-    return true;
-  });
 }
 
 /**

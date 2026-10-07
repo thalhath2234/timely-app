@@ -1,3 +1,5 @@
+import { dateInZone, daysBetween, todayInZone } from "@timely/contract/workStatus";
+
 export function localDateStamp(d = new Date()) {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -82,31 +84,57 @@ export function formatShortDate(iso: string) {
   });
 }
 
-export function formatRelativeDay(d: Date) {
-  const today = startOfDay(new Date());
-  const target = startOfDay(d);
-  const diff = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+/** A local `Date` on the calendar day of `stamp` (`YYYY-MM-DD`), for locale formatting. */
+function localDateOf(stamp: string) {
+  const [year, month, day] = stamp.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+/**
+ * Today / Tomorrow / Yesterday for a calendar date (`YYYY-MM-DD`) relative to
+ * `today`, else a weekday and date. `today` comes from `todayInZone`, so the
+ * label agrees with `isOverdue` near midnight.
+ */
+export function formatRelativeStamp(stamp: string, today: string) {
+  const diff = daysBetween(today, stamp);
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
   if (diff === -1) return "Yesterday";
-  return d.toLocaleDateString(undefined, {
+  return localDateOf(stamp).toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
   });
 }
 
-export function formatDueDate(iso: string | null | undefined) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  const today = startOfDay(new Date());
-  const diff = Math.round((startOfDay(d).getTime() - today.getTime()) / 86_400_000);
+/**
+ * `formatRelativeStamp` for an instant: its day and "today" are both read in
+ * the Working hours timezone (`timeZone`; undefined is the device zone).
+ */
+export function formatRelativeDay(d: Date, timeZone: string | null | undefined) {
+  return formatRelativeStamp(dateInZone(d, timeZone), todayInZone(timeZone));
+}
+
+/**
+ * A deadline label. The deadline's own date (as `isOverdue` reads it) is
+ * compared with `today` from `todayInZone`, so "Nd overdue" and the Overdue
+ * flag never disagree near midnight.
+ */
+export function formatDueDate(iso: string | null | undefined, today: string) {
+  const stamp = dateOnly(iso);
+  if (!stamp) return null;
+  const diff = daysBetween(today, stamp);
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
   if (diff === -1) return "Yesterday";
   if (diff < -1) return `${Math.abs(diff)}d overdue`;
-  if (diff < 7) return d.toLocaleDateString(undefined, { weekday: "short" });
-  return formatShortDate(iso);
+  const date = localDateOf(stamp);
+  if (diff < 7) return date.toLocaleDateString(undefined, { weekday: "short" });
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === Number(today.slice(0, 4)) ? undefined : "numeric",
+  });
 }
 
 export function timeAgo(iso: string) {

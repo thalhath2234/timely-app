@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import {
+  addDaysToDate,
   dateInZone,
+  daysBetween,
   isOverdue,
   isUnscheduled,
   todayInZone,
@@ -145,11 +147,74 @@ describe("isUnscheduled", () => {
     // Postgres style offsets parse too.
     const pg = work({ scheduledOn: "2026-10-07 09:00:00+00" });
     assert.equal(isUnscheduled(pg, "UTC", now), false);
+    // Every offset shape the pattern accepts: "+00", "+0530", "+05:30".
+    const at = (offset) =>
+      work({ blocks: [{ start: `2026-10-07T20:30:00${offset}`, end: `2026-10-07T21:30:00${offset}` }] });
+    for (const [offset, covered] of [
+      ["+00", true],
+      ["+0000", true],
+      ["+00:00", true],
+      ["-0500", false],
+      ["-05:00", false],
+      ["+0530", true],
+      ["+05:30", true],
+      ["+05", true],
+    ]) {
+      // 20:30 on the 7th, shifted by the offset: only the zones east of UTC
+      // keep it on the 7th in UTC; -05 pushes it to 01:30 on the 8th.
+      assert.equal(isUnscheduled(at(offset), "UTC", now) === false, covered, offset);
+    }
+    const nearMidnight = work({
+      blocks: [{ start: "2026-10-07T00:30:00+0530", end: "2026-10-07T01:30:00+0530" }],
+    });
+    assert.equal(isUnscheduled(nearMidnight, "UTC", new Date("2026-10-06T20:00:00Z")), false);
+    assert.equal(isUnscheduled(nearMidnight, "UTC", new Date("2026-10-07T20:00:00Z")), true);
   });
 
   test("completed Work, Reminders and Inbox items are never Unscheduled", () => {
     assert.equal(isUnscheduled(work({ completedAt: "2026-10-06T10:00:00Z" }), "UTC", now), false);
     assert.equal(isUnscheduled(work({ kind: "reminder" }), "UTC", now), false);
     assert.equal(isUnscheduled(work({ kind: "inbox" }), "UTC", now), false);
+  });
+});
+
+describe("addDaysToDate / daysBetween", () => {
+  test("move across month, year and leap boundaries", () => {
+    assert.equal(addDaysToDate("2026-10-07", 14), "2026-10-21");
+    assert.equal(addDaysToDate("2026-10-30", 2), "2026-11-01");
+    assert.equal(addDaysToDate("2026-12-31", 1), "2027-01-01");
+    assert.equal(addDaysToDate("2028-02-28", 1), "2028-02-29");
+    assert.equal(addDaysToDate("2026-03-01", -1), "2026-02-28");
+    assert.equal(addDaysToDate("2026-10-07T09:00:00Z", 1), "2026-10-08");
+  });
+
+  test("count whole days, unaffected by DST", () => {
+    assert.equal(daysBetween("2026-10-07", "2026-10-07"), 0);
+    assert.equal(daysBetween("2026-10-07", "2026-10-08"), 1);
+    assert.equal(daysBetween("2026-10-07", "2026-10-06"), -1);
+    assert.equal(daysBetween("2026-03-07", "2026-03-09"), 2);
+    assert.equal(daysBetween("2026-10-31", "2026-11-02"), 2);
+    assert.equal(daysBetween("2026-10-07", "2026-10-21T10:00:00Z"), 14);
+  });
+
+  test("a day label near midnight agrees with isOverdue in the same zone", () => {
+    // 03:00 UTC on the 7th is still the evening of the 6th in Los Angeles.
+    const now = new Date("2026-10-07T03:00:00Z");
+    const task = { kind: "task", deadline: "2026-10-06" };
+    for (const [zone, days, overdue] of [
+      ["UTC", -1, true],
+      ["America/Los_Angeles", 0, false],
+      ["Pacific/Auckland", -1, true],
+    ]) {
+      const today = todayInZone(zone, now);
+      assert.equal(daysBetween(today, task.deadline), days, zone);
+      assert.equal(isOverdue(task, today), overdue, zone);
+    }
+  });
+
+  test("a 14 day horizon is inclusive of its last date", () => {
+    const today = todayInZone("America/Los_Angeles", new Date("2026-10-07T03:00:00Z"));
+    assert.equal(today, "2026-10-06");
+    assert.equal(addDaysToDate(today, 14), "2026-10-20");
   });
 });

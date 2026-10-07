@@ -18,7 +18,7 @@ import type {
   Stage,
   TaskListDataMode,
   TaskListGroupField,
-  TaskListSortBy,
+  TaskViewSortBy,
   TaskRenderMode,
   TaskViewConfig,
   Workspace,
@@ -240,7 +240,7 @@ export default function TaskFiltersSheet({
         <SectionLabel>Sort</SectionLabel>
         <Select
           value={view.sortBy}
-          onChange={(next) => onPatch({ sortBy: next as TaskListSortBy })}
+          onChange={(next) => onPatch({ sortBy: next as TaskViewSortBy })}
           placeholder="Sort by"
           options={NATIVE_SORT_OPTIONS}
         />
