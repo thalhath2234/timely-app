@@ -25,17 +25,20 @@ func TodayAt(now time.Time, loc *time.Location) Today {
 }
 
 // TodayFor is the current date in the Working hours timezone of hours; with no
-// saved timezone the client's zone applies, then UTC (see DayLocation).
+// saved timezone the client's zone applies, then the server's zone (see
+// DayLocation).
 func TodayFor(hours models.WorkingHours, clientTimezone string, now time.Time) Today {
 	return TodayAt(now, DayLocation(hours, clientTimezone))
 }
 
 // DayLocation is the single day-boundary location shared by Auto-schedule,
 // free-time, and Work status: saved Working hours win, then the client's
-// timezone, then UTC. One resolver keeps "today" identical between placing Work
-// and listing what is still Unscheduled for a new account without saved hours.
+// timezone, then the server's zone. The desktop app hosts the backend (ADR
+// 0011), so the server's zone is the person's own, not an arbitrary default.
+// One resolver keeps "today" identical between placing Work and listing what is
+// still Unscheduled for a new account without saved hours.
 func DayLocation(hours models.WorkingHours, clientTimezone string) *time.Location {
-	loc := time.UTC
+	loc := time.Local
 	if clientTimezone != "" {
 		if parsed, err := time.LoadLocation(clientTimezone); err == nil {
 			loc = parsed

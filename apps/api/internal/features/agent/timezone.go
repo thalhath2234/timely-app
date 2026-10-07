@@ -11,8 +11,8 @@ type timezoneKey struct{}
 // (saved Working hours, else the device zone, else UTC). Tools use it whenever
 // the model omits a timezone, so dates never fall back to the server's zone.
 // Hermes requests carry no value: their dates fall back to the server's zone
-// (see location), while Work status follows task.DayLocation and so uses the
-// saved Working hours, else UTC, exactly as Auto-schedule does.
+// (see location), and Work status follows task.DayLocation, which uses the
+// saved Working hours, else the server's zone, exactly as Auto-schedule does.
 func WithTimezone(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, timezoneKey{}, name)
 }

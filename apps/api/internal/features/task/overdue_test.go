@@ -109,8 +109,26 @@ func TestDayLocationPrefersSavedWorkingHours(t *testing.T) {
 	if got := DayLocation(models.WorkingHours{}, "Asia/Tokyo").String(); got != "Asia/Tokyo" {
 		t.Fatalf("client timezone should be the fallback, got %s", got)
 	}
-	if got := DayLocation(models.WorkingHours{}, "Not/AZone").String(); got != "UTC" {
-		t.Fatalf("invalid client timezone should fall back to UTC, got %s", got)
+	if got := DayLocation(models.WorkingHours{}, "Not/AZone").String(); got != time.Local.String() {
+		t.Fatalf("invalid client timezone should fall back to the server's zone, got %s", got)
+	}
+}
+
+// The desktop app hosts the backend (ADR 0011), so with no saved hours and no
+// client zone the day boundary is the server's own zone, not UTC.
+func TestDayLocationFallsBackToServerZone(t *testing.T) {
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Tokyo", 9*60*60)
+
+	// 20:00 UTC on Sep 10 is already Sep 11 in the server's zone.
+	instant := time.Date(2026, 9, 10, 20, 0, 0, 0, time.UTC)
+	today := TodayFor(models.WorkingHours{}, "", instant)
+	if today.Date() != "2026-09-11" || today.Location() != time.Local {
+		t.Fatalf("today = %s in %s, want 2026-09-11 in the server's zone", today.Date(), today.Location())
+	}
+	if got := DayLocation(models.WorkingHours{}, "Not/AZone"); got != time.Local {
+		t.Fatalf("invalid client zone = %s, want the server's zone", got)
 	}
 }
 

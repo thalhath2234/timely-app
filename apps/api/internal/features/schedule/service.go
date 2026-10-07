@@ -699,7 +699,7 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 }
 
 // Rank lists Unscheduled and Overdue Work for the current date in the Working
-// hours timezone (client's timezone, then UTC, when none is saved), the same
+// hours timezone (client's timezone, then the server's, when none is saved), the same
 // day boundary Auto-schedule plans in (QA-03).
 func (s *service) Rank(userID string, timezone string) ([]RankedTask, error) {
 	if userID == "" {
