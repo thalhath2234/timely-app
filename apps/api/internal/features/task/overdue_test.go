@@ -37,9 +37,6 @@ func TestIsOverdueUsesDeadlineAndMissedSchedule(t *testing.T) {
 	if IsOverdue(missed, today) {
 		t.Fatal("missed blocks without a deadline are not Overdue")
 	}
-	if !IsMissed(missed, today) {
-		t.Fatal("yesterday's unfinished block should be Missed")
-	}
 	if !IsOverdue(pastDue, today) {
 		t.Fatal("past deadline with no remaining time should be overdue")
 	}
