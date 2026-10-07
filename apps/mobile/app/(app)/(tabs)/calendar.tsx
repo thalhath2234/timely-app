@@ -24,19 +24,19 @@ import {
   useAddBlock,
   useCalendarQuery,
   useEditTaskOccurrence,
+  useFreeTimeQuery,
   useMoveBlock,
   useMoveEventTimes,
   useProjectsQuery,
   useRankQuery,
   useSaveTask,
   useTasksQuery,
-  useWorkingHoursQuery,
   useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
 import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
-import { calendarBusy, findNextFreeSlot, type BusyInterval } from "../../../lib/nextFreeSlot";
+import { findNextFreeSlot } from "../../../lib/nextFreeSlot";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import { addDays, dayKey, formatDuration, formatMonthYear, formatTime, isSameDay, startOfDay } from "../../../lib/format";
 import { taskDeadlineDate } from "../../../lib/taskDates";
@@ -74,7 +74,6 @@ export default function CalendarScreen() {
   const [slot, setSlot] = useState<Date | null>(null);
   const [waitingOpen, setWaitingOpen] = useState(false);
   const [scheduleTask, setScheduleTask] = useState<Task | null>(null);
-  const [heldSlots, setHeldSlots] = useState<BusyInterval[]>([]);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
 
@@ -109,7 +108,6 @@ export default function CalendarScreen() {
   const tasks = useTasksQuery().data ?? [];
   const workspaceOptions = useMemo(() => workspaces.map((space) => ({ id: space.id, title: space.name, color: space.color, count: projects.filter((project) => project.workspaceId === space.id).length })), [workspaces, projects]);
   const projectOptions = useMemo(() => scopedProjects.map((project) => ({ id: project.id, title: project.title || "Untitled project", color: project.color, count: tasks.filter((task) => task.projectId === project.id && !task.completedAt).length })), [scopedProjects, tasks]);
-  const hoursQ = useWorkingHoursQuery();
   const workingHoursZone = useWorkingHoursZone();
   const overdue = useMemo(
     () =>
@@ -130,14 +128,18 @@ export default function CalendarScreen() {
         .slice(0, 8),
     [rankQ.data, workspaceId, projectId],
   );
+  // The server takes Events and Blocks out of Working hours; the sheet picks
+  // the first gap that fits. The window is fixed when the sheet opens so its
+  // query key stays put while it is open.
+  const freeWindow = useMemo(() => {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    return { from: now, to: addDays(now, 21) };
+  }, [scheduleTask?.id]);
+  const freeTime = useFreeTimeQuery(freeWindow.from, freeWindow.to, Boolean(scheduleTask));
   const nextSlot = useMemo(
-    () =>
-      findNextFreeSlot({
-        durationMinutes: scheduleTask?.duration || 30,
-        hours: hoursQ.data,
-        busy: [...calendarBusy(occupancy), ...heldSlots],
-      }),
-    [hoursQ.data, occupancy, heldSlots, scheduleTask?.duration],
+    () => findNextFreeSlot({ durationMinutes: scheduleTask?.duration || 30, slots: freeTime.data ?? [] }),
+    [freeTime.data, scheduleTask?.duration],
   );
   const save = useSaveTask();
   const moveBlk = useMoveBlock();
@@ -375,18 +377,12 @@ export default function CalendarScreen() {
             return;
           }
           const duration = scheduleTask.duration || 30;
-          const end = new Date(start.getTime() + duration * 60_000);
-          const interval = { start: start.toISOString(), end: end.toISOString() };
-          setHeldSlots((current) => [...current, interval]);
           void addBlock
             .mutateAsync({
               taskId: scheduleTask.id,
               data: { start: start.toISOString(), durationMinutes: duration },
             })
             .catch((error: unknown) => {
-              setHeldSlots((current) =>
-                current.filter((item) => item.start !== interval.start || item.end !== interval.end),
-              );
               Alert.alert("Could not schedule", error instanceof Error ? error.message : "Try again.");
             });
           setScheduleTask(null);

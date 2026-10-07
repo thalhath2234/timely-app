@@ -277,10 +277,9 @@ func (s *Server) getFreeTime(ctx context.Context, req *mcp.CallToolRequest, in r
 	if err != nil {
 		return fail(err)
 	}
-	minutes := 0
+	minutes := schedule.FreeMinutes(free)
 	lines := []string{}
 	for _, slot := range free {
-		minutes += slot.Minutes()
 		lines = append(lines, fmt.Sprintf("%s (%d min)", span(slot.Start, slot.End, loc), slot.Minutes()))
 	}
 	// text states the slots in the person's timezone so answers quote it

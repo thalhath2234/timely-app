@@ -35,6 +35,15 @@ func (i Interval) Minutes() int {
 	return int(i.End.Sub(i.Start).Minutes())
 }
 
+// FreeMinutes is the total length of the intervals.
+func FreeMinutes(slots []Interval) int {
+	minutes := 0
+	for _, slot := range slots {
+		minutes += slot.Minutes()
+	}
+	return minutes
+}
+
 // Candidate is a one-off task or one recurring occurrence the engine may place.
 type Candidate struct {
 	ID                 string

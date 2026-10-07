@@ -98,6 +98,23 @@ export interface DayCapacity {
   atRisk: boolean;
 }
 
+/** One stretch of Working hours with no Event or Block in it. */
+export interface FreeSlot {
+  start: string;
+  end: string;
+}
+
+/**
+ * GET /schedule/free-time?from=&to=&timezone= (RFC3339 range, default the next
+ * seven days). The server takes Events and Blocks out of Working hours (ADR
+ * 0006); clients pick a slot from `slots` and never work out busy time.
+ */
+export interface FreeTimeResponse {
+  slots: FreeSlot[];
+  /** Sum of the slots, in minutes. */
+  freeMinutes: number;
+}
+
 export interface SchedulePlan {
   from: string;
   to: string;

@@ -13,6 +13,7 @@ import {
   clearTaskBlocks,
   deleteBlock,
   getCalendarRange,
+  getFreeTime,
   getScheduleSettings,
   getToday,
   getWorkingHours,
@@ -96,6 +97,7 @@ export const keys = {
   agentProviders: ["agent-providers"] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
+  freeTime: ["schedule", "free-time"] as const,
   today: ["today"] as const,
   notifications: ["notifications"] as const,
   unreadNotifications: ["notifications", "unread-count"] as const,
@@ -138,6 +140,15 @@ export function useInboxQuery() {
 
 export function useTodayQuery() {
   return useQuery({ queryKey: keys.today, queryFn: () => getToday() });
+}
+
+/** Free Working hours from `from` to `to`; fetch only while `enabled`. */
+export function useFreeTimeQuery(from: Date, to: Date, enabled: boolean) {
+  return useQuery({
+    queryKey: [...keys.freeTime, from.toISOString(), to.toISOString()],
+    queryFn: () => getFreeTime(from, to),
+    enabled,
+  });
 }
 
 export function useRankQuery() {
@@ -399,6 +410,7 @@ export function useInvalidateAll() {
       client.invalidateQueries({ queryKey: keys.workspaces }),
       client.invalidateQueries({ queryKey: keys.inbox }),
       client.invalidateQueries({ queryKey: keys.rank }),
+      client.invalidateQueries({ queryKey: keys.freeTime }),
       client.invalidateQueries({ queryKey: keys.today }),
       client.invalidateQueries({ queryKey: keys.scheduleSettings }),
     ]);
@@ -866,6 +878,7 @@ export function useAddBlock() {
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
       client.invalidateQueries({ queryKey: keys.today });
     },
   });
