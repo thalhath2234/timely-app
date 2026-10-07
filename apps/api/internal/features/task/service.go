@@ -885,7 +885,7 @@ func (s *taskService) Split(userID, taskID string, input SplitInput) (*models.Ta
 		if err := store.PreserveFutureExceptions(source.Recurrence, rule, fromStart); err != nil {
 			return err
 		}
-		return tx.Model(&models.Task{}).Where("id = ?", next.ID).Update("scheduled_on", rule.Dtstart).Error
+		return s.placement.WithTx(tx).PlaceSeries(userID, next, rule.Dtstart)
 	})
 	if err != nil {
 		return nil, err

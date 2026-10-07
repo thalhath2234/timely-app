@@ -1,7 +1,6 @@
 // Package placement is the only writer of Blocks (ADR 0004) and of Reminder
 // pings made by placing. Plain task-field edits that also carry scheduled_on
-// (Inbox conversion), the new task row that continues a series
-// (task.Split), and account restore stay outside it.
+// (Inbox conversion) and account restore stay outside it.
 // Auto-schedule Preview and Rank live in the schedule feature, which hands every
 // write here (ApplyAutoSchedule, UndoAutoSchedule); Clarify, drag, pin, and
 // Event times call Placement directly. The Block store is private to this
@@ -26,6 +25,15 @@ type Service struct {
 
 func New(db *gorm.DB, hours HoursLookup) *Service {
 	return &Service{blocks: newBlockStore(db), hours: hours}
+}
+
+// WithTx returns a Service whose writes run in tx, for a caller that must keep
+// them atomic with its own rows (task.Split). A nil Service stays nil.
+func (s *Service) WithTx(tx *gorm.DB) *Service {
+	if s == nil || s.blocks == nil {
+		return s
+	}
+	return &Service{blocks: s.blocks.WithTx(tx), hours: s.hours}
 }
 
 // errNotConfigured is what entry points that return a value or a Block report

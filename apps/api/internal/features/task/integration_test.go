@@ -449,3 +449,28 @@ func TestIntegrationDuplicateRepeatingReminderKeepsItsRule(t *testing.T) {
 		t.Fatalf("copy recurrence = %+v, want FREQ=DAILY", copied.Recurrence)
 	}
 }
+
+// ADR 0004: the task that continues a series gets its scheduled_on mirror from
+// Placement, in the same transaction as the row and its rule.
+func TestIntegrationSplitContinuesSeriesThroughPlacement(t *testing.T) {
+	f := newKindFixture(t)
+	rec := &models.RecurrenceInput{RRule: "FREQ=DAILY", Dtstart: kindPing}
+	source, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, rec)
+	if err != nil {
+		t.Fatalf("create series: %v", err)
+	}
+	from := "2026-12-05T10:00:00Z"
+	next, err := f.svc.Split(kindTestUser, source.ID, SplitInput{FromStart: from})
+	if err != nil {
+		t.Fatalf("split: %v", err)
+	}
+	if next.ID == source.ID || !next.IsRecurring() {
+		t.Fatalf("continuation = %+v, want a new recurring task", next)
+	}
+	if next.ScheduledOn == nil || !sameInstant(t, *next.ScheduledOn, from) {
+		t.Fatalf("continuation scheduled_on = %v, want the series start %s", next.ScheduledOn, from)
+	}
+	if got := f.blockSpans("task_id", next.ID); len(got) != 0 {
+		t.Fatalf("a series holds no Blocks, got %v", got)
+	}
+}
