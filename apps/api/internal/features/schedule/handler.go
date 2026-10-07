@@ -186,6 +186,8 @@ func (h *Handler) Capacity(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"days": days})
 }
 
+const maxFreeTimeRange = 90 * 24 * time.Hour
+
 // FreeTime is the Working hours left once Events and Blocks are taken out, the
 // same list the agent's get_free_time reads. Clients pick a slot from it
 // instead of working out busy time themselves (ADR 0006).
@@ -197,6 +199,14 @@ func (h *Handler) FreeTime(c *echo.Context) error {
 	from, to, err := queryRange(c)
 	if err != nil {
 		return err
+	}
+	if to.Sub(from) > maxFreeTimeRange {
+		return echo.NewHTTPError(http.StatusBadRequest, "range cannot exceed 90 days")
+	}
+	if tz := c.QueryParam("timezone"); tz != "" {
+		if _, err := time.LoadLocation(tz); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid timezone")
+		}
 	}
 	slots, err := h.service.FreeTime(uid, from, to, c.QueryParam("timezone"))
 	if err != nil {

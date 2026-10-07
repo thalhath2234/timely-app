@@ -145,3 +145,37 @@ func TestIntegrationFreeTimeEndpointSubtractsEventsAndBlocks(t *testing.T) {
 		t.Fatalf("reversed range error = %v, want 400", err)
 	}
 }
+
+func freeTimeStatus(t *testing.T, handler *Handler, query url.Values) int {
+	t.Helper()
+	c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/schedule/free-time?"+query.Encode(), nil), httptest.NewRecorder())
+	c.Set("userID", freeTimeUser)
+	err := handler.FreeTime(c)
+	if err == nil {
+		return http.StatusOK
+	}
+	he, ok := err.(*echo.HTTPError)
+	if !ok {
+		t.Fatalf("error = %v, want an HTTP error", err)
+	}
+	return he.Code
+}
+
+// The range is capped and the timezone must be a real one, as on /calendar/today.
+func TestIntegrationFreeTimeEndpointValidatesItsQuery(t *testing.T) {
+	db, place, _ := freeTimeFixture(t)
+	handler := NewHandler(NewService(NewRepository(db), task.NewTaskRepository(db), event.NewEventRepository(db), place))
+	from := time.Date(2026, 12, 7, 0, 0, 0, 0, time.UTC)
+	query := func(days int, tz string) url.Values {
+		return url.Values{"from": {from.Format(time.RFC3339)}, "to": {from.AddDate(0, 0, days).Format(time.RFC3339)}, "timezone": {tz}}
+	}
+	if got := freeTimeStatus(t, handler, query(90, "UTC")); got != http.StatusOK {
+		t.Fatalf("90 days = %d, want 200", got)
+	}
+	if got := freeTimeStatus(t, handler, query(91, "UTC")); got != http.StatusBadRequest {
+		t.Fatalf("91 days = %d, want 400", got)
+	}
+	if got := freeTimeStatus(t, handler, query(7, "Not/AZone")); got != http.StatusBadRequest {
+		t.Fatalf("invalid timezone = %d, want 400", got)
+	}
+}
