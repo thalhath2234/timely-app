@@ -80,3 +80,50 @@ export interface SheetTemplate {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * POST /sheets (`createSheetRequest`). `workspaceId` is a plain string on the
+ * server: empty (omitted) means the account's default workspace. A
+ * `templateId` creates the sheet from that template instead of the grid fields.
+ * The server rejects `description`, so it is not part of the body.
+ */
+export interface CreateSheetPayload {
+  title?: string;
+  icon?: string;
+  columns?: SheetColumn[];
+  rows?: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
+  workspaceId?: string;
+  projectId?: string | null;
+  templateId?: string;
+}
+
+/**
+ * PUT /sheets/:id (`updateSheetRequest`). Fields are pointers on the server:
+ * absent or `null` leaves the value alone; an empty `projectId` clears it.
+ */
+export interface UpdateSheetPayload {
+  title?: string;
+  icon?: string;
+  columns?: SheetColumn[];
+  rows?: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
+  projectId?: string;
+  isFavorite?: boolean;
+  archived?: boolean;
+}
+
+/**
+ * PUT /sheet-templates/:id (`updateTemplateRequest`). Any subset; omitted
+ * fields are left untouched. Tabs mirror the first tab like sheets.
+ */
+export interface UpdateSheetTemplatePayload {
+  name?: string;
+  icon?: string;
+  columns?: SheetColumn[];
+  rows?: SheetRow[];
+  merges?: SheetMerge[];
+  tabs?: SheetTab[];
+}

@@ -1,11 +1,18 @@
-import {
-  CustomFieldValueInput,
-  DocContent,
+import type {
   Project,
   ProjectActivityEntry,
   Stage,
 } from "@/app/_types/types";
+import type {
+  CreateProjectPayload,
+  UpdateProjectPayload,
+} from "@timely/contract/entities";
 import { apiFetch } from "./client";
+
+export type {
+  CreateProjectPayload,
+  UpdateProjectPayload,
+};
 
 async function readError(response: Response, fallback: string) {
   try {
@@ -54,22 +61,6 @@ export async function getProject(id: string): Promise<Project> {
   return resData.project ?? resData;
 }
 
-export type CreateProjectCustomFieldValuePayload = CustomFieldValueInput;
-
-export interface CreateProjectPayload {
-  title: string;
-  workspaceId: string;
-  description?: string;
-  descriptionRich?: DocContent;
-  statusId?: string;
-  deadline?: string;
-  startDate?: string;
-  priorityLevel?: string;
-  color?: string;
-  doesHaveStages?: boolean;
-  customFieldValues?: CreateProjectCustomFieldValuePayload[];
-}
-
 export async function createProject(
   data: CreateProjectPayload,
 ): Promise<Project> {
@@ -88,21 +79,6 @@ export async function createProject(
 
   const resData = await response.json();
   return resData.project ?? resData;
-}
-
-/** Every field is optional so autosave can send just what changed. Passing an
- * empty string to a nullable field clears it. */
-export interface UpdateProjectPayload {
-  title?: string;
-  description?: string;
-  descriptionRich?: DocContent;
-  statusId?: string;
-  deadline?: string;
-  startDate?: string;
-  completedAt?: string;
-  priorityLevel?: string;
-  color?: string;
-  doesHaveStages?: boolean;
 }
 
 export async function updateProject(

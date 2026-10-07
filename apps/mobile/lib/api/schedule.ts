@@ -9,8 +9,16 @@ import type {
   WorkingHours,
   WorkingHoursResponse,
 } from "../types";
+import type {
+  AddBlockPayload,
+  PlanRequest as WirePlanRequest,
+} from "@timely/contract/schedule";
 import { deviceTimezone } from "../format";
 import { api, unwrap } from "./client";
+
+export type { AddBlockPayload };
+/** What callers choose; `timezone` is the device's, added on send. */
+export type PlanRequest = Omit<WirePlanRequest, "timezone">;
 
 export function getCalendarRange(from: Date, to: Date) {
   const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
@@ -28,13 +36,6 @@ export function updateWorkingHours(data: WorkingHours) {
     body: { timezone: data.timezone, days: data.days },
   });
 }
-
-export type PlanRequest = {
-  taskIds?: string[];
-  from?: string;
-  to?: string;
-  includeManual?: boolean;
-};
 
 export function previewSchedule(data: PlanRequest = {}) {
   return api<SchedulePlan>("/schedule/preview", {
@@ -100,13 +101,6 @@ export async function pinBlock(blockId: string, locked: boolean) {
   });
   return unwrap(res, "block");
 }
-
-export type AddBlockPayload = {
-  start: string;
-  end?: string;
-  durationMinutes?: number;
-  replace?: boolean;
-};
 
 export async function addTaskBlock(taskId: string, data: AddBlockPayload) {
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/blocks`, { method: "POST", body: data });

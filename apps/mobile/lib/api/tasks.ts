@@ -1,57 +1,44 @@
-import type { CustomFieldValueInput, DocContent, RecurrenceInput, Task, TaskActivity } from "../types";
+import type { Task, TaskActivity } from "../types";
+import type {
+  CreateTaskPayload,
+  SplitTaskSeriesPayload,
+  TaskOccurrenceAction,
+  TaskOccurrencePayload,
+  UpdateTaskPayload as WireUpdateTaskPayload,
+} from "@timely/contract/entities";
 import { api, unwrap } from "./client";
+import { clearNulls, type Clearable } from "./clearable";
 
-export type CreateTaskPayload = {
-  name: string;
-  description?: string;
-  descriptionRich?: DocContent;
-  duration?: number;
-  kind?: "task" | "reminder" | "inbox";
-  deadline?: string;
-  startDate?: string;
-  scheduledOn?: string;
-  earliestStartAt?: string;
-  preferredWindows?: { start: string; end: string }[];
-  workspaceId?: string;
-  projectId?: string;
-  statusId?: string;
-  priorityLevel?: string;
-  stageId?: string;
-  blockedById?: string;
-  labelIds?: { id: string }[];
-  customFieldValues?: CustomFieldValueInput[];
-  recurrence?: RecurrenceInput;
+export type {
+  CreateTaskPayload,
+  SplitTaskSeriesPayload,
+  TaskOccurrenceAction,
+  TaskOccurrencePayload,
 };
 
-export type UpdateTaskPayload = {
-  name?: string;
-  description?: string;
-  descriptionRich?: DocContent;
-  duration?: number;
-  kind?: "task" | "reminder" | "inbox";
-  todayFocusOn?: string | null;
-  minChunkMinutes?: number;
-  preferredChunkMinutes?: number | null;
-  contiguous?: boolean;
-  earliestStartAt?: string | null;
-  preferredWindows?: { days?: string[]; start: string; end: string }[];
-  scheduleLocked?: boolean;
-  deadline?: string | null;
-  startDate?: string | null;
-  scheduledOn?: string | null;
-  completedAt?: string | null;
-  projectId?: string | null;
-  statusId?: string | null;
-  priorityLevel?: string | null;
-  workspaceId?: string | null;
-  stageId?: string | null;
-  blockedById?: string | null;
-  labelIds?: { id: string }[];
-  customFieldValues?: CustomFieldValueInput[];
-  recurrence?: RecurrenceInput | null;
-};
+/** Fields a screen clears with `null`; `clearNulls` sends them as "" (0 for minutes). */
+const CLEARABLE_TASK_FIELDS = [
+  "todayFocusOn",
+  "preferredChunkMinutes",
+  "earliestStartAt",
+  "deadline",
+  "startDate",
+  "scheduledOn",
+  "completedAt",
+  "workspaceId",
+  "projectId",
+  "statusId",
+  "priorityLevel",
+  "stageId",
+  "blockedById",
+] as const;
 
-export type TaskOccurrenceAction = "complete" | "uncomplete" | "skip" | "restore" | "move";
+/** `UpdateTaskPayload` from the contract, plus `null` meaning "clear" on the fields above. */
+export type UpdateTaskPayload = Clearable<WireUpdateTaskPayload, (typeof CLEARABLE_TASK_FIELDS)[number]>;
+
+function wireTaskUpdate(data: UpdateTaskPayload): WireUpdateTaskPayload {
+  return clearNulls<WireUpdateTaskPayload>(data, CLEARABLE_TASK_FIELDS, ["preferredChunkMinutes"]);
+}
 
 export function getTasks(query: { inbox?: boolean; kind?: string } = {}) {
   const params = new URLSearchParams();
@@ -85,15 +72,14 @@ export async function clarifyInbox(inboxId: string, data: CreateTaskPayload) {
 
 export async function updateTask(id: string, data: UpdateTaskPayload) {
   const safeOffline = Object.keys(data).every((key) => key === "completedAt" || key === "todayFocusOn" || key === "scheduleLocked");
-  const body = data.blockedById === null ? { ...data, blockedById: "" } : data;
-  const res = await api<Task | { task: Task }>(`/tasks/${id}`, { method: "PUT", body, queueIfOffline: safeOffline });
+  const res = await api<Task | { task: Task }>(`/tasks/${id}`, { method: "PUT", body: wireTaskUpdate(data), queueIfOffline: safeOffline });
   return unwrap(res, "task");
 }
 
 export async function bulkUpdateTasks(ids: string[], update: UpdateTaskPayload) {
   const res = await api<{ tasks: Task[] } | Task[]>("/tasks/bulk", {
     method: "PATCH",
-    body: { ids, update },
+    body: { ids, update: wireTaskUpdate(update) },
     queueIfOffline: Object.keys(update).every((key) => key === "completedAt"),
   });
   return Array.isArray(res) ? res : res.tasks;
@@ -113,7 +99,7 @@ export function addTaskComment(taskId: string, comment: string) {
 
 export async function editTaskOccurrence(
   taskId: string,
-  data: { originalStart: string; action: TaskOccurrenceAction; newStart?: string; newEnd?: string },
+  data: TaskOccurrencePayload,
 ) {
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/occurrences`, {
     method: "PUT",
@@ -125,7 +111,7 @@ export async function editTaskOccurrence(
 
 export async function splitTaskSeries(
   taskId: string,
-  data: { fromStart: string; recurrence?: RecurrenceInput; name?: string; duration?: number },
+  data: SplitTaskSeriesPayload,
 ) {
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/recurrence/split`, {
     method: "POST",

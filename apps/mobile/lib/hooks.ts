@@ -58,7 +58,8 @@ import {
   unreadNotificationCount,
   updateNotificationSettings,
 } from "./api/notifications";
-import type { UpdateTaskPayload, CreateTaskPayload } from "./api/tasks";
+import type { UpdateTaskPayload, CreateTaskPayload, SplitTaskSeriesPayload } from "./api/tasks";
+import type { SplitEventSeriesPayload } from "./api/events";
 
 export type MentionItem = {
   id: string;
@@ -484,7 +485,7 @@ export function useSplitTaskSeries() {
     }: {
       id: string;
       fromStart: string;
-      recurrence?: Parameters<typeof splitTaskSeries>[1]["recurrence"];
+      recurrence?: SplitTaskSeriesPayload["recurrence"];
       name?: string;
       duration?: number;
     }) => splitTaskSeries(id, data),
@@ -528,7 +529,7 @@ export function useSplitEventSeries() {
     }: {
       id: string;
       fromStart: string;
-      recurrence?: Parameters<typeof splitEventSeries>[1]["recurrence"];
+      recurrence?: SplitEventSeriesPayload["recurrence"];
       title?: string;
       start?: string;
       end?: string;
@@ -785,9 +786,7 @@ export function useUpdateProject() {
     onMutate: async ({ id, data }) => {
       const previousList = client.getQueryData<Project[]>(keys.projects);
       const previousOne = client.getQueryData<Project>([...keys.projects, id]);
-      // `customFieldValues` in the payload is the write shape (field id + value),
-      // not the read shape the cache holds, so it is left to the refetch.
-      const { customFieldValues: _written, ...patch } = data;
+      const patch = data;
       client.setQueryData<Project[]>(keys.projects, (list) =>
         list?.map((item) => (item.id === id ? { ...item, ...patch } : item)),
       );

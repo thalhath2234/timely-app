@@ -34,3 +34,14 @@ export interface DeviceSession {
   expiresAt: string;
   current: boolean;
 }
+
+/**
+ * PUT /me (`updateProfileRequest`). The server takes plain strings, so an
+ * empty or absent password pair means "do not change the password".
+ */
+export interface UpdateMePayload {
+  name: string;
+  email: string;
+  currentPassword?: string;
+  newPassword?: string;
+}

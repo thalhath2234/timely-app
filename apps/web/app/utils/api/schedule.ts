@@ -9,7 +9,15 @@ import {
   WorkingHours,
   WorkingHoursResponse,
 } from "@/app/_types/types";
+import type {
+  AddBlockPayload,
+  PlanRequest as WirePlanRequest,
+} from "@timely/contract/schedule";
 import { apiFetch } from "./client";
+
+export type { AddBlockPayload };
+/** What callers choose; `timezone` is the browser's, added on send. */
+export type PlanRequest = Omit<WirePlanRequest, "timezone">;
 
 export type RankedTask = {
   task: Task;
@@ -78,15 +86,6 @@ export async function updateWorkingHours(
     throw new Error(await readError(response, "Failed to save working hours"));
   }
   return response.json();
-}
-
-export interface PlanRequest {
-  /** Limit the run to these tasks; omit for every schedulable task. */
-  taskIds?: string[];
-  from?: string;
-  to?: string;
-  /** Let the engine replace blocks the user placed by hand. */
-  includeManual?: boolean;
 }
 
 function planBody(data: PlanRequest) {
@@ -211,14 +210,6 @@ export async function pinBlock(blockId: string, locked: boolean): Promise<Schedu
   }
   const body = await response.json();
   return body.block ?? body;
-}
-
-export interface AddBlockPayload {
-  start: string;
-  end?: string;
-  durationMinutes?: number;
-  /** Drop the task's other blocks so this becomes its only one. */
-  replace?: boolean;
 }
 
 /** Pins a manual block for a one-off task. */

@@ -112,3 +112,27 @@ export interface SchedulePlan {
   applied: boolean;
   canUndo: boolean;
 }
+
+/**
+ * POST /schedule/preview and /schedule/apply (`planRequest`). Clients add their
+ * own `timezone` when the Working hours have none saved; the other keys are the
+ * caller's.
+ */
+export interface PlanRequest {
+  /** Limit the run to these tasks; omit for every schedulable task. */
+  taskIds?: string[];
+  from?: string;
+  to?: string;
+  timezone?: string;
+  /** Let the engine replace blocks the user placed by hand. */
+  includeManual?: boolean;
+}
+
+/** POST /tasks/:id/blocks (`blockRequest`). */
+export interface AddBlockPayload {
+  start: string;
+  end?: string;
+  durationMinutes?: number;
+  /** Drop the task's other blocks so this becomes its only one. */
+  replace?: boolean;
+}
