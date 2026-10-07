@@ -326,8 +326,17 @@ func (s *Server) completeTask(ctx context.Context, req *mcp.CallToolRequest, in 
 	if err != nil {
 		return fail(err)
 	}
+	tasks := s.tasksFor(req)
+	existing, err := tasks.GetForUser(uid, in.TaskID)
+	if err != nil {
+		return fail(err)
+	}
+	// Completing the row of a series would end every occurrence at once.
+	if existing.IsRecurring() {
+		return fail(errors.New("this task repeats: completing it would end the whole series. Complete one occurrence with edit_task_occurrence (action complete, originalStart) instead"))
+	}
 	now := nowRFC()
-	t, err := s.tasksFor(req).Update(uid, in.TaskID, task.TaskUpdate{CompletedAt: &now})
+	t, err := tasks.Update(uid, in.TaskID, task.TaskUpdate{CompletedAt: &now})
 	if err != nil {
 		return fail(err)
 	}
