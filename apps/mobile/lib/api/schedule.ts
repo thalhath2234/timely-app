@@ -7,6 +7,7 @@ import type {
   Task,
   TodayResponse,
   WorkingHours,
+  WorkingHoursResponse,
 } from "../types";
 import { deviceTimezone } from "../format";
 import { api, unwrap } from "./client";
@@ -18,11 +19,11 @@ export function getCalendarRange(from: Date, to: Date) {
 
 export function getWorkingHours() {
   const params = new URLSearchParams({ tz: deviceTimezone() });
-  return api<WorkingHours>(`/schedule/working-hours?${params.toString()}`);
+  return api<WorkingHoursResponse>(`/schedule/working-hours?${params.toString()}`);
 }
 
 export function updateWorkingHours(data: WorkingHours) {
-  return api<WorkingHours>("/schedule/working-hours", {
+  return api<WorkingHoursResponse>("/schedule/working-hours", {
     method: "PUT",
     body: { timezone: data.timezone, days: data.days },
   });

@@ -1,4 +1,4 @@
-import type { Config, CustomField, CustomFieldType, Label, Status, Workspace } from "../types";
+import type { Config, ConfigUpdateInput, CustomField, CustomFieldType, Label, Status, Workspace } from "../types";
 import { api, unwrap } from "./client";
 
 export function getWorkspaces() {
@@ -9,12 +9,7 @@ export function getConfig() {
   return api<Config>("/config");
 }
 
-export function updateConfig(data: {
-  appearance?: Config["appearance"];
-  taskViews?: Config["taskViews"];
-  activeTaskViewId?: string;
-  isOnboardingCompleted?: boolean;
-}) {
+export function updateConfig(data: ConfigUpdateInput) {
   return api<Config>("/config", { method: "PUT", body: data });
 }
 

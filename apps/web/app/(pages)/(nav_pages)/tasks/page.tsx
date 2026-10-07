@@ -189,7 +189,6 @@ function Tasks() {
         id: `project-${projectId}`,
         name: project?.title || "Untitled project",
         description: project?.description || "",
-        timeChunks: 0,
         duration: totalDuration,
         deadline: project?.deadline || null,
         startDate: project?.startDate || null,
@@ -228,8 +227,6 @@ function Tasks() {
         if (!value) return "-";
         if (value.optionValue?.length) return value.optionValue.map((option) => option.value).join(", ");
         if (value.stringValue) return value.stringValue;
-        if (typeof value.numberValue === "number") return String(value.numberValue);
-        if (value.dateValue) return value.dateValue;
         if (typeof value.boolValue === "boolean") return value.boolValue ? "Yes" : "No";
         return "-";
       }

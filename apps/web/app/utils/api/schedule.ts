@@ -7,6 +7,7 @@ import {
   Task,
   TodayResponse,
   WorkingHours,
+  WorkingHoursResponse,
 } from "@/app/_types/types";
 import { apiFetch } from "./client";
 
@@ -52,7 +53,7 @@ export async function getCalendarRange(
   return response.json();
 }
 
-export async function getWorkingHours(): Promise<WorkingHours> {
+export async function getWorkingHours(): Promise<WorkingHoursResponse> {
   const params = new URLSearchParams({ tz: browserTimezone() });
   const response = await apiFetch(
     `/schedule/working-hours?${params.toString()}`,
@@ -66,7 +67,7 @@ export async function getWorkingHours(): Promise<WorkingHours> {
 
 export async function updateWorkingHours(
   data: WorkingHours,
-): Promise<WorkingHours> {
+): Promise<WorkingHoursResponse> {
   const response = await apiFetch(`/schedule/working-hours`, {
     method: "PUT",
     credentials: "include",

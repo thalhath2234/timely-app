@@ -2,6 +2,7 @@ import {
   CustomFieldValueInput,
   DocContent,
   Project,
+  ProjectActivityEntry,
   Stage,
 } from "@/app/_types/types";
 import { apiFetch } from "./client";
@@ -27,19 +28,7 @@ export async function getProjects(): Promise<Project[]> {
   return response.json();
 }
 
-export interface ProjectActivityEntry {
-  id: string;
-  /** Empty for the synthetic project-level entries. */
-  taskId: string;
-  taskName: string;
-  actorName: string;
-  action: string;
-  field: string | null;
-  oldValue: string | null;
-  newValue: string | null;
-  message: string;
-  createdAt: string;
-}
+export type { ProjectActivityEntry };
 
 /** Newest-first task changes inside the project plus the project's creation. */
 export async function getProjectActivity(id: string): Promise<ProjectActivityEntry[]> {
