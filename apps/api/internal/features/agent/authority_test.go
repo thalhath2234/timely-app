@@ -135,6 +135,9 @@ func TestRegistrationRequiresAuthority(t *testing.T) {
 	if !register(Authority{Access: Write, Approval: ReviewedWhen}) {
 		t.Error("a conditionally reviewed tool registered without a rule")
 	}
+	if !register(Authority{Access: Write, Approval: ReviewedWhen + 1}) {
+		t.Error("a tool with an unknown approval registered")
+	}
 	if register(writes) || register(mcpOnly.reviewed()) {
 		t.Error("a valid declaration was rejected")
 	}

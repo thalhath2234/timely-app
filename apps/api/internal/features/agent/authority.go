@@ -111,6 +111,8 @@ func (a Authority) validate(name string) {
 	switch {
 	case a.Access < MCPOnly || a.Access > Write:
 		panic(fmt.Sprintf("agent tool %s declares no authority", name))
+	case a.Approval < Applies || a.Approval > ReviewedWhen:
+		panic(fmt.Sprintf("agent tool %s declares an unknown approval", name))
 	case a.Access == Read && (a.Approval != Applies || a.Showing != ""):
 		panic(fmt.Sprintf("agent tool %s is read-only, so it cannot need review", name))
 	case a.Approval == ReviewedWhen && a.reviewWhen == nil:
