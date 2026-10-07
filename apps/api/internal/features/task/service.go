@@ -1186,6 +1186,11 @@ func (s *taskService) BulkUpdate(userID string, ids []string, update TaskUpdate)
 	if len(ids) > maxBulkIDs {
 		return nil, errors.New("too many task ids (max 50)")
 	}
+	// Each task placed by hand pushes the others aside (ADR 0010), so N of
+	// them in one patch would leave only the last with a Block.
+	if update.ScheduledOn != nil {
+		return nil, errBulkSchedule
+	}
 	out := make([]models.Task, 0, len(ids))
 	for _, id := range ids {
 		task, err := s.Update(userID, id, update)

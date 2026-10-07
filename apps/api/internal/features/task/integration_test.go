@@ -318,6 +318,35 @@ func TestIntegrationUpdateScheduledOnPlacesByHand(t *testing.T) {
 	}
 }
 
+// ADR 0010: placing by hand pushes other Work aside, so a bulk patch that
+// schedules would leave only its last task with a Block. It is refused before
+// any task changes; other bulk fields still apply.
+func TestIntegrationBulkUpdateRejectsScheduling(t *testing.T) {
+	f := newKindFixture(t)
+	first, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{first.ID, second.ID}
+	on := time.Date(2026, 12, 2, 9, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	if _, err := f.svc.BulkUpdate(kindTestUser, ids, TaskUpdate{ScheduledOn: &on}); !errors.Is(err, errBulkSchedule) {
+		t.Fatalf("bulk scheduledOn error = %v, want %v", err, errBulkSchedule)
+	}
+	for _, id := range ids {
+		if got := f.blockSpans("task_id", id); len(got) != 0 {
+			t.Fatalf("a refused bulk update still placed %s: %v", id, got)
+		}
+	}
+	priority := models.PriorityUrgent
+	if got, err := f.svc.BulkUpdate(kindTestUser, ids, TaskUpdate{PriorityLevel: &priority}); err != nil || len(got) != 2 {
+		t.Fatalf("bulk priority = %d tasks, err %v, want 2", len(got), err)
+	}
+}
+
 func TestIntegrationUpdateWorkToReminderDropsBoardFields(t *testing.T) {
 	f := newKindFixture(t)
 	work, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, nil)

@@ -25,6 +25,7 @@ var (
 	errDurationNegative   = errors.New("duration cannot be negative")
 	errStartAfterDeadline = errors.New("start date cannot be after the deadline")
 	errReminderNeedsPing  = errors.New("reminders need a notify time (scheduledOn) or a repeat rule")
+	errBulkSchedule       = errors.New("schedule tasks one at a time: a bulk update cannot set scheduledOn or scheduleAt")
 	errDependencyCycle    = errors.New("this dependency would create a cycle: a task cannot wait on work that already waits on it")
 )
 

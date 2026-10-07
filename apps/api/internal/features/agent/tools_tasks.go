@@ -207,15 +207,15 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	return reply("created "+created.Name, taskPayload(created))
 }
 
-type updateTaskIn struct {
-	TaskID                string      `json:"taskId,omitempty"`
+// taskPatchIn is the part of a task edit that applies to one task or many.
+// Placing a task is deliberately left out: it moves other Work aside, so it
+// happens one task at a time (update_task, schedule_task).
+type taskPatchIn struct {
 	Name                  *string     `json:"name,omitempty"`
 	Description           *string     `json:"description,omitempty" jsonschema:"markdown"`
 	Duration              *int        `json:"duration,omitempty"`
 	Deadline              *string     `json:"deadline,omitempty"`
 	StartDate             *string     `json:"startDate,omitempty"`
-	ScheduledOn           *string     `json:"scheduledOn,omitempty"`
-	ScheduleAt            *string     `json:"scheduleAt,omitempty" jsonschema:"alias for scheduledOn"`
 	CompletedAt           *string     `json:"completedAt,omitempty"`
 	WorkspaceID           *string     `json:"workspaceId,omitempty"`
 	ProjectID             *string     `json:"projectId,omitempty"`
@@ -237,17 +237,28 @@ type updateTaskIn struct {
 	ClearRecurrence       bool        `json:"clearRecurrence,omitempty"`
 }
 
+type updateTaskIn struct {
+	TaskID      string  `json:"taskId,omitempty"`
+	ScheduledOn *string `json:"scheduledOn,omitempty"`
+	ScheduleAt  *string `json:"scheduleAt,omitempty" jsonschema:"alias for scheduledOn"`
+	taskPatchIn
+}
+
 func (in updateTaskIn) toUpdate() task.TaskUpdate {
-	scheduledOn := in.ScheduledOn
-	if scheduledOn == nil {
-		scheduledOn = in.ScheduleAt
+	update := in.taskPatchIn.toUpdate()
+	update.ScheduledOn = in.ScheduledOn
+	if update.ScheduledOn == nil {
+		update.ScheduledOn = in.ScheduleAt
 	}
+	return update
+}
+
+func (in taskPatchIn) toUpdate() task.TaskUpdate {
 	update := task.TaskUpdate{
 		Name:                  in.Name,
 		Duration:              in.Duration,
 		Deadline:              in.Deadline,
 		StartDate:             in.StartDate,
-		ScheduledOn:           scheduledOn,
 		CompletedAt:           in.CompletedAt,
 		WorkspaceID:           in.WorkspaceID,
 		ProjectID:             in.ProjectID,
@@ -305,8 +316,8 @@ func (s *Server) updateTask(ctx context.Context, req *mcp.CallToolRequest, in up
 }
 
 type bulkUpdateIn struct {
-	IDs    []string     `json:"ids"`
-	Update updateTaskIn `json:"update"`
+	IDs    []string    `json:"ids"`
+	Update taskPatchIn `json:"update"`
 }
 
 func (s *Server) bulkUpdateTasks(ctx context.Context, req *mcp.CallToolRequest, in bulkUpdateIn) (*mcp.CallToolResult, any, error) {
