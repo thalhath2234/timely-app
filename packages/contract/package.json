@@ -18,6 +18,7 @@
     "./sheetFormula": "./src/sheetFormula.ts",
     "./sheetFormulaInput": "./src/sheetFormulaInput.ts",
     "./sheetRange": "./src/sheetRange.ts",
-    "./sheetTypes": "./src/sheetTypes.ts"
+    "./sheetTypes": "./src/sheetTypes.ts",
+    "./workStatus": "./src/workStatus.ts"
   }
 }

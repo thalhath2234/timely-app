@@ -1,5 +1,20 @@
-import { CalendarEventEntity, RecurrenceInput } from "@/app/_types/types";
+import type { CalendarEventEntity } from "@/app/_types/types";
+import type {
+  CreateEventPayload,
+  EventOccurrenceAction,
+  EventOccurrencePayload,
+  SplitEventSeriesPayload,
+  UpdateEventPayload,
+} from "@timely/contract/calendar";
 import { apiFetch } from "./client";
+
+export type {
+  CreateEventPayload,
+  EventOccurrenceAction,
+  EventOccurrencePayload,
+  SplitEventSeriesPayload,
+  UpdateEventPayload,
+};
 
 
 async function readError(response: Response, fallback: string) {
@@ -9,53 +24,6 @@ async function readError(response: Response, fallback: string) {
   } catch {
     return fallback;
   }
-}
-
-export interface CreateEventPayload {
-  title: string;
-  description?: string;
-  /** ISO timestamps. */
-  start: string;
-  end: string;
-  allDay?: boolean;
-  color?: string;
-  workspaceId?: string;
-  projectId?: string;
-  taskId?: string;
-  /** Omit for a one-off event. */
-  recurrence?: RecurrenceInput;
-}
-
-export interface UpdateEventPayload {
-  title?: string;
-  description?: string;
-  start?: string;
-  end?: string;
-  allDay?: boolean;
-  /** Empty string clears the color. */
-  color?: string;
-  workspaceId?: string;
-  projectId?: string;
-  taskId?: string;
-  /** `null` removes the rule; omit to leave it untouched. */
-  recurrence?: RecurrenceInput | null;
-}
-
-export type EventOccurrenceAction = "skip" | "restore" | "move";
-
-export interface EventOccurrencePayload {
-  originalStart: string;
-  action: EventOccurrenceAction;
-  newStart?: string;
-  newEnd?: string;
-}
-
-export interface SplitEventSeriesPayload {
-  fromStart: string;
-  recurrence: Partial<RecurrenceInput>;
-  title?: string;
-  start?: string;
-  end?: string;
 }
 
 export async function getEvents(): Promise<CalendarEventEntity[]> {

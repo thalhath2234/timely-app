@@ -20,11 +20,12 @@ import {
   useProjectsQuery,
   useSaveTask,
   useTasksQuery,
+  useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { addDays, startOfDay, toDateInputValue } from "../../../lib/format";
 import { PRIORITIES, priorityRank } from "../../../lib/priority";
-import { isTaskOverdue } from "../../../lib/overdue";
+import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { taskEntityColor } from "../../../lib/entityColor";
 import {
   mergeStatusesByName,
@@ -159,6 +160,7 @@ export default function TasksScreen() {
   const bulk = useBulkUpdateTasks();
   const remove = useDeleteTask();
   const tasks = tasksQ.data ?? [];
+  const workingHoursZone = useWorkingHoursZone();
   const workspaces = spacesQ.data ?? [];
   const networkCopy = needsNetworkCopy(tasksQ);
   const views = nativeViews.views;
@@ -193,10 +195,10 @@ export default function TasksScreen() {
 
   const visible = useMemo(() => {
     if (!activeView || activeView.dataMode === "project") return [];
-    return filterTasks(tasks, filtersFromView(activeView))
+    return filterTasks(tasks, filtersFromView(activeView), workingHoursZone)
       .filter((task) => (projectId ? task.projectId === projectId : true))
       .sort((a, b) => sortTasks(a, b, activeView));
-  }, [tasks, projectId, activeView]);
+  }, [tasks, projectId, activeView, workingHoursZone]);
 
   const groups = useMemo(() => {
     const map = new Map<string, { title: string; color: string | null; tasks: Task[] }>();
@@ -348,8 +350,11 @@ export default function TasksScreen() {
 
   const openCount = useMemo(() => visible.filter((task) => !task.completedAt).length, [visible]);
   const overdueCount = useMemo(
-    () => visible.filter((task) => isTaskOverdue(task)).length,
-    [visible],
+    () => {
+      const today = todayInZone(workingHoursZone);
+      return visible.filter((task) => isOverdue(task, today)).length;
+    },
+    [visible, workingHoursZone],
   );
   const filtersOn = viewHasCustomFilters(activeView);
   const listRefreshing = tasksQ.isRefetching && !tasksQ.isPending;

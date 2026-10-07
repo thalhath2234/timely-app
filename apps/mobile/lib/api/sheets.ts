@@ -1,40 +1,17 @@
-import type { Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab, SheetTemplate } from "../types";
+import type { Sheet, SheetTab, SheetTemplate } from "../types";
+import type {
+  CreateSheetPayload,
+  UpdateSheetPayload as WireUpdateSheetPayload,
+  UpdateSheetTemplatePayload,
+} from "@timely/contract/sheet";
 import { normalizeSheet } from "../sheet";
 import { api, unwrap } from "./client";
+import { clearNulls, type Clearable } from "./clearable";
 
-export type CreateSheetPayload = {
-  title?: string;
-  icon?: string;
-  columns?: SheetColumn[];
-  rows?: SheetRow[];
-  merges?: SheetMerge[];
-  tabs?: SheetTab[];
-  workspaceId?: string;
-  projectId?: string | null;
-  templateId?: string;
-};
+export type { CreateSheetPayload, UpdateSheetTemplatePayload };
 
-export type UpdateSheetPayload = {
-  title?: string;
-  icon?: string;
-  columns?: SheetColumn[];
-  rows?: SheetRow[];
-  merges?: SheetMerge[];
-  tabs?: SheetTab[];
-  projectId?: string | null;
-  isFavorite?: boolean;
-  archived?: boolean;
-};
-
-/** Any subset; omitted fields are left untouched. Tabs mirror the first tab like sheets. */
-export type UpdateSheetTemplatePayload = {
-  name?: string;
-  icon?: string;
-  columns?: SheetColumn[];
-  rows?: SheetRow[];
-  merges?: SheetMerge[];
-  tabs?: SheetTab[];
-};
+/** `UpdateSheetPayload` from the contract, plus `null` meaning "clear" on `projectId`. */
+export type UpdateSheetPayload = Clearable<WireUpdateSheetPayload, "projectId">;
 
 export async function getSheets() {
   const res = await api<Sheet[] | { sheets: Sheet[] }>("/sheets");
@@ -53,7 +30,10 @@ export async function createSheet(data: CreateSheetPayload = {}) {
 }
 
 export async function updateSheet(id: string, data: UpdateSheetPayload) {
-  const res = await api<Sheet | { sheet: Sheet }>(`/sheets/${id}`, { method: "PUT", body: data });
+  const res = await api<Sheet | { sheet: Sheet }>(`/sheets/${id}`, {
+    method: "PUT",
+    body: clearNulls<WireUpdateSheetPayload>(data, ["projectId"]),
+  });
   return normalizeSheet(unwrap(res, "sheet"));
 }
 

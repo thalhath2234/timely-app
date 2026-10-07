@@ -2,7 +2,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
-import { useDocsQuery, useProjectsQuery, useSheetsQuery, useTasksQuery, useWorkspacesQuery } from "../../lib/hooks";
+import { useDocsQuery, useProjectsQuery, useSheetsQuery, useTasksQuery, useWorkingHoursZone, useWorkspacesQuery } from "../../lib/hooks";
 import { buildReportData, formatReportDate } from "../../lib/report";
 import { sheetHref } from "../../lib/sheet";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -25,6 +25,7 @@ export default function ReportScreen() {
     docs: useDocsQuery().data ?? [],
     sheets: useSheetsQuery().data ?? [],
     workspaces: useWorkspacesQuery().data ?? [],
+    timeZone: useWorkingHoursZone(),
   });
 
   function open(kind: string, id: string) {

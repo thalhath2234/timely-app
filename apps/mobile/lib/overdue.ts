@@ -1,5 +1,5 @@
+import { dateInZone, isOverdue, todayInZone } from "@timely/contract/workStatus";
 import type { CalendarItem, Task } from "./types";
-import { startOfDay } from "./format";
 import { taskEntityColor } from "./entityColor";
 
 function dateFromDateInput(value: string): Date {
@@ -31,25 +31,22 @@ export function latestTaskSchedule(
   return latest;
 }
 
-export function isTaskOverdue(task: Task, now = new Date()): boolean {
-  if (task.completedAt || task.kind === "inbox" || task.kind === "reminder") return false;
-  if (!task.deadline) return false;
-  const today = startOfDay(now);
-  const deadline = startOfDay(dateFromDateInput(task.deadline));
-  return deadline < today;
-}
-
-export function isAgendaOverdue(task: Task, now = new Date()): boolean {
-  if (!isTaskOverdue(task, now)) return false;
-  const today = startOfDay(now);
+/**
+ * Overdue work that would otherwise vanish from a forward-looking agenda.
+ * "Today" is the date in the Working hours timezone (`timeZone`), as on the
+ * server; undefined means the device zone.
+ */
+export function isAgendaOverdue(task: Task, timeZone?: string | null, now = new Date()): boolean {
+  const today = todayInZone(timeZone, now);
+  if (!isOverdue(task, today)) return false;
   const schedule = latestTaskSchedule(task);
-  if (schedule && startOfDay(schedule.end) >= today) return false;
+  if (schedule && dateInZone(schedule.end, timeZone) >= today) return false;
   return true;
 }
 
-export function overdueAgendaTasks(tasks: Task[], now = new Date()): Task[] {
+export function overdueAgendaTasks(tasks: Task[], timeZone?: string | null, now = new Date()): Task[] {
   return tasks
-    .filter((task) => isAgendaOverdue(task, now))
+    .filter((task) => isAgendaOverdue(task, timeZone, now))
     .sort((a, b) => {
       const aTime = latestTaskSchedule(a)?.end.getTime() ?? 0;
       const bTime = latestTaskSchedule(b)?.end.getTime() ?? 0;

@@ -466,7 +466,8 @@ export default function TaskScheduleSection({
                         () =>
                           updateTask.mutateAsync({
                             id: taskId,
-                            preferredChunkMinutes: value === null ? null : Math.max(5, Math.round(value)),
+                            // 0 clears the preference; the server ignores null.
+                            preferredChunkMinutes: value === null ? 0 : Math.max(5, Math.round(value)),
                           }),
                         "Could not update preferred chunk.",
                       );
@@ -483,7 +484,7 @@ export default function TaskScheduleSection({
                   clearable
                   onChange={(iso) =>
                     void run(
-                      () => updateTask.mutateAsync({ id: taskId, earliestStartAt: iso || null }),
+                      () => updateTask.mutateAsync({ id: taskId, earliestStartAt: iso || "" }),
                       "Could not update earliest start.",
                     )
                   }

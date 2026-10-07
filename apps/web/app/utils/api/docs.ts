@@ -1,6 +1,12 @@
-import { Doc, DocContent } from "@/app/_types/types";
+import type { Doc } from "@/app/_types/types";
+import type { CreateDocPayload, UpdateDocPayload } from "@timely/contract/documents";
 import { isRichContentEmpty } from "@/app/utils/richText";
 import { apiFetch, apiUrl } from "./client";
+
+export type {
+  CreateDocPayload,
+  UpdateDocPayload,
+};
 
 
 export type DocWatchEvent = {
@@ -10,28 +16,6 @@ export type DocWatchEvent = {
   updatedAt?: string;
   document?: Doc;
 };
-
-export interface CreateDocPayload {
-  title?: string;
-  icon?: string;
-  content?: DocContent;
-  plainText?: string;
-  parentId?: string | null;
-  workspaceId?: string;
-  projectId?: string | null;
-}
-
-export interface UpdateDocPayload {
-  title?: string;
-  icon?: string;
-  content?: DocContent;
-  plainText?: string;
-  parentId?: string | null;
-  projectId?: string | null;
-  isFavorite?: boolean;
-  archived?: boolean;
-  order?: number;
-}
 
 async function readError(response: Response, fallback: string) {
   try {

@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-sheet-formulas test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-sheet-formulas test-work-status test-mobile-clearable test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -276,6 +276,14 @@ lint-sheet-formulas: ## Lint the shared sheet logic in packages/contract
 	@apps/web/node_modules/.bin/eslint -c apps/web/eslint.config.mjs packages/contract/src/sheetFormula.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts
 format-sheet-formulas: ## Format shared sheet logic and tests
 	@pnpm exec prettier --write packages/contract/src/sheetFormula.ts packages/contract/src/sheetFormulaInput.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts scripts/sheet-formulas.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs apps/mobile/lib/sheetGrow.ts scripts/sheet-grid-grow.test.mjs
+
+.PHONY: test-work-status
+test-work-status: ## Test the shared Overdue and Unscheduled work status logic
+	@node --experimental-strip-types --test scripts/work-status.test.mjs
+
+.PHONY: test-mobile-clearable
+test-mobile-clearable: ## Test how mobile update bodies turn null into a server-side clear
+	@node --experimental-strip-types --test scripts/mobile-clearable.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing

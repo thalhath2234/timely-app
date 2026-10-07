@@ -1,5 +1,5 @@
+import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import type { Task, TaskViewConfig } from "@/app/_types/types";
-import { isTaskOverdue } from "@/app/utils/overdue";
 import { taskHasDate } from "@/app/utils/taskDates";
 
 export type TaskListFilters = {
@@ -63,7 +63,16 @@ export function isInboxTask(task: Task) {
   return task.kind === "inbox";
 }
 
-export function filterTasks(tasks: Task[], filters: TaskListFilters): Task[] {
+/**
+ * `timeZone` is the Working hours timezone the Overdue filter is judged in;
+ * undefined means the device zone.
+ */
+export function filterTasks(
+  tasks: Task[],
+  filters: TaskListFilters,
+  timeZone?: string | null,
+): Task[] {
+  const today = todayInZone(timeZone);
   const wantedWorkspaces = new Set(filters.workspaceIds);
   const wantedStatuses = new Set(filters.statusIds);
   const wantedProjects = new Set(filters.projectIds);
@@ -80,7 +89,7 @@ export function filterTasks(tasks: Task[], filters: TaskListFilters): Task[] {
     }
 
     if (!filters.showCompleted && task.completedAt) return false;
-    if (filters.onlyOverdue && !isTaskOverdue(task)) return false;
+    if (filters.onlyOverdue && !isOverdue(task, today)) return false;
     if (filters.onlyScheduled && !task.scheduledOn && !(task.blocks && task.blocks.length > 0)) {
       return false;
     }

@@ -22,7 +22,9 @@ import {
 } from "@/app/utils/status";
 import { showUndoToast } from "@/app/_store/toastStore";
 import { useQueryClient } from "@tanstack/react-query";
-import { isTaskOverdue, latestTaskSchedule } from "@/app/utils/overdue";
+import { isOverdue, todayInZone } from "@timely/contract/workStatus";
+import { latestTaskSchedule } from "@/app/utils/overdue";
+import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
 import { formatTaskDatePoint, nextTaskSlot, taskDateSourceLabel, taskNextDate } from "@/app/utils/taskDates";
 import { motion } from "motion/react";
 import { hoverLift, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
@@ -41,11 +43,15 @@ function formatTimeOfDay(date: Date) {
 /** Cards say when the work happens: deadline first, otherwise the next
  * reserved block, so scheduled tasks never read as "No date". Overdue cards
  * use the Report's red treatment and include time of day when a block exists. */
-function cardDateMeta(item: Task, dataMode: "task" | "project"): { text: string; overdue: boolean } {
+function cardDateMeta(
+  item: Task,
+  dataMode: "task" | "project",
+  today: string,
+): { text: string; overdue: boolean } {
   if (dataMode === "project") {
     return { text: `Deadline: ${formatDateLabel(item.deadline)}`, overdue: false };
   }
-  const overdue = isTaskOverdue(item);
+  const overdue = isOverdue(item, today);
   const point = taskNextDate(item);
   if (!point) return { text: "No date", overdue: false };
   if (!overdue) {
@@ -92,6 +98,7 @@ export default function KanbanView({
 }) {
   const updateTask = useUpdateTask();
   const queryClient = useQueryClient();
+  const today = todayInZone(useWorkingHoursZone());
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const openMenu = useContextMenu();
   const taskMenu = useTaskContextMenu();
@@ -314,7 +321,7 @@ export default function KanbanView({
             </header>
             <div className="max-h-[calc(100vh-270px)] min-h-24 space-y-2 overflow-auto p-2">
               {column.items.map((item) => {
-                const dateMeta = cardDateMeta(item, dataMode);
+                const dateMeta = cardDateMeta(item, dataMode, today);
                 return (
                 <motion.article
                   key={item.id}

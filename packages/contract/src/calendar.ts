@@ -1,6 +1,7 @@
 import type {
   BlockSource,
   CalendarEventEntity,
+  RecurrenceInput,
   Task,
 } from "./entities";
 
@@ -84,4 +85,66 @@ export interface ProjectActivityEntry {
   newValue: string | null;
   message: string;
   createdAt: string;
+}
+
+/*
+ * Event request bodies (`event/handler.go`). Update fields are pointers on the
+ * server: absent or `null` leaves the value alone, an empty string clears
+ * `color`, `projectId`, `workspaceId` and `taskId`. `recurrence` is read from
+ * the raw body, so `null` there removes the rule.
+ */
+
+/** POST /events (`createEventRequest`). */
+export interface CreateEventPayload {
+  title: string;
+  description?: string;
+  /** ISO timestamps. */
+  start: string;
+  end: string;
+  /** Minutes; the server derives it from `start`/`end` when 0. */
+  duration?: number;
+  allDay?: boolean;
+  color?: string;
+  workspaceId?: string;
+  projectId?: string;
+  taskId?: string;
+  /** Omit for a one-off event. */
+  recurrence?: RecurrenceInput;
+}
+
+/** PUT /events/:id (`updateEventRequest`). */
+export interface UpdateEventPayload {
+  title?: string;
+  description?: string;
+  start?: string;
+  end?: string;
+  duration?: number;
+  allDay?: boolean;
+  /** Empty string clears the color. */
+  color?: string;
+  workspaceId?: string;
+  projectId?: string;
+  taskId?: string;
+  /** `null` removes the rule; omit to leave it untouched. */
+  recurrence?: RecurrenceInput | null;
+}
+
+export type EventOccurrenceAction = "skip" | "restore" | "move";
+
+/** PUT /events/:id/occurrences (`occurrenceRequest`). */
+export interface EventOccurrencePayload {
+  originalStart: string;
+  action: EventOccurrenceAction;
+  newStart?: string;
+  newEnd?: string;
+}
+
+/** POST /events/:id/recurrence/split (`splitRequest`). */
+export interface SplitEventSeriesPayload {
+  fromStart: string;
+  /** Any field left out is taken from the series being split. */
+  recurrence?: Partial<RecurrenceInput>;
+  title?: string;
+  start?: string;
+  end?: string;
 }

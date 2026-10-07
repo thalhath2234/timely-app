@@ -38,3 +38,35 @@ export interface Doc {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * POST /docs (`createDocumentRequest`). `workspaceId` is a plain string on the
+ * server: empty (omitted) means the account's default workspace. `null` for
+ * `parentId`/`projectId` is the same as omitting them.
+ */
+export interface CreateDocPayload {
+  title?: string;
+  icon?: string;
+  content?: DocContent;
+  plainText?: string;
+  parentId?: string | null;
+  workspaceId?: string;
+  projectId?: string | null;
+}
+
+/**
+ * PUT /docs/:id (`updateDocumentRequest`). Fields are pointers on the server:
+ * absent or `null` leaves the value alone, and an empty string clears
+ * `parentId` (moves to the root) and `projectId`.
+ */
+export interface UpdateDocPayload {
+  title?: string;
+  icon?: string;
+  content?: DocContent;
+  plainText?: string;
+  parentId?: string;
+  projectId?: string;
+  isFavorite?: boolean;
+  archived?: boolean;
+  order?: number;
+}

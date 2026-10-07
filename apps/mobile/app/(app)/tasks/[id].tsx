@@ -41,9 +41,11 @@ import {
   useClearTaskBlocks,
   useDeleteBlock,
   useSplitTaskSeries,
+  useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, isOverdue, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
+import { isOverdue, todayInZone } from "@timely/contract/workStatus";
+import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
 import { normalizePriority } from "../../../lib/priority";
 import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent, isRichContentEmpty } from "../../../lib/richText";
@@ -106,6 +108,7 @@ export default function TaskDetailScreen() {
   const task = fetched.data ?? listed;
   const spaces = useWorkspacesQuery().data ?? [];
   const projects = useProjectsQuery().data ?? [];
+  const workingHoursZone = useWorkingHoursZone();
   const save = useSaveTask();
   const metaRef = useRef({ taskWorkspaceId: "", metaWorkspaceId: "" });
   const { schedule: scheduleSave, flush: flushSave } = useAutosave<UpdateTaskPayload>(async (data) => {
@@ -218,7 +221,7 @@ export default function TaskDetailScreen() {
         ? new Date(task.startDate)
         : new Date();
 
-  const overdue = isOverdue(task.deadline, task.completedAt);
+  const overdue = isOverdue(task, todayInZone(workingHoursZone));
   const checklist = task.checklist ?? [];
   const checklistDone = checklist.filter((item) => item.completedAt).length;
   const combinedDone = checklistDone;

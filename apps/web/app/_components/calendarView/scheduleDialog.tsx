@@ -17,9 +17,8 @@ import { useAddTaskBlock, useCreateEvent } from "@/app/utils/hooks/calendar";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
-import { isUnscheduled } from "@/app/utils/scheduleRank";
-
-export { isUnscheduled };
+import { isUnscheduled } from "@timely/contract/workStatus";
+import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
 
 export type ScheduleSlot = {
   at: Date;
@@ -82,6 +81,7 @@ function ScheduleDialogPanel({
   const addBlock = useAddTaskBlock();
   const createEvent = useCreateEvent();
   const updateTask = useUpdateTask();
+  const timeZone = useWorkingHoursZone();
 
   const [mode, setMode] = useState<ScheduleMode>(slot.mode ?? "task");
   const [when, setWhen] = useState(() => toDatetimeLocalValue(slot.at));
@@ -107,7 +107,7 @@ function ScheduleDialogPanel({
   const unscheduled = useMemo(() => {
     const query = search.trim().toLowerCase();
     return (tasks ?? [])
-      .filter(isUnscheduled)
+      .filter((task) => isUnscheduled(task, timeZone))
       .filter(
         (task) =>
           !query ||
@@ -115,7 +115,7 @@ function ScheduleDialogPanel({
           task.project?.title?.toLowerCase().includes(query),
       )
       .slice(0, 40);
-  }, [tasks, search]);
+  }, [tasks, search, timeZone]);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
   const reminderTask = mode === "task" && Boolean(selectedTask) && (selectedTask?.duration ?? 0) <= 0;

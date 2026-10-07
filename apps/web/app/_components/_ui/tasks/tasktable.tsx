@@ -552,9 +552,9 @@ export default function TasksTable({
   const dropPreviewRef = useRef<HTMLDivElement>(null);
 
   const dataRows = useMemo(() => {
-    const source = filters ? filterTasks(typedTasks, filters) : typedTasks;
+    const source = filters ? filterTasks(typedTasks, filters, config.workingHours?.timezone) : typedTasks;
     return dataMode === "project" ? buildProjectRows(source) : source;
-  }, [dataMode, typedTasks, filters]);
+  }, [dataMode, typedTasks, filters, config.workingHours?.timezone]);
 
   const filteredRows = useMemo(() => {
     if (filters) return dataRows;

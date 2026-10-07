@@ -287,3 +287,161 @@ export interface CalendarEventEntity {
   createdAt: string;
   updatedAt: string;
 }
+
+/*
+ * Request bodies. The Go request struct is the truth (`task/handler.go`,
+ * `project/handler.go`, `workspace/handler.go`). Update structs bind every
+ * field as a pointer, so a key that is absent or `null` leaves the stored value
+ * alone; to clear a nullable column send an empty string (or `0` for
+ * `preferredChunkMinutes`). The keys the server reads from the raw body, where
+ * `null` does mean something, are marked on the field.
+ */
+
+/** POST /tasks and POST /inbox/:id/clarify (`createTaskRequest`). */
+export interface CreateTaskPayload {
+  name: string;
+  description?: string;
+  descriptionRich?: DocContent;
+  /** Estimated minutes; 0 for a Reminder or Inbox item. */
+  duration?: number;
+  kind?: TaskKind;
+  deadline?: string;
+  startDate?: string;
+  scheduledOn?: string;
+  earliestStartAt?: string;
+  preferredWindows?: PreferredWindow[];
+  /** Required by the server for Work (`kind: "task"`). */
+  workspaceId?: string;
+  projectId?: string;
+  statusId?: string;
+  priorityLevel?: string;
+  stageId?: string;
+  blockedById?: string;
+  labelIds?: TaskLabelId[];
+  customFieldValues?: CustomFieldValueInput[];
+  /** Makes the task a repeating series. Omit for a one-off task. */
+  recurrence?: RecurrenceInput;
+}
+
+/**
+ * PUT /tasks/:id (`updateTaskRequest`). Every field is optional so autosave
+ * can send just what changed. An empty string clears `deadline`, `startDate`,
+ * `scheduledOn`, `completedAt`, `todayFocusOn`, `earliestStartAt`, `projectId`,
+ * `statusId`, `priorityLevel`, `stageId` and `blockedById`; `0` clears
+ * `preferredChunkMinutes`. `null` on any of them is a no-op.
+ */
+export interface UpdateTaskPayload {
+  name?: string;
+  description?: string;
+  descriptionRich?: DocContent;
+  duration?: number;
+  kind?: TaskKind;
+  todayFocusOn?: string;
+  minChunkMinutes?: number;
+  preferredChunkMinutes?: number;
+  contiguous?: boolean;
+  earliestStartAt?: string;
+  preferredWindows?: PreferredWindow[];
+  scheduleLocked?: boolean;
+  deadline?: string;
+  startDate?: string;
+  scheduledOn?: string;
+  completedAt?: string;
+  workspaceId?: string;
+  projectId?: string;
+  statusId?: string;
+  priorityLevel?: string;
+  stageId?: string;
+  blockedById?: string;
+  /** Replaces the full label set. Pass `[]` to clear. */
+  labelIds?: TaskLabelId[];
+  /** Replaces the values of the fields listed. Blank values clear a field. */
+  customFieldValues?: CustomFieldValueInput[];
+  /** Replaces the recurrence rule; `null` turns the series back into a one-off. */
+  recurrence?: RecurrenceInput | null;
+}
+
+export type TaskOccurrenceAction =
+  | "complete"
+  | "uncomplete"
+  | "skip"
+  | "restore"
+  | "move";
+
+/** PUT /tasks/:id/occurrences (`occurrenceRequest`). */
+export interface TaskOccurrencePayload {
+  originalStart: string;
+  action: TaskOccurrenceAction;
+  newStart?: string;
+  newEnd?: string;
+}
+
+/** POST /tasks/:id/recurrence/split (`splitRequest`). */
+export interface SplitTaskSeriesPayload {
+  /** Original start of the first occurrence that moves to the new series. */
+  fromStart: string;
+  /** Any field left out is taken from the series being split. */
+  recurrence?: Partial<RecurrenceInput>;
+  name?: string;
+  duration?: number;
+}
+
+/** POST /projects (`createProjectRequest`). */
+export interface CreateProjectPayload {
+  title: string;
+  /** The server rejects a project without one. */
+  workspaceId: string;
+  description?: string;
+  descriptionRich?: DocContent;
+  statusId?: string;
+  deadline?: string;
+  startDate?: string;
+  priorityLevel?: string;
+  color?: string;
+  doesHaveStages?: boolean;
+  customFieldValues?: CustomFieldValueInput[];
+}
+
+/**
+ * PUT /projects/:id (`updateProjectRequest`). Every field is optional; an
+ * empty string clears a nullable one. The server has no custom field values or
+ * workspace move here, so neither is accepted.
+ */
+export interface UpdateProjectPayload {
+  title?: string;
+  description?: string;
+  descriptionRich?: DocContent;
+  statusId?: string;
+  deadline?: string;
+  startDate?: string;
+  completedAt?: string;
+  priorityLevel?: string;
+  color?: string;
+  doesHaveStages?: boolean;
+}
+
+/** POST/PUT /workspaces (`createWorkspaceRequest`, reused for update). */
+export interface WorkspacePayload {
+  name: string;
+  color?: string;
+}
+
+/** Status and label bodies (`createStatusRequest`, `createLableRequest`). */
+export interface NamedColorPayload {
+  name: string;
+  color: string;
+}
+
+/** An option of a select custom field; a missing `id` is minted by the server. */
+export interface CustomFieldOptionInput {
+  id?: string;
+  value: string;
+  color?: string;
+}
+
+/** POST/PUT /workspaces/:id/custom-field (`createCustomFieldRequest`). */
+export interface CustomFieldPayload {
+  name: string;
+  type: CustomFieldType;
+  options?: CustomFieldOptionInput[];
+}
