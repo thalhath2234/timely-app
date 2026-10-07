@@ -326,8 +326,8 @@ export interface CreateTaskPayload {
 /**
  * PUT /tasks/:id (`updateTaskRequest`). Every field is optional so autosave
  * can send just what changed. An empty string clears `deadline`, `startDate`,
- * `scheduledOn`, `completedAt`, `todayFocusOn`, `earliestStartAt`, `projectId`,
- * `statusId`, `priorityLevel`, `stageId` and `blockedById`; `0` clears
+ * `scheduledOn`, `completedAt`, `todayFocusOn`, `earliestStartAt`, `workspaceId`,
+ * `projectId`, `statusId`, `priorityLevel`, `stageId` and `blockedById`; `0` clears
  * `preferredChunkMinutes`. `null` on any of them is a no-op.
  */
 export interface UpdateTaskPayload {
