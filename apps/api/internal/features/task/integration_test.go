@@ -516,3 +516,22 @@ func TestIntegrationUpdateReminderKeepsPickedWorkspace(t *testing.T) {
 		t.Fatalf("workspace=%v kind=%s, want %s kept on the reminder", got.WorkspaceID, got.Kind, f.workspace)
 	}
 }
+
+// Labels sent in the same PATCH that turns Work into a Reminder keep its workspace.
+func TestIntegrationUpdateWorkToReminderWithLabelsInSamePatchKeepsWorkspace(t *testing.T) {
+	f := newKindFixture(t)
+	work, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, nil)
+	if err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+	reminder := models.KindReminder
+	labels := models.LabelInputs{{Id: f.label}}
+	got, err := f.svc.Update(kindTestUser, work.ID, TaskUpdate{Kind: &reminder, ScheduledOn: f.id(kindPing), LabelIDs: &labels})
+	if err != nil {
+		t.Fatalf("update to reminder: %v", err)
+	}
+	assertNoBoardFields(t, got)
+	if got.WorkspaceID == nil || *got.WorkspaceID != f.workspace || len(got.LabelIDs) != 1 {
+		t.Fatalf("workspace=%v labels=%v, want the workspace kept for the label", got.WorkspaceID, got.LabelIDs)
+	}
+}
