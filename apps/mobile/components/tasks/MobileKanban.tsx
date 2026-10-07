@@ -70,6 +70,7 @@ function DraggableCard({ task, columns, targets, onMove, children }: { task: Tas
 
 export default function MobileKanban({
   columns,
+  today,
   selectedIds,
   selecting,
   onSelect,
@@ -78,6 +79,8 @@ export default function MobileKanban({
   refreshControl,
 }: {
   columns: KanbanColumn[];
+  /** Today's date in the Working hours zone (`todayInZone`). */
+  today: string;
   selectedIds: string[];
   selecting: boolean;
   onSelect: (task: Task) => void;
@@ -118,6 +121,7 @@ export default function MobileKanban({
               <DraggableCard task={item} columns={columns} targets={targets} onMove={onMove}>
                 <TaskCard
                   task={item}
+                  today={today}
                   selected={selectedIds.includes(item.id)}
                   selecting={selecting}
                   onSelect={onSelect}

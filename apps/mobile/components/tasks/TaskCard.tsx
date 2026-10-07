@@ -4,8 +4,7 @@ import { useRouter } from "expo-router";
 import { CalendarDays, Check } from "lucide-react-native";
 import type { Task } from "../../lib/types";
 import { formatDateAndTime, formatDueDate, formatDuration, formatRelativeStamp, PRIORITY_META } from "../../lib/format";
-import { isOverdue, todayInZone } from "@timely/contract/workStatus";
-import { useWorkingHoursZone } from "../../lib/hooks";
+import { isOverdue } from "@timely/contract/workStatus";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { Dot } from "../ui/primitives";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -13,12 +12,15 @@ import { taskEntityColor } from "../../lib/entityColor";
 
 function TaskCard({
   task,
+  today,
   onToggle,
   selected,
   selecting,
   onSelect,
 }: {
   task: Task;
+  /** Today's date in the Working hours zone (`todayInZone`), computed once by the list. */
+  today: string;
   onToggle: (task: Task) => void;
   selected?: boolean;
   selecting?: boolean;
@@ -26,7 +28,6 @@ function TaskCard({
 }) {
   const router = useRouter();
   const done = Boolean(task.completedAt);
-  const today = todayInZone(useWorkingHoursZone());
   const overdue = isOverdue(task, today);
   const due = formatDueDate(task.deadline, today);
   const scheduled = task.scheduledOn || task.blocks?.[0]?.start;
