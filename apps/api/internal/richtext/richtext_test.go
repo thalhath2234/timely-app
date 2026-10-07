@@ -62,3 +62,116 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+func text(value string, marks ...string) map[string]any {
+	n := map[string]any{"type": "text", "text": value}
+	if len(marks) > 0 {
+		var list []any
+		for _, m := range marks {
+			list = append(list, map[string]any{"type": m})
+		}
+		n["marks"] = list
+	}
+	return n
+}
+
+func para(children ...any) map[string]any {
+	return map[string]any{"type": "paragraph", "content": children}
+}
+
+func item(kind string, children ...any) map[string]any {
+	return map[string]any{"type": kind, "content": children}
+}
+
+func docOf(blocks ...any) map[string]any {
+	return map[string]any{"type": "doc", "content": blocks}
+}
+
+func TestNestedListsKeepIndentation(t *testing.T) {
+	doc := docOf(map[string]any{
+		"type":  "orderedList",
+		"attrs": map[string]any{"start": float64(3)},
+		"content": []any{
+			item("listItem",
+				para(text("parent")),
+				map[string]any{"type": "bulletList", "content": []any{
+					item("listItem", para(text("child"))),
+				}},
+			),
+			item("listItem", para(text("next"))),
+		},
+	})
+	want := "3. parent\n   - child\n4. next"
+	if got := ToMarkdown(doc); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestNestedTaskList(t *testing.T) {
+	doc := docOf(map[string]any{"type": "taskList", "content": []any{
+		map[string]any{"type": "taskItem", "attrs": map[string]any{"checked": true}, "content": []any{
+			para(text("done")),
+			map[string]any{"type": "taskList", "content": []any{
+				map[string]any{"type": "taskItem", "attrs": map[string]any{"checked": false}, "content": []any{para(text("sub"))}},
+			}},
+		}},
+	}})
+	want := "- [x] done\n  - [ ] sub"
+	if got := ToMarkdown(doc); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestOverlappingMarksStayBalanced(t *testing.T) {
+	doc := docOf(para(text("plain "), text("bold ", "bold"), text("both", "bold", "italic"), text(" end")))
+	want := "plain **bold *both*** end"
+	if got := ToMarkdown(doc); got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestHardBreakAndCodeFences(t *testing.T) {
+	doc := docOf(
+		para(text("one"), map[string]any{"type": "hardBreak"}, text("two")),
+		map[string]any{"type": "codeBlock", "attrs": map[string]any{"language": "md"}, "content": []any{text("```\nx\n```")}},
+		para(text("a`b", "code")),
+	)
+	want := "one  \ntwo\n\n````md\n```\nx\n```\n````\n\n``a`b``"
+	if got := ToMarkdown(doc); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestTableEscapesPipesAndKeepsMergedColumns(t *testing.T) {
+	cell := func(kind string, attrs map[string]any, children ...any) map[string]any {
+		n := map[string]any{"type": kind, "content": children}
+		if attrs != nil {
+			n["attrs"] = attrs
+		}
+		return n
+	}
+	doc := docOf(map[string]any{"type": "table", "content": []any{
+		item("tableRow",
+			cell("tableHeader", nil, para(text("A"))),
+			cell("tableHeader", nil, para(text("B"))),
+			cell("tableHeader", nil, para(text("C"))),
+		),
+		item("tableRow",
+			cell("tableCell", map[string]any{"colspan": float64(2), "rowspan": float64(2)}, para(text("wide"))),
+			cell("tableCell", nil, para(text("x | y"))),
+		),
+		item("tableRow",
+			cell("tableCell", nil, para(text("l1"), map[string]any{"type": "hardBreak"}, text("l2"))),
+		),
+	}})
+	want := "| A | B | C |\n| --- | --- | --- |\n| wide |  | x \\| y |\n|  |  | l1<br>l2 |"
+	got := ToMarkdown(doc)
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	back, _ := FromMarkdown(got)
+	if again := ToMarkdown(back); again != want {
+		t.Fatalf("table did not round-trip:\n%s", again)
+	}
+}

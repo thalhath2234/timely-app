@@ -24,6 +24,7 @@ var (
 	highlightRe = regexp.MustCompile(`==(.+?)==`)
 	codeRe      = regexp.MustCompile("`([^`]+)`")
 	underlineRe = regexp.MustCompile(`<u>(.+?)</u>`)
+	brRe        = regexp.MustCompile(`(?i)<br\s*/?>`)
 )
 
 // FromMarkdown turns agent-authored markdown into a ProseMirror document and
@@ -137,7 +138,7 @@ func ToMarkdown(doc models.JSONMap) string {
 	if doc == nil {
 		return ""
 	}
-	return strings.TrimSpace(renderNodes(asSlice(doc["content"]), 0))
+	return strings.TrimSpace(renderBlocks(asSlice(doc["content"])))
 }
 
 func parseList(lines []string, ordered bool) ([]any, []string, int) {
@@ -235,12 +236,7 @@ func parseTable(lines []string) (map[string]any, []string, int) {
 		if !tableRowRe.MatchString(trimmed) {
 			break
 		}
-		inner := strings.Trim(trimmed, "|")
-		cells := strings.Split(inner, "|")
-		for i := range cells {
-			cells[i] = strings.TrimSpace(cells[i])
-		}
-		rows = append(rows, cells)
+		rows = append(rows, splitTableRow(trimmed))
 		consumed++
 	}
 	var tableRows []any
@@ -248,7 +244,7 @@ func parseTable(lines []string) (map[string]any, []string, int) {
 	for r, row := range rows {
 		var cells []any
 		for _, cell := range row {
-			in, p := inline(cell)
+			in, p := cellInline(cell)
 			kind := "tableCell"
 			if r == 0 {
 				kind = "tableHeader"
@@ -259,6 +255,46 @@ func parseTable(lines []string) (map[string]any, []string, int) {
 		tableRows = append(tableRows, node("tableRow", nil, cells))
 	}
 	return node("table", nil, tableRows), texts, consumed
+}
+
+// splitTableRow splits a row like "| a | b \| c |" on unescaped pipes and unescapes
+// the rest, matching what ToMarkdown writes.
+func splitTableRow(line string) []string {
+	line = strings.TrimPrefix(line, "|")
+	if strings.HasSuffix(line, "|") && !strings.HasSuffix(line, `\|`) {
+		line = strings.TrimSuffix(line, "|")
+	}
+	var cells []string
+	var cell strings.Builder
+	for i := 0; i < len(line); i++ {
+		if line[i] == '\\' && i+1 < len(line) && line[i+1] == '|' {
+			cell.WriteByte('|')
+			i++
+			continue
+		}
+		if line[i] == '|' {
+			cells = append(cells, strings.TrimSpace(cell.String()))
+			cell.Reset()
+			continue
+		}
+		cell.WriteByte(line[i])
+	}
+	return append(cells, strings.TrimSpace(cell.String()))
+}
+
+// cellInline parses one table cell, turning <br> back into line breaks.
+func cellInline(src string) ([]any, string) {
+	var out []any
+	var plain []string
+	for i, part := range brRe.Split(src, -1) {
+		if i > 0 {
+			out = append(out, map[string]any{"type": "hardBreak"})
+		}
+		in, p := inline(strings.TrimSpace(part))
+		out = append(out, in...)
+		plain = append(plain, p)
+	}
+	return out, strings.Join(plain, " ")
 }
 
 func inline(src string) ([]any, string) {
@@ -371,163 +407,469 @@ func firstInline(src string) inlineMatch {
 	return best
 }
 
-func renderNodes(nodes []any, depth int) string {
-	var b strings.Builder
+// renderBlocks renders block nodes as Markdown blocks separated by blank lines.
+func renderBlocks(nodes []any) string {
+	var parts []string
 	for _, raw := range nodes {
-		n, ok := raw.(map[string]any)
+		n, ok := asMap(raw)
 		if !ok {
-			if m, ok := raw.(models.JSONMap); ok {
-				n = m
+			continue
+		}
+		if block := renderBlock(n); block != "" {
+			parts = append(parts, block)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// renderBlock renders one block node without surrounding blank lines.
+func renderBlock(n map[string]any) string {
+	kind, _ := n["type"].(string)
+	switch kind {
+	case "paragraph":
+		return renderInline(asSlice(n["content"]), "  \n")
+	case "heading":
+		level := intAttr(n, "level", 1)
+		if level < 1 || level > 6 {
+			level = 1
+		}
+		return strings.Repeat("#", level) + " " + renderInline(asSlice(n["content"]), " ")
+	case "bulletList", "orderedList", "taskList":
+		return renderList(n)
+	case "blockquote":
+		lines := strings.Split(renderBlocks(asSlice(n["content"])), "\n")
+		for i, line := range lines {
+			if line == "" {
+				lines[i] = ">"
 			} else {
-				continue
+				lines[i] = "> " + line
 			}
 		}
-		kind, _ := n["type"].(string)
+		return strings.Join(lines, "\n")
+	case "codeBlock":
+		lang := ""
+		if attrs, ok := asMap(n["attrs"]); ok {
+			lang, _ = attrs["language"].(string)
+		}
+		text := textContent(asSlice(n["content"]))
+		// A fence must be longer than any backtick run inside the code.
+		fence := strings.Repeat("`", max(3, longestRun(text, '`')+1))
+		return fence + lang + "\n" + text + "\n" + fence
+	case "horizontalRule":
+		return "---"
+	case "table":
+		return renderTable(asSlice(n["content"]))
+	case "listItem", "taskItem", "tableRow", "tableCell", "tableHeader":
+		return renderBlocks(asSlice(n["content"]))
+	default:
+		return renderInline([]any{n}, "  \n")
+	}
+}
+
+func renderList(n map[string]any) string {
+	kind, _ := n["type"].(string)
+	start := intAttr(n, "start", 1)
+	var items []string
+	for i, raw := range asSlice(n["content"]) {
+		item, ok := asMap(raw)
+		if !ok {
+			continue
+		}
+		marker := "- "
+		checkbox := ""
 		switch kind {
-		case "paragraph":
-			b.WriteString(renderInline(asSlice(n["content"])))
-			b.WriteString("\n\n")
-		case "heading":
-			level := 1
-			if attrs, ok := n["attrs"].(map[string]any); ok {
-				switch v := attrs["level"].(type) {
-				case float64:
-					level = int(v)
-				case int:
-					level = v
-				}
-			}
-			b.WriteString(strings.Repeat("#", level) + " " + renderInline(asSlice(n["content"])) + "\n\n")
-		case "bulletList":
-			for _, item := range asSlice(n["content"]) {
-				im, _ := item.(map[string]any)
-				b.WriteString("- " + strings.TrimSpace(renderNodes(asSlice(im["content"]), depth+1)) + "\n")
-			}
-			b.WriteString("\n")
 		case "orderedList":
-			i := 1
-			for _, item := range asSlice(n["content"]) {
-				im, _ := item.(map[string]any)
-				b.WriteString(strconv.Itoa(i) + ". " + strings.TrimSpace(renderNodes(asSlice(im["content"]), depth+1)) + "\n")
-				i++
-			}
-			b.WriteString("\n")
+			marker = strconv.Itoa(start+i) + ". "
 		case "taskList":
-			for _, item := range asSlice(n["content"]) {
-				im, _ := item.(map[string]any)
-				checked := false
-				if attrs, ok := im["attrs"].(map[string]any); ok {
-					checked, _ = attrs["checked"].(bool)
-				}
-				mark := " "
-				if checked {
-					mark = "x"
-				}
-				b.WriteString("- [" + mark + "] " + strings.TrimSpace(renderNodes(asSlice(im["content"]), depth+1)) + "\n")
+			checked, _ := attrOf(item, "checked").(bool)
+			checkbox = "[ ] "
+			if checked {
+				checkbox = "[x] "
 			}
-			b.WriteString("\n")
-		case "listItem", "taskItem":
-			b.WriteString(renderNodes(asSlice(n["content"]), depth+1))
-		case "blockquote":
-			inner := strings.TrimSpace(renderNodes(asSlice(n["content"]), depth+1))
-			for _, line := range strings.Split(inner, "\n") {
-				b.WriteString("> " + line + "\n")
-			}
-			b.WriteString("\n")
-		case "codeBlock":
-			lang := ""
-			if attrs, ok := n["attrs"].(map[string]any); ok {
-				lang, _ = attrs["language"].(string)
-			}
-			b.WriteString("```" + lang + "\n" + renderInline(asSlice(n["content"])) + "\n```\n\n")
-		case "horizontalRule":
-			b.WriteString("---\n\n")
-		case "table":
-			b.WriteString(renderTable(asSlice(n["content"])))
-		case "hardBreak":
-			b.WriteString("\n")
-		default:
-			b.WriteString(renderInline([]any{n}))
 		}
+		// Continuation lines (nested lists, extra paragraphs) are indented to
+		// the item's content column so they stay inside the item.
+		body := indentContinuation(renderListItem(asSlice(item["content"])), len(marker))
+		items = append(items, marker+checkbox+body)
+	}
+	return strings.Join(items, "\n")
+}
+
+// renderListItem keeps an item tight: a nested list follows its text on the
+// next line, while separate paragraphs keep a blank line between them.
+func renderListItem(children []any) string {
+	var b strings.Builder
+	prevList := false
+	first := true
+	for _, raw := range children {
+		child, ok := asMap(raw)
+		if !ok {
+			continue
+		}
+		block := renderBlock(child)
+		if block == "" {
+			continue
+		}
+		kind, _ := child["type"].(string)
+		isList := kind == "bulletList" || kind == "orderedList" || kind == "taskList"
+		if !first {
+			if isList || prevList {
+				b.WriteString("\n")
+			} else {
+				b.WriteString("\n\n")
+			}
+		}
+		b.WriteString(block)
+		prevList = isList
+		first = false
 	}
 	return b.String()
 }
 
-func renderTable(rows []any) string {
-	var lines []string
-	for r, raw := range rows {
-		row, _ := raw.(map[string]any)
-		var cells []string
-		for _, cellRaw := range asSlice(row["content"]) {
-			cell, _ := cellRaw.(map[string]any)
-			cells = append(cells, strings.ReplaceAll(strings.TrimSpace(renderNodes(asSlice(cell["content"]), 0)), "\n", " "))
+func indentContinuation(text string, width int) string {
+	lines := strings.Split(text, "\n")
+	pad := strings.Repeat(" ", width)
+	for i := 1; i < len(lines); i++ {
+		if lines[i] != "" {
+			lines[i] = pad + lines[i]
 		}
-		lines = append(lines, "| "+strings.Join(cells, " | ")+" |")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderTable writes a GFM table. Markdown has no merged cells, so a cell
+// spanning several columns or rows keeps its text in its first slot and the
+// slots it covered are left empty, which keeps every column aligned.
+func renderTable(rows []any) string {
+	type slot struct{ row, col int }
+	covered := map[slot]bool{}
+	var grid [][]string
+	width := 0
+	for r, raw := range rows {
+		row, ok := asMap(raw)
+		if !ok {
+			continue
+		}
+		var line []string
+		col := 0
+		skipCovered := func() {
+			for covered[slot{r, col}] {
+				line = append(line, "")
+				col++
+			}
+		}
+		for _, cellRaw := range asSlice(row["content"]) {
+			cell, ok := asMap(cellRaw)
+			if !ok {
+				continue
+			}
+			skipCovered()
+			colspan := max(1, intAttr(cell, "colspan", 1))
+			rowspan := max(1, intAttr(cell, "rowspan", 1))
+			for c := 0; c < colspan; c++ {
+				text := ""
+				if c == 0 {
+					text = renderCell(cell)
+				}
+				line = append(line, text)
+				for extra := 1; extra < rowspan; extra++ {
+					covered[slot{r + extra, col}] = true
+				}
+				col++
+			}
+		}
+		skipCovered()
+		grid = append(grid, line)
+		width = max(width, len(line))
+	}
+	if len(grid) == 0 || width == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(grid)+1)
+	for r, line := range grid {
+		for len(line) < width {
+			line = append(line, "")
+		}
+		lines = append(lines, "| "+strings.Join(line, " | ")+" |")
 		if r == 0 {
-			sep := make([]string, len(cells))
+			sep := make([]string, width)
 			for i := range sep {
 				sep[i] = "---"
 			}
 			lines = append(lines, "| "+strings.Join(sep, " | ")+" |")
 		}
 	}
-	return strings.Join(lines, "\n") + "\n\n"
+	return strings.Join(lines, "\n")
 }
 
-func renderInline(nodes []any) string {
+// renderCell flattens a cell to one line: line breaks and paragraph breaks
+// become <br>, and pipes are escaped so they do not split the cell.
+func renderCell(cell map[string]any) string {
+	text := renderBlocks(asSlice(cell["content"]))
+	text = strings.ReplaceAll(text, "  \n", "<br>")
+	text = strings.ReplaceAll(text, "\n\n", "<br>")
+	text = strings.ReplaceAll(text, "\n", "<br>")
+	return strings.ReplaceAll(text, "|", `\|`)
+}
+
+type inlineMark struct{ kind, href string }
+
+type inlineSegment struct {
+	text  string
+	atom  bool // pre-rendered Markdown (mention, line break) that takes no marks
+	marks []inlineMark
+}
+
+// Marks open in this order, so a link wraps bold wraps italic and so on.
+var markOrder = []string{"link", "bold", "italic", "strike", "highlight", "underline", "code"}
+
+// renderInline writes inline nodes, opening and closing each mark once across
+// neighbouring text nodes so "**bold *and italic***" stays valid Markdown.
+func renderInline(nodes []any, hardBreak string) string {
+	segments := normalizeEdgeSpaces(collectInline(nodes, hardBreak))
+
 	var b strings.Builder
-	i := 0
-	for i < len(nodes) {
-		n, ok := asMap(nodes[i])
+	var open []inlineMark
+	closeFrom := func(k int) {
+		for len(open) > k {
+			b.WriteString(closeMark(open[len(open)-1]))
+			open = open[:len(open)-1]
+		}
+	}
+	for _, seg := range segments {
+		keep := 0
+		for keep < len(open) && hasMark(seg.marks, open[keep]) {
+			keep++
+		}
+		closeFrom(keep)
+		if seg.atom {
+			b.WriteString(seg.text)
+			continue
+		}
+		isCode := false
+		for _, m := range seg.marks {
+			if m.kind == "code" {
+				isCode = true
+				continue
+			}
+			if !hasMark(open, m) {
+				b.WriteString(openMark(m))
+				open = append(open, m)
+			}
+		}
+		if isCode {
+			b.WriteString(codeSpan(seg.text))
+		} else {
+			b.WriteString(seg.text)
+		}
+	}
+	closeFrom(0)
+	return b.String()
+}
+
+func collectInline(nodes []any, hardBreak string) []inlineSegment {
+	var out []inlineSegment
+	for _, raw := range nodes {
+		n, ok := asMap(raw)
 		if !ok {
-			i++
 			continue
 		}
 		kind, _ := n["type"].(string)
 		switch kind {
+		case "text":
+			text, _ := n["text"].(string)
+			if text != "" {
+				out = append(out, inlineSegment{text: text, marks: textMarks(n)})
+			}
 		case "mention":
-			attrs, _ := n["attrs"].(map[string]any)
+			attrs, _ := asMap(n["attrs"])
 			label, _ := attrs["label"].(string)
 			id, _ := attrs["id"].(string)
 			entity, _ := attrs["entityType"].(string)
 			if entity == "" {
 				entity = "task"
 			}
-			b.WriteString("[@" + label + "](timely://" + entity + "/" + id + ")")
-			i++
+			out = append(out, inlineSegment{atom: true, text: "[@" + label + "](timely://" + entity + "/" + id + ")"})
 		case "hardBreak":
-			b.WriteString("\n")
-			i++
-		case "text":
-			href, hasLink := textLinkHref(n)
-			if hasLink {
-				var inner strings.Builder
-				for i < len(nodes) {
-					next, ok := asMap(nodes[i])
-					if !ok {
-						break
-					}
-					if t, _ := next["type"].(string); t != "text" {
-						break
-					}
-					nextHref, nextHas := textLinkHref(next)
-					if !nextHas || nextHref != href {
-						break
-					}
-					inner.WriteString(applyTextMarks(next, true))
-					i++
-				}
-				b.WriteString("[" + inner.String() + "](" + href + ")")
-				continue
-			}
-			b.WriteString(applyTextMarks(n, false))
-			i++
+			out = append(out, inlineSegment{atom: true, text: hardBreak})
 		default:
-			b.WriteString(renderInline(asSlice(n["content"])))
-			i++
+			out = append(out, collectInline(asSlice(n["content"]), hardBreak)...)
 		}
 	}
+	return out
+}
+
+// normalizeEdgeSpaces moves spaces at the edge of a marked run outside the
+// delimiters, because "**bold **" is not bold in Markdown.
+func normalizeEdgeSpaces(segments []inlineSegment) []inlineSegment {
+	out := make([]inlineSegment, 0, len(segments))
+	for i, seg := range segments {
+		if seg.atom || len(seg.marks) == 0 || hasKind(seg.marks, "code") {
+			out = append(out, seg)
+			continue
+		}
+		var prev, next []inlineMark
+		if i > 0 {
+			prev = segments[i-1].marks
+		}
+		if i+1 < len(segments) {
+			next = segments[i+1].marks
+		}
+		core := strings.TrimLeft(seg.text, " \t")
+		lead := seg.text[:len(seg.text)-len(core)]
+		trimmed := strings.TrimRight(core, " \t")
+		trail := core[len(trimmed):]
+		if trimmed == "" {
+			out = append(out, inlineSegment{text: seg.text, marks: intersectMarks(intersectMarks(seg.marks, prev), next)})
+			continue
+		}
+		if lead != "" {
+			out = append(out, inlineSegment{text: lead, marks: intersectMarks(seg.marks, prev)})
+		}
+		out = append(out, inlineSegment{text: trimmed, marks: seg.marks})
+		if trail != "" {
+			out = append(out, inlineSegment{text: trail, marks: intersectMarks(seg.marks, next)})
+		}
+	}
+	return out
+}
+
+func textMarks(n map[string]any) []inlineMark {
+	present := map[string]inlineMark{}
+	for _, raw := range asSlice(n["marks"]) {
+		mark, ok := asMap(raw)
+		if !ok {
+			continue
+		}
+		kind, _ := mark["type"].(string)
+		m := inlineMark{kind: kind}
+		if kind == "link" {
+			m.href, _ = attrOf(mark, "href").(string)
+		}
+		present[kind] = m
+	}
+	var out []inlineMark
+	for _, kind := range markOrder {
+		if m, ok := present[kind]; ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func openMark(m inlineMark) string {
+	switch m.kind {
+	case "link":
+		return "["
+	case "bold":
+		return "**"
+	case "italic":
+		return "*"
+	case "strike":
+		return "~~"
+	case "highlight":
+		return "=="
+	case "underline":
+		return "<u>"
+	}
+	return ""
+}
+
+func closeMark(m inlineMark) string {
+	switch m.kind {
+	case "link":
+		return "](" + m.href + ")"
+	case "underline":
+		return "</u>"
+	}
+	return openMark(m)
+}
+
+// codeSpan wraps text in enough backticks that backticks inside it survive.
+func codeSpan(text string) string {
+	ticks := strings.Repeat("`", longestRun(text, '`')+1)
+	if strings.HasPrefix(text, "`") || strings.HasSuffix(text, "`") {
+		return ticks + " " + text + " " + ticks
+	}
+	return ticks + text + ticks
+}
+
+func hasMark(marks []inlineMark, m inlineMark) bool {
+	for _, candidate := range marks {
+		if candidate == m {
+			return true
+		}
+	}
+	return false
+}
+
+func hasKind(marks []inlineMark, kind string) bool {
+	for _, m := range marks {
+		if m.kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func intersectMarks(a, b []inlineMark) []inlineMark {
+	var out []inlineMark
+	for _, m := range a {
+		if hasMark(b, m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func longestRun(text string, r rune) int {
+	best, run := 0, 0
+	for _, c := range text {
+		if c == r {
+			run++
+			best = max(best, run)
+		} else {
+			run = 0
+		}
+	}
+	return best
+}
+
+func textContent(nodes []any) string {
+	var b strings.Builder
+	for _, raw := range nodes {
+		n, ok := asMap(raw)
+		if !ok {
+			continue
+		}
+		if text, ok := n["text"].(string); ok {
+			b.WriteString(text)
+		} else if n["type"] == "hardBreak" {
+			b.WriteString("\n")
+		}
+		b.WriteString(textContent(asSlice(n["content"])))
+	}
 	return b.String()
+}
+
+func attrOf(n map[string]any, key string) any {
+	attrs, ok := asMap(n["attrs"])
+	if !ok {
+		return nil
+	}
+	return attrs[key]
+}
+
+func intAttr(n map[string]any, key string, fallback int) int {
+	switch v := attrOf(n, key).(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	}
+	return fallback
 }
 
 func asMap(v any) (map[string]any, bool) {
@@ -538,53 +880,6 @@ func asMap(v any) (map[string]any, bool) {
 		return m, true
 	}
 	return nil, false
-}
-
-func textLinkHref(n map[string]any) (string, bool) {
-	for _, raw := range asSlice(n["marks"]) {
-		mark, _ := raw.(map[string]any)
-		if mark["type"] != "link" {
-			continue
-		}
-		href := ""
-		if attrs, ok := mark["attrs"].(map[string]any); ok {
-			href, _ = attrs["href"].(string)
-		}
-		return href, true
-	}
-	return "", false
-}
-
-func applyTextMarks(n map[string]any, skipLink bool) string {
-	text, _ := n["text"].(string)
-	marks := asSlice(n["marks"])
-	for i := len(marks) - 1; i >= 0; i-- {
-		mark, _ := marks[i].(map[string]any)
-		switch mark["type"] {
-		case "link":
-			if skipLink {
-				continue
-			}
-			href := ""
-			if attrs, ok := mark["attrs"].(map[string]any); ok {
-				href, _ = attrs["href"].(string)
-			}
-			text = "[" + text + "](" + href + ")"
-		case "bold":
-			text = "**" + text + "**"
-		case "italic":
-			text = "*" + text + "*"
-		case "strike":
-			text = "~~" + text + "~~"
-		case "code":
-			text = "`" + text + "`"
-		case "underline":
-			text = "<u>" + text + "</u>"
-		case "highlight":
-			text = "==" + text + "=="
-		}
-	}
-	return text
 }
 
 func node(kind string, attrs map[string]any, content []any) map[string]any {

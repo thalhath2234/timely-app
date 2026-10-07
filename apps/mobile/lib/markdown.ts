@@ -40,6 +40,7 @@ const strikeRe = /~~(.+?)~~/;
 const highlightRe = /==(.+?)==/;
 const codeRe = /`([^`]+)`/;
 const underlineRe = /<u>(.+?)<\/u>/;
+const brRe = /<br\s*\/?>/i;
 
 /** Turns markdown (MCP / edit source) into a TipTap document plus search text. */
 export function fromMarkdown(src: string): { content: DocContent; plainText: string } {
@@ -204,26 +205,55 @@ function parseTable(lines: string[]): [Node, string[], number] {
       continue;
     }
     if (!tableRowRe.test(trimmed)) break;
-    rows.push(
-      trimmed
-        .replace(/^\|/, "")
-        .replace(/\|$/, "")
-        .split("|")
-        .map((cell) => cell.trim()),
-    );
+    rows.push(splitTableRow(trimmed));
     consumed += 1;
   }
   const tableRows: Node[] = [];
   const texts: string[] = [];
   rows.forEach((row, r) => {
     const cells = row.map((cell) => {
-      const [inlineNodes, p] = inline(cell);
+      const [inlineNodes, p] = cellInline(cell);
       texts.push(p);
       return node(r === 0 ? "tableHeader" : "tableCell", null, [node("paragraph", null, inlineNodes)]);
     });
     tableRows.push(node("tableRow", null, cells));
   });
   return [node("table", null, tableRows), texts, consumed];
+}
+
+/** Splits a table row on unescaped pipes; `\|` is a literal pipe (the API
+ * export writes it that way). */
+function splitTableRow(line: string): string[] {
+  let body = line.replace(/^\|/, "");
+  if (body.endsWith("|") && !body.endsWith("\\|")) body = body.slice(0, -1);
+  const cells: string[] = [];
+  let cell = "";
+  for (let i = 0; i < body.length; i += 1) {
+    if (body[i] === "\\" && body[i + 1] === "|") {
+      cell += "|";
+      i += 1;
+    } else if (body[i] === "|") {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += body[i];
+    }
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+/** Parses one table cell, turning `<br>` back into line breaks. */
+function cellInline(src: string): [Node[], string] {
+  const nodes: Node[] = [];
+  const plain: string[] = [];
+  src.split(brRe).forEach((part, i) => {
+    if (i > 0) nodes.push({ type: "hardBreak" });
+    const [inlineNodes, p] = inline(part.trim());
+    nodes.push(...inlineNodes);
+    plain.push(p);
+  });
+  return [nodes, plain.join(" ")];
 }
 
 function inline(src: string): [Node[], string] {
