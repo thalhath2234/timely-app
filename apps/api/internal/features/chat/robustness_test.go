@@ -322,17 +322,17 @@ func TestPendingBatchContinuesOnlyTheLatestProposal(t *testing.T) {
 	}
 }
 
-func TestSettingsChangesShowCurrentSettings(t *testing.T) {
-	catalog := agent.Catalog{"get_notification_settings": {Call: func(context.Context, string, json.RawMessage) (any, error) {
-		return map[string]any{"quietHoursStart": ""}, nil
+func TestReviewedChangesShowCurrentState(t *testing.T) {
+	catalog := agent.Catalog{"undo_schedule_preview": {Call: func(context.Context, string, json.RawMessage) (any, error) {
+		return map[string]any{"canUndo": true}, nil
 	}}}
-	steps := []Step{{Tool: "update_notification_settings", Arguments: raw(map[string]string{"quietHoursStart": "22:00"})}}
+	steps := []Step{{Tool: "undo_schedule", Arguments: raw(map[string]string{})}}
 	snaps, err := (&Service{}).snapshots(context.Background(), nil, catalog, "user", steps)
-	if err != nil || len(snaps) != 1 || !strings.Contains(string(steps[0].Before), "quietHoursStart") {
-		t.Fatalf("settings review lacks current values: %v %s", err, steps[0].Before)
+	if err != nil || len(snaps) != 1 || !strings.Contains(string(steps[0].Before), "canUndo") {
+		t.Fatalf("undo review lacks the blocks it restores: %v %s", err, steps[0].Before)
 	}
 	if !needsApproval(steps, true) {
-		t.Fatal("notification settings must be reviewed")
+		t.Fatal("undoing the schedule must be reviewed")
 	}
 }
 

@@ -23,7 +23,9 @@ func TestApprovalBoundaries(t *testing.T) {
 		{"recurrence through general update", "update_event", `{"recurrence":{"rrule":"FREQ=WEEKLY"}}`, true},
 		{"calendar placement", "auto_schedule_apply", `{}`, true},
 		{"plain create", "create_task", `{"name":"Read"}`, false},
-		{"delete task", "delete_task", `{"taskId":"tsk"}`, true},
+		{"delete checklist item", "delete_checklist_item", `{"taskId":"tsk","itemId":"itm"}`, true},
+		{"delete block", "delete_block", `{"blockId":"blk"}`, true},
+		{"delete task (MCP only, still reviewed)", "delete_task", `{"taskId":"tsk"}`, true},
 		{"clear blocks", "clear_task_blocks", `{"taskId":"tsk"}`, true},
 		{"working hours", "update_working_hours", `{"timezone":"Asia/Tokyo","days":{}}`, true},
 		{"undo auto-schedule", "undo_schedule", `{}`, true},
@@ -71,7 +73,7 @@ func TestCatalogScope(t *testing.T) {
 	if reads == 0 || writes == 0 {
 		t.Fatalf("chat sees %d read and %d write tools", reads, writes)
 	}
-	for _, name := range []string{"delete_workspace", "delete_project", "delete_status", "delete_custom_field", "delete_backup", "restore_account", "update_profile", "update_account_config", "clear_notifications", "create_backup", "export_account"} {
+	for _, name := range []string{"delete_task", "delete_event", "delete_doc", "delete_sheet", "delete_label", "delete_stage", "update_working_hours", "update_notification_settings", "update_schedule_settings", "delete_workspace", "delete_project", "delete_status", "delete_custom_field", "delete_backup", "restore_account", "update_profile", "update_account_config", "clear_notifications", "create_backup", "export_account"} {
 		if isWriteTool(name) || isReadTool(name) {
 			t.Errorf("unexpected authority for %s", name)
 		}
