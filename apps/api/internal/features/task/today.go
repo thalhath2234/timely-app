@@ -6,9 +6,10 @@ import (
 )
 
 // Today is the current date in the person's Working hours timezone. Work
-// status (Overdue, Unscheduled, Missed) is always judged against a Today, so a
-// caller cannot silently fall back to server-local or UTC time. Build one with
-// TodayFor, or with TodayAt when a caller deliberately uses another zone.
+// status (Overdue, Unscheduled, Missed) is always judged against a Today, so
+// the zone is chosen once, at construction. Build one with TodayFor, or with
+// TodayAt when a caller deliberately uses another zone; the zero Today is not
+// meaningful.
 type Today struct {
 	now time.Time // an instant, expressed in the day-boundary location
 }
