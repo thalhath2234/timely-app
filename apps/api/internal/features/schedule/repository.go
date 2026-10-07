@@ -28,12 +28,7 @@ func NewRepository(db *gorm.DB) Repository {
 }
 
 func (r *repository) GetWorkingHours(userID string) (models.WorkingHours, error) {
-	var config models.Config
-	err := r.db.Select("working_hours").Where("user_id = ?", userID).First(&config).Error
-	if err != nil {
-		return models.WorkingHours{}, err
-	}
-	return config.WorkingHours, nil
+	return models.LoadWorkingHours(r.db, userID)
 }
 
 func (r *repository) UpdateWorkingHours(userID string, hours models.WorkingHours) error {

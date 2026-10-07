@@ -1,6 +1,7 @@
 package task
 
 import (
+	"errors"
 	"net/url"
 	"os"
 	"strings"
@@ -472,5 +473,26 @@ func TestIntegrationSplitContinuesSeriesThroughPlacement(t *testing.T) {
 	}
 	if got := f.blockSpans("task_id", next.ID); len(got) != 0 {
 		t.Fatalf("a series holds no Blocks, got %v", got)
+	}
+}
+
+// Every Working hours read (task, schedule, notify) goes through
+// models.LoadWorkingHours: saved hours come back, and an account with no config
+// row reports gorm.ErrRecordNotFound.
+func TestIntegrationWorkingHoursReader(t *testing.T) {
+	f := newKindFixture(t)
+	if _, err := models.LoadWorkingHours(f.db, kindTestUser); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("no config row: err = %v, want gorm.ErrRecordNotFound", err)
+	}
+	saved := models.DefaultWorkingHours("Europe/Berlin")
+	if err := f.db.Create(&models.Config{ID: "cfg_kind_test", UserID: kindTestUser, WorkingHours: saved}).Error; err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.svc.taskRepo.GetWorkingHours(kindTestUser)
+	if err != nil {
+		t.Fatalf("read saved hours: %v", err)
+	}
+	if got.Timezone != "Europe/Berlin" || got.IsEmpty() {
+		t.Fatalf("hours = %+v, want the saved Europe/Berlin hours", got)
 	}
 }
