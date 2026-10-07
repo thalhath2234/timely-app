@@ -248,7 +248,7 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 		return nil, nil, nil, time.Time{}, err
 	}
 	settings = settings.Normalized()
-	loc := DayLocation(hours, req.Timezone)
+	loc := task.DayLocation(hours, req.Timezone)
 	if hours.IsEmpty() {
 		hours = models.DefaultWorkingHours(loc.String())
 	}
@@ -673,7 +673,7 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 	if err != nil {
 		return nil, err
 	}
-	loc := DayLocation(hours, timezone)
+	loc := task.DayLocation(hours, timezone)
 	if hours.IsEmpty() {
 		hours = models.DefaultWorkingHours(loc.String())
 	}
@@ -698,9 +698,9 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 	return free, nil
 }
 
-// Rank lists Unscheduled and Overdue Work for the current date. The date
-// boundary uses the same location as Auto-schedule: saved Working hours, else
-// the client's timezone, else UTC (QA-03).
+// Rank lists Unscheduled and Overdue Work for the current date in the Working
+// hours timezone (client's timezone, then UTC, when none is saved), the same
+// day boundary Auto-schedule plans in (QA-03).
 func (s *service) Rank(userID string, timezone string) ([]RankedTask, error) {
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
@@ -713,7 +713,7 @@ func (s *service) Rank(userID string, timezone string) ([]RankedTask, error) {
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	list := RankList(tasks, time.Now().In(DayLocation(hours, timezone)))
+	list := RankList(tasks, task.TodayFor(hours, timezone, time.Now()))
 	if list == nil {
 		list = []RankedTask{}
 	}

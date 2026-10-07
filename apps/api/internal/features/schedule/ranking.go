@@ -95,15 +95,15 @@ type RankedTask struct {
 }
 
 // RankList is the next-Work list: Unscheduled or Overdue, ordered by Rank.
-func RankList(tasks []models.Task, now time.Time) []RankedTask {
-	today := now.Format("2006-01-02")
+func RankList(tasks []models.Task, today task.Today) []RankedTask {
+	date := today.Date()
 	var list []RankedTask
 	for i := range tasks {
 		t := tasks[i]
 		if t.IsInbox() || t.IsReminder() || t.IsCompleted() {
 			continue
 		}
-		if !task.IsUnscheduled(t, now) && !task.IsOverdue(t, now) {
+		if !task.IsUnscheduled(t, today) && !task.IsOverdue(t, today) {
 			continue
 		}
 		deadline := (*time.Time)(nil)
@@ -115,10 +115,10 @@ func RankList(tasks []models.Task, now time.Time) []RankedTask {
 		rank := ScoreTask(ScoreInput{
 			Priority:      derefRank(t.PriorityLevel),
 			Deadline:      deadline,
-			Now:           now,
+			Now:           today.Now(),
 			Blocked:       t.BlockedByID != nil && *t.BlockedByID != "",
-			Unscheduled:   task.IsUnscheduled(t, now),
-			TodayFocus:    models.NormalizeDate(derefRank(t.TodayFocusOn)) == today,
+			Unscheduled:   task.IsUnscheduled(t, today),
+			TodayFocus:    models.NormalizeDate(derefRank(t.TodayFocusOn)) == date,
 			ActualMinutes: t.ActualMinutes,
 			Duration:      t.Duration,
 		})

@@ -110,8 +110,7 @@ func (s *Service) PrioritizeOverdue(userID, taskID string) (*schedule.PlanRespon
 	if err != nil {
 		return nil, err
 	}
-	local := time.Now().In(timeLocation(s.notificationTimezone(userID)))
-	if item.Deadline == nil || !overdueTaskCurrent(item, *item.Deadline, local.Format("2006-01-02")) {
+	if item.Deadline == nil || !overdueTaskCurrent(item, *item.Deadline, s.notificationToday(userID)) {
 		return nil, errors.New("task is no longer past its deadline")
 	}
 	priority := models.PriorityUrgent
@@ -281,8 +280,7 @@ func (s *Service) sweepOverdue(userID string, now time.Time) error {
 	if !settings.Reminders {
 		return nil
 	}
-	local := now.In(settings.Location(s.repo.WorkingHoursTimezone(userID)))
-	today := local.Format("2006-01-02")
+	today := s.notificationDay(userID, settings, now)
 	if now.Sub(s.overdueSwept[userID]) < 5*time.Minute {
 		return nil
 	}
@@ -325,8 +323,7 @@ func (s *Service) HandleOverdueTask(ctx context.Context, job *models.Job) error 
 		return err
 	}
 	deadline := job.Payload.String("deadline")
-	local := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(job.UserID)))
-	if !overdueTaskCurrent(item, deadline, local.Format("2006-01-02")) {
+	if !overdueTaskCurrent(item, deadline, s.notificationDay(job.UserID, settings, time.Now())) {
 		return nil
 	}
 	entity := item.ID
@@ -343,10 +340,24 @@ func (s *Service) HandleOverdueTask(ctx context.Context, job *models.Job) error 
 	return s.deliver(ctx, ntf, settings)
 }
 
-func overdueTaskCurrent(item *models.Task, deadline, today string) bool {
-	return item != nil && deadline != "" && deadline < today &&
+// overdueTaskCurrent is true when an overdue notification for deadline is still
+// actionable: the task is Overdue today, still has that deadline, and is
+// schedulable Work (so it can be rescheduled as urgent).
+func overdueTaskCurrent(item *models.Task, deadline string, today task.Today) bool {
+	return item != nil && deadline != "" &&
 		item.Deadline != nil && *item.Deadline == deadline &&
-		item.IsSchedulableWork()
+		item.IsSchedulableWork() && task.IsOverdue(*item, today)
+}
+
+// notificationDay is today in the notification timezone. Notify deliberately
+// does not use the Working hours timezone directly: the person can set a
+// notification timezone of their own, which only falls back to Working hours.
+func (s *Service) notificationDay(userID string, settings models.NotificationSettings, now time.Time) task.Today {
+	return task.TodayAt(now, settings.Location(s.repo.WorkingHoursTimezone(userID)))
+}
+
+func (s *Service) notificationToday(userID string) task.Today {
+	return task.TodayAt(time.Now(), timeLocation(s.notificationTimezone(userID)))
 }
 
 const startLead = 10 * time.Minute
@@ -756,8 +767,7 @@ func (s *Service) HandlePush(ctx context.Context, job *models.Job) error {
 		if err != nil {
 			return err
 		}
-		local := time.Now().In(timeLocation(s.notificationTimezone(job.UserID)))
-		if !overdueTaskCurrent(item, ntf.Data.String("deadline"), local.Format("2006-01-02")) {
+		if !overdueTaskCurrent(item, ntf.Data.String("deadline"), s.notificationToday(job.UserID)) {
 			return s.repo.MarkDelivered(ntf.ID)
 		}
 	}

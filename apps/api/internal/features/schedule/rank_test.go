@@ -3,6 +3,7 @@ package schedule
 import (
 	"testing"
 	"time"
+	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 )
 
@@ -27,7 +28,7 @@ func TestRankListIsUnscheduledOrOverdue(t *testing.T) {
 		}},
 	}
 
-	got := RankList([]models.Task{unscheduled, overdue, inbox, placed}, now)
+	got := RankList([]models.Task{unscheduled, overdue, inbox, placed}, task.TodayAt(now, time.UTC))
 	if len(got) != 2 {
 		t.Fatalf("want unscheduled + overdue, got %d", len(got))
 	}
@@ -49,7 +50,7 @@ func TestRankListTieBreaksByTaskID(t *testing.T) {
 	later := models.Task{ID: "b", Name: "Later id", Kind: models.KindTask, Duration: 30, WorkspaceID: &ws}
 	earlier := models.Task{ID: "a", Name: "Earlier id", Kind: models.KindTask, Duration: 30, WorkspaceID: &ws}
 
-	got := RankList([]models.Task{later, earlier}, now)
+	got := RankList([]models.Task{later, earlier}, task.TodayAt(now, time.UTC))
 	if len(got) != 2 {
 		t.Fatalf("want 2, got %d", len(got))
 	}
@@ -79,26 +80,13 @@ func TestRankUsesClientTimezoneWhenNoWorkingHoursSaved(t *testing.T) {
 	instant := time.Date(2026, 10, 1, 0, 30, 0, 0, tokyo)
 	var noHours models.WorkingHours
 
-	utcNow := instant.In(DayLocation(noHours, ""))
+	utcNow := task.TodayFor(noHours, "", instant)
 	if got := RankList([]models.Task{placedToday}, utcNow); len(got) != 1 {
 		t.Fatalf("with a UTC day boundary the block is tomorrow, want 1 ranked task, got %d", len(got))
 	}
 
-	clientNow := instant.In(DayLocation(noHours, "Asia/Tokyo"))
+	clientNow := task.TodayFor(noHours, "Asia/Tokyo", instant)
 	if got := RankList([]models.Task{placedToday}, clientNow); len(got) != 0 {
 		t.Fatalf("with the client's day boundary the block is today, want 0 ranked tasks, got %d", len(got))
-	}
-}
-
-func TestDayLocationPrefersSavedWorkingHours(t *testing.T) {
-	saved := models.DefaultWorkingHours("Europe/Berlin")
-	if got := DayLocation(saved, "Asia/Tokyo").String(); got != "Europe/Berlin" {
-		t.Fatalf("saved Working hours should win, got %s", got)
-	}
-	if got := DayLocation(models.WorkingHours{}, "Asia/Tokyo").String(); got != "Asia/Tokyo" {
-		t.Fatalf("client timezone should be the fallback, got %s", got)
-	}
-	if got := DayLocation(models.WorkingHours{}, "Not/AZone").String(); got != "UTC" {
-		t.Fatalf("invalid client timezone should fall back to UTC, got %s", got)
 	}
 }

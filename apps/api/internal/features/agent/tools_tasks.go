@@ -37,7 +37,7 @@ type listTasksIn struct {
 	Offset       int      `json:"offset,omitempty"`
 }
 
-func (in listTasksIn) filter() task.TaskFilter {
+func (in listTasksIn) filter(ctx context.Context) task.TaskFilter {
 	return task.TaskFilter{
 		WorkspaceIDs:  appendID(in.WorkspaceIDs, in.WorkspaceID),
 		ProjectIDs:    appendID(in.ProjectIDs, in.ProjectID),
@@ -58,6 +58,7 @@ func (in listTasksIn) filter() task.TaskFilter {
 		Sort:          in.Sort,
 		Limit:         in.Limit,
 		Offset:        in.Offset,
+		Timezone:      zone(ctx, ""),
 	}
 }
 
@@ -73,7 +74,7 @@ func (s *Server) listTasks(ctx context.Context, req *mcp.CallToolRequest, in lis
 	if err != nil {
 		return fail(err)
 	}
-	tasks, err := s.tasksFor(req).List(uid, in.filter())
+	tasks, err := s.tasksFor(req).List(uid, in.filter(ctx))
 	if err != nil {
 		return fail(err)
 	}
