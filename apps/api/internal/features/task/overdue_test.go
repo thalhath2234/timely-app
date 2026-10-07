@@ -1,9 +1,12 @@
 package task
 
 import (
+	"errors"
 	"testing"
 	"time"
 	"timely-api/internal/models"
+
+	"gorm.io/gorm"
 )
 
 func mustLocation(t *testing.T, name string) *time.Location {
@@ -33,9 +36,6 @@ func TestIsOverdueUsesDeadlineAndMissedSchedule(t *testing.T) {
 
 	if IsOverdue(missed, today) {
 		t.Fatal("missed blocks without a deadline are not Overdue")
-	}
-	if !IsMissed(missed, today) {
-		t.Fatal("yesterday's unfinished block should be Missed")
 	}
 	if !IsOverdue(pastDue, today) {
 		t.Fatal("past deadline with no remaining time should be overdue")
@@ -109,8 +109,26 @@ func TestDayLocationPrefersSavedWorkingHours(t *testing.T) {
 	if got := DayLocation(models.WorkingHours{}, "Asia/Tokyo").String(); got != "Asia/Tokyo" {
 		t.Fatalf("client timezone should be the fallback, got %s", got)
 	}
-	if got := DayLocation(models.WorkingHours{}, "Not/AZone").String(); got != "UTC" {
-		t.Fatalf("invalid client timezone should fall back to UTC, got %s", got)
+	if got := DayLocation(models.WorkingHours{}, "Not/AZone").String(); got != time.Local.String() {
+		t.Fatalf("invalid client timezone should fall back to the server's zone, got %s", got)
+	}
+}
+
+// The desktop app hosts the backend (ADR 0011), so with no saved hours and no
+// client zone the day boundary is the server's own zone, not UTC.
+func TestDayLocationFallsBackToServerZone(t *testing.T) {
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Tokyo", 9*60*60)
+
+	// 20:00 UTC on Sep 10 is already Sep 11 in the server's zone.
+	instant := time.Date(2026, 9, 10, 20, 0, 0, 0, time.UTC)
+	today := TodayFor(models.WorkingHours{}, "", instant)
+	if today.Date() != "2026-09-11" || today.Location() != time.Local {
+		t.Fatalf("today = %s in %s, want 2026-09-11 in the server's zone", today.Date(), today.Location())
+	}
+	if got := DayLocation(models.WorkingHours{}, "Not/AZone"); got != time.Local {
+		t.Fatalf("invalid client zone = %s, want the server's zone", got)
 	}
 }
 
@@ -120,5 +138,30 @@ func TestTodayForUsesWorkingHoursZone(t *testing.T) {
 	today := TodayFor(models.DefaultWorkingHours("Europe/Berlin"), "America/New_York", instant)
 	if today.Date() != "2026-09-11" || today.Location().String() != "Europe/Berlin" {
 		t.Fatalf("today = %s in %s, want 2026-09-11 in Europe/Berlin", today.Date(), today.Location())
+	}
+}
+
+func TestTodayForUserReadsSavedHoursThroughTheLookup(t *testing.T) {
+	// 23:30 UTC on Sep 10 is 01:30 on Sep 11 in Berlin.
+	instant := time.Date(2026, 9, 10, 23, 30, 0, 0, time.UTC)
+	saved := func(string) (models.WorkingHours, error) { return models.DefaultWorkingHours("Europe/Berlin"), nil }
+	today, err := TodayForUser(saved, "usr_1", "America/New_York", instant)
+	if err != nil || today.Date() != "2026-09-11" || today.Location().String() != "Europe/Berlin" {
+		t.Fatalf("today = %s in %s (err %v), want 2026-09-11 in Europe/Berlin", today.Date(), today.Location(), err)
+	}
+
+	// No config row yet, or no lookup at all, means no saved hours: the client's zone applies.
+	missing := func(string) (models.WorkingHours, error) { return models.WorkingHours{}, gorm.ErrRecordNotFound }
+	for name, lookup := range map[string]HoursLookup{"no config row": missing, "no lookup": nil} {
+		today, err := TodayForUser(lookup, "usr_1", "Asia/Tokyo", instant)
+		if err != nil || today.Location().String() != "Asia/Tokyo" {
+			t.Fatalf("%s: today in %s (err %v), want Asia/Tokyo", name, today.Location(), err)
+		}
+	}
+
+	broken := errors.New("database down")
+	failing := func(string) (models.WorkingHours, error) { return models.WorkingHours{}, broken }
+	if _, err := TodayForUser(failing, "usr_1", "", instant); !errors.Is(err, broken) {
+		t.Fatalf("err = %v, want the lookup failure", err)
 	}
 }

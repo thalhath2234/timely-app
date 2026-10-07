@@ -39,11 +39,7 @@ func NewTaskRepository(db *gorm.DB) TaskRepository {
 }
 
 func (r *taskRepository) GetWorkingHours(userID string) (models.WorkingHours, error) {
-	var config models.Config
-	if err := r.db.Select("working_hours").Where("user_id = ?", userID).First(&config).Error; err != nil {
-		return models.WorkingHours{}, err
-	}
-	return config.WorkingHours, nil
+	return models.LoadWorkingHours(r.db, userID)
 }
 
 func (r *taskRepository) DB() *gorm.DB {

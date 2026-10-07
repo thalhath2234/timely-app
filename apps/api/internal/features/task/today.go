@@ -1,12 +1,15 @@
 package task
 
 import (
+	"errors"
 	"time"
 	"timely-api/internal/models"
+
+	"gorm.io/gorm"
 )
 
 // Today is the current date in the person's Working hours timezone. Work
-// status (Overdue, Unscheduled, Missed) is always judged against a Today, so
+// status (Overdue, Unscheduled) is always judged against a Today, so
 // the zone is chosen once, at construction. Build one with TodayFor, or with
 // TodayAt when a caller deliberately uses another zone; the zero Today is not
 // meaningful.
@@ -25,17 +28,40 @@ func TodayAt(now time.Time, loc *time.Location) Today {
 }
 
 // TodayFor is the current date in the Working hours timezone of hours; with no
-// saved timezone the client's zone applies, then UTC (see DayLocation).
+// saved timezone the client's zone applies, then the server's zone (see
+// DayLocation).
 func TodayFor(hours models.WorkingHours, clientTimezone string, now time.Time) Today {
 	return TodayAt(now, DayLocation(hours, clientTimezone))
 }
 
+// HoursLookup reads a person's saved Working hours. An account with no config
+// row yet may report gorm.ErrRecordNotFound.
+type HoursLookup func(userID string) (models.WorkingHours, error)
+
+// TodayForUser is TodayFor with the saved Working hours looked up first, so
+// every caller (the Today view, the agenda, the Overdue filter) reads them the
+// same way. No lookup, or no saved hours, is not an error: the client's zone
+// applies, then the server's. Any other lookup failure is returned.
+func TodayForUser(lookup HoursLookup, userID, clientTimezone string, now time.Time) (Today, error) {
+	var hours models.WorkingHours
+	if lookup != nil {
+		saved, err := lookup(userID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return Today{}, err
+		}
+		hours = saved
+	}
+	return TodayFor(hours, clientTimezone, now), nil
+}
+
 // DayLocation is the single day-boundary location shared by Auto-schedule,
 // free-time, and Work status: saved Working hours win, then the client's
-// timezone, then UTC. One resolver keeps "today" identical between placing Work
-// and listing what is still Unscheduled for a new account without saved hours.
+// timezone, then the server's zone. The desktop app hosts the backend (ADR
+// 0011), so the server's zone is the person's own, not an arbitrary default.
+// One resolver keeps "today" identical between placing Work and listing what is
+// still Unscheduled for a new account without saved hours.
 func DayLocation(hours models.WorkingHours, clientTimezone string) *time.Location {
-	loc := time.UTC
+	loc := time.Local
 	if clientTimezone != "" {
 		if parsed, err := time.LoadLocation(clientTimezone); err == nil {
 			loc = parsed

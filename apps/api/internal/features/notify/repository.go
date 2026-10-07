@@ -42,11 +42,11 @@ func (r *repository) UpdateSettings(userID string, settings models.NotificationS
 }
 
 func (r *repository) WorkingHoursTimezone(userID string) string {
-	var config models.Config
-	if err := r.db.Select("working_hours").Where("user_id = ?", userID).First(&config).Error; err != nil {
+	hours, err := models.LoadWorkingHours(r.db, userID)
+	if err != nil {
 		return ""
 	}
-	return config.WorkingHours.Timezone
+	return hours.Timezone
 }
 
 func (r *repository) List(userID string, unreadOnly bool, limit int) ([]models.Notification, error) {

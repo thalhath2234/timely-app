@@ -80,7 +80,7 @@ func TestRankUsesClientTimezoneWhenNoWorkingHoursSaved(t *testing.T) {
 	instant := time.Date(2026, 10, 1, 0, 30, 0, 0, tokyo)
 	var noHours models.WorkingHours
 
-	utcNow := task.TodayFor(noHours, "", instant)
+	utcNow := task.TodayFor(noHours, "UTC", instant)
 	if got := RankList([]models.Task{placedToday}, utcNow); len(got) != 1 {
 		t.Fatalf("with a UTC day boundary the block is tomorrow, want 1 ranked task, got %d", len(got))
 	}

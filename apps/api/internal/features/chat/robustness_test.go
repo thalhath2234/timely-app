@@ -408,3 +408,18 @@ func TestFullProposalMustSayWhatRemains(t *testing.T) {
 		t.Fatalf("partial batch: %v %q", err, p.Remaining)
 	}
 }
+
+// With no saved Working hours and no device zone, the run carries no timezone,
+// so tools fall through to the server-local fallback of task.DayLocation
+// instead of an explicit UTC.
+func TestZonedLeavesTimezoneEmptyWithoutSavedOrDeviceZone(t *testing.T) {
+	s := &Service{}
+	ctx, loc, source := s.zoned(context.Background(), &Conversation{})
+	if got := agent.TimezoneFrom(ctx); got != "" || source != "default" || loc != time.Local {
+		t.Fatalf("zone=%q source=%s loc=%v, want no zone, default, the server's zone", got, source, loc)
+	}
+	ctx, loc, source = s.zoned(context.Background(), &Conversation{Timezone: "Asia/Tokyo"})
+	if got := agent.TimezoneFrom(ctx); got != "Asia/Tokyo" || source != "device" || loc.String() != "Asia/Tokyo" {
+		t.Fatalf("zone=%q source=%s loc=%v, want the device zone", got, source, loc)
+	}
+}

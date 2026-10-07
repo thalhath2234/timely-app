@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // WorkingWindow is one availability span inside a day, "HH:MM" local time.
@@ -85,6 +87,17 @@ func (w WorkingHours) IntervalsOn(day time.Time, loc *time.Location) [][2]time.T
 		})
 	}
 	return out
+}
+
+// LoadWorkingHours is the one reader of a person's saved Working hours. It
+// returns gorm.ErrRecordNotFound when they have no config row yet; a row with
+// no saved hours gives the empty WorkingHours.
+func LoadWorkingHours(db *gorm.DB, userID string) (WorkingHours, error) {
+	var config Config
+	if err := db.Select("working_hours").Where("user_id = ?", userID).First(&config).Error; err != nil {
+		return WorkingHours{}, err
+	}
+	return config.WorkingHours, nil
 }
 
 // Location resolves the configured zone, falling back to the given default.

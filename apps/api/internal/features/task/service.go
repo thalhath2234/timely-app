@@ -220,13 +220,7 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 		customFieldValues = nil
 	}
 	if task.Kind == models.KindReminder {
-		task.Duration = 0
-		task.ProjectID = nil
-		task.StatusID = nil
-		task.StageID = nil
-		if len(task.LabelIDs) == 0 && len(customFieldValues) == 0 {
-			task.WorkspaceID = nil
-		}
+		applyReminderRules(task, len(task.LabelIDs) > 0 || len(customFieldValues) > 0)
 		if !reminderHasPing(task.ScheduledOn, hasRecurrence) {
 			return nil, errReminderNeedsPing
 		}
@@ -313,6 +307,19 @@ func (s *taskService) Create(task *models.Task, customFieldValues []*models.Cust
 	return created, nil
 }
 
+// applyReminderRules is what a Reminder keeps: no estimate, no project, status
+// or stage, and a workspace only when labels or custom fields need one. Create
+// and a kind change to Reminder (applyKindUpdate) share it.
+func applyReminderRules(task *models.Task, keepWorkspace bool) {
+	task.Duration = 0
+	task.ProjectID = nil
+	task.StatusID = nil
+	task.StageID = nil
+	if !keepWorkspace {
+		task.WorkspaceID = nil
+	}
+}
+
 // applyRecurrence turns the task into a series. Its calendar presence comes
 // from expanded occurrences, so any one-off blocks are dropped and
 // scheduled_on mirrors the series start for list sorting.
@@ -346,6 +353,22 @@ func (s *taskService) placeSingleBlock(userID string, task *models.Task, schedul
 		return s.placement.PlacePing(userID, task, start)
 	}
 	return s.placement.PlaceWork(userID, task, start, duration)
+}
+
+// placeByHand handles a scheduledOn the person set on an existing task (PATCH,
+// update_task). A Work Block placed this way is placed by hand: it replaces the
+// task's own Blocks and pushes aside other replaceable Work, but keeps Pinned
+// time and an Event's time (ADR 0010). A Reminder just takes the new ping.
+func (s *taskService) placeByHand(userID string, task *models.Task, scheduledOn string) error {
+	start, err := recurrence.ParseTime(scheduledOn)
+	if err != nil {
+		return errors.New("invalid scheduledOn")
+	}
+	if task.Duration <= 0 {
+		return s.placement.PlacePing(userID, task, start)
+	}
+	end := start.Add(time.Duration(task.Duration) * time.Minute)
+	return s.placement.PlaceByHand(userID, task, start, end, true)
 }
 
 func (s *taskService) GetAllTaskByUser(userID string) ([]models.Task, error) {
@@ -689,7 +712,7 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 	case update.ScheduledOn != nil && *update.ScheduledOn == "":
 		return s.placement.ClearTimes(userID, task)
 	case update.ScheduledOn != nil:
-		return s.placeSingleBlock(userID, task, *update.ScheduledOn, task.Duration)
+		return s.placeByHand(userID, task, *update.ScheduledOn)
 	case update.Duration != nil && task.IsReminder():
 		var keep *time.Time
 		if len(task.Blocks) > 0 {
@@ -862,7 +885,7 @@ func (s *taskService) Split(userID, taskID string, input SplitInput) (*models.Ta
 		if err := store.PreserveFutureExceptions(source.Recurrence, rule, fromStart); err != nil {
 			return err
 		}
-		return tx.Model(&models.Task{}).Where("id = ?", next.ID).Update("scheduled_on", rule.Dtstart).Error
+		return s.placement.WithTx(tx).PlaceSeries(userID, next, rule.Dtstart)
 	})
 	if err != nil {
 		return nil, err
@@ -1122,11 +1145,10 @@ func (s *taskService) List(userID string, filter TaskFilter) ([]models.Task, err
 	annotateProgress(tasks)
 	var today Today
 	if filter.Overdue != nil && *filter.Overdue {
-		hours, err := s.taskRepo.GetWorkingHours(userID)
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		today, err = TodayForUser(s.taskRepo.GetWorkingHours, userID, filter.Timezone, time.Now())
+		if err != nil {
 			return nil, err
 		}
-		today = TodayFor(hours, filter.Timezone, time.Now())
 	}
 	return applyTaskFilter(tasks, filter, today), nil
 }

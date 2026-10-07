@@ -250,7 +250,7 @@ func TestIntegrationPlaceByHandReplaceSwapsTheTasksOwnBlocks(t *testing.T) {
 	}
 }
 
-// PlaceWork (Clarify, task create, update_task scheduledOn) does not push
+// PlaceWork (Clarify, task create) does not push
 // aside overlapping Work; only placing by hand does. Do not merge the two
 // without deciding the product question.
 func TestIntegrationPlaceWorkDoesNotDisplaceOverlappingWork(t *testing.T) {

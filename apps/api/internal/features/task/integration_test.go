@@ -1,10 +1,12 @@
 package task
 
 import (
+	"errors"
 	"net/url"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	_ "timely-api/internal/database" // sets goose's embedded migrations
 	"timely-api/internal/features/placement"
@@ -12,6 +14,7 @@ import (
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
+	"timely-api/internal/utils"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -245,5 +248,281 @@ func TestIntegrationClarifyReminderClearsBogusBoardIDs(t *testing.T) {
 	}
 	if stored.WorkspaceID != nil || stored.ProjectID != nil || stored.StatusID != nil || stored.StageID != nil {
 		t.Fatalf("stored workspace=%v project=%v status=%v stage=%v, want all nil", stored.WorkspaceID, stored.ProjectID, stored.StatusID, stored.StageID)
+	}
+}
+
+// blockSpans is the Blocks that hold a task's or an Event's time, by column.
+func (f *kindFixture) blockSpans(column, id string) [][2]time.Time {
+	f.t.Helper()
+	var rows []models.ScheduledBlock
+	if err := f.db.Where(column+" = ?", id).Order("start_at").Find(&rows).Error; err != nil {
+		f.t.Fatal(err)
+	}
+	out := make([][2]time.Time, len(rows))
+	for i, row := range rows {
+		out[i] = [2]time.Time{row.StartAt, row.EndAt}
+	}
+	return out
+}
+
+// ADR 0010: setting scheduledOn on an existing Work is placing by hand. The
+// task's own Blocks are replaced and other replaceable Work is pushed aside,
+// while Pinned time and an Event's time stay and are overlapped.
+func TestIntegrationUpdateScheduledOnPlacesByHand(t *testing.T) {
+	f := newKindFixture(t)
+	slot := func(hour int) string { return time.Date(2026, 12, 2, hour, 0, 0, 0, time.UTC).Format(time.RFC3339) }
+	work := func(scheduledOn string) *models.Task {
+		t.Helper()
+		got, err := f.svc.Create(f.board(models.KindTask, 30, f.id(scheduledOn)), nil, nil)
+		if err != nil {
+			t.Fatalf("create work: %v", err)
+		}
+		return got
+	}
+
+	loose := work(slot(9))
+	pinnedWork := work(slot(10))
+	if err := f.db.Model(&models.Task{}).Where("id = ?", pinnedWork.ID).Update("schedule_locked", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	eventStart := time.Date(2026, 12, 2, 11, 0, 0, 0, time.UTC)
+	event := &models.Event{ID: utils.NewEventID(), Title: "Dentist", StartAt: eventStart, EndAt: eventStart.Add(30 * time.Minute), Duration: 30, UserID: kindTestUser}
+	if err := f.db.Create(event).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.placement.PlaceEvent(kindTestUser, event); err != nil {
+		t.Fatal(err)
+	}
+	mover := work(slot(15))
+	pinnedSpans := f.blockSpans("task_id", pinnedWork.ID)
+	eventSpans := f.blockSpans("event_id", event.ID)
+
+	for _, hour := range []int{9, 10, 11} {
+		on := slot(hour)
+		if _, err := f.svc.Update(kindTestUser, mover.ID, TaskUpdate{ScheduledOn: &on}); err != nil {
+			t.Fatalf("update scheduledOn %d:00: %v", hour, err)
+		}
+		own := f.blockSpans("task_id", mover.ID)
+		if len(own) != 1 || !own[0][0].Equal(time.Date(2026, 12, 2, hour, 0, 0, 0, time.UTC)) {
+			t.Fatalf("mover Blocks after moving to %d:00 = %v, want one starting there", hour, own)
+		}
+	}
+	if got := f.blockSpans("task_id", loose.ID); len(got) != 0 {
+		t.Fatalf("replaceable Work was not pushed aside: %v", got)
+	}
+	if got := f.blockSpans("task_id", pinnedWork.ID); len(got) != 1 || !got[0][0].Equal(pinnedSpans[0][0]) {
+		t.Fatalf("Pinned Work changed: before %v, after %v", pinnedSpans, got)
+	}
+	if got := f.blockSpans("event_id", event.ID); len(got) != 1 || !got[0][0].Equal(eventSpans[0][0]) {
+		t.Fatalf("Event time changed: before %v, after %v", eventSpans, got)
+	}
+}
+
+func TestIntegrationUpdateWorkToReminderDropsBoardFields(t *testing.T) {
+	f := newKindFixture(t)
+	work, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, nil)
+	if err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+	reminder := models.KindReminder
+	got, err := f.svc.Update(kindTestUser, work.ID, TaskUpdate{Kind: &reminder, ScheduledOn: f.id(kindPing)})
+	if err != nil {
+		t.Fatalf("update to reminder: %v", err)
+	}
+	if got.Kind != models.KindReminder || got.Duration != 0 {
+		t.Fatalf("kind=%s duration=%d", got.Kind, got.Duration)
+	}
+	assertNoBoardFields(t, got)
+	if got.WorkspaceID != nil {
+		t.Fatalf("workspace=%v, a bare reminder keeps none", *got.WorkspaceID)
+	}
+}
+
+func TestIntegrationUpdateWorkToReminderWithLabelKeepsWorkspace(t *testing.T) {
+	f := newKindFixture(t)
+	in := f.board(models.KindTask, 30, nil)
+	in.LabelIDs = models.LabelInputs{{Id: f.label}}
+	work, err := f.svc.Create(in, nil, nil)
+	if err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+	reminder := models.KindReminder
+	got, err := f.svc.Update(kindTestUser, work.ID, TaskUpdate{Kind: &reminder, ScheduledOn: f.id(kindPing)})
+	if err != nil {
+		t.Fatalf("update to reminder: %v", err)
+	}
+	assertNoBoardFields(t, got)
+	if got.WorkspaceID == nil || *got.WorkspaceID != f.workspace {
+		t.Fatalf("workspace=%v, want %s kept for the label", got.WorkspaceID, f.workspace)
+	}
+}
+
+func TestIntegrationDuplicateReminderCarriesItsPing(t *testing.T) {
+	f := newKindFixture(t)
+	reminder, err := f.svc.Create(f.board(models.KindReminder, 0, f.id(kindPing)), nil, nil)
+	if err != nil {
+		t.Fatalf("create reminder: %v", err)
+	}
+	copied, err := f.svc.Duplicate(kindTestUser, reminder.ID)
+	if err != nil {
+		t.Fatalf("duplicate reminder: %v", err)
+	}
+	if copied.ID == reminder.ID || copied.Kind != models.KindReminder || copied.Name != "Copy of Thing" {
+		t.Fatalf("copy = %+v", copied)
+	}
+	if copied.ScheduledOn == nil || !sameInstant(t, *copied.ScheduledOn, kindPing) {
+		t.Fatalf("copy ping = %v, want %s", copied.ScheduledOn, kindPing)
+	}
+}
+
+// A Reminder belongs to no project, so cloning a project skips one that sits in
+// it (rows from before Reminders stopped carrying a project) instead of making
+// a free-floating copy that pings at the same time as the original.
+func TestIntegrationCloneProjectSkipsReminders(t *testing.T) {
+	f := newKindFixture(t)
+	reminder, err := f.svc.Create(f.board(models.KindReminder, 0, f.id(kindPing)), nil, nil)
+	if err != nil {
+		t.Fatalf("create reminder: %v", err)
+	}
+	if err := f.db.Model(&models.Task{}).Where("id = ?", reminder.ID).Update("project_id", f.project).Error; err != nil {
+		t.Fatal(err)
+	}
+	work, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, nil)
+	if err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+
+	target := models.Project{ID: "prj_kind_clone", Title: "Clone", WorkspaceID: f.id(f.workspace)}
+	targetStage := models.Stage{ID: "stg_kind_clone", Name: "Stage", ProjectID: &target.ID}
+	for _, row := range []any{&target, &targetStage} {
+		if err := f.db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	stageMap := map[string]string{f.stage: targetStage.ID}
+	if err := f.svc.CopyProjectTasks(kindTestUser, f.project, target.ID, stageMap); err != nil {
+		t.Fatalf("copy project tasks: %v", err)
+	}
+
+	var copies []models.Task
+	if err := f.db.Where("id NOT IN ?", []string{reminder.ID, work.ID}).Find(&copies).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(copies) != 1 || copies[0].Kind != models.KindTask || deref(copies[0].ProjectID) != target.ID {
+		t.Fatalf("clone = %+v, want only the Work, in the new project", copies)
+	}
+}
+
+func sameInstant(t *testing.T, a, b string) bool {
+	t.Helper()
+	left, err := time.Parse(time.RFC3339Nano, a)
+	if err != nil {
+		t.Fatalf("parse %q: %v", a, err)
+	}
+	right, err := time.Parse(time.RFC3339Nano, b)
+	if err != nil {
+		t.Fatalf("parse %q: %v", b, err)
+	}
+	return left.Equal(right)
+}
+
+func TestIntegrationDuplicateRepeatingReminderKeepsItsRule(t *testing.T) {
+	f := newKindFixture(t)
+	rec := &models.RecurrenceInput{RRule: "FREQ=DAILY", Dtstart: kindPing}
+	reminder, err := f.svc.Create(f.board(models.KindReminder, 0, nil), nil, rec)
+	if err != nil {
+		t.Fatalf("create repeating reminder: %v", err)
+	}
+	copied, err := f.svc.Duplicate(kindTestUser, reminder.ID)
+	if err != nil {
+		t.Fatalf("duplicate repeating reminder: %v", err)
+	}
+	if !copied.IsRecurring() || copied.Recurrence == nil || copied.Recurrence.RRule != "FREQ=DAILY" {
+		t.Fatalf("copy recurrence = %+v, want FREQ=DAILY", copied.Recurrence)
+	}
+}
+
+// ADR 0004: the task that continues a series gets its scheduled_on mirror from
+// Placement, in the same transaction as the row and its rule.
+func TestIntegrationSplitContinuesSeriesThroughPlacement(t *testing.T) {
+	f := newKindFixture(t)
+	rec := &models.RecurrenceInput{RRule: "FREQ=DAILY", Dtstart: kindPing}
+	source, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, rec)
+	if err != nil {
+		t.Fatalf("create series: %v", err)
+	}
+	from := "2026-12-05T10:00:00Z"
+	next, err := f.svc.Split(kindTestUser, source.ID, SplitInput{FromStart: from})
+	if err != nil {
+		t.Fatalf("split: %v", err)
+	}
+	if next.ID == source.ID || !next.IsRecurring() {
+		t.Fatalf("continuation = %+v, want a new recurring task", next)
+	}
+	if next.ScheduledOn == nil || !sameInstant(t, *next.ScheduledOn, from) {
+		t.Fatalf("continuation scheduled_on = %v, want the series start %s", next.ScheduledOn, from)
+	}
+	if got := f.blockSpans("task_id", next.ID); len(got) != 0 {
+		t.Fatalf("a series holds no Blocks, got %v", got)
+	}
+}
+
+// Every Working hours read (task, schedule, notify) goes through
+// models.LoadWorkingHours: saved hours come back, and an account with no config
+// row reports gorm.ErrRecordNotFound.
+func TestIntegrationWorkingHoursReader(t *testing.T) {
+	f := newKindFixture(t)
+	if _, err := models.LoadWorkingHours(f.db, kindTestUser); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("no config row: err = %v, want gorm.ErrRecordNotFound", err)
+	}
+	saved := models.DefaultWorkingHours("Europe/Berlin")
+	if err := f.db.Create(&models.Config{ID: "cfg_kind_test", UserID: kindTestUser, WorkingHours: saved}).Error; err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.svc.taskRepo.GetWorkingHours(kindTestUser)
+	if err != nil {
+		t.Fatalf("read saved hours: %v", err)
+	}
+	if got.Timezone != "Europe/Berlin" || got.IsEmpty() {
+		t.Fatalf("hours = %+v, want the saved Europe/Berlin hours", got)
+	}
+}
+
+// Only the change to Reminder clears the workspace: a Reminder that stays one
+// keeps the workspace the person picks for it.
+func TestIntegrationUpdateReminderKeepsPickedWorkspace(t *testing.T) {
+	f := newKindFixture(t)
+	reminder, err := f.svc.Create(f.board(models.KindReminder, 0, f.id(kindPing)), nil, nil)
+	if err != nil {
+		t.Fatalf("create reminder: %v", err)
+	}
+	if reminder.WorkspaceID != nil {
+		t.Fatalf("a bare reminder starts with no workspace, got %v", *reminder.WorkspaceID)
+	}
+	got, err := f.svc.Update(kindTestUser, reminder.ID, TaskUpdate{WorkspaceID: f.id(f.workspace)})
+	if err != nil {
+		t.Fatalf("pick workspace: %v", err)
+	}
+	if got.Kind != models.KindReminder || got.WorkspaceID == nil || *got.WorkspaceID != f.workspace {
+		t.Fatalf("workspace=%v kind=%s, want %s kept on the reminder", got.WorkspaceID, got.Kind, f.workspace)
+	}
+}
+
+// Labels sent in the same PATCH that turns Work into a Reminder keep its workspace.
+func TestIntegrationUpdateWorkToReminderWithLabelsInSamePatchKeepsWorkspace(t *testing.T) {
+	f := newKindFixture(t)
+	work, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, nil)
+	if err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+	reminder := models.KindReminder
+	labels := models.LabelInputs{{Id: f.label}}
+	got, err := f.svc.Update(kindTestUser, work.ID, TaskUpdate{Kind: &reminder, ScheduledOn: f.id(kindPing), LabelIDs: &labels})
+	if err != nil {
+		t.Fatalf("update to reminder: %v", err)
+	}
+	assertNoBoardFields(t, got)
+	if got.WorkspaceID == nil || *got.WorkspaceID != f.workspace || len(got.LabelIDs) != 1 {
+		t.Fatalf("workspace=%v labels=%v, want the workspace kept for the label", got.WorkspaceID, got.LabelIDs)
 	}
 }
