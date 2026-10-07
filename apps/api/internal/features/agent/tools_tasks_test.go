@@ -52,12 +52,12 @@ func TestPrepareCreateTaskRejectsInboxAndKeepsReminder(t *testing.T) {
 }
 
 func TestCreateTaskErrorAsksForWorkspace(t *testing.T) {
-	got := createTaskError(task.ErrWorkspaceRequired)
+	got := taskError(task.ErrWorkspaceRequired)
 	if got == nil || !strings.Contains(got.Error(), "ask the user which workspace") {
 		t.Fatalf("error = %v, want workspace prompt", got)
 	}
 	other := errors.New("boom")
-	if createTaskError(other) != other {
+	if taskError(other) != other {
 		t.Fatal("other errors must pass through")
 	}
 }

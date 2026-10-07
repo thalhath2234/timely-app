@@ -75,7 +75,7 @@ func (s *Server) clarifyInboxItem(ctx context.Context, req *mcp.CallToolRequest,
 		ScheduledOn:   strPtr(in.ScheduleAt),
 	})
 	if err != nil {
-		return fail(createTaskError(err))
+		return fail(taskError(err))
 	}
 	return reply("clarified "+t.Name, taskPayload(t))
 }

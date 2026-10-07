@@ -421,7 +421,7 @@ func (s *taskService) applyKindUpdate(userID string, before *models.Task, update
 			return errors.New("work tasks need a duration greater than 0")
 		}
 		if workspaceID == nil || strings.TrimSpace(*workspaceID) == "" {
-			return errors.New("workspaceId is required")
+			return ErrWorkspaceRequired
 		}
 		// Clarifying an inbox item (or converting a reminder) must land on the
 		// board as a normal task: give it the workspace default status when

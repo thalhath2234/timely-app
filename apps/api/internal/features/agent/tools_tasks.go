@@ -121,10 +121,10 @@ type createTaskIn struct {
 
 // errAskWorkspace is what the model sees when Work has no workspace; the task
 // module owns the rule, this only words the next step for the agent.
-var errAskWorkspace = errors.New("ask the user which workspace to use for this task, then retry create_task")
+var errAskWorkspace = errors.New("ask the user which workspace to use for this task, then retry")
 
-// createTaskError words task.Create's errors for the model.
-func createTaskError(err error) error {
+// taskError words the task module's errors for the model.
+func taskError(err error) error {
 	if errors.Is(err, task.ErrWorkspaceRequired) {
 		return errAskWorkspace
 	}
@@ -202,7 +202,7 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	}
 	created, err := s.tasksFor(req).Create(t, cfValues(in.CustomFields), rec)
 	if err != nil {
-		return fail(createTaskError(err))
+		return fail(taskError(err))
 	}
 	return reply("created "+created.Name, taskPayload(created))
 }
@@ -299,7 +299,7 @@ func (s *Server) updateTask(ctx context.Context, req *mcp.CallToolRequest, in up
 	}
 	t, err := s.tasksFor(req).Update(uid, in.TaskID, in.toUpdate())
 	if err != nil {
-		return fail(err)
+		return fail(taskError(err))
 	}
 	return reply("updated "+t.Name, taskPayload(t))
 }
