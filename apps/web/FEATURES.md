@@ -175,7 +175,7 @@ Deep links: `?taskId=`, `?projectId=`.
 - Comments via `Ctrl/Cmd+Enter`. **No comment delete** in the UI.
 - Native has activity + comments; notes are not the full rich editor.
 
-**Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks`, and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete). It never schedules: `scheduledOn`/`scheduleAt` is refused with 400 ("schedule tasks one at a time"), because placing by hand pushes other Work aside (ADR 0010).
+**Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks`, and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete). It never schedules: `scheduledOn` in the patch is refused with 400 ("schedule tasks one at a time"), and the `bulk_update_tasks` tool has no `scheduledOn` or `scheduleAt`, because placing by hand pushes other Work aside (ADR 0010).
 
 **Checklists** are items on the task, not nested tasks. Completing a task does not auto-complete its checklist. `parentTaskId` is rejected on create/update (REST and MCP); nested-task creation has no replacement. Sheet `description` is also rejected.
 
