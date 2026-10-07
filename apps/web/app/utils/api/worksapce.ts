@@ -311,7 +311,6 @@ export async function updateTaskViewsConfig(data: {
   taskViews: Config["taskViews"];
   activeTaskViewId: string;
   projectTaskViews?: Config["projectTaskViews"];
-  isOnboardingCompleted?: boolean;
 }): Promise<Config> {
   const response = await apiFetch("/config", {
     method: "PUT",
@@ -323,7 +322,6 @@ export async function updateTaskViewsConfig(data: {
       taskViews: data.taskViews,
       activeTaskViewId: data.activeTaskViewId,
       ...(data.projectTaskViews ? { projectTaskViews: data.projectTaskViews } : {}),
-      isOnboardingCompleted: true,
     }),
   });
 
