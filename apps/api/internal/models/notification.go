@@ -235,19 +235,28 @@ func (s NotificationSettings) InQuietHours(now time.Time) bool {
 	return mins >= from || mins < to
 }
 
+// Location is the zone quiet hours and digests are read in: the notification
+// zone, then the given Working hours zone, then the server's own zone. The
+// desktop app hosts the backend (ADR 0011), so that last zone is the person's
+// own; an unknown or invalid name also lands there rather than on UTC.
 func (s NotificationSettings) Location(fallback string) *time.Location {
 	tz := s.Timezone
 	if tz == "" {
 		tz = fallback
 	}
-	if tz == "" {
-		return time.UTC
+	if tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
+		}
 	}
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		return time.UTC
-	}
-	return loc
+	return time.Local
+}
+
+// ZoneName is the IANA name of Location for a client or a later LoadLocation.
+// The server's own zone has none (Go calls it "Local", which nothing else can
+// resolve), so it is "" for "unknown, use the server's".
+func (s NotificationSettings) ZoneName(fallback string) string {
+	return ZoneName(s.Location(fallback))
 }
 
 func (s NotificationSettings) QuietEnd(now time.Time) time.Time {

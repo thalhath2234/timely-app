@@ -1,11 +1,20 @@
-import {
-  CustomFieldValueInput,
-  DocContent,
-  RecurrenceInput,
-  Task,
-  TaskActivity,
-} from "@/app/_types/types";
+import type { Task, TaskActivity } from "@/app/_types/types";
+import type {
+  CreateTaskPayload,
+  SplitTaskSeriesPayload,
+  TaskOccurrenceAction,
+  TaskOccurrencePayload,
+  UpdateTaskPayload,
+} from "@timely/contract/entities";
 import { apiFetch } from "./client";
+
+export type {
+  CreateTaskPayload,
+  SplitTaskSeriesPayload,
+  TaskOccurrenceAction,
+  TaskOccurrencePayload,
+  UpdateTaskPayload,
+};
 
 async function readError(response: Response, fallback: string) {
   try {
@@ -66,29 +75,6 @@ export async function getTask(id: string): Promise<Task> {
   return response.json();
 }
 
-export type CreateTaskCustomFieldValuePayload = CustomFieldValueInput;
-
-export interface CreateTaskPayload {
-  name: string;
-  description?: string;
-  descriptionRich?: DocContent;
-  duration?: number;
-  kind?: "task" | "reminder" | "inbox";
-  deadline?: string;
-  startDate?: string;
-  scheduledOn?: string;
-  workspaceId?: string;
-  projectId?: string;
-  statusId?: string;
-  priorityLevel?: string;
-  stageId?: string;
-  blockedById?: string;
-  labelIds?: { id: string }[];
-  customFieldValues?: CreateTaskCustomFieldValuePayload[];
-  /** Makes the task a repeating series. Omit for a one-off task. */
-  recurrence?: RecurrenceInput;
-}
-
 export async function createTask(data: CreateTaskPayload): Promise<Task> {
   const response = await apiFetch("/tasks", {
     method: "POST",
@@ -135,53 +121,6 @@ export async function clarifyInbox(
   return resData.task ?? resData;
 }
 
-/** Every field is optional so autosave can send just what changed. Passing an
- * empty string to a nullable field clears it. */
-export interface UpdateTaskPayload {
-  name?: string;
-  description?: string;
-  descriptionRich?: DocContent;
-  duration?: number;
-  kind?: "task" | "reminder" | "inbox";
-  todayFocusOn?: string | null;
-  minChunkMinutes?: number;
-  preferredChunkMinutes?: number | null;
-  contiguous?: boolean;
-  earliestStartAt?: string | null;
-  preferredWindows?: { days?: string[]; start: string; end: string }[];
-  scheduleLocked?: boolean;
-  deadline?: string;
-  startDate?: string;
-  scheduledOn?: string;
-  completedAt?: string;
-  workspaceId?: string;
-  projectId?: string;
-  statusId?: string;
-  priorityLevel?: string;
-  stageId?: string;
-  blockedById?: string;
-  /** Replaces the full label set. Pass `[]` to clear. */
-  labelIds?: { id: string }[];
-  /** Replaces the values of the fields listed. Blank values clear a field. */
-  customFieldValues?: CustomFieldValueInput[];
-  /** Replaces the recurrence rule; `null` turns the series back into a one-off. */
-  recurrence?: RecurrenceInput | null;
-}
-
-export type TaskOccurrenceAction =
-  | "complete"
-  | "uncomplete"
-  | "skip"
-  | "restore"
-  | "move";
-
-export interface TaskOccurrencePayload {
-  originalStart: string;
-  action: TaskOccurrenceAction;
-  newStart?: string;
-  newEnd?: string;
-}
-
 /** Edits one instance of a recurring task without touching the series. */
 export async function editTaskOccurrence(
   taskId: string,
@@ -202,14 +141,6 @@ export async function editTaskOccurrence(
 
   const resData = await response.json();
   return resData.task ?? resData;
-}
-
-export interface SplitTaskSeriesPayload {
-  /** Original start of the first occurrence that moves to the new series. */
-  fromStart: string;
-  recurrence: Partial<RecurrenceInput>;
-  name?: string;
-  duration?: number;
 }
 
 /** "This and future": closes the series before `fromStart` and returns the new task. */

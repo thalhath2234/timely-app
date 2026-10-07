@@ -109,7 +109,7 @@ export function useDocContextMenu() {
           icon: FolderUp,
           onSelect: () => {
             void updateDoc
-              .mutateAsync({ id: doc.id, parentId: null })
+              .mutateAsync({ id: doc.id, parentId: "" })
               .then(() => useToastStore.getState().show("Moved to top level"));
           },
         },

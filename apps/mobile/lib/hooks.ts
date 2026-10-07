@@ -13,6 +13,7 @@ import {
   clearTaskBlocks,
   deleteBlock,
   getCalendarRange,
+  getFreeTime,
   getScheduleSettings,
   getToday,
   getWorkingHours,
@@ -58,7 +59,8 @@ import {
   unreadNotificationCount,
   updateNotificationSettings,
 } from "./api/notifications";
-import type { UpdateTaskPayload, CreateTaskPayload } from "./api/tasks";
+import type { UpdateTaskPayload, CreateTaskPayload, SplitTaskSeriesPayload } from "./api/tasks";
+import type { SplitEventSeriesPayload } from "./api/events";
 
 export type MentionItem = {
   id: string;
@@ -95,6 +97,7 @@ export const keys = {
   agentProviders: ["agent-providers"] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
+  freeTime: ["schedule", "free-time"] as const,
   today: ["today"] as const,
   notifications: ["notifications"] as const,
   unreadNotifications: ["notifications", "unread-count"] as const,
@@ -137,6 +140,15 @@ export function useInboxQuery() {
 
 export function useTodayQuery() {
   return useQuery({ queryKey: keys.today, queryFn: () => getToday() });
+}
+
+/** Free Working hours from `from` to `to`; fetch only while `enabled`. */
+export function useFreeTimeQuery(from: Date, to: Date, enabled: boolean) {
+  return useQuery({
+    queryKey: [...keys.freeTime, from.toISOString(), to.toISOString()],
+    queryFn: () => getFreeTime(from, to),
+    enabled,
+  });
 }
 
 export function useRankQuery() {
@@ -203,6 +215,16 @@ export function useWorkspacesQuery() {
 
 export function useConfigQuery() {
   return useQuery({ queryKey: keys.config, queryFn: getConfig, staleTime: 30_000, placeholderData: keepPreviousData });
+}
+
+/**
+ * The Working hours timezone: the zone the server judges Overdue and
+ * Unscheduled in. Undefined (device zone) until config loads or when none is
+ * saved.
+ */
+export function useWorkingHoursZone(): string | undefined {
+  const { data } = useConfigQuery();
+  return data?.workingHours?.timezone || undefined;
 }
 
 export function useUpdateAppearance() {
@@ -388,6 +410,7 @@ export function useInvalidateAll() {
       client.invalidateQueries({ queryKey: keys.workspaces }),
       client.invalidateQueries({ queryKey: keys.inbox }),
       client.invalidateQueries({ queryKey: keys.rank }),
+      client.invalidateQueries({ queryKey: keys.freeTime }),
       client.invalidateQueries({ queryKey: keys.today }),
       client.invalidateQueries({ queryKey: keys.scheduleSettings }),
     ]);
@@ -439,6 +462,7 @@ export function useSaveTask() {
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
       client.invalidateQueries({ queryKey: keys.today });
     },
   });
@@ -461,6 +485,7 @@ export function useEditTaskOccurrence() {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: keys.tasks });
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
     },
   });
 }
@@ -474,7 +499,7 @@ export function useSplitTaskSeries() {
     }: {
       id: string;
       fromStart: string;
-      recurrence?: Parameters<typeof splitTaskSeries>[1]["recurrence"];
+      recurrence?: SplitTaskSeriesPayload["recurrence"];
       name?: string;
       duration?: number;
     }) => splitTaskSeries(id, data),
@@ -518,7 +543,7 @@ export function useSplitEventSeries() {
     }: {
       id: string;
       fromStart: string;
-      recurrence?: Parameters<typeof splitEventSeries>[1]["recurrence"];
+      recurrence?: SplitEventSeriesPayload["recurrence"];
       title?: string;
       start?: string;
       end?: string;
@@ -561,6 +586,7 @@ export function useBulkUpdateTasks() {
       tasks?.forEach((task) => cacheTask(client, task));
       client.invalidateQueries({ queryKey: keys.tasks });
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
     },
   });
 }
@@ -775,10 +801,11 @@ export function useUpdateProject() {
     onMutate: async ({ id, data }) => {
       const previousList = client.getQueryData<Project[]>(keys.projects);
       const previousOne = client.getQueryData<Project>([...keys.projects, id]);
+      const patch = data;
       client.setQueryData<Project[]>(keys.projects, (list) =>
-        list?.map((item) => (item.id === id ? { ...item, ...data } : item)),
+        list?.map((item) => (item.id === id ? { ...item, ...patch } : item)),
       );
-      if (previousOne) client.setQueryData([...keys.projects, id], { ...previousOne, ...data });
+      if (previousOne) client.setQueryData([...keys.projects, id], { ...previousOne, ...patch });
       return { previousList, previousOne };
     },
     onError: (_error, { id }, context) => {
@@ -854,6 +881,7 @@ export function useAddBlock() {
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
       client.invalidateQueries({ queryKey: keys.today });
     },
   });
@@ -928,6 +956,7 @@ export function useClearTaskBlocks() {
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: ["calendar"] });
+      client.invalidateQueries({ queryKey: keys.freeTime });
     },
   });
 }

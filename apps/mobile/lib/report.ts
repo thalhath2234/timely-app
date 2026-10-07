@@ -1,4 +1,5 @@
 import type { Doc, Project, Sheet, Task, Workspace } from "./types";
+import { addDaysToDate, isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { extractMentions } from "./richText";
 
 export type ReportStat = { label: string; value: number; hint: string };
@@ -40,18 +41,6 @@ export type ReportData = {
 
 const PRIORITY_ORDER = ["Urgent", "High", "Medium", "Low", "None"];
 
-function startOfToday() {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function addDays(base: Date, days: number) {
-  const next = new Date(base);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
 function parseDate(value?: string | null) {
   if (!value) return null;
   const date = new Date(value);
@@ -64,10 +53,13 @@ export function buildReportData(input: {
   docs: Doc[];
   sheets: Sheet[];
   workspaces: Workspace[];
+  /** Working hours timezone; Overdue is judged on its date. Undefined: device zone. */
+  timeZone?: string | null;
 }): ReportData {
   const { tasks, projects, docs, sheets, workspaces } = input;
-  const today = startOfToday();
-  const horizon = addDays(today, 14);
+  // One date for Overdue and the upcoming window, both in the Working hours zone.
+  const todayKey = todayInZone(input.timeZone);
+  const horizonKey = addDaysToDate(todayKey, 14);
   const openTasks = tasks.filter((task) => !task.completedAt);
   const completedTasks = tasks.filter((task) => Boolean(task.completedAt));
   const completionRate = tasks.length === 0 ? 0 : Math.round((completedTasks.length / tasks.length) * 100);
@@ -75,6 +67,9 @@ export function buildReportData(input: {
   const overdue: DeadlineItem[] = [];
   const upcoming: DeadlineItem[] = [];
   for (const task of openTasks) {
+    // Inbox items and Reminders are not Work: they have no Overdue or
+    // upcoming deadline (the server's `task.IsOverdue`).
+    if (task.kind === "inbox" || task.kind === "reminder") continue;
     const deadline = parseDate(task.deadline);
     if (!deadline) continue;
     const item: DeadlineItem = {
@@ -83,10 +78,11 @@ export function buildReportData(input: {
       deadline: task.deadline as string,
       priorityLevel: task.priorityLevel,
       projectTitle: task.project?.title,
-      overdue: deadline < today,
+      overdue: isOverdue(task, todayKey),
     };
     if (item.overdue) overdue.push(item);
-    else if (deadline <= horizon) upcoming.push(item);
+    // Dates compare as text, the way `isOverdue` reads the deadline.
+    else if (task.deadline!.slice(0, 10) <= horizonKey) upcoming.push(item);
   }
 
   const priorityCounts = new Map<string, number>();

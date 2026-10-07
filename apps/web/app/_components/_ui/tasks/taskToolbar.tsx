@@ -11,7 +11,7 @@ import type {
   TaskListDataMode,
   TaskListGroupField,
   TaskListGroupSortDirection,
-  TaskListSortBy,
+  TaskViewSortBy,
   TaskListSortDirection,
   TaskRenderMode,
   Workspace,
@@ -51,8 +51,8 @@ type TaskToolbarProps = {
   selectedStatusIds: string[];
   setSelectedStatusIds: (value: string[]) => void;
   dataCount: number;
-  sortBy: TaskListSortBy;
-  setSortBy: (value: TaskListSortBy) => void;
+  sortBy: TaskViewSortBy;
+  setSortBy: (value: TaskViewSortBy) => void;
   sortDirection: TaskListSortDirection;
   setSortDirection: (value: TaskListSortDirection) => void;
   customFields: CustomField[];
@@ -489,7 +489,7 @@ export function TaskToolbar({
             <Select
               size="sm"
               value={sortBy}
-              onChange={(next) => setSortBy(next as TaskListSortBy)}
+              onChange={(next) => setSortBy(next as TaskViewSortBy)}
               options={sortOptions}
               aria-label="Sort by"
             />

@@ -46,7 +46,7 @@ export default function CalendarItemSheet({
         <View style={styles.meta}>
           <View style={[styles.swatch, { backgroundColor: itemColor(item) }]} />
           <Text style={styles.when}>
-            {formatRelativeDay(startOfDay(new Date(item.start)))} ·{" "}
+            {formatRelativeDay(startOfDay(new Date(item.start)), undefined)} ·{" "}
             {item.allDay
               ? "All day"
               : isReminderItem(item)

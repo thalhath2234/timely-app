@@ -75,21 +75,6 @@ func (h *Handler) Create(c *echo.Context) error {
 		return err
 	}
 	req.WorkspaceID = nonemptyID(req.WorkspaceID)
-	kind := models.ResolveCreateKind(req.Kind, req.Duration, req.ScheduledOn, req.Recurrence != nil && req.Recurrence.RRule != "")
-	if kind == models.KindTask && req.WorkspaceID == nil {
-		return echo.NewHTTPError(
-			http.StatusBadRequest,
-			"workspaceId is required",
-		)
-	}
-	if kind == models.KindReminder {
-		req.ProjectID = nil
-		req.StatusID = nil
-		req.StageID = nil
-		if len(req.LabelIDs) == 0 && len(req.CustomFieldValues) == 0 {
-			req.WorkspaceID = nil
-		}
-	}
 
 	customFieldValues := make([]*models.CustomFieldValue, 0, len(req.CustomFieldValues))
 	for _, cfv := range req.CustomFieldValues {
@@ -120,7 +105,7 @@ func (h *Handler) Create(c *echo.Context) error {
 		StageID:       req.StageID,
 
 		BlockedByID: req.BlockedByID,
-		Kind:        kind,
+		Kind:        req.Kind,
 		LabelIDs:    models.LabelInputs(req.LabelIDs),
 	}
 
@@ -312,6 +297,7 @@ func parseTaskFilter(c *echo.Context) TaskFilter {
 		Sort:          c.QueryParam("sort"),
 		Limit:         parseIntQuery(c.QueryParam("limit")),
 		Offset:        parseIntQuery(c.QueryParam("offset")),
+		Timezone:      c.QueryParam("timezone"),
 	}
 }
 

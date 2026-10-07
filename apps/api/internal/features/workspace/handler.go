@@ -190,7 +190,8 @@ func (h *Handler) Delete(c *echo.Context) error {
 
 func (h *Handler) CreateLable(c *echo.Context) error {
 	workspaceID := c.Param("id")
-	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+	userID, err := requestScope(c, workspaceID)
+	if err != nil {
 		return err
 	}
 
@@ -208,12 +209,9 @@ func (h *Handler) CreateLable(c *echo.Context) error {
 		WorkspaceID: workspaceID,
 	}
 
-	createdLable, err := h.workspaceService.CreateLables(lable)
+	createdLable, err := h.workspaceService.CreateLabels(userID, lable)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		return childError(err)
 	}
 
 	return c.JSON(http.StatusCreated, createdLable)
@@ -221,7 +219,8 @@ func (h *Handler) CreateLable(c *echo.Context) error {
 
 func (h *Handler) CreateStatus(c *echo.Context) error {
 	workspaceID := c.Param("id")
-	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+	userID, err := requestScope(c, workspaceID)
+	if err != nil {
 		return err
 	}
 
@@ -239,12 +238,9 @@ func (h *Handler) CreateStatus(c *echo.Context) error {
 		WorkspaceID: workspaceID,
 	}
 
-	createdStatus, err := h.workspaceService.CreateStatuses(status)
+	createdStatus, err := h.workspaceService.CreateStatuses(userID, status)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		return childError(err)
 	}
 
 	return c.JSON(http.StatusCreated, createdStatus)
@@ -252,7 +248,8 @@ func (h *Handler) CreateStatus(c *echo.Context) error {
 
 func (h *Handler) CreateCustomField(c *echo.Context) error {
 	workspaceID := c.Param("id")
-	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+	userID, err := requestScope(c, workspaceID)
+	if err != nil {
 		return err
 	}
 
@@ -279,12 +276,9 @@ func (h *Handler) CreateCustomField(c *echo.Context) error {
 		Options:     options,
 	}
 
-	createdCustomField, err := h.workspaceService.CreateCustomFields(customField)
+	createdCustomField, err := h.workspaceService.CreateCustomFields(userID, customField)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		return childError(err)
 	}
 
 	return c.JSON(http.StatusCreated, createdCustomField)
@@ -292,7 +286,8 @@ func (h *Handler) CreateCustomField(c *echo.Context) error {
 
 func (h *Handler) UpdateLable(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
-	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+	userID, err := requestScope(c, workspaceID)
+	if err != nil {
 		return err
 	}
 	lableID := c.Param("lableId")
@@ -312,12 +307,9 @@ func (h *Handler) UpdateLable(c *echo.Context) error {
 		WorkspaceID: workspaceID,
 	}
 
-	updatedLable, err := h.workspaceService.UpdateLables(lable)
+	updatedLable, err := h.workspaceService.UpdateLabels(userID, lable)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		return childError(err)
 	}
 
 	return c.JSON(http.StatusOK, updatedLable)
@@ -325,16 +317,14 @@ func (h *Handler) UpdateLable(c *echo.Context) error {
 
 func (h *Handler) DeleteLable(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
-	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+	userID, err := requestScope(c, workspaceID)
+	if err != nil {
 		return err
 	}
 	lableID := c.Param("lableId")
 
-	if err := h.workspaceService.DeleteLables(lableID, workspaceID); err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+	if err := h.workspaceService.DeleteLabels(userID, lableID, workspaceID); err != nil {
+		return childError(err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -342,7 +332,8 @@ func (h *Handler) DeleteLable(c *echo.Context) error {
 
 func (h *Handler) UpdateStatus(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
-	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+	userID, err := requestScope(c, workspaceID)
+	if err != nil {
 		return err
 	}
 	statusID := c.Param("statusId")
@@ -362,12 +353,9 @@ func (h *Handler) UpdateStatus(c *echo.Context) error {
 		WorkspaceID: workspaceID,
 	}
 
-	updatedStatus, err := h.workspaceService.UpdateStatuses(status)
+	updatedStatus, err := h.workspaceService.UpdateStatuses(userID, status)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		return childError(err)
 	}
 
 	return c.JSON(http.StatusOK, updatedStatus)
@@ -375,16 +363,14 @@ func (h *Handler) UpdateStatus(c *echo.Context) error {
 
 func (h *Handler) DeleteStatus(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
-	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+	userID, err := requestScope(c, workspaceID)
+	if err != nil {
 		return err
 	}
 	statusID := c.Param("statusId")
 
-	if err := h.workspaceService.DeleteStatuses(statusID, workspaceID); err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+	if err := h.workspaceService.DeleteStatuses(userID, statusID, workspaceID); err != nil {
+		return childError(err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -392,7 +378,8 @@ func (h *Handler) DeleteStatus(c *echo.Context) error {
 
 func (h *Handler) UpdateCustomField(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
-	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+	userID, err := requestScope(c, workspaceID)
+	if err != nil {
 		return err
 	}
 	customFieldID := c.Param("customFieldId")
@@ -418,12 +405,9 @@ func (h *Handler) UpdateCustomField(c *echo.Context) error {
 		Options:     options,
 	}
 
-	updatedCustomField, err := h.workspaceService.UpdateCustomFields(customField)
+	updatedCustomField, err := h.workspaceService.UpdateCustomFields(userID, customField)
 	if err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+		return childError(err)
 	}
 
 	return c.JSON(http.StatusOK, updatedCustomField)
@@ -431,16 +415,14 @@ func (h *Handler) UpdateCustomField(c *echo.Context) error {
 
 func (h *Handler) DeleteCustomField(c *echo.Context) error {
 	workspaceID := c.Param("workspaceId")
-	if err := h.requireOwnedWorkspace(c, workspaceID); err != nil {
+	userID, err := requestScope(c, workspaceID)
+	if err != nil {
 		return err
 	}
 	customFieldID := c.Param("customFieldId")
 
-	if err := h.workspaceService.DeleteCustomFields(customFieldID, workspaceID); err != nil {
-		return echo.NewHTTPError(
-			http.StatusInternalServerError,
-			err.Error(),
-		)
+	if err := h.workspaceService.DeleteCustomFields(userID, customFieldID, workspaceID); err != nil {
+		return childError(err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -527,18 +509,26 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 	return c.JSON(http.StatusOK, updatedConfig)
 }
 
-func (h *Handler) requireOwnedWorkspace(c *echo.Context, workspaceID string) error {
+// requestScope returns the authenticated user and validates the workspace id.
+// Ownership itself is enforced by the workspace service.
+func requestScope(c *echo.Context, workspaceID string) (string, error) {
 	userID, ok := c.Get("userID").(string)
 	if !ok {
-		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+		return "", echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
 	}
 	if workspaceID == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid workspace id")
+		return "", echo.NewHTTPError(http.StatusBadRequest, "invalid workspace id")
 	}
-	if _, err := h.workspaceService.GetWorkspaceById(userID, workspaceID); err != nil {
+	return userID, nil
+}
+
+// childError maps a status/label/custom field service error: a workspace
+// outside the account is a 404, anything else keeps the previous 500.
+func childError(err error) error {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return workspaceError(err)
 	}
-	return nil
+	return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 }
 
 func workspaceError(err error) error {

@@ -37,10 +37,13 @@ const (
 	SortByName      SortByField = "name"
 	SortByDeadline  SortByField = "deadline"
 	SortByStartDate SortByField = "startDate"
-	SortByCreatedAt SortByField = "createdAt"
-	SortByPriority  SortByField = "priority"
-	SortByStatus    SortByField = "status"
-	SortByProject   SortByField = "project"
+	// SortByScheduledOn orders by when the work is scheduled. Both clients sort
+	// the list themselves; the server only stores and validates the choice.
+	SortByScheduledOn SortByField = "scheduledOn"
+	SortByCreatedAt   SortByField = "createdAt"
+	SortByPriority    SortByField = "priority"
+	SortByStatus      SortByField = "status"
+	SortByProject     SortByField = "project"
 )
 
 // StaticGroupFields are the non-custom-field group keys.
@@ -119,7 +122,7 @@ func (tv TaskViewConfig) Validate(customFieldIDs map[string]bool) error {
 		return errors.New("invalid sortDirection: must be 'asc' or 'desc'")
 	}
 	validSortBy := map[SortByField]bool{
-		SortByName: true, SortByDeadline: true, SortByStartDate: true,
+		SortByName: true, SortByDeadline: true, SortByStartDate: true, SortByScheduledOn: true,
 		SortByCreatedAt: true, SortByPriority: true, SortByStatus: true, SortByProject: true,
 	}
 	if !validSortBy[tv.SortBy] {

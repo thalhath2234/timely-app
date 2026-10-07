@@ -35,6 +35,15 @@ func (i Interval) Minutes() int {
 	return int(i.End.Sub(i.Start).Minutes())
 }
 
+// FreeMinutes is the total length of the intervals.
+func FreeMinutes(slots []Interval) int {
+	minutes := 0
+	for _, slot := range slots {
+		minutes += slot.Minutes()
+	}
+	return minutes
+}
+
 // Candidate is a one-off task or one recurring occurrence the engine may place.
 type Candidate struct {
 	ID                 string
@@ -428,7 +437,7 @@ func joinReasons(reasons []string) string {
 // workingIntervals lays the weekly template over [from, to).
 func workingIntervals(from, to time.Time, hours models.WorkingHours, loc *time.Location) []Interval {
 	if hours.IsEmpty() {
-		hours = models.DefaultWorkingHours(loc.String())
+		hours = models.DefaultWorkingHours(models.ZoneName(loc))
 	}
 	var out []Interval
 	day := time.Date(from.In(loc).Year(), from.In(loc).Month(), from.In(loc).Day(), 0, 0, 0, 0, loc)

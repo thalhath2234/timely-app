@@ -7,13 +7,13 @@ import (
 	"math/big"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 	"golang.org/x/text/currency"
 	"gorm.io/gorm"
+	"timely-api/internal/features/sheet"
 	"timely-api/internal/models"
 )
 
@@ -191,144 +191,6 @@ func receiptItems(r ReceiptDraft) []ReceiptItem {
 	return []ReceiptItem{{Description: r.Merchant, Amount: r.Total, Category: r.Category}}
 }
 
-var (
-	aggregateRange = regexp.MustCompile(`(?i)\b(SUM|AVERAGE|MIN|MAX|COUNT|COUNTA|PRODUCT)\(\s*\$?[A-Z]{1,3}\$?\d+\s*:\s*\$?([A-Z]{1,3})\$?(\d+)\s*\)`)
-	cellReference  = regexp.MustCompile(`(:?)(\$?[A-Z]{1,3}\$?)(\d+)\b`)
-)
-
-// totalsRow reports whether a row (1-based number) aggregates the rows
-// directly above it, e.g. =SUM(D1:D5) on row 6, in a column where the new
-// row has a value, so placing the new row above it gets that value counted.
-func totalsRow(columns models.SheetColumns, row, added models.SheetRow, number int) bool {
-	for _, value := range row.Cells {
-		if !strings.HasPrefix(value, "=") {
-			continue
-		}
-		for _, match := range aggregateRange.FindAllStringSubmatch(value, -1) {
-			end, err := strconv.Atoi(match[3])
-			column := columnIndex(match[2])
-			if err == nil && end == number-1 && column < len(columns) && added.Cells[columns[column].ID] != "" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// columnIndex turns spreadsheet letters into a zero-based index (A → 0).
-func columnIndex(letters string) int {
-	index := 0
-	for _, r := range strings.ToUpper(letters) {
-		index = index*26 + int(r-'A'+1)
-	}
-	return index - 1
-}
-
-func emptyRow(row models.SheetRow) bool {
-	for _, value := range row.Cells {
-		if value != "" {
-			return false
-		}
-	}
-	return len(row.Formats) == 0
-}
-
-// shiftTotalsFormula rewrites a totals row's formula after one row is inserted
-// above it: references to its own row move down, and ranges ending on the row
-// above now end on the inserted row.
-func shiftTotalsFormula(value string, number int) string {
-	if !strings.HasPrefix(value, "=") {
-		return value
-	}
-	var b strings.Builder
-	last := 0
-	for _, m := range cellReference.FindAllStringSubmatchIndex(value, -1) {
-		// Skip matches inside names such as LOG10.
-		if c := value[m[0]]; c != ':' && m[0] > 0 {
-			if p := value[m[0]-1]; p == '_' || p >= 'A' && p <= 'Z' || p >= 'a' && p <= 'z' || p >= '0' && p <= '9' {
-				continue
-			}
-		}
-		if m[1] < len(value) && value[m[1]] == '(' {
-			continue // a function name such as LOG10(
-		}
-		row, err := strconv.Atoi(value[m[6]:m[7]])
-		if err != nil {
-			continue
-		}
-		rangeEnd := m[3] > m[2]
-		switch {
-		case row == number:
-			row++
-		case row == number-1 && rangeEnd:
-			row++
-		default:
-			continue
-		}
-		b.WriteString(value[last:m[6]])
-		b.WriteString(strconv.Itoa(row))
-		last = m[7]
-	}
-	b.WriteString(value[last:])
-	return b.String()
-}
-
-// Reuse trailing grid padding without inserting/deleting rows or moving formulas.
-// Internal gaps, notes, links and merged ranges belong to the existing layout.
-// The one exception is a closing totals row (=SUM(D1:D5) right below its data):
-// the receipt goes above it and the total's range grows by one row, otherwise
-// the receipt would sit below the total and never be counted.
-func appendReceiptRow(tab *models.SheetTab, added models.SheetRow) int {
-	last := -1
-	for i, row := range tab.Rows {
-		for _, value := range row.Cells {
-			if value != "" {
-				last = i
-				break
-			}
-		}
-		for _, format := range row.Formats {
-			if format.Note != "" || format.Link != "" {
-				last = i
-				break
-			}
-		}
-	}
-	mergedFrom := -1
-	for _, merge := range tab.Merges {
-		last = max(last, merge.StartRow+merge.RowSpan-1)
-		mergedFrom = max(mergedFrom, merge.StartRow+merge.RowSpan-1)
-	}
-	if last > 0 && mergedFrom < last && totalsRow(tab.Columns, tab.Rows[last], added, last+1) {
-		total := tab.Rows[last]
-		cells := map[string]string{}
-		for column, value := range total.Cells {
-			cells[column] = shiftTotalsFormula(value, last+1)
-		}
-		total.Cells = cells
-		rest := tab.Rows[last+1:]
-		// Reuse one blank padding row below so the grid keeps its size.
-		if len(rest) > 0 && emptyRow(rest[0]) {
-			rest = rest[1:]
-		}
-		tab.Rows = append(tab.Rows[:last:last], append(models.SheetRows{added, total}, rest...)...)
-		return last
-	}
-	next := last + 1
-	if next < len(tab.Rows) {
-		row := &tab.Rows[next]
-		if row.Cells == nil {
-			row.Cells = map[string]string{}
-		}
-		for column, value := range added.Cells {
-			row.Cells[column] = value
-		}
-		return next
-	}
-	tab.Rows = append(tab.Rows, added)
-	return len(tab.Rows) - 1
-}
-
 func normal(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
 
 var columnAliases = map[string][]string{
@@ -349,75 +211,88 @@ func columnID(columns models.SheetColumns, name string) string {
 	}
 	return ""
 }
-func sheetTabs(s models.Sheet) models.SheetTabs {
-	if len(s.Tabs) > 0 {
-		return s.Tabs
-	}
-	return models.SheetTabs{{ID: "primary", Name: "Expenses", Columns: s.Columns, Rows: s.Rows, Merges: s.Merges}}
+
+// rowFinder is the sheet module's read-only search, the only way receipts
+// reach existing sheet content.
+type rowFinder interface {
+	FindRows(userID string, match sheet.TabMatcher) ([]sheet.RowMatch, error)
 }
-func findReceiptDuplicates(db *gorm.DB, uid string, r ReceiptDraft) []ReceiptDuplicate {
+
+// findReceiptDuplicates lists recorded receipts matching the draft's merchant,
+// date, currency and total, and says whether their items match the draft's.
+// A failed lookup reports no duplicates, as before.
+func (s *Service) findReceiptDuplicates(tx *gorm.DB, uid string, r ReceiptDraft) []ReceiptDuplicate {
 	matches := []ReceiptDuplicate{}
 	if r.Merchant == "" || r.Date == "" || r.Currency == "" || r.Total == "" {
-		return matches
-	}
-	var sheets []models.Sheet
-	if db.Where("user_id = ? AND archived_at IS NULL", uid).Find(&sheets).Error != nil {
 		return matches
 	}
 	target, ok := decimal(r.Total)
 	if !ok {
 		return matches
 	}
-	for _, sheet := range sheets {
-		for _, tab := range sheetTabs(sheet) {
-			merchant, date, currency, total := columnID(tab.Columns, "Merchant"), columnID(tab.Columns, "Date"), columnID(tab.Columns, "Currency"), columnID(tab.Columns, "Total")
-			if merchant == "" || date == "" || currency == "" || total == "" {
+	found, err := s.rows(tx).FindRows(uid, func(sh models.Sheet, tab models.SheetTab) []models.SheetRow {
+		merchant, date, currency, total := columnID(tab.Columns, "Merchant"), columnID(tab.Columns, "Date"), columnID(tab.Columns, "Currency"), columnID(tab.Columns, "Total")
+		if merchant == "" || date == "" || currency == "" || total == "" {
+			return nil
+		}
+		// Items contain line amounts, not receipt totals.
+		if normal(tab.Name) == "items" {
+			return nil
+		}
+		var rows []models.SheetRow
+		for _, row := range tab.Rows {
+			value, valid := decimal(row.Cells[total])
+			if !valid {
 				continue
 			}
-			// Items contain line amounts, not receipt totals.
-			if normal(tab.Name) == "items" {
-				continue
+			if normal(row.Cells[merchant]) == normal(r.Merchant) && row.Cells[date] == r.Date && strings.EqualFold(row.Cells[currency], r.Currency) && value.Cmp(target) == 0 {
+				rows = append(rows, row)
 			}
-			for _, row := range tab.Rows {
-				value, valid := decimal(row.Cells[total])
-				if !valid {
-					continue
-				}
-				if normal(row.Cells[merchant]) == normal(r.Merchant) && row.Cells[date] == r.Date && strings.EqualFold(row.Cells[currency], r.Currency) && value.Cmp(target) == 0 {
-					itemMatch := "unknown"
-					receiptID := row.Cells[columnID(tab.Columns, "Receipt ID")]
-					if receiptID != "" {
-						recorded := []string{}
-						expected := []string{}
-						for _, item := range receiptItems(r) {
-							expected = append(expected, normal(item.Description)+":"+item.Amount)
-						}
-						for _, itemsTab := range sheetTabs(sheet) {
-							if normal(itemsTab.Name) != "items" {
-								continue
-							}
-							for _, item := range itemsTab.Rows {
-								if item.Cells[columnID(itemsTab.Columns, "Receipt ID")] == receiptID {
-									recorded = append(recorded, normal(item.Cells[columnID(itemsTab.Columns, "Description")])+":"+item.Cells[columnID(itemsTab.Columns, "Amount")])
-								}
-							}
-						}
-						if len(recorded) > 0 {
-							sort.Strings(recorded)
-							sort.Strings(expected)
-							if strings.Join(recorded, "|") == strings.Join(expected, "|") {
-								itemMatch = "same"
-							} else {
-								itemMatch = "different"
-							}
-						}
-					}
-					matches = append(matches, ReceiptDuplicate{ItemMatch: itemMatch, SheetID: sheet.ID, SheetTitle: sheet.Title, TabID: tab.ID, RowID: row.ID, Merchant: row.Cells[merchant], Date: r.Date, Total: r.Total, Currency: r.Currency})
-				}
+		}
+		return rows
+	})
+	if err != nil {
+		return matches
+	}
+	for _, m := range found {
+		merchant := columnID(m.Tab.Columns, "Merchant")
+		matches = append(matches, ReceiptDuplicate{ItemMatch: receiptItemMatch(m.Sheet, m.Tab, m.Row, r), SheetID: m.Sheet.ID, SheetTitle: m.Sheet.Title, TabID: m.Tab.ID, RowID: m.Row.ID, Merchant: m.Row.Cells[merchant], Date: r.Date, Total: r.Total, Currency: r.Currency})
+	}
+	return matches
+}
+
+// receiptItemMatch compares the draft's items with those recorded in the
+// sheet's Items tab under the same receipt ID: "same", "different", or
+// "unknown" when the row has no receipt ID or no recorded items.
+func receiptItemMatch(sh models.Sheet, tab models.SheetTab, row models.SheetRow, r ReceiptDraft) string {
+	receiptID := row.Cells[columnID(tab.Columns, "Receipt ID")]
+	if receiptID == "" {
+		return "unknown"
+	}
+	recorded := []string{}
+	expected := []string{}
+	for _, item := range receiptItems(r) {
+		expected = append(expected, normal(item.Description)+":"+item.Amount)
+	}
+	for _, itemsTab := range sheet.TabsOf(sh) {
+		if normal(itemsTab.Name) != "items" {
+			continue
+		}
+		for _, item := range itemsTab.Rows {
+			if item.Cells[columnID(itemsTab.Columns, "Receipt ID")] == receiptID {
+				recorded = append(recorded, normal(item.Cells[columnID(itemsTab.Columns, "Description")])+":"+item.Cells[columnID(itemsTab.Columns, "Amount")])
 			}
 		}
 	}
-	return matches
+	if len(recorded) == 0 {
+		return "unknown"
+	}
+	sort.Strings(recorded)
+	sort.Strings(expected)
+	if strings.Join(recorded, "|") == strings.Join(expected, "|") {
+		return "same"
+	}
+	return "different"
 }
 func (s *Service) receiptProposal(c *echo.Context) error {
 	var input struct {
@@ -458,7 +333,7 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 	if issues := receiptIssues(r); len(issues) > 0 {
 		return fmt.Errorf("%s", strings.Join(issues, ". "))
 	}
-	duplicates := findReceiptDuplicates(tx, row.UserID, r)
+	duplicates := s.findReceiptDuplicates(tx, row.UserID, r)
 	review.Duplicates = duplicates
 	if len(duplicates) > 0 && d.DuplicateAction != "add" && d.DuplicateAction != "update" {
 		row.Status = "idle"
@@ -500,7 +375,7 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 		if existing.ID == "" {
 			return fmt.Errorf("Could not read the selected sheet")
 		}
-		tabs = sheetTabs(existing)
+		tabs = sheet.TabsOf(existing)
 		if d.ExpenseTabID != "" {
 			expenseIndex = -1
 			for i := range tabs {
@@ -587,7 +462,7 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 	if expenseRowIndex >= 0 {
 		tabs[expenseIndex].Rows[expenseRowIndex] = summary
 	} else {
-		expenseRowIndex = appendReceiptRow(&tabs[expenseIndex], summary)
+		expenseRowIndex = sheet.AppendRow(&tabs[expenseIndex], summary)
 	}
 	itemFields := []struct{ name, kind string }{{"Receipt ID", "text"}, {"Merchant", "text"}, {"Date", "date"}, {"Currency", "text"}, {"Description", "text"}, {"Quantity", "number"}, {"Unit price", "currency"}, {"Amount", "currency"}, {"Category", "text"}}
 	itemCols := []string{}
@@ -617,7 +492,7 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 		if i < len(oldItems) {
 			tabs[itemIndex].Rows[oldItems[i]] = itemRow
 		} else {
-			appendReceiptRow(&tabs[itemIndex], itemRow)
+			sheet.AppendRow(&tabs[itemIndex], itemRow)
 		}
 	}
 	// Clear surplus imported item cells without shifting positional formulas.
@@ -628,7 +503,7 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 	}
 	summaryText := fmt.Sprintf("Record %s %s at %s on %s in %s; save all %d items separately in Items. Add missing receipt columns; preserve existing rows and other tabs. No currency conversion or combined-currency total.", r.Currency, r.Total, r.Merchant, r.Date, tabs[expenseIndex].Name, len(r.Items))
 	summaryText += fmt.Sprintf(" Receipt summary goes in row %d.", expenseRowIndex+1)
-	if expenseRowIndex+1 < len(tabs[expenseIndex].Rows) && totalsRow(tabs[expenseIndex].Columns, tabs[expenseIndex].Rows[expenseRowIndex+1], summary, expenseRowIndex+2) {
+	if expenseRowIndex+1 < len(tabs[expenseIndex].Rows) && sheet.IsTotalsRow(tabs[expenseIndex].Columns, tabs[expenseIndex].Rows[expenseRowIndex+1], summary, expenseRowIndex+2) {
 		summaryText += " It goes above the totals row, whose ranges now include it."
 	}
 	if len(review.Receipt.Items) == 0 {
@@ -727,7 +602,7 @@ func (s *Service) editReceipt(ctx context.Context, c *Conversation) error {
 	return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
 		row.ImageReview.Receipt = &draft
 		row.ImageReview.Status = "review"
-		row.ImageReview.Duplicates = findReceiptDuplicates(tx, row.UserID, draft)
+		row.ImageReview.Duplicates = s.findReceiptDuplicates(tx, row.UserID, draft)
 		row.Status = "idle"
 		row.Phase = "review"
 		m := message("assistant", tr(row.Language, txtReceiptRevised))

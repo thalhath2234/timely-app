@@ -31,7 +31,7 @@ import {
   TaskListDataMode,
   TaskListGroupField,
   TaskListGroupSortDirection,
-  TaskListSortBy,
+  TaskViewSortBy,
   TaskListSortDirection,
 } from "@/app/_types/types";
 import { useTasks, useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tasks";
@@ -55,7 +55,7 @@ type TasksTableProps = {
   groupSortDirection: TaskListGroupSortDirection;
   groupValueOrders: Record<string, string[]>;
   selectedWorkspaceIds: string[];
-  sortBy: TaskListSortBy;
+  sortBy: TaskViewSortBy;
   sortDirection: TaskListSortDirection;
   columnOrder: string[];
   onColumnOrderChange: (order: string[]) => void;
@@ -277,8 +277,6 @@ function getCustomFieldDisplayValue(task: Task, fieldId: string): string {
   }
 
   if (value.stringValue) return value.stringValue;
-  if (typeof value.numberValue === "number") return String(value.numberValue);
-  if (value.dateValue) return formatDate(value.dateValue);
   if (typeof value.boolValue === "boolean") return value.boolValue ? "Yes" : "No";
 
   return "-";
@@ -444,7 +442,7 @@ function buildNestedGroups(
     });
 }
 
-function compareTasks(a: Task, b: Task, sortBy: TaskListSortBy): number {
+function compareTasks(a: Task, b: Task, sortBy: TaskViewSortBy): number {
   switch (sortBy) {
     case "name":
       return (a.name || "").localeCompare(b.name || "");
@@ -496,7 +494,6 @@ function buildProjectRows(tasks: Task[]): Task[] {
       id: `project-${projectId}`,
       name: project?.title || "Untitled project",
       description: project?.description || "",
-      timeChunks: 0,
       duration: totalDuration,
       deadline: project?.deadline || null,
       startDate: project?.startDate || null,
@@ -555,9 +552,9 @@ export default function TasksTable({
   const dropPreviewRef = useRef<HTMLDivElement>(null);
 
   const dataRows = useMemo(() => {
-    const source = filters ? filterTasks(typedTasks, filters) : typedTasks;
+    const source = filters ? filterTasks(typedTasks, filters, config.workingHours?.timezone) : typedTasks;
     return dataMode === "project" ? buildProjectRows(source) : source;
-  }, [dataMode, typedTasks, filters]);
+  }, [dataMode, typedTasks, filters, config.workingHours?.timezone]);
 
   const filteredRows = useMemo(() => {
     if (filters) return dataRows;

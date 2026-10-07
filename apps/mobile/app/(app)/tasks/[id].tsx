@@ -41,9 +41,11 @@ import {
   useClearTaskBlocks,
   useDeleteBlock,
   useSplitTaskSeries,
+  useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, isOverdue, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
+import { isOverdue, todayInZone } from "@timely/contract/workStatus";
+import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
 import { normalizePriority } from "../../../lib/priority";
 import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent, isRichContentEmpty } from "../../../lib/richText";
@@ -106,6 +108,7 @@ export default function TaskDetailScreen() {
   const task = fetched.data ?? listed;
   const spaces = useWorkspacesQuery().data ?? [];
   const projects = useProjectsQuery().data ?? [];
+  const workingHoursZone = useWorkingHoursZone();
   const save = useSaveTask();
   const metaRef = useRef({ taskWorkspaceId: "", metaWorkspaceId: "" });
   const { schedule: scheduleSave, flush: flushSave } = useAutosave<UpdateTaskPayload>(async (data) => {
@@ -218,7 +221,7 @@ export default function TaskDetailScreen() {
         ? new Date(task.startDate)
         : new Date();
 
-  const overdue = isOverdue(task.deadline, task.completedAt);
+  const overdue = isOverdue(task, todayInZone(workingHoursZone));
   const checklist = task.checklist ?? [];
   const checklistDone = checklist.filter((item) => item.completedAt).length;
   const combinedDone = checklistDone;
@@ -416,7 +419,7 @@ export default function TaskDetailScreen() {
               <Text style={styles.blockText}>
                 {task.scheduledOn || task.recurrence?.dtstart
                   ? isReminder && !task.recurrence
-                    ? `Notify · ${formatRelativeDay(new Date(task.scheduledOn!))} · ${formatTime(task.scheduledOn!)}`
+                    ? `Notify · ${formatRelativeDay(new Date(task.scheduledOn!), workingHoursZone)} · ${formatTime(task.scheduledOn!)}`
                     : `Time · ${formatTime(task.scheduledOn ?? task.recurrence!.dtstart)}`
                   : "Pick a time"}
               </Text>
@@ -427,7 +430,7 @@ export default function TaskDetailScreen() {
                   ? "Each repeat pings at this time and does not reserve a work block."
                   : "Each occurrence starts at this time; auto-schedule will not give the block to other tasks."
                 : task.scheduledOn
-                  ? `Pings at ${formatRelativeDay(new Date(task.scheduledOn))} · ${formatTime(task.scheduledOn)}. Does not reserve a work block.`
+                  ? `Pings at ${formatRelativeDay(new Date(task.scheduledOn), workingHoursZone)} · ${formatTime(task.scheduledOn)}. Does not reserve a work block.`
                   : "Pick a date and time to ping. This does not reserve a work block."}
             </Text>
           </>
@@ -437,7 +440,7 @@ export default function TaskDetailScreen() {
               <View key={block.id} style={styles.block}>
                 <View style={styles.blockIcon}><Pin size={17} color={colors.primary} /></View>
                 <View style={styles.blockCopy}>
-                  <Text style={styles.blockDate}>{formatRelativeDay(new Date(block.start))}{block.locked || block.source === "manual" ? "  ·  PINNED" : ""}</Text>
+                  <Text style={styles.blockDate}>{formatRelativeDay(new Date(block.start), workingHoursZone)}{block.locked || block.source === "manual" ? "  ·  PINNED" : ""}</Text>
                   <Text style={styles.blockText}>{formatTimeRange(block.start, block.end)}</Text>
                 </View>
                 {!isInactive ? <View style={{ flexDirection: "row", gap: 12 }}>
@@ -538,7 +541,7 @@ export default function TaskDetailScreen() {
                 <Pressable onPress={() => setPicker("earliest")} style={styles.block}>
                   <Text style={styles.blockText}>
                     {task.earliestStartAt
-                      ? `Earliest · ${formatRelativeDay(new Date(task.earliestStartAt))} ${formatTime(task.earliestStartAt)}`
+                      ? `Earliest · ${formatRelativeDay(new Date(task.earliestStartAt), workingHoursZone)} ${formatTime(task.earliestStartAt)}`
                       : "Earliest start · any time"}
                   </Text>
                 </Pressable>

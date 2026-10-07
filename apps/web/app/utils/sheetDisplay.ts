@@ -4,9 +4,9 @@ import type {
   SheetColumnType,
   SheetNumberFormat,
 } from "@/app/_types/types";
-import type { CellResult } from "@/app/utils/sheetFormula";
-import { formatCellResult } from "@/app/utils/sheetFormula";
-import { isFormulaValue } from "@/app/utils/sheetColumns";
+import type { CellResult } from "@timely/contract/sheetFormula";
+import { formatCellResult } from "@timely/contract/sheetFormula";
+import { isFormulaValue } from "@timely/contract/sheetCell";
 
 export const SHEET_STATUS_CHIPS: Record<
   string,

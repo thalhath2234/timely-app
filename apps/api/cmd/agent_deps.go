@@ -2,7 +2,6 @@ package main
 
 import (
 	"gorm.io/gorm"
-	"timely-api/internal/blocks"
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/calendar"
@@ -33,8 +32,7 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 	events := event.NewEventRepository(db)
 	sched := schedule.NewRepository(db)
 	rules := recurrence.NewStore(db)
-	blockStore := blocks.NewStore(db)
-	place := placement.New(blockStore, sched.GetWorkingHours)
+	place := placement.New(db, sched.GetWorkingHours)
 	indexer := embed.New(db)
 	indexer.SetQueue(jobs.NewQueue(db))
 	if creds != nil {
@@ -44,7 +42,7 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 	projectService := project.NewProjectService(projects, workspaces, indexer)
 	projectService.SetTaskCopier(taskService)
 	calendarService := calendar.NewService(tasks, events, sched.GetWorkingHours)
-	scheduleService := schedule.NewService(sched, tasks, events, blockStore, place)
+	scheduleService := schedule.NewService(sched, tasks, events, place)
 	return agent.NewCatalog(agent.Deps{
 		Auth:  auth.NewAuthService(auth.NewUserRepository(db), workspaces, auth.NewSessionRepository(db)),
 		Tasks: taskService, Projects: projectService, Workspaces: workspace.NewWorkspaceService(workspaces),

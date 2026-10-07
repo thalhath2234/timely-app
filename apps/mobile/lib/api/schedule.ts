@@ -7,9 +7,19 @@ import type {
   Task,
   TodayResponse,
   WorkingHours,
+  WorkingHoursResponse,
 } from "../types";
+import type {
+  AddBlockPayload,
+  FreeTimeResponse,
+  PlanRequest as WirePlanRequest,
+} from "@timely/contract/schedule";
 import { deviceTimezone } from "../format";
 import { api, unwrap } from "./client";
+
+export type { AddBlockPayload };
+/** What callers choose; `timezone` is the device's, added on send. */
+export type PlanRequest = Omit<WirePlanRequest, "timezone">;
 
 export function getCalendarRange(from: Date, to: Date) {
   const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
@@ -18,22 +28,15 @@ export function getCalendarRange(from: Date, to: Date) {
 
 export function getWorkingHours() {
   const params = new URLSearchParams({ tz: deviceTimezone() });
-  return api<WorkingHours>(`/schedule/working-hours?${params.toString()}`);
+  return api<WorkingHoursResponse>(`/schedule/working-hours?${params.toString()}`);
 }
 
 export function updateWorkingHours(data: WorkingHours) {
-  return api<WorkingHours>("/schedule/working-hours", {
+  return api<WorkingHoursResponse>("/schedule/working-hours", {
     method: "PUT",
     body: { timezone: data.timezone, days: data.days },
   });
 }
-
-export type PlanRequest = {
-  taskIds?: string[];
-  from?: string;
-  to?: string;
-  includeManual?: boolean;
-};
 
 export function previewSchedule(data: PlanRequest = {}) {
   return api<SchedulePlan>("/schedule/preview", {
@@ -84,6 +87,17 @@ export async function getCapacity(from: Date, to: Date) {
   return Array.isArray(body) ? body : body.days ?? [];
 }
 
+/** Working hours minus Events and Blocks, computed by the server. */
+export async function getFreeTime(from: Date, to: Date) {
+  const params = new URLSearchParams({
+    from: from.toISOString(),
+    to: to.toISOString(),
+    timezone: deviceTimezone(),
+  });
+  const body = await api<FreeTimeResponse>(`/schedule/free-time?${params}`);
+  return body.slots ?? [];
+}
+
 export async function pinTask(taskId: string, locked: boolean) {
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/schedule-lock`, {
     method: "PUT",
@@ -99,13 +113,6 @@ export async function pinBlock(blockId: string, locked: boolean) {
   });
   return unwrap(res, "block");
 }
-
-export type AddBlockPayload = {
-  start: string;
-  end?: string;
-  durationMinutes?: number;
-  replace?: boolean;
-};
 
 export async function addTaskBlock(taskId: string, data: AddBlockPayload) {
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/blocks`, { method: "POST", body: data });

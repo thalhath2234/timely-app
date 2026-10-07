@@ -17,23 +17,23 @@ func TestApplyTaskFilterByWorkspaceAndText(t *testing.T) {
 		{ID: "tsk_4", Name: "Call dentist", Duration: 0},
 	}
 
-	got := applyTaskFilter(tasks, TaskFilter{WorkspaceIDs: []string{wsA}, Completed: &open, Limit: 50})
+	got := applyTaskFilter(tasks, TaskFilter{WorkspaceIDs: []string{wsA}, Completed: &open, Limit: 50}, Today{})
 	if len(got) != 1 || got[0].ID != "tsk_1" {
 		t.Fatalf("workspace+open filter: got %#v", ids(got))
 	}
 
-	got = applyTaskFilter(tasks, TaskFilter{Text: "file", Limit: 50})
+	got = applyTaskFilter(tasks, TaskFilter{Text: "file", Limit: 50}, Today{})
 	if len(got) != 1 || got[0].ID != "tsk_2" {
 		t.Fatalf("text filter: got %#v", ids(got))
 	}
 
-	got = applyTaskFilter(tasks, TaskFilter{Limit: 50})
+	got = applyTaskFilter(tasks, TaskFilter{Limit: 50}, Today{})
 	if len(got) != 3 {
 		t.Fatalf("default hides reminders: got %#v", ids(got))
 	}
 
 	onlyReminders := true
-	got = applyTaskFilter(tasks, TaskFilter{Reminders: &onlyReminders, Limit: 50})
+	got = applyTaskFilter(tasks, TaskFilter{Reminders: &onlyReminders, Limit: 50}, Today{})
 	if len(got) != 1 || got[0].ID != "tsk_4" {
 		t.Fatalf("reminders=true: got %#v", ids(got))
 	}
@@ -41,7 +41,7 @@ func TestApplyTaskFilterByWorkspaceAndText(t *testing.T) {
 	inbox := models.Task{ID: "tsk_inbox", Name: "Buy milk", Kind: models.KindInbox, Duration: 0}
 	parent := models.Task{ID: "tsk_parent", Name: "Parent", Kind: models.KindTask, Duration: 30}
 	more := append(tasks, inbox, parent)
-	got = applyTaskFilter(more, TaskFilter{Limit: 50})
+	got = applyTaskFilter(more, TaskFilter{Limit: 50}, Today{})
 	for _, item := range got {
 		if item.ID == "tsk_inbox" {
 			t.Fatalf("default list should hide inbox: %#v", ids(got))
@@ -49,61 +49,24 @@ func TestApplyTaskFilterByWorkspaceAndText(t *testing.T) {
 	}
 
 	inboxOnly := true
-	got = applyTaskFilter(more, TaskFilter{Inbox: &inboxOnly, Limit: 50})
+	got = applyTaskFilter(more, TaskFilter{Inbox: &inboxOnly, Limit: 50}, Today{})
 	if len(got) != 1 || got[0].ID != "tsk_inbox" {
 		t.Fatalf("inbox filter: %#v", ids(got))
 	}
 }
 
-func TestIsOverdueUsesDeadlineAndMissedSchedule(t *testing.T) {
-	now := time.Date(2026, 9, 11, 11, 43, 0, 0, time.Local)
-	yesterday := now.AddDate(0, 0, -1)
-	due := yesterday.Format("2006-01-02")
-
-	missed := models.Task{
-		ID: "tsk_missed", Name: "Missed block", Duration: 30,
-		Blocks: []models.ScheduledBlock{{
-			StartAt: yesterday,
-			EndAt:   yesterday.Add(30 * time.Minute),
-		}},
-	}
-	pastDue := models.Task{ID: "tsk_due", Name: "Past deadline", Duration: 30, Deadline: str(due)}
-	stillOnCalendar := models.Task{
-		ID: "tsk_today", Name: "Today", Duration: 30,
-		Deadline: str(due),
-		Blocks: []models.ScheduledBlock{{
-			StartAt: now,
-			EndAt:   now.Add(30 * time.Minute),
-		}},
-	}
-	open := models.Task{ID: "tsk_open", Name: "Unscheduled", Duration: 30}
-	done := models.Task{
-		ID: "tsk_done", Name: "Done", Duration: 30, Deadline: str(due),
-		CompletedAt: str("2026-09-10T00:00:00Z"),
-	}
-
-	if IsOverdue(missed, now) {
-		t.Fatal("missed blocks without a deadline are not Overdue")
-	}
-	if !IsMissed(missed, now) {
-		t.Fatal("yesterday's unfinished block should be Missed")
-	}
-	if !IsOverdue(pastDue, now) {
-		t.Fatal("past deadline with no remaining time should be overdue")
-	}
-	if !IsOverdue(stillOnCalendar, now) {
-		t.Fatal("a past deadline is overdue even if work is still on today's calendar")
-	}
-	if IsOverdue(open, now) {
-		t.Fatal("unscheduled open work is not overdue")
-	}
-	if IsOverdue(done, now) {
-		t.Fatal("completed tasks are not overdue")
-	}
+func TestApplyTaskFilterOverdueUsesGivenToday(t *testing.T) {
+	berlin := mustLocation(t, "Europe/Berlin")
+	// 00:30 on Sep 11 in Berlin is still Sep 10 in UTC.
+	today := TodayAt(time.Date(2026, 9, 11, 0, 30, 0, 0, berlin), berlin)
+	dueYesterdayBerlin := models.Task{ID: "tsk_due", Name: "Due", Duration: 30, Deadline: str("2026-09-10")}
+	dueToday := models.Task{ID: "tsk_today", Name: "Today", Duration: 30, Deadline: str("2026-09-11")}
+	noDeadline := models.Task{ID: "tsk_open", Name: "Open", Duration: 30}
+	done := models.Task{ID: "tsk_done", Name: "Done", Duration: 30, Deadline: str("2026-09-01"), CompletedAt: str("2026-09-02T00:00:00Z")}
 
 	wantOverdue := true
-	got := applyTaskFilter([]models.Task{missed, pastDue, stillOnCalendar, open, done}, TaskFilter{Overdue: &wantOverdue, Limit: 50})
-	if len(got) != 2 {
+	got := applyTaskFilter([]models.Task{dueYesterdayBerlin, dueToday, noDeadline, done}, TaskFilter{Overdue: &wantOverdue, Limit: 50}, today)
+	if len(got) != 1 || got[0].ID != "tsk_due" {
 		t.Fatalf("overdue filter: got %#v", ids(got))
 	}
 }

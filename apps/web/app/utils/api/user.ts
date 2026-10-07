@@ -1,5 +1,8 @@
-import { User } from "@/app/_types/types";
+import type { DeviceSession, User } from "@/app/_types/types";
+import type { UpdateMePayload } from "@timely/contract/account";
 import { apiFetch } from "@/app/utils/api/client";
+
+export type { UpdateMePayload };
 
 export async function getMe(): Promise<User> {
   const response = await apiFetch("/me");
@@ -10,13 +13,6 @@ export async function getMe(): Promise<User> {
 
   return response.json();
 }
-
-export type UpdateMePayload = {
-  name: string;
-  email: string;
-  currentPassword?: string;
-  newPassword?: string;
-};
 
 export async function updateMe(payload: UpdateMePayload): Promise<User> {
   const response = await apiFetch("/me", {
@@ -41,14 +37,7 @@ export async function updateMe(payload: UpdateMePayload): Promise<User> {
   return response.json();
 }
 
-export type DeviceSession = {
-  id: string;
-  deviceLabel: string;
-  createdAt: string;
-  lastUsedAt: string;
-  expiresAt: string;
-  current: boolean;
-};
+export type { DeviceSession };
 
 export async function listSessions(): Promise<DeviceSession[]> {
   const response = await apiFetch("/sessions");

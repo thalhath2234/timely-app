@@ -116,7 +116,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 	replacements := map[string]bool{}
 	for i := range p.Steps {
 		step := &p.Steps[i]
-		if !writeTools[step.Tool] || catalog[step.Tool].Call == nil {
+		if !isWriteTool(step.Tool) || catalog[step.Tool].Call == nil {
 			return p, nil, fmt.Errorf("Step %d has unavailable tool %q; use an exact write tool name", i+1, step.Tool)
 		}
 		var input map[string]any

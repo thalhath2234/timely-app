@@ -153,7 +153,7 @@ func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emp
 		"activeViewId":      config.ActiveTaskViewId,
 		"taskViews":         config.TaskViews,
 	}
-	return reply(fmt.Sprintf("%s — %d workspaces, %d projects, zone %s", user.Email, len(workspaces), len(projects), hours.Timezone), out)
+	return reply(fmt.Sprintf("%s — %d workspaces, %d projects, zone %s", user.Email, len(workspaces), len(projects), zoneLabel(hours.Timezone)), out)
 }
 
 type rangeIn struct {
@@ -201,14 +201,23 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 	if err != nil {
 		return fail(err)
 	}
-	now := time.Now().In(loc)
+	// Overdue and Unscheduled are judged on today in the Working hours
+	// timezone, like /today and what_next; the range zone only frames items.
+	clientZone := zone(ctx, in.Timezone)
+	today, err := task.TodayForUser(func(id string) (models.WorkingHours, error) {
+		hours, err := s.Schedule.GetWorkingHours(id, clientZone)
+		if err != nil {
+			return models.WorkingHours{}, err
+		}
+		return hours.WorkingHours, nil
+	}, uid, clientZone, time.Now())
+	if err != nil {
+		return fail(err)
+	}
 	overdue := make([]map[string]string, 0)
 	unscheduled := make([]map[string]string, 0)
 	for _, t := range tasks {
-		if t.IsCompleted() || t.IsReminder() {
-			continue
-		}
-		if task.IsOverdue(t, now) && !task.HasRemainingSchedule(t, now) {
+		if task.IsOverdue(t, today) {
 			entry := map[string]string{"id": t.ID, "name": t.Name}
 			if t.Deadline != nil && *t.Deadline != "" {
 				entry["deadline"] = *t.Deadline
@@ -218,7 +227,7 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 			}
 			overdue = append(overdue, entry)
 		}
-		if !t.IsRecurring() && len(t.Blocks) == 0 {
+		if task.IsUnscheduled(t, today) {
 			unscheduled = append(unscheduled, map[string]string{"id": t.ID, "name": t.Name})
 		}
 	}
@@ -229,7 +238,7 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 		}
 		agendaItems = append(agendaItems, item)
 	}
-	lines := []string{fmt.Sprintf("Agenda %s → %s (%s)", from.In(loc).Format("Mon Jan 2 15:04"), to.In(loc).Format("Mon Jan 2 15:04"), loc)}
+	lines := []string{fmt.Sprintf("Agenda %s → %s (%s)", from.In(loc).Format("Mon Jan 2 15:04"), to.In(loc).Format("Mon Jan 2 15:04"), zoneLabel(models.ZoneName(loc)))}
 	for _, item := range agendaItems {
 		stamp := item.Start.In(loc).Format("15:04")
 		if item.AllDay {
@@ -264,19 +273,18 @@ func (s *Server) getFreeTime(ctx context.Context, req *mcp.CallToolRequest, in r
 	if err != nil {
 		return fail(err)
 	}
-	free, err := s.Schedule.FreeTime(uid, from, to, loc.String())
+	free, err := s.Schedule.FreeTime(uid, from, to, models.ZoneName(loc))
 	if err != nil {
 		return fail(err)
 	}
-	minutes := 0
+	minutes := schedule.FreeMinutes(free)
 	lines := []string{}
 	for _, slot := range free {
-		minutes += slot.Minutes()
 		lines = append(lines, fmt.Sprintf("%s (%d min)", span(slot.Start, slot.End, loc), slot.Minutes()))
 	}
 	// text states the slots in the person's timezone so answers quote it
 	// instead of re-reading offsets.
-	text := fmt.Sprintf("Free time in %s, %d minutes:\n%s", loc, minutes, strings.Join(lines, "\n"))
+	text := fmt.Sprintf("Free time in %s, %d minutes:\n%s", zoneLabel(models.ZoneName(loc)), minutes, strings.Join(lines, "\n"))
 	return reply(fmt.Sprintf("%d free minutes in %d slots", minutes, len(free)), map[string]any{"slots": free, "freeMinutes": minutes, "text": text})
 }
 
@@ -337,7 +345,7 @@ func (s *Server) getCalendar(ctx context.Context, req *mcp.CallToolRequest, in r
 	if cal.Items == nil {
 		cal.Items = []calendar.Item{}
 	}
-	lines := []string{fmt.Sprintf("Calendar in %s:", loc)}
+	lines := []string{fmt.Sprintf("Calendar in %s:", zoneLabel(models.ZoneName(loc)))}
 	for _, item := range cal.Items {
 		when := span(item.Start, item.End, loc)
 		if item.AllDay {
@@ -361,7 +369,7 @@ func (s *Server) getWorkingHours(ctx context.Context, req *mcp.CallToolRequest, 
 	if err != nil {
 		return fail(err)
 	}
-	return reply(fmt.Sprintf("working hours in %s", hours.Timezone), hours)
+	return reply(fmt.Sprintf("working hours in %s", zoneLabel(hours.Timezone)), hours)
 }
 
 type hoursIn struct {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"timely-api/internal/features/task"
@@ -36,7 +37,7 @@ type listTasksIn struct {
 	Offset       int      `json:"offset,omitempty"`
 }
 
-func (in listTasksIn) filter() task.TaskFilter {
+func (in listTasksIn) filter(ctx context.Context) task.TaskFilter {
 	return task.TaskFilter{
 		WorkspaceIDs:  appendID(in.WorkspaceIDs, in.WorkspaceID),
 		ProjectIDs:    appendID(in.ProjectIDs, in.ProjectID),
@@ -57,6 +58,7 @@ func (in listTasksIn) filter() task.TaskFilter {
 		Sort:          in.Sort,
 		Limit:         in.Limit,
 		Offset:        in.Offset,
+		Timezone:      zone(ctx, ""),
 	}
 }
 
@@ -72,7 +74,7 @@ func (s *Server) listTasks(ctx context.Context, req *mcp.CallToolRequest, in lis
 	if err != nil {
 		return fail(err)
 	}
-	tasks, err := s.tasksFor(req).List(uid, in.filter())
+	tasks, err := s.tasksFor(req).List(uid, in.filter(ctx))
 	if err != nil {
 		return fail(err)
 	}
@@ -117,8 +119,22 @@ type createTaskIn struct {
 	Recurrence    *recIn      `json:"recurrence,omitempty"`
 }
 
+// errAskWorkspace is what the model sees when Work has no workspace; the task
+// module owns the rule, this only words the next step for the agent.
+var errAskWorkspace = errors.New("ask the user which workspace to use for this task, then retry")
+
+// taskError words the task module's errors for the model.
+func taskError(err error) error {
+	if errors.Is(err, task.ErrWorkspaceRequired) {
+		return errAskWorkspace
+	}
+	return err
+}
+
 // prepareCreateTask makes the default create_task intent Work. Work without
-// an estimate gets 30 minutes; Hermes asks for a missing workspace.
+// an estimate gets 30 minutes. That default is agent-only: HTTP clients that
+// omit a duration create an Inbox item, a Reminder or are rejected, so it
+// cannot live in task.Create.
 func prepareCreateTask(in createTaskIn) (createTaskIn, error) {
 	if in.Kind == "" {
 		in.Kind = models.KindTask
@@ -132,9 +148,6 @@ func prepareCreateTask(in createTaskIn) (createTaskIn, error) {
 	}
 	in.Kind = kind
 	if in.Kind == models.KindTask {
-		if strings.TrimSpace(in.WorkspaceID) == "" {
-			return in, fmt.Errorf("ask the user which workspace to use for this task, then retry create_task")
-		}
 		if in.Duration == nil {
 			defaultDuration := 30
 			in.Duration = &defaultDuration
@@ -162,18 +175,10 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	if in.Duration != nil {
 		duration = *in.Duration
 	}
-	if kind == models.KindReminder {
-		in.ProjectID = ""
-		in.StatusID = ""
-		in.StageID = ""
-		if len(in.LabelIDs) == 0 && len(in.CustomFields) == 0 {
-			in.WorkspaceID = ""
-		}
-	}
 	t := &models.Task{
 		Name:          in.Name,
 		UserID:        &uid,
-		WorkspaceID:   strPtr(in.WorkspaceID),
+		WorkspaceID:   strPtr(strings.TrimSpace(in.WorkspaceID)),
 		Duration:      duration,
 		Kind:          kind,
 		Deadline:      strPtr(in.Deadline),
@@ -197,20 +202,20 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	}
 	created, err := s.tasksFor(req).Create(t, cfValues(in.CustomFields), rec)
 	if err != nil {
-		return fail(err)
+		return fail(taskError(err))
 	}
 	return reply("created "+created.Name, taskPayload(created))
 }
 
-type updateTaskIn struct {
-	TaskID                string      `json:"taskId,omitempty"`
+// taskPatchIn is the part of a task edit that applies to one task or many.
+// Placing a task is deliberately left out: it moves other Work aside, so it
+// happens one task at a time (update_task, schedule_task).
+type taskPatchIn struct {
 	Name                  *string     `json:"name,omitempty"`
 	Description           *string     `json:"description,omitempty" jsonschema:"markdown"`
 	Duration              *int        `json:"duration,omitempty"`
 	Deadline              *string     `json:"deadline,omitempty"`
 	StartDate             *string     `json:"startDate,omitempty"`
-	ScheduledOn           *string     `json:"scheduledOn,omitempty"`
-	ScheduleAt            *string     `json:"scheduleAt,omitempty" jsonschema:"alias for scheduledOn"`
 	CompletedAt           *string     `json:"completedAt,omitempty"`
 	WorkspaceID           *string     `json:"workspaceId,omitempty"`
 	ProjectID             *string     `json:"projectId,omitempty"`
@@ -232,17 +237,28 @@ type updateTaskIn struct {
 	ClearRecurrence       bool        `json:"clearRecurrence,omitempty"`
 }
 
+type updateTaskIn struct {
+	TaskID      string  `json:"taskId,omitempty"`
+	ScheduledOn *string `json:"scheduledOn,omitempty"`
+	ScheduleAt  *string `json:"scheduleAt,omitempty" jsonschema:"alias for scheduledOn"`
+	taskPatchIn
+}
+
 func (in updateTaskIn) toUpdate() task.TaskUpdate {
-	scheduledOn := in.ScheduledOn
-	if scheduledOn == nil {
-		scheduledOn = in.ScheduleAt
+	update := in.taskPatchIn.toUpdate()
+	update.ScheduledOn = in.ScheduledOn
+	if update.ScheduledOn == nil {
+		update.ScheduledOn = in.ScheduleAt
 	}
+	return update
+}
+
+func (in taskPatchIn) toUpdate() task.TaskUpdate {
 	update := task.TaskUpdate{
 		Name:                  in.Name,
 		Duration:              in.Duration,
 		Deadline:              in.Deadline,
 		StartDate:             in.StartDate,
-		ScheduledOn:           scheduledOn,
 		CompletedAt:           in.CompletedAt,
 		WorkspaceID:           in.WorkspaceID,
 		ProjectID:             in.ProjectID,
@@ -294,14 +310,14 @@ func (s *Server) updateTask(ctx context.Context, req *mcp.CallToolRequest, in up
 	}
 	t, err := s.tasksFor(req).Update(uid, in.TaskID, in.toUpdate())
 	if err != nil {
-		return fail(err)
+		return fail(taskError(err))
 	}
 	return reply("updated "+t.Name, taskPayload(t))
 }
 
 type bulkUpdateIn struct {
-	IDs    []string     `json:"ids"`
-	Update updateTaskIn `json:"update"`
+	IDs    []string    `json:"ids"`
+	Update taskPatchIn `json:"update"`
 }
 
 func (s *Server) bulkUpdateTasks(ctx context.Context, req *mcp.CallToolRequest, in bulkUpdateIn) (*mcp.CallToolResult, any, error) {
@@ -321,8 +337,17 @@ func (s *Server) completeTask(ctx context.Context, req *mcp.CallToolRequest, in 
 	if err != nil {
 		return fail(err)
 	}
+	tasks := s.tasksFor(req)
+	existing, err := tasks.GetForUser(uid, in.TaskID)
+	if err != nil {
+		return fail(err)
+	}
+	// Completing the row of a series would end every occurrence at once.
+	if existing.IsRecurring() {
+		return fail(errors.New("this task repeats: completing it would end the whole series. Complete one occurrence with edit_task_occurrence (action complete, originalStart) instead"))
+	}
 	now := nowRFC()
-	t, err := s.tasksFor(req).Update(uid, in.TaskID, task.TaskUpdate{CompletedAt: &now})
+	t, err := tasks.Update(uid, in.TaskID, task.TaskUpdate{CompletedAt: &now})
 	if err != nil {
 		return fail(err)
 	}

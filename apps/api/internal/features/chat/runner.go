@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/placement"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
 )
@@ -36,13 +37,11 @@ Only set direct=true for a clearly requested single creation or small edit that 
 Recurring changes default to this-and-future using split_event_series/split_task_series; to change the time of future event occurrences pass start and end for the first changed occurrence. Show the effective date in summary; preserve past and individually adjusted occurrences. Use account timezone. Never quietly rewrite an entire recurring series.
 To create a reusable sheet template, build the sheet and save it with create_sheet_template in the same reviewed proposal. Do not claim that a normal sheet is a saved template. If asked to find a popular template with web search off, explain that search must be enabled to verify popularity; offer an original monthly expense layout without claiming external research.
 For sheets use text, number, date, boolean, currency, percent, formula, select (a dropdown: give columns an options array of choices; cell values outside it are appended automatically). Tabs: rename_sheet_tab renames any tab, including the first (tabId empty); add_sheet_tab appends a blank tab; delete_sheet_tab removes one. Data rows start at 1; headers are not counted. A first-row total for Quantity in B and Unit price in C is =B1*C1. To create a populated sheet, propose create_sheet then update_sheet with sheetId="$0.sheet.id", columns [{id:"item",name:"Item",type:"text",width:180},...], and rows [{id:"hosting",cells:{item:"Hosting",...}}]. Column widths are required. update_sheet REPLACES supplied rows/columns/tabs arrays; it never appends. Use one update_sheet with the complete final grid for a newly created sheet. To append to an existing sheet use add_sheet_rows. Calculate formula row positions against that complete grid. Use unique row/column IDs you choose for the new grid. Do not look up templates or existing sheets just to discover these documented conventions. Supported formulas are same-grid A1 references, bounded ranges (A1:A20), whole-column ranges (A:A), whole-row ranges (2:2), open-ended ranges (A2:A or B2:2), arithmetic, SUM/AVERAGE/MIN/MAX/PRODUCT/COUNT/COUNTA, IF/AND/OR/NOT, basic rounding/text, and dates: TODAY, DATE, YEAR, MONTH, DAY, WEEKDAY, DAYS, TEXT (=TEXT(A1,"dddd") is the weekday name of a date cell). Use SUM to add ranges, e.g. =B5+SUM(N2:N); avoid including the formula cell in its own range. Open ranges include future rows/columns. No cross-tab/Excel promise. Existing positional formula references are not automatically rewritten on structural changes: include necessary formula repairs or ask. A repaired formula must give the same result as before; when a removed cell fed a formula, substitute its value (deleting a Quantity of 2 turns =B1*C1 into =B1*2). State a total only after calculating it from the final grid. Column retyping can clear values: disclose that. Other tabs require explicit update_sheet tabs preserving unrelated tabs. Only delete rows/columns or replace existing data when the user expressly requested it, and describe affected values.
-Delete only when the person explicitly asks: tasks, events (delete_event removes the whole series; to drop one occurrence use edit_event_occurrence with skip), docs (confirm=true; subpages stay), sheets, labels, stages, checklist items and calendar blocks. Name exactly what is removed. Never delete workspaces, projects, statuses or custom fields, and never touch backups, restore data, or run code.
-update_working_hours replaces the whole week and the timezone: read get_working_hours first, then include every day (an empty list means no hours) and the IANA timezone.
+Delete only when the person explicitly asks, and only checklist items, calendar blocks, and sheet rows, columns and tabs (delete_event and the other whole-object deletes are not available: to drop one event occurrence use edit_event_occurrence with skip). Name exactly what is removed. You cannot delete tasks, events, docs, sheets, labels, stages, workspaces, projects, statuses or custom fields; say so plainly and never touch backups, restore data, or run code.
 A system notice that the data changed means: read the current data, keep completed changes, and propose only what is still needed.
 You can read notifications (list_notifications, unread_notification_count); the Inbox holds captured thoughts and is not notifications. You can mark notifications read, start, pause and stop focus sessions, set today's focus, snooze reminders, and undo the last auto-schedule (undo_schedule).
-update_notification_settings changes reminder, digest and planning notifications, quiet hours and digest times; read get_notification_settings first.
-You cannot change the profile, appearance, API keys or backups, export files, or run code. When something is not possible, say so plainly; never answer from a different data source instead, and never offer an action you do not have.
-Use auto_schedule_preview before proposing auto_schedule_apply; include the placement changes in the summary. Before creating or moving a timed event or block, check get_calendar for that time and name any overlaps in the summary. Give reminders a workspace when one is clear; labels need one.
+You can read working hours and notification settings but cannot change them, nor the profile, appearance, API keys or backups; you cannot export files or run code. When something is not possible, say so plainly; never answer from a different data source instead, and never offer an action you do not have.
+Use auto_schedule_preview before proposing auto_schedule_apply; include the placement changes in the summary. Before creating or moving a timed event or block, check get_calendar for that time and name any overlaps in the summary. Reminders keep a workspace only for their labels or custom fields; give one when those need it.
 When a tool result has a text field, take dates and times from it instead of re-reading timestamps. Count and total from tool data, not estimates; page long lists with limit and offset. Never predict recalculated formula results in summaries; the apps evaluate formulas.
 Web search is only available when enabled. Call web_search with a public query when useful; do not put private account content into a query without an explicit request. Cite returned sources, never fabricate sources.
 After tools finish, provide a concise answer or clarification. Do not expose internal tool names, IDs, or JSON in normal prose.`
@@ -201,10 +200,10 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 	sort.Strings(keys)
 	for _, name := range keys {
 		t := catalog[name]
-		if readTools[name] {
+		if isReadTool(name) {
 			specs = append(specs, toolSpec(name, t.Description, t.Parameters))
 		}
-		if writeTools[name] {
+		if isWriteTool(name) {
 			writes = append(writes, t)
 		}
 	}
@@ -318,12 +317,12 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 				} else {
 					err = fmt.Errorf("Invalid search query")
 				}
-			} else if readTools[name] && catalog[name].Call != nil {
+			} else if isReadTool(name) && catalog[name].Call != nil {
 				result, err = catalog[name].Call(ctx, c.UserID, args)
 				if key, ok := snapshotRead(name, args); ok && err == nil {
 					reads[key] = hash(result)
 				}
-			} else if writeTools[name] {
+			} else if isWriteTool(name) {
 				err = fmt.Errorf("%s changes data, so it is never called directly. Call propose_changes alone with steps [{\"tool\": %q, \"summary\": \"...\", \"arguments\": {...}}]; Timely checks it and applies it or asks the person to review it. This action is available: do not tell the person otherwise", name, name)
 			} else {
 				err = fmt.Errorf("Unknown tool %q. Use only the listed read tools, web_search when it is listed, and propose_changes for every change", name)
@@ -429,31 +428,19 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 				seen[key] = true
 			}
 		}
-		// Settings replace current values; the review shows those values.
-		if read, ok := settingsReads[steps[i].Tool]; ok {
-			result, err := catalog[read].Call(ctx, uid, raw(map[string]any{}))
+		// A tool can declare a read whose result is the "before" of its change:
+		// the blocks an undo restores, the placement an apply would make.
+		if authority, ok := agent.AuthorityOf(steps[i].Tool); ok && authority.Showing != "" {
+			readArgs := raw(map[string]any{})
+			if authority.ShowingStepArguments {
+				readArgs = steps[i].Arguments
+			}
+			result, err := catalog[authority.Showing].Call(ctx, uid, readArgs)
 			if err != nil {
-				return nil, fmt.Errorf("step %d (%s) cannot read the current settings: %w", i+1, steps[i].Tool, err)
+				return nil, fmt.Errorf("step %d (%s) cannot read %s for review: %w", i+1, steps[i].Tool, authority.Showing, err)
 			}
 			steps[i].Before = raw(result)
-			out = append(out, Snapshot{Tool: read, Arguments: raw(map[string]any{}), Hash: hash(result)})
-		}
-		if steps[i].Tool == "undo_schedule" {
-			// The review lists the blocks the undo removes and restores.
-			result, err := catalog["undo_schedule_preview"].Call(ctx, uid, raw(map[string]any{}))
-			if err != nil {
-				return nil, fmt.Errorf("step %d (undo_schedule) cannot preview the undo: %w", i+1, err)
-			}
-			steps[i].Before = raw(result)
-			out = append(out, Snapshot{Tool: "undo_schedule_preview", Arguments: raw(map[string]any{}), Hash: hash(result)})
-		}
-		if steps[i].Tool == "auto_schedule_apply" {
-			result, err := catalog["auto_schedule_preview"].Call(ctx, uid, steps[i].Arguments)
-			if err != nil {
-				return nil, err
-			}
-			steps[i].Before = raw(result)
-			out = append(out, Snapshot{Tool: "auto_schedule_preview", Arguments: steps[i].Arguments, Hash: hash(result)})
+			out = append(out, Snapshot{Tool: authority.Showing, Arguments: readArgs, Hash: hash(result)})
 		}
 		// A reviewed placement reserves a calendar span; anything that lands
 		// there after approval must be reviewed too, since placing by hand
@@ -471,45 +458,85 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 }
 
 // placementInterval is the span a manual placement step reserves, resolved
-// the way the schedule service resolves it: an explicit end, else a duration,
-// else the moved block's length or the task's estimate.
+// the way Placement resolves it (placement.ResolveEnd): an explicit end, else a
+// duration, else the moved block's length or the task's estimate. update_task
+// places by hand when it sets scheduledOn on Work (ADR 0010); a Reminder's
+// ping and a series' anchor reserve nothing.
 func placementInterval(tool string, args map[string]any, task, block any) (time.Time, time.Time, bool) {
-	if tool != "schedule_task" && tool != "move_block" {
-		return time.Time{}, time.Time{}, false
+	none := func() (time.Time, time.Time, bool) { return time.Time{}, time.Time{}, false }
+	startKey := "start"
+	switch tool {
+	case "schedule_task", "move_block":
+	case "update_task":
+		startKey = "scheduledOn"
+		if v, _ := args[startKey].(string); v == "" {
+			startKey = "scheduleAt"
+		}
+	default:
+		return none()
 	}
-	startRaw, _ := args["start"].(string)
+	startRaw, _ := args[startKey].(string)
 	start, err := recurrence.ParseTime(startRaw)
 	if err != nil {
-		return time.Time{}, time.Time{}, false
+		return none()
 	}
-	if endRaw, _ := args["end"].(string); endRaw != "" {
-		if end, err := recurrence.ParseTime(endRaw); err == nil && end.After(start) {
-			return start, end, true
-		}
+	endRaw, _ := args["end"].(string)
+	var minutes *int
+	field := "durationMinutes"
+	if tool == "update_task" {
+		field = "duration"
 	}
-	minutes := 0
-	if v, ok := args["durationMinutes"].(float64); ok && v > 0 {
-		minutes = int(v)
+	if v, ok := args[field].(float64); ok && v > 0 {
+		m := int(v)
+		minutes = &m
 	}
-	if minutes <= 0 && tool == "move_block" {
+	// Without an explicit duration the span is the moved block's length, else
+	// the task's estimate.
+	fallback := 0
+	if tool == "move_block" {
 		if b, ok := block.(models.ScheduledBlock); ok {
-			minutes = int(b.EndAt.Sub(b.StartAt).Minutes())
+			fallback = int(b.EndAt.Sub(b.StartAt).Minutes())
 		}
 	}
-	if minutes <= 0 && task != nil {
-		var read struct {
-			Task struct {
-				Duration int `json:"duration"`
-			} `json:"task"`
-		}
-		if err := json.Unmarshal(raw(task), &read); err == nil {
-			minutes = read.Task.Duration
+	var read struct {
+		Task struct {
+			Duration   int             `json:"duration"`
+			Kind       string          `json:"kind"`
+			Recurrence json.RawMessage `json:"recurrence"`
+		} `json:"task"`
+	}
+	if task != nil {
+		if err := json.Unmarshal(raw(task), &read); err == nil && fallback <= 0 {
+			fallback = read.Task.Duration
 		}
 	}
-	if minutes <= 0 {
-		minutes = 30
+	if tool == "update_task" {
+		kind := read.Task.Kind
+		if v, ok := args["kind"].(string); ok && v != "" {
+			kind = v
+		}
+		if v, ok := args[field].(float64); ok && v <= 0 {
+			return none() // a zero estimate makes it a Reminder
+		}
+		// The call decides the series when it sets or clears recurrence;
+		// otherwise the task's current rule does.
+		series := len(read.Task.Recurrence) > 0 && string(read.Task.Recurrence) != "null"
+		if clear, _ := args["clearRecurrence"].(bool); clear {
+			series = false
+		} else if rule, ok := args["recurrence"].(map[string]any); ok {
+			rrule, _ := rule["rrule"].(string)
+			series = rrule != ""
+		}
+		if kind == models.KindReminder || kind == models.KindInbox || series || (minutes == nil && fallback <= 0) {
+			return none()
+		}
 	}
-	return start, start.Add(time.Duration(minutes) * time.Minute), true
+	// An unusable end falls back to the duration rather than failing the review.
+	end, err := placement.ResolveEnd(start, &endRaw, minutes, fallback)
+	if err != nil {
+		end, _ = placement.ResolveEnd(start, nil, minutes, fallback)
+	}
+	return start, end, true
 }
 
 // Block reads remain account-scoped even though Hermes exposes them via calendar views.
@@ -575,7 +602,7 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 				if err != nil {
 					return err
 				}
-				if !writeTools[row.Plan[i].Tool] {
+				if !isWriteTool(row.Plan[i].Tool) {
 					return fmt.Errorf("Action not permitted")
 				}
 				result, err := catalog[row.Plan[i].Tool].Call(ctx, row.UserID, raw(value))
@@ -668,8 +695,6 @@ func serializationFailure(err error) bool {
 	// Tool handlers sometimes flatten the driver error into text.
 	return strings.Contains(err.Error(), "SQLSTATE 40001") || strings.Contains(err.Error(), "SQLSTATE 40P01")
 }
-
-var settingsReads = map[string]string{"update_working_hours": "get_working_hours", "update_notification_settings": "get_notification_settings"}
 
 // maxBatches bounds automatic continuation for one request.
 const maxBatches = 10

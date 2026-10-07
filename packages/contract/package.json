@@ -5,6 +5,20 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./sheetFormulaInput": "./src/sheetFormulaInput.ts"
+    "./account": "./src/account.ts",
+    "./calendar": "./src/calendar.ts",
+    "./config": "./src/config.ts",
+    "./documents": "./src/documents.ts",
+    "./entities": "./src/entities.ts",
+    "./notifications": "./src/notifications.ts",
+    "./schedule": "./src/schedule.ts",
+    "./sheet": "./src/sheet.ts",
+    "./sheetCell": "./src/sheetCell.ts",
+    "./sheetCsv": "./src/sheetCsv.ts",
+    "./sheetFormula": "./src/sheetFormula.ts",
+    "./sheetFormulaInput": "./src/sheetFormulaInput.ts",
+    "./sheetRange": "./src/sheetRange.ts",
+    "./sheetTypes": "./src/sheetTypes.ts",
+    "./workStatus": "./src/workStatus.ts"
   }
 }

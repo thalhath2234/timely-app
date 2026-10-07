@@ -62,7 +62,7 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 
 	out := &TodayResponse{
 		Date:           dayStamp,
-		Timezone:       loc.String(),
+		Timezone:       models.ClientZoneName(loc),
 		TodayFocus:     []models.Task{},
 		Items:          rangeRes.Items,
 		Overdue:        []models.Task{},
@@ -75,6 +75,10 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 		out.Items = []Item{}
 	}
 
+	workDay, err := s.workDay(userID, timezone)
+	if err != nil {
+		return nil, err
+	}
 	scheduledIDs := map[string]bool{}
 	for _, item := range rangeRes.Items {
 		if item.TaskID != "" && !item.Reminder {
@@ -109,10 +113,10 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 		if t.IsCompleted() || t.IsInbox() || t.IsReminder() {
 			continue
 		}
-		if task.IsOverdue(t, now) {
+		if task.IsOverdue(t, workDay) {
 			out.Overdue = append(out.Overdue, t)
 		}
-		if task.IsUnscheduled(t, now) {
+		if task.IsUnscheduled(t, workDay) {
 			out.Unscheduled = append(out.Unscheduled, t)
 		}
 		if scheduledIDs[t.ID] {

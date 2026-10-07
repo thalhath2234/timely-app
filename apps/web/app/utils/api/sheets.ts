@@ -1,30 +1,17 @@
-import { Sheet, SheetColumn, SheetMerge, SheetRow, SheetTab, SheetTemplate } from "@/app/_types/types";
+import type { Sheet, SheetTab, SheetTemplate } from "@/app/_types/types";
+import type {
+  CreateSheetPayload,
+  UpdateSheetPayload,
+  UpdateSheetTemplatePayload,
+} from "@timely/contract/sheet";
 import { apiFetch } from "./client";
 
+export type {
+  CreateSheetPayload,
+  UpdateSheetPayload,
+  UpdateSheetTemplatePayload,
+};
 
-export interface CreateSheetPayload {
-  title?: string;
-  icon?: string;
-  columns?: SheetColumn[];
-  rows?: SheetRow[];
-  merges?: SheetMerge[];
-  tabs?: SheetTab[];
-  workspaceId?: string;
-  projectId?: string | null;
-  templateId?: string;
-}
-
-export interface UpdateSheetPayload {
-  title?: string;
-  icon?: string;
-  columns?: SheetColumn[];
-  rows?: SheetRow[];
-  merges?: SheetMerge[];
-  tabs?: SheetTab[];
-  projectId?: string | null;
-  isFavorite?: boolean;
-  archived?: boolean;
-}
 
 async function readError(response: Response, fallback: string) {
   try {
@@ -144,15 +131,6 @@ export async function createSheetTemplate(data: {
   }
   const resData = await response.json();
   return resData.template ?? resData;
-}
-
-export interface UpdateSheetTemplatePayload {
-  name?: string;
-  icon?: string;
-  columns?: SheetColumn[];
-  rows?: SheetRow[];
-  merges?: SheetMerge[];
-  tabs?: SheetTab[];
 }
 
 export async function updateSheetTemplate(

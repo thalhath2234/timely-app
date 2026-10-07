@@ -4,7 +4,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { TimeField } from "@/app/_components/_ui/datePicker";
 import TimezoneSelect from "@/app/_components/_ui/timezoneSelect";
-import type { WeekdayKey, WorkingHours, WorkingWindow } from "@/app/_types/types";
+import type { WeekdayKey, WorkingHoursResponse, WorkingWindow } from "@/app/_types/types";
 import { browserTimezone } from "@/app/utils/api/schedule";
 import {
   useScheduleSettings,
@@ -50,7 +50,7 @@ export default function WorkingHoursSettings() {
   );
 }
 
-function WorkingHoursForm({ initial }: { initial: WorkingHours }) {
+function WorkingHoursForm({ initial }: { initial: WorkingHoursResponse }) {
   const update = useUpdateWorkingHours();
   const [timezone, setTimezone] = useState(initial.timezone || browserTimezone());
   const [days, setDays] = useState<Record<WeekdayKey, WorkingWindow[]>>(() => {

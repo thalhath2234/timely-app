@@ -13,3 +13,12 @@ func TestWindowsOnDefaultsEmptyDayToNineToFive(t *testing.T) {
 		t.Fatalf("empty Saturday should fill 09:00–17:00, got %#v", got)
 	}
 }
+
+func TestWorkingHoursRefuseLocalAsATimezone(t *testing.T) {
+	if err := (WorkingHours{Timezone: "Local"}).Validate(); err == nil {
+		t.Fatal(`"Local" cannot be resolved by a client, so it is not a saved zone`)
+	}
+	if err := (WorkingHours{Timezone: "Asia/Tokyo"}).Validate(); err != nil {
+		t.Fatalf("a real zone must stay valid: %v", err)
+	}
+}

@@ -19,13 +19,14 @@ const (
 )
 
 var (
-	errNameEmpty         = errors.New("task name cannot be empty")
-	errNameTooLong       = fmt.Errorf("task name cannot exceed %d characters", maxNameLength)
-	errDurationTooLong   = fmt.Errorf("duration cannot exceed %d minutes", maxDurationMinutes)
-	errDurationNegative  = errors.New("duration cannot be negative")
+	errNameEmpty          = errors.New("task name cannot be empty")
+	errNameTooLong        = fmt.Errorf("task name cannot exceed %d characters", maxNameLength)
+	errDurationTooLong    = fmt.Errorf("duration cannot exceed %d minutes", maxDurationMinutes)
+	errDurationNegative   = errors.New("duration cannot be negative")
 	errStartAfterDeadline = errors.New("start date cannot be after the deadline")
-	errReminderNeedsPing = errors.New("reminders need a notify time (scheduledOn) or a repeat rule")
-	errDependencyCycle   = errors.New("this dependency would create a cycle: a task cannot wait on work that already waits on it")
+	errReminderNeedsPing  = errors.New("reminders need a notify time (scheduledOn) or a repeat rule")
+	errBulkSchedule       = errors.New("schedule tasks one at a time: a bulk update cannot set scheduledOn or scheduleAt")
+	errDependencyCycle    = errors.New("this dependency would create a cycle: a task cannot wait on work that already waits on it")
 )
 
 // normalizeName trims whitespace and rejects blank or oversized titles.

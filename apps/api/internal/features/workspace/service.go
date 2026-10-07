@@ -7,20 +7,25 @@ import (
 	"timely-api/internal/utils"
 )
 
+// WorkspaceService owns the account boundary for workspaces and everything
+// inside them (statuses, labels, custom fields). Every method that reads or
+// writes a workspace or one of its children takes the owning userID and
+// returns gorm.ErrRecordNotFound when the workspace is not in that account,
+// without writing anything.
 type WorkspaceService interface {
 	Create(workspace *models.Workspace) (*models.Workspace, error)
 	GetAllWorkspaceByUser(userID string) ([]models.Workspace, error)
 	GetWorkspaceById(userID string, workspaceID string) (*models.Workspace, error)
 	UpdateWorkspace(userID string, workspaceID string, name string, color *string) (*models.Workspace, error)
-	CreateLables(lable *models.Lable) (*models.Lable, error)
-	CreateStatuses(status *models.Status) (*models.Status, error)
-	CreateCustomFields(customField *models.CustomField) (*models.CustomField, error)
-	UpdateLables(lable *models.Lable) (*models.Lable, error)
-	DeleteLables(lableID string, workspaceID string) error
-	UpdateStatuses(status *models.Status) (*models.Status, error)
-	DeleteStatuses(statusID string, workspaceID string) error
-	UpdateCustomFields(customField *models.CustomField) (*models.CustomField, error)
-	DeleteCustomFields(customFieldID string, workspaceID string) error
+	CreateLabels(userID string, lable *models.Lable) (*models.Lable, error)
+	CreateStatuses(userID string, status *models.Status) (*models.Status, error)
+	CreateCustomFields(userID string, customField *models.CustomField) (*models.CustomField, error)
+	UpdateLabels(userID string, lable *models.Lable) (*models.Lable, error)
+	DeleteLabels(userID string, lableID string, workspaceID string) error
+	UpdateStatuses(userID string, status *models.Status) (*models.Status, error)
+	DeleteStatuses(userID string, statusID string, workspaceID string) error
+	UpdateCustomFields(userID string, customField *models.CustomField) (*models.CustomField, error)
+	DeleteCustomFields(userID string, customFieldID string, workspaceID string) error
 	GetConfig(userID string) (*models.Config, error)
 	UpdateConfig(config *models.Config) (*models.Config, error)
 	Delete(userID, workspaceID string) error
@@ -32,6 +37,17 @@ type workspaceService struct {
 
 func NewWorkspaceService(repo WorkspaceRepository) WorkspaceService {
 	return &workspaceService{repo: repo}
+}
+
+// requireOwned returns gorm.ErrRecordNotFound unless workspaceID belongs to userID.
+func (s *workspaceService) requireOwned(userID string, workspaceID string) error {
+	if userID == "" {
+		return errors.New("invalid user id")
+	}
+	if workspaceID == "" {
+		return errors.New("invalid workspace id")
+	}
+	return s.repo.EnsureWorkspaceOwned(userID, workspaceID)
 }
 
 func (s *workspaceService) Create(workspace *models.Workspace) (*models.Workspace, error) {
@@ -158,21 +174,24 @@ func (s *workspaceService) UpdateWorkspace(userID string, workspaceID string, na
 		workspace.Color = utils.NormalizeHexColor(*color, workspace.Color)
 	}
 	workspace.UpdatedAt = utils.GetCurrentTime()
-	if err := s.repo.UpdateWorkspace(workspace); err != nil {
+	if err := s.repo.UpdateWorkspace(userID, workspace); err != nil {
 		return nil, err
 	}
 
 	return s.repo.GetWorkspaceById(userID, workspaceID)
 }
 
-func (s *workspaceService) CreateLables(lable *models.Lable) (*models.Lable, error) {
+func (s *workspaceService) CreateLabels(userID string, lable *models.Lable) (*models.Lable, error) {
 	if lable == nil {
 		return nil, errors.New("invalid lable data")
+	}
+	if err := s.requireOwned(userID, lable.WorkspaceID); err != nil {
+		return nil, err
 	}
 
 	lable.ID = utils.NewLableID()
 
-	createdLable, err := s.repo.CreateLables(lable)
+	createdLable, err := s.repo.CreateLabels(lable)
 	if err != nil {
 		return nil, err
 	}
@@ -180,9 +199,12 @@ func (s *workspaceService) CreateLables(lable *models.Lable) (*models.Lable, err
 	return createdLable, nil
 }
 
-func (s *workspaceService) CreateStatuses(status *models.Status) (*models.Status, error) {
+func (s *workspaceService) CreateStatuses(userID string, status *models.Status) (*models.Status, error) {
 	if status == nil {
 		return nil, errors.New("invalid status data")
+	}
+	if err := s.requireOwned(userID, status.WorkspaceID); err != nil {
+		return nil, err
 	}
 
 	status.ID = utils.NewStatusID()
@@ -195,7 +217,13 @@ func (s *workspaceService) CreateStatuses(status *models.Status) (*models.Status
 	return createdStatus, nil
 }
 
-func (s *workspaceService) CreateCustomFields(customField *models.CustomField) (*models.CustomField, error) {
+func (s *workspaceService) CreateCustomFields(userID string, customField *models.CustomField) (*models.CustomField, error) {
+	if customField == nil {
+		return nil, errors.New("invalid custom field data")
+	}
+	if err := s.requireOwned(userID, customField.WorkspaceID); err != nil {
+		return nil, err
+	}
 	customField.ID = utils.NewCustomFieldID()
 
 	createdCustomField, err := s.repo.CreateCustomFields(customField)
@@ -206,12 +234,15 @@ func (s *workspaceService) CreateCustomFields(customField *models.CustomField) (
 	return createdCustomField, nil
 }
 
-func (s *workspaceService) UpdateLables(lable *models.Lable) (*models.Lable, error) {
+func (s *workspaceService) UpdateLabels(userID string, lable *models.Lable) (*models.Lable, error) {
 	if lable == nil || lable.ID == "" {
 		return nil, errors.New("invalid lable data")
 	}
+	if err := s.requireOwned(userID, lable.WorkspaceID); err != nil {
+		return nil, err
+	}
 
-	updatedLable, err := s.repo.UpdateLables(lable)
+	updatedLable, err := s.repo.UpdateLabels(lable)
 	if err != nil {
 		return nil, err
 	}
@@ -219,17 +250,23 @@ func (s *workspaceService) UpdateLables(lable *models.Lable) (*models.Lable, err
 	return updatedLable, nil
 }
 
-func (s *workspaceService) DeleteLables(lableID string, workspaceID string) error {
+func (s *workspaceService) DeleteLabels(userID string, lableID string, workspaceID string) error {
 	if lableID == "" || workspaceID == "" {
 		return errors.New("invalid lable id or workspace id")
 	}
+	if err := s.requireOwned(userID, workspaceID); err != nil {
+		return err
+	}
 
-	return s.repo.DeleteLables(lableID, workspaceID)
+	return s.repo.DeleteLabels(lableID, workspaceID)
 }
 
-func (s *workspaceService) UpdateStatuses(status *models.Status) (*models.Status, error) {
+func (s *workspaceService) UpdateStatuses(userID string, status *models.Status) (*models.Status, error) {
 	if status == nil || status.ID == "" {
 		return nil, errors.New("invalid status data")
+	}
+	if err := s.requireOwned(userID, status.WorkspaceID); err != nil {
+		return nil, err
 	}
 
 	updatedStatus, err := s.repo.UpdateStatuses(status)
@@ -240,17 +277,23 @@ func (s *workspaceService) UpdateStatuses(status *models.Status) (*models.Status
 	return updatedStatus, nil
 }
 
-func (s *workspaceService) DeleteStatuses(statusID string, workspaceID string) error {
+func (s *workspaceService) DeleteStatuses(userID string, statusID string, workspaceID string) error {
 	if statusID == "" || workspaceID == "" {
 		return errors.New("invalid status id or workspace id")
+	}
+	if err := s.requireOwned(userID, workspaceID); err != nil {
+		return err
 	}
 
 	return s.repo.DeleteStatuses(statusID, workspaceID)
 }
 
-func (s *workspaceService) UpdateCustomFields(customField *models.CustomField) (*models.CustomField, error) {
+func (s *workspaceService) UpdateCustomFields(userID string, customField *models.CustomField) (*models.CustomField, error) {
 	if customField == nil || customField.ID == "" {
 		return nil, errors.New("invalid custom field data")
+	}
+	if err := s.requireOwned(userID, customField.WorkspaceID); err != nil {
+		return nil, err
 	}
 	if !customField.Type.IsValid() {
 		return nil, errors.New("invalid custom field type")
@@ -264,9 +307,12 @@ func (s *workspaceService) UpdateCustomFields(customField *models.CustomField) (
 	return updatedCustomField, nil
 }
 
-func (s *workspaceService) DeleteCustomFields(customFieldID string, workspaceID string) error {
+func (s *workspaceService) DeleteCustomFields(userID string, customFieldID string, workspaceID string) error {
 	if customFieldID == "" || workspaceID == "" {
 		return errors.New("invalid custom field id or workspace id")
+	}
+	if err := s.requireOwned(userID, workspaceID); err != nil {
+		return err
 	}
 
 	return s.repo.DeleteCustomFields(customFieldID, workspaceID)

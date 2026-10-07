@@ -1,12 +1,23 @@
-import {
+import type {
   Config,
   CustomField,
-  CustomFieldType,
   Label,
   Status,
   Workspace,
 } from "@/app/_types/types";
+import type {
+  CustomFieldOptionInput,
+  CustomFieldPayload,
+  NamedColorPayload,
+  WorkspacePayload,
+} from "@timely/contract/entities";
 import { apiFetch } from "./client";
+
+export type {
+  CustomFieldOptionInput,
+  CustomFieldPayload,
+  NamedColorPayload,
+};
 
 export class ApiError extends Error {
   status: number;
@@ -44,10 +55,7 @@ export async function getConfig(): Promise<Config> {
   return response.json();
 }
 
-export async function createWorkspace(data: {
-  name: string;
-  color?: string;
-}): Promise<Workspace> {
+export async function createWorkspace(data: WorkspacePayload): Promise<Workspace> {
   const response = await apiFetch("/workspaces", {
     method: "POST",
     credentials: "include",
@@ -68,11 +76,9 @@ export async function createWorkspace(data: {
   return payload.workspace ?? payload;
 }
 
-export async function updateWorkspace(data: {
-  id: string;
-  name: string;
-  color?: string;
-}): Promise<Workspace> {
+export async function updateWorkspace(
+  data: WorkspacePayload & { id: string },
+): Promise<Workspace> {
   const response = await apiFetch(
     `/workspaces/${encodeURIComponent(data.id)}`,
     {
@@ -106,22 +112,6 @@ async function readError(response: Response, fallback: string) {
     return fallback;
   }
 }
-
-export type NamedColorPayload = {
-  name: string;
-  color: string;
-};
-
-export type CustomFieldOptionInput = {
-  value: string;
-  color?: string;
-};
-
-export type CustomFieldPayload = {
-  name: string;
-  type: CustomFieldType;
-  options?: CustomFieldOptionInput[];
-};
 
 export async function createStatus(
   workspaceId: string,
@@ -311,7 +301,6 @@ export async function updateTaskViewsConfig(data: {
   taskViews: Config["taskViews"];
   activeTaskViewId: string;
   projectTaskViews?: Config["projectTaskViews"];
-  isOnboardingCompleted?: boolean;
 }): Promise<Config> {
   const response = await apiFetch("/config", {
     method: "PUT",
@@ -323,7 +312,6 @@ export async function updateTaskViewsConfig(data: {
       taskViews: data.taskViews,
       activeTaskViewId: data.activeTaskViewId,
       ...(data.projectTaskViews ? { projectTaskViews: data.projectTaskViews } : {}),
-      isOnboardingCompleted: true,
     }),
   });
 

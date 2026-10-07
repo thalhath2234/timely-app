@@ -28,20 +28,22 @@ func validTimezone(name string) string {
 
 // zoned resolves the person's timezone the same way ranking and planning do
 // (QA-03): saved Working hours, then the device zone sent with the latest
-// message, then UTC. Tools read it from the context whenever the model omits
-// a timezone, so nothing falls back to the API host's zone.
+// message, then the server's zone (the desktop app hosts the backend, ADR
+// 0011). Tools read it from the context whenever the model omits a timezone;
+// with neither saved nor device zone the context carries none, so they fall
+// through to the same server-local fallback task.DayLocation uses.
 func (s *Service) zoned(ctx context.Context, c *Conversation) (context.Context, *time.Location, string) {
-	loc, source := time.UTC, "default"
+	loc, source, name := time.Local, "default", ""
 	var config models.Config
 	if s.db != nil {
 		_ = s.db.WithContext(ctx).Select("working_hours").Where("user_id = ?", c.UserID).Limit(1).Find(&config).Error
 	}
-	if saved, err := time.LoadLocation(config.WorkingHours.Timezone); config.WorkingHours.Timezone != "" && err == nil {
-		loc, source = saved, "saved"
-	} else if device, err := time.LoadLocation(c.Timezone); c.Timezone != "" && err == nil {
-		loc, source = device, "device"
+	if saved, err := time.LoadLocation(config.WorkingHours.Timezone); config.WorkingHours.Timezone != "" && err == nil && models.ZoneName(saved) != "" {
+		loc, source, name = saved, "saved", saved.String()
+	} else if device, err := time.LoadLocation(c.Timezone); c.Timezone != "" && err == nil && models.ZoneName(device) != "" {
+		loc, source, name = device, "device", device.String()
 	}
-	return agent.WithTimezone(ctx, loc.String()), loc, source
+	return agent.WithTimezone(ctx, name), loc, source
 }
 
 // timeContext tells the model the person's local date and time and lists the
@@ -56,7 +58,11 @@ func timeContext(now time.Time, loc *time.Location, source string) string {
 	case "device":
 		fmt.Fprintf(&b, " The person's timezone is %s (from their device; no timezone is saved in Working hours).", loc)
 	default:
-		b.WriteString(" The person's timezone is unknown, so UTC is used: say times are UTC, and ask which timezone they mean when an exact time matters.")
+		name := loc.String()
+		if name == "Local" {
+			name, _ = local.Zone()
+		}
+		fmt.Fprintf(&b, " The person's timezone is unknown, so the server's timezone (%s, UTC%s) is used: say which timezone times are in, and ask which timezone they mean when an exact time matters.", name, local.Format("-07:00"))
 	}
 	fmt.Fprintf(&b, " Local now: %s (UTC%s).", local.Format("Monday, 2006-01-02 15:04"), local.Format("-07:00"))
 	b.WriteString(" Interpret dates and times the person mentions in this timezone and write timestamps with that date's UTC offset in this timezone. Tool results already show times in this timezone; describe them that way.")

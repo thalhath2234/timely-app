@@ -9,7 +9,7 @@ import {
   Workspace,
 } from "@/app/_types/types";
 import { extractMentions } from "@/app/utils/richText";
-import { isTaskOverdue } from "@/app/utils/overdue";
+import { addDaysToDate, dateInZone, daysBetween, isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { isInboxTask, isReminderTask } from "@/app/utils/taskFilters";
 import {
   nextTaskSlot,
@@ -42,6 +42,11 @@ export interface DeadlineItem {
   name: string;
   /** ISO string of the date that put the task in this list. */
   deadline: string;
+  /**
+   * The calendar date (`YYYY-MM-DD`) of `deadline` in the Working hours zone:
+   * a deadline's own date, as `isOverdue` reads it, else its instant's date.
+   */
+  day: string;
   /** Whether `deadline` is the task's real deadline or its next block. */
   source: TaskDateSource;
   priorityLevel: string | null;
@@ -78,16 +83,9 @@ export interface ReportData {
   recent: ActivityItem[];
 }
 
-function startOfToday() {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function addDays(base: Date, days: number) {
-  const next = new Date(base);
-  next.setDate(next.getDate() + days);
-  return next;
+/** A deadline's own date, which is how `isOverdue` and the server read it. */
+function deadlineDay(task: Task) {
+  return (task.deadline ?? "").slice(0, 10);
 }
 
 function parseDate(value?: string | null) {
@@ -120,10 +118,13 @@ export function buildReportData(input: {
   docs: Doc[];
   sheets: Sheet[];
   workspaces: Workspace[];
+  /** Working hours timezone; Overdue is judged on its date. Undefined: device zone. */
+  timeZone?: string | null;
 }): ReportData {
   const { projects, docs, sheets, workspaces } = input;
-  const today = startOfToday();
-  const horizon = addDays(today, 14);
+  // One date for Overdue and the upcoming window, both in the Working hours zone.
+  const todayKey = todayInZone(input.timeZone);
+  const horizonKey = addDaysToDate(todayKey, 14);
 
   // The report is about work. Inbox captures are not yet tasks and reminders
   // are pings, so neither counts toward open / overdue / upcoming; this keeps
@@ -144,7 +145,7 @@ export function buildReportData(input: {
   for (const task of openTasks) {
     // Same overdue rule as Calendar / Today: a past deadline, or every
     // reserved block already ended before today.
-    if (isTaskOverdue(task, now)) {
+    if (isOverdue(task, todayKey)) {
       const deadline = taskDeadlineDate(task);
       const slot = deadline ? null : nextTaskSlot(task, now);
       const when = deadline ?? slot?.end ?? now;
@@ -152,6 +153,7 @@ export function buildReportData(input: {
         id: task.id,
         name: task.name,
         deadline: when.toISOString(),
+        day: deadline ? deadlineDay(task) : dateInZone(when, input.timeZone),
         source: deadline ? "deadline" : slot?.blockId ? "block" : "scheduledOn",
         priorityLevel: task.priorityLevel,
         projectTitle: task.project?.title,
@@ -165,11 +167,13 @@ export function buildReportData(input: {
     // horizon, so scheduled-only work shows up as planned.
     const point = taskUpcomingDate(task, now);
     if (!point) continue;
-    if (point.date < today || point.date > horizon) continue;
+    const day = point.source === "deadline" ? deadlineDay(task) : dateInZone(point.date, input.timeZone);
+    if (day < todayKey || day > horizonKey) continue;
     upcoming.push({
       id: task.id,
       name: task.name,
       deadline: point.date.toISOString(),
+      day,
       source: point.source,
       priorityLevel: task.priorityLevel,
       projectTitle: task.project?.title,
@@ -388,15 +392,12 @@ export function formatReportDate(value: string) {
   });
 }
 
-export function formatRelative(value: string) {
-  const date = parseDate(value);
-  if (!date) return "";
-
-  // Compare calendar days, not elapsed hours: a block at 09:00 tomorrow is
-  // "tomorrow" even when it is only ten hours away.
-  const today = startOfToday();
-  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+/**
+ * "today" / "tomorrow" / "in N days" for a calendar date (`YYYY-MM-DD`)
+ * relative to `today` from `todayInZone`, so it agrees with `isOverdue`.
+ */
+export function formatRelative(day: string, today: string) {
+  const diffDays = daysBetween(today, day);
 
   if (diffDays === 0) return "today";
   if (diffDays === 1) return "tomorrow";

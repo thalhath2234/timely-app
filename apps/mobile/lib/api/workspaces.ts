@@ -1,5 +1,15 @@
-import type { Config, CustomField, CustomFieldType, Label, Status, Workspace } from "../types";
+import type { Config, ConfigUpdateInput, CustomField, Label, Status, Workspace } from "../types";
+import type {
+  CustomFieldPayload,
+  NamedColorPayload,
+  WorkspacePayload,
+} from "@timely/contract/entities";
 import { api, unwrap } from "./client";
+
+export type {
+  CustomFieldPayload,
+  NamedColorPayload,
+};
 
 export function getWorkspaces() {
   return api<Workspace[]>("/workspaces");
@@ -9,12 +19,7 @@ export function getConfig() {
   return api<Config>("/config");
 }
 
-export function updateConfig(data: {
-  appearance?: Config["appearance"];
-  taskViews?: Config["taskViews"];
-  activeTaskViewId?: string;
-  isOnboardingCompleted?: boolean;
-}) {
+export function updateConfig(data: ConfigUpdateInput) {
   return api<Config>("/config", { method: "PUT", body: data });
 }
 
@@ -28,7 +33,7 @@ export function updateTaskViewsConfig(data: {
   });
 }
 
-export async function createWorkspace(data: { name: string }) {
+export async function createWorkspace(data: WorkspacePayload) {
   const res = await api<Workspace | { workspace: Workspace }>("/workspaces", { method: "POST", body: data });
   return unwrap(res, "workspace");
 }
@@ -43,8 +48,6 @@ export function updateWorkspace(data: { id: string; name: string }) {
 export function deleteWorkspace(id: string) {
   return api<void>(`/workspaces/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
-
-export type NamedColorPayload = { name: string; color: string };
 
 export function createStatus(workspaceId: string, data: NamedColorPayload) {
   return api<Status>(`/workspaces/${encodeURIComponent(workspaceId)}/status`, { method: "POST", body: data });
@@ -79,12 +82,6 @@ export function deleteLabel(workspaceId: string, labelId: string) {
     method: "DELETE",
   });
 }
-
-export type CustomFieldPayload = {
-  name: string;
-  type: CustomFieldType;
-  options?: { id?: string; value: string; color?: string }[];
-};
 
 export function createCustomField(workspaceId: string, data: CustomFieldPayload) {
   return api<CustomField>(`/workspaces/${encodeURIComponent(workspaceId)}/custom-field`, {
