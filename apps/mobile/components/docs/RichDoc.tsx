@@ -37,7 +37,7 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
     case "orderedList":
       return (
         <View style={styles.list}>
-          {(node.content ?? []).map((item, i) => <ListItem key={i} bullet={`${i + 1}.`} node={item} onLink={onLink} />)}
+          {(node.content ?? []).map((item, i) => <ListItem key={i} bullet={`${(Number(node.attrs?.start) || 1) + i}.`} node={item} onLink={onLink} />)}
         </View>
       );
     case "taskList":
@@ -117,6 +117,19 @@ function Inline({ nodes, onLink }: { nodes?: Node[]; onLink?: (href: string) => 
           return (
             <Text key={i} style={styles.mention}>
               {text}
+            </Text>
+          );
+        }
+        if (node.type === "image") {
+          // Inline images in read-only text show as a link to the picture.
+          const src = node.attrs?.src;
+          return (
+            <Text
+              key={i}
+              style={styles.link}
+              onPress={typeof src === "string" ? () => onLink ? onLink(src) : void Linking.openURL(src) : undefined}
+            >
+              {String(node.attrs?.alt || "Image")}
             </Text>
           );
         }

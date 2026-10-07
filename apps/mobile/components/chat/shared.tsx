@@ -131,7 +131,7 @@ export function ChatText({
   onLink?: (href: string) => void;
 }) {
   return text ? (
-    <RichDoc content={fromMarkdown(text).content} onLink={onLink} />
+    <RichDoc content={fromMarkdown(text, { breaks: true }).content} onLink={onLink} />
   ) : null;
 }
 export function DetailValue({

@@ -6,6 +6,7 @@ import { openTasksEntityHref } from "@/app/utils/entityDetail";
 import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
 import CodeBlock from "@tiptap/extension-code-block";
 import Highlight from "@tiptap/extension-highlight";
+import TiptapImage from "@tiptap/extension-image";
 import { TableKit } from "@tiptap/extension-table";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -31,9 +32,7 @@ import {
   CheckSquare,
   Code,
   Code2,
-  Columns2,
   ExternalLink,
-  Heading,
   Heading1,
   Heading2,
   Heading3,
@@ -45,8 +44,6 @@ import {
   Minus,
   Quote,
   Strikethrough,
-  TableCellsMerge,
-  TableCellsSplit,
   Trash2,
   Unlink,
 } from "lucide-react";
@@ -69,7 +66,7 @@ import {
 
 const LINK_POPOVER_WIDTH = 320;
 const TOOLBAR_WIDTH = 340;
-const TABLE_TOOLBAR_WIDTH = 470;
+const TABLE_TOOLBAR_WIDTH = 260;
 
 interface FloatingPosition {
   top: number;
@@ -219,7 +216,8 @@ export default function RichTextEditor({
 
     const list: Extensions = [
       StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
+        // The toolbar offers H1-H3; H4-H6 exist so Markdown imports keep them.
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
         codeBlock: false,
         link: {
           openOnClick: false,
@@ -266,6 +264,8 @@ export default function RichTextEditor({
       TaskList,
       TaskItem.configure({ nested: true }),
       Highlight.configure({ multicolor: false }),
+      // Inline like Markdown's ![alt](src), so imported images keep their place.
+      TiptapImage.configure({ inline: true, HTMLAttributes: { class: "doc-image" } }),
       TableKit.configure({
         table: { resizable: true, handleWidth: 6, cellMinWidth: 80 },
       }),
@@ -756,34 +756,6 @@ export default function RichTextEditor({
         icon: Minus,
         disabled: !editor.can().deleteRow(),
         run: () => editor.chain().focus().deleteRow().run(),
-      },
-    ],
-    [
-      {
-        label: "Toggle header row",
-        icon: Heading,
-        disabled: !editor.can().toggleHeaderRow(),
-        run: () => editor.chain().focus().toggleHeaderRow().run(),
-      },
-      {
-        label: "Toggle header column",
-        icon: Columns2,
-        disabled: !editor.can().toggleHeaderColumn(),
-        run: () => editor.chain().focus().toggleHeaderColumn().run(),
-      },
-    ],
-    [
-      {
-        label: "Merge selected cells",
-        icon: TableCellsMerge,
-        disabled: !editor.can().mergeCells(),
-        run: () => editor.chain().focus().mergeCells().run(),
-      },
-      {
-        label: "Split cell",
-        icon: TableCellsSplit,
-        disabled: !editor.can().splitCell(),
-        run: () => editor.chain().focus().splitCell().run(),
       },
     ],
   ];

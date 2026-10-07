@@ -1,0 +1,667 @@
+{
+ "type": "doc",
+ "content": [
+  {
+   "type": "heading",
+   "attrs": {
+    "level": 1
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Project plan"
+    }
+   ]
+  },
+  {
+   "type": "paragraph",
+   "content": [
+    {
+     "type": "text",
+     "text": "Plain, "
+    },
+    {
+     "type": "text",
+     "text": "bold",
+     "marks": [
+      {
+       "type": "bold"
+      }
+     ]
+    },
+    {
+     "type": "text",
+     "text": ", "
+    },
+    {
+     "type": "text",
+     "text": "italic",
+     "marks": [
+      {
+       "type": "italic"
+      }
+     ]
+    },
+    {
+     "type": "text",
+     "text": ", "
+    },
+    {
+     "type": "text",
+     "text": "both",
+     "marks": [
+      {
+       "type": "bold"
+      },
+      {
+       "type": "italic"
+      }
+     ]
+    },
+    {
+     "type": "text",
+     "text": ", "
+    },
+    {
+     "type": "text",
+     "text": "struck",
+     "marks": [
+      {
+       "type": "strike"
+      }
+     ]
+    },
+    {
+     "type": "text",
+     "text": ", "
+    },
+    {
+     "type": "text",
+     "text": "a < b",
+     "marks": [
+      {
+       "type": "code"
+      }
+     ]
+    },
+    {
+     "type": "text",
+     "text": ", "
+    },
+    {
+     "type": "text",
+     "text": "marked",
+     "marks": [
+      {
+       "type": "highlight"
+      }
+     ]
+    },
+    {
+     "type": "text",
+     "text": ", "
+    },
+    {
+     "type": "text",
+     "text": "under",
+     "marks": [
+      {
+       "type": "underline"
+      }
+     ]
+    },
+    {
+     "type": "text",
+     "text": " and a "
+    },
+    {
+     "type": "text",
+     "text": "link with ",
+     "marks": [
+      {
+       "type": "link",
+       "attrs": {
+        "href": "https://example.com/a_b?x=1&y=2"
+       }
+      }
+     ]
+    },
+    {
+     "type": "text",
+     "text": "bold",
+     "marks": [
+      {
+       "type": "link",
+       "attrs": {
+        "href": "https://example.com/a_b?x=1&y=2"
+       }
+      },
+      {
+       "type": "bold"
+      }
+     ]
+    },
+    {
+     "type": "text",
+     "text": "."
+    }
+   ]
+  },
+  {
+   "type": "paragraph",
+   "content": [
+    {
+     "type": "text",
+     "text": "Literal *stars*, _under_scores_, [brackets], `ticks`, ~tilde~, a == b, <div>, &amp; and snake_case."
+    }
+   ]
+  },
+  {
+   "type": "paragraph",
+   "content": [
+    {
+     "type": "text",
+     "text": "# not a heading"
+    },
+    {
+     "type": "hardBreak"
+    },
+    {
+     "type": "text",
+     "text": "- not a list"
+    },
+    {
+     "type": "hardBreak"
+    },
+    {
+     "type": "text",
+     "text": "1. not ordered"
+    },
+    {
+     "type": "hardBreak"
+    },
+    {
+     "type": "text",
+     "text": "> not a quote"
+    }
+   ]
+  },
+  {
+   "type": "paragraph"
+  },
+  {
+   "type": "heading",
+   "attrs": {
+    "level": 2
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Lists"
+    }
+   ]
+  },
+  {
+   "type": "bulletList",
+   "content": [
+    {
+     "type": "listItem",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "One"
+        }
+       ]
+      },
+      {
+       "type": "orderedList",
+       "attrs": {
+        "start": 1
+       },
+       "content": [
+        {
+         "type": "listItem",
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "Sub a"
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "listItem",
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "Sub b"
+            }
+           ]
+          },
+          {
+           "type": "taskList",
+           "content": [
+            {
+             "type": "taskItem",
+             "attrs": {
+              "checked": true
+             },
+             "content": [
+              {
+               "type": "paragraph",
+               "content": [
+                {
+                 "type": "text",
+                 "text": "deep"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "listItem",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Two"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "bulletList",
+   "content": [
+    {
+     "type": "listItem",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Separate list"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "orderedList",
+   "attrs": {
+    "start": 3
+   },
+   "content": [
+    {
+     "type": "listItem",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Three"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "listItem",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Four"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "taskList",
+   "content": [
+    {
+     "type": "taskItem",
+     "attrs": {
+      "checked": true
+     },
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Done"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "taskItem",
+     "attrs": {
+      "checked": false
+     },
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Todo"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "heading",
+   "attrs": {
+    "level": 3
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Quote and code"
+    }
+   ]
+  },
+  {
+   "type": "blockquote",
+   "content": [
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Quoted line"
+      },
+      {
+       "type": "hardBreak"
+      },
+      {
+       "type": "text",
+       "text": "second line"
+      }
+     ]
+    },
+    {
+     "type": "bulletList",
+     "content": [
+      {
+       "type": "listItem",
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "In quote"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "codeBlock",
+   "attrs": {
+    "language": "go"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "func main() {\n\tfmt.Println(\"```\")\n}"
+    }
+   ]
+  },
+  {
+   "type": "codeBlock",
+   "attrs": {
+    "language": null
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "plain"
+    }
+   ]
+  },
+  {
+   "type": "horizontalRule"
+  },
+  {
+   "type": "heading",
+   "attrs": {
+    "level": 4
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Table"
+    }
+   ]
+  },
+  {
+   "type": "table",
+   "content": [
+    {
+     "type": "tableRow",
+     "content": [
+      {
+       "type": "tableHeader",
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Name"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableHeader",
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Notes"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "tableRow",
+     "content": [
+      {
+       "type": "tableCell",
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "a | b"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableCell",
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "x|y",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "tableRow",
+     "content": [
+      {
+       "type": "tableCell",
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "l1",
+           "marks": [
+            {
+             "type": "bold"
+            }
+           ]
+          },
+          {
+           "type": "hardBreak"
+          },
+          {
+           "type": "text",
+           "text": "l2"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableCell",
+       "content": [
+        {
+         "type": "paragraph"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "paragraph",
+   "content": [
+    {
+     "type": "image",
+     "attrs": {
+      "src": "https://example.com/pic.png",
+      "alt": "A pic",
+      "title": "Pic"
+     }
+    },
+    {
+     "type": "text",
+     "text": " "
+    },
+    {
+     "type": "mention",
+     "attrs": {
+      "id": "t1",
+      "label": "Haircut",
+      "entityType": "task"
+     }
+    },
+    {
+     "type": "text",
+     "text": " "
+    },
+    {
+     "type": "mention",
+     "attrs": {
+      "id": "d1",
+      "label": "Subpage",
+      "entityType": "doc",
+      "appearance": "page"
+     }
+    }
+   ]
+  },
+  {
+   "type": "heading",
+   "attrs": {
+    "level": 5
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "C#"
+    }
+   ]
+  },
+  {
+   "type": "heading",
+   "attrs": {
+    "level": 6
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Six"
+    }
+   ]
+  },
+  {
+   "type": "paragraph",
+   "content": [
+    {
+     "type": "text",
+     "text": " Leading space"
+    }
+   ]
+  }
+ ]
+}

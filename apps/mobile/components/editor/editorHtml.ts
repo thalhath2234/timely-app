@@ -49,6 +49,10 @@ export function buildEditorHtml(
     .tiptap h1 { font-size: 26px; line-height: 1.25; font-weight: 700; margin: 0.8em 0 0.4em; }
     .tiptap h2 { font-size: 22px; line-height: 1.3; font-weight: 700; margin: 0.7em 0 0.35em; }
     .tiptap h3 { font-size: 18px; line-height: 1.35; font-weight: 600; margin: 0.6em 0 0.3em; }
+    .tiptap h4 { font-size: 16px; line-height: 1.4; font-weight: 600; margin: 0.6em 0 0.3em; }
+    .tiptap h5 { font-size: 15px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; }
+    .tiptap h6 { font-size: 14px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; color: ${t.mutedForeground}; }
+    .tiptap img { display: inline-block; max-width: 100%; border-radius: 8px; vertical-align: bottom; }
     .tiptap ul, .tiptap ol { padding-left: 1.3em; margin: 0 0 0.75em; }
     .tiptap blockquote { border-left: 3px solid ${t.primary}; margin: 0 0 0.75em; padding: 0 0 0 12px; color: ${t.accentForeground}; }
     .tiptap pre { position: relative; background: ${t.muted}; border: 1px solid ${t.border}; border-radius: 10px; padding: 36px 12px 12px; overflow-x: auto; color: ${t.foreground}; }
@@ -83,6 +87,7 @@ export function buildEditorHtml(
     import TaskList from "https://esm.sh/@tiptap/extension-task-list@3.31.4";
     import TaskItem from "https://esm.sh/@tiptap/extension-task-item@3.31.4";
     import Highlight from "https://esm.sh/@tiptap/extension-highlight@3.31.4";
+    import Image from "https://esm.sh/@tiptap/extension-image@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
 
     const placeholder = ${embed(placeholder)};
@@ -259,7 +264,7 @@ export function buildEditorHtml(
       element: document.getElementById("editor"),
       extensions: [
         StarterKit.configure({
-          heading: { levels: [1, 2, 3] },
+          heading: { levels: [1, 2, 3, 4, 5, 6] },
           link: { openOnClick: false, autolink: true, defaultProtocol: "https" },
         }),
         Placeholder.configure({
@@ -272,6 +277,7 @@ export function buildEditorHtml(
         TaskList,
         TaskItem.configure({ nested: true }),
         Highlight,
+        Image.configure({ inline: true }),
         TableKit.configure({ table: { resizable: false } }),
         Mention,
         ExtraShortcuts,
@@ -295,8 +301,7 @@ export function buildEditorHtml(
     const TABLE_CMDS = {
       addRowBefore: true, addRowAfter: true, deleteRow: true,
       addColBefore: true, addColAfter: true, deleteCol: true,
-      deleteTable: true, headerRow: true, headerCol: true,
-      merge: true, split: true,
+      deleteTable: true,
     };
 
     window.__timely = {
@@ -331,8 +336,6 @@ export function buildEditorHtml(
           case "addColAfter": chain.addColumnAfter(); break;
           case "deleteCol": chain.deleteColumn(); break;
           case "deleteTable": chain.deleteTable(); break;
-          case "headerRow": chain.toggleHeaderRow(); break;
-          case "headerCol": chain.toggleHeaderColumn(); break;
           case "bold": chain.toggleBold(); break;
           case "italic": chain.toggleItalic(); break;
           case "strike": chain.toggleStrike(); break;
@@ -350,8 +353,6 @@ export function buildEditorHtml(
             }
             break;
           case "unsetLink": chain.extendMarkRange("link").unsetLink(); break;
-          case "merge": chain.mergeCells(); break;
-          case "split": chain.splitCell(); break;
           case "mentionChar": chain.insertContent("@"); break;
           case "mention":
             chain.insertContent([
