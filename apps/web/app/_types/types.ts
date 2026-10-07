@@ -1,10 +1,4 @@
 import type { TaskKind } from "@timely/contract";
-import type {
-  Config as WireConfig,
-  ConfigUpdateInput as WireConfigUpdateInput,
-  TaskViewConfig as WireTaskViewConfig,
-  TaskViewSortBy,
-} from "@timely/contract/config";
 
 export type { TaskKind };
 export type { SheetColumn, SheetColumnType, SheetMerge } from "@timely/contract/sheetTypes";
@@ -25,11 +19,15 @@ export type {
 } from "@timely/contract/calendar";
 export type {
   Appearance,
+  Config,
+  ConfigUpdateInput,
   TaskListDataMode,
   TaskListGroupField,
   TaskListGroupSortDirection,
   TaskListSortDirection,
   TaskRenderMode,
+  TaskViewConfig,
+  TaskViewSortBy,
 } from "@timely/contract/config";
 export type {
   Doc,
@@ -185,27 +183,9 @@ export function getGmtLabel() {
   return `GMT${sign}${hh}`;
 }
 
-export type TaskListSortBy = TaskViewSortBy;
-
 export type TaskListGroupBy =
   | "none"
   | "status"
   | "project"
   | "priority"
   | `cf:${string}`;
-
-export type TaskViewConfig = Omit<WireTaskViewConfig, "sortBy"> & {
-  sortBy: TaskListSortBy;
-};
-
-export type Config = Omit<WireConfig, "taskViews" | "projectTaskViews"> & {
-  taskViews: TaskViewConfig[];
-  /** One saved task-list layout per project id. */
-  projectTaskViews: Record<string, TaskViewConfig>;
-};
-
-/** PUT /config body. Local for the same `sortBy` reason as `TaskViewConfig`. */
-export type ConfigUpdateInput = Omit<WireConfigUpdateInput, "taskViews" | "projectTaskViews"> & {
-  taskViews?: TaskViewConfig[];
-  projectTaskViews?: Record<string, TaskViewConfig>;
-};

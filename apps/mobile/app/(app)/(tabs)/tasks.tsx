@@ -349,12 +349,12 @@ export default function TasksScreen() {
   }, [save]);
 
   const openCount = useMemo(() => visible.filter((task) => !task.completedAt).length, [visible]);
+  // One date for the whole list: cards take it as a prop instead of each
+  // subscribing to the Working hours config.
+  const today = todayInZone(workingHoursZone);
   const overdueCount = useMemo(
-    () => {
-      const today = todayInZone(workingHoursZone);
-      return visible.filter((task) => isOverdue(task, today)).length;
-    },
-    [visible, workingHoursZone],
+    () => visible.filter((task) => isOverdue(task, today)).length,
+    [visible, today],
   );
   const filtersOn = viewHasCustomFilters(activeView);
   const listRefreshing = tasksQ.isRefetching && !tasksQ.isPending;
@@ -371,6 +371,7 @@ export default function TasksScreen() {
       <View style={styles.cardWrap}>
         <TaskCard
           task={item}
+          today={today}
           selected={selectedIds.includes(item.id)}
           selecting={selecting}
           onSelect={toggleSelect}
@@ -378,7 +379,7 @@ export default function TasksScreen() {
         />
       </View>
     ),
-    [selectedIds, selecting, toggleSelect, toggleComplete],
+    [selectedIds, selecting, today, toggleSelect, toggleComplete],
   );
 
   const renderSectionHeader = useCallback(
@@ -480,6 +481,7 @@ export default function TasksScreen() {
       {boardMode && !networkCopy && visible.length > 0 ? (
         <MobileKanban
           columns={boardCols}
+          today={today}
           selectedIds={selectedIds}
           selecting={selecting}
           onSelect={toggleSelect}

@@ -141,11 +141,6 @@ export function isRemoval(tool: string) {
 export function beforeLabel(tool: string) {
   if (isRemoval(tool)) return "What will be removed";
   if (tool === "undo_schedule") return "Blocks removed and restored";
-  if (
-    tool === "update_working_hours" ||
-    tool === "update_notification_settings"
-  )
-    return "Current settings";
   return "Existing content";
 }
 
@@ -171,7 +166,6 @@ export function stepIcon(tool: string): LucideIcon {
   if (tool.includes("notification") || tool === "snooze_reminder") return Bell;
   if (tool === "set_today_focus") return Sun;
   if (tool.includes("focus")) return Timer;
-  if (tool === "update_working_hours") return Clock;
   if (tool === "undo_schedule") return Undo2;
   if (tool.includes("sheet")) return Table2;
   if (tool.includes("doc")) return FileText;
