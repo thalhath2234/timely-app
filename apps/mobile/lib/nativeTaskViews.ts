@@ -5,7 +5,7 @@ import type {
   CustomField,
   Task,
   TaskListGroupField,
-  TaskListSortBy,
+  TaskViewSortBy,
   TaskRenderMode,
   TaskViewConfig,
 } from "./types";
@@ -160,7 +160,7 @@ export function customFieldGroupLabel(task: Task, fieldId: string) {
   return "Empty";
 }
 
-export const NATIVE_SORT_OPTIONS: { value: TaskListSortBy; label: string }[] = [
+export const NATIVE_SORT_OPTIONS: { value: TaskViewSortBy; label: string }[] = [
   { value: "name", label: "Name" },
   { value: "deadline", label: "Deadline" },
   { value: "scheduledOn", label: "Scheduled date" },

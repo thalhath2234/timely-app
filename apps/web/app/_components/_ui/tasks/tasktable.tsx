@@ -31,7 +31,7 @@ import {
   TaskListDataMode,
   TaskListGroupField,
   TaskListGroupSortDirection,
-  TaskListSortBy,
+  TaskViewSortBy,
   TaskListSortDirection,
 } from "@/app/_types/types";
 import { useTasks, useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tasks";
@@ -55,7 +55,7 @@ type TasksTableProps = {
   groupSortDirection: TaskListGroupSortDirection;
   groupValueOrders: Record<string, string[]>;
   selectedWorkspaceIds: string[];
-  sortBy: TaskListSortBy;
+  sortBy: TaskViewSortBy;
   sortDirection: TaskListSortDirection;
   columnOrder: string[];
   onColumnOrderChange: (order: string[]) => void;
@@ -442,7 +442,7 @@ function buildNestedGroups(
     });
 }
 
-function compareTasks(a: Task, b: Task, sortBy: TaskListSortBy): number {
+function compareTasks(a: Task, b: Task, sortBy: TaskViewSortBy): number {
   switch (sortBy) {
     case "name":
       return (a.name || "").localeCompare(b.name || "");
