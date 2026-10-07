@@ -75,7 +75,10 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 		out.Items = []Item{}
 	}
 
-	workDay := s.workDay(userID, timezone)
+	workDay, err := s.workDay(userID, timezone)
+	if err != nil {
+		return nil, err
+	}
 	scheduledIDs := map[string]bool{}
 	for _, item := range rangeRes.Items {
 		if item.TaskID != "" && !item.Reminder {

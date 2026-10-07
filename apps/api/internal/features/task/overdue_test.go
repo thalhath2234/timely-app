@@ -1,9 +1,12 @@
 package task
 
 import (
+	"errors"
 	"testing"
 	"time"
 	"timely-api/internal/models"
+
+	"gorm.io/gorm"
 )
 
 func mustLocation(t *testing.T, name string) *time.Location {
@@ -138,5 +141,30 @@ func TestTodayForUsesWorkingHoursZone(t *testing.T) {
 	today := TodayFor(models.DefaultWorkingHours("Europe/Berlin"), "America/New_York", instant)
 	if today.Date() != "2026-09-11" || today.Location().String() != "Europe/Berlin" {
 		t.Fatalf("today = %s in %s, want 2026-09-11 in Europe/Berlin", today.Date(), today.Location())
+	}
+}
+
+func TestTodayForUserReadsSavedHoursThroughTheLookup(t *testing.T) {
+	// 23:30 UTC on Sep 10 is 01:30 on Sep 11 in Berlin.
+	instant := time.Date(2026, 9, 10, 23, 30, 0, 0, time.UTC)
+	saved := func(string) (models.WorkingHours, error) { return models.DefaultWorkingHours("Europe/Berlin"), nil }
+	today, err := TodayForUser(saved, "usr_1", "America/New_York", instant)
+	if err != nil || today.Date() != "2026-09-11" || today.Location().String() != "Europe/Berlin" {
+		t.Fatalf("today = %s in %s (err %v), want 2026-09-11 in Europe/Berlin", today.Date(), today.Location(), err)
+	}
+
+	// No config row yet, or no lookup at all, means no saved hours: the client's zone applies.
+	missing := func(string) (models.WorkingHours, error) { return models.WorkingHours{}, gorm.ErrRecordNotFound }
+	for name, lookup := range map[string]HoursLookup{"no config row": missing, "no lookup": nil} {
+		today, err := TodayForUser(lookup, "usr_1", "Asia/Tokyo", instant)
+		if err != nil || today.Location().String() != "Asia/Tokyo" {
+			t.Fatalf("%s: today in %s (err %v), want Asia/Tokyo", name, today.Location(), err)
+		}
+	}
+
+	broken := errors.New("database down")
+	failing := func(string) (models.WorkingHours, error) { return models.WorkingHours{}, broken }
+	if _, err := TodayForUser(failing, "usr_1", "", instant); !errors.Is(err, broken) {
+		t.Fatalf("err = %v, want the lookup failure", err)
 	}
 }

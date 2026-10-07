@@ -1145,11 +1145,10 @@ func (s *taskService) List(userID string, filter TaskFilter) ([]models.Task, err
 	annotateProgress(tasks)
 	var today Today
 	if filter.Overdue != nil && *filter.Overdue {
-		hours, err := s.taskRepo.GetWorkingHours(userID)
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		today, err = TodayForUser(s.taskRepo.GetWorkingHours, userID, filter.Timezone, time.Now())
+		if err != nil {
 			return nil, err
 		}
-		today = TodayFor(hours, filter.Timezone, time.Now())
 	}
 	return applyTaskFilter(tasks, filter, today), nil
 }

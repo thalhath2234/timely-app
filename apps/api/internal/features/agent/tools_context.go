@@ -201,13 +201,19 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 	if err != nil {
 		return fail(err)
 	}
-	hours, err := s.Schedule.GetWorkingHours(uid, zone(ctx, in.Timezone))
+	// Overdue and Unscheduled are judged on today in the Working hours
+	// timezone, like /today and what_next; the range zone only frames items.
+	clientZone := zone(ctx, in.Timezone)
+	today, err := task.TodayForUser(func(id string) (models.WorkingHours, error) {
+		hours, err := s.Schedule.GetWorkingHours(id, clientZone)
+		if err != nil {
+			return models.WorkingHours{}, err
+		}
+		return hours.WorkingHours, nil
+	}, uid, clientZone, time.Now())
 	if err != nil {
 		return fail(err)
 	}
-	// Overdue and Unscheduled are judged on today in the Working hours
-	// timezone, like /today and what_next; the range zone only frames items.
-	today := task.TodayFor(hours.WorkingHours, zone(ctx, in.Timezone), time.Now())
 	overdue := make([]map[string]string, 0)
 	unscheduled := make([]map[string]string, 0)
 	for _, t := range tasks {
