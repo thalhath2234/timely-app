@@ -78,3 +78,52 @@ export function isOverdue(task: OverdueFields, today: string): boolean {
   if (!task.deadline) return false;
   return task.deadline.slice(0, 10) < today;
 }
+
+/** The fields Unscheduled reads; a full `Task` satisfies it. */
+export interface UnscheduledFields extends OverdueFields {
+  scheduledOn?: string | null;
+  blocks?: ReadonlyArray<{ start: string; end: string }> | null;
+}
+
+const OFFSET_SUFFIX = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i;
+
+/**
+ * The date (`YYYY-MM-DD`) of a server timestamp in `timeZone`. A value with a
+ * zone is an instant; one without (`2026-10-07T09:00`) is wall-clock time in
+ * the Working hours timezone, so its own date applies. Null when unparseable.
+ */
+function timestampDate(value: string, timeZone?: string | null): string | null {
+  const text = value.trim().replace(" ", "T");
+  const time = text.indexOf("T");
+  if (time < 0) return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+  if (!OFFSET_SUFFIX.test(text.slice(time + 1))) {
+    return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : null;
+  }
+  // Postgres writes a bare "+00" offset; Date wants "+00:00".
+  const normalized = text.replace(/([+-]\d{2})$/, "$1:00");
+  const instant = new Date(normalized);
+  return Number.isNaN(instant.getTime()) ? null : dateInZone(instant, timeZone);
+}
+
+/**
+ * Open Work without a Block on the current date in the Working hours
+ * timezone (CONTEXT.md, Unscheduled). A Block on a later or earlier date does
+ * not count, and neither does a `scheduledOn` ping that falls today. Inbox
+ * items, Reminders and completed Work are never Unscheduled. Mirrors
+ * `task.IsUnscheduled` on the server.
+ */
+export function isUnscheduled(
+  task: UnscheduledFields,
+  timeZone?: string | null,
+  now: Date = new Date(),
+): boolean {
+  if (task.completedAt || task.kind === "inbox" || task.kind === "reminder") return false;
+  const today = dateInZone(now, timeZone);
+  for (const block of task.blocks ?? []) {
+    const start = timestampDate(block.start, timeZone);
+    const end = timestampDate(block.end, timeZone);
+    if (start !== null && end !== null && start <= today && end >= today) return false;
+  }
+  if (task.scheduledOn && timestampDate(task.scheduledOn, timeZone) === today) return false;
+  return true;
+}
