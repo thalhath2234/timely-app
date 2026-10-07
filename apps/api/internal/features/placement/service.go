@@ -231,7 +231,9 @@ func (s *Service) RewriteFutureAllDay(userID string, hours models.WorkingHours) 
 	if s == nil || s.blocks == nil {
 		return nil
 	}
-	loc := hours.Location(time.UTC)
+	// Same fallback as task.DayLocation, which this package cannot import:
+	// saved Working hours, else the server's zone (ADR 0011).
+	loc := hours.Location(time.Local)
 	now := time.Now().In(loc)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	var events []models.Event
