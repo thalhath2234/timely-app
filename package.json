@@ -1,6 +1,6 @@
 {
   "name": "timely",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "private": true,
   "packageManager": "pnpm@11.15.1",
   "engines": {
