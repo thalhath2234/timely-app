@@ -141,14 +141,27 @@ func (r *workspaceRepository) CreateCustomFields(customField *models.CustomField
 	return customField, nil
 }
 
+// foundOne turns a write that matched no row (the child id is unknown or lives
+// in another workspace) into gorm.ErrRecordNotFound. Postgres counts matched
+// rows for UPDATE, so an update that sets the same values still succeeds.
+func foundOne(result *gorm.DB) error {
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func (r *workspaceRepository) UpdateLabels(lable *models.Lable) (*models.Lable, error) {
-	if err := r.db.Model(&models.Lable{}).
+	if err := foundOne(r.db.Model(&models.Lable{}).
 		Where("id = ? AND workspace_id = ?", lable.ID, lable.WorkspaceID).
 		Updates(map[string]any{
 			"name":       lable.Name,
 			"color":      lable.Color,
 			"updated_at": lable.UpdatedAt,
-		}).Error; err != nil {
+		})); err != nil {
 		return nil, err
 	}
 
@@ -156,17 +169,17 @@ func (r *workspaceRepository) UpdateLabels(lable *models.Lable) (*models.Lable, 
 }
 
 func (r *workspaceRepository) DeleteLabels(lableID string, workspaceID string) error {
-	return r.db.Where("id = ? AND workspace_id = ?", lableID, workspaceID).Delete(&models.Lable{}).Error
+	return foundOne(r.db.Where("id = ? AND workspace_id = ?", lableID, workspaceID).Delete(&models.Lable{}))
 }
 
 func (r *workspaceRepository) UpdateStatuses(status *models.Status) (*models.Status, error) {
-	if err := r.db.Model(&models.Status{}).
+	if err := foundOne(r.db.Model(&models.Status{}).
 		Where("id = ? AND workspace_id = ?", status.ID, status.WorkspaceID).
 		Updates(map[string]any{
 			"name":       status.Name,
 			"color":      status.Color,
 			"updated_at": status.UpdatedAt,
-		}).Error; err != nil {
+		})); err != nil {
 		return nil, err
 	}
 
@@ -174,16 +187,16 @@ func (r *workspaceRepository) UpdateStatuses(status *models.Status) (*models.Sta
 }
 
 func (r *workspaceRepository) DeleteStatuses(statusID string, workspaceID string) error {
-	return r.db.Where("id = ? AND workspace_id = ?", statusID, workspaceID).Delete(&models.Status{}).Error
+	return foundOne(r.db.Where("id = ? AND workspace_id = ?", statusID, workspaceID).Delete(&models.Status{}))
 }
 
 func (r *workspaceRepository) UpdateCustomFields(customField *models.CustomField) (*models.CustomField, error) {
 	// Pass the populated struct as Model so BeforeUpdate sees Type/Options.
 	// Model(&CustomField{}) would leave Type empty and fail validation.
-	if err := r.db.Model(customField).
+	if err := foundOne(r.db.Model(customField).
 		Where("id = ? AND workspace_id = ?", customField.ID, customField.WorkspaceID).
 		Select("Name", "Type", "Options", "UpdatedAt").
-		Updates(customField).Error; err != nil {
+		Updates(customField)); err != nil {
 		return nil, err
 	}
 
@@ -191,7 +204,7 @@ func (r *workspaceRepository) UpdateCustomFields(customField *models.CustomField
 }
 
 func (r *workspaceRepository) DeleteCustomFields(customFieldID string, workspaceID string) error {
-	return r.db.Where("id = ? AND workspace_id = ?", customFieldID, workspaceID).Delete(&models.CustomField{}).Error
+	return foundOne(r.db.Where("id = ? AND workspace_id = ?", customFieldID, workspaceID).Delete(&models.CustomField{}))
 }
 
 func (r *workspaceRepository) GetConfig(userID string) (*models.Config, error) {
