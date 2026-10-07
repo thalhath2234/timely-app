@@ -113,6 +113,11 @@ func (s *taskService) CopyProjectTasks(userID, fromProjectID, toProjectID string
 		if deref(t.ProjectID) != fromProjectID {
 			continue
 		}
+		// A Reminder belongs to no project; a copy would be a free-floating
+		// ping at the same time as the original.
+		if t.IsReminder() {
+			continue
+		}
 		var stage *string
 		if t.StageID != nil {
 			if mapped, ok := stageMap[*t.StageID]; ok {

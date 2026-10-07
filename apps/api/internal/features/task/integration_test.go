@@ -375,9 +375,10 @@ func TestIntegrationDuplicateReminderCarriesItsPing(t *testing.T) {
 	}
 }
 
-// Cloning a project copies every task in it, including a Reminder that sits in
-// the project (rows from before Reminders stopped carrying one).
-func TestIntegrationCloneProjectCopiesReminder(t *testing.T) {
+// A Reminder belongs to no project, so cloning a project skips one that sits in
+// it (rows from before Reminders stopped carrying a project) instead of making
+// a free-floating copy that pings at the same time as the original.
+func TestIntegrationCloneProjectSkipsReminders(t *testing.T) {
 	f := newKindFixture(t)
 	reminder, err := f.svc.Create(f.board(models.KindReminder, 0, f.id(kindPing)), nil, nil)
 	if err != nil {
@@ -404,22 +405,12 @@ func TestIntegrationCloneProjectCopiesReminder(t *testing.T) {
 	}
 
 	var copies []models.Task
-	if err := f.db.Where("name LIKE ?", "%Thing").Where("id NOT IN ?", []string{reminder.ID, work.ID}).Find(&copies).Error; err != nil {
+	if err := f.db.Where("id NOT IN ?", []string{reminder.ID, work.ID}).Find(&copies).Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(copies) != 2 {
-		t.Fatalf("copied %d tasks, want the Reminder and the Work", len(copies))
+	if len(copies) != 1 || copies[0].Kind != models.KindTask || deref(copies[0].ProjectID) != target.ID {
+		t.Fatalf("clone = %+v, want only the Work, in the new project", copies)
 	}
-	for _, c := range copies {
-		if c.Kind != models.KindReminder {
-			continue
-		}
-		if c.ScheduledOn == nil || !sameInstant(t, *c.ScheduledOn, kindPing) {
-			t.Fatalf("cloned Reminder ping = %v, want %s", c.ScheduledOn, kindPing)
-		}
-		return
-	}
-	t.Fatal("the Reminder was not cloned")
 }
 
 func sameInstant(t *testing.T, a, b string) bool {
