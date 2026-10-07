@@ -38,9 +38,9 @@ func (s *Service) zoned(ctx context.Context, c *Conversation) (context.Context, 
 	if s.db != nil {
 		_ = s.db.WithContext(ctx).Select("working_hours").Where("user_id = ?", c.UserID).Limit(1).Find(&config).Error
 	}
-	if saved, err := time.LoadLocation(config.WorkingHours.Timezone); config.WorkingHours.Timezone != "" && err == nil {
+	if saved, err := time.LoadLocation(config.WorkingHours.Timezone); config.WorkingHours.Timezone != "" && err == nil && models.ZoneName(saved) != "" {
 		loc, source, name = saved, "saved", saved.String()
-	} else if device, err := time.LoadLocation(c.Timezone); c.Timezone != "" && err == nil {
+	} else if device, err := time.LoadLocation(c.Timezone); c.Timezone != "" && err == nil && models.ZoneName(device) != "" {
 		loc, source, name = device, "device", device.String()
 	}
 	return agent.WithTimezone(ctx, name), loc, source

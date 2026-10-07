@@ -250,7 +250,7 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	settings = settings.Normalized()
 	loc := task.DayLocation(hours, req.Timezone)
 	if hours.IsEmpty() {
-		hours = models.DefaultWorkingHours(loc.String())
+		hours = models.DefaultWorkingHours(models.ZoneName(loc))
 	}
 
 	tasks, err := s.tasks.GetAllTaskByUser(userID)
@@ -396,7 +396,7 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 		}
 	}
 
-	occupancy := placement.Busy(tasks, events, from, to, hours)
+	occupancy := placement.Busy(tasks, events, from.In(loc), to, hours)
 	var busy []Interval
 	for _, item := range occupancy {
 		if item.Completed {
@@ -448,7 +448,7 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	response := &PlanResponse{
 		From:           from,
 		To:             to,
-		Timezone:       loc.String(),
+		Timezone:       models.ClientZoneName(loc),
 		Proposals:      make([]ProposalOut, 0, len(result.Proposals)),
 		Skipped:        append(skipped, result.Skipped...),
 		Changes:        []PlanChange{},
@@ -675,7 +675,7 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 	}
 	loc := task.DayLocation(hours, timezone)
 	if hours.IsEmpty() {
-		hours = models.DefaultWorkingHours(loc.String())
+		hours = models.DefaultWorkingHours(models.ZoneName(loc))
 	}
 
 	tasks, err := s.tasks.GetAllTaskByUser(userID)
@@ -686,7 +686,7 @@ func (s *service) FreeTime(userID string, from, to time.Time, timezone string) (
 	if err != nil {
 		return nil, err
 	}
-	occupancy := placement.Busy(tasks, events, from, to, hours)
+	occupancy := placement.Busy(tasks, events, from.In(loc), to, hours)
 	var busy []Interval
 	for _, item := range occupancy {
 		busy = append(busy, Interval{Start: item.Start, End: item.End})

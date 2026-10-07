@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-sheet-formulas test-work-status test-mobile-clearable test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-sheet-formulas test-work-status test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -253,7 +253,7 @@ test-providers-live: ## Call real agent provider APIs (tool round trip + image) 
 
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
-	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./cmd -run TestIntegration -count=1
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./cmd -run TestIntegration -count=1
 
 lint-chat: ## Lint the chat UI and Electron integration
 	@pnpm --filter @timely/web exec eslint app/_components/chat app/_store/chatStore.ts app/utils/api/chat.ts app/utils/hooks/chat.ts "app/(pages)/(nav_pages)/chat" electron/main.ts electron/preload.ts
@@ -284,6 +284,14 @@ test-work-status: ## Test the shared Overdue and Unscheduled work status logic
 .PHONY: test-mobile-clearable
 test-mobile-clearable: ## Test how mobile update bodies turn null into a server-side clear
 	@node --experimental-strip-types --test scripts/mobile-clearable.test.mjs
+
+.PHONY: test-mobile-next-free-slot
+test-mobile-next-free-slot: ## Test how mobile picks its next free slot from the server's free time
+	@node --experimental-strip-types --test scripts/mobile-next-free-slot.test.mjs
+
+.PHONY: test-mobile-picker-seed
+test-mobile-picker-seed: ## Test when a date-time picker adopts a value that arrives while it is open
+	@node --experimental-strip-types --test scripts/mobile-picker-seed.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing

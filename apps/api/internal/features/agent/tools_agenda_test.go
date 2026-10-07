@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 	"timely-api/internal/features/calendar"
@@ -97,5 +98,100 @@ func TestGetAgendaUsesSharedWorkStatus(t *testing.T) {
 	overdue := agendaIDs(t, out, "overdue")
 	if len(overdue) != 1 || !overdue["overdue_future_block"] {
 		t.Errorf("overdue = %v, want only overdue_future_block", overdue)
+	}
+}
+
+type noSavedHours struct{ schedule.Repository }
+
+func (noSavedHours) GetWorkingHours(string) (models.WorkingHours, error) {
+	return models.WorkingHours{}, nil
+}
+
+// With no saved Working hours and no timezone from the caller, the agent judges
+// Overdue in the server's zone (ADR 0011), not in UTC through the default
+// hours, and get_working_hours does not claim a zone it does not know.
+func TestGetAgendaDefaultHoursFollowServerZone(t *testing.T) {
+	// The server's zone is a day ahead of UTC right now: its clock reads 00:01
+	// tomorrow, so a deadline of today in UTC is Overdue there only.
+	now := time.Now().UTC()
+	untilMidnight := time.Duration(24*60-(now.Hour()*60+now.Minute())+1) * time.Minute
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Server", int(untilMidnight.Seconds()))
+	utcToday := now.Format("2006-01-02")
+
+	late := models.Task{ID: "late", Name: "late", Kind: models.KindTask, Duration: 30, Deadline: &utcToday}
+	srv := &Server{Deps: Deps{
+		Tasks:    agendaTasks{tasks: []models.Task{late}},
+		Calendar: agendaCalendar{},
+		Schedule: schedule.NewService(noSavedHours{}, nil, nil, nil),
+	}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &mcpauth.TokenInfo{UserID: "usr_1"}}}
+
+	_, out, err := srv.getAgenda(context.Background(), req, rangeIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overdue := agendaIDs(t, out, "overdue"); !overdue["late"] {
+		t.Errorf("a deadline of yesterday in the server's zone should be Overdue, got %v", overdue)
+	}
+
+	_, out, err = srv.getWorkingHours(context.Background(), req, hoursQueryIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hours, ok := out.(*schedule.WorkingHoursResponse)
+	if !ok || !hours.IsDefault || hours.Timezone != "" || len(hours.Days["mon"]) != 1 {
+		t.Fatalf("working hours = %#v, want the default week with no zone", out)
+	}
+}
+
+type emptyFreeTime struct {
+	schedule.Service
+	zones *[]string
+}
+
+func (emptyFreeTime) GetWorkingHours(string, string) (*schedule.WorkingHoursResponse, error) {
+	return &schedule.WorkingHoursResponse{WorkingHours: models.DefaultWorkingHours(""), IsDefault: true}, nil
+}
+
+func (f emptyFreeTime) FreeTime(_ string, _, _ time.Time, timezone string) ([]schedule.Interval, error) {
+	*f.zones = append(*f.zones, timezone)
+	return []schedule.Interval{}, nil
+}
+
+// The server's zone is named "Local" by Go. The agent tools neither hand that
+// name on as a timezone argument nor write it into the text the model reads.
+func TestAgentToolsNeverNameTheServerZoneLocal(t *testing.T) {
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Local", 9*60*60)
+
+	var zones []string
+	srv := &Server{Deps: Deps{
+		Tasks:    agendaTasks{},
+		Calendar: agendaCalendar{},
+		Schedule: emptyFreeTime{zones: &zones},
+	}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &mcpauth.TokenInfo{UserID: "usr_1"}}}
+
+	result, out, err := srv.getFreeTime(context.Background(), req, rangeIn{})
+	if err != nil || result.IsError {
+		t.Fatalf("get_free_time: %v %v", err, result)
+	}
+	text, _ := out.(map[string]any)["text"].(string)
+	if strings.Contains(text, "Local") || !strings.Contains(text, "the server's timezone") {
+		t.Fatalf("free time text = %q, want the server's timezone, not Local", text)
+	}
+	if len(zones) != 1 || zones[0] != "" {
+		t.Fatalf("FreeTime was asked for zones %q, want one unnamed", zones)
+	}
+
+	_, out, err = srv.getAgenda(context.Background(), req, rangeIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := out.(map[string]any)["text"].(string); strings.Contains(text, "Local") {
+		t.Fatalf("agenda text = %q", text)
 	}
 }

@@ -11,6 +11,7 @@ import type {
 } from "../types";
 import type {
   AddBlockPayload,
+  FreeTimeResponse,
   PlanRequest as WirePlanRequest,
 } from "@timely/contract/schedule";
 import { deviceTimezone } from "../format";
@@ -84,6 +85,17 @@ export async function getCapacity(from: Date, to: Date) {
   });
   const body = await api<{ days?: DayCapacity[] } | DayCapacity[]>(`/schedule/capacity?${params}`);
   return Array.isArray(body) ? body : body.days ?? [];
+}
+
+/** Working hours minus Events and Blocks, computed by the server. */
+export async function getFreeTime(from: Date, to: Date) {
+  const params = new URLSearchParams({
+    from: from.toISOString(),
+    to: to.toISOString(),
+    timezone: deviceTimezone(),
+  });
+  const body = await api<FreeTimeResponse>(`/schedule/free-time?${params}`);
+  return body.slots ?? [];
 }
 
 export async function pinTask(taskId: string, locked: boolean) {

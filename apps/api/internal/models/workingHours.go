@@ -32,11 +32,10 @@ func WeekdayKey(day time.Weekday) string {
 	return weekdayKeys[int(day)]
 }
 
-// DefaultWorkingHours is Monday to Friday, 09:00 to 17:00.
+// DefaultWorkingHours is Monday to Friday, 09:00 to 17:00. An empty timezone
+// stays empty ("no zone saved or known"), so the day boundary still falls
+// through to the client's zone and then the server's rather than to UTC.
 func DefaultWorkingHours(timezone string) WorkingHours {
-	if timezone == "" {
-		timezone = "UTC"
-	}
 	days := map[string][]WorkingWindow{}
 	for _, key := range []string{"mon", "tue", "wed", "thu", "fri"} {
 		days[key] = []WorkingWindow{{Start: "09:00", End: "17:00"}}
@@ -56,7 +55,7 @@ func (w WorkingHours) IsEmpty() bool {
 func (w WorkingHours) WindowsOn(day time.Time) []WorkingWindow {
 	hours := w
 	if hours.IsEmpty() {
-		hours = DefaultWorkingHours("UTC")
+		hours = DefaultWorkingHours("")
 	}
 	windows := hours.Days[WeekdayKey(day.Weekday())]
 	if len(windows) == 0 {

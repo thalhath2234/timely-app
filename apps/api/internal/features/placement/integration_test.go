@@ -613,3 +613,28 @@ func mustParse(t *testing.T, raw string) time.Time {
 	}
 	return parsed
 }
+
+// With no saved Working hours "today" for the All-day rewrite is the server's
+// date (ADR 0011), not UTC's. Here the server's zone is a minute behind UTC's
+// midnight, so an All-day Event on the server's today is still ahead.
+func TestIntegrationRewriteFutureAllDayUsesServerToday(t *testing.T) {
+	f := newFixture(t)
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	utc := time.Now().UTC()
+	behind := time.Duration(utc.Hour()*60+utc.Minute()+1) * time.Minute
+	time.Local = time.FixedZone("Server", -int(behind.Seconds()))
+	today := time.Now().In(time.Local)
+	start := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.Local)
+
+	event := &models.Event{ID: utils.NewEventID(), Title: "Offsite", StartAt: start, EndAt: start.Add(24 * time.Hour), AllDay: true, UserID: testUser}
+	if err := f.db.Create(event).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.RewriteFutureAllDay(testUser, models.WorkingHours{}); err != nil {
+		t.Fatal(err)
+	}
+	if f.eventBlocks(event.ID) == 0 {
+		t.Fatal("an All-day Event on the server's today was skipped as past")
+	}
+}

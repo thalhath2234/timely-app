@@ -175,7 +175,7 @@ Deep links: `?taskId=`, `?projectId=`.
 - Comments via `Ctrl/Cmd+Enter`. **No comment delete** in the UI.
 - Native has activity + comments; notes are not the full rich editor.
 
-**Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks`, and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete).
+**Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks`, and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete). It never schedules: `scheduledOn` in the patch is refused with 400 ("schedule tasks one at a time"), and the `bulk_update_tasks` tool has no `scheduledOn` or `scheduleAt`, because placing by hand pushes other Work aside (ADR 0010).
 
 **Checklists** are items on the task, not nested tasks. Completing a task does not auto-complete its checklist. `parentTaskId` is rejected on create/update (REST and MCP); nested-task creation has no replacement. Sheet `description` is also rejected.
 
@@ -306,7 +306,7 @@ This is one of the product’s distinctive features.
 ### Engine behavior
 
 - **Placement is the only Block writer** (ADR 0004): manual work blocks, reminder pings, event blocks, and the rewrite of future all-day windows when Working hours change all go through one service.
-- “Today” comes from one **DayLocation** resolver: saved Working hours timezone, then the client's timezone, then UTC. Auto-schedule, free time, and Rank share it.
+- “Today” comes from one **DayLocation** resolver: saved Working hours timezone, then the client's timezone, then the server's zone (ADR 0011). Auto-schedule, free time, and Rank share it.
 - Places incomplete **work** into **free working hours minus busy time** (events, including all-day events, + existing **incomplete** blocks). Auto-schedule uses its own busy list, separate from calendar items (ADR 0006). Completed tasks are not candidates, do not appear in the change list, and do not consume free capacity. Inbox items and reminders are skipped.
 - Recurring work is scheduled as blocks on the parent task with `occurrenceStart`. One occurrence failing to fit does not change later ones. Skip/move/complete exceptions are respected.
 - Shared ranking with `what_next` and `GET /schedule/rank`: deadline slack, duration, priority, Today focus, dependency readiness, partial progress. Scores are ordering hints, never presented as certainty.
@@ -564,7 +564,7 @@ Mint an API key → point Hermes at `/mcp`. The server instructions tell the age
 - `get_context` — user, workspaces (with statuses/labels/fields), projects (stages, open/done/progress), working hours, saved views, now/timezone. Intended first call.
 - `search` / `semantic_search` / `reindex_search`
 - `get_agenda` — items + overdue + unscheduled for a day/week
-- `get_free_time` — working-hour gaps
+- `get_free_time` — working-hour gaps (the same service call as `GET /schedule/free-time`)
 - `what_next` — the same **Rank** as `GET /schedule/rank` (optional `timezone`, top 15). Returns `reasons[]`; scores are ordering hints, not certainty. Inbox and reminders are excluded.
 
 **Task-creation rules:** `create_task` defaults to Work with a 30-minute duration and requires `workspaceId`; an explicit duration ≤ 0 is rejected; `kind=inbox` is refused in favor of `capture_inbox_item` (title only). `clarify_inbox_item` creates new Work or a Reminder and consumes the item.
@@ -753,7 +753,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 **Events:** CRUD (with `duration`), occurrence edit, recurrence split
 
-**Calendar / schedule:** `GET /calendar`, working hours get/put, schedule preview/apply/reschedule/undo, `GET /schedule/rank?timezone=`, task blocks CRUD
+**Calendar / schedule:** `GET /calendar`, working hours get/put, schedule preview/apply/reschedule/undo, `GET /schedule/rank?timezone=`, `GET /schedule/free-time?from=&to=&timezone=` (Working hours minus Events and Blocks, `{slots, freeMinutes}`; mobile picks its next free slot from it), task blocks CRUD
 
 **Projects:** CRUD, stages CRUD + reorder, duplicate
 
@@ -779,7 +779,7 @@ These are already in the backend — useful if choosing “build UI” vs “bui
 - Legacy `scheduleId` still on the task JSON (unused by the engine)
 - Semantic reindex endpoint
 - Agent markdown append-to-doc
-- `get_free_time` / `get_agenda` (agent-only; Rank is now in the UI via the calendar waiting rail)
+- `get_agenda` (agent-only; `get_free_time` is also `GET /schedule/free-time`, used by mobile; Rank is now in the UI via the calendar waiting rail)
 - Focus pause (`POST /tasks/:id/focus/pause`): native uses it, desktop web does not
 - `POST /inbox/:id/clarify`: desktop uses it, native still clarifies by editing in task detail
 - Urgent overdue reschedule: native and MCP only

@@ -40,3 +40,12 @@ func location(ctx context.Context, explicit string) *time.Location {
 	}
 	return time.Local
 }
+
+// zoneLabel names a Working hours zone for a tool's summary line. Default hours
+// with no known zone use the server's.
+func zoneLabel(name string) string {
+	if name == "" {
+		return "the server's timezone"
+	}
+	return name
+}
