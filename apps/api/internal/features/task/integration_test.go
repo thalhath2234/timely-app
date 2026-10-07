@@ -496,3 +496,23 @@ func TestIntegrationWorkingHoursReader(t *testing.T) {
 		t.Fatalf("hours = %+v, want the saved Europe/Berlin hours", got)
 	}
 }
+
+// Only the change to Reminder clears the workspace: a Reminder that stays one
+// keeps the workspace the person picks for it.
+func TestIntegrationUpdateReminderKeepsPickedWorkspace(t *testing.T) {
+	f := newKindFixture(t)
+	reminder, err := f.svc.Create(f.board(models.KindReminder, 0, f.id(kindPing)), nil, nil)
+	if err != nil {
+		t.Fatalf("create reminder: %v", err)
+	}
+	if reminder.WorkspaceID != nil {
+		t.Fatalf("a bare reminder starts with no workspace, got %v", *reminder.WorkspaceID)
+	}
+	got, err := f.svc.Update(kindTestUser, reminder.ID, TaskUpdate{WorkspaceID: f.id(f.workspace)})
+	if err != nil {
+		t.Fatalf("pick workspace: %v", err)
+	}
+	if got.Kind != models.KindReminder || got.WorkspaceID == nil || *got.WorkspaceID != f.workspace {
+		t.Fatalf("workspace=%v kind=%s, want %s kept on the reminder", got.WorkspaceID, got.Kind, f.workspace)
+	}
+}

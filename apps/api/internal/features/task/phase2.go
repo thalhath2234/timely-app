@@ -444,6 +444,11 @@ func (s *taskService) applyKindUpdate(userID string, before *models.Task, update
 		updates["scheduled_on"] = nil
 	}
 	if kind == models.KindReminder {
+		updates["duration"] = 0
+	}
+	// Only the change of kind clears the board fields; a Reminder that stays
+	// one keeps what the person sets on it (its workspace picker).
+	if kind == models.KindReminder && before.Kind != models.KindReminder {
 		labels := before.LabelIDs
 		if update.LabelIDs != nil {
 			labels = *update.LabelIDs
@@ -459,7 +464,6 @@ func (s *taskService) applyKindUpdate(userID string, before *models.Task, update
 			StageID:     mergedID(update.StageID, before.StageID),
 		}
 		applyReminderRules(&row, len(labels) > 0 || fields > 0)
-		updates["duration"] = row.Duration
 		for column, kept := range map[string]*string{
 			"workspace_id": row.WorkspaceID,
 			"project_id":   row.ProjectID,
