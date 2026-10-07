@@ -153,7 +153,7 @@ func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emp
 		"activeViewId":      config.ActiveTaskViewId,
 		"taskViews":         config.TaskViews,
 	}
-	return reply(fmt.Sprintf("%s — %d workspaces, %d projects, zone %s", user.Email, len(workspaces), len(projects), hours.Timezone), out)
+	return reply(fmt.Sprintf("%s — %d workspaces, %d projects, zone %s", user.Email, len(workspaces), len(projects), zoneLabel(hours.Timezone)), out)
 }
 
 type rangeIn struct {
@@ -370,7 +370,7 @@ func (s *Server) getWorkingHours(ctx context.Context, req *mcp.CallToolRequest, 
 	if err != nil {
 		return fail(err)
 	}
-	return reply(fmt.Sprintf("working hours in %s", hours.Timezone), hours)
+	return reply(fmt.Sprintf("working hours in %s", zoneLabel(hours.Timezone)), hours)
 }
 
 type hoursIn struct {

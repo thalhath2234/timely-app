@@ -99,3 +99,48 @@ func TestGetAgendaUsesSharedWorkStatus(t *testing.T) {
 		t.Errorf("overdue = %v, want only overdue_future_block", overdue)
 	}
 }
+
+type noSavedHours struct{ schedule.Repository }
+
+func (noSavedHours) GetWorkingHours(string) (models.WorkingHours, error) {
+	return models.WorkingHours{}, nil
+}
+
+// With no saved Working hours and no timezone from the caller, the agent judges
+// Overdue in the server's zone (ADR 0011), not in UTC through the default
+// hours, and get_working_hours does not claim a zone it does not know.
+func TestGetAgendaDefaultHoursFollowServerZone(t *testing.T) {
+	// The server's zone is a day ahead of UTC right now: its clock reads 00:01
+	// tomorrow, so a deadline of today in UTC is Overdue there only.
+	now := time.Now().UTC()
+	untilMidnight := time.Duration(24*60-(now.Hour()*60+now.Minute())+1) * time.Minute
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Server", int(untilMidnight.Seconds()))
+	utcToday := now.Format("2006-01-02")
+
+	late := models.Task{ID: "late", Name: "late", Kind: models.KindTask, Duration: 30, Deadline: &utcToday}
+	srv := &Server{Deps: Deps{
+		Tasks:    agendaTasks{tasks: []models.Task{late}},
+		Calendar: agendaCalendar{},
+		Schedule: schedule.NewService(noSavedHours{}, nil, nil, nil),
+	}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &mcpauth.TokenInfo{UserID: "usr_1"}}}
+
+	_, out, err := srv.getAgenda(context.Background(), req, rangeIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overdue := agendaIDs(t, out, "overdue"); !overdue["late"] {
+		t.Errorf("a deadline of yesterday in the server's zone should be Overdue, got %v", overdue)
+	}
+
+	_, out, err = srv.getWorkingHours(context.Background(), req, hoursQueryIn{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hours, ok := out.(*schedule.WorkingHoursResponse)
+	if !ok || !hours.IsDefault || hours.Timezone != "" || len(hours.Days["mon"]) != 1 {
+		t.Fatalf("working hours = %#v, want the default week with no zone", out)
+	}
+}
