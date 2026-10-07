@@ -348,6 +348,22 @@ func (s *taskService) placeSingleBlock(userID string, task *models.Task, schedul
 	return s.placement.PlaceWork(userID, task, start, duration)
 }
 
+// placeByHand handles a scheduledOn the person set on an existing task (PATCH,
+// update_task). A Work Block placed this way is placed by hand: it replaces the
+// task's own Blocks and pushes aside other replaceable Work, but keeps Pinned
+// time and an Event's time (ADR 0010). A Reminder just takes the new ping.
+func (s *taskService) placeByHand(userID string, task *models.Task, scheduledOn string) error {
+	start, err := recurrence.ParseTime(scheduledOn)
+	if err != nil {
+		return errors.New("invalid scheduledOn")
+	}
+	if task.Duration <= 0 {
+		return s.placement.PlacePing(userID, task, start)
+	}
+	end := start.Add(time.Duration(task.Duration) * time.Minute)
+	return s.placement.PlaceByHand(userID, task, start, end, true)
+}
+
 func (s *taskService) GetAllTaskByUser(userID string) ([]models.Task, error) {
 	if userID == "" {
 		return nil, errors.New("invalid user id")
@@ -689,7 +705,7 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 	case update.ScheduledOn != nil && *update.ScheduledOn == "":
 		return s.placement.ClearTimes(userID, task)
 	case update.ScheduledOn != nil:
-		return s.placeSingleBlock(userID, task, *update.ScheduledOn, task.Duration)
+		return s.placeByHand(userID, task, *update.ScheduledOn)
 	case update.Duration != nil && task.IsReminder():
 		var keep *time.Time
 		if len(task.Blocks) > 0 {

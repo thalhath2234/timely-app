@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	_ "timely-api/internal/database" // sets goose's embedded migrations
 	"timely-api/internal/features/placement"
@@ -12,6 +13,7 @@ import (
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
+	"timely-api/internal/utils"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -245,5 +247,72 @@ func TestIntegrationClarifyReminderClearsBogusBoardIDs(t *testing.T) {
 	}
 	if stored.WorkspaceID != nil || stored.ProjectID != nil || stored.StatusID != nil || stored.StageID != nil {
 		t.Fatalf("stored workspace=%v project=%v status=%v stage=%v, want all nil", stored.WorkspaceID, stored.ProjectID, stored.StatusID, stored.StageID)
+	}
+}
+
+// blockSpans is the Blocks that hold a task's or an Event's time, by column.
+func (f *kindFixture) blockSpans(column, id string) [][2]time.Time {
+	f.t.Helper()
+	var rows []models.ScheduledBlock
+	if err := f.db.Where(column+" = ?", id).Order("start_at").Find(&rows).Error; err != nil {
+		f.t.Fatal(err)
+	}
+	out := make([][2]time.Time, len(rows))
+	for i, row := range rows {
+		out[i] = [2]time.Time{row.StartAt, row.EndAt}
+	}
+	return out
+}
+
+// ADR 0010: setting scheduledOn on an existing Work is placing by hand. The
+// task's own Blocks are replaced and other replaceable Work is pushed aside,
+// while Pinned time and an Event's time stay and are overlapped.
+func TestIntegrationUpdateScheduledOnPlacesByHand(t *testing.T) {
+	f := newKindFixture(t)
+	slot := func(hour int) string { return time.Date(2026, 12, 2, hour, 0, 0, 0, time.UTC).Format(time.RFC3339) }
+	work := func(scheduledOn string) *models.Task {
+		t.Helper()
+		got, err := f.svc.Create(f.board(models.KindTask, 30, f.id(scheduledOn)), nil, nil)
+		if err != nil {
+			t.Fatalf("create work: %v", err)
+		}
+		return got
+	}
+
+	loose := work(slot(9))
+	pinnedWork := work(slot(10))
+	if err := f.db.Model(&models.Task{}).Where("id = ?", pinnedWork.ID).Update("schedule_locked", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	eventStart := time.Date(2026, 12, 2, 11, 0, 0, 0, time.UTC)
+	event := &models.Event{ID: utils.NewEventID(), Title: "Dentist", StartAt: eventStart, EndAt: eventStart.Add(30 * time.Minute), Duration: 30, UserID: kindTestUser}
+	if err := f.db.Create(event).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.placement.PlaceEvent(kindTestUser, event); err != nil {
+		t.Fatal(err)
+	}
+	mover := work(slot(15))
+	pinnedSpans := f.blockSpans("task_id", pinnedWork.ID)
+	eventSpans := f.blockSpans("event_id", event.ID)
+
+	for _, hour := range []int{9, 10, 11} {
+		on := slot(hour)
+		if _, err := f.svc.Update(kindTestUser, mover.ID, TaskUpdate{ScheduledOn: &on}); err != nil {
+			t.Fatalf("update scheduledOn %d:00: %v", hour, err)
+		}
+		own := f.blockSpans("task_id", mover.ID)
+		if len(own) != 1 || !own[0][0].Equal(time.Date(2026, 12, 2, hour, 0, 0, 0, time.UTC)) {
+			t.Fatalf("mover Blocks after moving to %d:00 = %v, want one starting there", hour, own)
+		}
+	}
+	if got := f.blockSpans("task_id", loose.ID); len(got) != 0 {
+		t.Fatalf("replaceable Work was not pushed aside: %v", got)
+	}
+	if got := f.blockSpans("task_id", pinnedWork.ID); len(got) != 1 || !got[0][0].Equal(pinnedSpans[0][0]) {
+		t.Fatalf("Pinned Work changed: before %v, after %v", pinnedSpans, got)
+	}
+	if got := f.blockSpans("event_id", event.ID); len(got) != 1 || !got[0][0].Equal(eventSpans[0][0]) {
+		t.Fatalf("Event time changed: before %v, after %v", eventSpans, got)
 	}
 }

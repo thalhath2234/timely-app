@@ -1,6 +1,6 @@
 // Package placement is the only writer of Blocks (ADR 0004) and of Reminder
 // pings made by placing. Plain task-field edits that also carry scheduled_on
-// (task update, Inbox conversion), the new task row that continues a series
+// (Inbox conversion), the new task row that continues a series
 // (task.Split), and account restore stay outside it.
 // Auto-schedule Preview and Rank live in the schedule feature, which hands every
 // write here (ApplyAutoSchedule, UndoAutoSchedule); Clarify, drag, pin, and
@@ -82,9 +82,11 @@ func placeLocation(hours models.WorkingHours, event *models.Event) *time.Locatio
 
 // PlaceWork writes one Manual block of duration minutes starting at start. It
 // replaces the task's own Blocks and leaves every other Work Block where it is,
-// even when they overlap: this is the Clarify / task create / update_task
-// scheduledOn path. Whether it should push aside overlapping Work the way
-// PlaceByHand does is an open product question; do not change it silently.
+// even when they overlap: this is the Clarify / task create scheduledOn path.
+// Whether it should push aside overlapping Work the way PlaceByHand does is an
+// open product question; do not change it silently. Setting scheduledOn on an
+// existing task (task update, update_task) is placing by hand and uses
+// PlaceByHand (ADR 0010).
 func (s *Service) PlaceWork(userID string, task *models.Task, start time.Time, duration int) error {
 	if s == nil || s.blocks == nil {
 		return nil
