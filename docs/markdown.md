@@ -24,6 +24,7 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Bullet, numbered (any start), task lists, nested | `-`, `3.`, `- [x]`, indented |
 | Quote | `>` (may hold lists and code) |
 | Code block with language | fenced block, fence grows past any backticks inside |
+| Diagram (Mermaid) | a ```` ```mermaid ```` code block; Timely draws it under the source, GitHub and Obsidian draw it too |
 | Divider | `---` |
 | Table | GFM table; the first row is the header; `\|` is a literal pipe |
 | Image | `![alt](src "title")` |

@@ -65,6 +65,7 @@ const SLASH: {
   { title: "To-do list", description: "Track tasks with checkboxes", cmd: "task", shortcut: "[]", keywords: ["todo", "check"] },
   { title: "Quote", description: "Capture a quotation", cmd: "quote", shortcut: ">", keywords: ["blockquote"] },
   { title: "Code block", description: "Monospaced code", cmd: "code", shortcut: "```", keywords: ["pre"] },
+  { title: "Diagram", description: "Mermaid flowchart or other diagram", cmd: "diagram", keywords: ["mermaid", "flowchart", "chart", "graph"] },
   { title: "Table", description: "Insert a 3×3 table", cmd: "table", keywords: ["grid"] },
   { title: "Divider", description: "Line — type - then space", cmd: "hr", shortcut: "-", keywords: ["hr", "rule"] },
   { title: "Link", description: "Add a URL to the selected text", cmd: "linkPrompt", shortcut: "[]", keywords: ["url", "href", "anchor"] },

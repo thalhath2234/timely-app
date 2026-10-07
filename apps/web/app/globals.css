@@ -170,15 +170,17 @@ html.dark.theme-custom {
 }
 
 /* `.reduce-motion` is the in-app "Reduce motion" toggle (Settings → Appearance). */
+/* Mermaid lays diagrams out from measured transitions, so its render
+   container (.doc-mermaid-render) is left out of the reduce-motion rules. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *:not(.doc-mermaid-render, .doc-mermaid-render *), *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
 }
-html.reduce-motion *,
+html.reduce-motion *:not(.doc-mermaid-render, .doc-mermaid-render *),
 html.reduce-motion *::before,
 html.reduce-motion *::after {
   animation-duration: 0.01ms !important;
@@ -433,6 +435,36 @@ body::-webkit-scrollbar-corner,
 }
 
 .doc-editor-content pre code,
+.doc-mermaid {
+  background: var(--card);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--foreground);
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  font-size: 0.875rem;
+  overflow-x: auto;
+  padding: 12px;
+}
+
+.doc-mermaid-svg svg {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  max-width: 100%;
+}
+
+.doc-mermaid-empty {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+.doc-mermaid-error {
+  color: var(--destructive, #e5484d);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .doc-code-block code {
   background: none;
   color: inherit;

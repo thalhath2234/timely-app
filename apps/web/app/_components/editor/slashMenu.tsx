@@ -20,6 +20,7 @@ import {
   Minus,
   Quote,
   Table2,
+  Workflow,
   Type,
 } from "lucide-react";
 import {
@@ -135,6 +136,19 @@ export function createSlashItems(options?: {
       keywords: ["snippet", "pre", "monospace"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.toggleCodeBlock().run()),
+    },
+    {
+      title: "Diagram",
+      description: "Mermaid flowchart, sequence or other diagram",
+      icon: Workflow,
+      keywords: ["mermaid", "flowchart", "chart", "graph", "sequence"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) =>
+          chain
+            .setCodeBlock({ language: "mermaid" })
+            .insertContent("flowchart TD\n  A[Start] --> B[Next step]")
+            .run(),
+        ),
     },
     {
       title: "Table",

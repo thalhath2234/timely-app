@@ -52,6 +52,11 @@ export function buildEditorHtml(
     .tiptap h4 { font-size: 16px; line-height: 1.4; font-weight: 600; margin: 0.6em 0 0.3em; }
     .tiptap h5 { font-size: 15px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; }
     .tiptap h6 { font-size: 14px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; color: ${t.mutedForeground}; }
+    .code-wrap pre { margin: 0; }
+    .code-wrap:has(.mermaid-out:not([style*="none"])) pre { border-radius: 10px 10px 0 0; }
+    .mermaid-out { padding: 10px 12px; background: ${t.muted}; border: 1px solid ${t.border}; border-top: 0; border-radius: 0 0 10px 10px; overflow-x: auto; font-size: 13px; color: ${t.mutedForeground}; }
+    .mermaid-out svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+    .mermaid-out.mermaid-error { color: #e5484d; font-family: ui-monospace, monospace; white-space: pre-wrap; }
     .tiptap img { display: inline-block; max-width: 100%; border-radius: 8px; vertical-align: bottom; }
     .tiptap ul, .tiptap ol { padding-left: 1.3em; margin: 0 0 0.75em; }
     .tiptap blockquote { border-left: 3px solid ${t.primary}; margin: 0 0 0.75em; padding: 0 0 0 12px; color: ${t.accentForeground}; }
@@ -88,6 +93,7 @@ export function buildEditorHtml(
     import TaskItem from "https://esm.sh/@tiptap/extension-task-item@3.31.4";
     import Highlight from "https://esm.sh/@tiptap/extension-highlight@3.31.4";
     import Image from "https://esm.sh/@tiptap/extension-image@3.31.4";
+    import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
 
     const placeholder = ${embed(placeholder)};
@@ -194,6 +200,85 @@ export function buildEditorHtml(
       });
     }
 
+    // Fenced mermaid code blocks are drawn below their source. Mermaid is loaded the
+    // first time a doc needs it; the source stays a normal code block.
+    let mermaidLoad = null;
+    let mermaidCount = 0;
+    function loadMermaid() {
+      if (!mermaidLoad) {
+        mermaidLoad = import("https://esm.sh/mermaid@12.1.0").then((mod) => {
+          const mermaid = mod.default;
+          mermaid.initialize({ startOnLoad: false, securityLevel: "strict", flowchart: { htmlLabels: false }, theme: ${JSON.stringify(t.mode === "light" ? "default" : "dark")}, fontFamily: "inherit" });
+          return mermaid;
+        });
+      }
+      return mermaidLoad;
+    }
+    function drawDiagram(out, source) {
+      source = source.trim();
+      if (out.dataset.source === source) return;
+      out.dataset.source = source;
+      out.classList.remove("mermaid-error");
+      if (!source) { out.textContent = "Type a diagram above, for example: flowchart TD; A --> B"; return; }
+      clearTimeout(out.__timer);
+      out.__timer = setTimeout(() => {
+        loadMermaid().then((mermaid) => {
+          mermaidCount += 1;
+          return mermaid.render("doc-mermaid-" + mermaidCount, source);
+        }).then(({ svg }) => {
+          if (out.dataset.source !== source) return;
+          out.innerHTML = svg;
+        }).catch((err) => {
+          if (out.dataset.source !== source) return;
+          out.textContent = String(err && err.message ? err.message : err).split("\\n")[0];
+          out.classList.add("mermaid-error");
+        });
+      }, 400);
+    }
+
+    // Code blocks get a wrapper so a mermaid diagram can sit under the
+    // source without ProseMirror removing it as unknown DOM.
+    const DiagramCodeBlock = CodeBlock.extend({
+      addNodeView() {
+        return ({ node }) => {
+          const dom = document.createElement("div");
+          dom.className = "code-wrap";
+          const pre = document.createElement("pre");
+          const code = document.createElement("code");
+          pre.appendChild(code);
+          const out = document.createElement("div");
+          out.className = "mermaid-out";
+          out.setAttribute("contenteditable", "false");
+          dom.appendChild(pre);
+          dom.appendChild(out);
+          const apply = (current) => {
+            const lang = current.attrs.language;
+            code.className = lang ? "language-" + lang : "";
+            if (lang === "mermaid") {
+              out.style.display = "";
+              drawDiagram(out, current.textContent);
+            } else {
+              out.style.display = "none";
+            }
+          };
+          apply(node);
+          return {
+            dom,
+            contentDOM: code,
+            update(next) {
+              if (next.type !== node.type) return false;
+              apply(next);
+              return true;
+            },
+            ignoreMutation(mutation) {
+              if (mutation.type === "selection") return false;
+              return !code.contains(mutation.target);
+            },
+          };
+        };
+      },
+    });
+
     function send(payload) {
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(payload));
     }
@@ -265,6 +350,7 @@ export function buildEditorHtml(
       extensions: [
         StarterKit.configure({
           heading: { levels: [1, 2, 3, 4, 5, 6] },
+          codeBlock: false,
           link: { openOnClick: false, autolink: true, defaultProtocol: "https" },
         }),
         Placeholder.configure({
@@ -278,6 +364,7 @@ export function buildEditorHtml(
         TaskItem.configure({ nested: true }),
         Highlight,
         Image.configure({ inline: true }),
+        DiagramCodeBlock,
         TableKit.configure({ table: { resizable: false } }),
         Mention,
         ExtraShortcuts,
@@ -327,6 +414,7 @@ export function buildEditorHtml(
           case "task": chain.toggleTaskList(); break;
           case "quote": chain.toggleBlockquote(); break;
           case "code": chain.toggleCodeBlock(); break;
+          case "diagram": chain.setCodeBlock({ language: "mermaid" }).insertContent("flowchart TD\\n  A[Start] --> B[Next step]"); break;
           case "hr": chain.setHorizontalRule(); break;
           case "table": chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }); break;
           case "addRowBefore": chain.addRowBefore(); break;

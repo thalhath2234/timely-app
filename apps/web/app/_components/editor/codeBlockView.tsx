@@ -4,6 +4,7 @@ import { useState } from "react";
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { Check, Copy } from "lucide-react";
 import { normalizeCodeLanguage } from "@/app/utils/markdown";
+import MermaidPreview from "./mermaidPreview";
 
 const LANGUAGES = [
   "",
@@ -20,6 +21,7 @@ const LANGUAGES = [
   "bash",
   "sql",
   "markdown",
+  "mermaid",
 ];
 
 export default function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
@@ -75,6 +77,7 @@ export default function CodeBlockView({ node, updateAttributes }: NodeViewProps)
       <pre className={`doc-code-block language-${language || "plaintext"}`}>
         <NodeViewContent />
       </pre>
+      {language === "mermaid" && <MermaidPreview code={node.textContent} />}
     </NodeViewWrapper>
   );
 }
