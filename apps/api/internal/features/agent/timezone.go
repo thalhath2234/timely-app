@@ -8,11 +8,11 @@ import (
 type timezoneKey struct{}
 
 // WithTimezone records the person's effective timezone for in-app chat runs
-// (saved Working hours, else the device zone, else UTC). Tools use it whenever
-// the model omits a timezone, so dates never fall back to the server's zone.
-// Hermes requests carry no value: their dates fall back to the server's zone
-// (see location), and Work status follows task.DayLocation, which uses the
-// saved Working hours, else the server's zone, exactly as Auto-schedule does.
+// (saved Working hours, else the device zone). Tools use it whenever the model
+// omits a timezone. With neither, and for Hermes requests, no value is carried:
+// dates fall back to the server's zone (see location), and Work status follows
+// task.DayLocation, which uses the saved Working hours, else the server's zone,
+// exactly as Auto-schedule does.
 func WithTimezone(ctx context.Context, name string) context.Context {
 	return context.WithValue(ctx, timezoneKey{}, name)
 }
