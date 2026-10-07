@@ -355,3 +355,97 @@ func TestIntegrationUpdateWorkToReminderWithLabelKeepsWorkspace(t *testing.T) {
 		t.Fatalf("workspace=%v, want %s kept for the label", got.WorkspaceID, f.workspace)
 	}
 }
+
+func TestIntegrationDuplicateReminderCarriesItsPing(t *testing.T) {
+	f := newKindFixture(t)
+	reminder, err := f.svc.Create(f.board(models.KindReminder, 0, f.id(kindPing)), nil, nil)
+	if err != nil {
+		t.Fatalf("create reminder: %v", err)
+	}
+	copied, err := f.svc.Duplicate(kindTestUser, reminder.ID)
+	if err != nil {
+		t.Fatalf("duplicate reminder: %v", err)
+	}
+	if copied.ID == reminder.ID || copied.Kind != models.KindReminder || copied.Name != "Copy of Thing" {
+		t.Fatalf("copy = %+v", copied)
+	}
+	if copied.ScheduledOn == nil || !sameInstant(t, *copied.ScheduledOn, kindPing) {
+		t.Fatalf("copy ping = %v, want %s", copied.ScheduledOn, kindPing)
+	}
+}
+
+// Cloning a project copies every task in it, including a Reminder that sits in
+// the project (rows from before Reminders stopped carrying one).
+func TestIntegrationCloneProjectCopiesReminder(t *testing.T) {
+	f := newKindFixture(t)
+	reminder, err := f.svc.Create(f.board(models.KindReminder, 0, f.id(kindPing)), nil, nil)
+	if err != nil {
+		t.Fatalf("create reminder: %v", err)
+	}
+	if err := f.db.Model(&models.Task{}).Where("id = ?", reminder.ID).Update("project_id", f.project).Error; err != nil {
+		t.Fatal(err)
+	}
+	work, err := f.svc.Create(f.board(models.KindTask, 30, nil), nil, nil)
+	if err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+
+	target := models.Project{ID: "prj_kind_clone", Title: "Clone", WorkspaceID: f.id(f.workspace)}
+	targetStage := models.Stage{ID: "stg_kind_clone", Name: "Stage", ProjectID: &target.ID}
+	for _, row := range []any{&target, &targetStage} {
+		if err := f.db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	stageMap := map[string]string{f.stage: targetStage.ID}
+	if err := f.svc.CopyProjectTasks(kindTestUser, f.project, target.ID, stageMap); err != nil {
+		t.Fatalf("copy project tasks: %v", err)
+	}
+
+	var copies []models.Task
+	if err := f.db.Where("name LIKE ?", "%Thing").Where("id NOT IN ?", []string{reminder.ID, work.ID}).Find(&copies).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(copies) != 2 {
+		t.Fatalf("copied %d tasks, want the Reminder and the Work", len(copies))
+	}
+	for _, c := range copies {
+		if c.Kind != models.KindReminder {
+			continue
+		}
+		if c.ScheduledOn == nil || !sameInstant(t, *c.ScheduledOn, kindPing) {
+			t.Fatalf("cloned Reminder ping = %v, want %s", c.ScheduledOn, kindPing)
+		}
+		return
+	}
+	t.Fatal("the Reminder was not cloned")
+}
+
+func sameInstant(t *testing.T, a, b string) bool {
+	t.Helper()
+	left, err := time.Parse(time.RFC3339Nano, a)
+	if err != nil {
+		t.Fatalf("parse %q: %v", a, err)
+	}
+	right, err := time.Parse(time.RFC3339Nano, b)
+	if err != nil {
+		t.Fatalf("parse %q: %v", b, err)
+	}
+	return left.Equal(right)
+}
+
+func TestIntegrationDuplicateRepeatingReminderKeepsItsRule(t *testing.T) {
+	f := newKindFixture(t)
+	rec := &models.RecurrenceInput{RRule: "FREQ=DAILY", Dtstart: kindPing}
+	reminder, err := f.svc.Create(f.board(models.KindReminder, 0, nil), nil, rec)
+	if err != nil {
+		t.Fatalf("create repeating reminder: %v", err)
+	}
+	copied, err := f.svc.Duplicate(kindTestUser, reminder.ID)
+	if err != nil {
+		t.Fatalf("duplicate repeating reminder: %v", err)
+	}
+	if !copied.IsRecurring() || copied.Recurrence == nil || copied.Recurrence.RRule != "FREQ=DAILY" {
+		t.Fatalf("copy recurrence = %+v, want FREQ=DAILY", copied.Recurrence)
+	}
+}

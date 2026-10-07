@@ -73,6 +73,11 @@ func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (
 		clone.StatusID = nil
 		clone.StageID = nil
 	}
+	if clone.Kind == models.KindReminder {
+		// A Reminder is its ping; Create refuses one without it. A repeating
+		// Reminder's scheduled_on mirrors its series start, so this covers both.
+		clone.ScheduledOn = src.ScheduledOn
+	}
 	created, err := s.Create(clone, nil, nil)
 	if err != nil {
 		return nil, err
