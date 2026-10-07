@@ -114,7 +114,7 @@ func (w WorkingHours) Location(fallback *time.Location) *time.Location {
 // Validate checks the windows are well formed and non-overlapping per day.
 func (w WorkingHours) Validate() error {
 	if w.Timezone != "" {
-		if _, err := time.LoadLocation(w.Timezone); err != nil {
+		if _, err := time.LoadLocation(w.Timezone); err != nil || w.Timezone == "Local" {
 			return fmt.Errorf("unknown timezone %q", w.Timezone)
 		}
 	}
