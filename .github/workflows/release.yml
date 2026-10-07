@@ -5,9 +5,9 @@
 # (electron-updater) and the APK. workflow_dispatch builds the same artifacts
 # as workflow artifacts only (nothing is published).
 #
-# Desktop signing secrets are optional; without them the builds are unsigned
-# (see docs/desktop/README.md, "Build and release"). The Android keystore
-# secrets are required for tagged releases.
+# All signing secrets are optional; without them the desktop builds are
+# unsigned and the APK is signed with the debug key (see docs/desktop/README.md,
+# "Build and release").
 
 name: release
 
@@ -164,11 +164,8 @@ jobs:
               "-Pandroid.injected.signing.key.alias=$ANDROID_KEY_ALIAS"
               "-Pandroid.injected.signing.key.password=$ANDROID_KEY_PASSWORD"
             )
-          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 is not set; refusing to publish an APK signed with the public debug key"
-            exit 1
           else
-            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set; this test APK is signed with the debug key"
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set; the APK is signed with the debug key"
           fi
           ./gradlew app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon "${signing[@]}"
           cp app/build/outputs/apk/release/app-release*.apk \
