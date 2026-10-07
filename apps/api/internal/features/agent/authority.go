@@ -13,6 +13,7 @@ type Access int
 
 const (
 	// MCPOnly tools are served to external MCP clients but never offered to chat.
+	// ADR 0007 puts whole-object deletion, settings, backups and restore here.
 	MCPOnly Access = iota + 1
 	// Read tools run immediately during a chat turn.
 	Read
@@ -28,8 +29,9 @@ type Approval int
 const (
 	// Applies is the zero value: a clear single call executes immediately.
 	Applies Approval = iota
-	// Reviewed calls always need approval (deletions, recurring-series changes,
-	// bulk edits, settings, calendar-wide changes).
+	// Reviewed calls always need approval (removing a component of an entity,
+	// recurring-series changes, bulk edits, calendar-wide changes). An MCPOnly
+	// tool may also be Reviewed: it would be if chat ever gained it.
 	Reviewed
 	// ReviewedWhen calls need approval depending on their arguments.
 	ReviewedWhen

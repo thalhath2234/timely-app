@@ -11,7 +11,8 @@ import (
 // Characterization of needsApproval (ADR 0007 Agent proposal rules): the
 // outcome for every tool in the shared catalog, across representative argument
 // sets. It records behaviour rather than prescribing it, so it must pass
-// unchanged before and after the policy moves into the tool declarations.
+// unchanged before and after the policy moves into the tool declarations. The
+// one deliberate change since: update_sheet_column with options needs review.
 
 // Tools whose single direct call needs an Agent proposal whatever the arguments
 // are. mark_notification_read and update_sheet_cells are argument-dependent but
@@ -40,7 +41,7 @@ var argumentCases = map[string][]struct {
 	},
 	"update_sheet_column": {
 		{`{"name":"Cost"}`, false}, {`{}`, false}, {`{"type":"number"}`, true}, {`{"type":null}`, true},
-		{`{"name":"Cost","options":["a"]}`, false},
+		{`{"name":"Cost","options":["a"]}`, true}, {`{"options":[]}`, true}, {`{"name":"Cost","width":120}`, false},
 	},
 	"create_sheet": {
 		{`{"title":"Expenses"}`, false}, {`{"templateId":""}`, false}, {`{"templateId":null}`, false}, {`{}`, false},
