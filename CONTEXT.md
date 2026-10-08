@@ -94,7 +94,7 @@ _Avoid_: install, log in (those happen in a terminal on the host)
 ### Activity
 
 **Activity island**:
-The pill above Sign out in the web and desktop sidebar that tracks what is in progress: Agent runs that are working or waiting for the person (including ones sent from the Quick prompt), the Work being focused, Pomodoro timers from the Report dashboard (running or paused), and a running Auto-schedule. Clicking it opens a list of those activities. It bounces when an Agent run finishes, and it disappears when nothing is in progress.
+The pill above Sign out in the web and desktop sidebar that tracks what is in progress: Agent runs that are working or waiting for the person (including ones sent from the Quick prompt), the Work being focused, Pomodoro timers from the Dashboard (running or paused), and a running Auto-schedule. Clicking it opens a list of those activities. It bounces when an Agent run finishes, and it disappears when nothing is in progress.
 _Avoid_: dynamic island (in copy), status bar, tray
 
 ### Work status and order

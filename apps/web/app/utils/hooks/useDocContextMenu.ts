@@ -41,7 +41,7 @@ function copyText(text: string, message: string) {
     .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
 }
 
-/** Right-click menu for a doc, shared by the docs list and Report. */
+/** Right-click menu for a doc, shared by the docs list and the Dashboard. */
 export function useDocContextMenu() {
   const router = useRouter();
   const createDoc = useCreateDoc();

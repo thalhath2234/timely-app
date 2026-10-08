@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { GripVertical, MoreHorizontal } from "lucide-react";
@@ -31,13 +31,19 @@ function spanFor(w: number, columns: number) {
   return Math.min(columns, Math.max(2, Math.round((w * columns) / DASHBOARD_COLUMNS)));
 }
 
+/**
+ * What a drag needs to render. The pointer position is not in here: the
+ * floating copy follows the pointer through its style, so a move re-renders
+ * the board only when the order changes.
+ */
 type DragState = {
   id: string;
   pointerId: number;
   offsetX: number;
   offsetY: number;
-  x: number;
-  y: number;
+  /** Where the pointer was when the drag started, for the floating copy's first frame. */
+  startX: number;
+  startY: number;
   width: number;
   height: number;
   order: string[];
@@ -84,6 +90,7 @@ export default function DashboardGrid({
   const [resize, setResize] = useState<ResizeState | null>(null);
   const lastTarget = useRef<string | null>(null);
   const pointer = useRef({ x: 0, y: 0 });
+  const ghostRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const resizeRef = useRef<ResizeState | null>(null);
 
@@ -105,8 +112,8 @@ export default function DashboardGrid({
       pointerId: event.pointerId,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top,
-      x: event.clientX,
-      y: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
       width: rect.width,
       height: Math.min(rect.height, 220),
       order: cards.map((entry) => entry.id),
@@ -131,31 +138,35 @@ export default function DashboardGrid({
 
   useEffect(() => {
     if (!drag) return;
+    // Pointer moves only record where the pointer is; one animation frame
+    // moves the floating copy, looks for a card under the pointer and
+    // scrolls the board, however many moves arrive in between.
     const onMove = (event: PointerEvent) => {
-      const current = dragRef.current;
-      if (!current || event.pointerId !== current.pointerId) return;
+      if (event.pointerId !== dragRef.current?.pointerId) return;
       pointer.current = { x: event.clientX, y: event.clientY };
-      let order = current.order;
+    };
+    let last = { x: Number.NaN, y: Number.NaN, scrollTop: Number.NaN };
+    const hitTest = (current: DragState, x: number, y: number) => {
       const hit = document
-        .elementsFromPoint(event.clientX, event.clientY)
+        .elementsFromPoint(x, y)
         .map((element) => (element as HTMLElement).closest<HTMLElement>("[data-card-id]"))
         .find((element) => element && element.dataset.cardId !== current.id);
       const targetId = hit?.dataset.cardId ?? null;
       // Swap once per target: after the move the target may still sit under
       // the pointer, and swapping back would make the cards flicker.
       if (targetId && targetId !== lastTarget.current) {
-        const from = order.indexOf(current.id);
-        const to = order.indexOf(targetId);
-        if (from >= 0 && to >= 0) {
-          order = [...order];
+        const from = current.order.indexOf(current.id);
+        const to = current.order.indexOf(targetId);
+        if (from >= 0 && to >= 0 && from !== to) {
+          const order = [...current.order];
           order.splice(from, 1);
           order.splice(to, 0, current.id);
+          const next = { ...current, order };
+          dragRef.current = next;
+          setDrag(next);
         }
       }
       lastTarget.current = targetId;
-      const next = { ...current, x: event.clientX, y: event.clientY, order };
-      dragRef.current = next;
-      setDrag(next);
     };
     const onUp = (event: PointerEvent) => {
       if (event.pointerId === dragRef.current?.pointerId) finishDrag(true);
@@ -163,21 +174,30 @@ export default function DashboardGrid({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") finishDrag(false);
     };
-    // Scroll the board while a card is held near its top or bottom edge.
     let frame = 0;
-    const autoScroll = () => {
+    const onFrame = () => {
+      const current = dragRef.current;
+      const { x, y } = pointer.current;
+      // Scroll the board while a card is held near its top or bottom edge.
       const container = scrollContainer.current;
+      const scrollTop = container?.scrollTop ?? 0;
       if (container) {
         const rect = container.getBoundingClientRect();
         const edge = 72;
-        const y = pointer.current.y;
         if (y < rect.top + edge) container.scrollTop -= Math.ceil(((rect.top + edge - y) / edge) * 14);
         else if (y > rect.bottom - edge) container.scrollTop += Math.ceil(((y - (rect.bottom - edge)) / edge) * 14);
       }
-      frame = window.requestAnimationFrame(autoScroll);
+      // A scrolling board brings new cards under a still pointer.
+      if (current && (x !== last.x || y !== last.y || scrollTop !== last.scrollTop)) {
+        last = { x, y, scrollTop };
+        const ghost = ghostRef.current;
+        if (ghost) ghost.style.transform = ghostTransform(x - current.offsetX, y - current.offsetY);
+        hitTest(current, x, y);
+      }
+      frame = window.requestAnimationFrame(onFrame);
     };
-    frame = window.requestAnimationFrame(autoScroll);
-    window.addEventListener("pointermove", onMove);
+    frame = window.requestAnimationFrame(onFrame);
+    window.addEventListener("pointermove", onMove, { passive: true });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
     window.addEventListener("keydown", onKey);
@@ -325,7 +345,9 @@ export default function DashboardGrid({
                   <MoreHorizontal className="size-4" />
                 </button>
               </header>
-              <div className={cn("min-h-0 flex-1 px-3 pb-3", isDragged && "invisible")}>{renderCard(card)}</div>
+              <div className={cn("min-h-0 flex-1 px-3 pb-3", isDragged && "invisible")}>
+                <CardBody card={card} render={renderCard} />
+              </div>
 
               {canResize && !isDragged ? (
                 <>
@@ -365,13 +387,13 @@ export default function DashboardGrid({
       {drag && dragged && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="pointer-events-none fixed z-[80] flex flex-col rounded-xl border border-primary/50 bg-card/95 shadow-2xl backdrop-blur"
+              ref={ghostRef}
+              className="pointer-events-none fixed left-0 top-0 z-[80] flex flex-col rounded-xl border border-primary/50 bg-card shadow-xl will-change-transform"
               style={{
-                left: drag.x - drag.offsetX,
-                top: drag.y - drag.offsetY,
                 width: drag.width,
                 height: drag.height,
-                transform: "rotate(1.2deg)",
+                // Fixed for the whole drag, so a re-render never moves it back; the frame loop moves it.
+                transform: ghostTransform(drag.startX - drag.offsetX, drag.startY - drag.offsetY),
               }}
             >
               <div className="flex h-9 items-center gap-1.5 px-2">
@@ -386,6 +408,18 @@ export default function DashboardGrid({
     </>
   );
 }
+
+function ghostTransform(x: number, y: number) {
+  return `translate3d(${x}px, ${y}px, 0) rotate(1.2deg)`;
+}
+
+/**
+ * A card's contents, skipped when only the board's order or another card's
+ * size changes, so moving one card doesn't redraw every chart.
+ */
+const CardBody = memo(function CardBody({ card, render }: { card: DashboardCard; render: (card: DashboardCard) => ReactNode }) {
+  return render(card);
+});
 
 function RenameInput({ initial, onDone }: { initial: string; onDone: (title: string | null) => void }) {
   const [value, setValue] = useState(initial);

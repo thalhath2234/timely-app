@@ -172,12 +172,18 @@ html.dark.theme-custom {
 /* `.reduce-motion` is the in-app "Reduce motion" toggle (Settings → Appearance). */
 /* Mermaid lays diagrams out from measured transitions, so its render
    container (.doc-mermaid-render) is left out of the reduce-motion rules. */
+/* Transitions get no duration at all, not a tiny one: every element's
+   transition-property is `all` by default, so any duration starts a CSS
+   transition on every style change of every element on the page, which made
+   dragging Dashboard cards stutter. Nothing in the app waits for
+   transitionend. */
 @media (prefers-reduced-motion: reduce) {
   *:not(.doc-mermaid-render, .doc-mermaid-render *), *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
   }
 }
 html.reduce-motion *:not(.doc-mermaid-render, .doc-mermaid-render *),
@@ -186,7 +192,8 @@ html.reduce-motion *::after {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   scroll-behavior: auto !important;
-  transition-duration: 0.01ms !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
 }
 
 html,

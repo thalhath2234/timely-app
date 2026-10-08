@@ -87,7 +87,7 @@ export interface Config {
   workingHours: WorkingHours;
   scheduleSettings: ScheduleSettings;
   notificationSettings: NotificationSettings;
-  /** The Report page layout; null until the account customises it. */
+  /** The Dashboard layout; null until the account customises it. */
   reportDashboard?: DashboardLayout | null;
   customFields?: CustomField[];
   createdAt: string;
@@ -106,6 +106,6 @@ export interface ConfigUpdateInput {
   activeTaskViewId?: string;
   projectTaskViews?: Record<string, TaskViewConfig>;
   appearance?: Appearance;
-  /** Replaces the whole Report layout (`dashboard.ts`). */
+  /** Replaces the whole Dashboard layout (`dashboard.ts`). */
   reportDashboard?: DashboardLayout;
 }

@@ -1,5 +1,5 @@
 import ReportDashboard from "@/app/_components/report/reportDashboard";
 
-export default function ReportPage() {
+export default function DashboardPage() {
   return <ReportDashboard />;
 }

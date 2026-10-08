@@ -1,5 +1,5 @@
 /**
- * The Report dashboard: the saved layout (`config.reportDashboard`), the
+ * The Dashboard: the saved layout (`config.reportDashboard`), the
  * built-in card catalogue, the custom-card query a user builds in the card
  * workshop, and the pure engine that turns a query plus the account's data
  * into what a card draws. Web, desktop and mobile share all of it, so a card

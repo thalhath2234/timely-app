@@ -1,6 +1,6 @@
 /**
- * Pomodoro timers from the Report dashboard, kept at app level so a timer
- * keeps running after leaving the Report screen. One timer per pomodoro card,
+ * Pomodoro timers from the Dashboard, kept at app level so a timer
+ * keeps running after leaving the Dashboard. One timer per pomodoro card,
  * keyed by card id, saved on the device so a restart keeps the clock. The end
  * of each phase is also scheduled as a local notification, so it rings while
  * the app is in the background.
@@ -35,7 +35,7 @@ import {
 
 export interface PomodoroTimer extends PomodoroState {
   cardId: string;
-  /** The card's settings as last seen, so phases run their length off the Report screen too. */
+  /** The card's settings as last seen, so phases run their length off the Dashboard too. */
   settings: PomodoroSettings;
   /** Name of the linked task, for surfaces that don't load tasks. */
   taskName?: string | null;

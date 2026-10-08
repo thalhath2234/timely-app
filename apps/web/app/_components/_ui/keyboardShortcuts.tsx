@@ -52,10 +52,11 @@ export default function KeyboardShortcuts() {
           p: "/projects",
           c: "/calendar",
           f: FILES_PATH,
-          // Docs and Sheets were separate sections before Files.
-          d: FILES_PATH,
+          d: "/dashboard",
+          // Sheets was its own section before Files.
           s: FILES_PATH,
-          r: "/report",
+          // The Dashboard was called Report.
+          r: "/dashboard",
           i: "/inbox",
           y: "/today",
           n: "/notifications",

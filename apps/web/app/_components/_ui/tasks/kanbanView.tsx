@@ -42,7 +42,7 @@ function formatTimeOfDay(date: Date) {
 
 /** Cards say when the work happens: deadline first, otherwise the next
  * reserved block, so scheduled tasks never read as "No date". Overdue cards
- * use the Report's red treatment and include time of day when a block exists. */
+ * use the Dashboard's red treatment and include time of day when a block exists. */
 function cardDateMeta(
   item: Task,
   dataMode: "task" | "project",

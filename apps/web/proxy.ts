@@ -10,7 +10,7 @@ const protectedPrefixes = [
   "/inbox",
   "/tasks",
   "/projects",
-  "/report",
+  "/dashboard",
   "/settings",
   "/setup",
   "/files",
@@ -31,6 +31,13 @@ export default async function proxy(req: NextRequest) {
 
   if (path === "/m" || path.startsWith("/m/")) {
     return NextResponse.redirect(new URL("/calendar", req.url));
+  }
+
+  // Report was renamed Dashboard; old links keep working.
+  if (path === "/report" || path.startsWith("/report/")) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
   }
 
   // Docs and sheets moved under /files; old links keep working.

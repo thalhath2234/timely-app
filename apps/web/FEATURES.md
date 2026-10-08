@@ -36,7 +36,7 @@ Ownership is always “this user owns this row.” No members, roles, invites, o
 
 **Protected routes (web proxy)**
 
-`/chat`, `/calendar`, `/today`, `/inbox`, `/tasks`, `/projects`, `/report`, `/settings`, `/files`, `/notifications`, plus `/onboarding` when logged out. Requests to `/m` or `/m/*` redirect to `/calendar`. Old `/docs/*` and `/sheets/*` links (including `/sheets/templates/<id>`) redirect to their `/files` page.
+`/chat`, `/calendar`, `/today`, `/inbox`, `/tasks`, `/projects`, `/dashboard`, `/settings`, `/files`, `/notifications`, plus `/onboarding` when logged out. Requests to `/m` or `/m/*` redirect to `/calendar`. Old `/docs/*` and `/sheets/*` links (including `/sheets/templates/<id>`) redirect to their `/files` page, and `/report` (the Dashboard's old name) redirects to `/dashboard`.
 
 **What does not exist**
 
@@ -340,7 +340,7 @@ This is one of the product’s distinctive features.
 
 **Overdue is deadline-only:** open Work (not a reminder or inbox item) whose deadline date is before today. A Block that already ended does **not** make Work overdue. That case is **Missed** and produces a `missed_block` notification instead. **Unscheduled** means open Work with no Block or ping today. Web, native, and API all use these rules.
 
-Shown in: Agenda Overdue section, Report, native “Overdue” filter, agent `get_agenda` / `what_next`.
+Shown in: Agenda Overdue section, Dashboard, native “Overdue” filter, agent `get_agenda` / `what_next`.
 
 For open schedulable work with a past **deadline**, the notification worker creates one deduplicated overdue alert per task and deadline when reminder notifications are enabled. Desktop shows the alert in the notification center. Native offers **Reschedule urgently** from the notification: the API sets priority to Urgent, applies the schedule, marks the alert read, and restores the old priority if scheduling fails. The same urgent reschedule is available to MCP as `reschedule_urgent`; desktop does not have the button yet.
 
@@ -434,9 +434,9 @@ A public demo of the palette with sample data lives at `/demo/command-palette`.
 
 ---
 
-## 13. Reports
+## 13. Dashboard
 
-Client-computed snapshot (not a separate analytics API). Desktop `/report`; native has a thinner screen under Settings.
+Client-computed snapshot (not a separate analytics API). Desktop `/dashboard`; native has a thinner screen under Settings.
 
 Computed from live tasks/projects/docs/sheets:
 
@@ -601,7 +601,7 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 
 ## 16. Create / navigation UX
 
-**Desktop sidebar:** + menu (Task, Event, Workspace, Project, Doc, Sheet), Search, Chat (unread badge), Today, Inbox, Calendar, Tasks, Projects, Docs, Sheets, Report, Notifications, Settings, Logout. Settings → Appearance can auto-hide the rail until the pointer is at the left edge.
+**Desktop sidebar:** + menu (Task, Event, Workspace, Project, Doc, Sheet), Search, Dashboard, Chat (unread badge), Today, Inbox, Calendar, Tasks, Projects, Files, Notifications, Settings, Logout. Settings → Appearance can auto-hide the rail until the pointer is at the left edge.
 
 **Add Item modal:** per-type forms. Tasks open with a **Work | Reminder** toggle first. Reminder uses Notify at (date and time). Work uses duration, workspace, project, stage, labels, custom fields. Rich description for task/project. Recurrence for task/event. Labels/custom fields with inline create. Events all-day/duration/workspace.
 
@@ -613,7 +613,7 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 
 - Ctrl/Cmd+K or `/` command palette
 - Ctrl/Cmd+Shift+J chat overlay (new chat with screen context)
-- `g` then `a` Chat, `y` Today, `i` Inbox, `c` Calendar, `t` Tasks, `p` Projects, `d` Docs, `s` Sheets, `r` Report, `n` Notifications
+- `g` then `a` Chat, `y` Today, `i` Inbox, `c` Calendar, `t` Tasks, `p` Projects, `d` Dashboard (`r` too, its old name), `f` Files (`s` too), `n` Notifications
 - `c` or `n` new task (on `/inbox`, `c` focuses capture)
 - On `/tasks`: `x` completes the open task (with Undo), `s` schedules it on the calendar
 - Escape close
@@ -693,7 +693,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/files` | Files home: recent docs and sheets together, sheet templates, Markdown/CSV import |
 | `/files/[id]` | Doc editor (`doc_` IDs), multi-tab spreadsheet (`sht_`), or template preview and create-from-template (`shtpl_`) |
 | `/docs/*`, `/sheets/*` | Redirect to the matching `/files` page (links from before the merge) |
-| `/report` | Productivity snapshot |
+| `/dashboard` | Card dashboard |
 | `/notifications` | In-app notification center |
 | `/settings` | Account (incl. devices), Appearance, Schedule, Notifications, Workspaces, Agent, Data & privacy, Integrations (`?tab=`) |
 | `/m`, `/m/*` | Redirect to `/calendar` (legacy mobile-web bookmarks) |
@@ -719,7 +719,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/(app)/projects/[id]` | Project detail + stages |
 | `/(app)/files/[id]` | Doc editor (`doc_`), sheet editor (`sht_`), or template preview and create-from-template (`shtpl_`) |
 | `/(app)/docs/*`, `/(app)/sheets/*` | Redirect to the matching Files route (links from before the merge) |
-| `/(app)/report` | Report |
+| `/(app)/dashboard` | Dashboard |
 | `/(app)/settings/*` | Account, notifications, schedule, workspaces, API keys |
 | `/(app)/settings/agent` | AI provider and model settings |
 | `/(app)/settings/data` | Portable exports, restore, encrypted backup scheduling and history |
@@ -859,7 +859,7 @@ Grouped so you can pick from current holes.
 | Code Copy + IDE colors | Yes | Yes | — |
 | Sheets + formulas | Tabs, formatting, filters, templates, CSV | Tabs, formatting, filters, templates | Granular + archive + templates + duplicate |
 | Archive docs/sheets | Yes | Yes | Yes |
-| Report | Full | Thinner | No |
+| Dashboard | Full | Thinner | No |
 | Global search / command palette | Cmd+K or `/`, quick actions | Tab, quick actions | Keyword + semantic |
 | AI chat | `/chat` + Cmd+Shift+J overlay, images, receipts, Electron notifications | Pinch overlay, camera/screenshot, receipts, private push | Is the tool catalog (chat uses an allowlisted subset) |
 | AI provider settings | Settings → Agent | Settings → Agent | No |
