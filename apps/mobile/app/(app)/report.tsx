@@ -1,160 +1,375 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import {
+  ArrowDown,
+  ArrowUp,
+  BarChart3,
+  CalendarCheck,
+  Check,
+  Flame,
+  Gauge,
+  Grid2x2,
+  Hash,
+  Hourglass,
+  LineChart as LineIcon,
+  List,
+  NotebookPen,
+  Pencil,
+  PieChart,
+  Plus,
+  RotateCcw,
+  Sun,
+  Timer,
+  Trash2,
+  Zap,
+} from "lucide-react-native";
+import {
+  BUILTIN_CARDS,
+  CARD_TEMPLATES,
+  DASHBOARD_MAX_CARDS,
+  cardTitle,
+  computeCard,
+  defaultDashboard,
+  newCardId,
+  type BuiltinCardType,
+  type CardDisplay,
+  type CardRow,
+  type DashboardCard,
+} from "@timely/contract/dashboard";
 import Screen from "../../components/ui/Screen";
-import MobileHeader from "../../components/ui/MobileHeader";
-import { useDocsQuery, useProjectsQuery, useSheetsQuery, useTasksQuery, useWorkingHoursZone, useWorkspacesQuery } from "../../lib/hooks";
-import { buildReportData, formatReportDate } from "../../lib/report";
-import { sheetHref } from "../../lib/sheet";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+import MobileHeader, { HeaderIconButton } from "../../components/ui/MobileHeader";
+import BottomSheet from "../../components/ui/BottomSheet";
+import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
+import { SectionLabel } from "../../components/ui/primitives";
+import CustomCardView from "../../components/report/customCardView";
+import PomodoroCard from "../../components/report/pomodoroCard";
+import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "../../components/report/builtinCards";
+import { useDashboardData, useDashboardLayout, useNow } from "../../lib/dashboard";
+import { forgetPomodoro } from "../../lib/pomodoroStore";
+import { useConfigQuery, useInvalidateAll } from "../../lib/hooks";
+import { sheetHref } from "../../lib/sheet";
+import { showUndoToast, useToastStore } from "../../lib/toast";
+import type { CalendarItem } from "../../lib/types";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
 
-function entityPath(kind: string, id: string) {
-  if (kind === "task") return `/(app)/tasks/${id}`;
-  if (kind === "project") return `/(app)/projects/${id}`;
-  if (kind === "doc") return `/(app)/docs/${id}`;
-  if (kind === "sheet") return sheetHref(id);
-  if (kind === "event") return `/(app)/events/${id}`;
-  return null;
+const BUILTIN_ICON: Record<BuiltinCardType, typeof Timer> = {
+  pomodoro: Timer,
+  today: Sun,
+  quickCapture: Zap,
+  notes: NotebookPen,
+  streak: Flame,
+  dayProgress: Hourglass,
+  matrix: Grid2x2,
+  countdown: CalendarCheck,
+};
+
+const DISPLAY_ICON: Record<CardDisplay, typeof Hash> = {
+  number: Hash,
+  list: List,
+  bar: BarChart3,
+  line: LineIcon,
+  pie: PieChart,
+  progress: Gauge,
+};
+
+function cardIcon(card: DashboardCard) {
+  if (card.type === "custom") return DISPLAY_ICON[card.query?.display ?? "number"];
+  return BUILTIN_ICON[card.type];
 }
 
+/**
+ * The Report dashboard on a phone: the same saved cards as web and desktop,
+ * stacked in one column. Edit mode moves and removes cards; sizes and the
+ * card workshop stay on the bigger screens.
+ */
 export default function ReportScreen() {
   const router = useRouter();
-  const data = buildReportData({
-    tasks: useTasksQuery().data ?? [],
-    projects: useProjectsQuery().data ?? [],
-    docs: useDocsQuery().data ?? [],
-    sheets: useSheetsQuery().data ?? [],
-    workspaces: useWorkspacesQuery().data ?? [],
-    timeZone: useWorkingHoursZone(),
-  });
+  const { layout, isLoading, isError, retry, update, updateCard } = useDashboardLayout();
+  const cards = useMemo(() => layout?.cards ?? [], [layout]);
+  const { data, today, failures, loading, timeZone } = useDashboardData(cards);
+  const config = useConfigQuery();
+  const invalidateAll = useInvalidateAll();
+  const now = useNow(30_000);
+  const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const tasks = useMemo(() => data.tasks ?? [], [data.tasks]);
 
-  function open(kind: string, id: string) {
-    const href = entityPath(kind, id);
-    if (href) router.push(href as never);
-  }
+  const openTask = useCallback((id: string) => router.push(`/(app)/tasks/${id}`), [router]);
+
+  const openItem = useCallback(
+    (item: CalendarItem) => {
+      if (item.eventId) router.push(`/(app)/events/${item.eventId}`);
+      else if (item.taskId) router.push(`/(app)/tasks/${item.taskId}`);
+    },
+    [router],
+  );
+
+  const openRow = useCallback(
+    (row: CardRow) => {
+      if (row.entity === "task") return router.push(`/(app)/tasks/${row.id}`);
+      if (row.entity === "project") return router.push(`/(app)/projects/${row.id}`);
+      if (row.entity === "doc") return router.push(`/(app)/docs/${row.id}`);
+      if (row.entity === "sheet") return router.push(sheetHref(row.id) as never);
+      const item = data.events?.find((entry) => entry.id === row.id);
+      if (item) openItem(item);
+    },
+    [data.events, openItem, router],
+  );
+
+  const addCard = (card: Omit<DashboardCard, "id">) => {
+    if (cards.length >= DASHBOARD_MAX_CARDS) {
+      useToastStore.getState().show(`A dashboard holds up to ${DASHBOARD_MAX_CARDS} cards`);
+      return;
+    }
+    const id = newCardId();
+    update((current) => ({ ...current, cards: [{ ...card, id }, ...current.cards] }));
+    setAdding(false);
+  };
+
+  const move = (index: number, by: -1 | 1) =>
+    update((current) => {
+      const target = index + by;
+      if (target < 0 || target >= current.cards.length) return current;
+      const next = current.cards.slice();
+      [next[index], next[target]] = [next[target], next[index]];
+      return { ...current, cards: next };
+    });
+
+  const remove = (card: DashboardCard) => {
+    const index = cards.findIndex((entry) => entry.id === card.id);
+    update((current) => ({ ...current, cards: current.cards.filter((entry) => entry.id !== card.id) }));
+    showUndoToast(`Removed ${cardTitle(card)}`, () =>
+      update((current) => {
+        if (current.cards.some((entry) => entry.id === card.id)) return current;
+        const next = current.cards.slice();
+        next.splice(Math.min(index, next.length), 0, card);
+        return { ...current, cards: next };
+      }),
+    );
+    // A removed pomodoro stops; undo brings the card back with a fresh timer.
+    if (card.type === "pomodoro") forgetPomodoro(card.id);
+  };
+
+  const renderBody = (card: DashboardCard) => {
+    const settings = card.settings ?? {};
+    const setSettings = (next: Record<string, unknown>) => updateCard(card.id, (current) => ({ ...current, settings: { ...current.settings, ...next } }));
+    switch (card.type) {
+      case "custom": {
+        if (!card.query) return null;
+        if (loading) return <Text style={styles.muted}>Loading…</Text>;
+        return <CustomCardView query={card.query} result={computeCard(card.query, data, { now, timeZone })} onOpen={openRow} />;
+      }
+      case "pomodoro":
+        return <PomodoroCard cardId={card.id} settings={settings} onSettings={setSettings} tasks={tasks} timeZone={timeZone} />;
+      case "today":
+        return <TodayCard today={today.data} loading={today.isLoading} now={now} onOpenTask={openTask} onOpenItem={openItem} />;
+      case "quickCapture":
+        return <QuickCaptureCard inboxCount={data.inbox?.length ?? 0} />;
+      case "notes":
+        return <NotesCard text={typeof settings.text === "string" ? settings.text : ""} onChange={(text) => setSettings({ text })} />;
+      case "streak":
+        return <StreakCard tasks={tasks} timeZone={timeZone} />;
+      case "dayProgress":
+        return <DayProgressCard now={now} workingHours={config.data?.workingHours} timeZone={timeZone} />;
+      case "matrix":
+        return (
+          <MatrixCard tasks={tasks} timeZone={timeZone} urgentDays={typeof settings.urgentDays === "number" ? settings.urgentDays : 3} onOpenTask={openTask} />
+        );
+      case "countdown":
+        return (
+          <CountdownCard
+            label={typeof settings.label === "string" ? settings.label : ""}
+            date={typeof settings.date === "string" ? settings.date : ""}
+            timeZone={timeZone}
+            onChange={setSettings}
+          />
+        );
+    }
+  };
 
   return (
     <Screen>
-      <MobileHeader title="Report" back subtitle={`${data.completionRate}% complete`} />
-      <ScrollView contentContainerStyle={{ padding: 12, gap: 10, paddingBottom: 40 }}>
-        <View style={styles.grid}>
-          {data.stats.map((stat) => (
-            <View key={stat.label} style={styles.stat}>
-              <Text style={styles.statVal}>{stat.value}</Text>
-              <Text style={styles.statLabel}>{stat.label}</Text>
-              <Text style={styles.hint}>{stat.hint}</Text>
-            </View>
-          ))}
-        </View>
-        <Text style={styles.section}>Overdue</Text>
-        {data.overdue.length === 0 ? <Text style={styles.hint}>All clear</Text> : null}
-        {data.overdue.map((item) => (
-          <AnimatedPressable key={item.id} onPress={() => router.push(`/(app)/tasks/${item.id}`)} style={styles.row}>
-            <Text style={styles.title}>{item.name}</Text>
-            <Text style={[styles.hint, { color: colors.destructive }]}>{formatReportDate(item.deadline)}</Text>
-          </AnimatedPressable>
-        ))}
-        <Text style={styles.section}>Upcoming</Text>
-        {data.upcoming.map((item) => (
-          <AnimatedPressable key={item.id} onPress={() => router.push(`/(app)/tasks/${item.id}`)} style={styles.row}>
-            <Text style={styles.title}>{item.name}</Text>
-            <Text style={styles.hint}>{formatReportDate(item.deadline)}</Text>
-          </AnimatedPressable>
-        ))}
-        <Text style={styles.section}>Priority</Text>
-        {data.priorities.length === 0 ? <Text style={styles.hint}>No open work</Text> : null}
-        {data.priorities.map((bucket) => (
-          <View key={bucket.name} style={styles.rowCol}>
-            <View style={styles.row}>
-              <Text style={styles.title}>{bucket.name}</Text>
-              <Text style={styles.hint}>{bucket.count} · {bucket.percent}%</Text>
-            </View>
-            <View style={styles.barTrack}>
-              <View style={[styles.barFill, { width: `${bucket.percent}%` }]} />
-            </View>
+      <MobileHeader
+        title="Report"
+        back
+        actions={
+          <>
+            {editing ? null : (
+              <HeaderIconButton label="Add card" onPress={() => setAdding(true)}>
+                <Plus size={20} color={colors.foreground} />
+              </HeaderIconButton>
+            )}
+            <HeaderIconButton label={editing ? "Done editing" : "Edit dashboard"} active={editing} onPress={() => setEditing((value) => !value)}>
+              {editing ? <Check size={20} color={colors.foreground} /> : <Pencil size={18} color={colors.foreground} />}
+            </HeaderIconButton>
+          </>
+        }
+      />
+      <ScrollView
+        contentContainerStyle={styles.list}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              await Promise.all([invalidateAll(), retry()]).catch(() => undefined);
+              setRefreshing(false);
+            }}
+          />
+        }
+      >
+        {isError && !layout ? (
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>Couldn't load your dashboard.</Text>
+            <Text style={styles.link} onPress={() => void retry()}>
+              Try again
+            </Text>
           </View>
-        ))}
-        <Text style={styles.section}>Projects with open work</Text>
-        {data.byProject.length === 0 ? <Text style={styles.hint}>No project-scoped tasks</Text> : null}
-        {data.byProject.map((project) => (
-          <AnimatedPressable key={project.id} onPress={() => router.push(`/(app)/projects/${project.id}`)} style={styles.row}>
-            <Text style={styles.title}>{project.name}</Text>
-            <Text style={styles.hint}>{project.count} open</Text>
-          </AnimatedPressable>
-        ))}
-        <Text style={styles.section}>By workspace</Text>
-        {data.byWorkspace.map((w) => (
-          <View key={w.id} style={styles.row}>
-            <Text style={styles.title}>{w.name}</Text>
-            <Text style={styles.hint}>{w.count} open</Text>
+        ) : null}
+        {failures.length > 0 ? (
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>Couldn't load {failures.join(", ")}. Some cards may be empty.</Text>
           </View>
-        ))}
-        <Text style={styles.section}>Mentions</Text>
-        {data.mentions.length === 0 ? (
-          <Text style={styles.hint}>Type @ in a doc, sheet, task, or project to link things together.</Text>
-        ) : (
-          data.mentions.map((link, index) => (
-            <View key={`${link.from.id}-${link.to.id}-${index}`} style={styles.mention}>
-              <AnimatedPressable onPress={() => open(link.from.kind, link.from.id)} style={{ flex: 1 }}>
-                <Text style={styles.title}>{link.from.label}</Text>
-                <Text style={styles.hint}>{link.from.kind}</Text>
-              </AnimatedPressable>
-              <Text style={styles.hint}>→</Text>
-              <AnimatedPressable onPress={() => open(link.to.entityType, link.to.id)} style={{ flex: 1 }}>
-                <Text style={styles.title}>{link.to.label}</Text>
-                <Text style={styles.hint}>{link.to.entityType}</Text>
-              </AnimatedPressable>
+        ) : null}
+        {isLoading && !layout ? <Text style={[styles.muted, { textAlign: "center", padding: 24 }]}>Loading your dashboard…</Text> : null}
+        {layout && cards.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>Your dashboard is empty</Text>
+            <Text style={styles.muted}>Add a productivity tool or a chart to get started.</Text>
+            <AnimatedPressable accessibilityRole="button" onPress={() => setAdding(true)} style={styles.primary}>
+              <Plus size={16} color={colors.primaryForeground} />
+              <Text style={styles.primaryText}>Add card</Text>
+            </AnimatedPressable>
+          </View>
+        ) : null}
+
+        {cards.map((card, index) => {
+          const Icon = cardIcon(card);
+          return (
+            <View key={card.id} style={styles.card}>
+              <View style={styles.cardHead}>
+                <Icon size={15} color={colors.mutedForeground} />
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  {cardTitle(card)}
+                </Text>
+                {editing ? (
+                  <View style={styles.editActions}>
+                    <HeaderIconButton label="Move up" onPress={() => move(index, -1)}>
+                      <ArrowUp size={17} color={index === 0 ? colors.border : colors.foreground} />
+                    </HeaderIconButton>
+                    <HeaderIconButton label="Move down" onPress={() => move(index, 1)}>
+                      <ArrowDown size={17} color={index === cards.length - 1 ? colors.border : colors.foreground} />
+                    </HeaderIconButton>
+                    <HeaderIconButton label={`Remove ${cardTitle(card)}`} onPress={() => remove(card)}>
+                      <Trash2 size={17} color={colors.destructive} />
+                    </HeaderIconButton>
+                  </View>
+                ) : null}
+              </View>
+              {editing ? null : renderBody(card)}
             </View>
-          ))
-        )}
-        <Text style={styles.section}>Recent</Text>
-        {data.recent.map((item) => (
-          <AnimatedPressable key={`${item.kind}-${item.id}`} onPress={() => open(item.kind, item.id)} style={styles.row}>
-            <Text style={styles.title}>{item.label}</Text>
-            <Text style={styles.hint}>{item.kind}</Text>
-          </AnimatedPressable>
-        ))}
+          );
+        })}
+
+        {editing ? (
+          <View style={{ gap: 10 }}>
+            <Text style={[styles.muted, { textAlign: "center" }]}>Card sizes and the card workshop are on web and desktop.</Text>
+            <AnimatedPressable accessibilityRole="button" onPress={() => setConfirmReset(true)} style={styles.secondary}>
+              <RotateCcw size={15} color={colors.foreground} />
+              <Text style={styles.secondaryText}>Reset to the default dashboard</Text>
+            </AnimatedPressable>
+          </View>
+        ) : null}
       </ScrollView>
+
+      <BottomSheet open={adding} onClose={() => setAdding(false)} title="Add a card">
+        <SectionLabel>Productivity tools</SectionLabel>
+        {BUILTIN_CARDS.map((info) => {
+          const Icon = BUILTIN_ICON[info.type];
+          return (
+            <AnimatedPressable
+              key={info.type}
+              accessibilityRole="button"
+              onPress={() => addCard({ type: info.type, w: info.w, h: info.h, settings: info.settings ? { ...info.settings } : undefined })}
+              style={styles.option}
+            >
+              <Icon size={18} color={colors.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.optionTitle}>{info.title}</Text>
+                <Text style={styles.muted}>{info.description}</Text>
+              </View>
+            </AnimatedPressable>
+          );
+        })}
+        <SectionLabel>Ready-made charts</SectionLabel>
+        {CARD_TEMPLATES.map((template) => {
+          const Icon = DISPLAY_ICON[template.query.display];
+          return (
+            <AnimatedPressable
+              key={template.id}
+              accessibilityRole="button"
+              onPress={() => addCard({ type: "custom", title: template.title, w: template.w, h: template.h, query: { ...template.query } })}
+              style={styles.option}
+            >
+              <Icon size={18} color={colors.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.optionTitle}>{template.title}</Text>
+                <Text style={styles.muted}>{template.description}</Text>
+              </View>
+            </AnimatedPressable>
+          );
+        })}
+        <Text style={[styles.muted, { marginTop: 12 }]}>Build your own cards in the card workshop on web or desktop. They show up here too.</Text>
+      </BottomSheet>
+
+      <ConfirmSheet
+        open={confirmReset}
+        onClose={() => setConfirmReset(false)}
+        title="Reset the dashboard?"
+        message="Your cards are replaced with the default set, on every device. Notes and countdowns on removed cards are lost."
+        confirmLabel="Reset"
+        onConfirm={() => {
+          for (const card of cards) if (card.type === "pomodoro") forgetPomodoro(card.id);
+          update(() => defaultDashboard());
+          setConfirmReset(false);
+          setEditing(false);
+        }}
+      />
     </Screen>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  stat: {
-    width: "48%",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 12,
-  },
-  statVal: { color: colors.foreground, fontSize: 24, fontWeight: "700" },
-  statLabel: { color: colors.foreground, fontSize: 13, marginTop: 4 },
-  hint: { color: colors.mutedForeground, fontSize: 12 },
-  section: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase", marginTop: 8 },
-  row: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  rowCol: { gap: 6 },
-  title: { color: colors.foreground, fontSize: 14, fontWeight: "500", flex: 1 },
-  barTrack: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden" },
-  barFill: { height: "100%", backgroundColor: colors.primary },
-  mention: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 12,
+  list: { padding: 12, gap: 12, paddingBottom: 48 },
+  card: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, gap: 12 },
+  cardHead: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
+  cardTitle: { flex: 1, color: colors.foreground, fontSize: 14, fontWeight: "600" },
+  editActions: { flexDirection: "row", alignItems: "center", marginVertical: -8 },
+  muted: { color: colors.mutedForeground, fontSize: 13 },
+  banner: { borderRadius: 12, borderWidth: 1, borderColor: colors.destructive, padding: 12, gap: 4 },
+  bannerText: { color: colors.foreground, fontSize: 13 },
+  link: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  empty: { alignItems: "center", gap: 8, paddingVertical: 48 },
+  emptyTitle: { color: colors.foreground, fontSize: 17, fontWeight: "700" },
+  primary: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 22, backgroundColor: colors.primary },
+  primaryText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
+  secondary: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
   },
+  secondaryText: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
+  option: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 10 },
+  optionTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600", marginBottom: 2 },
 }));

@@ -96,7 +96,7 @@ export default function SettingsIndex() {
         <SectionLabel>Preferences & tools</SectionLabel>
         <View style={styles.group}>
           <Row icon={Bell} title="Notification settings" meta="Push, quiet hours, and failed jobs" onPress={() => router.push("/(app)/settings/notifications")} />
-          <Row icon={Brain} title="Report" meta="Weekly summary and focus time" onPress={() => router.push("/(app)/report")} />
+          <Row icon={Brain} title="Report" meta="Your dashboard: charts and focus tools" onPress={() => router.push("/(app)/report")} />
           <Row icon={Clock} title="Working hours" meta="When the scheduler can place tasks" onPress={() => router.push("/(app)/settings/schedule")} />
           <Row icon={Database} title="Data & backups" meta="Export, restore, and encrypted backups" onPress={() => router.push("/(app)/settings/data")} />
           <Row icon={Bot} title="Agent" meta="AI provider and default model" onPress={() => router.push("/(app)/settings/agent")} />
