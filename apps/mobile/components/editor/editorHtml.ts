@@ -49,6 +49,15 @@ export function buildEditorHtml(
     .tiptap h1 { font-size: 26px; line-height: 1.25; font-weight: 700; margin: 0.8em 0 0.4em; }
     .tiptap h2 { font-size: 22px; line-height: 1.3; font-weight: 700; margin: 0.7em 0 0.35em; }
     .tiptap h3 { font-size: 18px; line-height: 1.35; font-weight: 600; margin: 0.6em 0 0.3em; }
+    .tiptap h4 { font-size: 16px; line-height: 1.4; font-weight: 600; margin: 0.6em 0 0.3em; }
+    .tiptap h5 { font-size: 15px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; }
+    .tiptap h6 { font-size: 14px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; color: ${t.mutedForeground}; }
+    .code-wrap pre { margin: 0; }
+    .code-wrap:has(.mermaid-out:not([style*="none"])) pre { border-radius: 10px 10px 0 0; }
+    .mermaid-out { padding: 10px 12px; background: ${t.muted}; border: 1px solid ${t.border}; border-top: 0; border-radius: 0 0 10px 10px; overflow-x: auto; font-size: 13px; color: ${t.mutedForeground}; }
+    .mermaid-out svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+    .mermaid-out.mermaid-error { color: #e5484d; font-family: ui-monospace, monospace; white-space: pre-wrap; }
+    .tiptap img { display: inline-block; max-width: 100%; border-radius: 8px; vertical-align: bottom; }
     .tiptap ul, .tiptap ol { padding-left: 1.3em; margin: 0 0 0.75em; }
     .tiptap blockquote { border-left: 3px solid ${t.primary}; margin: 0 0 0.75em; padding: 0 0 0 12px; color: ${t.accentForeground}; }
     .tiptap pre { position: relative; background: ${t.muted}; border: 1px solid ${t.border}; border-radius: 10px; padding: 36px 12px 12px; overflow-x: auto; color: ${t.foreground}; }
@@ -70,6 +79,40 @@ export function buildEditorHtml(
     .tiptap ul[data-type="taskList"] li { display: flex; gap: 8px; align-items: flex-start; }
     .tiptap ul[data-type="taskList"] input { margin-top: 4px; }
     .mention { color: ${t.primary}; font-weight: 600; background: ${t.accent}; border-radius: 6px; padding: 0 4px; }
+    .math-inline { border-radius: 4px; padding: 0 2px; }
+    .math-inline.ProseMirror-selectednode, .wiki-link.ProseMirror-selectednode, .footnote-ref.ProseMirror-selectednode { background: ${t.accent}; }
+    .math-empty { color: ${t.mutedForeground}; font-style: italic; font-size: 13px; }
+    .math-block, .frontmatter { border: 1px solid ${t.border}; border-radius: 10px; margin: 0 0 0.75em; overflow: hidden; }
+    .frontmatter { border-style: dashed; }
+    .math-block pre, .frontmatter pre { padding: 10px 12px; border: 0; border-radius: 0; white-space: pre-wrap; }
+    .math-out { padding: 12px; border-top: 1px solid ${t.border}; text-align: center; overflow-x: auto; }
+    .math-out .katex-display { margin: 0; }
+    .block-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: ${t.mutedForeground}; background: ${t.muted}; }
+    .block-head button { margin-left: auto; background: transparent; border: 0; color: inherit; font: inherit; }
+    .callout { --callout: ${t.primary}; border-left: 3px solid var(--callout); background: color-mix(in oklab, var(--callout) 10%, transparent); border-radius: 0 8px 8px 0; padding: 8px 12px 10px; margin: 0 0 0.75em; }
+    .callout[data-kind="tip"] { --callout: #2fa36b; }
+    .callout[data-kind="important"] { --callout: #8957e5; }
+    .callout[data-kind="warning"] { --callout: #d29922; }
+    .callout[data-kind="caution"] { --callout: #e5484d; }
+    .callout-head { display: flex; align-items: center; gap: 6px; color: var(--callout); font-weight: 600; margin-bottom: 4px; }
+    .callout-head select { background: transparent; border: 0; color: inherit; font: inherit; font-size: 14px; padding: 0; }
+    .callout-head input { flex: 1; min-width: 0; background: transparent; border: 0; color: ${t.foreground}; font: inherit; font-size: 14px; font-weight: 600; outline: none; }
+    .callout-body > :last-child { margin-bottom: 0; }
+    .footnote-ref { color: ${t.primary}; font-weight: 600; font-size: 0.7em; }
+    .footnote { display: flex; gap: 8px; border-top: 1px solid ${t.border}; padding-top: 6px; margin: 6px 0 0; font-size: 14px; color: ${t.mutedForeground}; }
+    .footnote + .footnote { border-top: 0; margin-top: 0; padding-top: 0; }
+    .footnote-label { color: ${t.primary}; font-weight: 600; flex: none; min-width: 20px; }
+    .footnote-body { flex: 1; min-width: 0; }
+    .footnote-body > :last-child { margin-bottom: 0; }
+    .wiki-link { color: ${t.primary}; font-weight: 600; background: ${t.accent}; border-radius: 6px; padding: 0 4px; text-decoration: none; white-space: nowrap; }
+    .wiki-link::before { content: "[["; opacity: 0.5; }
+    .wiki-link::after { content: "]]"; opacity: 0.5; }
+    .wiki-link[data-embed="true"]::before { content: "![["; }
+    .mermaid-out svg.map-svg { width: 100%; height: auto; max-height: 420px; }
+    .map-polygon { fill: color-mix(in oklab, ${t.primary} 25%, transparent); stroke: ${t.primary}; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+    .map-line { fill: none; stroke: ${t.primary}; stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .map-point { fill: ${t.primary}; stroke: ${t.background}; stroke-width: 1.5; }
+    .mermaid-out canvas { display: block; width: 100% !important; touch-action: none; }
     .tiptap p.is-editor-empty:first-child::before,
     .tiptap .is-empty::before { color: ${t.mutedForeground}; content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
   </style>
@@ -83,7 +126,10 @@ export function buildEditorHtml(
     import TaskList from "https://esm.sh/@tiptap/extension-task-list@3.31.4";
     import TaskItem from "https://esm.sh/@tiptap/extension-task-item@3.31.4";
     import Highlight from "https://esm.sh/@tiptap/extension-highlight@3.31.4";
+    import Image from "https://esm.sh/@tiptap/extension-image@3.31.4";
+    import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
+    import { TextSelection } from "https://esm.sh/@tiptap/pm@3.31.4/state";
 
     const placeholder = ${embed(placeholder)};
     const Mention = Node.create({
@@ -111,6 +157,509 @@ export function buildEditorHtml(
         return node.attrs.appearance === "page" ? label : "@" + label;
       },
     });
+
+
+    // --- Markdown extras (docs/markdown.md): math, callouts, footnotes,
+    // frontmatter and [[wiki links]]. Same JSON as the web editor. ---
+
+    // Only the top node may hold frontmatter, and only first.
+    const DocumentWithFrontmatter = Node.create({ name: "doc", topNode: true, content: "frontmatter? block+" });
+
+    let katexLoad = null;
+    function loadKatex() {
+      if (!katexLoad) {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "https://esm.sh/katex@0.16.47/dist/katex.min.css";
+        document.head.appendChild(link);
+        katexLoad = import("https://esm.sh/katex@0.16.47").then((mod) => mod.default || mod);
+      }
+      return katexLoad;
+    }
+    function renderMath(el, latex, displayMode) {
+      latex = latex.trim();
+      if (el.dataset.latex === latex && el.dataset.display === String(displayMode)) return;
+      el.dataset.latex = latex;
+      el.dataset.display = String(displayMode);
+      if (!latex) {
+        el.innerHTML = "";
+        const hint = document.createElement("span");
+        hint.className = "math-empty";
+        hint.textContent = displayMode ? "Type TeX above, for example: \\\\frac{1}{2}" : "formula";
+        el.appendChild(hint);
+        return;
+      }
+      el.textContent = "$" + latex + "$";
+      loadKatex().then((katex) => {
+        if (el.dataset.latex !== latex) return;
+        katex.render(latex, el, { displayMode, throwOnError: false, strict: "ignore", trust: false });
+      }).catch(() => undefined);
+    }
+
+    const MathInline = Node.create({
+      name: "mathInline",
+      group: "inline",
+      inline: true,
+      atom: true,
+      selectable: true,
+      addAttributes() { return { latex: { default: "" } }; },
+      parseHTML() { return [{ tag: "span[data-math-inline]" }]; },
+      renderHTML({ node, HTMLAttributes }) {
+        return ["span", { ...HTMLAttributes, "data-math-inline": "", class: "math-inline" }, "$" + node.attrs.latex + "$"];
+      },
+      renderText({ node }) { return node.attrs.latex; },
+      addNodeView() {
+        return ({ node, getPos }) => {
+          const dom = document.createElement("span");
+          dom.className = "math-inline";
+          dom.setAttribute("contenteditable", "false");
+          let current = node;
+          renderMath(dom, current.attrs.latex, false);
+          // Tapping asks the app for the TeX; it comes back as cmd setMath.
+          dom.addEventListener("click", () => send({ type: "mathEdit", pos: getPos(), latex: current.attrs.latex }));
+          return {
+            dom,
+            update(next) {
+              if (next.type !== node.type) return false;
+              current = next;
+              renderMath(dom, next.attrs.latex, false);
+              return true;
+            },
+            ignoreMutation() { return true; },
+          };
+        };
+      },
+      addInputRules() {
+        return [new InputRule({
+          find: /\\$([^\\s$][^$\\n]*?[^\\s$\\\\]|[^\\s$])\\$$/,
+          handler: ({ state, range, match }) => {
+            state.tr.replaceWith(range.from, range.to, state.schema.nodes.mathInline.create({ latex: match[1] }));
+          },
+        })];
+      },
+    });
+
+    // Enter three times at the end of a verbatim block leaves it (as code blocks do).
+    function exitOnTripleEnter(editor, name) {
+      const { state } = editor;
+      const { selection } = state;
+      const { $from, empty } = selection;
+      if (!empty || $from.parent.type.name !== name) return false;
+      const isAtEnd = $from.parentOffset === $from.parent.nodeSize - 2;
+      if (!isAtEnd || !$from.parent.textContent.endsWith("\\n\\n")) return false;
+      return editor.chain().command(({ tr }) => { tr.delete($from.pos - 2, $from.pos); return true; }).exitCode().run();
+    }
+
+    function verbatimBlockView(className, head, drawOut) {
+      return ({ node, getPos, editor }) => {
+        const dom = document.createElement("div");
+        dom.className = className;
+        if (head) {
+          const bar = document.createElement("div");
+          bar.className = "block-head";
+          bar.setAttribute("contenteditable", "false");
+          bar.textContent = head;
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.textContent = "Remove";
+          remove.addEventListener("click", () => {
+            const pos = getPos();
+            editor.chain().focus().deleteRange({ from: pos, to: pos + node.nodeSize }).run();
+          });
+          bar.appendChild(remove);
+          dom.appendChild(bar);
+        }
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        pre.appendChild(code);
+        dom.appendChild(pre);
+        let out = null;
+        if (drawOut) {
+          out = document.createElement("div");
+          out.className = "math-out";
+          out.setAttribute("contenteditable", "false");
+          dom.appendChild(out);
+          drawOut(out, node.textContent);
+        }
+        return {
+          dom,
+          contentDOM: code,
+          update(next) {
+            if (next.type !== node.type) return false;
+            if (out) drawOut(out, next.textContent);
+            return true;
+          },
+          ignoreMutation(mutation) {
+            if (mutation.type === "selection") return false;
+            return !code.contains(mutation.target);
+          },
+        };
+      };
+    }
+
+    const MathBlock = Node.create({
+      name: "mathBlock",
+      group: "block",
+      content: "text*",
+      marks: "",
+      code: true,
+      defining: true,
+      parseHTML() { return [{ tag: "div[data-math-block]", preserveWhitespace: "full" }]; },
+      renderHTML({ HTMLAttributes }) { return ["div", { ...HTMLAttributes, "data-math-block": "" }, 0]; },
+      addNodeView() { return verbatimBlockView("math-block", null, (out, text) => renderMath(out, text, true)); },
+      addKeyboardShortcuts() {
+        return {
+          Enter: () => exitOnTripleEnter(this.editor, this.name),
+          Backspace: () => {
+            const { $from, empty } = this.editor.state.selection;
+            if (!empty || $from.parent.type.name !== this.name || $from.parent.textContent) return false;
+            return this.editor.commands.clearNodes();
+          },
+        };
+      },
+    });
+
+    const Frontmatter = Node.create({
+      name: "frontmatter",
+      content: "text*",
+      marks: "",
+      code: true,
+      defining: true,
+      isolating: true,
+      parseHTML() { return [{ tag: "div[data-frontmatter]", preserveWhitespace: "full" }]; },
+      renderHTML({ HTMLAttributes }) { return ["div", { ...HTMLAttributes, "data-frontmatter": "" }, 0]; },
+      addNodeView() { return verbatimBlockView("frontmatter", "Properties", null); },
+      addKeyboardShortcuts() {
+        return { Enter: () => exitOnTripleEnter(this.editor, this.name) };
+      },
+    });
+
+    const CALLOUT_KINDS = { note: "Note", tip: "Tip", important: "Important", warning: "Warning", caution: "Caution" };
+
+    const Callout = Node.create({
+      name: "callout",
+      group: "block",
+      content: "block+",
+      defining: true,
+      addAttributes() { return { kind: { default: "note" }, title: { default: null } }; },
+      parseHTML() { return [{ tag: "div[data-callout]" }]; },
+      renderHTML({ node, HTMLAttributes }) {
+        return ["div", { ...HTMLAttributes, "data-callout": "", "data-kind": node.attrs.kind }, 0];
+      },
+      addNodeView() {
+        return ({ node, getPos, editor }) => {
+          const dom = document.createElement("div");
+          dom.className = "callout";
+          const head = document.createElement("div");
+          head.className = "callout-head";
+          head.setAttribute("contenteditable", "false");
+          const select = document.createElement("select");
+          const title = document.createElement("input");
+          title.placeholder = "Title (optional)";
+          const body = document.createElement("div");
+          body.className = "callout-body";
+          head.appendChild(select);
+          head.appendChild(title);
+          dom.appendChild(head);
+          dom.appendChild(body);
+          const setAttrs = (patch) => {
+            const pos = getPos();
+            editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...editor.state.doc.nodeAt(pos).attrs, ...patch }));
+          };
+          select.addEventListener("change", () => setAttrs({ kind: select.value }));
+          title.addEventListener("input", () => setAttrs({ title: title.value || null }));
+          const apply = (current) => {
+            const kind = current.attrs.kind || "note";
+            dom.setAttribute("data-kind", kind);
+            const kinds = CALLOUT_KINDS[kind] ? Object.keys(CALLOUT_KINDS) : [...Object.keys(CALLOUT_KINDS), kind];
+            select.innerHTML = "";
+            for (const item of kinds) {
+              const option = document.createElement("option");
+              option.value = item;
+              option.textContent = CALLOUT_KINDS[item] || item;
+              select.appendChild(option);
+            }
+            select.value = kind;
+            if (title.value !== (current.attrs.title || "")) title.value = current.attrs.title || "";
+          };
+          apply(node);
+          return {
+            dom,
+            contentDOM: body,
+            update(next) {
+              if (next.type !== node.type) return false;
+              apply(next);
+              return true;
+            },
+            ignoreMutation(mutation) {
+              if (mutation.type === "selection") return false;
+              return !body.contains(mutation.target);
+            },
+            stopEvent(event) { return head.contains(event.target); },
+          };
+        };
+      },
+      addKeyboardShortcuts() {
+        const leaveWhenEmpty = () => {
+          const { $from, empty } = this.editor.state.selection;
+          if (!empty || $from.parent.type.name !== "paragraph" || $from.parent.textContent) return false;
+          if ($from.depth < 2 || $from.node(-1).type.name !== this.name) return false;
+          return this.editor.commands.lift("paragraph");
+        };
+        return {
+          Enter: () => {
+            const { $from } = this.editor.state.selection;
+            if ($from.depth < 2 || $from.index(-1) !== $from.node(-1).childCount - 1) return false;
+            return leaveWhenEmpty();
+          },
+          Backspace: () => {
+            const { $from } = this.editor.state.selection;
+            if ($from.depth < 2 || $from.node(-1).childCount !== 1) return false;
+            return leaveWhenEmpty();
+          },
+        };
+      },
+    });
+
+    const FootnoteRef = Node.create({
+      name: "footnoteRef",
+      group: "inline",
+      inline: true,
+      atom: true,
+      selectable: true,
+      addAttributes() { return { label: { default: "1" } }; },
+      parseHTML() { return [{ tag: "sup[data-footnote-ref]" }]; },
+      renderHTML({ node, HTMLAttributes }) {
+        return ["sup", { ...HTMLAttributes, "data-footnote-ref": "", "data-label": node.attrs.label, class: "footnote-ref" }, "[" + node.attrs.label + "]"];
+      },
+      renderText() { return ""; },
+    });
+
+    const Footnote = Node.create({
+      name: "footnote",
+      group: "block",
+      content: "block+",
+      defining: true,
+      addAttributes() { return { label: { default: "1" } }; },
+      parseHTML() { return [{ tag: "div[data-footnote]" }]; },
+      renderHTML({ node, HTMLAttributes }) {
+        return ["div", { ...HTMLAttributes, "data-footnote": node.attrs.label }, 0];
+      },
+      addNodeView() {
+        return ({ node }) => {
+          const dom = document.createElement("div");
+          dom.className = "footnote";
+          dom.setAttribute("data-footnote", node.attrs.label);
+          const label = document.createElement("span");
+          label.className = "footnote-label";
+          label.setAttribute("contenteditable", "false");
+          label.textContent = "[" + node.attrs.label + "]";
+          const body = document.createElement("div");
+          body.className = "footnote-body";
+          dom.appendChild(label);
+          dom.appendChild(body);
+          return {
+            dom,
+            contentDOM: body,
+            update(next) {
+              if (next.type !== node.type) return false;
+              label.textContent = "[" + next.attrs.label + "]";
+              dom.setAttribute("data-footnote", next.attrs.label);
+              return true;
+            },
+            ignoreMutation(mutation) {
+              if (mutation.type === "selection") return false;
+              return !body.contains(mutation.target);
+            },
+          };
+        };
+      },
+      addKeyboardShortcuts() {
+        return {
+          Backspace: () => {
+            const { $from, empty } = this.editor.state.selection;
+            if (!empty || $from.parent.type.name !== "paragraph" || $from.parent.textContent) return false;
+            if ($from.depth < 2 || $from.node(-1).type.name !== this.name || $from.node(-1).childCount !== 1) return false;
+            return this.editor.commands.lift("paragraph");
+          },
+        };
+      },
+    });
+
+    function nextFootnoteLabel(doc) {
+      let highest = 0;
+      doc.descendants((n) => {
+        if (n.type.name === "footnote" || n.type.name === "footnoteRef") {
+          const value = Number(n.attrs.label);
+          if (Number.isInteger(value) && value > highest) highest = value;
+        }
+      });
+      return String(highest + 1);
+    }
+
+    const WikiLink = Node.create({
+      name: "wikiLink",
+      group: "inline",
+      inline: true,
+      atom: true,
+      selectable: true,
+      addAttributes() { return { target: { default: "" }, alias: { default: null }, embed: { default: false } }; },
+      parseHTML() { return [{ tag: "a[data-wiki-link]" }]; },
+      renderHTML({ node, HTMLAttributes }) {
+        return ["a", { ...HTMLAttributes, "data-wiki-link": "", "data-target": node.attrs.target, "data-embed": node.attrs.embed ? "true" : "false", class: "wiki-link", href: "#" }, node.attrs.alias || node.attrs.target || "page"];
+      },
+      renderText({ node }) { return node.attrs.alias || node.attrs.target || ""; },
+      addInputRules() {
+        return [new InputRule({
+          find: /\\[\\[([^\\[\\]|\\n]+?)(?:\\|([^\\[\\]\\n]*))?\\]\\]$/,
+          handler: ({ state, range, match }) => {
+            state.tr.replaceWith(range.from, range.to, state.schema.nodes.wikiLink.create({ target: match[1].trim(), alias: (match[2] || "").trim() || null, embed: false }));
+          },
+        })];
+      },
+    });
+
+    // --- Map and 3D previews for geojson / topojson / stl code blocks ---
+
+    function geometriesOf(value, topojson) {
+      if (!value || typeof value !== "object") return [];
+      if (value.type === "Topology") {
+        if (!topojson) return [];
+        return Object.values(value.objects || {}).flatMap((object) => geometriesOf(topojson.feature(value, object), topojson));
+      }
+      switch (value.type) {
+        case "FeatureCollection": return (value.features || []).flatMap((item) => geometriesOf(item, topojson));
+        case "Feature": return value.geometry ? geometriesOf(value.geometry, topojson) : [];
+        case "GeometryCollection": return (value.geometries || []).flatMap((item) => geometriesOf(item, topojson));
+        case "Point": case "MultiPoint": case "LineString": case "MultiLineString": case "Polygon": case "MultiPolygon": return [value];
+        default: return [];
+      }
+    }
+    function projectLonLat(p) {
+      const phi = Math.max(-85, Math.min(85, p[1])) * Math.PI / 180;
+      return [p[0], -Math.log(Math.tan(Math.PI / 4 + phi / 2)) * 180 / Math.PI];
+    }
+    function positionsOf(g) {
+      switch (g.type) {
+        case "Point": return [g.coordinates];
+        case "MultiPoint": case "LineString": return g.coordinates;
+        case "MultiLineString": case "Polygon": return g.coordinates.flat();
+        case "MultiPolygon": return g.coordinates.flat(2);
+        default: return [];
+      }
+    }
+    function drawMapSvg(geometries) {
+      const all = geometries.flatMap(positionsOf).filter((p) => Array.isArray(p) && p.length >= 2);
+      if (!all.length) return null;
+      const projected = all.map(projectLonLat);
+      const minX = Math.min(...projected.map((p) => p[0])), maxX = Math.max(...projected.map((p) => p[0]));
+      const minY = Math.min(...projected.map((p) => p[1])), maxY = Math.max(...projected.map((p) => p[1]));
+      const spanX = Math.max(maxX - minX, 1e-6), spanY = Math.max(maxY - minY, 1e-6);
+      const W = 640, PAD = 16, inner = W - PAD * 2;
+      const H = Math.max(160, Math.min(480, Math.round(inner * spanY / spanX) + PAD * 2));
+      const scale = Math.min(inner / spanX, (H - PAD * 2) / spanY);
+      const ox = (W - spanX * scale) / 2, oy = (H - spanY * scale) / 2;
+      const to = (p) => { const q = projectLonLat(p); return [ox + (q[0] - minX) * scale, oy + (q[1] - minY) * scale]; };
+      const path = (ring) => ring.map((p, i) => (i ? "L" : "M") + to(p).map((n) => n.toFixed(1)).join(" ")).join("");
+      const parts = [];
+      const draw = (g) => {
+        switch (g.type) {
+          case "Point": { const [x, y] = to(g.coordinates); parts.push('<circle class="map-point" cx="' + x + '" cy="' + y + '" r="4"/>'); break; }
+          case "MultiPoint": g.coordinates.forEach((p) => draw({ type: "Point", coordinates: p })); break;
+          case "LineString": parts.push('<path class="map-line" d="' + path(g.coordinates) + '"/>'); break;
+          case "MultiLineString": g.coordinates.forEach((l) => draw({ type: "LineString", coordinates: l })); break;
+          case "Polygon": parts.push('<path class="map-polygon" fill-rule="evenodd" d="' + g.coordinates.map((r) => path(r) + "Z").join("") + '"/>'); break;
+          case "MultiPolygon": g.coordinates.forEach((poly) => draw({ type: "Polygon", coordinates: poly })); break;
+        }
+      };
+      geometries.forEach(draw);
+      return '<svg class="map-svg" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Map">' + parts.join("") + "</svg>";
+    }
+    let topojsonLoad = null;
+    function drawMap(out, source) {
+      source = source.trim();
+      if (out.dataset.source === source) return;
+      out.dataset.source = source;
+      out.classList.remove("mermaid-error");
+      if (!source) { out.textContent = "Paste GeoJSON or TopoJSON above to draw it."; return; }
+      clearTimeout(out.__timer);
+      out.__timer = setTimeout(async () => {
+        try {
+          const value = JSON.parse(source);
+          let topojson = null;
+          if (value && value.type === "Topology") {
+            topojsonLoad = topojsonLoad || import("https://esm.sh/topojson-client@3.1.0");
+            topojson = await topojsonLoad;
+          }
+          if (out.dataset.source !== source) return;
+          const svg = drawMapSvg(geometriesOf(value, topojson));
+          if (!svg) throw new Error("No coordinates to draw.");
+          out.innerHTML = svg;
+        } catch (err) {
+          if (out.dataset.source !== source) return;
+          out.textContent = String(err && err.message ? err.message : err).split("\\n")[0];
+          out.classList.add("mermaid-error");
+        }
+      }, 400);
+    }
+
+    let threeLoad = null;
+    function loadThree() {
+      threeLoad = threeLoad || Promise.all([
+        import("https://esm.sh/three@0.186.1"),
+        import("https://esm.sh/three@0.186.1/examples/jsm/loaders/STLLoader.js"),
+        import("https://esm.sh/three@0.186.1/examples/jsm/controls/OrbitControls.js"),
+      ]).then(([three, loader, controls]) => ({ three, STLLoader: loader.STLLoader, OrbitControls: controls.OrbitControls }));
+      return threeLoad;
+    }
+    function drawStl(out, source) {
+      source = source.trim();
+      if (out.dataset.source === source) return;
+      out.dataset.source = source;
+      out.classList.remove("mermaid-error");
+      if (out.__dispose) { out.__dispose(); out.__dispose = null; }
+      if (!source) { out.textContent = "Paste an ASCII STL above to show the model."; return; }
+      clearTimeout(out.__timer);
+      out.__timer = setTimeout(async () => {
+        try {
+          const { three, STLLoader, OrbitControls } = await loadThree();
+          if (out.dataset.source !== source) return;
+          const geometry = new STLLoader().parse(new TextEncoder().encode(source).buffer);
+          geometry.computeBoundingSphere();
+          const sphere = geometry.boundingSphere;
+          if (!sphere || !sphere.radius) throw new Error("No triangles found in the STL.");
+          const width = out.clientWidth || 360, height = 260;
+          const renderer = new three.WebGLRenderer({ antialias: true, alpha: true });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+          renderer.setSize(width, height);
+          out.innerHTML = "";
+          out.appendChild(renderer.domElement);
+          const scene = new three.Scene();
+          const camera = new three.PerspectiveCamera(40, width / height, sphere.radius / 100, sphere.radius * 100);
+          const distance = sphere.radius / Math.sin(camera.fov * Math.PI / 360) * 1.2;
+          camera.position.set(sphere.center.x + distance * 0.6, sphere.center.y - distance * 0.6, sphere.center.z + distance * 0.5);
+          camera.up.set(0, 0, 1);
+          camera.lookAt(sphere.center);
+          const material = new three.MeshStandardMaterial({ color: 0x8b7cf7, metalness: 0.1, roughness: 0.6 });
+          scene.add(new three.Mesh(geometry, material));
+          scene.add(new three.HemisphereLight(0xffffff, 0x444466, 1.6));
+          const sun = new three.DirectionalLight(0xffffff, 1.4);
+          sun.position.set(1, -1, 2).multiplyScalar(sphere.radius * 5);
+          scene.add(sun);
+          const controls = new OrbitControls(camera, renderer.domElement);
+          controls.target.copy(sphere.center);
+          const render = () => renderer.render(scene, camera);
+          controls.addEventListener("change", render);
+          controls.update();
+          render();
+          out.__dispose = () => { controls.dispose(); renderer.dispose(); geometry.dispose(); material.dispose(); };
+        } catch (err) {
+          if (out.dataset.source !== source) return;
+          out.textContent = String(err && err.message ? err.message : err).split("\\n")[0];
+          out.classList.add("mermaid-error");
+        }
+      }, 400);
+    }
 
     const ExtraShortcuts = Extension.create({
       name: "timelyShortcuts",
@@ -170,7 +719,7 @@ export function buildEditorHtml(
     }
 
     function enhanceCodeBlocks() {
-      document.querySelectorAll("pre").forEach((pre) => {
+      document.querySelectorAll(".code-wrap pre").forEach((pre) => {
         if (pre.querySelector(".code-copy")) return;
         pre.style.position = "relative";
         const btn = document.createElement("button");
@@ -188,6 +737,91 @@ export function buildEditorHtml(
         pre.appendChild(btn);
       });
     }
+
+    // Fenced mermaid code blocks are drawn below their source. Mermaid is loaded the
+    // first time a doc needs it; the source stays a normal code block.
+    let mermaidLoad = null;
+    let mermaidCount = 0;
+    function loadMermaid() {
+      if (!mermaidLoad) {
+        mermaidLoad = import("https://esm.sh/mermaid@12.1.0").then((mod) => {
+          const mermaid = mod.default;
+          mermaid.initialize({ startOnLoad: false, securityLevel: "strict", flowchart: { htmlLabels: false }, theme: ${JSON.stringify(t.mode === "light" ? "default" : "dark")}, fontFamily: "inherit" });
+          return mermaid;
+        });
+      }
+      return mermaidLoad;
+    }
+    function drawDiagram(out, source) {
+      source = source.trim();
+      if (out.dataset.source === source) return;
+      out.dataset.source = source;
+      out.classList.remove("mermaid-error");
+      if (!source) { out.textContent = "Type a diagram above, for example: flowchart TD; A --> B"; return; }
+      clearTimeout(out.__timer);
+      out.__timer = setTimeout(() => {
+        loadMermaid().then((mermaid) => {
+          mermaidCount += 1;
+          return mermaid.render("doc-mermaid-" + mermaidCount, source);
+        }).then(({ svg }) => {
+          if (out.dataset.source !== source) return;
+          out.innerHTML = svg;
+        }).catch((err) => {
+          if (out.dataset.source !== source) return;
+          out.textContent = String(err && err.message ? err.message : err).split("\\n")[0];
+          out.classList.add("mermaid-error");
+        });
+      }, 400);
+    }
+
+    // Code blocks get a wrapper so a mermaid diagram can sit under the
+    // source without ProseMirror removing it as unknown DOM.
+    const DiagramCodeBlock = CodeBlock.extend({
+      addNodeView() {
+        return ({ node }) => {
+          const dom = document.createElement("div");
+          dom.className = "code-wrap";
+          const pre = document.createElement("pre");
+          const code = document.createElement("code");
+          pre.appendChild(code);
+          const out = document.createElement("div");
+          out.className = "mermaid-out";
+          out.setAttribute("contenteditable", "false");
+          dom.appendChild(pre);
+          dom.appendChild(out);
+          const apply = (current) => {
+            const lang = current.attrs.language;
+            code.className = lang ? "language-" + lang : "";
+            if (lang === "mermaid") {
+              out.style.display = "";
+              drawDiagram(out, current.textContent);
+            } else if (lang === "geojson" || lang === "topojson") {
+              out.style.display = "";
+              drawMap(out, current.textContent);
+            } else if (lang === "stl") {
+              out.style.display = "";
+              drawStl(out, current.textContent);
+            } else {
+              out.style.display = "none";
+            }
+          };
+          apply(node);
+          return {
+            dom,
+            contentDOM: code,
+            update(next) {
+              if (next.type !== node.type) return false;
+              apply(next);
+              return true;
+            },
+            ignoreMutation(mutation) {
+              if (mutation.type === "selection") return false;
+              return !code.contains(mutation.target);
+            },
+          };
+        };
+      },
+    });
 
     function send(payload) {
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(payload));
@@ -249,6 +883,7 @@ export function buildEditorHtml(
           task: editor.isActive("taskList"),
           quote: editor.isActive("blockquote"),
           codeBlock: editor.isActive("codeBlock"),
+          callout: editor.isActive("callout"),
         },
       });
       triggerText();
@@ -258,8 +893,11 @@ export function buildEditorHtml(
     const editor = new Editor({
       element: document.getElementById("editor"),
       extensions: [
+        DocumentWithFrontmatter,
         StarterKit.configure({
-          heading: { levels: [1, 2, 3] },
+          document: false,
+          heading: { levels: [1, 2, 3, 4, 5, 6] },
+          codeBlock: false,
           link: { openOnClick: false, autolink: true, defaultProtocol: "https" },
         }),
         Placeholder.configure({
@@ -272,8 +910,17 @@ export function buildEditorHtml(
         TaskList,
         TaskItem.configure({ nested: true }),
         Highlight,
+        Image.configure({ inline: true }),
+        DiagramCodeBlock,
         TableKit.configure({ table: { resizable: false } }),
         Mention,
+        MathInline,
+        MathBlock,
+        Callout,
+        FootnoteRef,
+        Footnote,
+        Frontmatter,
+        WikiLink,
         ExtraShortcuts,
       ],
       content: ${embed(initial)},
@@ -281,7 +928,24 @@ export function buildEditorHtml(
         attributes: { class: "tiptap", autocapitalize: "sentences", spellcheck: "true" },
         handleTextInput(view, from, to, text) { return capitalizeTyped(view, from, to, text); },
       },
-      onCreate() { send({ type: "ready" }); reportSelection(); enhanceCodeBlocks(); },
+      onCreate({ editor }) {
+        send({ type: "ready" });
+        reportSelection();
+        enhanceCodeBlocks();
+        editor.view.dom.addEventListener("click", (event) => {
+          const ref = event.target.closest && event.target.closest("sup[data-footnote-ref]");
+          if (ref) {
+            const note = document.querySelector('[data-footnote="' + CSS.escape(ref.getAttribute("data-label") || "") + '"]');
+            if (note) note.scrollIntoView({ behavior: "smooth", block: "center" });
+            return;
+          }
+          const wiki = event.target.closest && event.target.closest("a[data-wiki-link]");
+          if (wiki) {
+            event.preventDefault();
+            send({ type: "wikilink", target: wiki.getAttribute("data-target") || "" });
+          }
+        }, true);
+      },
       onUpdate({ editor }) {
         send({ type: "change", content: editor.getJSON(), plainText: editor.getText() });
         reportSelection();
@@ -295,8 +959,7 @@ export function buildEditorHtml(
     const TABLE_CMDS = {
       addRowBefore: true, addRowAfter: true, deleteRow: true,
       addColBefore: true, addColAfter: true, deleteCol: true,
-      deleteTable: true, headerRow: true, headerCol: true,
-      merge: true, split: true,
+      deleteTable: true,
     };
 
     window.__timely = {
@@ -322,6 +985,53 @@ export function buildEditorHtml(
           case "task": chain.toggleTaskList(); break;
           case "quote": chain.toggleBlockquote(); break;
           case "code": chain.toggleCodeBlock(); break;
+          case "diagram": chain.setCodeBlock({ language: "mermaid" }).insertContent("flowchart TD\\n  A[Start] --> B[Next step]"); break;
+          case "callout": chain.wrapIn("callout", { kind: "note" }); break;
+          case "math":
+            chain.insertContent({ type: "mathInline", attrs: { latex: "" } }).command(({ tr }) => {
+              send({ type: "mathEdit", pos: tr.selection.from - 1, latex: "" });
+              return true;
+            });
+            break;
+          case "setMath":
+            chain.command(({ tr, state }) => {
+              const pos = Number(payload && payload.pos);
+              const target = state.doc.nodeAt(pos);
+              if (!target || target.type.name !== "mathInline") return false;
+              const latex = String(payload.latex || "").trim();
+              if (latex) tr.setNodeMarkup(pos, undefined, { latex });
+              else tr.delete(pos, pos + 1);
+              return true;
+            });
+            break;
+          case "mathBlock": chain.setNode("mathBlock"); break;
+          case "footnote":
+            chain.command(({ tr, state }) => {
+              const label = nextFootnoteLabel(state.doc);
+              tr.replaceSelectionWith(state.schema.nodes.footnoteRef.create({ label }));
+              const end = tr.doc.content.size;
+              tr.insert(end, state.schema.nodes.footnote.create({ label }, state.schema.nodes.paragraph.create()));
+              tr.setSelection(TextSelection.create(tr.doc, end + 2));
+              tr.scrollIntoView();
+              return true;
+            });
+            break;
+          case "frontmatter":
+            chain.command(({ tr, state }) => {
+              const first = state.doc.firstChild;
+              if (first && first.type.name === "frontmatter") {
+                tr.setSelection(TextSelection.create(tr.doc, first.nodeSize - 1));
+              } else {
+                const text = state.schema.text("title: ");
+                tr.insert(0, state.schema.nodes.frontmatter.create(null, text));
+                tr.setSelection(TextSelection.create(tr.doc, text.nodeSize + 1));
+              }
+              tr.scrollIntoView();
+              return true;
+            });
+            break;
+          case "map": chain.setCodeBlock({ language: "geojson" }).insertContent('{\\n  "type": "Feature",\\n  "geometry": {\\n    "type": "Polygon",\\n    "coordinates": [[[-0.2, 51.45], [0.05, 51.45], [0.05, 51.6], [-0.2, 51.6], [-0.2, 51.45]]]\\n  }\\n}'); break;
+          case "stl": chain.setCodeBlock({ language: "stl" }).insertContent("solid pyramid\\n  facet normal 0 0 -1\\n    outer loop\\n      vertex 0 0 0\\n      vertex 1 0 0\\n      vertex 1 1 0\\n    endloop\\n  endfacet\\n  facet normal 0 0 -1\\n    outer loop\\n      vertex 0 0 0\\n      vertex 1 1 0\\n      vertex 0 1 0\\n    endloop\\n  endfacet\\n  facet normal 0 -1 0\\n    outer loop\\n      vertex 0 0 0\\n      vertex 0.5 0.5 1\\n      vertex 1 0 0\\n    endloop\\n  endfacet\\n  facet normal 1 0 0\\n    outer loop\\n      vertex 1 0 0\\n      vertex 0.5 0.5 1\\n      vertex 1 1 0\\n    endloop\\n  endfacet\\n  facet normal 0 1 0\\n    outer loop\\n      vertex 1 1 0\\n      vertex 0.5 0.5 1\\n      vertex 0 1 0\\n    endloop\\n  endfacet\\n  facet normal -1 0 0\\n    outer loop\\n      vertex 0 1 0\\n      vertex 0.5 0.5 1\\n      vertex 0 0 0\\n    endloop\\n  endfacet\\nendsolid pyramid"); break;
           case "hr": chain.setHorizontalRule(); break;
           case "table": chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }); break;
           case "addRowBefore": chain.addRowBefore(); break;
@@ -331,8 +1041,6 @@ export function buildEditorHtml(
           case "addColAfter": chain.addColumnAfter(); break;
           case "deleteCol": chain.deleteColumn(); break;
           case "deleteTable": chain.deleteTable(); break;
-          case "headerRow": chain.toggleHeaderRow(); break;
-          case "headerCol": chain.toggleHeaderColumn(); break;
           case "bold": chain.toggleBold(); break;
           case "italic": chain.toggleItalic(); break;
           case "strike": chain.toggleStrike(); break;
@@ -350,8 +1058,6 @@ export function buildEditorHtml(
             }
             break;
           case "unsetLink": chain.extendMarkRange("link").unsetLink(); break;
-          case "merge": chain.mergeCells(); break;
-          case "split": chain.splitCell(); break;
           case "mentionChar": chain.insertContent("@"); break;
           case "mention":
             chain.insertContent([

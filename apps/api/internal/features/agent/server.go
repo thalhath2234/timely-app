@@ -60,7 +60,7 @@ func New(deps Deps) *mcp.Server {
 IDs: usr_, ws_, pr_, tsk_, evt_, doc_, sht_, tst_ (status), lbl_, stg_, cf_, blk_, rr_, view_, ntf_, job_.
 Dates are ISO-8601. Recurrence is an RFC 5545 RRULE (FREQ, INTERVAL, COUNT, UNTIL, BYDAY, BYMONTHDAY, BYMONTH).
 Recurring tasks expand on the calendar; complete an occurrence with edit_task_occurrence, not complete_task.
-Docs and descriptions accept markdown. Mentions: [@Label](timely://task/<id>).
+Docs and descriptions accept markdown: CommonMark + GFM (tables, task lists), ==highlight==, $inline math$ and $$ display math $$ blocks, > [!NOTE]/[!TIP]/[!IMPORTANT]/[!WARNING]/[!CAUTION] callouts (optional title after the marker), [^1] footnotes with [^1]: definitions, --- frontmatter at the top (key: value lines, shown as page properties), [[Page title]] and [[Page title|alias]] links to other docs by title, and fenced blocks that render: mermaid (diagrams), geojson/topojson (maps), stl (3D models). get_doc returns the same syntax, so edit what it gives back. Mentions: [@Label](timely://task/<id>) (also project, doc, sheet); subpage links: [Title](timely://doc/<id>).
 Reminders fire as server jobs even when the UI is closed. snooze_reminder moves the underlying reminder. Quiet hours still write the in-app row and delay push. Failed jobs are listed with list_jobs and recovered with retry_job.
 
 Projects can have ordered stages (stg_). Move cards with move_task_to_stage (empty stageId = Unstaged) or move_task_to_status for kanban.
@@ -186,10 +186,10 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "clear_task_blocks", Description: "Remove all blocks from a task."}, writes.reviewed(), s.clearTaskBlocks)
 
 	registerTool(s, server, &mcp.Tool{Name: "list_docs", Description: "List active documents by default. archived=true lists the archive; archived=false is the default."}, reads, s.listDocs)
-	registerTool(s, server, &mcp.Tool{Name: "get_doc", Description: "Get a document as markdown."}, reads, s.getDoc)
-	registerTool(s, server, &mcp.Tool{Name: "create_doc", Description: "Create a document from markdown."}, writes, s.createDoc)
+	registerTool(s, server, &mcp.Tool{Name: "get_doc", Description: "Get a document as markdown (GFM plus math, callouts, footnotes, frontmatter, [[wiki links]] and mermaid/geojson/stl blocks)."}, reads, s.getDoc)
+	registerTool(s, server, &mcp.Tool{Name: "create_doc", Description: "Create a document from markdown. Supports GFM, $math$, > [!NOTE] callouts, [^1] footnotes, --- frontmatter, [[wiki links]], and mermaid/geojson/topojson/stl fences that render."}, writes, s.createDoc)
 	registerTool(s, server, &mcp.Tool{Name: "update_doc", Description: "Update a document (replace markdown, title, parent, archived, …)."}, writes.reviewedWhen(hasAny("markdown")), s.updateDoc)
-	registerTool(s, server, &mcp.Tool{Name: "append_to_doc", Description: "Append markdown to a document."}, writes, s.appendToDoc)
+	registerTool(s, server, &mcp.Tool{Name: "append_to_doc", Description: "Append markdown to a document (same syntax as create_doc)."}, writes, s.appendToDoc)
 	registerTool(s, server, &mcp.Tool{Name: "archive_doc", Description: "Archive a document (archived=false unarchives). Prefer this over delete."}, mcpOnly, s.archiveDoc)
 	registerTool(s, server, &mcp.Tool{Name: "delete_doc", Description: "Delete a document. Requires confirm=true. Subpages are not deleted; descendantCount is returned."}, mcpOnly.reviewed(), s.deleteDoc)
 

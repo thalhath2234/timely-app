@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
 import { ChevronRight, Archive, Download, Smile, Star, Trash2, Upload } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
+import HeadingMinimap from "@/app/_components/docs/headingMinimap";
 import { insertPageMention } from "@/app/_components/editor/mention";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
@@ -109,6 +110,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteContent, setRemoteContent] = useState<Doc["content"] | null>(null);
   const editorRef = useRef<Editor | null>(null);
+  const [editor, setEditor] = useState<Editor | null>(null);
   const lastSavedAtRef = useRef<string | null>(doc.updatedAt);
   // The editor is seeded once per document; later remote updates arrive via
   // `remoteContent`, so this deliberately does not track content changes.
@@ -144,8 +146,9 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     [allDocs, doc.id],
   );
 
-  const handleEditorReady = useCallback((editor: Editor) => {
-    editorRef.current = editor;
+  const handleEditorReady = useCallback((readyEditor: Editor) => {
+    editorRef.current = readyEditor;
+    setEditor(readyEditor);
   }, []);
 
   const handleEditorChange = useCallback(
@@ -180,7 +183,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden">
       <header className="flex items-center gap-2 border-b border-border px-6 py-2.5">
         <ExpandCollapsedListButton
           storageKey="timely.docsListCollapsed"
@@ -235,7 +238,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
         </button>
         <button
           type="button"
-          title="Download Markdown"
+          title="Download as Markdown"
           aria-label="Download document as Markdown"
           onClick={() => void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`)}
           className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
@@ -386,6 +389,8 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           />
         </div>
       </div>
+
+      <HeadingMinimap editor={editor} />
     </div>
   );
 }

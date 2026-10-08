@@ -1,11 +1,13 @@
 "use client";
 
 import { useSidebarStore } from "@/app/_store/sidebarStore";
+import { useToastStore } from "@/app/_store/toastStore";
 import { DocContent } from "@/app/_types/types";
 import { openTasksEntityHref } from "@/app/utils/entityDetail";
 import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
 import CodeBlock from "@tiptap/extension-code-block";
 import Highlight from "@tiptap/extension-highlight";
+import TiptapImage from "@tiptap/extension-image";
 import { TableKit } from "@tiptap/extension-table";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -31,9 +33,7 @@ import {
   CheckSquare,
   Code,
   Code2,
-  Columns2,
   ExternalLink,
-  Heading,
   Heading1,
   Heading2,
   Heading3,
@@ -45,15 +45,18 @@ import {
   Minus,
   Quote,
   Strikethrough,
-  TableCellsMerge,
-  TableCellsSplit,
   Trash2,
   Unlink,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AutoCapitalize } from "./autoCapitalize";
+import { Callout } from "./callout";
 import CodeBlockView from "./codeBlockView";
+import { Footnote, FootnoteRef } from "./footnotes";
+import { DocumentWithFrontmatter, Frontmatter } from "./frontmatter";
+import { MathBlock, MathInline } from "./mathNodes";
+import { WikiLink, wikiLinkPage } from "./wikiLink";
 import { CodeHighlight } from "./codeHighlight";
 import { dismissSuggestionAndQuery } from "./dismissSuggestion";
 import { DotBulletShortcut } from "./dotBullet";
@@ -69,7 +72,7 @@ import {
 
 const LINK_POPOVER_WIDTH = 320;
 const TOOLBAR_WIDTH = 340;
-const TABLE_TOOLBAR_WIDTH = 470;
+const TABLE_TOOLBAR_WIDTH = 260;
 
 interface FloatingPosition {
   top: number;
@@ -218,8 +221,12 @@ export default function RichTextEditor({
         : "Type '/' for commands, '@' to mention, or just start writing...";
 
     const list: Extensions = [
+      // Frontmatter may only come first, which the document node enforces.
+      DocumentWithFrontmatter,
       StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
+        document: false,
+        // The toolbar offers H1-H3; H4-H6 exist so Markdown imports keep them.
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
         codeBlock: false,
         link: {
           openOnClick: false,
@@ -266,10 +273,21 @@ export default function RichTextEditor({
       TaskList,
       TaskItem.configure({ nested: true }),
       Highlight.configure({ multicolor: false }),
+      // Inline like Markdown's ![alt](src), so imported images keep their place.
+      TiptapImage.configure({ inline: true, HTMLAttributes: { class: "doc-image" } }),
       TableKit.configure({
         table: { resizable: true, handleWidth: 6, cellMinWidth: 80 },
       }),
       DotBulletShortcut,
+      // Markdown extras (see docs/markdown.md): math, callouts, footnotes,
+      // frontmatter and [[wiki links]].
+      MathInline,
+      MathBlock,
+      Callout,
+      FootnoteRef,
+      Footnote,
+      Frontmatter,
+      WikiLink,
     ];
 
     if (enableSlashCommands) {
@@ -415,6 +433,34 @@ export default function RichTextEditor({
 
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
+
+      // A footnote marker scrolls to its note.
+      const footnoteRef = target?.closest?.("sup[data-footnote-ref]");
+      if (footnoteRef) {
+        const label = footnoteRef.getAttribute("data-label") ?? "";
+        const note = element.querySelector(`[data-footnote="${CSS.escape(label)}"]`);
+        if (note) {
+          event.preventDefault();
+          note.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        return;
+      }
+
+      // A [[wiki link]] opens the doc with that title, if there is one.
+      const wikiLink = target?.closest?.("a[data-wiki-link]");
+      if (wikiLink) {
+        event.preventDefault();
+        event.stopPropagation();
+        const page = wikiLinkPage(wikiLink.getAttribute("data-target") ?? "");
+        const wanted = page.toLowerCase();
+        const doc = mentionBox
+          .get()
+          .find((item) => item.entityType === "doc" && item.label.trim().toLowerCase() === wanted);
+        if (doc) router.push(`/docs/${doc.id}`);
+        else useToastStore.getState().show(`No page named "${page}" yet.`);
+        return;
+      }
+
       const mention = target?.closest?.("a[data-mention]");
       const internalLink =
         mention ??
@@ -435,7 +481,7 @@ export default function RichTextEditor({
 
     element.addEventListener("click", handleClick, true);
     return () => element.removeEventListener("click", handleClick, true);
-  }, [editor, router]);
+  }, [editor, mentionBox, router]);
 
   // Search (Ctrl+K) owns that shortcut — close editor overlays so they do
   // not sit under the search palette.
@@ -756,34 +802,6 @@ export default function RichTextEditor({
         icon: Minus,
         disabled: !editor.can().deleteRow(),
         run: () => editor.chain().focus().deleteRow().run(),
-      },
-    ],
-    [
-      {
-        label: "Toggle header row",
-        icon: Heading,
-        disabled: !editor.can().toggleHeaderRow(),
-        run: () => editor.chain().focus().toggleHeaderRow().run(),
-      },
-      {
-        label: "Toggle header column",
-        icon: Columns2,
-        disabled: !editor.can().toggleHeaderColumn(),
-        run: () => editor.chain().focus().toggleHeaderColumn().run(),
-      },
-    ],
-    [
-      {
-        label: "Merge selected cells",
-        icon: TableCellsMerge,
-        disabled: !editor.can().mergeCells(),
-        run: () => editor.chain().focus().mergeCells().run(),
-      },
-      {
-        label: "Split cell",
-        icon: TableCellsSplit,
-        disabled: !editor.can().splitCell(),
-        run: () => editor.chain().focus().splitCell().run(),
       },
     ],
   ];

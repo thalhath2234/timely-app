@@ -8,9 +8,15 @@ import {
 } from "@tiptap/suggestion";
 import {
   AtSign,
+  Box,
   CheckSquare,
   Code2,
   FileText,
+  Info,
+  Map,
+  Sigma,
+  Superscript,
+  Tags,
   Heading1,
   Heading2,
   Heading3,
@@ -20,6 +26,7 @@ import {
   Minus,
   Quote,
   Table2,
+  Workflow,
   Type,
 } from "lucide-react";
 import {
@@ -135,6 +142,89 @@ export function createSlashItems(options?: {
       keywords: ["snippet", "pre", "monospace"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.toggleCodeBlock().run()),
+    },
+    {
+      title: "Diagram",
+      description: "Mermaid flowchart, sequence or other diagram",
+      icon: Workflow,
+      keywords: ["mermaid", "flowchart", "chart", "graph", "sequence"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) =>
+          chain
+            .setCodeBlock({ language: "mermaid" })
+            .insertContent("flowchart TD\n  A[Start] --> B[Next step]")
+            .run(),
+        ),
+    },
+    {
+      title: "Callout",
+      description: "Note, tip, warning or caution box",
+      icon: Info,
+      keywords: ["note", "tip", "warning", "caution", "important", "admonition", "alert"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.setCallout({ kind: "note" }).run()),
+    },
+    {
+      title: "Formula",
+      description: "Inline math, like $E = mc^2$",
+      icon: Sigma,
+      keywords: ["math", "latex", "tex", "katex", "inline"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.insertMathInline().run()),
+    },
+    {
+      title: "Equation",
+      description: "A displayed formula on its own line",
+      icon: Sigma,
+      keywords: ["math", "latex", "tex", "katex", "block", "display"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.setMathBlock().run()),
+    },
+    {
+      title: "Footnote",
+      description: "A numbered note at the end of the page",
+      icon: Superscript,
+      keywords: ["footnote", "reference", "citation", "note"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.insertFootnote().run()),
+    },
+    {
+      title: "Properties",
+      description: "Key: value lines at the top (Markdown frontmatter)",
+      icon: Tags,
+      keywords: ["frontmatter", "yaml", "metadata", "tags", "properties"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.editFrontmatter().run()),
+    },
+    {
+      title: "Map",
+      description: "Draw GeoJSON or TopoJSON shapes",
+      icon: Map,
+      keywords: ["geojson", "topojson", "map", "geo", "location"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) =>
+          chain
+            .setCodeBlock({ language: "geojson" })
+            .insertContent(
+              '{\n  "type": "Feature",\n  "geometry": {\n    "type": "Polygon",\n    "coordinates": [[[-0.2, 51.45], [0.05, 51.45], [0.05, 51.6], [-0.2, 51.6], [-0.2, 51.45]]]\n  }\n}',
+            )
+            .run(),
+        ),
+    },
+    {
+      title: "3D model",
+      description: "Show an ASCII STL model",
+      icon: Box,
+      keywords: ["stl", "3d", "model", "mesh", "three"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) =>
+          chain
+            .setCodeBlock({ language: "stl" })
+            .insertContent(
+              "solid pyramid\n  facet normal 0 0 -1\n    outer loop\n      vertex 0 0 0\n      vertex 1 0 0\n      vertex 1 1 0\n    endloop\n  endfacet\n  facet normal 0 0 -1\n    outer loop\n      vertex 0 0 0\n      vertex 1 1 0\n      vertex 0 1 0\n    endloop\n  endfacet\n  facet normal 0 -1 0\n    outer loop\n      vertex 0 0 0\n      vertex 0.5 0.5 1\n      vertex 1 0 0\n    endloop\n  endfacet\n  facet normal 1 0 0\n    outer loop\n      vertex 1 0 0\n      vertex 0.5 0.5 1\n      vertex 1 1 0\n    endloop\n  endfacet\n  facet normal 0 1 0\n    outer loop\n      vertex 1 1 0\n      vertex 0.5 0.5 1\n      vertex 0 1 0\n    endloop\n  endfacet\n  facet normal -1 0 0\n    outer loop\n      vertex 0 1 0\n      vertex 0.5 0.5 1\n      vertex 0 0 0\n    endloop\n  endfacet\nendsolid pyramid",
+            )
+            .run(),
+        ),
     },
     {
       title: "Table",
