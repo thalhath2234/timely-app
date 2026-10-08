@@ -1,0 +1,18 @@
+# Local (non-release) builds: make build-desktop / make dist-desktop without
+# TIMELY_RELEASE=1 (electron/pack.mjs picks this file). Same as
+# electron-builder.yml but named "Timely Dev" with its own app id, so it
+# installs and runs next to a released Timely. electron/flavor.ts gives it its
+# own user-data folder, single-instance lock and ports.
+extends: electron-builder.yml
+
+appId: app.timely.desktop.dev
+productName: Timely Dev
+executableName: timely-dev
+
+extraMetadata:
+  productName: Timely Dev
+
+linux:
+  desktop:
+    entry:
+      StartupWMClass: Timely Dev

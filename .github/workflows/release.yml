@@ -95,6 +95,9 @@ jobs:
         shell: bash
         working-directory: apps/web
         env:
+          # The released "Timely" (electron-builder.yml, electron/flavor.ts).
+          # Without it pack.mjs builds the side-by-side "Timely Dev".
+          TIMELY_RELEASE: "1"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # The release is created by the prepare job; let electron-builder
           # upload to it even when a re-run happens hours later.

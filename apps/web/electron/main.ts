@@ -14,6 +14,7 @@ import {
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { FLAVOR } from "./flavor";
 import { isOpenableExternally, isPermissionAllowed, isSameOrigin } from "./origin";
 import { waitForHttp } from "./supervisor/api";
 import { makeSealer } from "./supervisor/config";
@@ -278,7 +279,7 @@ async function createWindow(url: string) {
     height: 840,
     minWidth: 900,
     minHeight: 600,
-    title: "Timely",
+    title: FLAVOR.name,
     icon: windowIcon(),
     show: false,
     autoHideMenuBar: process.platform === "linux",
@@ -299,6 +300,13 @@ async function createWindow(url: string) {
   attachWindowGuards(win, url);
   attachPermissionGuards(win, url);
   attachPageTabShortcuts(win.webContents);
+  // Local builds say so in the title bar, next to an installed release.
+  if (!FLAVOR.release) {
+    win.on("page-title-updated", (event, title) => {
+      event.preventDefault();
+      win.setTitle(`${title} (Dev)`);
+    });
+  }
   win.once("ready-to-show", () => {
     if (isWindows) win.maximize();
     win.show();
@@ -366,7 +374,7 @@ async function createBootWindow() {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    title: "Timely",
+    title: FLAVOR.name,
     icon: windowIcon(),
     show: false,
     autoHideMenuBar: true,
@@ -419,10 +427,10 @@ function rebuildTrayMenu() {
     instance.api.status === "running"
       ? `Server: running on ${instance.api.localUrl}`
       : `Server: ${instance.api.status}${instance.api.lastError ? ` (${instance.api.lastError})` : ""}`;
-  tray.setToolTip(`Timely — ${serverLabel}`);
+  tray.setToolTip(`${FLAVOR.name} — ${serverLabel}`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Open Timely", click: () => showMainWindow() },
+      { label: `Open ${FLAVOR.name}`, click: () => showMainWindow() },
       { label: serverLabel, enabled: false },
       { type: "separator" },
       { label: "Copy address", click: () => void supervisor?.action("copyAddress") },
@@ -438,7 +446,7 @@ function rebuildTrayMenu() {
         },
       },
       { type: "separator" },
-      { label: "Quit Timely", click: () => requestQuit() },
+      { label: `Quit ${FLAVOR.name}`, click: () => requestQuit() },
     ]),
   );
 }
@@ -498,7 +506,9 @@ async function bootHosted() {
     runAsNode: !process.env.ELECTRON_NODE_BINARY,
     openPath: (target) => shell.openPath(target),
     writeClipboard: (text) => clipboard.writeText(text),
-    updater: createElectronUpdater({ isPackaged: app.isPackaged, log: (m) => supervisor?.log.warn(m) }),
+    // A local build must not update itself into the release.
+    updater: FLAVOR.release ? createElectronUpdater({ isPackaged: app.isPackaged, log: (m) => supervisor?.log.warn(m) }) : undefined,
+    defaultPorts: FLAVOR.ports,
     echo: !app.isPackaged,
   });
   if (!encryptionAvailable) supervisor.log.warn("safeStorage encryption unavailable; secrets are stored with the plain: prefix (file mode 0600)");
@@ -572,15 +582,26 @@ async function boot() {
   });
 }
 
+// The single-instance lock lives in userData, so a local build points
+// userData at its own folder first; otherwise opening it would hand over to an
+// installed release and quit. Release builds keep Electron's default
+// (<appData>/Timely). An explicit --user-data-dir (make dev-desktop-hosted) wins.
+if (!FLAVOR.release) {
+  app.setName(FLAVOR.name);
+  if (!app.commandLine.hasSwitch("user-data-dir")) {
+    app.setPath("userData", path.join(app.getPath("appData"), FLAVOR.name));
+  }
+}
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
   app.on("second-instance", () => showMainWindow());
 
-  app.setName("Timely");
+  app.setName(FLAVOR.name);
   if (process.platform === "win32") {
-    app.setAppUserModelId("app.timely.desktop");
+    app.setAppUserModelId(FLAVOR.appId);
   }
 
   app.whenReady().then(() => void boot());
