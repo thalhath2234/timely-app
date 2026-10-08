@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 const KEYWORDS: Record<string, string[]> = {
   javascript: ["async","await","break","case","catch","class","const","continue","debugger","default","delete","do","else","export","extends","false","finally","for","from","function","if","import","in","instanceof","let","new","null","of","return","static","super","switch","this","throw","true","try","typeof","undefined","var","void","while","yield"],
@@ -19,81 +20,77 @@ KEYWORDS.py = KEYWORDS.python;
 
 type Span = { from: number; to: number; className: string };
 
-function tokenize(text: string, language: string, start: number): Span[] {
+// Highlighting only helps code people read. Past this size a block is data
+// (an STL model, a GeoJSON map), and coloring tens of thousands of numbers
+// made every keystroke in the doc stall for seconds.
+const MAX_HIGHLIGHT_CHARS = 20_000;
+
+// Block comment | line comment | string | number | word, in one regex so a
+// block is scanned once.
+const TOKENS = {
+  hash: /(\/\*[\s\S]*?(?:\*\/|$))|(#.*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\d+(?:\.\d+)?\b)|([A-Za-z_]\w*)/g,
+  slash: /(\/\*[\s\S]*?(?:\*\/|$))|(\/\/.*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\d+(?:\.\d+)?\b)|([A-Za-z_]\w*)/g,
+};
+
+/** Token spans relative to the start of the block, in one linear pass. */
+function tokenize(text: string, language: string): Span[] {
   const keywords = new Set(KEYWORDS[language] ?? KEYWORDS.javascript);
+  const pattern = language === "python" || language === "py" ? TOKENS.hash : TOKENS.slash;
   const spans: Span[] = [];
-  const comment = language === "python" || language === "py" ? /#.*$/ : /\/\/.*$|\/\*[\s\S]*?\*\//;
-  let i = 0;
-
-  while (i < text.length) {
-    const rest = text.slice(i);
-    const at = start + i;
-
-    if (rest.startsWith("/*")) {
-      const end = text.indexOf("*/", i + 2);
-      const to = end < 0 ? text.length : end + 2;
-      spans.push({ from: at, to: start + to, className: "tok-comment" });
-      i = to;
-      continue;
-    }
-
-    const lineComment = language === "python" || language === "py" ? rest.match(/^#.*$/) : rest.match(/^\/\/.*$/);
-    if (lineComment) {
-      spans.push({ from: at, to: at + lineComment[0].length, className: "tok-comment" });
-      i += lineComment[0].length;
-      continue;
-    }
-
-    const string = rest.match(/^("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/);
-    if (string) {
-      spans.push({ from: at, to: at + string[0].length, className: "tok-string" });
-      i += string[0].length;
-      continue;
-    }
-
-    const number = rest.match(/^\b\d+(?:\.\d+)?\b/);
-    if (number) {
-      spans.push({ from: at, to: at + number[0].length, className: "tok-number" });
-      i += number[0].length;
-      continue;
-    }
-
-    const word = rest.match(/^[A-Za-z_][\w]*/);
-    if (word) {
-      if (keywords.has(word[0])) {
-        spans.push({ from: at, to: at + word[0].length, className: "tok-keyword" });
-      } else if (/^[A-Z]/.test(word[0])) {
-        spans.push({ from: at, to: at + word[0].length, className: "tok-type" });
-      }
-      i += word[0].length;
-      continue;
-    }
-
-    void comment;
-    i += 1;
+  pattern.lastIndex = 0;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    const from = match.index;
+    const to = from + match[0].length;
+    if (match[1] !== undefined || match[2] !== undefined) spans.push({ from, to, className: "tok-comment" });
+    else if (match[3] !== undefined) spans.push({ from, to, className: "tok-string" });
+    else if (match[4] !== undefined) spans.push({ from, to, className: "tok-number" });
+    else if (keywords.has(match[0])) spans.push({ from, to, className: "tok-keyword" });
+    else if (/^[A-Z]/.test(match[0])) spans.push({ from, to, className: "tok-type" });
+    if (to === from) pattern.lastIndex += 1;
   }
-
   return spans;
 }
+
+// Unchanged code blocks keep the same node object between edits, so their
+// tokens are computed once.
+const cache = new WeakMap<ProseMirrorNode, Span[]>();
+
+function decorate(doc: ProseMirrorNode): DecorationSet {
+  const decorations: Decoration[] = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name !== "codeBlock") return;
+    if (node.content.size > MAX_HIGHLIGHT_CHARS) return false;
+    let spans = cache.get(node);
+    if (!spans) {
+      spans = tokenize(node.textContent, String(node.attrs.language ?? ""));
+      cache.set(node, spans);
+    }
+    for (const span of spans) {
+      decorations.push(Decoration.inline(pos + 1 + span.from, pos + 1 + span.to, { class: span.className }));
+    }
+    return false;
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
+const highlightKey = new PluginKey<DecorationSet>("codeHighlight");
 
 export const CodeHighlight = Extension.create({
   name: "codeHighlight",
 
   addProseMirrorPlugins() {
     return [
-      new Plugin({
-        key: new PluginKey("codeHighlight"),
+      new Plugin<DecorationSet>({
+        key: highlightKey,
+        // Decorations used to be rebuilt on every state, selection moves
+        // included; now only when the document changes.
+        state: {
+          init: (_, state) => decorate(state.doc),
+          apply: (tr, old) => (tr.docChanged ? decorate(tr.doc) : old),
+        },
         props: {
           decorations(state) {
-            const decorations: Decoration[] = [];
-            state.doc.descendants((node, pos) => {
-              if (node.type.name !== "codeBlock") return;
-              const language = String(node.attrs.language ?? "");
-              for (const span of tokenize(node.textContent, language, pos + 1)) {
-                decorations.push(Decoration.inline(span.from, span.to, { class: span.className }));
-              }
-            });
-            return DecorationSet.create(state.doc, decorations);
+            return highlightKey.getState(state);
           },
         },
       }),

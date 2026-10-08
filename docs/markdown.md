@@ -22,7 +22,7 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Line break (Shift+Enter) | `\` at line end; `<br>` inside a table cell |
 | Empty paragraph between blocks | a line with only `<br>` |
 | Bullet, numbered (any start), task lists, nested | `-`, `3.`, `- [x]`, indented |
-| Quote | `>` (may hold lists and code) |
+| Quote | `>` (may hold lists and code). Imported quotes are kept; the editor no longer offers quotes, and typing `> ` starts a note callout |
 | Code block with language | fenced block, fence grows past any backticks inside |
 | Diagram (Mermaid) | a ```` ```mermaid ```` code block; Timely draws it under the source, GitHub and Obsidian draw it too |
 | Divider | `---` |
@@ -32,10 +32,10 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Equation (block) | `$$` on its own line, TeX lines, `$$`; `$$x$$` on one line is read too |
 | Callout | `> [!NOTE]`, then the body as quoted lines; `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]` and any other word Obsidian allows; `> [!NOTE] Title` keeps a title |
 | Footnote | `[^1]` in the text, `[^1]: the note` where the file has it (continuation lines indented four spaces); `[^x]` without a definition stays text |
-| Properties (frontmatter) | `---` / `key: value` lines / `---` at the very top, kept verbatim; it can only be the first block |
+| Properties (frontmatter) | `---` / `key: value` lines / `---` at the very top, kept verbatim; it can only be the first block. The editor shows them as chips (YAML only while editing); `key: [a, b]`, `tags: a, b` and `- item` lists become several values. Search takes `key:value` terms (`status:draft`, `owner:"Sam Lee"`) to filter docs by them, and semantic search embeds them |
 | Wiki link | `[[Page title]]`, `[[Page title\|alias]]`, `![[Page title]]` (embed); clicking opens the doc with that title |
 | Map | a ```` ```geojson ```` or ```` ```topojson ```` code block, drawn as an outline (GitHub draws it over a street map) |
-| 3D model | a ```` ```stl ```` code block (ASCII STL), drawn with three.js |
+| 3D model | a ```` ```stl ```` code block (ASCII STL), drawn with three.js; each `solid <name>` is a part, and a `#rrggbb` word in the name colors it (`solid head #f2c6a0`). Other STL readers ignore the color. Normals are recomputed, so `facet normal 0 0 0` is fine |
 | @mention | `[@Label](timely://task/<id>)` (also project, doc, sheet) |
 | Subpage link | `[Label](timely://doc/<id>)` |
 
@@ -50,7 +50,9 @@ hand-written `> [!NOTE]` followed directly by text is read too.
 
 The agent's MCP tools (`create_doc`, `update_doc`, `append_to_doc`,
 `get_doc`) use the same syntax, so everything in this table can be written
-and read by the assistant.
+and read by the assistant. `add_3d_model` builds an `stl` block from simple
+parts (sphere, box, cylinder, cone, capsule, each with a color), so the
+assistant does not write triangles by hand.
 
 Not representable, so the editor does not offer them: merged table cells and
 header columns. Column widths set by dragging are not exported. Raw HTML in

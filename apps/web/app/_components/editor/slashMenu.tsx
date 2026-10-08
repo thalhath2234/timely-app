@@ -14,7 +14,8 @@ import {
   FileText,
   Info,
   Map,
-  Sigma,
+  Radical,
+  SquareSigma,
   Superscript,
   Tags,
   Heading1,
@@ -24,7 +25,6 @@ import {
   List,
   ListOrdered,
   Minus,
-  Quote,
   Table2,
   Workflow,
   Type,
@@ -39,6 +39,11 @@ import {
 } from "react";
 import { dismissOnOutsidePointer, placeCaretPopup, watchCaretPopup } from "./caretPopup";
 import { SlashCommandItem, SlashCommandPluginKey } from "./slashCommand";
+
+/** Starter content for the blocks drawn under their source. */
+export const DIAGRAM_SAMPLE = "flowchart TD\n  A[Start] --> B[Next step]";
+export const MAP_SAMPLE = '{\n  "type": "Feature",\n  "geometry": {\n    "type": "Polygon",\n    "coordinates": [[[-0.2, 51.45], [0.05, 51.45], [0.05, 51.6], [-0.2, 51.6], [-0.2, 51.45]]]\n  }\n}';
+export const MODEL_SAMPLE = "solid pyramid\n  facet normal 0 0 -1\n    outer loop\n      vertex 0 0 0\n      vertex 1 0 0\n      vertex 1 1 0\n    endloop\n  endfacet\n  facet normal 0 0 -1\n    outer loop\n      vertex 0 0 0\n      vertex 1 1 0\n      vertex 0 1 0\n    endloop\n  endfacet\n  facet normal 0 -1 0\n    outer loop\n      vertex 0 0 0\n      vertex 0.5 0.5 1\n      vertex 1 0 0\n    endloop\n  endfacet\n  facet normal 1 0 0\n    outer loop\n      vertex 1 0 0\n      vertex 0.5 0.5 1\n      vertex 1 1 0\n    endloop\n  endfacet\n  facet normal 0 1 0\n    outer loop\n      vertex 1 1 0\n      vertex 0.5 0.5 1\n      vertex 0 1 0\n    endloop\n  endfacet\n  facet normal -1 0 0\n    outer loop\n      vertex 0 1 0\n      vertex 0.5 0.5 1\n      vertex 0 0 0\n    endloop\n  endfacet\nendsolid pyramid";
 
 const MENU_WIDTH = 300;
 const MENU_MAX_HEIGHT = 330;
@@ -128,14 +133,6 @@ export function createSlashItems(options?: {
         runSlash(editor, range, (chain) => chain.toggleTaskList().run()),
     },
     {
-      title: "Quote",
-      description: "Capture a quotation",
-      icon: Quote,
-      keywords: ["blockquote", "citation"],
-      run: ({ editor, range }) =>
-        runSlash(editor, range, (chain) => chain.toggleBlockquote().run()),
-    },
-    {
       title: "Code block",
       description: "Monospace code with syntax",
       icon: Code2,
@@ -152,7 +149,7 @@ export function createSlashItems(options?: {
         runSlash(editor, range, (chain) =>
           chain
             .setCodeBlock({ language: "mermaid" })
-            .insertContent("flowchart TD\n  A[Start] --> B[Next step]")
+            .insertContent(DIAGRAM_SAMPLE)
             .run(),
         ),
     },
@@ -160,14 +157,14 @@ export function createSlashItems(options?: {
       title: "Callout",
       description: "Note, tip, warning or caution box",
       icon: Info,
-      keywords: ["note", "tip", "warning", "caution", "important", "admonition", "alert"],
+      keywords: ["note", "tip", "warning", "caution", "important", "admonition", "alert", "quote", "blockquote"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.setCallout({ kind: "note" }).run()),
     },
     {
       title: "Formula",
       description: "Inline math, like $E = mc^2$",
-      icon: Sigma,
+      icon: Radical,
       keywords: ["math", "latex", "tex", "katex", "inline"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.insertMathInline().run()),
@@ -175,7 +172,7 @@ export function createSlashItems(options?: {
     {
       title: "Equation",
       description: "A displayed formula on its own line",
-      icon: Sigma,
+      icon: SquareSigma,
       keywords: ["math", "latex", "tex", "katex", "block", "display"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.setMathBlock().run()),
@@ -205,9 +202,7 @@ export function createSlashItems(options?: {
         runSlash(editor, range, (chain) =>
           chain
             .setCodeBlock({ language: "geojson" })
-            .insertContent(
-              '{\n  "type": "Feature",\n  "geometry": {\n    "type": "Polygon",\n    "coordinates": [[[-0.2, 51.45], [0.05, 51.45], [0.05, 51.6], [-0.2, 51.6], [-0.2, 51.45]]]\n  }\n}',
-            )
+            .insertContent(MAP_SAMPLE)
             .run(),
         ),
     },
@@ -220,9 +215,7 @@ export function createSlashItems(options?: {
         runSlash(editor, range, (chain) =>
           chain
             .setCodeBlock({ language: "stl" })
-            .insertContent(
-              "solid pyramid\n  facet normal 0 0 -1\n    outer loop\n      vertex 0 0 0\n      vertex 1 0 0\n      vertex 1 1 0\n    endloop\n  endfacet\n  facet normal 0 0 -1\n    outer loop\n      vertex 0 0 0\n      vertex 1 1 0\n      vertex 0 1 0\n    endloop\n  endfacet\n  facet normal 0 -1 0\n    outer loop\n      vertex 0 0 0\n      vertex 0.5 0.5 1\n      vertex 1 0 0\n    endloop\n  endfacet\n  facet normal 1 0 0\n    outer loop\n      vertex 1 0 0\n      vertex 0.5 0.5 1\n      vertex 1 1 0\n    endloop\n  endfacet\n  facet normal 0 1 0\n    outer loop\n      vertex 1 1 0\n      vertex 0.5 0.5 1\n      vertex 0 1 0\n    endloop\n  endfacet\n  facet normal -1 0 0\n    outer loop\n      vertex 0 1 0\n      vertex 0.5 0.5 1\n      vertex 0 0 0\n    endloop\n  endfacet\nendsolid pyramid",
-            )
+            .insertContent(MODEL_SAMPLE)
             .run(),
         ),
     },

@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  docFrontmatter,
+  frontmatterEntries,
+  matchesPropertyFilters,
+  splitPropertyQuery,
+} from "@timely/contract/properties";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -103,13 +109,18 @@ export default function DocList() {
   const tree = useMemo(() => buildTree(allDocs), [allDocs]);
 
   const searchResults = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return null;
+    if (!search.trim()) return null;
+    // "status:draft" style terms filter by the doc's properties.
+    const { text, filters } = splitPropertyQuery(search);
+    const query = text.toLowerCase();
 
     return allDocs.filter(
       (doc) =>
-        doc.title.toLowerCase().includes(query) ||
-        doc.plainText.toLowerCase().includes(query),
+        (filters.length === 0 ||
+          matchesPropertyFilters(frontmatterEntries(docFrontmatter(doc.content)), filters)) &&
+        (!query ||
+          doc.title.toLowerCase().includes(query) ||
+          doc.plainText.toLowerCase().includes(query)),
     );
   }, [allDocs, search]);
 
@@ -371,7 +382,7 @@ export default function DocList() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search docs"
+            placeholder="Search docs, or status:draft"
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
         </div>

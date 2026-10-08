@@ -12,6 +12,7 @@
     "./entities": "./src/entities.ts",
     "./markdown": "./src/markdown.ts",
     "./notifications": "./src/notifications.ts",
+    "./properties": "./src/properties.ts",
     "./schedule": "./src/schedule.ts",
     "./sheet": "./src/sheet.ts",
     "./sheetCell": "./src/sheetCell.ts",

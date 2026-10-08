@@ -366,63 +366,120 @@ body::-webkit-scrollbar-corner,
   padding-left: 1rem;
 }
 
+/* Code blocks use the app's own surfaces: a muted panel with a card-colored
+   header, the same border and radius as other doc blocks, and syntax colors
+   taken from the theme so they read in light and dark. */
 .doc-editor-content pre,
 .doc-code-wrap {
-  background: #1e1e1e;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  color: #d4d4d4;
-  font-family: ui-monospace, "Cascadia Code", "Fira Code", Menlo, Consolas, monospace;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+  font-family: var(--font-mono), ui-monospace, Menlo, Consolas, monospace;
   font-size: 0.85rem;
+  line-height: 1.6;
   margin: 0.85em 0;
   overflow: hidden;
 }
 
 .doc-code-wrap {
   padding: 0;
+  /* clip, not hidden: hidden would stop the fold bar from sticking. */
+  overflow: clip;
+}
+
+.doc-code-wrap pre.is-folded {
+  max-height: calc(3lh + 0.75rem);
+  overflow: hidden;
+  padding-bottom: 0;
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+
+.doc-code-bar,
+.doc-code-fold {
+  align-items: center;
+  background: var(--card);
+  display: flex;
+  font-family: var(--font-sans);
+  gap: 8px;
 }
 
 .doc-code-bar {
-  align-items: center;
-  background: #252526;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  display: flex;
-  gap: 8px;
-  justify-content: space-between;
-  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  gap: 2px;
+  padding: 4px 6px 4px 8px;
+}
+
+.doc-code-bar .doc-code-lang {
+  margin-right: auto;
+}
+
+.doc-code-fold {
+  border-top: 1px solid var(--border);
+  bottom: 0;
+  justify-content: center;
+  padding: 6px;
+  position: sticky;
+  z-index: 2;
+}
+
+.doc-code-lang,
+.doc-code-copy {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background-color 0.15s, color 0.15s;
 }
 
 .doc-code-lang {
-  background: transparent;
-  border: 0;
-  color: #9cdcfe;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: lowercase;
+  padding: 3px 4px;
 }
 
 .doc-code-copy {
   align-items: center;
-  background: #2d2d2d;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  color: #cccccc;
-  cursor: pointer;
   display: inline-flex;
-  font-size: 11px;
-  font-weight: 600;
-  gap: 4px;
-  padding: 3px 8px;
+  gap: 5px;
+  padding: 4px 8px;
 }
 
+.doc-code-lang:hover,
 .doc-code-copy:hover {
-  background: #3c3c3c;
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.doc-code-delete:hover {
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.doc-code-lang:focus-visible,
+.doc-code-copy:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.doc-code-fold .doc-code-copy {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--foreground);
+  padding: 4px 12px;
+}
+
+.doc-code-fold .doc-code-copy:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .doc-editor-content pre {
   overflow-x: auto;
-  padding: 0.85rem 1rem;
+  padding: 0.75rem 1rem;
 }
 
 .doc-code-wrap pre,
@@ -431,13 +488,12 @@ body::-webkit-scrollbar-corner,
   border: 0;
   border-radius: 0;
   margin: 0;
-  padding: 0.9rem 1rem 1rem;
+  padding: 0.75rem 1rem;
 }
 
-.doc-editor-content pre code,
 .doc-mermaid {
   background: var(--card);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--border);
   color: var(--foreground);
   font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
   font-size: 0.875rem;
@@ -459,7 +515,7 @@ body::-webkit-scrollbar-corner,
 
 .doc-mermaid-error {
   color: var(--destructive, #e5484d);
-  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-family: var(--font-mono), ui-monospace, Menlo, Consolas, monospace;
   font-size: 0.75rem;
   margin: 0;
   white-space: pre-wrap;
@@ -472,17 +528,16 @@ body::-webkit-scrollbar-corner,
   padding: 0;
 }
 
-.tok-keyword { color: #569cd6; }
-.tok-string { color: #ce9178; }
-.tok-comment { color: #6a9955; font-style: italic; }
-.tok-number { color: #b5cea8; }
-.tok-type { color: #4ec9b0; }
+.tok-keyword { color: var(--primary); }
+.tok-string { color: oklch(0.5 0.12 160); }
+.tok-comment { color: var(--muted-foreground); font-style: italic; }
+.tok-number { color: oklch(0.58 0.15 50); }
+.tok-type { color: oklch(0.5 0.13 240); }
 
-:root[class~="light"] .doc-editor-content pre,
-:root[class~="light"] .doc-code-wrap {
-  background: #1e1e1e;
-  color: #d4d4d4;
-}
+.dark .tok-keyword { color: oklch(0.76 0.13 280); }
+.dark .tok-string { color: oklch(0.78 0.12 160); }
+.dark .tok-number { color: oklch(0.8 0.12 65); }
+.dark .tok-type { color: oklch(0.78 0.1 225); }
 
 .doc-editor-content code {
   background: var(--muted);
@@ -1047,17 +1102,28 @@ html.reduce-motion .tl-bar {
   padding-top: 0.5em;
 }
 
-.doc-footnote + .doc-footnote {
+.doc-footnote + .doc-footnote,
+.react-renderer:has(> .doc-footnote) + .react-renderer > .doc-footnote {
   border-top: 0;
   margin-top: 0;
   padding-top: 0;
 }
 
 .doc-footnote-label {
+  background: none;
+  border: 0;
   color: var(--primary);
+  cursor: pointer;
   flex: none;
+  font: inherit;
   font-weight: 600;
   min-width: 1.25rem;
+  padding: 0;
+  text-align: left;
+}
+
+.doc-footnote-label:hover {
+  text-decoration: underline;
 }
 
 .doc-footnote-label::before {
@@ -1097,34 +1163,72 @@ html.reduce-motion .tl-bar {
   text-transform: uppercase;
 }
 
-.doc-frontmatter-summary {
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
+.doc-editor-content pre.doc-frontmatter-source[hidden] {
+  display: none;
+}
+
+.doc-frontmatter-list {
+  display: grid;
   gap: 6px;
-  letter-spacing: 0;
+  grid-template-columns: max-content 1fr;
+  padding: 8px 12px 10px;
+}
+
+.doc-frontmatter-row {
+  align-items: baseline;
+  display: contents;
+}
+
+.doc-frontmatter-key {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  padding-right: 12px;
+}
+
+.doc-frontmatter-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   min-width: 0;
-  text-transform: none;
 }
 
 .doc-frontmatter-chip {
   background: var(--accent);
   border-radius: 999px;
   color: var(--accent-foreground);
-  font-weight: 400;
-  padding: 1px 8px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  padding: 0 9px;
 }
 
-.doc-frontmatter-remove {
+.doc-frontmatter-none,
+.doc-frontmatter-empty {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+.doc-frontmatter-empty {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  grid-column: 1 / -1;
+  padding: 0;
+  text-align: left;
+}
+
+.doc-frontmatter-action {
   background: transparent;
   border: 0;
+  border-radius: var(--radius-md);
   color: inherit;
   cursor: pointer;
   font: inherit;
+  padding: 2px 6px;
 }
 
-.doc-frontmatter-remove:hover {
-  color: var(--foreground);
+.doc-frontmatter-action:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .doc-wiki-link {

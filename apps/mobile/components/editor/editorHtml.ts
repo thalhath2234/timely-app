@@ -52,9 +52,12 @@ export function buildEditorHtml(
     .tiptap h4 { font-size: 16px; line-height: 1.4; font-weight: 600; margin: 0.6em 0 0.3em; }
     .tiptap h5 { font-size: 15px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; }
     .tiptap h6 { font-size: 14px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; color: ${t.mutedForeground}; }
-    .code-wrap pre { margin: 0; }
-    .code-wrap:has(.mermaid-out:not([style*="none"])) pre { border-radius: 10px 10px 0 0; }
-    .mermaid-out { padding: 10px 12px; background: ${t.muted}; border: 1px solid ${t.border}; border-top: 0; border-radius: 0 0 10px 10px; overflow-x: auto; font-size: 13px; color: ${t.mutedForeground}; }
+    .code-wrap { background: ${t.muted}; border: 1px solid ${t.border}; border-radius: 12px; overflow: clip; margin: 0 0 0.75em; }
+    .tiptap .code-wrap pre { margin: 0; border: 0; border-radius: 0; background: transparent; }
+    .code-wrap pre.is-folded { max-height: calc(36px + 3lh); overflow: hidden; padding-bottom: 0; -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent); mask-image: linear-gradient(to bottom, #000 60%, transparent); }
+    .code-fold { position: sticky; bottom: 0; z-index: 2; display: flex; justify-content: center; padding: 6px; background: ${t.background}; border-top: 1px solid ${t.border}; }
+    .code-fold button { background: ${t.background}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 999px; font-size: 12px; font-weight: 600; padding: 5px 12px; }
+    .mermaid-out { padding: 10px 12px; background: ${t.background}; border-top: 1px solid ${t.border}; overflow-x: auto; font-size: 13px; color: ${t.mutedForeground}; }
     .mermaid-out svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
     .mermaid-out.mermaid-error { color: #e5484d; font-family: ui-monospace, monospace; white-space: pre-wrap; }
     .tiptap img { display: inline-block; max-width: 100%; border-radius: 8px; vertical-align: bottom; }
@@ -63,7 +66,8 @@ export function buildEditorHtml(
     .tiptap pre { position: relative; background: ${t.muted}; border: 1px solid ${t.border}; border-radius: 10px; padding: 36px 12px 12px; overflow-x: auto; color: ${t.foreground}; }
     .tiptap code { font-family: ui-monospace, "Cascadia Code", "Fira Code", Menlo, monospace; font-size: 13.5px; }
     .tiptap p code { background: ${t.muted}; color: ${t.accentForeground}; padding: 0.1em 0.35em; border-radius: 4px; }
-    .code-copy { position: absolute; top: 8px; right: 8px; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; font-size: 11px; font-weight: 600; padding: 4px 8px; }
+    .code-delete { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; justify-content: center; width: 26px; height: 23px; padding: 0; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; }
+    .code-copy { position: absolute; top: 8px; right: 40px; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; font-size: 11px; font-weight: 600; padding: 4px 8px; }
     .tok-keyword { color: #569cd6; }
     .tok-string { color: #ce9178; }
     .tok-comment { color: #6a9955; }
@@ -84,6 +88,12 @@ export function buildEditorHtml(
     .math-empty { color: ${t.mutedForeground}; font-style: italic; font-size: 13px; }
     .math-block, .frontmatter { border: 1px solid ${t.border}; border-radius: 10px; margin: 0 0 0.75em; overflow: hidden; }
     .frontmatter { border-style: dashed; }
+    .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
+    .props-key { color: ${t.mutedForeground}; }
+    .props-values { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+    .props-chip { background: ${t.accent}; color: ${t.accentForeground}; border-radius: 999px; padding: 1px 9px; }
+    .props-empty { grid-column: 1 / -1; color: ${t.mutedForeground}; }
+    .block-head button + button { margin-left: 0; }
     .math-block pre, .frontmatter pre { padding: 10px 12px; border: 0; border-radius: 0; white-space: pre-wrap; }
     .math-out { padding: 12px; border-top: 1px solid ${t.border}; text-align: center; overflow-x: auto; }
     .math-out .katex-display { margin: 0; }
@@ -129,7 +139,7 @@ export function buildEditorHtml(
     import Image from "https://esm.sh/@tiptap/extension-image@3.31.4";
     import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
-    import { TextSelection } from "https://esm.sh/@tiptap/pm@3.31.4/state";
+    import { TextSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
 
     const placeholder = ${embed(placeholder)};
     const Mention = Node.create({
@@ -250,6 +260,124 @@ export function buildEditorHtml(
       return editor.chain().command(({ tr }) => { tr.delete($from.pos - 2, $from.pos); return true; }).exitCode().run();
     }
 
+    // Properties show as key and value chips; the YAML shows only while the
+    // caret is in it (Edit puts it there, Done takes it out).
+    const LIST_KEYS = new Set(["tags", "tag", "aliases", "alias", "categories", "category", "keywords", "cssclasses"]);
+    const unquoteValue = (value) => value.trim().replace(/^(["'])(.*)\\1$/, "$2").trim();
+    function frontmatterEntries(text) {
+      const entries = [];
+      for (const line of text.split("\\n")) {
+        const item = /^\\s*-\\s+(.*)$/.exec(line);
+        if (item && entries.length) {
+          const value = unquoteValue(item[1]);
+          if (value) entries[entries.length - 1].values.push(value);
+          continue;
+        }
+        const match = /^([A-Za-z0-9_-]+)\\s*:\\s*(.*)$/.exec(line);
+        if (!match) continue;
+        const raw = match[2].replace(/\\s+#.*$/, "").trim();
+        let values;
+        if (raw.startsWith("[") && raw.endsWith("]")) values = raw.slice(1, -1).split(",").map(unquoteValue);
+        else if (LIST_KEYS.has(match[1].toLowerCase())) values = raw.split(",").map(unquoteValue);
+        else values = [unquoteValue(raw)];
+        entries.push({ key: match[1], values: values.filter(Boolean) });
+      }
+      return entries;
+    }
+    function frontmatterView({ node, getPos, editor }) {
+      let current = node;
+      const dom = document.createElement("div");
+      dom.className = "frontmatter";
+      const bar = document.createElement("div");
+      bar.className = "block-head";
+      bar.setAttribute("contenteditable", "false");
+      const title = document.createElement("span");
+      title.textContent = "Properties";
+      title.style.flex = "1";
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      bar.append(title, editBtn, remove);
+      const list = document.createElement("div");
+      list.className = "props-list";
+      list.setAttribute("contenteditable", "false");
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      pre.appendChild(code);
+      dom.append(bar, list, pre);
+      let editing = false;
+      const start = () => editor.chain().focus(getPos() + current.nodeSize - 1).scrollIntoView().run();
+      const finish = () => editor.chain().focus(getPos() + current.nodeSize + 1).run();
+      [editBtn, remove].forEach((btn) => btn.addEventListener("mousedown", (event) => event.preventDefault()));
+      editBtn.addEventListener("click", () => (editing ? finish() : start()));
+      remove.addEventListener("click", () => {
+        const pos = getPos();
+        editor.chain().focus().deleteRange({ from: pos, to: pos + current.nodeSize }).run();
+      });
+      list.addEventListener("click", start);
+      const paint = () => {
+        editBtn.textContent = editing ? "Done" : "Edit";
+        pre.style.display = editing ? "" : "none";
+        list.style.display = editing ? "none" : "";
+        const entries = frontmatterEntries(current.textContent);
+        list.replaceChildren();
+        if (!entries.length) {
+          const empty = document.createElement("div");
+          empty.className = "props-empty";
+          empty.textContent = "No properties yet. Tap to add key: value lines.";
+          list.appendChild(empty);
+        }
+        entries.forEach(({ key, values }) => {
+          const k = document.createElement("div");
+          k.className = "props-key";
+          k.textContent = key;
+          const v = document.createElement("div");
+          v.className = "props-values";
+          if (!values.length) {
+            const none = document.createElement("span");
+            none.className = "props-empty";
+            none.textContent = "Empty";
+            v.appendChild(none);
+          }
+          values.forEach((value) => {
+            const chip = document.createElement("span");
+            chip.className = "props-chip";
+            chip.textContent = value;
+            v.appendChild(chip);
+          });
+          list.append(k, v);
+        });
+      };
+      const check = () => {
+        const pos = getPos();
+        if (typeof pos !== "number") return;
+        const { from, to } = editor.state.selection;
+        const next = editor.isFocused && from > pos && to < pos + current.nodeSize;
+        if (next !== editing) { editing = next; paint(); }
+      };
+      const events = ["selectionUpdate", "focus", "blur"];
+      events.forEach((name) => editor.on(name, check));
+      paint();
+      setTimeout(check, 0);
+      return {
+        dom,
+        contentDOM: code,
+        update(next) {
+          if (next.type !== current.type) return false;
+          current = next;
+          if (!editing) paint();
+          return true;
+        },
+        ignoreMutation(mutation) {
+          if (mutation.type === "selection") return false;
+          return !code.contains(mutation.target);
+        },
+        destroy() { events.forEach((name) => editor.off(name, check)); },
+      };
+    }
+
     function verbatimBlockView(className, head, drawOut) {
       return ({ node, getPos, editor }) => {
         const dom = document.createElement("div");
@@ -328,7 +456,7 @@ export function buildEditorHtml(
       isolating: true,
       parseHTML() { return [{ tag: "div[data-frontmatter]", preserveWhitespace: "full" }]; },
       renderHTML({ HTMLAttributes }) { return ["div", { ...HTMLAttributes, "data-frontmatter": "" }, 0]; },
-      addNodeView() { return verbatimBlockView("frontmatter", "Properties", null); },
+      addNodeView() { return frontmatterView; },
       addKeyboardShortcuts() {
         return { Enter: () => exitOnTripleEnter(this.editor, this.name) };
       },
@@ -454,6 +582,15 @@ export function buildEditorHtml(
           label.className = "footnote-label";
           label.setAttribute("contenteditable", "false");
           label.textContent = "[" + node.attrs.label + "]";
+          let current = node;
+          // The number leads back to where the note is referenced.
+          label.addEventListener("mousedown", (event) => event.preventDefault());
+          label.addEventListener("click", () => {
+            const ref = findFootnote(editor.state.doc, "footnoteRef", String(current.attrs.label));
+            if (!ref) return;
+            editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, ref.pos + ref.node.nodeSize)).scrollIntoView());
+            editor.view.focus();
+          });
           const body = document.createElement("div");
           body.className = "footnote-body";
           dom.appendChild(label);
@@ -463,6 +600,7 @@ export function buildEditorHtml(
             contentDOM: body,
             update(next) {
               if (next.type !== node.type) return false;
+              current = next;
               label.textContent = "[" + next.attrs.label + "]";
               dom.setAttribute("data-footnote", next.attrs.label);
               return true;
@@ -476,15 +614,106 @@ export function buildEditorHtml(
       },
       addKeyboardShortcuts() {
         return {
+          // Backspace in an empty note removes the footnote: the note, its
+          // markers, and the gap in the numbering.
           Backspace: () => {
-            const { $from, empty } = this.editor.state.selection;
+            const { state, view } = this.editor;
+            const { $from, empty } = state.selection;
             if (!empty || $from.parent.type.name !== "paragraph" || $from.parent.textContent) return false;
             if ($from.depth < 2 || $from.node(-1).type.name !== this.name || $from.node(-1).childCount !== 1) return false;
-            return this.editor.commands.lift("paragraph");
+            const label = String($from.node(-1).attrs.label);
+            const tr = state.tr;
+            const doomed = [];
+            state.doc.descendants((n, pos) => {
+              if ((n.type.name === "footnote" || n.type.name === "footnoteRef") && String(n.attrs.label) === label) doomed.push({ pos, size: n.nodeSize, ref: n.type.name === "footnoteRef" });
+            });
+            const ref = doomed.find((item) => item.ref);
+            doomed.reverse().forEach(({ pos, size }) => tr.delete(pos, pos + size));
+            renumberFootnotes(tr);
+            const at = ref ? tr.mapping.map(ref.pos) : tr.doc.content.size;
+            tr.setSelection(TextSelection.near(tr.doc.resolve(at), -1)).scrollIntoView();
+            view.dispatch(tr);
+            return true;
           },
         };
       },
+      addProseMirrorPlugins() {
+        return [new Plugin({
+          key: new PluginKey("footnoteLinks"),
+          // Deleting a marker deletes its note, and the rest renumber.
+          appendTransaction: (transactions, oldState, newState) => {
+            if (!transactions.some((tr) => tr.docChanged)) return null;
+            if (transactions.some((tr) => tr.getMeta("preventUpdate"))) return null;
+            const before = refLabels(oldState.doc);
+            const after = refLabels(newState.doc);
+            if (before.join("|") === after.join("|")) return null;
+            // Whole-doc swaps (loading, importing) change notes too; leave those.
+            if (countNotes(oldState.doc) !== countNotes(newState.doc)) return null;
+            const tr = newState.tr;
+            const gone = new Set(before.filter((label) => !after.includes(label)));
+            const doomed = [];
+            newState.doc.descendants((n, pos) => {
+              if (n.type.name === "footnote" && gone.has(String(n.attrs.label))) doomed.push({ pos, size: n.nodeSize });
+              return n.type.name !== "footnote";
+            });
+            doomed.reverse().forEach(({ pos, size }) => tr.delete(pos, pos + size));
+            renumberFootnotes(tr);
+            return tr.docChanged ? tr : null;
+          },
+        })];
+      },
     });
+
+    const isNumberLabel = (label) => /^[0-9]+$/.test(String(label));
+    function refLabels(doc) {
+      const labels = [];
+      doc.descendants((n) => { if (n.type.name === "footnoteRef") labels.push(String(n.attrs.label)); });
+      return labels;
+    }
+    function countNotes(doc) {
+      let count = 0;
+      doc.descendants((n) => { if (n.type.name === "footnote") count += 1; return n.type.name !== "footnote"; });
+      return count;
+    }
+    function findFootnote(doc, type, label) {
+      let found = null;
+      doc.descendants((n, pos) => {
+        if (found) return false;
+        if (n.type.name === type && String(n.attrs.label) === label) found = { pos, node: n };
+      });
+      return found;
+    }
+    // Numbers footnotes 1, 2, 3 in the order their markers appear and keeps
+    // the notes at the end in that order; named labels stay as they are.
+    function renumberFootnotes(tr) {
+      const order = [];
+      refLabels(tr.doc).forEach((label) => { if (isNumberLabel(label) && !order.includes(label)) order.push(label); });
+      tr.doc.descendants((n) => {
+        const label = String(n.attrs.label);
+        if (n.type.name === "footnote" && isNumberLabel(label) && !order.includes(label)) order.push(label);
+        return n.type.name !== "footnote";
+      });
+      const rename = new Map(order.map((label, index) => [label, String(index + 1)]));
+      tr.doc.descendants((n, pos) => {
+        if (n.type.name !== "footnote" && n.type.name !== "footnoteRef") return;
+        const next = rename.get(String(n.attrs.label));
+        if (next && next !== String(n.attrs.label)) tr.setNodeMarkup(pos, undefined, { ...n.attrs, label: next });
+      });
+      const run = [];
+      tr.doc.forEach((n, offset, index) => { if (n.type.name === "footnote") run.push(index); });
+      if (run.length > 1 && run[run.length - 1] - run[0] === run.length - 1) {
+        const notes = run.map((index) => tr.doc.child(index));
+        const rank = (n) => (isNumberLabel(n.attrs.label) ? Number(n.attrs.label) : Infinity);
+        const sorted = [...notes].sort((a, b) => rank(a) - rank(b));
+        if (sorted.some((n, i) => n !== notes[i])) {
+          let from = 0;
+          for (let i = 0; i < run[0]; i++) from += tr.doc.child(i).nodeSize;
+          const to = from + notes.reduce((size, n) => size + n.nodeSize, 0);
+          tr.replaceWith(from, to, sorted);
+        }
+      }
+      return rename;
+    }
 
     function nextFootnoteLabel(doc) {
       let highest = 0;
@@ -609,8 +838,18 @@ export function buildEditorHtml(
         import("https://esm.sh/three@0.186.1"),
         import("https://esm.sh/three@0.186.1/examples/jsm/loaders/STLLoader.js"),
         import("https://esm.sh/three@0.186.1/examples/jsm/controls/OrbitControls.js"),
-      ]).then(([three, loader, controls]) => ({ three, STLLoader: loader.STLLoader, OrbitControls: controls.OrbitControls }));
+        import("https://esm.sh/three@0.186.1/examples/jsm/utils/BufferGeometryUtils.js"),
+      ]).then(([three, loader, controls, utils]) => ({
+        three, STLLoader: loader.STLLoader, OrbitControls: controls.OrbitControls, toCreasedNormals: utils.toCreasedNormals,
+      }));
       return threeLoad;
+    }
+    // Each "solid <name>" is a part; a #rrggbb word in its name colors it.
+    const STL_PART_COLORS = ["#8b7cf7", "#f2b880", "#6fb7e9", "#ef8fa8", "#86cf9f", "#e9cf72", "#b49a85"];
+    function stlPartColor(name, index, parts) {
+      const hex = /(?:^|\\s)#([0-9a-f]{6}|[0-9a-f]{3})(?=\\s|$)/i.exec(name || "");
+      if (hex) return "#" + hex[1];
+      return parts === 1 ? STL_PART_COLORS[0] : STL_PART_COLORS[index % STL_PART_COLORS.length];
     }
     function drawStl(out, source) {
       source = source.trim();
@@ -622,9 +861,12 @@ export function buildEditorHtml(
       clearTimeout(out.__timer);
       out.__timer = setTimeout(async () => {
         try {
-          const { three, STLLoader, OrbitControls } = await loadThree();
+          const { three, STLLoader, OrbitControls, toCreasedNormals } = await loadThree();
           if (out.dataset.source !== source) return;
           const geometry = new STLLoader().parse(new TextEncoder().encode(source).buffer);
+          // "facet normal 0 0 0" draws black, so normals come from the triangles:
+          // smooth across gentle bends, sharp at real edges.
+          toCreasedNormals(geometry, 40 * Math.PI / 180);
           geometry.computeBoundingSphere();
           const sphere = geometry.boundingSphere;
           if (!sphere || !sphere.radius) throw new Error("No triangles found in the STL.");
@@ -640,19 +882,27 @@ export function buildEditorHtml(
           camera.position.set(sphere.center.x + distance * 0.6, sphere.center.y - distance * 0.6, sphere.center.z + distance * 0.5);
           camera.up.set(0, 0, 1);
           camera.lookAt(sphere.center);
-          const material = new three.MeshStandardMaterial({ color: 0x8b7cf7, metalness: 0.1, roughness: 0.6 });
-          scene.add(new three.Mesh(geometry, material));
-          scene.add(new three.HemisphereLight(0xffffff, 0x444466, 1.6));
-          const sun = new three.DirectionalLight(0xffffff, 1.4);
+          const names = (geometry.userData && geometry.userData.groupNames) || [];
+          const groups = geometry.groups.length ? geometry.groups : [null];
+          // Double-sided, so triangles wound the wrong way still light up.
+          const materials = groups.map((_, i) => new three.MeshStandardMaterial({
+            color: stlPartColor(names[i], i, groups.length), metalness: 0, roughness: 0.65, side: three.DoubleSide,
+          }));
+          scene.add(new three.Mesh(geometry, materials.length === 1 ? materials[0] : materials));
+          scene.add(new three.HemisphereLight(0xffffff, 0x555566, 1.5));
+          const sun = new three.DirectionalLight(0xffffff, 1.6);
           sun.position.set(1, -1, 2).multiplyScalar(sphere.radius * 5);
           scene.add(sun);
+          const fill = new three.DirectionalLight(0xffffff, 0.6);
+          fill.position.set(-1, 1, 0.5).multiplyScalar(sphere.radius * 5);
+          scene.add(fill);
           const controls = new OrbitControls(camera, renderer.domElement);
           controls.target.copy(sphere.center);
           const render = () => renderer.render(scene, camera);
           controls.addEventListener("change", render);
           controls.update();
           render();
-          out.__dispose = () => { controls.dispose(); renderer.dispose(); geometry.dispose(); material.dispose(); };
+          out.__dispose = () => { controls.dispose(); renderer.dispose(); geometry.dispose(); materials.forEach((m) => m.dispose()); };
         } catch (err) {
           if (out.dataset.source !== source) return;
           out.textContent = String(err && err.message ? err.message : err).split("\\n")[0];
@@ -678,9 +928,10 @@ export function buildEditorHtml(
         if (ordered) {
           rules.push(wrappingInputRule({ find: /^\\s*1\\.\\s$/, type: ordered }));
         }
-        const quote = this.editor.schema.nodes.blockquote;
-        if (quote) {
-          rules.push(wrappingInputRule({ find: /^>\\s$/, type: quote }));
+        // "> " starts a callout; quotes are only kept for imported Markdown.
+        const callout = this.editor.schema.nodes.callout;
+        if (callout) {
+          rules.push(wrappingInputRule({ find: /^>\\s$/, type: callout, getAttributes: { kind: "note" } }));
         }
         rules.push(new InputRule({
           find: /^(#{1,3})\\s$/,
@@ -712,8 +963,10 @@ export function buildEditorHtml(
 
     function capitalizeTyped(view, from, to, text) {
       if (!/^[a-z]$/.test(text)) return false;
+      // Code, formulas and properties are typed exactly as written.
+      if (view.state.doc.resolve(from).parent.type.spec.code) return false;
       const before = view.state.doc.textBetween(Math.max(0, from - 8), from, "\\n", "\\n");
-      if (before && !/[.!?]\s+$/.test(before) && !/[\\n\\r]$/.test(before)) return false;
+      if (before && !/[.!?]\\s+$/.test(before) && !/[\\n\\r]$/.test(before)) return false;
       view.dispatch(view.state.tr.insertText(text.toUpperCase(), from, to));
       return true;
     }
@@ -778,20 +1031,66 @@ export function buildEditorHtml(
     // source without ProseMirror removing it as unknown DOM.
     const DiagramCodeBlock = CodeBlock.extend({
       addNodeView() {
-        return ({ node }) => {
+        return ({ node, getPos, editor }) => {
           const dom = document.createElement("div");
           dom.className = "code-wrap";
           const pre = document.createElement("pre");
           const code = document.createElement("code");
           pre.appendChild(code);
+          // Trash button next to Copy removes the whole block.
+          const del = document.createElement("button");
+          del.type = "button";
+          del.className = "code-delete";
+          del.setAttribute("contenteditable", "false");
+          del.setAttribute("aria-label", "Delete code block");
+          del.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+          del.addEventListener("mousedown", (event) => event.preventDefault());
+          del.addEventListener("click", () => {
+            const pos = getPos();
+            if (typeof pos !== "number") return;
+            const size = editor.state.doc.nodeAt(pos).nodeSize;
+            editor.chain().focus().deleteRange({ from: pos, to: pos + size }).run();
+          });
+          pre.appendChild(del);
           const out = document.createElement("div");
           out.className = "mermaid-out";
           out.setAttribute("contenteditable", "false");
+          // Long code folds to a few lines; the bar sticks to the bottom of the
+          // screen while open code scrolls past.
+          const fold = document.createElement("div");
+          fold.className = "code-fold";
+          fold.setAttribute("contenteditable", "false");
+          const foldBtn = document.createElement("button");
+          foldBtn.type = "button";
+          fold.appendChild(foldBtn);
+          let expanded = false;
+          let lines = 0;
+          let foldLang = null;
+          let lastText = null;
+          const paintFold = (lang) => {
+            foldLang = lang;
+            const foldable = lines > 3;
+            fold.style.display = foldable ? "" : "none";
+            pre.classList.toggle("is-folded", foldable && !expanded);
+            foldBtn.textContent = expanded ? "Collapse code" : "Show all " + lines + " lines";
+          };
+          foldBtn.addEventListener("mousedown", (event) => event.preventDefault());
+          foldBtn.addEventListener("click", () => {
+            expanded = !expanded;
+            paintFold(foldLang);
+            if (!expanded) dom.scrollIntoView({ block: "nearest" });
+          });
           dom.appendChild(pre);
+          dom.appendChild(fold);
           dom.appendChild(out);
           const apply = (current) => {
             const lang = current.attrs.language;
             code.className = lang ? "language-" + lang : "";
+            lines = current.textContent.split("\\n").length;
+            // Editing the code opens it, so typing never disappears under the fold.
+            if (lastText !== null && lastText !== current.textContent) expanded = true;
+            lastText = current.textContent;
+            paintFold(lang);
             if (lang === "mermaid") {
               out.style.display = "";
               drawDiagram(out, current.textContent);
@@ -884,6 +1183,7 @@ export function buildEditorHtml(
           quote: editor.isActive("blockquote"),
           codeBlock: editor.isActive("codeBlock"),
           callout: editor.isActive("callout"),
+          mathBlock: editor.isActive("mathBlock"),
         },
       });
       triggerText();
@@ -935,8 +1235,12 @@ export function buildEditorHtml(
         editor.view.dom.addEventListener("click", (event) => {
           const ref = event.target.closest && event.target.closest("sup[data-footnote-ref]");
           if (ref) {
-            const note = document.querySelector('[data-footnote="' + CSS.escape(ref.getAttribute("data-label") || "") + '"]');
-            if (note) note.scrollIntoView({ behavior: "smooth", block: "center" });
+            const found = findFootnote(editor.state.doc, "footnote", ref.getAttribute("data-label") || "");
+            if (found) {
+              editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(found.pos + found.node.nodeSize - 1), -1)));
+              const note = document.querySelector('[data-footnote="' + CSS.escape(ref.getAttribute("data-label") || "") + '"]');
+              if (note) note.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
             return;
           }
           const wiki = event.target.closest && event.target.closest("a[data-wiki-link]");
@@ -961,6 +1265,7 @@ export function buildEditorHtml(
       addColBefore: true, addColAfter: true, deleteCol: true,
       deleteTable: true,
     };
+    const NEW_LINE_CMDS = { diagram: true, mathBlock: true, map: true, stl: true };
 
     window.__timely = {
       set(content) { editor.commands.setContent(content, { emitUpdate: false }); },
@@ -975,6 +1280,15 @@ export function buildEditorHtml(
         const chain = editor.chain().focus();
         const range = payload && payload.from != null && payload.from >= 0 ? { from: payload.from, to: payload.to } : null;
         if (range && !TABLE_CMDS[name]) chain.deleteRange(range);
+        // Blocks added from the toolbar go on a new line after the caret's
+        // line instead of turning the text being written into code.
+        if (!range && NEW_LINE_CMDS[name]) {
+          const { $from } = editor.state.selection;
+          if ($from.parent.isTextblock && $from.parent.content.size > 0) {
+            const at = $from.after();
+            chain.insertContentAt(at, { type: "paragraph" }).setTextSelection(at + 1);
+          }
+        }
         switch (name) {
           case "paragraph": chain.setParagraph(); break;
           case "h1": chain.setNode("heading", { level: 1 }); break;
@@ -987,6 +1301,7 @@ export function buildEditorHtml(
           case "code": chain.toggleCodeBlock(); break;
           case "diagram": chain.setCodeBlock({ language: "mermaid" }).insertContent("flowchart TD\\n  A[Start] --> B[Next step]"); break;
           case "callout": chain.wrapIn("callout", { kind: "note" }); break;
+          case "liftCallout": chain.lift("callout"); break;
           case "math":
             chain.insertContent({ type: "mathInline", attrs: { latex: "" } }).command(({ tr }) => {
               send({ type: "mathEdit", pos: tr.selection.from - 1, latex: "" });
@@ -1007,11 +1322,17 @@ export function buildEditorHtml(
           case "mathBlock": chain.setNode("mathBlock"); break;
           case "footnote":
             chain.command(({ tr, state }) => {
-              const label = nextFootnoteLabel(state.doc);
-              tr.replaceSelectionWith(state.schema.nodes.footnoteRef.create({ label }));
-              const end = tr.doc.content.size;
-              tr.insert(end, state.schema.nodes.footnote.create({ label }, state.schema.nodes.paragraph.create()));
-              tr.setSelection(TextSelection.create(tr.doc, end + 2));
+              const label = nextFootnoteLabel(tr.doc);
+              const { $to } = tr.selection;
+              if (!$to.parent.inlineContent || $to.parent.type.spec.code) return false;
+              // The marker goes after any selected words instead of replacing them.
+              tr.insert(tr.selection.to, state.schema.nodes.footnoteRef.create({ label }));
+              let at = tr.doc.content.size;
+              tr.doc.forEach((n, offset) => { if (n.type.name === "footnote") at = offset + n.nodeSize; });
+              tr.insert(at, state.schema.nodes.footnote.create({ label }, state.schema.nodes.paragraph.create()));
+              const renamed = renumberFootnotes(tr);
+              const note = findFootnote(tr.doc, "footnote", renamed.get(label) || label);
+              if (note) tr.setSelection(TextSelection.near(tr.doc.resolve(note.pos + note.node.nodeSize - 1), -1));
               tr.scrollIntoView();
               return true;
             });

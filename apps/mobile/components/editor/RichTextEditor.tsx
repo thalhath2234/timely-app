@@ -32,9 +32,14 @@ import {
   ListTodo,
   Minus,
   Plus,
-  Quote,
   Sheet as SheetIcon,
-  Sigma,
+  Radical,
+  SquareSigma,
+  Superscript,
+  Tags,
+  Workflow,
+  Box,
+  Map as MapIcon,
   Strikethrough,
   Table2,
   Trash2,
@@ -65,10 +70,9 @@ const SLASH: {
   { title: "Bulleted list", description: "Simple bulleted list", cmd: "bullet", shortcut: ".", keywords: ["ul", "bullet", "-"] },
   { title: "Numbered list", description: "List with ordering", cmd: "ordered", shortcut: "1.", keywords: ["ol", "number"] },
   { title: "To-do list", description: "Track tasks with checkboxes", cmd: "task", shortcut: "[]", keywords: ["todo", "check"] },
-  { title: "Quote", description: "Capture a quotation", cmd: "quote", shortcut: ">", keywords: ["blockquote"] },
   { title: "Code block", description: "Monospaced code", cmd: "code", shortcut: "```", keywords: ["pre"] },
   { title: "Diagram", description: "Mermaid flowchart or other diagram", cmd: "diagram", keywords: ["mermaid", "flowchart", "chart", "graph"] },
-  { title: "Callout", description: "Note, tip, warning or caution box", cmd: "callout", keywords: ["note", "tip", "warning", "caution", "important", "alert"] },
+  { title: "Callout", description: "Note, tip, warning or caution box", cmd: "callout", shortcut: ">", keywords: ["note", "tip", "warning", "caution", "important", "alert", "quote", "blockquote"] },
   { title: "Formula", description: "Inline math, like $E = mc^2$", cmd: "math", keywords: ["math", "latex", "tex", "inline"] },
   { title: "Equation", description: "A displayed formula on its own line", cmd: "mathBlock", keywords: ["math", "latex", "tex", "block"] },
   { title: "Footnote", description: "A numbered note at the end of the page", cmd: "footnote", keywords: ["reference", "citation", "note"] },
@@ -93,11 +97,16 @@ const FORMAT_TOOLS = [
   { label: "List", Icon: List, cmd: "bullet" },
   { label: "Numbered", Icon: ListOrdered, cmd: "ordered" },
   { label: "Todo", Icon: CheckSquare, cmd: "task" },
-  { label: "Quote", Icon: Quote, cmd: "quote" },
   { label: "Inline code", Icon: Code, cmd: "inlineCode" },
   { label: "Code block", Icon: Code2, cmd: "code" },
   { label: "Callout", Icon: Info, cmd: "callout" },
-  { label: "Formula", Icon: Sigma, cmd: "math" },
+  { label: "Diagram", Icon: Workflow, cmd: "diagram" },
+  { label: "Equation", Icon: SquareSigma, cmd: "mathBlock" },
+  { label: "Formula", Icon: Radical, cmd: "math" },
+  { label: "Footnote", Icon: Superscript, cmd: "footnote" },
+  { label: "Map", Icon: MapIcon, cmd: "map" },
+  { label: "3D model", Icon: Box, cmd: "stl" },
+  { label: "Properties", Icon: Tags, cmd: "frontmatter" },
   { label: "Link", Icon: Link2, cmd: "linkPrompt" },
   { label: "Table", Icon: Table2, cmd: "table" },
   { label: "Divider", Icon: Minus, cmd: "hr" },
@@ -384,7 +393,7 @@ export default function RichTextEditor({
 
   function applyFormat(cmd: string) {
     if (cmd === "callout" && active.callout) {
-      run("paragraph");
+      run("liftCallout");
       return;
     }
     if (cmd === "linkPrompt") {
