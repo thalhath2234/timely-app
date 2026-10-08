@@ -44,6 +44,7 @@ import {
   Link2,
   List,
   ListCollapse,
+  Columns2,
   TextSearch,
   MonitorPlay,
   Bookmark as BookmarkIcon,
@@ -68,6 +69,7 @@ import { Details, DetailsSummary } from "./details";
 import { BlockHandle } from "./blockHandle";
 import { Bookmark, Embed } from "./linkBlocks";
 import { FindReplace } from "./findReplace";
+import { Column, Columns } from "./columns";
 import FindBar from "./findBar";
 import CodeBlockView from "./codeBlockView";
 import { Footnote, FootnoteRef } from "./footnotes";
@@ -313,6 +315,8 @@ export default function RichTextEditor({
       DetailsSummary,
       Embed,
       Bookmark,
+      Columns,
+      Column,
       FootnoteRef,
       Footnote,
       Frontmatter,
@@ -794,6 +798,12 @@ export default function RichTextEditor({
       icon: ListCollapse,
       isActive: editor.isActive("details"),
       run: () => editor.chain().focus().toggleDetails().run(),
+    },
+    {
+      label: "Columns",
+      icon: Columns2,
+      isActive: editor.isActive("columns"),
+      run: () => editor.chain().focus().toggleColumns(2).run(),
     },
     {
       label: "Code block",

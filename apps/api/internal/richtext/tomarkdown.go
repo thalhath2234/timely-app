@@ -106,6 +106,8 @@ func renderBlock(n map[string]any) string {
 		return quoteLines(head)
 	case "details":
 		return renderDetails(n)
+	case "columns":
+		return renderColumns(n)
 	case "embed":
 		return renderEmbed(n)
 	case "bookmark":

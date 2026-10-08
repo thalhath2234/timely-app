@@ -93,7 +93,7 @@ func (r reader) details(n ast.Node) (map[string]any, ast.Node, bool) {
 		if hb, ok := c.(*ast.HTMLBlock); ok && detailsCloseRe.MatchString(r.htmlBlockRaw(hb)) {
 			return detailsNode(summary, open, body), c, true
 		}
-		if nested, end, ok := r.details(c); ok {
+		if nested, end, ok := r.container(c); ok {
 			body = append(body, nested)
 			c = end
 			continue

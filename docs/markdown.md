@@ -36,6 +36,7 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Toggle | `<details open>` / `<summary>Title</summary>` / blank line / the folded blocks / blank line / `</details>`; without `open` it starts folded. The title is plain text. GitHub and Obsidian show it as a fold too |
 | Embed | An image of the page on its own line, `![](https://www.youtube.com/watch?v=...)`, as Obsidian writes it. Only YouTube, Vimeo, Loom, Spotify, Figma and CodePen links read back as embeds; any other image stays an image |
 | Bookmark | `[Page title](https://example.com "Description")<!-- bookmark -->` on its own line. Without the marker it is an ordinary link. The page's preview image is not kept |
+| Columns | `<!-- columns -->`, the first column's blocks, `<!-- column -->` before each next column, then `<!-- /columns -->`, each on its own line between blank lines. Other Markdown apps hide the comments and show the columns one after another. Widths are always equal |
 | Wiki link | `[[Page title]]`, `[[Page title\|alias]]`, `![[Page title]]` (embed); clicking opens the doc with that title |
 | Map | a ```` ```geojson ```` or ```` ```topojson ```` code block, drawn as an outline (GitHub draws it over a street map) |
 | 3D model | a ```` ```stl ```` code block (ASCII STL), drawn with three.js; each `solid <name>` is a part, and a `#rrggbb` word in the name colors it (`solid head #f2c6a0`). Other STL readers ignore the color. Normals are recomputed, so `facet normal 0 0 0` is fine |

@@ -467,7 +467,7 @@ function detailsAt(tokens: Token[], start: number, options: FromMarkdownOptions)
     if (current.type === "html" && detailsCloseRe.test((current as Tokens.HTML).text.trim())) {
       return [detailsNode(summary, open, body), i];
     }
-    const nested = detailsAt(tokens, i, options);
+    const nested = containerAt(tokens, i, options);
     if (nested) {
       body.push(nested[0]);
       i = nested[1];
@@ -476,6 +476,52 @@ function detailsAt(tokens: Token[], start: number, options: FromMarkdownOptions)
     body.push(...blocksOf([current], options));
   }
   return null;
+}
+
+const columnsOpenRe = /^<!--\s*columns\s*-->$/;
+const columnBreakRe = /^<!--\s*column\s*-->$/;
+const columnsCloseRe = /^<!--\s*\/columns\s*-->$/;
+
+function columnNode(body: MarkdownNode[]): MarkdownNode {
+  return { type: "column", content: body.length ? body : [paragraph()] };
+}
+
+/** Reads columns starting at tokens[start] (`<!-- columns -->`, blocks,
+ * `<!-- column -->` between columns, `<!-- /columns -->`); see
+ * apps/api/internal/richtext/columns.go. */
+function columnsAt(tokens: Token[], start: number, options: FromMarkdownOptions): [MarkdownNode, number] | null {
+  const token = tokens[start];
+  if (token.type !== "html" || !columnsOpenRe.test((token as Tokens.HTML).text.trim())) return null;
+  const columns: MarkdownNode[] = [];
+  let body: MarkdownNode[] = [];
+  for (let i = start + 1; i < tokens.length; i += 1) {
+    const current = tokens[i];
+    if (current.type === "html") {
+      const raw = (current as Tokens.HTML).text.trim();
+      if (columnsCloseRe.test(raw)) {
+        columns.push(columnNode(body));
+        return [{ type: "columns", content: columns }, i];
+      }
+      if (columnBreakRe.test(raw)) {
+        columns.push(columnNode(body));
+        body = [];
+        continue;
+      }
+    }
+    const nested = containerAt(tokens, i, options);
+    if (nested) {
+      body.push(nested[0]);
+      i = nested[1];
+      continue;
+    }
+    body.push(...blocksOf([current], options));
+  }
+  return null;
+}
+
+/** A block written over several tokens: a toggle or columns. */
+function containerAt(tokens: Token[], start: number, options: FromMarkdownOptions) {
+  return detailsAt(tokens, start, options) ?? columnsAt(tokens, start, options);
 }
 
 /** Links Timely can show as an embed (see embeds.ts, which builds the
@@ -521,7 +567,7 @@ function blocksOf(tokens: Token[], options: FromMarkdownOptions): MarkdownNode[]
   const out: MarkdownNode[] = [];
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
-    const toggle = detailsAt(tokens, index, options);
+    const toggle = containerAt(tokens, index, options);
     if (toggle) {
       out.push(toggle[0]);
       index = toggle[1];

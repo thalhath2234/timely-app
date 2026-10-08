@@ -105,6 +105,11 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
         </View>
       );
     }
+    case "columns":
+      // A phone shows columns one under another.
+      return <View style={styles.columns}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>;
+    case "column":
+      return <View style={styles.column}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>;
     case "embed":
     case "bookmark": {
       // Read-only text shows both as a link card; the player is in the editor.
@@ -289,6 +294,8 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingLeft: 12,
     gap: 8,
   },
+  columns: { gap: 10 },
+  column: { paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 6 },
   linkCard: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, gap: 2 },
   linkCardText: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   callout: { backgroundColor: colors.accent, borderRadius: 8, paddingVertical: 8, paddingRight: 12 },

@@ -76,12 +76,13 @@ func (r reader) blocks(parent ast.Node) []any {
 	return r.blocksFrom(parent.FirstChild())
 }
 
-// blocksFrom converts first and the siblings after it. Toggles span several
-// sibling nodes (see details), so they are read here rather than in block.
+// blocksFrom converts first and the siblings after it. Toggles and columns
+// span several sibling nodes (see container), so they are read here rather
+// than in block.
 func (r reader) blocksFrom(first ast.Node) []any {
 	var out []any
 	for n := first; n != nil; n = n.NextSibling() {
-		if node, end, ok := r.details(n); ok {
+		if node, end, ok := r.container(n); ok {
 			out = append(out, node)
 			n = end
 			continue

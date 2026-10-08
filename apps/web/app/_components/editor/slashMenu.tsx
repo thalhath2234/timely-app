@@ -25,6 +25,8 @@ import {
   Link2,
   List,
   ListCollapse,
+  Columns2,
+  Columns3,
   MonitorPlay,
   Bookmark as BookmarkIcon,
   ListOrdered,
@@ -143,6 +145,22 @@ export function createSlashItems(options?: {
       keywords: ["toggle", "fold", "collapse", "details", "expand", "accordion"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.toggleDetails().run()),
+    },
+    {
+      title: "2 columns",
+      description: "Put blocks side by side",
+      icon: Columns2,
+      keywords: ["columns", "side", "layout", "split", "two"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.toggleColumns(2).run()),
+    },
+    {
+      title: "3 columns",
+      description: "Three blocks side by side",
+      icon: Columns3,
+      keywords: ["columns", "side", "layout", "split", "three"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.toggleColumns(3).run()),
     },
     {
       title: "Code block",

@@ -107,6 +107,9 @@ export function buildEditorHtml(
     .details-toggle svg { transition: transform 0.15s ease; }
     .find-match { background: color-mix(in srgb, #f5b041 35%, transparent); border-radius: 2px; }
     .find-current { background: color-mix(in srgb, #f5b041 80%, transparent); }
+    .doc-columns { margin: 8px 0; }
+    .doc-column { padding-left: 10px; border-left: 2px solid ${t.border}; }
+    .doc-column + .doc-column { margin-top: 10px; }
     .doc-embed, .doc-bookmark { margin: 10px 0; }
     .doc-embed-frame { width: 100%; overflow: hidden; border: 1px solid ${t.border}; border-radius: 10px; background: ${t.muted}; }
     .doc-embed-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
@@ -257,6 +260,47 @@ export function buildEditorHtml(
         ];
       },
     });
+    // Columns (see apps/web/app/_components/editor/columns.ts). A phone is
+    // too narrow for them, so they show one under another.
+    const ColumnNode = Node.create({
+      name: "column",
+      content: "block+",
+      isolating: true,
+      defining: true,
+      parseHTML() { return [{ tag: "div[data-column]" }]; },
+      renderHTML({ HTMLAttributes }) { return ["div", Object.assign({}, HTMLAttributes, { "data-column": "", class: "doc-column" }), 0]; },
+    });
+    const ColumnsNode = Node.create({
+      name: "columns",
+      group: "block",
+      content: "column{2,4}",
+      defining: true,
+      parseHTML() { return [{ tag: "div[data-columns]" }]; },
+      renderHTML({ HTMLAttributes }) { return ["div", Object.assign({}, HTMLAttributes, { "data-columns": "", class: "doc-columns" }), 0]; },
+    });
+    function toggleColumnsCmd(state, tr) {
+      const { $from } = tr.selection;
+      for (let depth = $from.depth; depth > 0; depth -= 1) {
+        const node = $from.node(depth);
+        if (node.type.name !== "columns") continue;
+        const pos = $from.before(depth);
+        const blocks = [];
+        node.forEach((column) => column.forEach((block) => blocks.push(block)));
+        tr.replaceWith(pos, pos + node.nodeSize, blocks);
+        tr.setSelection(TextSelection.near(tr.doc.resolve(pos + 1)));
+        return true;
+      }
+      if ($from.depth < 1) return false;
+      const start = $from.before(1);
+      const block = tr.doc.child($from.index(0));
+      if (block.type.name === "frontmatter" || block.type.name === "footnote") return false;
+      const schema = state.schema;
+      const first = schema.nodes.column.create(null, block);
+      const node = schema.nodes.columns.create(null, [first, schema.nodes.column.create(null, schema.nodes.paragraph.create())]);
+      tr.replaceWith(start, start + block.nodeSize, node);
+      tr.setSelection(TextSelection.near(tr.doc.resolve(start + 1 + first.nodeSize + 1)));
+      return true;
+    }
     const EMBED_PATTERNS = ${embed(EMBED_PATTERNS.map(({ provider, pattern }) => ({ provider, source: pattern.source, flags: pattern.flags })))};
     // Embeds and bookmarks (see packages/contract/src/embeds.ts). They are
     // added from the app's toolbar, which asks for the link.
@@ -1557,6 +1601,7 @@ export function buildEditorHtml(
           codeBlock: editor.isActive("codeBlock"),
           callout: editor.isActive("callout"),
           toggle: editor.isActive("details"),
+          columns: editor.isActive("columns"),
           mathBlock: editor.isActive("mathBlock"),
         },
       });
@@ -1597,6 +1642,8 @@ export function buildEditorHtml(
         DetailsSummary,
         EmbedNode,
         BookmarkNode,
+        ColumnsNode,
+        ColumnNode,
         FindReplace,
         FootnoteRef,
         Footnote,
@@ -1724,6 +1771,7 @@ export function buildEditorHtml(
           case "callout": chain.wrapIn("callout", { kind: "note" }); break;
           case "liftCallout": chain.lift("callout"); break;
           case "toggle": chain.command(({ state, tr }) => toggleDetailsCmd(state, tr)); break;
+          case "columns": chain.command(({ state, tr }) => toggleColumnsCmd(state, tr)); break;
           case "math":
             chain.insertContent({ type: "mathInline", attrs: { latex: "" } }).command(({ tr }) => {
               send({ type: "mathEdit", pos: tr.selection.from - 1, latex: "" });

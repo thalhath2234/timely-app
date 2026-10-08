@@ -112,6 +112,21 @@ Deep
 
 [https://example.com/plain](https://example.com/plain)<!-- bookmark -->
 
+<!-- columns -->
+
+Left side
+
+- one
+- two
+
+<!-- column -->
+
+Right **side**
+
+<!-- column -->
+
+<!-- /columns -->
+
 [^1]: The note, with **bold**.
 
     Second paragraph.

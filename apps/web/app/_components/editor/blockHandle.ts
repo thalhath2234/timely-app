@@ -6,8 +6,8 @@ import type { EditorView } from "@tiptap/pm/view";
  * Block drag handle (Notion's ⋮⋮): hovering a block shows a grip in the left
  * gutter. Dragging it moves the block (ProseMirror's own drop code does the
  * move, from `view.dragging`); clicking it selects the block, so Delete,
- * copy and cut act on the whole block. List and task items get their own
- * handle; anything else moves with its top-level block.
+ * copy and cut act on the whole block. List and task items and blocks in a
+ * column get their own handle; anything else moves with its top-level block.
  */
 
 const ITEM_TYPES = new Set(["listItem", "taskItem"]);
@@ -22,8 +22,14 @@ function blockAt(view: EditorView, x: number, y: number) {
   const $pos = view.state.doc.resolve(hit.inside >= 0 ? hit.inside : hit.pos);
   let depth = 0;
   for (let d = $pos.depth; d > 0; d -= 1) {
-    if (ITEM_TYPES.has($pos.node(d).type.name)) {
+    const name = $pos.node(d).type.name;
+    if (ITEM_TYPES.has(name)) {
       depth = d;
+      break;
+    }
+    // A block in a column moves on its own, so it can go to another column.
+    if (name === "column" && d < $pos.depth) {
+      depth = d + 1;
       break;
     }
   }
