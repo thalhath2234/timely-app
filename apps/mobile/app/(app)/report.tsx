@@ -49,7 +49,7 @@ import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard
 import { useDashboardData, useDashboardLayout, useNow } from "../../lib/dashboard";
 import { forgetPomodoro } from "../../lib/pomodoroStore";
 import { useConfigQuery, useInvalidateAll } from "../../lib/hooks";
-import { sheetHref } from "../../lib/sheet";
+import { fileHref } from "../../lib/fileRoutes";
 import { showUndoToast, useToastStore } from "../../lib/toast";
 import type { CalendarItem } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -112,8 +112,7 @@ export default function ReportScreen() {
     (row: CardRow) => {
       if (row.entity === "task") return router.push(`/(app)/tasks/${row.id}`);
       if (row.entity === "project") return router.push(`/(app)/projects/${row.id}`);
-      if (row.entity === "doc") return router.push(`/(app)/docs/${row.id}`);
-      if (row.entity === "sheet") return router.push(sheetHref(row.id) as never);
+      if (row.entity === "doc" || row.entity === "sheet") return router.push(fileHref(row.id));
       const item = data.events?.find((entry) => entry.id === row.id);
       if (item) openItem(item);
     },

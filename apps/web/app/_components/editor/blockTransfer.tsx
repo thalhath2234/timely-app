@@ -13,6 +13,7 @@ import { useCreateDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
 import { resolveDocContent } from "@/app/utils/markdown";
 import { useToastStore } from "@/app/_store/toastStore";
 import { deleteBlocks, type BlockRange } from "./blockSelection";
+import { fileHref, fileIdFromPath } from "@/app/utils/fileRoutes";
 
 /**
  * "Copy to page" and "Move to page" from the block menu: a searchable list of
@@ -49,7 +50,7 @@ function TransferDialog({ transfer, onClose }: { transfer: Transfer; onClose: ()
   const createDoc = useCreateDoc();
   const updateDoc = useUpdateDoc();
   const router = useRouter();
-  const currentId = usePathname().match(/^\/docs\/([^/]+)/)?.[1];
+  const currentId = fileIdFromPath(usePathname()) ?? undefined;
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -112,10 +113,10 @@ function TransferDialog({ transfer, onClose }: { transfer: Transfer; onClose: ()
         // A new page opens right away, to carry on from the blocks. Leaving
         // this page saves the move (autosave flushes on unmount).
         useToastStore.getState().show(`${done} ${what} to the new page`);
-        router.push(`/docs/${docId}`);
+        router.push(fileHref(docId));
         return;
       }
-      useToastStore.getState().show(`${done} ${what} to ${target.title || "Untitled"}`, { label: "Open", onAction: () => router.push(`/docs/${docId}`) });
+      useToastStore.getState().show(`${done} ${what} to ${target.title || "Untitled"}`, { label: "Open", onAction: () => router.push(fileHref(docId)) });
     } catch (error) {
       useToastStore.getState().show(error instanceof Error ? error.message : `Could not ${verb.toLowerCase()} the blocks`);
       setBusy(false);

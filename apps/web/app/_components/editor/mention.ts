@@ -5,6 +5,7 @@ import {
   MentionAppearance,
   MentionEntityType,
 } from "@/app/_types/types";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 export interface MentionItem {
   id: string;
@@ -73,9 +74,9 @@ export function insertPageMention(
 export function mentionHref(entityType: MentionEntityType, id: string) {
   switch (entityType) {
     case "doc":
-      return `/docs/${id}`;
+      return fileHref(id);
     case "sheet":
-      return `/sheets/${id}`;
+      return fileHref(id);
     case "task":
       return `/tasks?taskId=${encodeURIComponent(id)}`;
     case "project":

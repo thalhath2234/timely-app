@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
 import { ChevronRight, Archive, Download, FileDown, FileText, History, LayoutTemplate, Smile, Star, Trash2, Upload } from "lucide-react";
 import { exportDocPdf } from "@/app/utils/printDoc";
@@ -30,6 +30,7 @@ import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { downloadPortable } from "@/app/utils/api/portability";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
+import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 
 const ICON_CHOICES = [
   "📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯",
@@ -69,9 +70,8 @@ function buildBreadcrumb(docs: Doc[], docId: string) {
   return trail;
 }
 
-export default function DocPage() {
-  const params = useParams<{ id: string }>();
-  const { data: doc, isLoading, isError, error } = useDoc(params.id);
+export default function DocPage({ id }: { id: string }) {
+  const { data: doc, isLoading, isError, error } = useDoc(id);
   const { data: allDocs } = useDocs();
 
   if (isLoading) {
@@ -91,10 +91,10 @@ export default function DocPage() {
             : "This doc could not be found."}
         </p>
         <Link
-          href="/docs"
+          href={FILES_PATH}
           className="rounded-lg bg-secondary px-4 py-2 text-sm text-secondary-foreground transition-colors hover:bg-accent"
         >
-          Back to docs
+          Back to files
         </Link>
       </div>
     );
@@ -156,7 +156,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
       setRemoteContent(resolveDocContent(next.content, next.plainText));
       setRemoteEpoch((epoch) => epoch + 1);
     },
-    onDeleted: () => router.push("/docs"),
+    onDeleted: () => router.push(FILES_PATH),
   });
 
   const descendantCount = countDescendantsFromList(allDocs, doc.id);
@@ -193,7 +193,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
         if (!saved) {
           useToastStore.getState().show("Subpage created, but the parent could not be saved");
         }
-        router.push(`/docs/${child.id}`);
+        router.push(fileHref(child.id));
       } catch {
         useToastStore.getState().show("Could not create subpage");
       }
@@ -203,7 +203,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
 
   const handleDelete = async () => {
     await deleteDoc.mutateAsync(doc.id);
-    router.push("/docs");
+    router.push(FILES_PATH);
   };
 
   return (
@@ -211,21 +211,21 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     <div className="relative flex h-full flex-col overflow-hidden" data-block-select-root="">
       <header className="flex items-center gap-2 border-b border-border px-6 py-2.5">
         <ExpandCollapsedListButton
-          storageKey="timely.docsListCollapsed"
+          storageKey="timely.filesListCollapsed"
           label="docs list"
         />
         <nav className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
           <Link
-            href="/docs"
+            href={FILES_PATH}
             className="shrink-0 transition-colors hover:text-foreground"
           >
-            Docs
+            Files
           </Link>
           {breadcrumb.map((parent) => (
             <span key={parent.id} className="flex min-w-0 items-center gap-1">
               <ChevronRight className="size-3 shrink-0" />
               <Link
-                href={`/docs/${parent.id}`}
+                href={fileHref(parent.id)}
                 className="truncate transition-colors hover:text-foreground"
               >
                 {parent.title}

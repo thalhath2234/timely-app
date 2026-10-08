@@ -93,6 +93,7 @@ import {
   createSlashRenderer,
   filterSlashItems,
 } from "./slashMenu";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 const LINK_POPOVER_WIDTH = 320;
 const TOOLBAR_WIDTH = 340;
@@ -494,7 +495,7 @@ export default function RichTextEditor({
         const doc = mentionBox
           .get()
           .find((item) => item.entityType === "doc" && item.label.trim().toLowerCase() === wanted);
-        if (doc) router.push(`/docs/${doc.id}`);
+        if (doc) router.push(fileHref(doc.id));
         else useToastStore.getState().show(`No page named "${page}" yet.`);
         return;
       }

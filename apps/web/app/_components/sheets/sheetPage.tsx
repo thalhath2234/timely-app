@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Archive,
   ChevronRight,
@@ -41,6 +41,7 @@ import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { addTabMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
 import { registerSheetFlush } from "@/app/utils/sheetFlush";
 import { SHEET_ICON_CHOICES } from "@/app/_components/sheets/sheetIcons";
+import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 
 const KINETIC_THEME = {
   "--background": "#111319",
@@ -62,9 +63,8 @@ const KINETIC_THEME = {
   "--ring": "#7C66DC",
 } as CSSProperties;
 
-export default function SheetPage() {
-  const params = useParams<{ id: string }>();
-  const { data: sheet, isLoading, isError, error } = useSheet(params.id);
+export default function SheetPage({ id }: { id: string }) {
+  const { data: sheet, isLoading, isError, error } = useSheet(id);
 
   if (isLoading) {
     return (
@@ -83,10 +83,10 @@ export default function SheetPage() {
             : "This sheet could not be found."}
         </p>
         <Link
-          href="/sheets"
+          href={FILES_PATH}
           className="rounded-lg bg-secondary px-4 py-2 text-sm text-secondary-foreground transition-colors hover:bg-accent"
         >
-          Back to sheets
+          Back to files
         </Link>
       </div>
     );
@@ -131,7 +131,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
 
   const handleDelete = async () => {
     await deleteSheet.mutateAsync(sheet.id);
-    router.push("/sheets");
+    router.push(FILES_PATH);
   };
 
   const handleGridChange = (next: Partial<Pick<SheetTab, "columns" | "rows" | "merges">>) => {
@@ -175,15 +175,15 @@ function SheetView({ sheet }: { sheet: Sheet }) {
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground" style={KINETIC_THEME}>
       <header className="flex min-h-14 items-center gap-2 border-b border-border bg-background px-4 py-2">
         <ExpandCollapsedListButton
-          storageKey="timely.sheetsListCollapsed"
+          storageKey="timely.filesListCollapsed"
           label="sheets list"
         />
         <nav className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           <Link
-            href="/sheets"
+            href={FILES_PATH}
             className="shrink-0 transition-colors hover:text-foreground"
           >
-            Sheets
+            Files
           </Link>
           <ChevronRight className="size-3 shrink-0" />
           <span className="max-w-24 truncate text-foreground">{activeTab?.name || "Sheet"}</span>
@@ -296,7 +296,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
           onClick={() => {
             void duplicateSheet.mutateAsync(sheet.id).then((copy) => {
               showUndoToast(`Duplicated “${copy.title}”`);
-              router.push(`/sheets/${copy.id}`);
+              router.push(fileHref(copy.id));
             });
           }}
           className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"

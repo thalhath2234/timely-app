@@ -114,10 +114,6 @@ export function routeParam(value: string | string[] | undefined): string {
   return value ?? "";
 }
 
-export function sheetHref(id: string) {
-  return { pathname: "/(app)/sheets/[id]", params: { id } } as const;
-}
-
 export function newSheetId(prefix: string) {
   const rand =
     typeof crypto !== "undefined" && "randomUUID" in crypto

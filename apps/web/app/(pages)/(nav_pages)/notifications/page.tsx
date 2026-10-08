@@ -15,6 +15,7 @@ import {
 import type { AppNotification } from "@/app/_types/types";
 import { motion } from "motion/react";
 import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 type NotificationTarget =
   | { kind: "task"; id: string }
@@ -34,20 +35,14 @@ function targetFor(item: AppNotification): NotificationTarget {
   if (entityId) {
     if (item.entityType === "chat") return { kind: "route", href: `/chat?id=${encodeURIComponent(entityId)}` };
     if (item.entityType === "project") return { kind: "route", href: `/projects/${entityId}` };
-    if (item.entityType === "doc") return { kind: "route", href: `/docs/${entityId}` };
-    if (item.entityType === "sheet") return { kind: "route", href: `/sheets/${entityId}` };
+    if (item.entityType === "doc" || item.entityType === "sheet") return { kind: "route", href: fileHref(entityId) };
     if (item.entityType === "event") return { kind: "route", href: "/calendar" };
   }
 
-  const dataRoutes = [
-    ["projectId", "projects"],
-    ["docId", "docs"],
-    ["sheetId", "sheets"],
-  ] as const;
-  for (const [key, segment] of dataRoutes) {
-    const id = dataString(item, key);
-    if (id) return { kind: "route", href: `/${segment}/${id}` };
-  }
+  const projectId = dataString(item, "projectId");
+  if (projectId) return { kind: "route", href: `/projects/${projectId}` };
+  const fileId = dataString(item, "docId") ?? dataString(item, "sheetId");
+  if (fileId) return { kind: "route", href: fileHref(fileId) };
   if (dataString(item, "eventId")) return { kind: "route", href: "/calendar" };
   if (item.category === "digest") return { kind: "route", href: "/report" };
   return { kind: "route", href: "/today" };

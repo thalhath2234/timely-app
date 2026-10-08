@@ -28,6 +28,7 @@ import { useToastStore } from "@/app/_store/toastStore";
 import { openInTab } from "@/app/_components/pageTabs/openInTab";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { flushOpenSheet } from "@/app/utils/sheetFlush";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 export type SheetMenuOptions = {
   onRename?: () => void;
@@ -60,19 +61,19 @@ export function useSheetContextMenu() {
           label: "Open",
           icon: SheetIcon,
           shortcut: "Enter",
-          onSelect: () => router.push(`/sheets/${sheet.id}`),
+          onSelect: () => router.push(fileHref(sheet.id)),
         },
         {
           kind: "action",
           label: "Open in new tab",
           icon: PanelTop,
-          onSelect: () => openInTab(`/sheets/${sheet.id}`, (href) => router.push(href)),
+          onSelect: () => openInTab(fileHref(sheet.id), (href) => router.push(href)),
         },
         {
           kind: "action",
           label: "Open in new window",
           icon: ExternalLink,
-          onSelect: () => window.open(`/sheets/${sheet.id}`, "_blank", "noopener"),
+          onSelect: () => window.open(fileHref(sheet.id), "_blank", "noopener"),
         },
         { kind: "separator" },
         options.onRename && {
@@ -92,7 +93,7 @@ export function useSheetContextMenu() {
               .mutateAsync(sheet.id)
               .then((copy) => {
                 useToastStore.getState().show(`Duplicated “${copy.title}”`);
-                router.push(`/sheets/${copy.id}`);
+                router.push(fileHref(copy.id));
               })
               .catch(() => useToastStore.getState().show("Could not duplicate sheet"));
           },
@@ -143,7 +144,7 @@ export function useSheetContextMenu() {
           shortcut: "mod+shift+C",
           onSelect: () =>
             copyText(
-              new URL(`/sheets/${sheet.id}`, window.location.origin).toString(),
+              new URL(fileHref(sheet.id), window.location.origin).toString(),
               "Link copied",
             ),
         },

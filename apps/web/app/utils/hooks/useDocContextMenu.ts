@@ -24,6 +24,7 @@ import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { openInTab } from "@/app/_components/pageTabs/openInTab";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 export type DocMenuOptions = {
   hasChildren?: boolean;
@@ -58,19 +59,19 @@ export function useDocContextMenu() {
           label: "Open",
           icon: FileText,
           shortcut: "Enter",
-          onSelect: () => router.push(`/docs/${doc.id}`),
+          onSelect: () => router.push(fileHref(doc.id)),
         },
         {
           kind: "action",
           label: "Open in new tab",
           icon: PanelTop,
-          onSelect: () => openInTab(`/docs/${doc.id}`, (href) => router.push(href)),
+          onSelect: () => openInTab(fileHref(doc.id), (href) => router.push(href)),
         },
         {
           kind: "action",
           label: "Open in new window",
           icon: ExternalLink,
-          onSelect: () => window.open(`/docs/${doc.id}`, "_blank", "noopener"),
+          onSelect: () => window.open(fileHref(doc.id), "_blank", "noopener"),
         },
         options.hasChildren && options.onToggleExpand && {
           kind: "action",
@@ -86,7 +87,7 @@ export function useDocContextMenu() {
           onSelect: () => {
             void createDoc
               .mutateAsync({ parentId: doc.id })
-              .then((child) => router.push(`/docs/${child.id}`))
+              .then((child) => router.push(fileHref(child.id)))
               .catch(() => useToastStore.getState().show("Could not create subpage"));
           },
         },
@@ -128,7 +129,7 @@ export function useDocContextMenu() {
           icon: Link2,
           shortcut: "mod+shift+C",
           onSelect: () =>
-            copyText(new URL(`/docs/${doc.id}`, window.location.origin).toString(), "Link copied"),
+            copyText(new URL(fileHref(doc.id), window.location.origin).toString(), "Link copied"),
         },
         {
           kind: "action",

@@ -9,9 +9,21 @@ import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useChats } from "@/app/utils/hooks/chat";
 import type { ChatContext } from "@/app/utils/api/chat";
+import { fileIdFromPath, fileKind } from "@/app/utils/fileRoutes";
 import { cn } from "@/app/utils/cn";
 import { morphIntoIsland } from "@/app/_components/_layout/activityIsland";
 import { usePreferences } from "@/app/_components/_layout/clientRuntime";
+
+/** The object a page shows, as [collection, id]; sheet templates have none. */
+function routeObject(pathname: string): [string, string] | null {
+  const fileId = fileIdFromPath(pathname);
+  if (fileId) {
+    const kind = fileKind(fileId);
+    return kind === "template" ? null : [kind === "sheet" ? "sheets" : "docs", fileId];
+  }
+  const match = pathname.match(/^\/(projects)\/([^/]+)/);
+  return match ? [match[1], match[2]] : null;
+}
 
 export default function ChatRuntime() {
   const { open: overlayOpen, openNew, close } = useChatStore();
@@ -41,9 +53,9 @@ export default function ChatRuntime() {
         },
       ];
       const detail = useEntityDetailStore.getState();
-      const match = pathname.match(/^\/(docs|sheets|projects)\/([^/]+)/);
-      const kind = detail.id ? detail.kind : match?.[1];
-      const entityId = detail.id || match?.[2];
+      const match = routeObject(pathname);
+      const kind = detail.id ? detail.kind : match?.[0];
+      const entityId = detail.id || match?.[1];
       if (kind && entityId) {
         const plural =
           kind === "task" ? "tasks" : kind === "project" ? "projects" : kind;

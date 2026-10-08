@@ -2,10 +2,15 @@
 
 import { currentHref, isTabbedPath, usePageTabsStore } from "@/app/_store/pageTabsStore";
 import { useToastStore } from "@/app/_store/toastStore";
+import { fileIdFromPath, legacyFilePath } from "@/app/utils/fileRoutes";
 
-/** A single doc, sheet or sheet template page: the things a tab can hold. */
-export function isPageTabHref(pathname: string) {
-  return /^\/docs\/[^/]+$/.test(pathname) || /^\/sheets\/(templates\/)?[^/]+$/.test(pathname);
+/**
+ * The tab path for a single doc, sheet or sheet template page (the things a
+ * tab can hold), or null. Old /docs and /sheets links map to their /files page.
+ */
+export function pageTabPath(pathname: string) {
+  const path = legacyFilePath(pathname) ?? pathname;
+  return fileIdFromPath(path) ? path : null;
 }
 
 /**

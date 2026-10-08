@@ -7,6 +7,7 @@ import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { tasksKey, useUpdateTask } from "@/app/utils/hooks/tasks";
 import { showUndoToast } from "@/app/_store/toastStore";
 import type { Task } from "@/app/_types/types";
+import { FILES_PATH } from "@/app/utils/fileRoutes";
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -50,8 +51,10 @@ export default function KeyboardShortcuts() {
           t: "/tasks",
           p: "/projects",
           c: "/calendar",
-          d: "/docs",
-          s: "/sheets",
+          f: FILES_PATH,
+          // Docs and Sheets were separate sections before Files.
+          d: FILES_PATH,
+          s: FILES_PATH,
           r: "/report",
           i: "/inbox",
           y: "/today",

@@ -39,6 +39,7 @@ import {
   contextChip,
   mergeContext,
   routeContext,
+  routeObject,
 } from "../../lib/chat/context";
 import type { AssistantDraft, ChatContext } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -144,7 +145,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     [],
   );
   const currentContext = () => {
-    const match = path.match(/\/(tasks|docs|sheets|projects|events)\/([^/]+)$/);
+    const match = routeObject(path);
     const key = match
       ? [
           (
@@ -155,8 +156,8 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
               projects: "projects",
               events: "event",
             } as Record<string, string>
-          )[match[1]],
-          match[2],
+          )[match[0]],
+          match[1],
         ]
       : null;
     const entity = key

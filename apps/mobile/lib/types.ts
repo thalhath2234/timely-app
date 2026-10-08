@@ -114,14 +114,9 @@ export const SIDEBAR_ITEMS = [
     href: "/tasks",
   },
   {
-    name: "Docs",
+    name: "Files",
     icon: "FileText",
-    href: "/docs",
-  },
-  {
-    name: "Sheets",
-    icon: "Sheet",
-    href: "/sheets",
+    href: "/files",
   },
   {
     name: "Report",

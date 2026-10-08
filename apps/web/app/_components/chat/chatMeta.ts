@@ -23,6 +23,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ChatStep, ChatSummary } from "@/app/utils/api/chat";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 /** Context chips carry a kind from the client that attached them. */
 export const chipIcons: Record<string, LucideIcon> = {
@@ -185,9 +186,9 @@ const targetKinds: [
   noun: string,
   href: (id: string) => string,
 ][] = [
-  ["shtpl_", "template", (id) => `/sheets/templates/${id}`],
-  ["sht_", "sheet", (id) => `/sheets/${id}`],
-  ["doc_", "doc", (id) => `/docs/${id}`],
+  ["shtpl_", "template", (id) => fileHref(id)],
+  ["sht_", "sheet", (id) => fileHref(id)],
+  ["doc_", "doc", (id) => fileHref(id)],
   ["tsk_", "task", (id) => `/tasks?taskId=${id}`],
   ["pr_", "project", (id) => `/projects/${id}`],
   ["evt_", "event", () => "/calendar"],

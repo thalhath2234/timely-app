@@ -39,6 +39,7 @@ import type { Chat, ChatStep, PendingImage } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { emptyDraft, useAssistant } from "../../lib/chat/runtime";
 import { useToastStore } from "../../lib/toast";
+import { fileHref, legacyFilePath } from "../../lib/fileRoutes";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import AssistantHeader from "./AssistantHeader";
 import AttachSheet, { type ImageSource } from "./AttachSheet";
@@ -586,16 +587,21 @@ export default function Assistant() {
       /^timely:\/\/(task|project|doc|sheet|event)\/([^/?#]+)/,
     );
     if (timely) {
+      // Docs and sheets share the Files routes, keyed by the ID's prefix.
       assistant.openResult(
-        `/(app)/${timely[1]}s/${encodeURIComponent(timely[2])}`,
+        timely[1] === "doc" || timely[1] === "sheet"
+          ? fileHref(timely[2])
+          : `/(app)/${timely[1]}s/${encodeURIComponent(timely[2])}`,
       );
       return;
     }
     if (href.startsWith("/")) {
       const task = href.match(/^\/tasks\?taskId=([^&]+)/);
+      const legacyFile = legacyFilePath(href);
       if (task) assistant.openResult(`/(app)/tasks/${task[1]}`);
+      else if (legacyFile) assistant.openResult(legacyFile);
       else if (
-        /^\/(tasks|projects|docs|sheets|events|calendar|today|settings)(\/|\?|$)/.test(
+        /^\/(tasks|projects|files|events|calendar|today|settings)(\/|\?|$)/.test(
           href,
         )
       )
@@ -846,7 +852,11 @@ export default function Assistant() {
                         <Action
                           label="Open expense sheet"
                           compact
-                          onPress={() => openLink(`/sheets/${savedSheetId}`)}
+                          onPress={() =>
+                            openLink(
+                              `/files/${encodeURIComponent(savedSheetId)}`,
+                            )
+                          }
                         />
                       ) : null}
                     </StatusCard>

@@ -10,6 +10,7 @@ import { cn } from "@/app/utils/cn";
 import { openTasksEntity } from "@/app/utils/entityDetail";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { useTransitionStore } from "@/app/utils/hooks/useTransitionStore";
+import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 
 const categories = [
   { id: "all", label: "All", icon: LayoutGrid },
@@ -25,8 +26,8 @@ type DemoProps = { demoItems?: SearchHit[]; onDemoSelect?: (title: string) => vo
 
 function hrefFor(hit: SearchHit): string {
   switch (hit.kind) {
-    case "doc": return `/docs/${encodeURIComponent(hit.id)}`;
-    case "sheet": return `/sheets/${encodeURIComponent(hit.id)}`;
+    case "doc": return fileHref(encodeURIComponent(hit.id));
+    case "sheet": return fileHref(encodeURIComponent(hit.id));
     case "event": return "/calendar";
     default: return "/tasks";
   }
@@ -100,7 +101,9 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
   const commands: PaletteItem[] = categories.filter((tab) => tab.id !== "all").flatMap((tab) => {
     const kind = tab.id as Exclude<Category, "all">;
     const noun = { sheet: "sheet", doc: "document", task: "task", project: "project", event: "event" }[kind];
-    const route = { sheet: "/sheets", doc: "/docs", task: "/tasks", project: "/projects", event: "/calendar" }[kind];
+    const route = { sheet: FILES_PATH, doc: FILES_PATH, task: "/tasks", project: "/projects", event: "/calendar" }[kind];
+    // Docs and sheets both live in Files.
+    const place = kind === "event" ? "calendar" : route === FILES_PATH ? "files" : tab.label.toLowerCase();
     return [
       { id: `create-${kind}`, title: `Create ${noun}`, description: `Start a new ${noun}`, kind, icon: Plus, command: true, run: () => {
         onClose();
@@ -110,13 +113,13 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
         store.setAddNewMode(kind);
         store.setIsAddItemModalOpen(true);
       } },
-      { id: `goto-${kind}`, title: `Go to ${kind === "event" ? "calendar" : tab.label.toLowerCase()}`, description: `Open your ${kind === "event" ? "calendar" : tab.label.toLowerCase()}`, kind, icon: tab.icon, command: true, run: () => {
+      { id: `goto-${kind}`, title: `Go to ${place}`, description: `Open your ${place}`, kind, icon: tab.icon, command: true, run: () => {
         onClose();
-        if (onDemoSelect) return onDemoSelect(`Go to ${tab.label.toLowerCase()}`);
+        if (onDemoSelect) return onDemoSelect(`Go to ${place}`);
         router.push(route);
       } },
     ];
-  }).filter((item) => (category === "all" || item.kind === category) && `${item.title} ${item.description}`.toLowerCase().includes(trimmed.toLowerCase()));
+  }).filter((item) => (category === "all" || item.kind === category) && !(category === "all" && item.id === "goto-sheet") && `${item.title} ${item.description}`.toLowerCase().includes(trimmed.toLowerCase()));
   const results: PaletteItem[] = hits.filter((hit) => category === "all" || hit.kind === category).map((hit) => ({
     id: `${hit.kind}:${hit.id}`, title: hit.title || "Untitled", description: hit.snippet,
     kind: hit.kind, icon: categories.find((tab) => tab.id === hit.kind)?.icon ?? FileText, run: () => openHit(hit),
