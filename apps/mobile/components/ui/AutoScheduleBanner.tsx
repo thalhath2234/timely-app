@@ -1,10 +1,11 @@
 import { useEffect } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text } from "react-native";
 import { Sparkles, X } from "lucide-react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useScheduleActivity } from "../../lib/scheduleActivity";
 import { toastEntering, toastExiting } from "../../lib/motion";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { LogoSpinner } from "./TimelyLogo";
 
 export default function AutoScheduleBanner() {
   const { status, message, dismiss } = useScheduleActivity();
@@ -27,7 +28,7 @@ export default function AutoScheduleBanner() {
       <Sparkles size={16} color={status === "error" ? colors.destructive : colors.primary} />
       <Text style={[styles.text, status === "error" && { color: colors.destructive }]}>{message}</Text>
       {status === "running" ? (
-        <View style={styles.spinner} />
+        <LogoSpinner size={16} />
       ) : (
         <Pressable onPress={dismiss} hitSlop={8}>
           <X size={14} color={colors.mutedForeground} />
@@ -56,12 +57,4 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   error: { borderColor: colors.destructive },
   text: { flex: 1, color: colors.cardForeground, fontSize: 13 },
-  spinner: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: colors.mutedForeground,
-    borderTopColor: colors.primary,
-  },
 }));
