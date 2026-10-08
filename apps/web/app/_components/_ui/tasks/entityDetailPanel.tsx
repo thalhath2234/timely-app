@@ -9,7 +9,6 @@ import {
   Check,
   Circle,
   Clock,
-  Cloud,
   Copy,
   Flag,
   FolderKanban,
@@ -1447,7 +1446,7 @@ function PanelShell({
           </>
         }
         footer={
-          <footer className="flex h-10 shrink-0 items-center justify-between border-t border-border bg-muted/20 px-5 text-[11px] text-muted-foreground">
+          <footer className="flex h-10 shrink-0 items-center border-t border-border bg-muted/20 px-5 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-4">
               <span className="inline-flex items-center gap-1.5">
                 <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
@@ -1470,10 +1469,6 @@ function PanelShell({
                 </span>
               ) : null}
             </div>
-            <span className="inline-flex items-center gap-1.5">
-              <Cloud className="size-3.5" />
-              Synced with Cloud
-            </span>
           </footer>
         }
       >
