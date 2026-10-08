@@ -9,6 +9,7 @@ import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useChats } from "@/app/utils/hooks/chat";
 import type { ChatContext } from "@/app/utils/api/chat";
+import { cn } from "@/app/utils/cn";
 
 export default function ChatRuntime() {
   const { open: overlayOpen, openNew, close } = useChatStore();
@@ -165,7 +166,14 @@ function ChatOverlay() {
       onClick={(e) => {
         if (e.target === e.currentTarget) close();
       }}
-      className="fixed inset-0 m-auto h-[min(820px,90dvh)] max-h-[90dvh] w-[min(760px,94vw)] max-w-none overflow-hidden rounded-2xl border border-border bg-background p-0 text-foreground shadow-2xl backdrop:bg-black/45 backdrop:backdrop-blur-sm open:animate-[vt-panel-in_280ms_cubic-bezier(0.22,1,0.36,1)_both] open:backdrop:animate-[vt-fade-in_200ms_ease-out_both] motion-reduce:open:animate-none"
+      // Opens as a floating prompt bar over the page (no dimmed backdrop) and
+      // grows into a panel once the first message starts a conversation.
+      className={cn(
+        "fixed inset-0 mx-auto mb-auto mt-[12dvh] max-h-[80dvh] w-[min(760px,94vw)] max-w-none p-0 text-foreground backdrop:bg-transparent open:animate-[vt-panel-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] motion-safe:transition-[height] motion-safe:duration-300 motion-reduce:open:animate-none [interpolate-size:allow-keywords]",
+        conversationId
+          ? "h-[min(720px,80dvh)] overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+          : "h-fit overflow-visible bg-transparent",
+      )}
     >
       <div className="flex h-full flex-col">
         <Conversation

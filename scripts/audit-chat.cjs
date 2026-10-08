@@ -272,6 +272,33 @@ const fs = require("node:fs");
         ],
       };
     else if (url.pathname.includes("/chats/chat_audit")) body = chat;
+    else if (url.pathname.endsWith("/agent/providers"))
+      body = {
+        defaultProvider: "openrouter",
+        localCli: false,
+        openrouter: {
+          keySet: true,
+          chatModel: "audit/default-model",
+          embedModel: "",
+          ready: true,
+        },
+        claude: {
+          enabled: false,
+          status: {},
+          connected: false,
+          model: "",
+          ready: false,
+        },
+        codex: {
+          enabled: false,
+          status: {},
+          connected: false,
+          model: "",
+          ready: false,
+        },
+        apiProviders: [],
+        reindex: { done: 0, total: 0, updatedAt: "" },
+      };
     else if (url.pathname.endsWith("/config"))
       body = { appearance: { theme: themeMode, accent: "default" } };
     else if (url.pathname.endsWith("/me"))
@@ -405,26 +432,56 @@ const fs = require("node:fs");
   await page.goto("http://localhost:4002/chat?id=chat_audit");
   await page.getByRole("button", { name: "Apply changes" }).waitFor();
   await page.keyboard.press("Control+Shift+J");
-  await page.getByRole("dialog", { name: "Chat with Timely" }).waitFor();
+  const overlay = page.getByRole("dialog", { name: "Chat with Timely" });
+  await overlay.waitFor();
   await page.waitForTimeout(450);
   await page.screenshot({
     path: "/tmp/timely-chat-overlay.png",
     fullPage: true,
   });
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: /Remove .* context/ })
-    .click();
+  // The quick prompt opens as a bare bar: no header, hero or sample prompts.
+  await expect(overlay.getByRole("heading")).toHaveCount(0);
+  await expect(overlay.getByText("New conversation")).toHaveCount(0);
+  await expect(overlay.getByLabel("Conversation messages")).toHaveCount(0);
+  await expect(overlay.getByLabel("Message Timely")).toBeFocused();
+  await overlay.getByRole("button", { name: /Remove .* context/ }).click();
   assert.equal(
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: /Remove .* context/ })
-      .count(),
+    await overlay.getByRole("button", { name: /Remove .* context/ }).count(),
     0,
   );
+  await overlay.getByRole("button", { name: /Default/ }).click();
+  await overlay.getByRole("dialog", { name: "Choose a model" }).waitFor();
+  const bar = await overlay.boundingBox();
+  const menu = await overlay
+    .getByRole("dialog", { name: "Choose a model" })
+    .boundingBox();
+  assert(menu.y > bar.y, "model menu should open below the prompt bar");
+  await page.screenshot({
+    path: "/tmp/timely-chat-overlay-models.png",
+    fullPage: true,
+  });
+  await page.keyboard.press("Escape");
+  await expect(
+    overlay.getByRole("dialog", { name: "Choose a model" }),
+  ).toHaveCount(0);
+  await expect(overlay).toBeVisible();
+  await overlay.getByLabel("Message Timely").fill("Plan my week");
+  await page.keyboard.press("Enter");
+  await overlay.getByLabel("Conversation messages").waitFor();
+  await overlay.getByRole("button", { name: "Open in Chat tab" }).waitFor();
+  await page.waitForTimeout(450);
+  await page.screenshot({
+    path: "/tmp/timely-chat-overlay-sent.png",
+    fullPage: true,
+  });
   await page.keyboard.press("Escape");
   if (await page.getByRole("dialog").count())
     throw new Error("Escape failed to close overlay");
+  await page.keyboard.press("Control+Shift+J");
+  await overlay.waitFor();
+  await page.mouse.click(20, 980);
+  if (await page.getByRole("dialog").count())
+    throw new Error("Clicking outside failed to close overlay");
   themeMode = "dark";
   await page.setViewportSize({ width: 1000, height: 760 });
   await page.reload();
@@ -579,6 +636,8 @@ const fs = require("node:fs");
         "/tmp/timely-chat-empty.png",
         "/tmp/timely-chat-proposal.png",
         "/tmp/timely-chat-overlay.png",
+        "/tmp/timely-chat-overlay-models.png",
+        "/tmp/timely-chat-overlay-sent.png",
         "/tmp/timely-chat-discarded.png",
         "/tmp/timely-receipt-review.png",
       ],
