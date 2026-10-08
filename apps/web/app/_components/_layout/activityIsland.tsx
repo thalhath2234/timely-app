@@ -245,7 +245,7 @@ export default function ActivityIsland() {
                   .slice(0, 2)
                   .map((kind) =>
                     kind === "busy" ? (
-                      <LogoSpinner key={kind} size={14} label="Agent working" />
+                      <LogoSpinner key={kind} size={16} label="Agent working" />
                     ) : kind === "chat" ? (
                       <Sparkles key={kind} className="size-3.5 text-primary" />
                     ) : kind === "focus" ? (
@@ -304,11 +304,14 @@ export default function ActivityIsland() {
                       const meta = statusMeta(c.status);
                       const Icon = meta.icon;
                       return (
-                        <li key={c.id} className="group flex items-center">
+                        <li
+                          key={c.id}
+                          className="flex items-center rounded-2xl hover:bg-accent"
+                        >
                           <button
                             type="button"
                             onClick={() => openFromIsland(c.id)}
-                            className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left hover:bg-accent"
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left"
                           >
                             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
                               {busy ? (
@@ -344,7 +347,7 @@ export default function ActivityIsland() {
                               type="button"
                               aria-label={`Dismiss ${c.title || "chat"}`}
                               onClick={() => dismiss(c.id)}
-                              className="mr-1 rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                              className="mr-2 shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-background hover:text-foreground"
                             >
                               <X className="size-3.5" />
                             </button>
@@ -353,14 +356,14 @@ export default function ActivityIsland() {
                       );
                     })}
                     {focusing && (
-                      <li className="flex items-center">
+                      <li className="flex items-center rounded-2xl hover:bg-accent">
                         <button
                           type="button"
                           onClick={() => {
                             setOpen(false);
                             openTask(focusing.id);
                           }}
-                          className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left hover:bg-accent"
+                          className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left"
                         >
                           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
                             <Timer className="size-4" />
@@ -379,7 +382,7 @@ export default function ActivityIsland() {
                           aria-label="Stop focus"
                           disabled={stopFocus.isPending}
                           onClick={() => stopFocus.mutate(focusing.id)}
-                          className="mr-1 rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-40"
+                          className="mr-2 shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
                         >
                           <Square className="size-3.5 fill-current" />
                         </button>

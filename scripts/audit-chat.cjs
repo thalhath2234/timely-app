@@ -11,7 +11,26 @@ const fs = require("node:fs");
   });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
+    // CHAT_VIDEO=<dir> records the run; `marks` gives the island segment.
+    ...(process.env.CHAT_VIDEO
+      ? {
+          recordVideo: {
+            dir: process.env.CHAT_VIDEO,
+            size: { width: 1440, height: 1000 },
+          },
+        }
+      : {}),
   });
+  // Keep the Next.js dev badge from covering the sidebar's bottom corner.
+  await context.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      const style = document.createElement("style");
+      style.textContent = "nextjs-portal { display: none !important; }";
+      document.head.append(style);
+    });
+  });
+  const videoStart = Date.now();
+  const marks = {};
   // UI audit uses mocked, account-scoped responses; no personal account data.
   await context.addCookies([
     { name: "refresh", value: "ui-audit", url: "http://localhost:4002" },
@@ -128,13 +147,14 @@ const fs = require("node:fs");
     name: "Receipt.png",
     expiresAt: new Date(Date.now() + 86400000).toISOString(),
   };
-  const receiptPage = await context.newPage();
+  const receiptContext = await browser.newContext();
+  const receiptPage = await receiptContext.newPage();
   await receiptPage.setContent(
     `<html><body style="margin:0;padding:44px;background:#fff;color:#111;font:22px monospace;width:412px"><h1 style="font-size:30px;text-align:center">CORNER SHOP</h1><p style="text-align:center">TEST RECEIPT · JPY<br>2026-09-29</p><hr><p>Rice &nbsp;&nbsp;1 × 100 &nbsp;&nbsp;100</p><p>Tea &nbsp;&nbsp;&nbsp;2 × 100 &nbsp;&nbsp;200</p><hr><p>Subtotal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;300</p><p>Tax (10%) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;30</p><h2 style="font-size:26px">TOTAL JPY &nbsp;&nbsp;&nbsp;&nbsp;330</h2><p style="text-align:center;font-size:14px">Synthetic receipt for testing</p></body></html>`,
   );
   await receiptPage.setViewportSize({ width: 500, height: 600 });
   await receiptPage.screenshot({ path: "/tmp/timely-receipt-fixture.png" });
-  await receiptPage.close();
+  await receiptContext.close();
   const requests = [];
   await page.route("**/api-proxy/**", async (route) => {
     const url = new URL(route.request().url());
@@ -514,6 +534,7 @@ const fs = require("node:fs");
   ).toHaveCount(0);
   await expect(overlay).toBeVisible();
   // Sending shrinks the prompt into the Activity island above Sign out.
+  marks.islandStart = (Date.now() - videoStart) / 1000;
   quickMode = true;
   await overlay.getByLabel("Message Timely").fill("Plan my week");
   await page.keyboard.press("Enter");
@@ -591,8 +612,27 @@ const fs = require("node:fs");
   );
   await expect(activity.getByText("Plan my week")).toBeVisible();
   await expect(activity.getByText("Build a project budget")).toBeVisible();
+  await activity.getByText("Build a project budget").hover();
+  // Dismiss sits inside its row's highlight, not beside it.
+  const row = await activity
+    .locator("li", { hasText: "Build a project budget" })
+    .boundingBox();
+  const x = await activity
+    .getByRole("button", { name: "Dismiss Build a project budget" })
+    .boundingBox();
+  assert(
+    x.x + x.width <= row.x + row.width - 4,
+    "dismiss button should sit inside the row",
+  );
   await page.waitForTimeout(500);
   await page.screenshot({ path: "/tmp/timely-island-open.png" });
+  await page.mouse.move(700, 500);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(900);
+  await island.click();
+  await activity.waitFor();
+  await page.waitForTimeout(700);
+  marks.islandEnd = (Date.now() - videoStart) / 1000;
   await activity.getByRole("button", { name: /^Plan my week/ }).click();
   await overlay.getByLabel("Conversation messages").waitFor();
   await overlay.getByRole("button", { name: "Open in Chat tab" }).waitFor();
@@ -766,6 +806,7 @@ const fs = require("node:fs");
   console.log(
     JSON.stringify({
       errors,
+      marks,
       screenshots: [
         "/tmp/timely-chat-empty.png",
         "/tmp/timely-chat-proposal.png",
