@@ -559,14 +559,36 @@ const fs = require("node:fs");
   await page.waitForTimeout(300);
   const moves = await page.evaluate(() => window.__islandMoves);
   assert(
-    moves.some((t) => t.startsWith("matrix") && parseFloat(t.split(",")[5]) < -2),
+    moves.some(
+      (t) => t.startsWith("matrix") && parseFloat(t.split(",")[5]) < -2,
+    ),
     `island did not bounce: ${JSON.stringify(moves.slice(0, 5))}`,
   );
   await page.waitForTimeout(900);
   await page.screenshot({ path: "/tmp/timely-island-done.png" });
+  // Opening springs: the panel overshoots its final size before settling.
+  await page.evaluate(() => {
+    window.__islandScales = [];
+    const watch = () => {
+      const panel = document.querySelector(
+        '[role="dialog"][aria-label="Activity"]',
+      );
+      const t = panel && getComputedStyle(panel).transform;
+      if (t && t.startsWith("matrix"))
+        window.__islandScales.push(parseFloat(t.slice(7)));
+      if (window.__islandScales.length < 120) requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
+  });
   await island.click();
   const activity = page.getByRole("dialog", { name: "Activity" });
   await activity.waitFor();
+  await page.waitForTimeout(900);
+  const scales = await page.evaluate(() => window.__islandScales);
+  assert(
+    scales.some((x) => x > 1.005),
+    `island did not spring open: ${JSON.stringify(scales.slice(0, 12))}`,
+  );
   await expect(activity.getByText("Plan my week")).toBeVisible();
   await expect(activity.getByText("Build a project budget")).toBeVisible();
   await page.waitForTimeout(500);
@@ -580,8 +602,7 @@ const fs = require("node:fs");
     fullPage: true,
   });
   await page.keyboard.press("Escape");
-  if (await page.getByRole("dialog").count())
-    throw new Error("Escape failed to close overlay");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   quickMode = false;
   quick = null;
   await page.keyboard.press("Control+Shift+J");
@@ -595,6 +616,12 @@ const fs = require("node:fs");
   await page.getByRole("button", { name: "Apply changes" }).waitFor();
   await page.waitForTimeout(450);
   await page.screenshot({ path: "/tmp/timely-chat-dark.png", fullPage: true });
+  await page.locator("[data-activity-island]").click();
+  await page.getByRole("dialog", { name: "Activity" }).waitFor();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: "/tmp/timely-island-dark.png" });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Activity" })).toHaveCount(0);
   receiptMode = true;
   themeMode = "light";
   await page.setViewportSize({ width: 1440, height: 1100 });
@@ -748,6 +775,7 @@ const fs = require("node:fs");
         "/tmp/timely-island-working.png",
         "/tmp/timely-island-done.png",
         "/tmp/timely-island-open.png",
+        "/tmp/timely-island-dark.png",
         "/tmp/timely-chat-discarded.png",
         "/tmp/timely-receipt-review.png",
       ],

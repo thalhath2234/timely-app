@@ -6,7 +6,6 @@ import { AnimatePresence, motion, useAnimate } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Sparkles, Square, Timer, X } from "lucide-react";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
-import { springSoft } from "@/app/_components/_ui/motion";
 import { useChatStore } from "@/app/_store/chatStore";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
@@ -21,6 +20,14 @@ import {
   statusMeta,
 } from "@/app/_components/chat/chatMeta";
 import { cn } from "@/app/utils/cn";
+
+/** Underdamped so the island overshoots a little when it opens and closes. */
+const islandSpring = {
+  type: "spring",
+  stiffness: 380,
+  damping: 22,
+  mass: 0.9,
+} as const;
 
 /** Shared `view-transition-name` for the quick prompt shrinking into the pill. */
 export const ISLAND_MORPH = "activity-island";
@@ -212,7 +219,7 @@ export default function ActivityIsland() {
           initial={morphing ? false : { opacity: 0, scale: 0.5 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.5 }}
-          transition={springSoft}
+          transition={islandSpring}
           className="relative mt-auto mb-1"
         >
           <div ref={scope}>
@@ -231,23 +238,18 @@ export default function ActivityIsland() {
                   setAttention(false);
                 }}
                 style={{ borderRadius: 999 }}
-                transition={springSoft}
-                className="flex h-7 w-[52px] cursor-pointer items-center justify-center gap-1 bg-neutral-950 text-white shadow-md ring-1 ring-white/10"
+                transition={islandSpring}
+                className="flex h-7 w-[52px] cursor-pointer items-center justify-center gap-1 border border-border bg-popover text-popover-foreground shadow-md"
               >
                 {pillIcons
                   .slice(0, 2)
                   .map((kind) =>
                     kind === "busy" ? (
-                      <LogoSpinner
-                        key={kind}
-                        size={14}
-                        tone="mono"
-                        label="Agent working"
-                      />
+                      <LogoSpinner key={kind} size={14} label="Agent working" />
                     ) : kind === "chat" ? (
                       <Sparkles key={kind} className="size-3.5 text-primary" />
                     ) : kind === "focus" ? (
-                      <Timer key={kind} className="size-3.5 text-emerald-400" />
+                      <Timer key={kind} className="size-3.5 text-success" />
                     ) : (
                       <CalendarClock key={kind} className="size-3.5" />
                     ),
@@ -274,8 +276,8 @@ export default function ActivityIsland() {
                 role="dialog"
                 aria-label="Activity"
                 style={{ borderRadius: 22 }}
-                transition={springSoft}
-                className="absolute bottom-0 left-0 z-50 w-[300px] overflow-hidden bg-neutral-950 text-white shadow-2xl ring-1 ring-white/10"
+                transition={islandSpring}
+                className="absolute bottom-0 left-0 z-50 w-[300px] overflow-hidden border border-border bg-popover text-popover-foreground shadow-2xl"
               >
                 <motion.div
                   initial={{ opacity: 0 }}
@@ -284,14 +286,14 @@ export default function ActivityIsland() {
                   className="p-2"
                 >
                   <div className="flex items-center justify-between px-2 pb-1 pt-1">
-                    <p className="text-xs font-medium text-white/60">
+                    <p className="text-xs font-medium text-muted-foreground">
                       Activity
                     </p>
                     <button
                       type="button"
                       aria-label="Close activity"
                       onClick={() => setOpen(false)}
-                      className="rounded-full p-1 text-white/60 hover:bg-white/10 hover:text-white"
+                      className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     >
                       <X className="size-3.5" />
                     </button>
@@ -306,23 +308,19 @@ export default function ActivityIsland() {
                           <button
                             type="button"
                             onClick={() => openFromIsland(c.id)}
-                            className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left hover:bg-white/10"
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left hover:bg-accent"
                           >
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/10">
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
                               {busy ? (
-                                <LogoSpinner
-                                  size={16}
-                                  tone="mono"
-                                  label={meta.label}
-                                />
+                                <LogoSpinner size={16} label={meta.label} />
                               ) : (
                                 <Icon
                                   className={cn(
                                     "size-4",
                                     meta.tone === "warning"
-                                      ? "text-amber-400"
+                                      ? "text-warning"
                                       : meta.tone === "destructive"
-                                        ? "text-red-400"
+                                        ? "text-destructive"
                                         : "text-primary",
                                   )}
                                 />
@@ -332,7 +330,7 @@ export default function ActivityIsland() {
                               <span className="block truncate text-sm font-medium">
                                 {c.title || "New chat"}
                               </span>
-                              <span className="block truncate text-xs text-white/60">
+                              <span className="block truncate text-xs text-muted-foreground">
                                 {busy
                                   ? phaseLabel(c.phase)
                                   : c.status === "idle"
@@ -346,7 +344,7 @@ export default function ActivityIsland() {
                               type="button"
                               aria-label={`Dismiss ${c.title || "chat"}`}
                               onClick={() => dismiss(c.id)}
-                              className="mr-1 rounded-full p-1.5 text-white/50 hover:bg-white/10 hover:text-white"
+                              className="mr-1 rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                             >
                               <X className="size-3.5" />
                             </button>
@@ -362,16 +360,16 @@ export default function ActivityIsland() {
                             setOpen(false);
                             openTask(focusing.id);
                           }}
-                          className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left hover:bg-white/10"
+                          className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left hover:bg-accent"
                         >
-                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
                             <Timer className="size-4" />
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-medium">
                               {focusing.name}
                             </span>
-                            <span className="block text-xs tabular-nums text-white/60">
+                            <span className="block text-xs tabular-nums text-muted-foreground">
                               Focusing · {elapsedLabel(elapsed)}
                             </span>
                           </span>
@@ -381,7 +379,7 @@ export default function ActivityIsland() {
                           aria-label="Stop focus"
                           disabled={stopFocus.isPending}
                           onClick={() => stopFocus.mutate(focusing.id)}
-                          className="mr-1 rounded-full p-1.5 text-white/60 hover:bg-white/10 hover:text-white disabled:opacity-40"
+                          className="mr-1 rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-40"
                         >
                           <Square className="size-3.5 fill-current" />
                         </button>
@@ -389,8 +387,8 @@ export default function ActivityIsland() {
                     )}
                     {scheduling && (
                       <li className="flex items-center gap-3 px-2 py-2">
-                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/10">
-                          <LogoSpinner size={16} tone="mono" />
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                          <LogoSpinner size={16} />
                         </span>
                         <span className="min-w-0 flex-1 truncate text-sm">
                           {schedule.message || "Auto-scheduling…"}
