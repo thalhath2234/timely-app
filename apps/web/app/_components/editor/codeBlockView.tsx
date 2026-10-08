@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import { Check, ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { normalizeCodeLanguage } from "@/app/utils/markdown";
 import MapPreview from "./mapPreview";
 import MermaidPreview from "./mermaidPreview";
@@ -33,7 +33,7 @@ const LANGUAGES = [
 // the drawing under a diagram, map or model) far down the page.
 const FOLDED_LINES = 3;
 
-export default function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
+export default function CodeBlockView({ node, editor, updateAttributes, deleteNode }: NodeViewProps) {
   // Older docs and MCP writes may carry short aliases ("js"); show them under
   // their canonical name so the selector never silently falls back to plain.
   const language = normalizeCodeLanguage(String(node.attrs.language ?? ""));
@@ -105,6 +105,20 @@ export default function CodeBlockView({ node, updateAttributes }: NodeViewProps)
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           {copied ? "Copied" : "Copy"}
+        </button>
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            deleteNode();
+            // Keep typing (and Ctrl+Z) working where the block was.
+            editor.commands.focus();
+          }}
+          className="doc-code-copy doc-code-delete"
+          aria-label="Delete code block"
+          title="Delete code block"
+        >
+          <Trash2 className="size-3.5" />
         </button>
       </div>
       <pre className={`doc-code-block language-${language || "plaintext"}${folded ? " is-folded" : ""}`}>

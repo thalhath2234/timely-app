@@ -66,7 +66,8 @@ export function buildEditorHtml(
     .tiptap pre { position: relative; background: ${t.muted}; border: 1px solid ${t.border}; border-radius: 10px; padding: 36px 12px 12px; overflow-x: auto; color: ${t.foreground}; }
     .tiptap code { font-family: ui-monospace, "Cascadia Code", "Fira Code", Menlo, monospace; font-size: 13.5px; }
     .tiptap p code { background: ${t.muted}; color: ${t.accentForeground}; padding: 0.1em 0.35em; border-radius: 4px; }
-    .code-copy { position: absolute; top: 8px; right: 8px; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; font-size: 11px; font-weight: 600; padding: 4px 8px; }
+    .code-delete { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; justify-content: center; width: 26px; height: 23px; padding: 0; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; }
+    .code-copy { position: absolute; top: 8px; right: 40px; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; font-size: 11px; font-weight: 600; padding: 4px 8px; }
     .tok-keyword { color: #569cd6; }
     .tok-string { color: #ce9178; }
     .tok-comment { color: #6a9955; }
@@ -1030,12 +1031,27 @@ export function buildEditorHtml(
     // source without ProseMirror removing it as unknown DOM.
     const DiagramCodeBlock = CodeBlock.extend({
       addNodeView() {
-        return ({ node }) => {
+        return ({ node, getPos, editor }) => {
           const dom = document.createElement("div");
           dom.className = "code-wrap";
           const pre = document.createElement("pre");
           const code = document.createElement("code");
           pre.appendChild(code);
+          // Trash button next to Copy removes the whole block.
+          const del = document.createElement("button");
+          del.type = "button";
+          del.className = "code-delete";
+          del.setAttribute("contenteditable", "false");
+          del.setAttribute("aria-label", "Delete code block");
+          del.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+          del.addEventListener("mousedown", (event) => event.preventDefault());
+          del.addEventListener("click", () => {
+            const pos = getPos();
+            if (typeof pos !== "number") return;
+            const size = editor.state.doc.nodeAt(pos).nodeSize;
+            editor.chain().focus().deleteRange({ from: pos, to: pos + size }).run();
+          });
+          pre.appendChild(del);
           const out = document.createElement("div");
           out.className = "mermaid-out";
           out.setAttribute("contenteditable", "false");

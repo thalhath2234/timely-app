@@ -406,8 +406,12 @@ body::-webkit-scrollbar-corner,
 
 .doc-code-bar {
   border-bottom: 1px solid var(--border);
-  justify-content: space-between;
+  gap: 2px;
   padding: 4px 6px 4px 8px;
+}
+
+.doc-code-bar .doc-code-lang {
+  margin-right: auto;
 }
 
 .doc-code-fold {
@@ -447,6 +451,11 @@ body::-webkit-scrollbar-corner,
 .doc-code-copy:hover {
   background: var(--accent);
   color: var(--accent-foreground);
+}
+
+.doc-code-delete:hover {
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
+  color: var(--destructive);
 }
 
 .doc-code-lang:focus-visible,
