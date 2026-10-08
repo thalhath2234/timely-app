@@ -9,6 +9,7 @@ import {
   ExternalLink,
   LayoutTemplate,
   Link2,
+  PanelTop,
   Pencil,
   Sheet as SheetIcon,
   Star,
@@ -24,6 +25,7 @@ import {
 } from "@/app/utils/hooks/sheets";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
+import { openInTab } from "@/app/_components/pageTabs/openInTab";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { flushOpenSheet } from "@/app/utils/sheetFlush";
 
@@ -59,6 +61,12 @@ export function useSheetContextMenu() {
           icon: SheetIcon,
           shortcut: "Enter",
           onSelect: () => router.push(`/sheets/${sheet.id}`),
+        },
+        {
+          kind: "action",
+          label: "Open in new tab",
+          icon: PanelTop,
+          onSelect: () => openInTab(`/sheets/${sheet.id}`, (href) => router.push(href)),
         },
         {
           kind: "action",

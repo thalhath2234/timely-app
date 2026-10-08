@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopAction, DesktopInstance, DesktopSettingKey } from "../electron-env";
+import type { DesktopAction, DesktopInstance, DesktopSettingKey, PageTabCommand } from "../electron-env";
 
 const hosted = process.argv.includes("--timely-hosted");
 
@@ -17,6 +17,13 @@ contextBridge.exposeInMainWorld("timelyDesktop", {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
     node: process.versions.node,
+  },
+  /** Doc/sheet tabs are on screen, so tab shortcuts should reach the page. */
+  setPageTabsActive: (active: boolean) => ipcRenderer.send("pageTabs:active", active),
+  onPageTabCommand: (callback: (command: PageTabCommand) => void) => {
+    const handler = (_event: unknown, command: PageTabCommand) => callback(command);
+    ipcRenderer.on("pageTabs:command", handler);
+    return () => ipcRenderer.removeListener("pageTabs:command", handler);
   },
   // Present only when this app hosts its own backend (contract: docs/desktop/README.md).
   ...(hosted

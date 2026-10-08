@@ -7,6 +7,7 @@ import ContextMenuHost from "@/app/_components/_ui/contextMenu";
 import ConfirmHost from "@/app/_components/_ui/confirmHost";
 import KeyboardShortcuts from "@/app/_components/_ui/keyboardShortcuts";
 import EntityDetailHost from "@/app/_components/_ui/tasks/entityDetailHost";
+import PageTabLinks from "@/app/_components/pageTabs/pageTabLinks";
 import { Suspense } from "react";
 
 export default async function DashboardLayout({
@@ -19,6 +20,7 @@ export default async function DashboardLayout({
       <SearchModal />
       <AddItemModal />
       <EntityDetailHost />
+      <PageTabLinks />
       <AutoScheduleIndicator />
       <Suspense fallback={null}>
         <KeyboardShortcuts />

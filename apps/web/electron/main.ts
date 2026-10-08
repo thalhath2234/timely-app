@@ -21,7 +21,7 @@ import { checkPrivileges } from "./supervisor/guards";
 import { ACTIONS, BootError, SETTING_KEYS, Supervisor, type BootProgress, type BootStep } from "./supervisor/index";
 import { resolveResourceDirs } from "./supervisor/paths";
 import { createElectronUpdater } from "./supervisor/updater";
-import type { DesktopAction, DesktopSettingKey } from "../electron-env";
+import type { DesktopAction, DesktopSettingKey, PageTabCommand } from "../electron-env";
 
 const DEFAULT_RENDERER_URL = "http://127.0.0.1:4001";
 const WAIT_TIMEOUT_MS = 120_000;
@@ -122,6 +122,51 @@ ipcMain.on("boot:quit", (event) => {
   if (!bootWindow || event.sender !== bootWindow.webContents) return;
   requestQuit();
 });
+
+// ---------------------------------------------------------------------------
+// Doc/sheet tab shortcuts
+// ---------------------------------------------------------------------------
+
+// Pages whose doc/sheet tab strip is showing. Only those get Ctrl/Cmd+W and
+// friends as tab commands; everywhere else the menu's own shortcuts apply.
+const pageTabPages = new Set<number>();
+
+ipcMain.on("pageTabs:active", (event, active: unknown) => {
+  if (active === true) pageTabPages.add(event.sender.id);
+  else pageTabPages.delete(event.sender.id);
+});
+
+function pageTabCommand(input: Electron.Input): PageTabCommand | null {
+  if (input.type !== "keyDown") return null;
+  const key = input.key.toLowerCase();
+  const mod = process.platform === "darwin" ? input.meta : input.control;
+  if (mod && !input.shift && !input.alt && key === "t") return "new";
+  if (mod && !input.shift && !input.alt && key === "w") return "close";
+  if (input.control && !input.alt && key === "tab") return input.shift ? "previous" : "next";
+  // macOS keeps Option+arrows for moving by word, so it gets Cmd+[ and Cmd+].
+  if (process.platform === "darwin") {
+    if (input.meta && !input.shift && !input.alt && key === "[") return "back";
+    if (input.meta && !input.shift && !input.alt && key === "]") return "forward";
+    return null;
+  }
+  if (input.alt && !input.control && !input.meta && key === "arrowleft") return "back";
+  if (input.alt && !input.control && !input.meta && key === "arrowright") return "forward";
+  return null;
+}
+
+// Menu accelerators fire before the page sees the key, so tab shortcuts are
+// caught here and handed to the page instead.
+function attachPageTabShortcuts(contents: Electron.WebContents) {
+  contents.on("before-input-event", (event, input) => {
+    if (!pageTabPages.has(contents.id)) return;
+    const command = pageTabCommand(input);
+    if (!command) return;
+    event.preventDefault();
+    contents.send("pageTabs:command", command);
+  });
+  contents.on("destroyed", () => pageTabPages.delete(contents.id));
+  contents.on("did-create-window", (child) => attachPageTabShortcuts(child.webContents));
+}
 
 // ---------------------------------------------------------------------------
 // Dev mode helpers (unchanged behaviour)
@@ -253,6 +298,7 @@ async function createWindow(url: string) {
 
   attachWindowGuards(win, url);
   attachPermissionGuards(win, url);
+  attachPageTabShortcuts(win.webContents);
   win.once("ready-to-show", () => {
     if (isWindows) win.maximize();
     win.show();
