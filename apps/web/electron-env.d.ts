@@ -73,6 +73,8 @@ export type TimelyDesktop = {
   onOpenChat: (callback: (id: string) => void) => () => void;
   /** Saves the page, as laid out for print, to a PDF the user picks. */
   savePdf?: (title: string) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string }>;
+  /** Moves the mouse pointer to a point in the page (CSS pixels); no-op where the OS forbids it (Wayland). */
+  snapPointer?: (x: number, y: number) => void;
   versions: {
     electron: string;
     chrome: string;

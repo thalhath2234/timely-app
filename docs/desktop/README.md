@@ -144,6 +144,17 @@ timelyDesktop.setPageTabsActive(active: boolean): void
 timelyDesktop.onPageTabCommand((command: "new" | "close" | "next" | "previous" | "back" | "forward") => void): () => void
 ```
 
+Confirm dialogs move the mouse pointer onto their Cancel button when they open, like
+Windows' "Snap To" setting. The page passes the button's centre in CSS pixels; the main
+process converts it to screen coordinates and moves the pointer only while the window is
+focused and the point is inside it (`electron/pointer.ts`, through the koffi FFI module):
+SetCursorPos on Windows and XWarpPointer on Linux under X11. Wayland sessions don't let
+apps move the pointer, and macOS isn't supported, so there it does nothing.
+
+```ts
+timelyDesktop.snapPointer(x: number, y: number): void
+```
+
 ## Pairing payload
 
 The QR code in Settings → Server encodes JSON:
