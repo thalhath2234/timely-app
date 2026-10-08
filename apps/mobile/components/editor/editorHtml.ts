@@ -105,6 +105,8 @@ export function buildEditorHtml(
     .details { position: relative; margin: 0 0 0.25em; padding-left: 28px; }
     .details-toggle { position: absolute; left: 0; top: 2px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: ${t.mutedForeground}; }
     .details-toggle svg { transition: transform 0.15s ease; }
+    .find-match { background: color-mix(in srgb, #f5b041 35%, transparent); border-radius: 2px; }
+    .find-current { background: color-mix(in srgb, #f5b041 80%, transparent); }
     .doc-embed, .doc-bookmark { margin: 10px 0; }
     .doc-embed-frame { width: 100%; overflow: hidden; border: 1px solid ${t.border}; border-radius: 10px; background: ${t.muted}; }
     .doc-embed-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
@@ -159,6 +161,7 @@ export function buildEditorHtml(
     import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
     import { TextSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
+    import { Decoration, DecorationSet } from "https://esm.sh/@tiptap/pm@3.31.4/view";
 
     const placeholder = ${embed(placeholder)};
 
@@ -177,6 +180,81 @@ export function buildEditorHtml(
             renderHTML: (attrs) => ({ src: attrs.src && attrs.src.startsWith("/files/") ? apiBase + attrs.src : attrs.src }),
           },
         };
+      },
+    });
+    // Find and replace, as on web (apps/web/app/_components/editor/findReplace.ts).
+    // The app's find bar drives it with the find* commands and reads back
+    // { type: "find", current, count }.
+    const findKey = new PluginKey("findReplace");
+    const FIND_EMPTY = { query: "", caseSensitive: false, matches: [], current: -1 };
+    function findMatches(doc, query, caseSensitive) {
+      const out = [];
+      if (!query) return out;
+      const needle = caseSensitive ? query : query.toLowerCase();
+      doc.descendants((node, pos) => {
+        if (!node.isTextblock) return true;
+        let text = "";
+        node.forEach((child) => { text += child.isText ? child.text : "\\uFFFC".repeat(child.nodeSize); });
+        const hay = caseSensitive ? text : text.toLowerCase();
+        for (let at = hay.indexOf(needle); at !== -1; at = hay.indexOf(needle, at + needle.length)) {
+          out.push({ from: pos + 1 + at, to: pos + 1 + at + needle.length });
+        }
+        return false;
+      });
+      return out;
+    }
+    function getFind(state) { return findKey.getState(state) || FIND_EMPTY; }
+    function revealMatch(tr, match) {
+      const $from = tr.doc.resolve(match.from);
+      for (let depth = $from.depth; depth > 0; depth -= 1) {
+        const node = $from.node(depth);
+        if (node.type.name === "details" && !node.attrs.open) tr.setNodeMarkup($from.before(depth), undefined, Object.assign({}, node.attrs, { open: true }));
+      }
+      tr.setSelection(TextSelection.create(tr.doc, match.from, match.to));
+      return tr.scrollIntoView();
+    }
+    const FindReplace = Extension.create({
+      name: "findReplace",
+      addProseMirrorPlugins() {
+        let lastSent = "";
+        return [
+          new Plugin({
+            key: findKey,
+            state: {
+              init: () => FIND_EMPTY,
+              apply(tr, value, _old, next) {
+                const meta = tr.getMeta(findKey);
+                if (!meta && (!tr.docChanged || !value.query)) return value;
+                const query = meta && meta.query !== undefined ? meta.query : value.query;
+                const caseSensitive = meta && meta.caseSensitive !== undefined ? meta.caseSensitive : value.caseSensitive;
+                const matches = findMatches(tr.doc, query, caseSensitive);
+                let current;
+                if (meta && meta.current !== undefined) current = matches.length ? ((meta.current % matches.length) + matches.length) % matches.length : -1;
+                else if (meta) {
+                  const index = matches.findIndex((m) => m.from >= next.selection.from);
+                  current = matches.length ? (index === -1 ? 0 : index) : -1;
+                } else current = matches.length ? Math.min(Math.max(value.current, 0), matches.length - 1) : -1;
+                return { query, caseSensitive, matches, current };
+              },
+            },
+            props: {
+              decorations(state) {
+                const find = findKey.getState(state);
+                if (!find || !find.matches.length) return null;
+                return DecorationSet.create(state.doc, find.matches.map((m, i) => Decoration.inline(m.from, m.to, { class: i === find.current ? "find-match find-current" : "find-match" })));
+              },
+            },
+            view: () => ({
+              update(view) {
+                const find = getFind(view.state);
+                const key = find.query ? find.current + "/" + find.matches.length : "";
+                if (key === lastSent) return;
+                lastSent = key;
+                send({ type: "find", current: find.current, count: find.matches.length });
+              },
+            }),
+          }),
+        ];
       },
     });
     const EMBED_PATTERNS = ${embed(EMBED_PATTERNS.map(({ provider, pattern }) => ({ provider, source: pattern.source, flags: pattern.flags })))};
@@ -1519,6 +1597,7 @@ export function buildEditorHtml(
         DetailsSummary,
         EmbedNode,
         BookmarkNode,
+        FindReplace,
         FootnoteRef,
         Footnote,
         Frontmatter,
@@ -1567,6 +1646,41 @@ export function buildEditorHtml(
       addColBefore: true, addColAfter: true, deleteCol: true,
       deleteTable: true,
     };
+    function runFind(name, payload) {
+      const state = editor.state;
+      const find = getFind(state);
+      const tr = state.tr;
+      if (name === "find") {
+        editor.view.dispatch(tr.setMeta(findKey, { query: String(payload.query || ""), caseSensitive: Boolean(payload.caseSensitive) }));
+        return;
+      }
+      if (name === "findStep") {
+        if (!find.matches.length) return;
+        const index = (((find.current + (payload.direction < 0 ? -1 : 1)) % find.matches.length) + find.matches.length) % find.matches.length;
+        editor.view.dispatch(revealMatch(tr.setMeta(findKey, { current: index }), find.matches[index]).setMeta("addToHistory", false));
+        return;
+      }
+      const text = String(payload.text || "");
+      if (name === "replaceCurrent") {
+        const match = find.matches[find.current];
+        if (!match) return;
+        if (text) tr.insertText(text, match.from, match.to); else tr.delete(match.from, match.to);
+        tr.setMeta(findKey, { current: find.current });
+        const next = findMatches(tr.doc, find.query, find.caseSensitive);
+        const target = next[find.current % Math.max(next.length, 1)];
+        if (target) revealMatch(tr, target);
+        editor.view.dispatch(tr);
+        return;
+      }
+      if (name === "replaceAll") {
+        for (const match of find.matches.slice().reverse()) {
+          if (text) tr.insertText(text, match.from, match.to); else tr.delete(match.from, match.to);
+        }
+        editor.view.dispatch(tr);
+      }
+    }
+    const FIND_CMDS = { find: true, findStep: true, replaceCurrent: true, replaceAll: true };
+
     const NEW_LINE_CMDS = { diagram: true, mathBlock: true, map: true, stl: true };
 
     window.__timely = {
@@ -1577,6 +1691,11 @@ export function buildEditorHtml(
           const root = document.getElementById("editor");
           if (root) root.style.paddingBottom = pad + "px";
           requestAnimationFrame(scrollCaret);
+          return;
+        }
+        // Find runs from the app's find bar, so it must not focus the editor.
+        if (FIND_CMDS[name]) {
+          runFind(name, payload || {});
           return;
         }
         const chain = editor.chain().focus();

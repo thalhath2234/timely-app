@@ -3,7 +3,7 @@ import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Archive, Download, FileText, FolderUp, History, Link2, MoreHorizontal, Smile, Star, Trash2, Upload } from "lucide-react-native";
+import { Archive, Download, FileText, FolderUp, History, Link2, MoreHorizontal, Smile, Star, TextSearch, Trash2, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -96,6 +96,8 @@ function DocEditor({ docId }: { docId: string }) {
   type Menu = "icon" | "parent" | "delete" | "backlinks" | "history" | "version";
   const [menu, setMenu] = useState<"more" | Menu | null>(null);
   const [nextMenu, setNextMenu] = useState<Menu | null>(null);
+
+  const [findOpen, setFindOpen] = useState(false);
 
   function openAfterMore(next: Menu) {
     setNextMenu(next);
@@ -214,6 +216,8 @@ function DocEditor({ docId }: { docId: string }) {
             : (remoteContent ?? seedContent)
         }
         onSelectionChange={setSelectedText}
+        findOpen={findOpen}
+        onFindClose={() => setFindOpen(false)}
         onFocusChange={(focused) => {
           editorFocusedRef.current = focused;
         }}
@@ -278,6 +282,15 @@ function DocEditor({ docId }: { docId: string }) {
           leading={<Upload size={18} color={colors.mutedForeground} />}
         >
           Import Markdown
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setMenu(null);
+            setFindOpen(true);
+          }}
+          leading={<TextSearch size={18} color={colors.mutedForeground} />}
+        >
+          Find and replace
         </SheetOption>
         <SheetOption
           onSelect={() => {

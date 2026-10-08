@@ -44,6 +44,7 @@ import {
   Link2,
   List,
   ListCollapse,
+  TextSearch,
   MonitorPlay,
   Bookmark as BookmarkIcon,
   ListOrdered,
@@ -66,6 +67,8 @@ import { DocImage } from "./docImage";
 import { Details, DetailsSummary } from "./details";
 import { BlockHandle } from "./blockHandle";
 import { Bookmark, Embed } from "./linkBlocks";
+import { FindReplace } from "./findReplace";
+import FindBar from "./findBar";
 import CodeBlockView from "./codeBlockView";
 import { Footnote, FootnoteRef } from "./footnotes";
 import { DocumentWithFrontmatter, Frontmatter } from "./frontmatter";
@@ -206,6 +209,7 @@ export default function RichTextEditor({
   );
   const [linkDraft, setLinkDraft] = useState("");
   const linkInputRef = useRef<HTMLInputElement>(null);
+  const [findOpen, setFindOpen] = useState(false);
   const editorRef = useRef<Editor | null>(null);
 
   // The suggestion plugin lives outside React, so it reads the latest list
@@ -315,7 +319,7 @@ export default function RichTextEditor({
       WikiLink,
     ];
 
-    if (variant === "page") list.push(BlockHandle);
+    if (variant === "page") list.push(BlockHandle, FindReplace.configure({ onOpen: () => setFindOpen(true) }));
 
     if (enableSlashCommands) {
       list.push(
@@ -971,11 +975,27 @@ export default function RichTextEditor({
             >
               <Link2 className="size-3.5" />
             </button>
+            {variant === "page" && (
+              <button
+                type="button"
+                title="Find and replace (Ctrl+F)"
+                aria-label="Find and replace"
+                onClick={() => setFindOpen(true)}
+                className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+                  findOpen ? "bg-accent text-accent-foreground" : ""
+                }`}
+              >
+                <TextSearch className="size-3.5" />
+              </button>
+            )}
           </div>
 
-          {/* The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped. */}
-          <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
-            <EditorContent editor={editor} className="min-h-full" />
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {findOpen && <FindBar editor={editor} onClose={() => setFindOpen(false)} />}
+            {/* The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped. */}
+            <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
+              <EditorContent editor={editor} className="min-h-full" />
+            </div>
           </div>
         </div>
       ) : (

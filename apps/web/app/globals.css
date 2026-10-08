@@ -1500,3 +1500,13 @@ html.reduce-motion .tl-bar {
 .doc-editor-content .doc-link-hint[data-error] {
   color: var(--destructive);
 }
+
+/* Find and replace (findReplace.ts). */
+.doc-editor-content .doc-find-match {
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--warning) 35%, transparent);
+}
+.doc-editor-content .doc-find-current {
+  background: color-mix(in oklab, var(--warning) 80%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 35%, transparent);
+}

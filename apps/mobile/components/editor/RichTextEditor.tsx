@@ -63,6 +63,7 @@ import { getLinkPreview, uploadDocFile } from "../../lib/api/docs";
 import { isEmbedUrl } from "@timely/contract/markdown";
 import { useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
+import FindBar from "./FindBar";
 
 type Picker = { kind: "slash" | "mention"; query: string; from: number; to: number } | null;
 
@@ -217,6 +218,8 @@ export default function RichTextEditor({
   placeholder = "Start writing. Type '/' for blocks, '@' to mention…",
   syncKey = 0,
   compact = false,
+  findOpen = false,
+  onFindClose,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
@@ -229,7 +232,11 @@ export default function RichTextEditor({
   /** Increment when remote content should replace the local draft. */
   syncKey?: number;
   compact?: boolean;
+  /** Shows the find and replace bar over the editor. */
+  findOpen?: boolean;
+  onFindClose?: () => void;
 }) {
+  const [findResult, setFindResult] = useState({ current: -1, count: 0 });
   const webRef = useRef<WebView>(null);
   const themeKey = `${getThemeMode()}:${resolvedAccentHex()}`;
   const html = useMemo(() => buildEditorHtml(content, placeholder, editorThemeVars(), getApiUrlSync()), [themeKey]);
@@ -322,7 +329,10 @@ export default function RichTextEditor({
         latex?: string;
         target?: string;
         href?: string;
+        current?: number;
+        count?: number;
       };
+      if (msg.type === "find") setFindResult({ current: msg.current ?? -1, count: msg.count ?? 0 });
       if (msg.type === "openLink" && msg.href && /^https?:/i.test(msg.href)) void Linking.openURL(msg.href).catch(() => undefined);
       if (msg.type === "mathEdit" && typeof msg.pos === "number") {
         setMathEdit({ pos: msg.pos, latex: msg.latex ?? "" });
@@ -545,6 +555,7 @@ export default function RichTextEditor({
 
   return (
     <View style={[styles.wrap, compact && styles.compact, compact && floatBar && styles.compactFloating]}>
+      {findOpen && ready ? <FindBar run={run} result={findResult} onClose={() => onFindClose?.()} /> : null}
       <View style={[styles.webWrap, compact && styles.compactWeb]}>
         <WebView
           key={themeKey}
