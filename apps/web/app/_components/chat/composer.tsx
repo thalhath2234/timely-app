@@ -92,8 +92,8 @@ export default function Composer({
   onSend: () => void;
   onStop: () => void;
   hint: string;
-  // "bar" is the floating quick prompt: no outer padding, the hint moves
-  // inside the card, and menus open downward.
+  // "bar" is the floating quick prompt: no outer padding and the hint moves
+  // inside the card.
   variant?: "panel" | "bar";
 }) {
   const bar = variant === "bar";
@@ -209,7 +209,6 @@ export default function Composer({
                 value={model}
                 onChange={onChangeModel}
                 disabled={pending}
-                placement={bar ? "down" : "up"}
               />
             </div>
             <div className="flex items-center gap-2">

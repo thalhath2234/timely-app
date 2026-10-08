@@ -166,10 +166,10 @@ function ChatOverlay() {
       onClick={(e) => {
         if (e.target === e.currentTarget) close();
       }}
-      // Opens as a floating prompt bar over the page (no dimmed backdrop) and
-      // grows into a panel once the first message starts a conversation.
+      // Opens as a floating prompt bar near the bottom of the page (no dimmed backdrop) and
+      // grows upward into a panel once the first message starts a conversation.
       className={cn(
-        "fixed inset-0 mx-auto mb-auto mt-[12dvh] max-h-[80dvh] w-[min(760px,94vw)] max-w-none p-0 text-foreground backdrop:bg-transparent open:animate-[vt-panel-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] motion-safe:transition-[height] motion-safe:duration-300 motion-reduce:open:animate-none [interpolate-size:allow-keywords]",
+        "fixed inset-0 mx-auto mb-[max(1.5rem,5dvh)] mt-auto max-h-[85dvh] w-[min(760px,94vw)] max-w-none p-0 text-foreground backdrop:bg-transparent open:animate-[vt-panel-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] motion-safe:transition-[height] motion-safe:duration-300 motion-reduce:open:animate-none [interpolate-size:allow-keywords]",
         conversationId
           ? "h-[min(720px,80dvh)] overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
           : "h-fit overflow-visible bg-transparent",

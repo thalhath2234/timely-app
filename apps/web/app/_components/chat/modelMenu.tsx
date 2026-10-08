@@ -38,12 +38,10 @@ export default function ModelMenu({
   value,
   onChange,
   disabled,
-  placement = "up",
 }: {
   value: ModelChoice;
   onChange: (next: ModelChoice) => void;
   disabled?: boolean;
-  placement?: "up" | "down";
 }) {
   const providers = useAgentProviders();
   const ready = readyProviders(providers.data);
@@ -138,10 +136,7 @@ export default function ModelMenu({
             e.stopPropagation();
             setOpen(false);
           }}
-          className={cn(
-            "absolute left-0 z-30 flex max-h-[min(28rem,70vh)] w-[min(22rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg",
-            placement === "up" ? "bottom-full mb-2" : "top-full mt-2",
-          )}
+          className="absolute bottom-full left-0 z-30 mb-2 flex max-h-[min(28rem,70vh)] w-[min(22rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
         >
           <button
             type="button"

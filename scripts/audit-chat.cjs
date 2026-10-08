@@ -455,7 +455,11 @@ const fs = require("node:fs");
   const menu = await overlay
     .getByRole("dialog", { name: "Choose a model" })
     .boundingBox();
-  assert(menu.y > bar.y, "model menu should open below the prompt bar");
+  assert(menu.y < bar.y, "model menu should open above the prompt bar");
+  assert(
+    bar.y + bar.height > page.viewportSize().height * 0.85,
+    "prompt bar should sit near the bottom of the screen",
+  );
   await page.screenshot({
     path: "/tmp/timely-chat-overlay-models.png",
     fullPage: true,
