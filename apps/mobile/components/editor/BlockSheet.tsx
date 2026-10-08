@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -131,6 +131,7 @@ export default function BlockSheet({
     setBusy(true);
     const mode = step;
     try {
+      let createdId: string | null = null;
       if (target.id) {
         const fresh = await getDoc(target.id);
         const content = resolveDocContent(fresh.content, fresh.plainText);
@@ -141,12 +142,19 @@ export default function BlockSheet({
           plainText: [fresh.plainText, block.text].filter(Boolean).join("\n\n"),
         });
       } else {
-        await createDoc({ title: target.title, content: { type: "doc", content: [block.node] } as DocContent, plainText: block.text });
+        const created = await createDoc({ title: target.title, content: { type: "doc", content: [block.node] } as DocContent, plainText: block.text });
+        createdId = created.id;
       }
       void queryClient.invalidateQueries({ queryKey: ["docs"] });
       if (mode === "move") run("blockAction", { action: "delete" });
-      useToastStore.getState().show(`${mode === "move" ? "Moved" : "Copied"} to ${target.title || "Untitled"}`);
       close();
+      if (createdId) {
+        // A new page opens right away, to carry on from the block.
+        useToastStore.getState().show(`${mode === "move" ? "Moved" : "Copied"} to the new page`);
+        router.push(`/(app)/docs/${createdId}`);
+        return;
+      }
+      useToastStore.getState().show(`${mode === "move" ? "Moved" : "Copied"} to ${target.title || "Untitled"}`);
     } catch (error) {
       useToastStore.getState().show(error instanceof Error ? error.message : "Could not add the block to that page");
       setBusy(false);

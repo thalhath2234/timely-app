@@ -107,8 +107,15 @@ function TransferDialog({ transfer, onClose }: { transfer: Transfer; onClose: ()
       const what = blockCount === 1 ? "block" : `${blockCount} blocks`;
       const done = mode === "move" && removed ? "Moved" : "Copied";
       const docId = id;
-      useToastStore.getState().show(`${done} ${what} to ${target.title || "Untitled"}`, { label: "Open", onAction: () => router.push(`/docs/${docId}`) });
       onClose();
+      if (!target.id) {
+        // A new page opens right away, to carry on from the blocks. Leaving
+        // this page saves the move (autosave flushes on unmount).
+        useToastStore.getState().show(`${done} ${what} to the new page`);
+        router.push(`/docs/${docId}`);
+        return;
+      }
+      useToastStore.getState().show(`${done} ${what} to ${target.title || "Untitled"}`, { label: "Open", onAction: () => router.push(`/docs/${docId}`) });
     } catch (error) {
       useToastStore.getState().show(error instanceof Error ? error.message : `Could not ${verb.toLowerCase()} the blocks`);
       setBusy(false);
