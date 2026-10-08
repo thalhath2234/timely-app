@@ -9,6 +9,7 @@ import { mergeStatusesByName, statusForWorkspace } from "@/app/utils/status";
 import { tasksKey, useBulkUpdateTasks, useDeleteTask, useUpdateTask } from "@/app/utils/hooks/tasks";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import Select from "@/app/_components/_ui/select";
+import DatePicker from "@/app/_components/_ui/datePicker";
 import { AnimatePresence, motion } from "motion/react";
 import { springSoft } from "@/app/_components/_ui/motion";
 
@@ -264,18 +265,20 @@ export default function BulkActionBar({
           }))}
         />
       </div>
-      <input
-        type="date"
-        aria-label="Set deadline for selected tasks"
-        title="Set deadline"
-        disabled={busy}
-        onChange={(event) => {
-          if (!event.target.value) return;
-          void apply({ deadline: event.target.value }, ["deadline"], "Deadline set");
-          event.target.value = "";
-        }}
-        className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-      />
+      <div className="w-36">
+        <DatePicker
+          size="sm"
+          value=""
+          placeholder="Set deadline"
+          aria-label="Set deadline for selected tasks"
+          clearable={false}
+          disabled={busy}
+          onChange={(value) => {
+            if (!value) return;
+            void apply({ deadline: value }, ["deadline"], "Deadline set");
+          }}
+        />
+      </div>
       <button
         type="button"
         disabled={busy}

@@ -325,7 +325,10 @@ export default function DatePicker({
 
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        // Capture phase + stopPropagation: Escape closes only the picker, not
+        // the dialog or overlay it sits in.
         event.preventDefault();
+        event.stopPropagation();
         setOpen(false);
         triggerRef.current?.focus();
       }
@@ -338,14 +341,14 @@ export default function DatePicker({
     }
 
     window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     window.addEventListener("resize", onReposition);
     window.addEventListener("scroll", onReposition, true);
 
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("mousedown", onPointerDown);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
