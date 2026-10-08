@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { formatMetric, type CardUnit, type SeriesPoint } from "@timely/contract/dashboard";
 import { cn } from "@/app/utils/cn";
 
@@ -10,12 +10,15 @@ export function seriesColor(index: number, other = false) {
   return `var(--series-${index + 1})`;
 }
 
-/** Tracks an element's content box so charts draw at their real pixel size. */
+/**
+ * Tracks an element's content box so charts draw at their real pixel size.
+ * The ref is a callback so a remounted element (a card switching views) is
+ * measured again instead of the detached one.
+ */
 export function useElementSize<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
+  const [element, ref] = useState<T | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const element = ref.current;
     if (!element) return;
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
@@ -25,7 +28,7 @@ export function useElementSize<T extends HTMLElement>() {
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [element]);
   return [ref, size] as const;
 }
 

@@ -187,7 +187,7 @@ export default function CardWorkshop({
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
-          className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+          className="report-dashboard flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
         >
           <header className="flex items-center gap-3 border-b border-border px-5 py-3">
             <div className="min-w-0 flex-1">
@@ -515,7 +515,7 @@ export default function CardWorkshop({
               </Section>
             </div>
 
-            <div className="report-dashboard flex flex-col gap-4 border-t border-border bg-muted/40 px-5 py-4 lg:overflow-y-auto lg:border-l lg:border-t-0">
+            <div className="flex flex-col gap-4 border-t border-border bg-muted/40 px-5 py-4 lg:overflow-y-auto lg:border-l lg:border-t-0">
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
                 <Field label="Name">
                   <input value={title} onChange={(event) => setTitle(event.target.value.slice(0, 120))} placeholder={autoTitle} className={inputClass} />

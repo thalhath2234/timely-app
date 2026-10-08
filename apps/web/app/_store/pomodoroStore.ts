@@ -14,6 +14,7 @@
 import { create } from "zustand";
 import type { QueryClient } from "@tanstack/react-query";
 import {
+  adjustPomodoro,
   advancePomodoro,
   initialPomodoro,
   pomodoroRemaining,
@@ -45,6 +46,8 @@ type PomodoroStore = {
   /** Ends the phase early; a skipped focus round does not count. */
   skip: (cardId: string) => void;
   setPhase: (cardId: string, phase: PomodoroPhase) => void;
+  /** Adds (or takes off) time on a running or paused phase; the settings stay as they are. */
+  adjust: (cardId: string, deltaMs: number) => void;
   linkTask: (cardId: string, task: { id: string; name: string } | null) => void;
   /** Finishes every phase whose time is up. The store's own ticker calls it. */
   tick: (now: number) => void;
@@ -205,14 +208,19 @@ export const usePomodoroStore = create<PomodoroStore>((set, get) => {
     reset: (cardId) =>
       write(cardId, (timer) => {
         if (timer.endsAt !== null) trackFocus(timer, "stop");
-        return { ...timer, endsAt: null, remaining: null };
+        return { ...timer, endsAt: null, remaining: null, extra: 0 };
       }),
     skip: (cardId) => write(cardId, (timer) => finish(timer, false, Date.now())),
     setPhase: (cardId, phase) =>
       write(cardId, (timer) => {
         if (timer.phase === phase) return timer;
         if (timer.endsAt !== null) trackFocus(timer, "stop");
-        return { ...timer, phase, endsAt: null, remaining: null };
+        return { ...timer, phase, endsAt: null, remaining: null, extra: 0 };
+      }),
+    adjust: (cardId, deltaMs) =>
+      write(cardId, (timer) => {
+        const next = adjustPomodoro(timer, timer.settings, deltaMs, Date.now());
+        return next === timer ? timer : { ...timer, ...next };
       }),
     linkTask: (cardId, task) =>
       write(cardId, (timer) => {

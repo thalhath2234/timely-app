@@ -12,6 +12,7 @@ register(
 );
 
 const {
+  adjustPomodoro,
   advancePomodoro,
   completionStreak,
   completionsByDay,
@@ -21,6 +22,8 @@ const {
   fitQuery,
   initialPomodoro,
   normalizeDashboard,
+  pomodoroLength,
+  pomodoroRemaining,
   pomodoroSettings,
   priorityMatrix,
   resolveRange,
@@ -276,5 +279,28 @@ describe("built-in helpers", () => {
     state = advancePomodoro(state, settings, false, "2026-10-08", 0);
     assert.equal(state.phase, "focus");
     assert.equal(state.round, 0);
+  });
+
+  test("plus and minus change only the running phase", () => {
+    const settings = pomodoroSettings({});
+    const idle = initialPomodoro();
+    assert.equal(adjustPomodoro(idle, settings, 60_000, 0), idle);
+
+    let state = { ...idle, endsAt: 25 * 60_000 };
+    state = adjustPomodoro(state, settings, 60_000, 0);
+    assert.equal(pomodoroRemaining(state, settings, 0), 26 * 60_000);
+    assert.equal(pomodoroLength(state, settings), 26 * 60_000);
+
+    // Taking time off never ends the phase on its own.
+    state = adjustPomodoro(state, settings, -60 * 60_000, 0);
+    assert.equal(pomodoroRemaining(state, settings, 0), 1000);
+
+    // The next phase starts from its own length again.
+    state = advancePomodoro(state, settings, true, "2026-10-08", 0);
+    assert.equal(pomodoroLength(state, settings), 5 * 60_000);
+
+    const paused = adjustPomodoro({ ...idle, remaining: 10 * 60_000 }, settings, 60_000, 0);
+    assert.equal(paused.remaining, 11 * 60_000);
+    assert.equal(paused.endsAt, null);
   });
 });

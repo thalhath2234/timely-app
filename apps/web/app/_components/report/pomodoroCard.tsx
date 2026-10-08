@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Pause, Play, RotateCcw, Settings2, SkipForward, X } from "lucide-react";
-import { formatClock, initialPomodoro, phaseMinutes, pomodoroSettings, type PomodoroPhase } from "@timely/contract/dashboard";
+import { Minus, Pause, Play, Plus, RotateCcw, Settings2, SkipForward, X } from "lucide-react";
+import {
+  POMODORO_MAX_MS,
+  formatClock,
+  initialPomodoro,
+  pomodoroLength,
+  pomodoroSettings,
+  type PomodoroPhase,
+} from "@timely/contract/dashboard";
 import { todayInZone } from "@timely/contract/workStatus";
 import type { Task } from "@/app/_types/types";
 import Select from "@/app/_components/_ui/select";
@@ -13,6 +20,10 @@ import { cn } from "@/app/utils/cn";
 import { useElementSize } from "./charts";
 
 const PHASE_LABEL: Record<PomodoroPhase, string> = { focus: "Focus", short: "Short break", long: "Long break" };
+const PHASE_SETTING = { focus: "focus", short: "shortBreak", long: "longBreak" } as const;
+const PHASE_MAX: Record<PomodoroPhase, number> = { focus: 180, short: 60, long: 90 };
+/** Width of a +/- button plus its gap to the ring. */
+const STEP_SPACE = 40;
 
 /**
  * The pomodoro card is a view onto the app-level timer in `pomodoroStore`,
@@ -58,11 +69,26 @@ export default function PomodoroCard({
     return () => window.clearInterval(id);
   }, [running]);
 
-  const remaining = Math.min(pomodoroTimeLeft({ ...timer, settings }, now), phaseMinutes(timer.phase, settings) * 60_000);
-  const total = phaseMinutes(timer.phase, settings) * 60_000;
+  const total = pomodoroLength(timer, settings);
+  const remaining = Math.min(pomodoroTimeLeft({ ...timer, settings }, now), total);
+  const idle = timer.endsAt === null && timer.remaining === null;
+  const phaseSetting = PHASE_SETTING[timer.phase];
   const todayCount = timer.history[todayInZone(timeZone)] ?? 0;
   const progress = total > 0 ? Math.min(1, Math.max(0, 1 - remaining / total)) : 0;
-  const ringSize = Math.max(72, Math.min(size.width - 8, size.height - 8, 200));
+  const ringSize = Math.max(72, Math.min(size.width - STEP_SPACE * 2, size.height - 8, 200));
+  const canLower = idle ? settings[phaseSetting] > 1 : remaining > 60_000;
+  const canRaise = idle ? settings[phaseSetting] < PHASE_MAX[timer.phase] : remaining < POMODORO_MAX_MS;
+
+  // Before a phase starts, +/- change its length in the settings; once it
+  // runs, they add or take a minute off this round only.
+  const step = (minutes: number) => {
+    if (idle) {
+      const next = Math.min(PHASE_MAX[timer.phase], Math.max(1, settings[phaseSetting] + minutes));
+      if (next !== settings[phaseSetting]) onSettings({ [phaseSetting]: next });
+      return;
+    }
+    actions.adjust(cardId, minutes * 60_000);
+  };
   const stroke = ringSize > 120 ? 6 : 4;
   const radius = (ringSize - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -116,10 +142,20 @@ export default function PomodoroCard({
         </button>
       </div>
 
-      <div ref={ref} className="flex min-h-0 flex-1 items-center justify-center">
-        <div className="relative" style={{ width: ringSize, height: ringSize }}>
+      <div ref={ref} className="flex min-h-0 flex-1 items-center justify-center gap-2">
+        <StepButton label="Take off a minute" disabled={!canLower} onStep={() => step(-1)}>
+          <Minus className="size-4" />
+        </StepButton>
+        <div className="relative shrink-0" style={{ width: ringSize, height: ringSize }}>
           <svg width={ringSize} height={ringSize} className="-rotate-90" aria-hidden>
-            <circle cx={ringSize / 2} cy={ringSize / 2} r={radius} fill="none" stroke="var(--muted)" strokeWidth={stroke} />
+            <circle
+              cx={ringSize / 2}
+              cy={ringSize / 2}
+              r={radius}
+              fill="none"
+              stroke={`color-mix(in oklch, ${phaseColor} 18%, transparent)`}
+              strokeWidth={stroke}
+            />
             <circle
               cx={ringSize / 2}
               cy={ringSize / 2}
@@ -142,6 +178,9 @@ export default function PomodoroCard({
             </span>
           </div>
         </div>
+        <StepButton label="Add a minute" disabled={!canRaise} onStep={() => step(1)}>
+          <Plus className="size-4" />
+        </StepButton>
       </div>
 
       <div className="flex items-center justify-center gap-2">
@@ -201,6 +240,67 @@ export default function PomodoroCard({
         />
       ) : null}
     </div>
+  );
+}
+
+/** A round +/- button: one step per press, and repeating while held. */
+function StepButton({
+  label,
+  disabled,
+  onStep,
+  children,
+}: {
+  label: string;
+  disabled: boolean;
+  onStep: () => void;
+  children: ReactNode;
+}) {
+  const latest = useRef(onStep);
+  const delay = useRef<number | null>(null);
+  const repeat = useRef<number | null>(null);
+
+  useEffect(() => {
+    latest.current = onStep;
+  });
+
+  const stop = () => {
+    if (delay.current !== null) window.clearTimeout(delay.current);
+    if (repeat.current !== null) window.clearInterval(repeat.current);
+    delay.current = null;
+    repeat.current = null;
+  };
+
+  useEffect(() => {
+    if (disabled) stop();
+  }, [disabled]);
+
+  useEffect(() => stop, []);
+
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={`${label} (hold to repeat)`}
+      disabled={disabled}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        latest.current();
+        stop();
+        delay.current = window.setTimeout(() => {
+          repeat.current = window.setInterval(() => latest.current(), 110);
+        }, 450);
+      }}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      onClick={(event) => {
+        // Pointer presses already stepped; this is Enter or Space.
+        if (event.detail === 0) latest.current();
+      }}
+      className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+    >
+      {children}
+    </button>
   );
 }
 
