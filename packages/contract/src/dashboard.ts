@@ -1691,6 +1691,8 @@ export interface PomodoroState {
   endsAt: number | null;
   /** Ms left while paused; null when idle (full phase length). */
   remaining: number | null;
+  /** Ms added to (or taken off) the current phase with the +/- buttons; cleared when the phase changes. */
+  extra?: number;
   taskId?: string | null;
   /** Focus rounds completed per day (`YYYY-MM-DD`), last 14 days kept. */
   history: Record<string, number>;
@@ -1704,10 +1706,32 @@ export function phaseMinutes(phase: PomodoroPhase, settings: PomodoroSettings): 
   return phase === "focus" ? settings.focus : phase === "short" ? settings.shortBreak : settings.longBreak;
 }
 
+/** The current phase's full length in ms, including time added or taken off. */
+export function pomodoroLength(state: PomodoroState, settings: PomodoroSettings): number {
+  return phaseMinutes(state.phase, settings) * 60_000 + (state.extra ?? 0);
+}
+
 export function pomodoroRemaining(state: PomodoroState, settings: PomodoroSettings, now: number): number {
   if (state.endsAt !== null) return Math.max(0, state.endsAt - now);
   if (state.remaining !== null) return state.remaining;
-  return phaseMinutes(state.phase, settings) * 60_000;
+  return pomodoroLength(state, settings);
+}
+
+/** Longest a phase can run after adding time. */
+export const POMODORO_MAX_MS = 180 * 60_000;
+
+/**
+ * Adds (or takes off) time on a running or paused phase without touching the
+ * settings. Never leaves less than a second, so taking time off can't end the
+ * phase by itself. An idle timer is returned unchanged.
+ */
+export function adjustPomodoro(state: PomodoroState, settings: PomodoroSettings, deltaMs: number, now: number): PomodoroState {
+  if (state.endsAt === null && state.remaining === null) return state;
+  const left = pomodoroRemaining(state, settings, now);
+  const next = Math.min(POMODORO_MAX_MS, Math.max(1000, left + deltaMs));
+  if (next === left) return state;
+  const extra = (state.extra ?? 0) + (next - left);
+  return state.endsAt !== null ? { ...state, endsAt: now + next, extra } : { ...state, remaining: next, extra };
 }
 
 /** Moves to the phase after the current one. A finished focus round counts toward today. */
@@ -1735,6 +1759,7 @@ export function advancePomodoro(state: PomodoroState, settings: PomodoroSettings
     history,
     endsAt: run ? now + phaseMinutes(next, settings) * 60_000 : null,
     remaining: null,
+    extra: 0,
   };
 }
 
