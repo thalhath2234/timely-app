@@ -62,6 +62,7 @@ import { AutoCapitalize } from "./autoCapitalize";
 import { Callout } from "./callout";
 import { DocImage } from "./docImage";
 import { Details, DetailsSummary } from "./details";
+import { BlockHandle } from "./blockHandle";
 import CodeBlockView from "./codeBlockView";
 import { Footnote, FootnoteRef } from "./footnotes";
 import { DocumentWithFrontmatter, Frontmatter } from "./frontmatter";
@@ -308,6 +309,8 @@ export default function RichTextEditor({
       Frontmatter,
       WikiLink,
     ];
+
+    if (variant === "page") list.push(BlockHandle);
 
     if (enableSlashCommands) {
       list.push(
@@ -953,7 +956,8 @@ export default function RichTextEditor({
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped. */}
+          <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
             <EditorContent editor={editor} className="min-h-full" />
           </div>
         </div>

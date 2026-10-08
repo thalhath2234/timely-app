@@ -1332,3 +1332,48 @@ html.reduce-motion .tl-bar {
 .doc-editor-content .doc-details:not([data-open]) > .doc-details-body > :not(.doc-details-summary) {
   display: none;
 }
+
+/* Block drag handle (blockHandle.ts): a grip in the left gutter of the
+ * hovered block. */
+.doc-block-handle-host {
+  position: relative;
+}
+.doc-block-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.5rem;
+  border-radius: 0.3rem;
+  color: var(--muted-foreground);
+  cursor: grab;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.doc-block-handle[data-visible] {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+.doc-block-handle:hover {
+  opacity: 1;
+  background: var(--accent);
+  color: var(--foreground);
+}
+.doc-block-handle[data-dragging] {
+  cursor: grabbing;
+}
+.doc-editor-content .ProseMirror-selectednode:not(img) {
+  border-radius: 0.375rem;
+  outline: 2px solid color-mix(in oklab, var(--ring) 55%, transparent);
+  outline-offset: 2px;
+}
+@media print, (hover: none) {
+  .doc-block-handle {
+    display: none;
+  }
+}

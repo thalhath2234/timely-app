@@ -390,7 +390,7 @@ export default function DocList() {
       <div className="px-3 pb-2">
         <div className="mb-2 grid grid-cols-3 gap-1">
           <button type="button" title="Open today's daily note" onClick={() => void openToday()} className={quickButton}>
-            <CalendarDays className="size-3.5" />
+            <CalendarDays className="size-3.5 shrink-0" />
             Today
           </button>
           <div className="relative">
@@ -401,7 +401,7 @@ export default function DocList() {
               onClick={() => setIsTemplateMenuOpen((open) => !open)}
               className={`${quickButton} w-full`}
             >
-              <LayoutTemplate className="size-3.5" />
+              <LayoutTemplate className="size-3.5 shrink-0" />
               Template
             </button>
             {isTemplateMenuOpen && (
