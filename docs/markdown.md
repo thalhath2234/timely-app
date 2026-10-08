@@ -27,7 +27,7 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Diagram (Mermaid) | a ```` ```mermaid ```` code block; Timely draws it under the source, GitHub and Obsidian draw it too |
 | Divider | `---` |
 | Table | GFM table; the first row is the header; `\|` is a literal pipe |
-| Image | `![alt](src "title")` |
+| Image | `![alt](src "title")`. Pictures uploaded, pasted or dropped into a doc are stored on the Timely server and written `![name](/files/fil_<id>)`; the path works against that server (open `<server>/files/fil_<id>`), and the id is long and random so the picture can be shown without a login |
 | Formula (inline) | `$E = mc^2$` (TeX, drawn with KaTeX; a literal `$` is written `\$`) |
 | Equation (block) | `$$` on its own line, TeX lines, `$$`; `$$x$$` on one line is read too |
 | Callout | `> [!NOTE]`, then the body as quoted lines; `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]` and any other word Obsidian allows; `> [!NOTE] Title` keeps a title |

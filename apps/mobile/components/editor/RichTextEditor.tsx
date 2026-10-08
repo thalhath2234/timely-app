@@ -11,6 +11,8 @@ import {
   Dimensions,
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
 import {
   AtSign,
@@ -24,6 +26,7 @@ import {
   Heading2,
   Heading3,
   Highlighter,
+  Image as ImageIcon,
   Info,
   Italic,
   Link2,
@@ -52,6 +55,9 @@ import BottomSheet from "../ui/BottomSheet";
 import { Field, PrimaryButton } from "../ui/primitives";
 import { useKeyboardAccessory } from "../ui/SheetHost";
 import { buildEditorHtml } from "./editorHtml";
+import { getApiUrlSync } from "../../lib/api/client";
+import { uploadDocFile } from "../../lib/api/docs";
+import { useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
 
 type Picker = { kind: "slash" | "mention"; query: string; from: number; to: number } | null;
@@ -71,6 +77,7 @@ const SLASH: {
   { title: "Numbered list", description: "List with ordering", cmd: "ordered", shortcut: "1.", keywords: ["ol", "number"] },
   { title: "To-do list", description: "Track tasks with checkboxes", cmd: "task", shortcut: "[]", keywords: ["todo", "check"] },
   { title: "Code block", description: "Monospaced code", cmd: "code", shortcut: "```", keywords: ["pre"] },
+  { title: "Image", description: "Add a photo from this device", cmd: "imagePick", keywords: ["image", "picture", "photo", "upload", "img"] },
   { title: "Diagram", description: "Mermaid flowchart or other diagram", cmd: "diagram", keywords: ["mermaid", "flowchart", "chart", "graph"] },
   { title: "Callout", description: "Note, tip, warning or caution box", cmd: "callout", shortcut: ">", keywords: ["note", "tip", "warning", "caution", "important", "alert", "quote", "blockquote"] },
   { title: "Formula", description: "Inline math, like $E = mc^2$", cmd: "math", keywords: ["math", "latex", "tex", "inline"] },
@@ -100,6 +107,7 @@ const FORMAT_TOOLS = [
   { label: "Inline code", Icon: Code, cmd: "inlineCode" },
   { label: "Code block", Icon: Code2, cmd: "code" },
   { label: "Callout", Icon: Info, cmd: "callout" },
+  { label: "Image", Icon: ImageIcon, cmd: "imagePick" },
   { label: "Diagram", Icon: Workflow, cmd: "diagram" },
   { label: "Equation", Icon: SquareSigma, cmd: "mathBlock" },
   { label: "Formula", Icon: Radical, cmd: "math" },
@@ -211,7 +219,7 @@ export default function RichTextEditor({
 }) {
   const webRef = useRef<WebView>(null);
   const themeKey = `${getThemeMode()}:${resolvedAccentHex()}`;
-  const html = useMemo(() => buildEditorHtml(content, placeholder, editorThemeVars()), [themeKey]);
+  const html = useMemo(() => buildEditorHtml(content, placeholder, editorThemeVars(), getApiUrlSync()), [themeKey]);
   const focusedRef = useRef(false);
   const appliedRef = useRef(JSON.stringify(content));
   const contentRef = useRef(content);
@@ -373,6 +381,11 @@ export default function RichTextEditor({
       openLinkPrompt(range ?? null);
       return;
     }
+    if (item.cmd === "imagePick") {
+      if (range) run("deleteRange", range);
+      void pickImages();
+      return;
+    }
     if (item.cmd === "page") {
       if (!onCreateSubpage) return;
       const page = await onCreateSubpage();
@@ -391,7 +404,41 @@ export default function RichTextEditor({
     run(item.cmd, range ?? {});
   }
 
+  /** Picks photos, uploads them and puts them at the caret. Photos are
+   * saved as JPEG first, so HEIC pictures from iPhones work too. */
+  async function pickImages() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 1,
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
+    });
+    if (result.canceled) return;
+    useToastStore.getState().show(result.assets.length === 1 ? "Uploading photo…" : `Uploading ${result.assets.length} photos…`);
+    const images: { src: string; alt: string }[] = [];
+    for (const asset of result.assets) {
+      try {
+        const image = ImageManipulator.ImageManipulator.manipulate(asset.uri);
+        if (asset.width * asset.height > 20_000_000) {
+          const factor = Math.sqrt(20_000_000 / (asset.width * asset.height));
+          image.resize({ width: Math.floor(asset.width * factor), height: Math.floor(asset.height * factor) });
+        }
+        const rendered = await image.renderAsync();
+        const saved = await rendered.saveAsync({ format: ImageManipulator.SaveFormat.JPEG, compress: 0.9 });
+        const file = await uploadDocFile(saved.uri);
+        images.push({ src: file.url, alt: asset.fileName?.replace(/\.[^.]+$/, "") || "Photo" });
+      } catch (error) {
+        useToastStore.getState().show(error instanceof Error ? error.message : "Could not upload the photo");
+      }
+    }
+    if (images.length) run("image", { images });
+  }
+
   function applyFormat(cmd: string) {
+    if (cmd === "imagePick") {
+      void pickImages();
+      return;
+    }
     if (cmd === "callout" && active.callout) {
       run("liftCallout");
       return;
@@ -464,6 +511,9 @@ export default function RichTextEditor({
           hideKeyboardAccessoryView
           keyboardDisplayRequiresUserAction={false}
           setSupportMultipleWindows={false}
+          // The page is https://localhost; doc images come from the server,
+          // which is often plain http on a home network.
+          mixedContentMode="compatibility"
           nestedScrollEnabled
           style={styles.web}
           onMessage={onMessage}

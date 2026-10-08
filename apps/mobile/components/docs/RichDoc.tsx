@@ -3,6 +3,7 @@ import { Linking, ScrollView, StyleSheet, Text, View, type TextStyle } from "rea
 import type { DocContent } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { frontmatterEntries } from "@timely/contract/properties";
+import { getApiUrlSync } from "../../lib/api/client";
 
 type Mark = { type?: string; attrs?: Record<string, unknown> };
 type Node = {
@@ -186,7 +187,9 @@ function Inline({ nodes, onLink }: { nodes?: Node[]; onLink?: (href: string) => 
         }
         if (node.type === "image") {
           // Inline images in read-only text show as a link to the picture.
-          const src = node.attrs?.src;
+          const raw = node.attrs?.src;
+          // Uploaded doc images are stored as "/files/<id>" on the server.
+          const src = typeof raw === "string" && raw.startsWith("/files/") ? getApiUrlSync() + raw : raw;
           return (
             <Text
               key={i}

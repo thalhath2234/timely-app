@@ -8,6 +8,7 @@ import (
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/doc"
+	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/instance"
 	"timely-api/internal/features/notify"
@@ -33,6 +34,7 @@ type Handlers struct {
 	Project   *project.Handler
 	Workspace *workspace.Handler
 	Document  *doc.Handler
+	DocFiles  *docfile.Service
 	Sheet     *sheet.Handler
 	Event     *event.Handler
 	Calendar  *calendar.Handler
@@ -60,6 +62,10 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 		e.GET("/health", h.Instance.Health)
 	}
 
+	if h.DocFiles != nil {
+		h.DocFiles.PublicRoutes(e)
+	}
+
 	if h.MCP != nil {
 		e.Any("/mcp", echo.WrapHandler(h.MCP))
 	}
@@ -82,6 +88,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	setupProjectRoutes(protected, h.Project)
 	setupWorkspaceRoutes(protected, h.Workspace)
 	setupDocumentRoutes(protected, h.Document)
+	if h.DocFiles != nil {
+		h.DocFiles.Routes(protected)
+	}
 	setupSheetRoutes(protected, h.Sheet)
 	setupEventRoutes(protected, h.Event)
 	setupCalendarRoutes(protected, h.Calendar)

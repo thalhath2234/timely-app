@@ -122,3 +122,16 @@ export async function deleteDoc(id: string): Promise<void> {
     throw new Error(await readError(response, "Failed to delete doc"));
   }
 }
+
+export type DocFile = { id: string; url: string; name: string; mime: string; width: number; height: number };
+
+/** Uploads an image for a doc; `url` ("/files/<id>") is what the doc stores. */
+export async function uploadDocFile(file: File): Promise<DocFile> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await apiFetch("/docs/files", { method: "POST", body: form });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Could not upload the image"));
+  }
+  return response.json();
+}

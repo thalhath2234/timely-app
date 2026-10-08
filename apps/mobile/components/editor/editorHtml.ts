@@ -21,6 +21,8 @@ export function buildEditorHtml(
     accentForeground: string;
     border: string;
   },
+  /** The server address; uploaded images are stored as "/files/<id>". */
+  apiBase = "",
 ) {
   const initial = content && typeof content.type === "string" ? content : BLANK;
   const t = theme ?? {
@@ -142,6 +144,24 @@ export function buildEditorHtml(
     import { TextSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
 
     const placeholder = ${embed(placeholder)};
+
+    // Uploaded images are stored as "/files/<id>" and shown from the server.
+    const apiBase = ${embed(apiBase.replace(/\/+$/, ""))};
+    const DocImage = Image.extend({
+      addAttributes() {
+        return {
+          ...this.parent?.(),
+          src: {
+            default: null,
+            parseHTML: (el) => {
+              const src = el.getAttribute("src") || "";
+              return apiBase && src.startsWith(apiBase + "/files/") ? src.slice(apiBase.length) : src;
+            },
+            renderHTML: (attrs) => ({ src: attrs.src && attrs.src.startsWith("/files/") ? apiBase + attrs.src : attrs.src }),
+          },
+        };
+      },
+    });
     const Mention = Node.create({
       name: "mention",
       group: "inline",
@@ -1210,7 +1230,7 @@ export function buildEditorHtml(
         TaskList,
         TaskItem.configure({ nested: true }),
         Highlight,
-        Image.configure({ inline: true }),
+        DocImage.configure({ inline: true }),
         DiagramCodeBlock,
         TableKit.configure({ table: { resizable: false } }),
         Mention,
@@ -1353,6 +1373,21 @@ export function buildEditorHtml(
             break;
           case "map": chain.setCodeBlock({ language: "geojson" }).insertContent('{\\n  "type": "Feature",\\n  "geometry": {\\n    "type": "Polygon",\\n    "coordinates": [[[-0.2, 51.45], [0.05, 51.45], [0.05, 51.6], [-0.2, 51.6], [-0.2, 51.45]]]\\n  }\\n}'); break;
           case "stl": chain.setCodeBlock({ language: "stl" }).insertContent("solid pyramid\\n  facet normal 0 0 -1\\n    outer loop\\n      vertex 0 0 0\\n      vertex 1 0 0\\n      vertex 1 1 0\\n    endloop\\n  endfacet\\n  facet normal 0 0 -1\\n    outer loop\\n      vertex 0 0 0\\n      vertex 1 1 0\\n      vertex 0 1 0\\n    endloop\\n  endfacet\\n  facet normal 0 -1 0\\n    outer loop\\n      vertex 0 0 0\\n      vertex 0.5 0.5 1\\n      vertex 1 0 0\\n    endloop\\n  endfacet\\n  facet normal 1 0 0\\n    outer loop\\n      vertex 1 0 0\\n      vertex 0.5 0.5 1\\n      vertex 1 1 0\\n    endloop\\n  endfacet\\n  facet normal 0 1 0\\n    outer loop\\n      vertex 1 1 0\\n      vertex 0.5 0.5 1\\n      vertex 0 1 0\\n    endloop\\n  endfacet\\n  facet normal -1 0 0\\n    outer loop\\n      vertex 0 1 0\\n      vertex 0.5 0.5 1\\n      vertex 0 0 0\\n    endloop\\n  endfacet\\nendsolid pyramid"); break;
+          case "image":
+            chain.command(({ tr, state }) => {
+              const images = ((payload && payload.images) || []).map((image) => state.schema.nodes.image.create({ src: image.src, alt: image.alt || null }));
+              if (images.length === 0) return false;
+              const { $from } = tr.selection;
+              if ($from.parent.type.name === "paragraph" && $from.parent.content.size === 0) {
+                tr.replaceWith($from.pos, $from.pos, images);
+              } else {
+                const at = $from.depth > 0 ? $from.after() : $from.pos;
+                tr.insert(at, state.schema.nodes.paragraph.create(null, images));
+              }
+              tr.scrollIntoView();
+              return true;
+            });
+            break;
           case "hr": chain.setHorizontalRule(); break;
           case "table": chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }); break;
           case "addRowBefore": chain.addRowBefore(); break;

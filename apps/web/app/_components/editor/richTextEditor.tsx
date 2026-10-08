@@ -7,7 +7,6 @@ import { openTasksEntityHref } from "@/app/utils/entityDetail";
 import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
 import CodeBlock from "@tiptap/extension-code-block";
 import Highlight from "@tiptap/extension-highlight";
-import TiptapImage from "@tiptap/extension-image";
 import { TableKit } from "@tiptap/extension-table";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -40,6 +39,7 @@ import {
   Heading3,
   Info,
   Highlighter,
+  ImageIcon,
   Italic,
   Link2,
   List,
@@ -59,6 +59,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AutoCapitalize } from "./autoCapitalize";
 import { Callout } from "./callout";
+import { DocImage } from "./docImage";
 import CodeBlockView from "./codeBlockView";
 import { Footnote, FootnoteRef } from "./footnotes";
 import { DocumentWithFrontmatter, Frontmatter } from "./frontmatter";
@@ -284,7 +285,7 @@ export default function RichTextEditor({
       TaskItem.configure({ nested: true }),
       Highlight.configure({ multicolor: false }),
       // Inline like Markdown's ![alt](src), so imported images keep their place.
-      TiptapImage.configure({ inline: true, HTMLAttributes: { class: "doc-image" } }),
+      DocImage.configure({ inline: true, HTMLAttributes: { class: "doc-image" } }),
       TableKit.configure({
         table: { resizable: true, handleWidth: 6, cellMinWidth: 80 },
       }),
@@ -780,11 +781,17 @@ export default function RichTextEditor({
       run: () => editor.chain().focus().insertContent("@").run(),
     },
     {
+      label: "Image",
+      icon: ImageIcon,
+      isActive: false,
+      run: () => editor.chain().focus().pickImage().run(),
+      startsGroup: true,
+    },
+    {
       label: "Diagram",
       icon: Workflow,
       isActive: false,
       run: () => insertBlock(codeSample("mermaid", DIAGRAM_SAMPLE)),
-      startsGroup: true,
     },
     {
       label: "Equation",

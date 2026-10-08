@@ -21,6 +21,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  ImageIcon,
   Link2,
   List,
   ListOrdered,
@@ -139,6 +140,14 @@ export function createSlashItems(options?: {
       keywords: ["snippet", "pre", "monospace"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.toggleCodeBlock().run()),
+    },
+    {
+      title: "Image",
+      description: "Upload a picture, or paste or drop one",
+      icon: ImageIcon,
+      keywords: ["image", "picture", "photo", "upload", "img", "screenshot"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.pickImage().run()),
     },
     {
       title: "Diagram",

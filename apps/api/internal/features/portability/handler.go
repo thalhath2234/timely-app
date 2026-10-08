@@ -66,7 +66,8 @@ func (h *Handler) Restore(c *echo.Context) error {
 	if c.QueryParam("mode") != "replace" || c.Request().Header.Get("X-Timely-Restore") != "replace" {
 		return echo.NewHTTPError(http.StatusPreconditionRequired, "replace confirmation is required")
 	}
-	decoder := json.NewDecoder(io.LimitReader(c.Request().Body, 50<<20))
+	// Doc images ride along in the backup, so a restore can be large.
+	decoder := json.NewDecoder(io.LimitReader(c.Request().Body, 512<<20))
 	decoder.DisallowUnknownFields()
 	var backup Backup
 	if err := decoder.Decode(&backup); err != nil {

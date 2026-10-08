@@ -1,3 +1,4 @@
+import { File as ExpoFile } from "expo-file-system";
 import type { Doc, DocContent } from "../types";
 import type { CreateDocPayload, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
 import { getToken } from "../auth/session";
@@ -149,4 +150,14 @@ function delay(ms: number, signal: AbortSignal) {
 
 export function deleteDoc(id: string) {
   return api<void>(`/docs/${id}`, { method: "DELETE" });
+}
+
+export type DocFile = { id: string; url: string; name: string; mime: string; width: number; height: number };
+
+/** Uploads an image for a doc; `url` ("/files/<id>") is what the doc stores. */
+export function uploadDocFile(uri: string) {
+  const form = new FormData();
+  // SDK 57 fetch consumes Blob-compatible Expo files.
+  form.append("file", new ExpoFile(uri));
+  return api<DocFile>("/docs/files", { method: "POST", body: form, queueIfOffline: false });
 }
