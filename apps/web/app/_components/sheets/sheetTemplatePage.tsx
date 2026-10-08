@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ChevronRight, LayoutTemplate, Plus, Smile, Trash2 } from "lucide-react";
 import SheetGrid from "@/app/_components/sheets/sheetGrid";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
@@ -20,8 +20,7 @@ import { addWorkbookTab, tabsFromSheet, workbookPayload } from "@/app/utils/shee
 import { SHEET_ICON_CHOICES } from "@/app/_components/sheets/sheetIcons";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 
-export default function TemplatePage() {
-  const { id } = useParams<{ id: string }>();
+export default function TemplatePage({ id }: { id: string }) {
   const templatesQuery = useSheetTemplates();
   const template = templatesQuery.data?.find((item) => item.id === id);
 

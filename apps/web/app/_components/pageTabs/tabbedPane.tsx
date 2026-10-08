@@ -13,6 +13,7 @@ import {
 import { useDocs } from "@/app/utils/hooks/docs";
 import { useSheets } from "@/app/utils/hooks/sheets";
 import { fileIdFromPath, fileKind, FILES_PATH } from "@/app/utils/fileRoutes";
+import FileView from "@/app/_components/files/fileView";
 import { cn } from "@/app/utils/cn";
 
 type Scroll = NonNullable<PageTab["scroll"]>;
@@ -50,6 +51,14 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
   const handled = useRef<string | null>(null);
   const docs = useDocs();
   const sheets = useSheets();
+  const activeHref = usePageTabsStore((state) => {
+    const active = state.tabs.find((tab) => tab.id === state.activeId);
+    return active ? currentHref(active) : null;
+  });
+  // A doc or sheet tab renders straight from the tab, so switching tabs shows
+  // the page at once instead of waiting for the route; the URL catches up.
+  const shownId = hydrated && activeHref ? fileIdFromPath(activeHref) : null;
+  const shownPath = shownId ? activeHref : pathname;
 
   useEffect(() => usePageTabsStore.getState().hydrate(), []);
 
@@ -110,7 +119,7 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
   useEffect(() => {
     const target = pendingRestore;
     const root = contentRef.current;
-    if (!target || target.href !== pathname || !root) return;
+    if (!target || target.href !== shownPath || !root) return;
     const started = performance.now();
     const timer = window.setInterval(() => {
       const scroller = mainScroller(root);
@@ -128,7 +137,7 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
       if (pendingRestore === target) pendingRestore = null;
     }, 80);
     return () => window.clearInterval(timer);
-  }, [pathname]);
+  }, [shownPath]);
 
   // Tabs whose doc or sheet was deleted (or belongs to another account) go
   // away once fresh lists are in. Waiting out refetches keeps a page that was
@@ -152,8 +161,11 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
     const root = contentRef.current;
     const store = usePageTabsStore.getState();
     const active = store.tabs.find((tab) => tab.id === store.activeId);
-    const href = window.location.pathname;
-    if (!root || !active || currentHref(active) !== href) return;
+    if (!root || !active) return;
+    // A doc or sheet tab is on screen as soon as it is active; the start page
+    // only once the URL has caught up.
+    const href = currentHref(active);
+    if (!fileIdFromPath(href) && href !== window.location.pathname) return;
     const scroller = mainScroller(root);
     if (scroller) store.saveScroll(active.id, { href, top: scroller.scrollTop, left: scroller.scrollLeft });
   }, []);
@@ -180,7 +192,7 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       {hydrated ? <PageTabStrip show={show} rememberScroll={rememberScroll} /> : <div className="h-9 shrink-0 border-b border-border bg-muted/40" />}
       <div ref={contentRef} className="min-h-0 flex-1 overflow-hidden">
-        {children}
+        {shownId ? <FileView key={shownId} id={shownId} /> : children}
       </div>
     </div>
   );

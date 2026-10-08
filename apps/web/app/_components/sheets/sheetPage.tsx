@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Archive,
   ChevronRight,
@@ -63,9 +63,8 @@ const KINETIC_THEME = {
   "--ring": "#7C66DC",
 } as CSSProperties;
 
-export default function SheetPage() {
-  const params = useParams<{ id: string }>();
-  const { data: sheet, isLoading, isError, error } = useSheet(params.id);
+export default function SheetPage({ id }: { id: string }) {
+  const { data: sheet, isLoading, isError, error } = useSheet(id);
 
   if (isLoading) {
     return (

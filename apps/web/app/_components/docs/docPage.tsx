@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
 import { ChevronRight, Archive, Download, FileDown, FileText, History, LayoutTemplate, Smile, Star, Trash2, Upload } from "lucide-react";
 import { exportDocPdf } from "@/app/utils/printDoc";
@@ -70,9 +70,8 @@ function buildBreadcrumb(docs: Doc[], docId: string) {
   return trail;
 }
 
-export default function DocPage() {
-  const params = useParams<{ id: string }>();
-  const { data: doc, isLoading, isError, error } = useDoc(params.id);
+export default function DocPage({ id }: { id: string }) {
+  const { data: doc, isLoading, isError, error } = useDoc(id);
   const { data: allDocs } = useDocs();
 
   if (isLoading) {
