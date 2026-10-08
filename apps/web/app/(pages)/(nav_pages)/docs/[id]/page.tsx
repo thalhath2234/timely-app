@@ -7,6 +7,7 @@ import { Editor, Range } from "@tiptap/react";
 import { ChevronRight, Archive, Download, Smile, Star, Trash2, Upload } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import HeadingMinimap from "@/app/_components/docs/headingMinimap";
+import Backlinks from "@/app/_components/docs/backlinks";
 import { insertPageMention } from "@/app/_components/editor/mention";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
@@ -396,9 +397,12 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             className="w-full bg-transparent text-4xl font-bold text-foreground outline-none placeholder:text-muted-foreground/50"
           />
 
-          <p className="mb-4 mt-3 text-xs text-muted-foreground">
-            {wordCount} {wordCount === 1 ? "word" : "words"}
-          </p>
+          <div className="mb-4 mt-3 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+            <span>
+              {wordCount} {wordCount === 1 ? "word" : "words"}
+            </span>
+            <Backlinks docId={doc.id} />
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 pb-8">

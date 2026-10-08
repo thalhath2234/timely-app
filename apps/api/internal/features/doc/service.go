@@ -6,6 +6,7 @@ import (
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
 	"timely-api/internal/realtime"
+	"timely-api/internal/richtext"
 	"timely-api/internal/utils"
 )
 
@@ -44,6 +45,7 @@ type DocumentService interface {
 	GetByID(userID string, documentID string) (*models.Document, error)
 	Update(userID string, documentID string, update DocumentUpdate) (*models.Document, error)
 	Delete(userID string, documentID string) error
+	Backlinks(userID string, documentID string) ([]Backlink, error)
 }
 
 type documentService struct {
@@ -310,4 +312,32 @@ func (s *documentService) assertProject(userID, projectID string) error {
 		return errors.New("project not found")
 	}
 	return nil
+}
+
+// Backlink is another doc that links to this one, with the text around each link.
+type Backlink struct {
+	ID       string   `json:"id"`
+	Title    string   `json:"title"`
+	Icon     *string  `json:"icon"`
+	Snippets []string `json:"snippets"`
+}
+
+func (s *documentService) Backlinks(userID string, documentID string) ([]Backlink, error) {
+	doc, err := s.GetByID(userID, documentID)
+	if err != nil {
+		return nil, err
+	}
+	candidates, err := s.repo.BacklinkCandidates(userID, documentID, doc.Title)
+	if err != nil {
+		return nil, err
+	}
+	out := []Backlink{}
+	for _, candidate := range candidates {
+		snippets := richtext.LinkSnippets(candidate.Content, documentID, doc.Title)
+		if len(snippets) == 0 {
+			continue
+		}
+		out = append(out, Backlink{ID: candidate.ID, Title: candidate.Title, Icon: candidate.Icon, Snippets: snippets})
+	}
+	return out, nil
 }

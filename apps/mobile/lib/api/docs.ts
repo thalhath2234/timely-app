@@ -1,12 +1,12 @@
 import { File as ExpoFile } from "expo-file-system";
 import type { Doc, DocContent } from "../types";
-import type { CreateDocPayload, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
+import type { CreateDocPayload, DocBacklink, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
 import { getToken } from "../auth/session";
 import { isRichContentEmpty } from "../richText";
 import { api, getApiUrl, tunnelHeaders, unwrap } from "./client";
 import { clearNulls, type Clearable } from "./clearable";
 
-export type { CreateDocPayload };
+export type { CreateDocPayload, DocBacklink };
 
 const CLEARABLE_DOC_FIELDS = ["parentId", "projectId"] as const;
 
@@ -160,4 +160,8 @@ export function uploadDocFile(uri: string) {
   // SDK 57 fetch consumes Blob-compatible Expo files.
   form.append("file", new ExpoFile(uri));
   return api<DocFile>("/docs/files", { method: "POST", body: form, queueIfOffline: false });
+}
+
+export function getDocBacklinks(id: string) {
+  return api<DocBacklink[]>(`/docs/${id}/backlinks`);
 }

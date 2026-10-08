@@ -246,6 +246,7 @@ func setupDocumentRoutes(g *echo.Group, documentHandler *doc.Handler) {
 	g.GET("/docs", documentHandler.GetAllDocumentsByUser)
 	g.GET("/docs/:id", documentHandler.GetDocumentById)
 	g.GET("/docs/:id/watch", documentHandler.Watch)
+	g.GET("/docs/:id/backlinks", documentHandler.Backlinks)
 	g.PUT("/docs/:id", documentHandler.Update)
 	g.DELETE("/docs/:id", documentHandler.Delete)
 }

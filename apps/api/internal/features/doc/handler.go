@@ -187,6 +187,18 @@ func (h *Handler) Delete(c *echo.Context) error {
 	})
 }
 
+func (h *Handler) Backlinks(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	links, err := h.documentService.Backlinks(userID, c.Param("id"))
+	if err != nil {
+		return documentError(err)
+	}
+	return c.JSON(http.StatusOK, links)
+}
+
 // Watch is an SSE stream of last-write-wins invalidations for one document.
 // Auth is the same as the rest of the API: session cookie (web) or Bearer (mobile).
 func (h *Handler) Watch(c *echo.Context) error {

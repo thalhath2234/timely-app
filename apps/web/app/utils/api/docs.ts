@@ -1,10 +1,11 @@
 import type { Doc } from "@/app/_types/types";
-import type { CreateDocPayload, UpdateDocPayload } from "@timely/contract/documents";
+import type { CreateDocPayload, DocBacklink, UpdateDocPayload } from "@timely/contract/documents";
 import { isRichContentEmpty } from "@/app/utils/richText";
 import { apiFetch, apiUrl } from "./client";
 
 export type {
   CreateDocPayload,
+  DocBacklink,
   UpdateDocPayload,
 };
 
@@ -132,6 +133,14 @@ export async function uploadDocFile(file: File): Promise<DocFile> {
   const response = await apiFetch("/docs/files", { method: "POST", body: form });
   if (!response.ok) {
     throw new Error(await readError(response, "Could not upload the image"));
+  }
+  return response.json();
+}
+
+export async function getDocBacklinks(id: string): Promise<DocBacklink[]> {
+  const response = await apiFetch(`/docs/${id}/backlinks`);
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to load backlinks"));
   }
   return response.json();
 }

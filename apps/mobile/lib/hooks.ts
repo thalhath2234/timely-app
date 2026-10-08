@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "rea
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus } from "./api/tasks";
-import { getDocs, getDoc, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
+import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
 import type { Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, updateSheetTemplate, deleteSheetTemplate, materializeTemplateTab } from "./api/sheets";
 import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject, getProjectActivity } from "./api/projects";
@@ -166,6 +166,11 @@ export function useTaskQuery(id: string | undefined) {
 
 export function useDocsQuery() {
   return useQuery({ queryKey: keys.docs, queryFn: getDocs, staleTime: 30_000, placeholderData: keepPreviousData });
+}
+
+/** Docs linking to this one; under the docs key so saves refresh it. */
+export function useDocBacklinksQuery(id: string) {
+  return useQuery({ queryKey: [...keys.doc(id), "backlinks"], queryFn: () => getDocBacklinks(id), enabled: Boolean(id) });
 }
 
 export function useDocQuery(id: string) {

@@ -7,6 +7,7 @@ import {
   createDoc,
   deleteDoc,
   getDoc,
+  getDocBacklinks,
   getDocs,
   updateDoc,
   watchDoc,
@@ -38,6 +39,14 @@ export function useDoc(id: string | undefined) {
     queryKey: docKey(id ?? ""),
     queryFn: () => getDoc(id as string),
     enabled: Boolean(id),
+  });
+}
+
+/** Docs linking to this one. Under the docs key, so any doc save refreshes it. */
+export function useDocBacklinks(id: string) {
+  return useQuery({
+    queryKey: [...docKey(id), "backlinks"],
+    queryFn: () => getDocBacklinks(id),
   });
 }
 

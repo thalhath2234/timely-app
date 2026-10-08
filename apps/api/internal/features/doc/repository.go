@@ -1,6 +1,7 @@
 package doc
 
 import (
+	"strings"
 	"timely-api/internal/models"
 
 	"gorm.io/gorm"
@@ -16,6 +17,7 @@ type DocumentRepository interface {
 	WorkspaceBelongsToUser(userID string, workspaceID string) (bool, error)
 	ProjectBelongsToUser(userID string, projectID string) (bool, error)
 	DefaultWorkspaceID(userID string) (string, error)
+	BacklinkCandidates(userID, documentID, title string) ([]models.Document, error)
 }
 
 type documentRepository struct {
@@ -186,4 +188,23 @@ func (r *documentRepository) DefaultWorkspaceID(userID string) (string, error) {
 	}
 
 	return workspace.ID, nil
+}
+
+// BacklinkCandidates returns the user's other live docs whose content
+// mentions the id, or holds a wiki link and the title somewhere. The caller
+// checks each one properly; this only narrows the scan.
+func (r *documentRepository) BacklinkCandidates(userID, documentID, title string) ([]models.Document, error) {
+	var documents []models.Document
+	query := r.db.Select("id", "title", "icon", "content", "updated_at").
+		Where("user_id = ? AND id <> ? AND archived_at IS NULL", userID, documentID)
+	byID := r.db.Where("content::text LIKE ?", "%"+likeEscape(`"`+documentID+`"`)+"%")
+	if title = strings.TrimSpace(title); title != "" {
+		byID = byID.Or("content::text LIKE '%\"wikiLink\"%' AND content::text ILIKE ?", "%"+likeEscape(title)+"%")
+	}
+	err := query.Where(byID).Order("updated_at DESC").Limit(200).Find(&documents).Error
+	return documents, err
+}
+
+func likeEscape(value string) string {
+	return strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(value)
 }

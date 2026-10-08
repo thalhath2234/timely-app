@@ -70,3 +70,11 @@ export interface UpdateDocPayload {
   archived?: boolean;
   order?: number;
 }
+
+/** GET /docs/:id/backlinks: another doc linking here, with the text around each link. */
+export interface DocBacklink {
+  id: string;
+  title: string;
+  icon: string | null;
+  snippets: string[];
+}
