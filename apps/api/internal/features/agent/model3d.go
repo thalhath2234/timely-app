@@ -25,6 +25,9 @@ const (
 	minSegments       = 6
 	maxSegments       = 24
 	maxModelDimension = 100000
+	// About 500 KB of STL. Bigger models make the doc slow to load and edit,
+	// so curved parts get coarser before a model is refused.
+	maxModelTriangles = 4000
 )
 
 type modelPartIn struct {
@@ -104,17 +107,23 @@ func buildSTL(in add3DModelIn) (string, int, error) {
 		segments = defaultSegments
 	}
 	segments = min(max(segments, minSegments), maxSegments)
+	meshes, total, err := partMeshes(in.Parts, segments)
+	for err == nil && total > maxModelTriangles && segments > minSegments {
+		segments = max(segments-2, minSegments)
+		meshes, total, err = partMeshes(in.Parts, segments)
+	}
+	if err != nil {
+		return "", 0, err
+	}
+	if total > maxModelTriangles {
+		return "", 0, fmt.Errorf("model needs %d triangles, the limit is %d: use fewer parts", total, maxModelTriangles)
+	}
 	fallback := cleanPartName(in.Name)
 	if fallback == "" {
 		fallback = "part"
 	}
 	var out strings.Builder
-	total := 0
 	for i, part := range in.Parts {
-		tris, err := partTriangles(part, segments)
-		if err != nil {
-			return "", 0, fmt.Errorf("part %d: %w", i+1, err)
-		}
 		name := cleanPartName(part.Name)
 		if name == "" {
 			name = fmt.Sprintf("%s_%d", fallback, i+1)
@@ -127,7 +136,7 @@ func buildSTL(in add3DModelIn) (string, int, error) {
 			head += " " + strings.ToLower(part.Color)
 		}
 		out.WriteString("solid " + head + "\n")
-		for _, t := range tris {
+		for _, t := range meshes[i] {
 			n := t[1].sub(t[0]).cross(t[2].sub(t[0]))
 			if l := n.length(); l > 0 {
 				n = vec3{n[0] / l, n[1] / l, n[2] / l}
@@ -139,9 +148,22 @@ func buildSTL(in add3DModelIn) (string, int, error) {
 			out.WriteString("endloop\nendfacet\n")
 		}
 		out.WriteString("endsolid " + name + "\n")
-		total += len(tris)
 	}
 	return out.String(), total, nil
+}
+
+func partMeshes(parts []modelPartIn, segments int) ([][][3]vec3, int, error) {
+	meshes := make([][][3]vec3, len(parts))
+	total := 0
+	for i, part := range parts {
+		tris, err := partTriangles(part, segments)
+		if err != nil {
+			return nil, 0, fmt.Errorf("part %d: %w", i+1, err)
+		}
+		meshes[i] = tris
+		total += len(tris)
+	}
+	return meshes, total, nil
 }
 
 func cleanPartName(name string) string {

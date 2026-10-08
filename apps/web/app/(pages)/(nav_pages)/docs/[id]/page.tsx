@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
@@ -33,8 +33,22 @@ const ICON_CHOICES = [
   "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠",
 ];
 
+// Runs on every keystroke, so it counts in place instead of splitting the
+// text: a doc holding a large 3D model or map has hundreds of thousands of
+// "words", and building that array each time stalled typing.
 function countWords(text: string) {
-  return text.trim().split(/\s+/).filter(Boolean).length;
+  let count = 0;
+  let inWord = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    const space = code === 32 || (code >= 9 && code <= 13) || code === 160 || code === 0x2028 || code === 0x2029 || code === 0xfeff || (code >= 0x2000 && code <= 0x200a) || code === 0x1680 || code === 0x202f || code === 0x205f || code === 0x3000;
+    if (space) inWord = false;
+    else if (!inWord) {
+      inWord = true;
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function buildBreadcrumb(docs: Doc[], docId: string) {
@@ -151,9 +165,14 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     setEditor(readyEditor);
   }, []);
 
+  // The word count waits for a pause in typing, so long docs stay responsive.
+  const wordTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(wordTimerRef.current), []);
+
   const handleEditorChange = useCallback(
     ({ content, plainText }: { content: Doc["content"]; plainText: string }) => {
-      setWordCount(countWords(plainText));
+      window.clearTimeout(wordTimerRef.current);
+      wordTimerRef.current = window.setTimeout(() => setWordCount(countWords(plainText)), 300);
       schedule({ content, plainText });
     },
     [schedule],

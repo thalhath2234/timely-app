@@ -91,3 +91,17 @@ func TestStlFenceFindsFirstBlock(t *testing.T) {
 		t.Fatalf("got %v", loc)
 	}
 }
+
+func TestBuildSTLStaysWithinTriangleBudget(t *testing.T) {
+	parts := make([]modelPartIn, maxModelParts)
+	for i := range parts {
+		parts[i] = modelPartIn{Shape: "capsule", Center: []float64{float64(i) * 10, 0, 0}, Size: []float64{4, 4, 12}}
+	}
+	_, facets, err := buildSTL(add3DModelIn{Parts: parts, Segments: maxSegments})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facets > maxModelTriangles {
+		t.Fatalf("%d triangles over the %d budget", facets, maxModelTriangles)
+	}
+}
