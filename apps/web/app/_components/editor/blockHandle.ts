@@ -1,16 +1,19 @@
 import { Extension } from "@tiptap/core";
 import { NodeSelection, Plugin, PluginKey } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
+import { openBlockMenu } from "./blockMenu";
 
 /**
  * Block drag handle (Notion's ⋮⋮): hovering a block shows a grip in the left
  * gutter. Dragging it moves the block (ProseMirror's own drop code does the
- * move, from `view.dragging`); clicking it selects the block, so Delete,
- * copy and cut act on the whole block. List and task items and blocks in a
- * column get their own handle; anything else moves with its top-level block.
+ * move, from `view.dragging`); clicking it selects the block and opens its
+ * menu (blockMenu.ts). List and task items and blocks in a column get their
+ * own handle; anything else moves with its top-level block. Properties have
+ * none: they can only be the doc's first block.
  */
 
 const ITEM_TYPES = new Set(["listItem", "taskItem"]);
+const FIXED_TYPES = new Set(["frontmatter"]);
 const GRIP =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
 
@@ -37,14 +40,14 @@ function blockAt(view: EditorView, x: number, y: number) {
     // posAtCoords on an atom block (image, diagram) points at it, not into it.
     if ($pos.depth === 0) {
       const node = $pos.nodeAfter;
-      if (!node) return null;
+      if (!node || FIXED_TYPES.has(node.type.name)) return null;
       return { pos: $pos.pos, node };
     }
     depth = 1;
   }
   const pos = $pos.before(depth);
   const node = view.state.doc.nodeAt(pos);
-  return node ? { pos, node } : null;
+  return node && !FIXED_TYPES.has(node.type.name) ? { pos, node } : null;
 }
 
 export const BlockHandle = Extension.create({
@@ -55,14 +58,27 @@ export const BlockHandle = Extension.create({
     return [
       new Plugin({
         key: new PluginKey("blockHandle"),
+        props: {
+          // Properties fit nowhere but the top, so a drop elsewhere would spill
+          // their YAML into the doc as text.
+          handleDrop(view) {
+            let fixed = false;
+            view.dragging?.slice.content.descendants((node) => {
+              if (FIXED_TYPES.has(node.type.name)) fixed = true;
+              return !fixed;
+            });
+            return fixed;
+          },
+        },
         view(view) {
           const handle = document.createElement("button");
           handle.type = "button";
           handle.className = "doc-block-handle";
           handle.draggable = true;
           handle.contentEditable = "false";
-          handle.setAttribute("aria-label", "Drag to move, click to select");
-          handle.title = "Drag to move\nClick to select";
+          handle.setAttribute("aria-label", "Drag to move, click for options");
+          handle.setAttribute("aria-haspopup", "menu");
+          handle.title = "Drag to move\nClick for options";
           handle.innerHTML = GRIP;
           const host = view.dom.parentElement;
           host?.classList.add("doc-block-handle-host");
@@ -115,9 +131,19 @@ export const BlockHandle = Extension.create({
           handle.addEventListener("mousedown", (event) => event.stopPropagation());
           handle.addEventListener("mouseenter", () => clearTimeout(hideTimer));
           handle.addEventListener("mouseleave", onLeave);
-          handle.addEventListener("click", () => {
-            if (select()) view.focus();
-          });
+          const menu = (event: MouseEvent) => {
+            event.preventDefault();
+            const selection = select();
+            if (!selection) return;
+            // The menu hands focus back here when it closes.
+            view.focus();
+            const rect = handle.getBoundingClientRect();
+            // Keyboard clicks have no pointer position; open under the grip.
+            const fromPointer = event.detail > 0 || event.type === "contextmenu";
+            openBlockMenu(editor, selection.from, fromPointer ? event.clientX : rect.left, fromPointer ? event.clientY : rect.bottom + 4);
+          };
+          handle.addEventListener("click", menu);
+          handle.addEventListener("contextmenu", menu);
           handle.addEventListener("dragstart", (event) => {
             const selection = select();
             if (!selection || !event.dataTransfer) return;
