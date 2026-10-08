@@ -31,7 +31,7 @@ import { getThemeMode } from "./theme";
 const SAVE_DELAY_MS = 700;
 
 /**
- * The account's Report layout (the same one web and desktop edit), changed
+ * The account's Dashboard layout (the same one web and desktop edit), changed
  * locally and saved to the server a moment after the last change.
  */
 export function useDashboardLayout() {

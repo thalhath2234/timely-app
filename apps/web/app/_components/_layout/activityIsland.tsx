@@ -99,7 +99,7 @@ function pomodoroDetail(timer: PomodoroTimer, now: number) {
 
 /**
  * The Activity island: a pill above Sign out that tracks what is running —
- * Agent runs, the Work being focused, Report pomodoro timers and
+ * Agent runs, the Work being focused, Dashboard pomodoro timers and
  * Auto-schedule. It opens into a list and bounces when an Agent run finishes.
  */
 export default function ActivityIsland() {
@@ -480,7 +480,7 @@ export default function ActivityIsland() {
                             type="button"
                             onClick={() => {
                               setOpen(false);
-                              router.push("/report");
+                              router.push("/dashboard");
                             }}
                             className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left"
                           >

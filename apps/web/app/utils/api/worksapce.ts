@@ -343,7 +343,7 @@ export async function updateAppearanceConfig(appearance: NonNullable<Config["app
   return response.json();
 }
 
-/** Saves the whole Report dashboard layout (`config.reportDashboard`). */
+/** Saves the whole Dashboard layout (`config.reportDashboard`). */
 export async function updateReportDashboard(reportDashboard: NonNullable<Config["reportDashboard"]>): Promise<Config> {
   const response = await apiFetch("/config", {
     method: "PUT",

@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Pomodoro timers from the Report dashboard, kept at app level so a timer
+ * Pomodoro timers from the Dashboard, kept at app level so a timer
  * keeps running, finishes its phase and chimes on any page, not just while
- * the Report page is open. One timer per pomodoro card, keyed by card id, and
+ * the Dashboard is open. One timer per pomodoro card, keyed by card id, and
  * saved on this device so a reload keeps the clock.
  *
  * Anything that shows running work (the Activity island, for one) reads
@@ -28,7 +28,7 @@ import { startFocus, stopFocus } from "@/app/utils/api/tasks";
 
 export interface PomodoroTimer extends PomodoroState {
   cardId: string;
-  /** The card's settings as last seen, so phases run their length off the Report page too. */
+  /** The card's settings as last seen, so phases run their length off the Dashboard too. */
   settings: PomodoroSettings;
   /** Name of the linked task, for surfaces that don't load tasks. */
   taskName?: string | null;

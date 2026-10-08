@@ -44,7 +44,7 @@ function targetFor(item: AppNotification): NotificationTarget {
   const fileId = dataString(item, "docId") ?? dataString(item, "sheetId");
   if (fileId) return { kind: "route", href: fileHref(fileId) };
   if (dataString(item, "eventId")) return { kind: "route", href: "/calendar" };
-  if (item.category === "digest") return { kind: "route", href: "/report" };
+  if (item.category === "digest") return { kind: "route", href: "/dashboard" };
   return { kind: "route", href: "/today" };
 }
 

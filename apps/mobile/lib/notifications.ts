@@ -276,7 +276,7 @@ export function addReminderResponseListener(
 
 const POMODORO_PREFIX = "timely-pomodoro:";
 
-/** Rings when a Report pomodoro phase ends, even with the app in the background. */
+/** Rings when a Dashboard pomodoro phase ends, even with the app in the background. */
 export async function schedulePomodoroNotification(cardId: string, at: number, title: string, body: string, sound = true) {
   const N = notifications();
   if (!N) return;

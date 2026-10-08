@@ -21,6 +21,7 @@ import { requestConfirm } from "@/app/_store/confirmStore";
 import ActivityIsland from "@/app/_components/_layout/activityIsland";
 
 const GO_SHORTCUTS: Record<string, string> = {
+  Dashboard: "G then D",
   Chat: "G then A",
   Today: "G then Y",
   Inbox: "G then I",
@@ -28,7 +29,6 @@ const GO_SHORTCUTS: Record<string, string> = {
   Tasks: "G then T",
   Projects: "G then P",
   Files: "G then F",
-  Report: "G then R",
   Notifications: "G then N",
 };
 

@@ -80,11 +80,11 @@ function cardIcon(card: DashboardCard) {
 }
 
 /**
- * The Report dashboard on a phone: the same saved cards as web and desktop,
+ * The Dashboard on a phone: the same saved cards as web and desktop,
  * stacked in one column. Edit mode moves and removes cards; sizes and the
  * card workshop stay on the bigger screens.
  */
-export default function ReportScreen() {
+export default function DashboardScreen() {
   const router = useRouter();
   const { layout, isLoading, isError, retry, update, updateCard } = useDashboardLayout();
   const cards = useMemo(() => layout?.cards ?? [], [layout]);
@@ -193,7 +193,7 @@ export default function ReportScreen() {
   return (
     <Screen>
       <MobileHeader
-        title="Report"
+        title="Dashboard"
         back
         actions={
           <>

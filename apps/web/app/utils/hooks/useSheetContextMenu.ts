@@ -42,7 +42,7 @@ function copyText(text: string, message: string) {
     .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
 }
 
-/** Right-click menu for a sheet, shared by the sheets list and Report. */
+/** Right-click menu for a sheet, shared by the sheets list and the Dashboard. */
 export function useSheetContextMenu() {
   const router = useRouter();
   const deleteSheet = useDeleteSheet();

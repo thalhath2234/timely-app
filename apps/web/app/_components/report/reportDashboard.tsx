@@ -383,9 +383,9 @@ export default function ReportDashboard() {
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-8">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-3xl font-semibold text-foreground">Report</h1>
+            <h1 className="text-3xl font-semibold text-foreground">Dashboard</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Your dashboard. Drag a card by its title to move it, drag its edge or corner to resize.
+              Drag a card by its title to move it, drag its edge or corner to resize.
             </p>
           </div>
           <div className="flex items-center gap-2">
