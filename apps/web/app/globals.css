@@ -380,6 +380,26 @@ body::-webkit-scrollbar-corner,
 
 .doc-code-wrap {
   padding: 0;
+  /* clip, not hidden: hidden would stop the fold bar from sticking. */
+  overflow: clip;
+}
+
+.doc-code-wrap pre.is-folded {
+  max-height: calc(3lh + 0.9rem);
+  overflow: hidden;
+  padding-bottom: 0;
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+
+.doc-code-fold {
+  background: #252526;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  padding: 6px 10px;
+  position: sticky;
+  z-index: 2;
 }
 
 .doc-code-bar {

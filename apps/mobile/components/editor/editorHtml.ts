@@ -54,6 +54,9 @@ export function buildEditorHtml(
     .tiptap h6 { font-size: 14px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; color: ${t.mutedForeground}; }
     .code-wrap pre { margin: 0; }
     .code-wrap:has(.mermaid-out:not([style*="none"])) pre { border-radius: 10px 10px 0 0; }
+    .code-wrap pre.is-folded { max-height: calc(36px + 3lh); overflow: hidden; padding-bottom: 0; -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent); mask-image: linear-gradient(to bottom, #000 60%, transparent); }
+    .code-fold { position: sticky; bottom: 0; z-index: 2; display: flex; justify-content: center; padding: 6px; background: ${t.background}; }
+    .code-fold button { background: ${t.muted}; color: ${t.foreground}; border: 1px solid ${t.border}; border-radius: 999px; font-size: 13px; font-weight: 600; padding: 6px 14px; }
     .mermaid-out { padding: 10px 12px; background: ${t.muted}; border: 1px solid ${t.border}; border-top: 0; border-radius: 0 0 10px 10px; overflow-x: auto; font-size: 13px; color: ${t.mutedForeground}; }
     .mermaid-out svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
     .mermaid-out.mermaid-error { color: #e5484d; font-family: ui-monospace, monospace; white-space: pre-wrap; }
@@ -808,11 +811,38 @@ export function buildEditorHtml(
           const out = document.createElement("div");
           out.className = "mermaid-out";
           out.setAttribute("contenteditable", "false");
+          // Source drawn below (diagram, map, 3D) folds to a few lines; the bar
+          // sticks to the bottom of the screen while open code scrolls past.
+          const fold = document.createElement("div");
+          fold.className = "code-fold";
+          fold.setAttribute("contenteditable", "false");
+          const foldBtn = document.createElement("button");
+          foldBtn.type = "button";
+          fold.appendChild(foldBtn);
+          let expanded = false;
+          let lines = 0;
+          let foldLang = null;
+          const paintFold = (lang) => {
+            foldLang = lang;
+            const foldable = (lang === "mermaid" || lang === "geojson" || lang === "topojson" || lang === "stl") && lines > 3;
+            fold.style.display = foldable ? "" : "none";
+            pre.classList.toggle("is-folded", foldable && !expanded);
+            foldBtn.textContent = expanded ? "Collapse code" : "Show all " + lines + " lines";
+          };
+          foldBtn.addEventListener("mousedown", (event) => event.preventDefault());
+          foldBtn.addEventListener("click", () => {
+            expanded = !expanded;
+            paintFold(foldLang);
+            if (!expanded) dom.scrollIntoView({ block: "nearest" });
+          });
           dom.appendChild(pre);
+          dom.appendChild(fold);
           dom.appendChild(out);
           const apply = (current) => {
             const lang = current.attrs.language;
             code.className = lang ? "language-" + lang : "";
+            lines = current.textContent.split("\\n").length;
+            paintFold(lang);
             if (lang === "mermaid") {
               out.style.display = "";
               drawDiagram(out, current.textContent);
