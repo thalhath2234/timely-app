@@ -18,6 +18,7 @@ import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
+import ActivityIsland from "@/app/_components/_layout/activityIsland";
 
 const GO_SHORTCUTS: Record<string, string> = {
   Chat: "G then A",
@@ -261,6 +262,7 @@ export default function Sidebar() {
             </div>
           );
         })}
+        <ActivityIsland />
       </div>
       <button
         type="button"

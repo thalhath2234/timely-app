@@ -130,7 +130,11 @@ export default function ModelMenu({
           role="dialog"
           aria-label="Choose a model"
           onKeyDown={(e) => {
-            if (e.key === "Escape") setOpen(false);
+            if (e.key !== "Escape") return;
+            // Close only the menu, not the chat dialog around it.
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(false);
           }}
           className="absolute bottom-full left-0 z-30 mb-2 flex max-h-[min(28rem,70vh)] w-[min(22rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
         >
