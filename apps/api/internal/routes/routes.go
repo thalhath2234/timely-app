@@ -140,6 +140,8 @@ func setupTaskRoutes(g *echo.Group, taskHandler *task.Handler) {
 	g.POST("/inbox/:id/clarify", taskHandler.Clarify)
 	g.GET("/tasks", taskHandler.GetAllTaskByUser)
 	g.PATCH("/tasks/bulk", taskHandler.BulkUpdate)
+	// Static path, registered before the /tasks/:id routes it sits beside.
+	g.GET("/tasks/focus-sessions", taskHandler.ListFocusSessions)
 	g.GET("/task/:id", taskHandler.GetTaskById)
 	g.PUT("/tasks/:id", taskHandler.Update)
 	g.DELETE("/tasks/:id", taskHandler.Delete)

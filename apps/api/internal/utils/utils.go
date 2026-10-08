@@ -210,3 +210,8 @@ func GetCurrentTime() string {
 func GetCurrentTimestamp() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
+
+// NewFocusSessionID generates a focus session row ID with fcs_ prefix
+func NewFocusSessionID() string {
+	return PrefixedUUID("fcs")
+}

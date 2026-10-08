@@ -102,6 +102,7 @@ function refreshTask(taskId: string) {
   void queryClient.invalidateQueries({ queryKey: ["tasks"] });
   void queryClient.invalidateQueries({ queryKey: ["today"] });
   void queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+  void queryClient.invalidateQueries({ queryKey: ["focus-sessions"] });
 }
 
 /** Tracks time on the linked task while a focus phase runs. Failures stay quiet: the timer matters more. */

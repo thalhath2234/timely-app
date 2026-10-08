@@ -268,6 +268,21 @@ export interface ScheduledBlock {
   updatedAt: string;
 }
 
+/**
+ * One stretch of focused work, logged when pausing, stopping or completing a
+ * focused task adds minutes to its `actualMinutes`. `taskName` is a snapshot,
+ * so sessions of a deleted task keep their name (`taskId` is then null).
+ * Read with `GET /tasks/focus-sessions?from=&to=`.
+ */
+export interface FocusSession {
+  id: string;
+  taskId: string | null;
+  taskName: string;
+  startedAt: string;
+  endedAt: string;
+  minutes: number;
+}
+
 export interface CalendarEventEntity {
   id: string;
   title: string;

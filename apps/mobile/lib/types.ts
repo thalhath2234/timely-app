@@ -46,6 +46,7 @@ export type {
   CustomFieldOptions,
   CustomFieldType,
   CustomFieldValueInput,
+  FocusSession,
   Label,
   PreferredWindow,
   Project,

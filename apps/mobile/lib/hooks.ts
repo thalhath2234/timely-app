@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
-import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus } from "./api/tasks";
+import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus, getFocusSessions } from "./api/tasks";
 import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
 import type { Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig } from "./types";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, updateSheetTemplate, deleteSheetTemplate, materializeTemplateTab } from "./api/sheets";
@@ -99,6 +99,8 @@ export const keys = {
   rank: ["schedule", "rank"] as const,
   freeTime: ["schedule", "free-time"] as const,
   today: ["today"] as const,
+  /** Prefix of every useFocusSessions query; focus and completion invalidate it. */
+  focusSessions: ["focus-sessions"] as const,
   notifications: ["notifications"] as const,
   unreadNotifications: ["notifications", "unread-count"] as const,
   notificationSettings: ["notification-settings"] as const,
@@ -140,6 +142,17 @@ export function useInboxQuery() {
 
 export function useTodayQuery() {
   return useQuery({ queryKey: keys.today, queryFn: () => getToday() });
+}
+
+/** Focus sessions that ended in [from, to), for the Dashboard's focus time. */
+export function useFocusSessions(from: Date, to: Date, enabled = true) {
+  const fromISO = from.toISOString();
+  const toISO = to.toISOString();
+  return useQuery({
+    queryKey: [...keys.focusSessions, fromISO, toISO] as const,
+    queryFn: () => getFocusSessions(new Date(fromISO), new Date(toISO)),
+    enabled,
+  });
 }
 
 /** Free Working hours from `from` to `to`; fetch only while `enabled`. */
@@ -465,11 +478,16 @@ export function useSaveTask() {
       if (context?.previousTask) client.setQueryData(keys.task(id), context.previousTask);
       if (context?.previousList) client.setQueryData(keys.tasks, context.previousList);
     },
-    onSuccess: (task) => {
+    onSuccess: (task, { data }) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: ["calendar"] });
       client.invalidateQueries({ queryKey: keys.freeTime });
       client.invalidateQueries({ queryKey: keys.today });
+      // Completing a focused task (directly or via a Completed status) banks
+      // its running focus as a session.
+      if (data.completedAt !== undefined || data.statusId !== undefined) {
+        client.invalidateQueries({ queryKey: keys.focusSessions });
+      }
     },
   });
 }
@@ -593,6 +611,7 @@ export function useBulkUpdateTasks() {
       client.invalidateQueries({ queryKey: keys.tasks });
       client.invalidateQueries({ queryKey: ["calendar"] });
       client.invalidateQueries({ queryKey: keys.freeTime });
+      client.invalidateQueries({ queryKey: keys.focusSessions });
     },
   });
 }
@@ -1051,6 +1070,7 @@ export function useStartFocus() {
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: keys.today });
+      client.invalidateQueries({ queryKey: keys.focusSessions });
     },
   });
 }
@@ -1062,6 +1082,7 @@ export function useStopFocus() {
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: keys.today });
+      client.invalidateQueries({ queryKey: keys.focusSessions });
     },
   });
 }
@@ -1073,6 +1094,7 @@ export function usePauseFocus() {
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: keys.today });
+      client.invalidateQueries({ queryKey: keys.focusSessions });
     },
   });
 }

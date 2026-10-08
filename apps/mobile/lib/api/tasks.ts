@@ -1,4 +1,4 @@
-import type { Task, TaskActivity } from "../types";
+import type { FocusSession, Task, TaskActivity } from "../types";
 import type {
   CreateTaskPayload,
   SplitTaskSeriesPayload,
@@ -167,6 +167,13 @@ export async function stopFocus(taskId: string) {
 export async function pauseFocus(taskId: string) {
   const res = await api<Task | { task: Task }>(`/tasks/${taskId}/focus/pause`, { method: "POST" });
   return unwrap(res, "task");
+}
+
+/** Focus sessions that ended in [from, to), oldest first (range max 400 days). */
+export async function getFocusSessions(from: Date, to: Date): Promise<FocusSession[]> {
+  const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
+  const body = await api<{ sessions?: FocusSession[] | null }>(`/tasks/focus-sessions?${params}`);
+  return body.sessions ?? [];
 }
 
 export async function setTodayFocus(taskId: string, date: string | null) {

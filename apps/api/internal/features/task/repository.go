@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
 
@@ -25,6 +26,10 @@ type TaskRepository interface {
 	ReplaceCustomFieldValues(taskID string, values []*models.CustomFieldValue) error
 	CreateActivities(entries []models.TaskActivity) error
 	ListActivities(userID string, taskID string) ([]models.TaskActivity, error)
+	CreateFocusSession(entry *models.FocusSession) error
+	// ListFocusSessions returns the user's focus sessions with ended_at in
+	// [from, to), oldest first.
+	ListFocusSessions(userID string, from, to time.Time) ([]models.FocusSession, error)
 	ActorName(userID string) string
 	DeleteTask(userID, taskID string) error
 	DB() *gorm.DB
@@ -479,6 +484,22 @@ func (r *taskRepository) ListActivities(userID string, taskID string) ([]models.
 	}
 
 	return entries, nil
+}
+
+func (r *taskRepository) CreateFocusSession(entry *models.FocusSession) error {
+	return r.db.Create(entry).Error
+}
+
+func (r *taskRepository) ListFocusSessions(userID string, from, to time.Time) ([]models.FocusSession, error) {
+	sessions := []models.FocusSession{}
+	err := r.db.
+		Where("user_id = ? AND ended_at >= ? AND ended_at < ?", userID, from, to).
+		Order("ended_at ASC, id ASC").
+		Find(&sessions).Error
+	if err != nil {
+		return nil, err
+	}
+	return sessions, nil
 }
 
 func (r *taskRepository) ActorName(userID string) string {

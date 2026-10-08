@@ -7,6 +7,7 @@ import {
   deleteTask,
   editTaskOccurrence,
   UpdateTaskPayload,
+  getFocusSessions,
   getTask,
   getTaskActivity,
   getTasks,
@@ -29,6 +30,8 @@ import { Label, Task, TaskActivity } from "@/app/_types/types";
 export const tasksKey = ["tasks"] as const;
 export const inboxKey = ["tasks", "inbox"] as const;
 export const todayKey = ["today"] as const;
+/** Prefix of every useFocusSessions query; focus and completion invalidate it. */
+export const focusSessionsKey = ["focus-sessions"] as const;
 
 export function taskKey(id: string) {
   return ["task", id] as const;
@@ -172,6 +175,11 @@ export function useUpdateTask() {
         queryClient.invalidateQueries({ queryKey: todayKey });
         queryClient.invalidateQueries({ queryKey: inboxKey });
       }
+      // Completing a focused task (directly or via a Completed status) banks
+      // its running focus as a session.
+      if (variables.completedAt !== undefined || variables.statusId !== undefined) {
+        queryClient.invalidateQueries({ queryKey: focusSessionsKey });
+      }
     },
   });
 }
@@ -240,6 +248,7 @@ export function useBulkUpdateTasks() {
       }
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
       queryClient.invalidateQueries({ queryKey: todayKey });
+      queryClient.invalidateQueries({ queryKey: focusSessionsKey });
     },
   });
 }
@@ -275,6 +284,17 @@ export function useAddTaskComment(taskId: string) {
         (entries) => [entry, ...(entries ?? [])],
       );
     },
+  });
+}
+
+/** Focus sessions that ended in [from, to), for the Dashboard's focus time. */
+export function useFocusSessions(from: Date, to: Date, enabled = true) {
+  const fromISO = from.toISOString();
+  const toISO = to.toISOString();
+  return useQuery({
+    queryKey: [...focusSessionsKey, fromISO, toISO] as const,
+    queryFn: () => getFocusSessions(new Date(fromISO), new Date(toISO)),
+    enabled,
   });
 }
 
@@ -333,7 +353,10 @@ export function useStartFocus() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: startFocus,
-    onSuccess: (task) => invalidateExecution(queryClient, task.id),
+    onSuccess: (task) => {
+      invalidateExecution(queryClient, task.id);
+      queryClient.invalidateQueries({ queryKey: focusSessionsKey });
+    },
   });
 }
 
@@ -341,7 +364,10 @@ export function useStopFocus() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: stopFocus,
-    onSuccess: (task) => invalidateExecution(queryClient, task.id),
+    onSuccess: (task) => {
+      invalidateExecution(queryClient, task.id);
+      queryClient.invalidateQueries({ queryKey: focusSessionsKey });
+    },
   });
 }
 

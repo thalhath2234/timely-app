@@ -2,6 +2,7 @@ package task
 
 import (
 	"errors"
+	"log"
 	"strings"
 	"time"
 	"timely-api/internal/models"
@@ -291,6 +292,7 @@ func (s *taskService) PauseFocus(userID, taskID string) (*models.Task, error) {
 	}); err != nil {
 		return nil, err
 	}
+	s.logFocusSession(userID, task, elapsed)
 	return s.GetForUser(userID, taskID)
 }
 
@@ -316,21 +318,73 @@ func (s *taskService) stopFocusTask(userID string, task *models.Task) (*models.T
 		})
 	}
 	elapsed := elapsedFocusMinutes(*task.FocusStartedAt)
-	return s.taskRepo.UpdateTask(userID, task.ID, map[string]any{
+	updated, err := s.taskRepo.UpdateTask(userID, task.ID, map[string]any{
 		"actual_minutes":   task.ActualMinutes + elapsed,
 		"focus_started_at": nil,
 		"focus_paused_at":  nil,
 		"updated_at":       utils.GetCurrentTime(),
 	})
+	if err != nil {
+		return nil, err
+	}
+	s.logFocusSession(userID, task, elapsed)
+	return updated, nil
 }
 
-func elapsedFocusMinutes(startedAt string) int {
+// logFocusSession records the focus stretch that just added elapsed minutes
+// to the task's actual_minutes, for the Dashboard's focus time. task is the
+// row as it was before the update, so FocusStartedAt is the stretch's start.
+// The log is history on top of actual_minutes: a failed write is reported and
+// does not undo the user's pause, stop or completion.
+func (s *taskService) logFocusSession(userID string, task *models.Task, elapsed int) {
+	if elapsed <= 0 || task == nil || task.FocusStartedAt == nil {
+		return
+	}
+	start, ok := parseFocusStart(*task.FocusStartedAt)
+	if !ok {
+		return
+	}
+	taskID := task.ID
+	entry := &models.FocusSession{
+		UserID:    userID,
+		TaskID:    &taskID,
+		TaskName:  task.Name,
+		StartedAt: start.UTC(),
+		EndedAt:   time.Now().UTC(),
+		Minutes:   elapsed,
+	}
+	if err := s.taskRepo.CreateFocusSession(entry); err != nil {
+		log.Printf("task %s: could not log a focus session: %v", task.ID, err)
+	}
+}
+
+// ListFocusSessions returns the user's focus sessions that ended in
+// [from, to), oldest first.
+func (s *taskService) ListFocusSessions(userID string, from, to time.Time) ([]models.FocusSession, error) {
+	if userID == "" {
+		return nil, errors.New("invalid request")
+	}
+	if !to.After(from) {
+		return nil, errors.New("to must be after from")
+	}
+	return s.taskRepo.ListFocusSessions(userID, from.UTC(), to.UTC())
+}
+
+func parseFocusStart(startedAt string) (time.Time, bool) {
 	start, err := time.Parse(time.RFC3339, startedAt)
 	if err != nil {
 		start, err = time.Parse(time.RFC3339Nano, startedAt)
 		if err != nil {
-			return 0
+			return time.Time{}, false
 		}
+	}
+	return start, true
+}
+
+func elapsedFocusMinutes(startedAt string) int {
+	start, ok := parseFocusStart(startedAt)
+	if !ok {
+		return 0
 	}
 	seconds := time.Since(start).Seconds()
 	if seconds < 15 {
