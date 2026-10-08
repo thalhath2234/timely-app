@@ -54,6 +54,23 @@ export async function shareLocalText(filename: string, contents: string, mimeTyp
   await Sharing.shareAsync(target.uri, { mimeType, dialogTitle: `Export ${filename}` });
 }
 
+const IMAGE_EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+
+/** Shares a doc image ("/files/<id>" on the server, or a web address), so it
+ * can be saved to Photos or Files from the share sheet. */
+export async function shareImage(src: string, name: string) {
+  if (!(await Sharing.isAvailableAsync())) throw new Error("File sharing is not available on this device.");
+  const base = (name || "image").replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 100) || "image";
+  const url = src.startsWith("/files/") ? `${await getApiUrl()}${src}` : src;
+  const response = await fetch(url, { headers: src.startsWith("/files/") ? tunnelHeaders(await getApiUrl()) : {} });
+  if (!response.ok) throw new Error("Could not download the image");
+  const mimeType = (response.headers.get("content-type") ?? "image/png").split(";")[0].trim();
+  const target = new File(Paths.cache, `${base}.${IMAGE_EXTENSIONS[mimeType] ?? "png"}`);
+  if (target.exists) target.delete();
+  target.write(new Uint8Array(await response.arrayBuffer()));
+  await Sharing.shareAsync(target.uri, { mimeType, dialogTitle: `Save ${base}` });
+}
+
 /** Lays an HTML page out as a PDF on the device and shares it. */
 export async function sharePdfFromHtml(filename: string, html: string) {
   if (!(await Sharing.isAvailableAsync())) throw new Error("File sharing is not available on this device.");

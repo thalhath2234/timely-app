@@ -207,7 +207,8 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   };
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden">
+    // Dragging a box from anywhere around the doc selects blocks (blockSelection.ts).
+    <div className="relative flex h-full flex-col overflow-hidden" data-block-select-root="">
       <header className="flex items-center gap-2 border-b border-border px-6 py-2.5">
         <ExpandCollapsedListButton
           storageKey="timely.docsListCollapsed"

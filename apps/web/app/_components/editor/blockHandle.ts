@@ -2,14 +2,17 @@ import { Extension } from "@tiptap/core";
 import { NodeSelection, Plugin, PluginKey } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { openBlockMenu } from "./blockMenu";
+import { blockSelectionKey, getBlockRange, setBlockRange, type BlockRange } from "./blockSelection";
 
 /**
  * Block drag handle (Notion's ⋮⋮): hovering a block shows a grip in the left
  * gutter. Dragging it moves the block (ProseMirror's own drop code does the
  * move, from `view.dragging`); clicking it selects the block and opens its
- * menu (blockMenu.ts). List and task items and blocks in a column get their
- * own handle; anything else moves with its top-level block. Properties have
- * none: they can only be the doc's first block.
+ * menu (blockMenu.ts), Shift+click adds the blocks up to it. When its block
+ * is one of several selected (blockSelection.ts), the grip drags and opens
+ * the menu for all of them. List and task items and blocks in a column get
+ * their own handle; anything else moves with its top-level block. Properties
+ * have none: they can only be the doc's first block.
  */
 
 const ITEM_TYPES = new Set(["listItem", "taskItem"]);
@@ -50,6 +53,51 @@ function blockAt(view: EditorView, x: number, y: number) {
   return node && !FIXED_TYPES.has(node.type.name) ? { pos, node } : null;
 }
 
+/** The selection when the grip's block is in it, else just that block. */
+function rangeFor(view: EditorView, pos: number, extend: boolean): BlockRange {
+  const node = view.state.doc.nodeAt(pos)!;
+  const own = { from: pos, to: pos + node.nodeSize };
+  const current = getBlockRange(view.state);
+  if (!current) return own;
+  if (pos >= current.from && own.to <= current.to) return current;
+  const sameParent = view.state.doc.resolve(current.from).parent === view.state.doc.resolve(pos).parent;
+  if (extend && sameParent) return { from: Math.min(current.from, own.from), to: Math.max(current.to, own.to) };
+  return own;
+}
+
+/** Several top-level blocks dropped as a group: they land between top-level blocks. */
+let groupDrag: BlockRange | null = null;
+
+function dropGroup(view: EditorView, event: DragEvent, range: BlockRange) {
+  groupDrag = null;
+  view.dragging = null;
+  const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+  if (!hit) return true;
+  const { doc } = view.state;
+  const $hit = doc.resolve(hit.pos);
+  let target = hit.pos;
+  if ($hit.depth > 0) {
+    target = $hit.before(1);
+    const dom = view.nodeDOM(target);
+    if (dom instanceof HTMLElement) {
+      const rect = dom.getBoundingClientRect();
+      if (event.clientY > rect.top + rect.height / 2) target = $hit.after(1);
+    }
+  }
+  if (doc.firstChild?.type.name === "frontmatter") target = Math.max(target, doc.firstChild.nodeSize);
+  event.preventDefault();
+  if (target >= range.from && target <= range.to) return true;
+  const slice = doc.slice(range.from, range.to);
+  const tr = view.state.tr.insert(target, slice.content);
+  tr.delete(tr.mapping.map(range.from), tr.mapping.map(range.to));
+  // The original sat before the drop point, or after it.
+  const start = target < range.from ? target : target - slice.content.size;
+  const moved = { from: start, to: start + slice.content.size };
+  view.dispatch(tr.setMeta(blockSelectionKey, moved).scrollIntoView());
+  view.focus();
+  return true;
+}
+
 export const BlockHandle = Extension.create({
   name: "blockHandle",
 
@@ -59,9 +107,10 @@ export const BlockHandle = Extension.create({
       new Plugin({
         key: new PluginKey("blockHandle"),
         props: {
-          // Properties fit nowhere but the top, so a drop elsewhere would spill
-          // their YAML into the doc as text.
-          handleDrop(view) {
+          handleDrop(view, event) {
+            if (groupDrag) return dropGroup(view, event, groupDrag);
+            // Properties fit nowhere but the top, so a drop elsewhere would spill
+            // their YAML into the doc as text.
             let fixed = false;
             view.dragging?.slice.content.descendants((node) => {
               if (FIXED_TYPES.has(node.type.name)) fixed = true;
@@ -123,7 +172,7 @@ export const BlockHandle = Extension.create({
             if (!current) return null;
             const node = view.state.doc.nodeAt(current.pos);
             if (!node) return null;
-            const tr = view.state.tr.setSelection(NodeSelection.create(view.state.doc, current.pos));
+            const tr = view.state.tr.setSelection(NodeSelection.create(view.state.doc, current.pos)).setMeta(blockSelectionKey, null);
             view.dispatch(tr);
             return tr.selection as NodeSelection;
           };
@@ -133,18 +182,34 @@ export const BlockHandle = Extension.create({
           handle.addEventListener("mouseleave", onLeave);
           const menu = (event: MouseEvent) => {
             event.preventDefault();
-            const selection = select();
-            if (!selection) return;
+            if (!current || !view.state.doc.nodeAt(current.pos)) return;
+            const range = rangeFor(view, current.pos, event.shiftKey);
+            setBlockRange(view, range);
             // The menu hands focus back here when it closes.
             view.focus();
+            if (event.shiftKey && event.type === "click") return;
             const rect = handle.getBoundingClientRect();
             // Keyboard clicks have no pointer position; open under the grip.
             const fromPointer = event.detail > 0 || event.type === "contextmenu";
-            openBlockMenu(editor, selection.from, fromPointer ? event.clientX : rect.left, fromPointer ? event.clientY : rect.bottom + 4);
+            openBlockMenu(editor, range, fromPointer ? event.clientX : rect.left, fromPointer ? event.clientY : rect.bottom + 4);
           };
           handle.addEventListener("click", menu);
           handle.addEventListener("contextmenu", menu);
           handle.addEventListener("dragstart", (event) => {
+            const group = current ? rangeFor(view, current.pos, false) : null;
+            if (group && event.dataTransfer && view.state.doc.resolve(group.from).depth === 0 && view.state.doc.nodeAt(group.from)!.nodeSize < group.to - group.from) {
+              // Several blocks selected: they move together (dropGroup).
+              const slice = view.state.doc.slice(group.from, group.to);
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.clearData();
+              event.dataTransfer.setData("text/plain", view.state.doc.textBetween(group.from, group.to, "\n\n", " "));
+              const dom = view.nodeDOM(group.from);
+              if (dom instanceof HTMLElement) event.dataTransfer.setDragImage(dom, 0, 0);
+              view.dragging = { slice, move: true };
+              groupDrag = group;
+              handle.setAttribute("data-dragging", "");
+              return;
+            }
             const selection = select();
             if (!selection || !event.dataTransfer) return;
             const slice = selection.content();
@@ -158,6 +223,7 @@ export const BlockHandle = Extension.create({
             handle.setAttribute("data-dragging", "");
           });
           handle.addEventListener("dragend", () => {
+            groupDrag = null;
             handle.removeAttribute("data-dragging");
             view.dragging = null;
             hide();

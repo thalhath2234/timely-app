@@ -1378,6 +1378,31 @@ html.reduce-motion .tl-bar {
   }
 }
 
+/* Block selection (blockSelection.ts): selected blocks are tinted blue, and
+ * the box dragged to select them is blue, like a desktop's. */
+:root {
+  --block-select: oklch(0.62 0.19 255);
+}
+.doc-editor-content .doc-block-selected {
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--block-select) 16%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--block-select) 16%, transparent);
+}
+.doc-editor-content.has-block-selection {
+  caret-color: transparent;
+}
+.doc-editor-content.has-block-selection ::selection {
+  background: transparent;
+}
+.doc-block-box {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  border: 1px solid color-mix(in oklab, var(--block-select) 80%, transparent);
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--block-select) 14%, transparent);
+}
+
 /* Embeds and bookmarks (linkBlocks.ts). */
 .doc-editor-content .doc-embed,
 .doc-editor-content .doc-bookmark {

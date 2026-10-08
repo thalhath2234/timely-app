@@ -91,6 +91,7 @@ export function buildEditorHtml(
     .math-empty { color: ${t.mutedForeground}; font-style: italic; font-size: 13px; }
     .math-block, .frontmatter { border: 1px solid ${t.border}; border-radius: 10px; margin: 0 0 0.75em; overflow: hidden; }
     .frontmatter { border-style: dashed; }
+    .ProseMirror .block-picked { background: rgba(59, 130, 246, 0.16); border-radius: 6px; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16); }
     .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
     .props-key { color: ${t.mutedForeground}; }
     .props-values { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
@@ -216,6 +217,33 @@ export function buildEditorHtml(
       tr.setSelection(TextSelection.create(tr.doc, match.from, match.to));
       return tr.scrollIntoView();
     }
+    // The block the Block menu is open for is tinted, like a selected block on desktop.
+    const blockPickKey = new PluginKey("blockPick");
+    const BlockPick = Extension.create({
+      name: "blockPick",
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            key: blockPickKey,
+            state: {
+              init: () => null,
+              apply(tr, value) {
+                const meta = tr.getMeta(blockPickKey);
+                if (meta !== undefined) return meta;
+                return value && tr.docChanged ? null : value;
+              },
+            },
+            props: {
+              decorations(state) {
+                const picked = blockPickKey.getState(state);
+                return picked ? DecorationSet.create(state.doc, [Decoration.node(picked.from, picked.to, { class: "block-picked" })]) : null;
+              },
+            },
+          }),
+        ];
+      },
+    });
+
     const FindReplace = Extension.create({
       name: "findReplace",
       addProseMirrorPlugins() {
@@ -1645,6 +1673,7 @@ export function buildEditorHtml(
         ColumnsNode,
         ColumnNode,
         FindReplace,
+        BlockPick,
         FootnoteRef,
         Footnote,
         Frontmatter,
@@ -1761,6 +1790,100 @@ export function buildEditorHtml(
       const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } pre, table, img, svg, .callout { break-inside: avoid; } @page { margin: 18mm 16mm; }";
       send({ type: "exportHtml", html: "<!doctype html><html><head><meta charset=\\"utf-8\\">" + links + "<style>" + styles + "</style><style>" + light + "</style></head><body>" + heading.outerHTML + body.outerHTML + "</body></html>" });
     }
+    // The Block menu (BlockSheet.tsx) works on the caret's block: the
+    // innermost list item, a block in a column, or else the top-level block.
+    function caretBlock(state) {
+      const sel = state.selection;
+      if (sel.node) return sel.node.type.name === "frontmatter" ? null : { from: sel.from, to: sel.to, node: sel.node };
+      const $from = sel.$from;
+      let depth = 0;
+      for (let d = $from.depth; d > 0; d -= 1) {
+        const name = $from.node(d).type.name;
+        if (name === "listItem" || name === "taskItem") { depth = d; break; }
+        if (name === "column" && d < $from.depth) { depth = d + 1; break; }
+      }
+      if (!depth) depth = 1;
+      if ($from.depth < depth) return null;
+      const node = $from.node(depth);
+      if (node.type.name === "frontmatter") return null;
+      const from = $from.before(depth);
+      return { from: from, to: from + node.nodeSize, node: node };
+    }
+
+    function markBlock(block) {
+      editor.view.dispatch(editor.state.tr.setMeta(blockPickKey, block ? { from: block.from, to: block.to } : null));
+    }
+
+    function blockInfo() {
+      const state = editor.state;
+      const block = caretBlock(state);
+      markBlock(block);
+      if (!block) {
+        send({ type: "blockInfo", block: null });
+        return;
+      }
+      const $pos = state.doc.resolve(block.from);
+      const index = $pos.index();
+      const prev = index > 0 ? $pos.parent.child(index - 1) : null;
+      const images = [];
+      const addImage = (n) => { if (n.type.name === "image" && n.attrs.src) images.push({ src: n.attrs.src, alt: n.attrs.alt || "" }); };
+      addImage(block.node);
+      block.node.descendants(addImage);
+      const kind = block.node.type.name;
+      send({
+        type: "blockInfo",
+        block: {
+          kind: kind,
+          level: kind === "heading" ? block.node.attrs.level : 0,
+          textual: (kind === "paragraph" || kind === "heading") && images.length === 0,
+          canUp: Boolean(prev) && prev.type.name !== "frontmatter",
+          canDown: index < $pos.parent.childCount - 1,
+          topLevel: $pos.depth === 0,
+          images: images,
+          node: block.node.toJSON(),
+          text: state.doc.textBetween(block.from, block.to, "\\n\\n", " "),
+        },
+      });
+    }
+
+    function blockAction(action) {
+      const state = editor.state;
+      const block = caretBlock(state);
+      markBlock(null);
+      if (!block) return;
+      const view = editor.view;
+      if (action === "delete") {
+        // An emptied list or column goes too, or keeps an empty line.
+        view.dispatch(state.tr.deleteRange(block.from, block.to).scrollIntoView());
+        return;
+      }
+      if (action === "duplicate") {
+        const tr = state.tr.insert(block.to, block.node.copy(block.node.content));
+        tr.setSelection(TextSelection.near(tr.doc.resolve(block.to + 1)));
+        view.dispatch(tr.scrollIntoView());
+        return;
+      }
+      if (action !== "up" && action !== "down") return;
+      const $pos = state.doc.resolve(block.from);
+      const index = $pos.index() + (action === "up" ? -1 : 1);
+      if (index < 0 || index >= $pos.parent.childCount) return;
+      const sibling = $pos.parent.child(index);
+      if (sibling.type.name === "frontmatter") return;
+      // The caret moves with its block.
+      const offset = state.selection.from - block.from;
+      const tr = state.tr;
+      let start;
+      if (action === "up") {
+        start = block.from - sibling.nodeSize;
+        tr.delete(start, block.from).insert(block.to - sibling.nodeSize, sibling);
+      } else {
+        tr.delete(block.to, block.to + sibling.nodeSize).insert(block.from, sibling);
+        start = block.from + sibling.nodeSize;
+      }
+      tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(start + offset, tr.doc.content.size))));
+      view.dispatch(tr.scrollIntoView());
+    }
+
     const FIND_CMDS = { find: true, findStep: true, replaceCurrent: true, replaceAll: true };
 
     const NEW_LINE_CMDS = { diagram: true, mathBlock: true, map: true, stl: true };
@@ -1782,6 +1905,19 @@ export function buildEditorHtml(
         }
         if (FIND_CMDS[name]) {
           runFind(name, payload || {});
+          return;
+        }
+        if (name === "blockInfo") {
+          blockInfo();
+          return;
+        }
+        if (name === "blockDone") {
+          markBlock(null);
+          return;
+        }
+        if (name === "blockAction") {
+          blockAction(payload && payload.action);
+          requestAnimationFrame(scrollCaret);
           return;
         }
         const chain = editor.chain().focus();

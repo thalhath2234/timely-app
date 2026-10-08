@@ -22,6 +22,7 @@ import {
   Code2,
   FileText,
   FolderKanban,
+  GripVertical,
   Heading1,
   Heading2,
   Heading3,
@@ -66,6 +67,7 @@ import { isEmbedUrl } from "@timely/contract/markdown";
 import { useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
 import FindBar from "./FindBar";
+import BlockSheet, { type BlockInfo } from "./BlockSheet";
 
 type Picker = { kind: "slash" | "mention"; query: string; from: number; to: number } | null;
 
@@ -105,6 +107,7 @@ const SLASH: {
 ];
 
 const FORMAT_TOOLS = [
+  { label: "Block", Icon: GripVertical, cmd: "blockMenu" },
   { label: "Bold", Icon: Bold, cmd: "bold" },
   { label: "Italic", Icon: Italic, cmd: "italic" },
   { label: "Strike", Icon: Strikethrough, cmd: "strike" },
@@ -244,6 +247,7 @@ export default function RichTextEditor({
   pdfRequest?: { title: string } | null;
 }) {
   const [findResult, setFindResult] = useState({ current: -1, count: 0 });
+  const [blockMenu, setBlockMenu] = useState<BlockInfo | null>(null);
   const pdfTitleRef = useRef("");
   const webRef = useRef<WebView>(null);
   const themeKey = `${getThemeMode()}:${resolvedAccentHex()}`;
@@ -346,12 +350,17 @@ export default function RichTextEditor({
         current?: number;
         count?: number;
         html?: string;
+        block?: BlockInfo | null;
       };
       if (msg.type === "exportHtml" && msg.html) {
         const name = `${(pdfTitleRef.current || "Untitled").replace(/[\\/:*?"<>|]+/g, " ").trim() || "Untitled"}.pdf`;
         void sharePdfFromHtml(name, msg.html).catch((error) =>
           useToastStore.getState().show(error instanceof Error ? error.message : "Could not make the PDF"),
         );
+      }
+      if (msg.type === "blockInfo") {
+        if (msg.block) setBlockMenu(msg.block);
+        else useToastStore.getState().show("Tap a block first");
       }
       if (msg.type === "find") setFindResult({ current: msg.current ?? -1, count: msg.count ?? 0 });
       if (msg.type === "openLink" && msg.href && /^https?:/i.test(msg.href)) void Linking.openURL(msg.href).catch(() => undefined);
@@ -508,6 +517,10 @@ export default function RichTextEditor({
   }
 
   function applyFormat(cmd: string) {
+    if (cmd === "blockMenu") {
+      run("blockInfo");
+      return;
+    }
     if (cmd === "embedPrompt" || cmd === "bookmarkPrompt") {
       openLinkPrompt(null, cmd === "embedPrompt" ? "embed" : "bookmark");
       return;
@@ -716,6 +729,15 @@ export default function RichTextEditor({
           </Pressable>
         ) : null}
       </BottomSheet>
+
+      <BlockSheet
+        block={blockMenu}
+        run={run}
+        onClose={() => {
+          setBlockMenu(null);
+          run("blockDone");
+        }}
+      />
 
       <BottomSheet open={mathEdit !== null} onClose={() => closeMath(true)} title="Formula">
         <Field

@@ -67,6 +67,8 @@ import { Callout } from "./callout";
 import { DocImage } from "./docImage";
 import { Details, DetailsSummary } from "./details";
 import { BlockHandle } from "./blockHandle";
+import { BlockSelection } from "./blockSelection";
+import BlockTransferDialog from "./blockTransfer";
 import { Bookmark, Embed } from "./linkBlocks";
 import { FindReplace } from "./findReplace";
 import { Column, Columns } from "./columns";
@@ -323,7 +325,7 @@ export default function RichTextEditor({
       WikiLink,
     ];
 
-    if (variant === "page") list.push(BlockHandle, FindReplace.configure({ onOpen: () => setFindOpen(true) }));
+    if (variant === "page") list.push(BlockHandle, BlockSelection, FindReplace.configure({ onOpen: () => setFindOpen(true) }));
 
     if (enableSlashCommands) {
       list.push(
@@ -1002,6 +1004,7 @@ export default function RichTextEditor({
 
           <div className="relative flex min-h-0 flex-1 flex-col">
             {findOpen && <FindBar editor={editor} onClose={() => setFindOpen(false)} />}
+            {variant === "page" && <BlockTransferDialog />}
             {/* The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped. */}
             <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
               <EditorContent editor={editor} className="min-h-full" />
