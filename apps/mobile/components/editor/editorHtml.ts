@@ -132,7 +132,7 @@ export function buildEditorHtml(
     import Image from "https://esm.sh/@tiptap/extension-image@3.31.4";
     import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
-    import { TextSelection } from "https://esm.sh/@tiptap/pm@3.31.4/state";
+    import { TextSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
 
     const placeholder = ${embed(placeholder)};
     const Mention = Node.create({
@@ -457,6 +457,15 @@ export function buildEditorHtml(
           label.className = "footnote-label";
           label.setAttribute("contenteditable", "false");
           label.textContent = "[" + node.attrs.label + "]";
+          let current = node;
+          // The number leads back to where the note is referenced.
+          label.addEventListener("mousedown", (event) => event.preventDefault());
+          label.addEventListener("click", () => {
+            const ref = findFootnote(editor.state.doc, "footnoteRef", String(current.attrs.label));
+            if (!ref) return;
+            editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, ref.pos + ref.node.nodeSize)).scrollIntoView());
+            editor.view.focus();
+          });
           const body = document.createElement("div");
           body.className = "footnote-body";
           dom.appendChild(label);
@@ -466,6 +475,7 @@ export function buildEditorHtml(
             contentDOM: body,
             update(next) {
               if (next.type !== node.type) return false;
+              current = next;
               label.textContent = "[" + next.attrs.label + "]";
               dom.setAttribute("data-footnote", next.attrs.label);
               return true;
@@ -479,15 +489,106 @@ export function buildEditorHtml(
       },
       addKeyboardShortcuts() {
         return {
+          // Backspace in an empty note removes the footnote: the note, its
+          // markers, and the gap in the numbering.
           Backspace: () => {
-            const { $from, empty } = this.editor.state.selection;
+            const { state, view } = this.editor;
+            const { $from, empty } = state.selection;
             if (!empty || $from.parent.type.name !== "paragraph" || $from.parent.textContent) return false;
             if ($from.depth < 2 || $from.node(-1).type.name !== this.name || $from.node(-1).childCount !== 1) return false;
-            return this.editor.commands.lift("paragraph");
+            const label = String($from.node(-1).attrs.label);
+            const tr = state.tr;
+            const doomed = [];
+            state.doc.descendants((n, pos) => {
+              if ((n.type.name === "footnote" || n.type.name === "footnoteRef") && String(n.attrs.label) === label) doomed.push({ pos, size: n.nodeSize, ref: n.type.name === "footnoteRef" });
+            });
+            const ref = doomed.find((item) => item.ref);
+            doomed.reverse().forEach(({ pos, size }) => tr.delete(pos, pos + size));
+            renumberFootnotes(tr);
+            const at = ref ? tr.mapping.map(ref.pos) : tr.doc.content.size;
+            tr.setSelection(TextSelection.near(tr.doc.resolve(at), -1)).scrollIntoView();
+            view.dispatch(tr);
+            return true;
           },
         };
       },
+      addProseMirrorPlugins() {
+        return [new Plugin({
+          key: new PluginKey("footnoteLinks"),
+          // Deleting a marker deletes its note, and the rest renumber.
+          appendTransaction: (transactions, oldState, newState) => {
+            if (!transactions.some((tr) => tr.docChanged)) return null;
+            if (transactions.some((tr) => tr.getMeta("preventUpdate"))) return null;
+            const before = refLabels(oldState.doc);
+            const after = refLabels(newState.doc);
+            if (before.join("|") === after.join("|")) return null;
+            // Whole-doc swaps (loading, importing) change notes too; leave those.
+            if (countNotes(oldState.doc) !== countNotes(newState.doc)) return null;
+            const tr = newState.tr;
+            const gone = new Set(before.filter((label) => !after.includes(label)));
+            const doomed = [];
+            newState.doc.descendants((n, pos) => {
+              if (n.type.name === "footnote" && gone.has(String(n.attrs.label))) doomed.push({ pos, size: n.nodeSize });
+              return n.type.name !== "footnote";
+            });
+            doomed.reverse().forEach(({ pos, size }) => tr.delete(pos, pos + size));
+            renumberFootnotes(tr);
+            return tr.docChanged ? tr : null;
+          },
+        })];
+      },
     });
+
+    const isNumberLabel = (label) => /^[0-9]+$/.test(String(label));
+    function refLabels(doc) {
+      const labels = [];
+      doc.descendants((n) => { if (n.type.name === "footnoteRef") labels.push(String(n.attrs.label)); });
+      return labels;
+    }
+    function countNotes(doc) {
+      let count = 0;
+      doc.descendants((n) => { if (n.type.name === "footnote") count += 1; return n.type.name !== "footnote"; });
+      return count;
+    }
+    function findFootnote(doc, type, label) {
+      let found = null;
+      doc.descendants((n, pos) => {
+        if (found) return false;
+        if (n.type.name === type && String(n.attrs.label) === label) found = { pos, node: n };
+      });
+      return found;
+    }
+    // Numbers footnotes 1, 2, 3 in the order their markers appear and keeps
+    // the notes at the end in that order; named labels stay as they are.
+    function renumberFootnotes(tr) {
+      const order = [];
+      refLabels(tr.doc).forEach((label) => { if (isNumberLabel(label) && !order.includes(label)) order.push(label); });
+      tr.doc.descendants((n) => {
+        const label = String(n.attrs.label);
+        if (n.type.name === "footnote" && isNumberLabel(label) && !order.includes(label)) order.push(label);
+        return n.type.name !== "footnote";
+      });
+      const rename = new Map(order.map((label, index) => [label, String(index + 1)]));
+      tr.doc.descendants((n, pos) => {
+        if (n.type.name !== "footnote" && n.type.name !== "footnoteRef") return;
+        const next = rename.get(String(n.attrs.label));
+        if (next && next !== String(n.attrs.label)) tr.setNodeMarkup(pos, undefined, { ...n.attrs, label: next });
+      });
+      const run = [];
+      tr.doc.forEach((n, offset, index) => { if (n.type.name === "footnote") run.push(index); });
+      if (run.length > 1 && run[run.length - 1] - run[0] === run.length - 1) {
+        const notes = run.map((index) => tr.doc.child(index));
+        const rank = (n) => (isNumberLabel(n.attrs.label) ? Number(n.attrs.label) : Infinity);
+        const sorted = [...notes].sort((a, b) => rank(a) - rank(b));
+        if (sorted.some((n, i) => n !== notes[i])) {
+          let from = 0;
+          for (let i = 0; i < run[0]; i++) from += tr.doc.child(i).nodeSize;
+          const to = from + notes.reduce((size, n) => size + n.nodeSize, 0);
+          tr.replaceWith(from, to, sorted);
+        }
+      }
+      return rename;
+    }
 
     function nextFootnoteLabel(doc) {
       let highest = 0;
@@ -992,8 +1093,12 @@ export function buildEditorHtml(
         editor.view.dom.addEventListener("click", (event) => {
           const ref = event.target.closest && event.target.closest("sup[data-footnote-ref]");
           if (ref) {
-            const note = document.querySelector('[data-footnote="' + CSS.escape(ref.getAttribute("data-label") || "") + '"]');
-            if (note) note.scrollIntoView({ behavior: "smooth", block: "center" });
+            const found = findFootnote(editor.state.doc, "footnote", ref.getAttribute("data-label") || "");
+            if (found) {
+              editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(found.pos + found.node.nodeSize - 1), -1)));
+              const note = document.querySelector('[data-footnote="' + CSS.escape(ref.getAttribute("data-label") || "") + '"]');
+              if (note) note.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
             return;
           }
           const wiki = event.target.closest && event.target.closest("a[data-wiki-link]");
@@ -1075,11 +1180,17 @@ export function buildEditorHtml(
           case "mathBlock": chain.setNode("mathBlock"); break;
           case "footnote":
             chain.command(({ tr, state }) => {
-              const label = nextFootnoteLabel(state.doc);
-              tr.replaceSelectionWith(state.schema.nodes.footnoteRef.create({ label }));
-              const end = tr.doc.content.size;
-              tr.insert(end, state.schema.nodes.footnote.create({ label }, state.schema.nodes.paragraph.create()));
-              tr.setSelection(TextSelection.create(tr.doc, end + 2));
+              const label = nextFootnoteLabel(tr.doc);
+              const { $to } = tr.selection;
+              if (!$to.parent.inlineContent || $to.parent.type.spec.code) return false;
+              // The marker goes after any selected words instead of replacing them.
+              tr.insert(tr.selection.to, state.schema.nodes.footnoteRef.create({ label }));
+              let at = tr.doc.content.size;
+              tr.doc.forEach((n, offset) => { if (n.type.name === "footnote") at = offset + n.nodeSize; });
+              tr.insert(at, state.schema.nodes.footnote.create({ label }, state.schema.nodes.paragraph.create()));
+              const renamed = renumberFootnotes(tr);
+              const note = findFootnote(tr.doc, "footnote", renamed.get(label) || label);
+              if (note) tr.setSelection(TextSelection.near(tr.doc.resolve(note.pos + note.node.nodeSize - 1), -1));
               tr.scrollIntoView();
               return true;
             });

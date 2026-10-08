@@ -259,7 +259,11 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           type="button"
           title="Download as Markdown"
           aria-label="Download document as Markdown"
-          onClick={() => void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`)}
+          onClick={async () => {
+            // The file comes from the server, so save the latest typing first.
+            await flush();
+            void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`);
+          }}
           className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
         >
           <Download className="size-4" />

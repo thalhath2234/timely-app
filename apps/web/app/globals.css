@@ -1093,17 +1093,28 @@ html.reduce-motion .tl-bar {
   padding-top: 0.5em;
 }
 
-.doc-footnote + .doc-footnote {
+.doc-footnote + .doc-footnote,
+.react-renderer:has(> .doc-footnote) + .react-renderer > .doc-footnote {
   border-top: 0;
   margin-top: 0;
   padding-top: 0;
 }
 
 .doc-footnote-label {
+  background: none;
+  border: 0;
   color: var(--primary);
+  cursor: pointer;
   flex: none;
+  font: inherit;
   font-weight: 600;
   min-width: 1.25rem;
+  padding: 0;
+  text-align: left;
+}
+
+.doc-footnote-label:hover {
+  text-decoration: underline;
 }
 
 .doc-footnote-label::before {
