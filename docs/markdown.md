@@ -35,7 +35,7 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Properties (frontmatter) | `---` / `key: value` lines / `---` at the very top, kept verbatim; it can only be the first block |
 | Wiki link | `[[Page title]]`, `[[Page title\|alias]]`, `![[Page title]]` (embed); clicking opens the doc with that title |
 | Map | a ```` ```geojson ```` or ```` ```topojson ```` code block, drawn as an outline (GitHub draws it over a street map) |
-| 3D model | a ```` ```stl ```` code block (ASCII STL), drawn with three.js |
+| 3D model | a ```` ```stl ```` code block (ASCII STL), drawn with three.js; each `solid <name>` is a part, and a `#rrggbb` word in the name colors it (`solid head #f2c6a0`). Other STL readers ignore the color. Normals are recomputed, so `facet normal 0 0 0` is fine |
 | @mention | `[@Label](timely://task/<id>)` (also project, doc, sheet) |
 | Subpage link | `[Label](timely://doc/<id>)` |
 
@@ -50,7 +50,9 @@ hand-written `> [!NOTE]` followed directly by text is read too.
 
 The agent's MCP tools (`create_doc`, `update_doc`, `append_to_doc`,
 `get_doc`) use the same syntax, so everything in this table can be written
-and read by the assistant.
+and read by the assistant. `add_3d_model` builds an `stl` block from simple
+parts (sphere, box, cylinder, cone, capsule, each with a color), so the
+assistant does not write triangles by hand.
 
 Not representable, so the editor does not offer them: merged table cells and
 header columns. Column widths set by dragging are not exported. Raw HTML in
