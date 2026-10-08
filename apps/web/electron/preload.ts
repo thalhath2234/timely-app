@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("timelyDesktop", {
   },
   /** Saves the page, as laid out for print, to a PDF the user picks. */
   savePdf: (title: string): Promise<{ ok: boolean; canceled?: boolean; filePath?: string }> => ipcRenderer.invoke("doc:savePdf", title),
+  /** Moves the mouse pointer to a point in the page (CSS pixels); no-op where the OS forbids it. */
+  snapPointer: (x: number, y: number) => ipcRenderer.send("pointer:snap", x, y),
   versions: {
     electron: process.versions.electron,
     chrome: process.versions.chrome,

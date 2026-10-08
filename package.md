@@ -1,7 +1,7 @@
 # Making a release build
 
-How to cut a Timely release: the desktop installers (Windows, Linux, macOS) and
-the Android APK, published together as one GitHub Release. Builds run in GitHub
+How to cut a Timely release: the desktop installers (Windows, Linux) and the
+Android APK, published together as one GitHub Release. Builds run in GitHub
 Actions (`.github/workflows/release.yml`); you only bump the version, merge, and
 tag. For how the desktop bundle is put together, see
 [`docs/desktop/README.md`](docs/desktop/README.md).
@@ -14,7 +14,6 @@ Pushing a tag `vX.Y.Z` produces one GitHub Release named `Timely vX.Y.Z` with:
 | --- | --- | --- |
 | Windows | `Timely-X.Y.Z-win-x64.exe` (NSIS installer, per-user) + `latest.yml` | `windows-latest` |
 | Linux | `Timely-X.Y.Z-linux-x86_64.AppImage` + `latest-linux.yml` | `ubuntu-latest` |
-| macOS | `.dmg` and `.zip` for x64 and arm64 + `latest-mac.yml` | `macos-14` |
 | Android | `Timely-X.Y.Z-android-arm64.apk` | `ubuntu-latest` |
 
 The `latest*.yml` manifests and `.blockmap` files are what the desktop app's
@@ -52,7 +51,7 @@ Branches: day-to-day work lands on `dev`; `main` holds released code.
    The tag push starts the `release` workflow. If you publish the release
    yourself first, the workflow reuses it instead of creating a new one.
 4. **Watch the run** under *Actions → release*. Jobs: `prepare` (version check
-   and release creation), `desktop` (Linux, macOS, Windows in parallel) and
+   and release creation), `desktop` (Linux and Windows in parallel) and
    `android`. Each job uploads its files to the release as it finishes, and also
    keeps them as workflow artifacts. A failed job can be re-run on its own; it
    uploads to the existing release.
@@ -116,7 +115,6 @@ the release still works.
 | Secret (repo *Settings → Secrets → Actions*) | Effect |
 | --- | --- |
 | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` | Signs the Windows installer (`.pfx`, base64). Without it SmartScreen shows *More info → Run anyway* |
-| `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Signs and notarizes macOS. Unsigned mac builds open with right-click → *Open* and cannot auto-update |
 | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Signs the APK with a release keystore. Without it the APK uses the debug key |
 
 Switching the APK from the debug key to a release keystore (or changing

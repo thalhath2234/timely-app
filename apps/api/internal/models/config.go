@@ -395,6 +395,7 @@ type Config struct {
 	WorkingHours          WorkingHours         `gorm:"type:jsonb;not null;default:'{}'" json:"workingHours"`
 	ScheduleSettings      ScheduleSettings     `gorm:"type:jsonb;not null;default:'{}'" json:"scheduleSettings"`
 	NotificationSettings  NotificationSettings `gorm:"type:jsonb;not null;default:'{}'" json:"notificationSettings"`
+	ReportDashboard       ReportDashboard      `gorm:"type:jsonb" json:"reportDashboard"`
 	Version               int                  `gorm:"not null;default:0" json:"-"`
 	CustomFields          []CustomField        `gorm:"-" json:"customFields,omitempty"`
 	CreatedAt             string               `json:"createdAt"`

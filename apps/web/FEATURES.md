@@ -491,7 +491,7 @@ Picker → Name and color / Statuses / Labels / Custom fields (including Yes/No)
 
 - Create key (name, default “Hermes”).
 - Secret shown **once**.
-- Hermes MCP YAML snippet + copy (`localhost:8080/mcp`).
+- MCP server address + copy, and the Hermes MCP YAML snippet. The address is the API's real port in the desktop app (plus Tailscale addresses when on), else `<web origin>/api-proxy/mcp` (or `NEXT_PUBLIC_API_URL/mcp`).
 - List: prefix, created, last used.
 - Revoke with confirm.
 - Keys are `tk_…`, stored as prefix + SHA-256. Used **only** for MCP, not for the JWT app session.

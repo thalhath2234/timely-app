@@ -15,9 +15,10 @@ await esbuild.build({
   target: "node22",
   format: "cjs",
   sourcemap: true,
-  // electron-updater stays a runtime dependency (it is in package.json
-  // "dependencies", so electron-builder ships it) rather than being bundled.
-  external: ["electron", "electron-updater"],
+  // electron-updater and koffi (a native module, electron/pointer.ts) stay
+  // runtime dependencies (they are in package.json "dependencies", so
+  // electron-builder ships them) rather than being bundled.
+  external: ["electron", "electron-updater", "koffi"],
   // electron/flavor.ts: only release.yml sets TIMELY_RELEASE=1; every other
   // build is the side-by-side "Timely Dev".
   define: { __TIMELY_RELEASE__: process.env.TIMELY_RELEASE === "1" ? "true" : "false" },

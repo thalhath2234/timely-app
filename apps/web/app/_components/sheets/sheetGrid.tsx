@@ -2071,7 +2071,9 @@ export default function SheetGrid({
               <div
                 key={column.id}
                 onContextMenu={(event) => {
-                  setSelection({ col: index, row: selected.row });
+                  if (index < bounds.minCol || index > bounds.maxCol) {
+                    setSelection({ col: index, row: selected.row });
+                  }
                   showContextMenu(event, columnMenu(index), { title: column.name });
                 }}
                 onMouseDown={(event) => {
@@ -2309,7 +2311,9 @@ export default function SheetGrid({
                   }
                 }}
                 onContextMenu={(event) => {
-                  setSelection({ col: selected.col, row: rowIndex });
+                  if (rowIndex < bounds.minRow || rowIndex > bounds.maxRow) {
+                    setSelection({ col: selected.col, row: rowIndex });
+                  }
                   showContextMenu(event, rowMenu(rowIndex), {
                     title: `Row ${rowIndex + 1}`,
                   });
@@ -2410,6 +2414,19 @@ export default function SheetGrid({
                   <div
                     data-cell={`${colIndex}-${rowIndex}`}
                     onMouseDown={(event) => {
+                      // Right-click (or middle-click) never starts a drag. Inside
+                      // the selection it keeps the range so the context menu acts
+                      // on all of it; outside it moves the selection to this cell.
+                      if (event.button !== 0) {
+                        if (isEditing) return;
+                        event.preventDefault();
+                        window.getSelection()?.removeAllRanges();
+                        gridRef.current?.focus();
+                        if (event.button !== 2 || inRange) return;
+                        const mergeAt = findMerge(merges, address);
+                        setSelection(mergeAt ? rangeFromMerge(mergeAt) : address);
+                        return;
+                      }
                       if (isEditingFormula && !isEditing) {
                         event.preventDefault();
                         beginFormulaPick(address, "formula");

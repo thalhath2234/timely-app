@@ -1,3 +1,4 @@
+import type { DashboardLayout } from "./dashboard";
 import type { CustomField } from "./entities";
 import type { NotificationSettings } from "./notifications";
 import type { ScheduleSettings, WorkingHours } from "./schedule";
@@ -86,6 +87,8 @@ export interface Config {
   workingHours: WorkingHours;
   scheduleSettings: ScheduleSettings;
   notificationSettings: NotificationSettings;
+  /** The Report page layout; null until the account customises it. */
+  reportDashboard?: DashboardLayout | null;
   customFields?: CustomField[];
   createdAt: string;
   updatedAt: string;
@@ -103,4 +106,6 @@ export interface ConfigUpdateInput {
   activeTaskViewId?: string;
   projectTaskViews?: Record<string, TaskViewConfig>;
   appearance?: Appearance;
+  /** Replaces the whole Report layout (`dashboard.ts`). */
+  reportDashboard?: DashboardLayout;
 }

@@ -57,6 +57,7 @@ export default function AssistantHeader({
               }
               tone={meta.tone}
               icon={meta.icon}
+              spin={meta.spin}
             />
           ) : null}
           <Text numberOfLines={1} style={[styles.sub, { flexShrink: 1 }]}>

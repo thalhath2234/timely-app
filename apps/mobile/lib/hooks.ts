@@ -253,10 +253,11 @@ export function useUpdateTaskViews() {
   });
 }
 
-export function useCalendarQuery(from: Date, to: Date) {
+export function useCalendarQuery(from: Date, to: Date, enabled = true) {
   return useQuery({
     queryKey: keys.calendar(from.toISOString(), to.toISOString()),
     queryFn: () => getCalendarRange(from, to),
+    enabled,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,

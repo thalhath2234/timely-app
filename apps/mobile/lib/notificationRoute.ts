@@ -41,6 +41,6 @@ export function routeForNotification(data: Record<string, unknown>): string {
   }
 
   const category = dataString(data, "category") ?? dataString(data, "kind");
-  if (category === "digest") return "/(app)/report";
+  if (category === "digest" || category === "pomodoro") return "/(app)/report";
   return "/(app)/today";
 }

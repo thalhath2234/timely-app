@@ -174,6 +174,13 @@ function ChatOverlay() {
         e.preventDefault();
         close();
       }}
+      // Opening an item from the chat (an applied change, a mention) moves to
+      // its page, so the overlay gets out of the way. New-tab clicks keep it.
+      onClickCapture={(e) => {
+        const link = (e.target as Element).closest?.("a[href^='/']");
+        if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0)
+          close();
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) close();
       }}

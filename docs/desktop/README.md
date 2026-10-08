@@ -144,6 +144,17 @@ timelyDesktop.setPageTabsActive(active: boolean): void
 timelyDesktop.onPageTabCommand((command: "new" | "close" | "next" | "previous" | "back" | "forward") => void): () => void
 ```
 
+Confirm dialogs move the mouse pointer onto their Cancel button when they open, like
+Windows' "Snap To" setting. The page passes the button's centre in CSS pixels; the main
+process converts it to screen coordinates and moves the pointer only while the window is
+focused and the point is inside it (`electron/pointer.ts`, through the koffi FFI module):
+SetCursorPos on Windows and XWarpPointer on Linux under X11. Wayland sessions don't let
+apps move the pointer, and macOS isn't supported, so there it does nothing.
+
+```ts
+timelyDesktop.snapPointer(x: number, y: number): void
+```
+
 ## Pairing payload
 
 The QR code in Settings → Server encodes JSON:
@@ -259,8 +270,8 @@ ESLint, `tsc` for web and mobile, and the Node test scripts behind `make test`. 
 
 1. `prepare` checks that the tag equals `v<apps/web/package.json version>` and creates the
    GitHub Release (`gh release create --generate-notes`) so the matrix jobs never race to create it.
-2. `desktop` matrix: `ubuntu-latest` → `linux-x64`; `macos-14` → `darwin-x64,darwin-arm64` in
-   one job (so one `latest-mac.yml` lists both architectures); `windows-latest` → `win32-x64`.
+2. `desktop` matrix: `ubuntu-latest` → `linux-x64`; `windows-latest` → `win32-x64`. Releases
+   do not include macOS; a mac build is still possible locally with `make dist-desktop` on a Mac.
    Each runs `node electron/pack.mjs --target <targets> --publish always|never` and electron-builder
    uploads the installers and `latest*.yml` to the release with `GH_TOKEN`
    (`secrets.GITHUB_TOKEN`). The same files are kept as workflow artifacts.
@@ -274,8 +285,6 @@ Secrets (all optional; builds are unsigned without them):
 
 | Secret | Used by |
 | --- | --- |
-| `CSC_LINK`, `CSC_KEY_PASSWORD` | macOS code signing |
-| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | macOS notarization |
 | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` | Windows code signing |
 | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | APK release signing (debug key otherwise) |
 
@@ -285,9 +294,6 @@ Secrets (all optional; builds are unsigned without them):
 
 - **Windows**: SmartScreen shows "Windows protected your PC". Click *More info* → *Run anyway*.
   The warning goes away once the installer is signed with a certificate that has built reputation.
-- **macOS**: Gatekeeper refuses an unsigned, un-notarized app. Either right-click the app →
-  *Open* → *Open*, or run `xattr -dr com.apple.quarantine /Applications/Timely.app`.
-  With `CSC_LINK` + `APPLE_*` set, the DMG is signed and notarized and opens normally.
 - **Linux**: `chmod +x Timely-*.AppImage` and run it; AppImage needs FUSE 2 on some distros
   (`libfuse2`), or run with `--appimage-extract-and-run`.
 - **Android**: an APK signed with the debug key must be uninstalled before a keystore-signed
@@ -296,11 +302,11 @@ Secrets (all optional; builds are unsigned without them):
 ### Updates
 
 The desktop app checks GitHub Releases through `electron-updater`, which reads the
-`latest.yml` (Windows), `latest-mac.yml` (macOS) and `latest-linux.yml` (AppImage) assets that
+`latest.yml` (Windows) and `latest-linux.yml` (AppImage) assets that
 electron-builder uploads next to the installers (plus the `.blockmap` files for differential
 downloads). Every tag `v*` therefore has to be published through `release.yml` — an installer
 attached by hand without the manifests is invisible to the updater. The `publish` block in
 `electron-builder.yml` (`provider: github`, `owner: thalhath2234`, `repo: timely-app`) is what
 the updater reads at runtime; `releaseType: release` means electron-builder uploads to the
-published release rather than a draft. On macOS, update installation requires a signed app;
-unsigned builds can detect a new version but cannot replace themselves.
+published release rather than a draft. Releases have no macOS build, so a locally built mac
+app finds no `latest-mac.yml` to update from.

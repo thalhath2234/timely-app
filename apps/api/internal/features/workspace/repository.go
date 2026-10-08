@@ -238,6 +238,9 @@ func (r *workspaceRepository) UpdateConfig(config *models.Config) (*models.Confi
 		if config.ProjectTaskViews != nil {
 			jsonCols["project_task_views"] = config.ProjectTaskViews
 		}
+		if len(config.ReportDashboard) > 0 {
+			jsonCols["report_dashboard"] = config.ReportDashboard
+		}
 		if err := models.WriteJSONB(r.db, "configs", jsonCols, "user_id = ?", config.UserID); err != nil {
 			result.Error = err
 		}
