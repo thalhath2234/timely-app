@@ -1377,3 +1377,126 @@ html.reduce-motion .tl-bar {
     display: none;
   }
 }
+
+/* Embeds and bookmarks (linkBlocks.ts). */
+.doc-editor-content .doc-embed,
+.doc-editor-content .doc-bookmark {
+  margin: 0.75rem 0;
+}
+.doc-editor-content .doc-embed-frame {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--muted);
+}
+.doc-editor-content .doc-embed-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.doc-editor-content .doc-embed-caption {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.doc-editor-content .doc-embed-caption a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: inherit;
+  text-decoration: none;
+}
+.doc-editor-content .doc-embed-caption a:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+.doc-editor-content .doc-bookmark-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background-color 0.12s ease;
+}
+.doc-editor-content .doc-bookmark-card:hover {
+  background: var(--accent);
+}
+.doc-editor-content .doc-bookmark-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-editor-content .doc-bookmark-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+.doc-editor-content .doc-bookmark-host {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  overflow: hidden;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-editor-content .doc-bookmark-host svg {
+  flex-shrink: 0;
+}
+.doc-editor-content .doc-link-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.6rem;
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+}
+.doc-editor-content .doc-link-input {
+  min-width: 0;
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--background);
+  font-size: 0.85rem;
+  outline: none;
+}
+.doc-editor-content .doc-link-input:focus {
+  border-color: var(--ring);
+}
+.doc-editor-content .doc-link-form button {
+  padding: 0.35rem 0.8rem;
+  border-radius: 0.4rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+.doc-editor-content .doc-link-form button:disabled {
+  opacity: 0.5;
+}
+.doc-editor-content .doc-link-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.doc-editor-content .doc-link-hint[data-error] {
+  color: var(--destructive);
+}

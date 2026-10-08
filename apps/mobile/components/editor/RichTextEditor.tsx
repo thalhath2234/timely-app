@@ -32,6 +32,8 @@ import {
   Link2,
   List,
   ListCollapse,
+  MonitorPlay,
+  Bookmark as BookmarkIcon,
   ListOrdered,
   ListTodo,
   Minus,
@@ -57,7 +59,8 @@ import { Field, PrimaryButton } from "../ui/primitives";
 import { useKeyboardAccessory } from "../ui/SheetHost";
 import { buildEditorHtml } from "./editorHtml";
 import { getApiUrlSync } from "../../lib/api/client";
-import { uploadDocFile } from "../../lib/api/docs";
+import { getLinkPreview, uploadDocFile } from "../../lib/api/docs";
+import { isEmbedUrl } from "@timely/contract/markdown";
 import { useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
 
@@ -80,6 +83,8 @@ const SLASH: {
   { title: "Toggle", description: "A title that folds the blocks under it", cmd: "toggle", keywords: ["fold", "collapse", "details", "expand", "accordion"] },
   { title: "Code block", description: "Monospaced code", cmd: "code", shortcut: "```", keywords: ["pre"] },
   { title: "Image", description: "Add a photo from this device", cmd: "imagePick", keywords: ["image", "picture", "photo", "upload", "img"] },
+  { title: "Embed", description: "A YouTube, Vimeo, Loom, Spotify, Figma or CodePen link", cmd: "embedPrompt", keywords: ["video", "youtube", "vimeo", "loom", "spotify", "figma", "codepen"] },
+  { title: "Bookmark", description: "A link card with the page's title", cmd: "bookmarkPrompt", keywords: ["link", "card", "preview", "url", "web"] },
   { title: "Diagram", description: "Mermaid flowchart or other diagram", cmd: "diagram", keywords: ["mermaid", "flowchart", "chart", "graph"] },
   { title: "Callout", description: "Note, tip, warning or caution box", cmd: "callout", shortcut: ">", keywords: ["note", "tip", "warning", "caution", "important", "alert", "quote", "blockquote"] },
   { title: "Formula", description: "Inline math, like $E = mc^2$", cmd: "math", keywords: ["math", "latex", "tex", "inline"] },
@@ -111,6 +116,8 @@ const FORMAT_TOOLS = [
   { label: "Code block", Icon: Code2, cmd: "code" },
   { label: "Callout", Icon: Info, cmd: "callout" },
   { label: "Image", Icon: ImageIcon, cmd: "imagePick" },
+  { label: "Embed", Icon: MonitorPlay, cmd: "embedPrompt" },
+  { label: "Bookmark", Icon: BookmarkIcon, cmd: "bookmarkPrompt" },
   { label: "Diagram", Icon: Workflow, cmd: "diagram" },
   { label: "Equation", Icon: SquareSigma, cmd: "mathBlock" },
   { label: "Formula", Icon: Radical, cmd: "math" },
@@ -193,6 +200,9 @@ function isEditorUrl(url: string | undefined): boolean {
 
 function onShouldStartLoad(request: ShouldStartLoadRequest): boolean {
   if (isEditorUrl(request.url)) return true;
+  // Embedded players (YouTube, Spotify...) load in iframes; they cannot
+  // navigate the editor itself.
+  if (request.isTopFrame === false && /^https:/i.test(request.url)) return true;
   if (/^(https?|mailto):/i.test(request.url)) void Linking.openURL(request.url).catch(() => undefined);
   return false;
 }
@@ -236,6 +246,7 @@ export default function RichTextEditor({
   const [active, setActive] = useState<EditorActive>({});
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("https://");
+  const [linkKind, setLinkKind] = useState<"link" | "embed" | "bookmark">("link");
   const [mathEdit, setMathEdit] = useState<{ pos: number; latex: string } | null>(null);
   const onWikiLinkRef = useRef(onWikiLink);
   onWikiLinkRef.current = onWikiLink;
@@ -310,7 +321,9 @@ export default function RichTextEditor({
         pos?: number;
         latex?: string;
         target?: string;
+        href?: string;
       };
+      if (msg.type === "openLink" && msg.href && /^https?:/i.test(msg.href)) void Linking.openURL(msg.href).catch(() => undefined);
       if (msg.type === "mathEdit" && typeof msg.pos === "number") {
         setMathEdit({ pos: msg.pos, latex: msg.latex ?? "" });
       }
@@ -371,7 +384,8 @@ export default function RichTextEditor({
   const safeBottom = 8;
   const floatBar = focused && keyboardHeight > 8;
 
-  function openLinkPrompt(range?: { from: number; to: number } | null) {
+  function openLinkPrompt(range?: { from: number; to: number } | null, kind: "link" | "embed" | "bookmark" = "link") {
+    setLinkKind(kind);
     setLinkRange(range ?? null);
     setLinkHref("https://");
     setLinkOpen(true);
@@ -382,6 +396,11 @@ export default function RichTextEditor({
     setPicker(null);
     if (item.cmd === "linkPrompt") {
       openLinkPrompt(range ?? null);
+      return;
+    }
+    if (item.cmd === "embedPrompt" || item.cmd === "bookmarkPrompt") {
+      if (range) run("deleteRange", range);
+      openLinkPrompt(null, item.cmd === "embedPrompt" ? "embed" : "bookmark");
       return;
     }
     if (item.cmd === "imagePick") {
@@ -437,7 +456,31 @@ export default function RichTextEditor({
     if (images.length) run("image", { images });
   }
 
+  /** Adds an embed or bookmark for the link typed in the link sheet. */
+  async function addLinkBlock(kind: "embed" | "bookmark", href: string) {
+    if (!/^https?:\/\/\S+$/i.test(href)) {
+      useToastStore.getState().show("Paste a full link that starts with https://");
+      return;
+    }
+    if (kind === "embed") {
+      if (!isEmbedUrl(href)) {
+        useToastStore.getState().show("That link cannot be embedded. Use YouTube, Vimeo, Loom, Spotify, Figma or CodePen, or add it as a bookmark.");
+        return;
+      }
+      setLinkOpen(false);
+      run("linkBlock", { node: { type: "embed", attrs: { src: href } } });
+      return;
+    }
+    setLinkOpen(false);
+    const preview = await getLinkPreview(href).catch(() => ({ title: "", description: "" }));
+    run("linkBlock", { node: { type: "bookmark", attrs: { url: href, title: preview.title, description: preview.description } } });
+  }
+
   function applyFormat(cmd: string) {
+    if (cmd === "embedPrompt" || cmd === "bookmarkPrompt") {
+      openLinkPrompt(null, cmd === "embedPrompt" ? "embed" : "bookmark");
+      return;
+    }
     if (cmd === "imagePick") {
       void pickImages();
       return;
@@ -606,7 +649,7 @@ export default function RichTextEditor({
 
       {floatBar ? null : dock}
 
-      <BottomSheet open={linkOpen} onClose={() => setLinkOpen(false)} title="Link">
+      <BottomSheet open={linkOpen} onClose={() => setLinkOpen(false)} title={linkKind === "embed" ? "Embed" : linkKind === "bookmark" ? "Bookmark" : "Link"}>
         <Field
           value={linkHref}
           onChangeText={setLinkHref}
@@ -616,16 +659,20 @@ export default function RichTextEditor({
         />
         <View style={{ height: 12 }} />
         <PrimaryButton
-          label="Apply link"
+          label={linkKind === "embed" ? "Embed" : linkKind === "bookmark" ? "Add bookmark" : "Apply link"}
           onPress={() => {
             const href = linkHref.trim();
             if (!href) return;
+            if (linkKind !== "link") {
+              void addLinkBlock(linkKind, href);
+              return;
+            }
             run("setLink", { ...(linkRange ?? {}), href, label: href.replace(/^https?:\/\//, "") });
             setLinkOpen(false);
             setLinkRange(null);
           }}
         />
-        {active.link ? (
+        {linkKind === "link" && active.link ? (
           <Pressable
             onPress={() => {
               run("unsetLink");

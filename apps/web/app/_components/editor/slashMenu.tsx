@@ -25,6 +25,8 @@ import {
   Link2,
   List,
   ListCollapse,
+  MonitorPlay,
+  Bookmark as BookmarkIcon,
   ListOrdered,
   Minus,
   Table2,
@@ -157,6 +159,22 @@ export function createSlashItems(options?: {
       keywords: ["image", "picture", "photo", "upload", "img", "screenshot"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.pickImage().run()),
+    },
+    {
+      title: "Embed",
+      description: "A YouTube, Vimeo, Loom, Spotify, Figma or CodePen link, shown in the doc",
+      icon: MonitorPlay,
+      keywords: ["embed", "video", "youtube", "vimeo", "loom", "spotify", "figma", "codepen", "iframe"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.insertLinkBlock("embed").run()),
+    },
+    {
+      title: "Bookmark",
+      description: "A link card with the page's title and description",
+      icon: BookmarkIcon,
+      keywords: ["bookmark", "link", "card", "preview", "url", "web"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.insertLinkBlock("bookmark").run()),
     },
     {
       title: "Diagram",

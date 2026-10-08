@@ -1,4 +1,5 @@
 import type { DocContent } from "../../lib/types";
+import { EMBED_PATTERNS } from "@timely/contract/markdown";
 
 const BLANK: DocContent = { type: "doc", content: [{ type: "paragraph" }] };
 
@@ -104,6 +105,16 @@ export function buildEditorHtml(
     .details { position: relative; margin: 0 0 0.25em; padding-left: 28px; }
     .details-toggle { position: absolute; left: 0; top: 2px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: ${t.mutedForeground}; }
     .details-toggle svg { transition: transform 0.15s ease; }
+    .doc-embed, .doc-bookmark { margin: 10px 0; }
+    .doc-embed-frame { width: 100%; overflow: hidden; border: 1px solid ${t.border}; border-radius: 10px; background: ${t.muted}; }
+    .doc-embed-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
+    .doc-embed-caption { display: block; margin-top: 4px; padding: 0; border: 0; background: transparent; color: ${t.mutedForeground}; font: inherit; font-size: 12px; text-align: left; }
+    .doc-bookmark { position: relative; padding: 10px 12px; border: 1px solid ${t.border}; border-radius: 10px; }
+    .doc-bookmark-title { padding-right: 56px; font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc-bookmark-description { margin-top: 2px; color: ${t.mutedForeground}; font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .doc-bookmark-host { margin-top: 4px; color: ${t.mutedForeground}; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc-bookmark-open { position: absolute; top: 8px; right: 8px; padding: 4px 10px; border: 1px solid ${t.border}; border-radius: 999px; background: transparent; color: ${t.foreground}; font: inherit; font-size: 12px; }
+    .ProseMirror-selectednode.doc-embed .doc-embed-frame, .ProseMirror-selectednode.doc-bookmark { outline: 2px solid ${t.primary}; outline-offset: 2px; }
     .details[data-open] > .details-toggle svg { transform: rotate(90deg); }
     .details-summary { font-weight: 600; }
     .details:not([data-open]) > .details-body > :not(.details-summary) { display: none; }
@@ -165,6 +176,125 @@ export function buildEditorHtml(
             },
             renderHTML: (attrs) => ({ src: attrs.src && attrs.src.startsWith("/files/") ? apiBase + attrs.src : attrs.src }),
           },
+        };
+      },
+    });
+    const EMBED_PATTERNS = ${embed(EMBED_PATTERNS.map(({ provider, pattern }) => ({ provider, source: pattern.source, flags: pattern.flags })))};
+    // Embeds and bookmarks (see packages/contract/src/embeds.ts). They are
+    // added from the app's toolbar, which asks for the link.
+    function embedPlayer(link) {
+      let url;
+      try { url = new URL(link); } catch (e) { return null; }
+      for (const item of EMBED_PATTERNS) {
+        const m = new RegExp(item.source, item.flags).exec(link);
+        if (!m) continue;
+        switch (item.provider) {
+          case "YouTube": {
+            const t = url.searchParams.get("t") || url.searchParams.get("start") || "";
+            const parts = /^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s?)?$/.exec(t);
+            const start = parts ? Number(parts[1] || 0) * 3600 + Number(parts[2] || 0) * 60 + Number(parts[3] || 0) : 0;
+            return { provider: item.provider, src: "https://www.youtube-nocookie.com/embed/" + m[1] + (start ? "?start=" + start : ""), aspect: 16 / 9 };
+          }
+          case "Vimeo": return { provider: item.provider, src: "https://player.vimeo.com/video/" + m[1], aspect: 16 / 9 };
+          case "Loom": return { provider: item.provider, src: "https://www.loom.com/embed/" + m[1], aspect: 16 / 9 };
+          case "Spotify": {
+            const kind = m[1].toLowerCase();
+            return { provider: item.provider, src: "https://open.spotify.com/embed/" + kind + "/" + m[2], height: kind === "track" || kind === "episode" ? 152 : 352 };
+          }
+          case "Figma": return { provider: item.provider, src: "https://www.figma.com/embed?embed_host=timely&url=" + encodeURIComponent(url.href), aspect: 16 / 10 };
+          default: return { provider: item.provider, src: "https://codepen.io/" + m[1] + "/embed/" + m[2] + "?default-tab=result", height: 420 };
+        }
+      }
+      return null;
+    }
+    function linkHost(link) {
+      try { return new URL(link).host.replace(/^www\\./, ""); } catch (e) { return link; }
+    }
+    function openLink(href) {
+      send({ type: "openLink", href });
+    }
+    const EmbedNode = Node.create({
+      name: "embed",
+      group: "block",
+      atom: true,
+      selectable: true,
+      addAttributes() { return { src: { default: "" } }; },
+      parseHTML() { return [{ tag: "div[data-embed]", getAttrs: (el) => ({ src: el.getAttribute("data-src") || "" }) }]; },
+      renderHTML({ node, HTMLAttributes }) { return ["div", Object.assign({}, HTMLAttributes, { "data-embed": "", "data-src": node.attrs.src })]; },
+      addNodeView() {
+        return ({ node }) => {
+          const dom = document.createElement("div");
+          dom.className = "doc-embed";
+          dom.contentEditable = "false";
+          const src = node.attrs.src || "";
+          const info = src ? embedPlayer(src) : null;
+          if (info) {
+            const frame = document.createElement("div");
+            frame.className = "doc-embed-frame";
+            if (info.aspect) frame.style.aspectRatio = String(info.aspect);
+            if (info.height) frame.style.height = info.height + "px";
+            const iframe = document.createElement("iframe");
+            iframe.src = info.src;
+            iframe.title = info.provider + " embed";
+            iframe.loading = "lazy";
+            iframe.allow = "autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture";
+            iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups allow-presentation allow-forms");
+            frame.append(iframe);
+            dom.append(frame);
+          }
+          const caption = document.createElement("button");
+          caption.type = "button";
+          caption.className = "doc-embed-caption";
+          caption.textContent = src ? (info ? info.provider + " · " : "") + linkHost(src) : "Empty embed";
+          if (src) caption.addEventListener("click", () => openLink(src));
+          dom.append(caption);
+          return { dom, ignoreMutation: () => true, stopEvent: (event) => event.target === caption };
+        };
+      },
+    });
+    const BookmarkNode = Node.create({
+      name: "bookmark",
+      group: "block",
+      atom: true,
+      selectable: true,
+      addAttributes() { return { url: { default: "" }, title: { default: "" }, description: { default: "" } }; },
+      parseHTML() {
+        return [{ tag: "div[data-bookmark]", getAttrs: (el) => ({ url: el.getAttribute("data-url") || "", title: el.getAttribute("data-title") || "", description: el.getAttribute("data-description") || "" }) }];
+      },
+      renderHTML({ node, HTMLAttributes }) {
+        return ["div", Object.assign({}, HTMLAttributes, { "data-bookmark": "", "data-url": node.attrs.url, "data-title": node.attrs.title, "data-description": node.attrs.description })];
+      },
+      addNodeView() {
+        return ({ node }) => {
+          const dom = document.createElement("div");
+          dom.className = "doc-bookmark";
+          dom.contentEditable = "false";
+          const url = node.attrs.url || "";
+          const title = document.createElement("div");
+          title.className = "doc-bookmark-title";
+          title.textContent = node.attrs.title || (url ? linkHost(url) : "Empty bookmark");
+          dom.append(title);
+          if (node.attrs.description) {
+            const description = document.createElement("div");
+            description.className = "doc-bookmark-description";
+            description.textContent = node.attrs.description;
+            dom.append(description);
+          }
+          if (url) {
+            const host = document.createElement("div");
+            host.className = "doc-bookmark-host";
+            host.textContent = url.replace(/^https?:\\/\\//, "");
+            dom.append(host);
+          }
+          const open = document.createElement("button");
+          open.type = "button";
+          open.className = "doc-bookmark-open";
+          open.textContent = "Open";
+          if (url) {
+            open.addEventListener("click", () => openLink(url));
+            dom.append(open);
+          }
+          return { dom, ignoreMutation: () => true, stopEvent: (event) => event.target === open };
         };
       },
     });
@@ -1387,6 +1517,8 @@ export function buildEditorHtml(
         Callout,
         Details,
         DetailsSummary,
+        EmbedNode,
+        BookmarkNode,
         FootnoteRef,
         Footnote,
         Frontmatter,
@@ -1535,6 +1667,28 @@ export function buildEditorHtml(
                 const at = $from.depth > 0 ? $from.after() : $from.pos;
                 tr.insert(at, state.schema.nodes.paragraph.create(null, images));
               }
+              tr.scrollIntoView();
+              return true;
+            });
+            break;
+          case "linkBlock":
+            chain.command(({ tr, state }) => {
+              if (!payload || !payload.node) return false;
+              const node = state.schema.nodeFromJSON(payload.node);
+              const { $from } = tr.selection;
+              let at;
+              if ($from.parent.type.name === "paragraph" && $from.parent.content.size === 0 && $from.depth > 0) {
+                at = $from.before();
+                tr.replaceWith(at, $from.after(), node);
+              } else {
+                at = $from.depth > 0 ? $from.after() : $from.pos;
+                tr.insert(at, node);
+              }
+              // Carry on typing on the line after it.
+              const after = at + node.nodeSize;
+              const next = tr.doc.nodeAt(after);
+              if (!next || next.type.name !== "paragraph" || next.content.size > 0) tr.insert(after, state.schema.nodes.paragraph.create());
+              tr.setSelection(TextSelection.create(tr.doc, after + 1));
               tr.scrollIntoView();
               return true;
             });

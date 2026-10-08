@@ -34,6 +34,8 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Footnote | `[^1]` in the text, `[^1]: the note` where the file has it (continuation lines indented four spaces); `[^x]` without a definition stays text |
 | Properties (frontmatter) | `---` / `key: value` lines / `---` at the very top, kept verbatim; it can only be the first block. The editor shows them as chips (YAML only while editing); `key: [a, b]`, `tags: a, b` and `- item` lists become several values. Search takes `key:value` terms (`status:draft`, `owner:"Sam Lee"`) to filter docs by them, and semantic search embeds them |
 | Toggle | `<details open>` / `<summary>Title</summary>` / blank line / the folded blocks / blank line / `</details>`; without `open` it starts folded. The title is plain text. GitHub and Obsidian show it as a fold too |
+| Embed | An image of the page on its own line, `![](https://www.youtube.com/watch?v=...)`, as Obsidian writes it. Only YouTube, Vimeo, Loom, Spotify, Figma and CodePen links read back as embeds; any other image stays an image |
+| Bookmark | `[Page title](https://example.com "Description")<!-- bookmark -->` on its own line. Without the marker it is an ordinary link. The page's preview image is not kept |
 | Wiki link | `[[Page title]]`, `[[Page title\|alias]]`, `![[Page title]]` (embed); clicking opens the doc with that title |
 | Map | a ```` ```geojson ```` or ```` ```topojson ```` code block, drawn as an outline (GitHub draws it over a street map) |
 | 3D model | a ```` ```stl ```` code block (ASCII STL), drawn with three.js; each `solid <name>` is a part, and a `#rrggbb` word in the name colors it (`solid head #f2c6a0`). Other STL readers ignore the color. Normals are recomputed, so `facet normal 0 0 0` is fine |

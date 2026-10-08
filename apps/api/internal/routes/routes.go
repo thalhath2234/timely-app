@@ -11,6 +11,7 @@ import (
 	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/instance"
+	"timely-api/internal/features/linkpreview"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
@@ -35,6 +36,7 @@ type Handlers struct {
 	Workspace *workspace.Handler
 	Document  *doc.Handler
 	DocFiles  *docfile.Service
+	Links     *linkpreview.Service
 	Sheet     *sheet.Handler
 	Event     *event.Handler
 	Calendar  *calendar.Handler
@@ -90,6 +92,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	setupDocumentRoutes(protected, h.Document)
 	if h.DocFiles != nil {
 		h.DocFiles.Routes(protected)
+	}
+	if h.Links != nil {
+		h.Links.Routes(protected)
 	}
 	setupSheetRoutes(protected, h.Sheet)
 	setupEventRoutes(protected, h.Event)

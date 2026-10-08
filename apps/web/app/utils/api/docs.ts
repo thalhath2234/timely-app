@@ -1,5 +1,6 @@
 import type { Doc } from "@/app/_types/types";
 import type { CreateDocPayload, DailyDocPayload, DocBacklink, DocVersion, UpdateDocPayload } from "@timely/contract/documents";
+import type { LinkPreview } from "@timely/contract/embeds";
 import { isRichContentEmpty } from "@/app/utils/richText";
 import { apiFetch, apiUrl } from "./client";
 
@@ -173,5 +174,12 @@ export async function openDailyDoc(data: DailyDocPayload): Promise<{ document: D
     body: JSON.stringify(data),
   });
   if (!response.ok) throw new Error(await readError(response, "Could not open today's note"));
+  return response.json();
+}
+
+/** Title and description of a web page, for a bookmark. */
+export async function getLinkPreview(url: string): Promise<LinkPreview> {
+  const response = await apiFetch(`/docs/link-preview?url=${encodeURIComponent(url)}`);
+  if (!response.ok) throw new Error(await readError(response, "Could not read that link"));
   return response.json();
 }

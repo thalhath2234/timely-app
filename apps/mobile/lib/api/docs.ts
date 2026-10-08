@@ -1,6 +1,7 @@
 import { File as ExpoFile } from "expo-file-system";
 import type { Doc, DocContent } from "../types";
 import type { CreateDocPayload, DailyDocPayload, DocBacklink, DocVersion, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
+import type { LinkPreview } from "@timely/contract/embeds";
 import { getToken } from "../auth/session";
 import { isRichContentEmpty } from "../richText";
 import { api, getApiUrl, tunnelHeaders, unwrap } from "./client";
@@ -182,4 +183,9 @@ export async function restoreDocVersion(id: string, versionId: string) {
 /** Opens the daily note for `date`, creating it from the payload's content when there is none yet. */
 export function openDailyDoc(data: DailyDocPayload) {
   return api<{ document: Doc; created: boolean }>("/docs/daily", { method: "POST", body: data, queueIfOffline: false });
+}
+
+/** Title and description of a web page, for a bookmark. */
+export function getLinkPreview(url: string) {
+  return api<LinkPreview>(`/docs/link-preview?url=${encodeURIComponent(url)}`, { queueIfOffline: false });
 }

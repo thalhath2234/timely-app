@@ -478,6 +478,45 @@ function detailsAt(tokens: Token[], start: number, options: FromMarkdownOptions)
   return null;
 }
 
+/** Links Timely can show as an embed (see embeds.ts, which builds the
+ * player from the match). Kept here so this module has no value imports;
+ * keep in step with apps/api/internal/richtext/embeds.go. */
+export const EMBED_PATTERNS: { provider: string; pattern: RegExp }[] = [
+  { provider: "YouTube", pattern: /^https?:\/\/(?:www\.|m\.|music\.)?youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|embed\/|live\/)([\w-]{11})/i },
+  { provider: "YouTube", pattern: /^https?:\/\/youtu\.be\/([\w-]{11})/i },
+  { provider: "Vimeo", pattern: /^https?:\/\/(?:www\.)?vimeo\.com\/(?:video\/)?(\d+)/i },
+  { provider: "Loom", pattern: /^https?:\/\/(?:www\.)?loom\.com\/(?:share|embed)\/([0-9a-f]+)/i },
+  { provider: "Spotify", pattern: /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(track|album|playlist|episode|show|artist)\/(\w+)/i },
+  { provider: "Figma", pattern: /^https?:\/\/(?:www\.)?figma\.com\/(?:file|design|proto|board)\/\w+/i },
+  { provider: "CodePen", pattern: /^https?:\/\/codepen\.io\/([\w-]+)\/(?:pen|full|details|embed)\/(\w+)/i },
+];
+
+export function isEmbedUrl(link: string) {
+  return EMBED_PATTERNS.some(({ pattern }) => pattern.test(link));
+}
+
+const BOOKMARK_MARKER = "<!-- bookmark -->";
+
+/** A paragraph that is only an embeddable image (`![](https://youtu.be/...)`)
+ * or only a bookmark link (`[Title](url "description")<!-- bookmark -->`).
+ * See embeds.ts and apps/api/internal/richtext/embeds.go. */
+function linkBlockOf(tokens: Token[] | undefined, options: FromMarkdownOptions): MarkdownNode | null {
+  const [first, second, ...rest] = tokens ?? [];
+  if (!first || rest.length) return null;
+  if (first.type === "image" && !second && isEmbedUrl((first as Tokens.Image).href)) {
+    return { type: "embed", attrs: { src: (first as Tokens.Image).href } };
+  }
+  if (first.type === "link" && second?.type === "html" && (second as Tokens.HTML).text.trim() === BOOKMARK_MARKER) {
+    const link = first as Tokens.Link;
+    const title = plainOf(inlineOf(link.tokens, options));
+    return {
+      type: "bookmark",
+      attrs: { url: link.href, title: title === link.href ? "" : title, description: link.title ?? "" },
+    };
+  }
+  return null;
+}
+
 function blocksOf(tokens: Token[], options: FromMarkdownOptions): MarkdownNode[] {
   const out: MarkdownNode[] = [];
   for (let index = 0; index < tokens.length; index += 1) {
@@ -505,6 +544,11 @@ function blocksOf(tokens: Token[], options: FromMarkdownOptions): MarkdownNode[]
       case "paragraph":
       case "text": {
         const tokens = (token as Tokens.Paragraph).tokens;
+        const link = linkBlockOf(tokens, options);
+        if (link) {
+          out.push(link);
+          break;
+        }
         out.push(isOnlyBreak(tokens) ? paragraph() : paragraph(inlineOf(tokens, options)));
         break;
       }
@@ -640,6 +684,11 @@ const INLINE_TYPES = new Set(["text", "hardBreak", "mention", "image", "mathInli
 
 function blockTexts(nodes: MarkdownNode[], out: string[]) {
   for (const node of nodes) {
+    if (node.type === "bookmark") {
+      const text = `${node.attrs?.title ?? ""} ${node.attrs?.description ?? ""}`.trim();
+      if (text) out.push(text);
+      continue;
+    }
     const hasBlocks = node.content?.some((child) => !INLINE_TYPES.has(child.type));
     if (node.type === "codeBlock" || !hasBlocks) {
       const text = plainOf(node.content);

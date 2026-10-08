@@ -958,6 +958,28 @@
    ]
   },
   {
+   "type": "embed",
+   "attrs": {
+    "src": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+   }
+  },
+  {
+   "type": "bookmark",
+   "attrs": {
+    "url": "https://example.com/guide",
+    "title": "The *guide* [v2]",
+    "description": "Says \"hello\" with a \\ slash"
+   }
+  },
+  {
+   "type": "bookmark",
+   "attrs": {
+    "url": "https://example.com/plain",
+    "title": "",
+    "description": ""
+   }
+  },
+  {
    "type": "footnote",
    "attrs": {
     "label": "1"

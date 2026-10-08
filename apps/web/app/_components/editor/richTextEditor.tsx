@@ -44,6 +44,8 @@ import {
   Link2,
   List,
   ListCollapse,
+  MonitorPlay,
+  Bookmark as BookmarkIcon,
   ListOrdered,
   Map as MapIcon,
   Minus,
@@ -63,6 +65,7 @@ import { Callout } from "./callout";
 import { DocImage } from "./docImage";
 import { Details, DetailsSummary } from "./details";
 import { BlockHandle } from "./blockHandle";
+import { Bookmark, Embed } from "./linkBlocks";
 import CodeBlockView from "./codeBlockView";
 import { Footnote, FootnoteRef } from "./footnotes";
 import { DocumentWithFrontmatter, Frontmatter } from "./frontmatter";
@@ -304,6 +307,8 @@ export default function RichTextEditor({
       Callout,
       Details,
       DetailsSummary,
+      Embed,
+      Bookmark,
       FootnoteRef,
       Footnote,
       Frontmatter,
@@ -804,6 +809,18 @@ export default function RichTextEditor({
       isActive: false,
       run: () => editor.chain().focus().pickImage().run(),
       startsGroup: true,
+    },
+    {
+      label: "Embed",
+      icon: MonitorPlay,
+      isActive: false,
+      run: () => insertBlock({ type: "embed" }),
+    },
+    {
+      label: "Bookmark",
+      icon: BookmarkIcon,
+      isActive: false,
+      run: () => insertBlock({ type: "bookmark" }),
     },
     {
       label: "Diagram",

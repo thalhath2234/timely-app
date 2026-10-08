@@ -98,7 +98,9 @@ func (r reader) block(n ast.Node) []any {
 	case *ast.Heading:
 		out = append(out, withContent(map[string]any{"type": "heading", "attrs": map[string]any{"level": b.Level}}, r.inline(b)))
 	case *ast.Paragraph, *ast.TextBlock:
-		if r.isOnlyBreak(n) {
+		if link := r.linkBlock(n); link != nil {
+			out = append(out, link)
+		} else if r.isOnlyBreak(n) {
 			out = append(out, paragraphNode(nil))
 		} else {
 			out = append(out, paragraphNode(r.inline(n)))
@@ -611,6 +613,12 @@ func blockTexts(nodes []any, out *[]string) {
 			if c, ok := asMap(child); ok && !inlineTypes[c["type"].(string)] {
 				hasBlocks = true
 			}
+		}
+		if n["type"] == "bookmark" {
+			if s := bookmarkText(n); s != "" {
+				*out = append(*out, s)
+			}
+			continue
 		}
 		if n["type"] == "codeBlock" || !hasBlocks {
 			if s := plainText(asSlice(n["content"])); s != "" {
