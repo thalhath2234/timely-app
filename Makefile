@@ -142,10 +142,10 @@ build-api: ## Compile the API to apps/api/bin/timely-api
 build-web: ## Production build of the Next.js app
 	@pnpm --filter @timely/web build
 
-build-desktop: ## Package an unpacked Electron app for this OS, with the API and Postgres sidecars (release/<platform>-unpacked)
+build-desktop: ## Package an unpacked "Timely Dev" app for this OS, with the API and Postgres sidecars (release/<platform>-unpacked); runs next to an installed release
 	@pnpm --filter @timely/web electron:pack
 
-dist-desktop: ## Build a distributable Electron installer for this OS (AppImage / dmg / nsis). TIMELY_TARGETS=linux-x64,darwin-arm64 for several
+dist-desktop: ## Build a "Timely Dev" installer for this OS (AppImage / dmg / nsis); TIMELY_RELEASE=1 for the release app. TIMELY_TARGETS=linux-x64,darwin-arm64 for several
 	@pnpm --filter @timely/web electron:dist
 
 .PHONY: stage-desktop

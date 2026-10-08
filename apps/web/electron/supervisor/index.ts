@@ -12,7 +12,7 @@ import { ensureSecrets, loadConfig, saveConfig, type DesktopConfig, type Sealer,
 import { FileLog, createLogger, type Logger } from "./logger.ts";
 import { NextManager } from "./next.ts";
 import { userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
-import { reconcilePorts } from "./ports.ts";
+import { reconcilePorts, type PortSet } from "./ports.ts";
 import { PostgresManager } from "./postgres.ts";
 import { resolveShellEnv } from "./shellEnv.ts";
 import { Sidecar, describe, sleep } from "./sidecar.ts";
@@ -37,6 +37,8 @@ export type SupervisorDeps = {
   openPath: (target: string) => Promise<string>;
   writeClipboard: (text: string) => void;
   updater?: Updater;
+  /** Ports for a fresh config.json (local builds use their own set). */
+  defaultPorts?: PortSet;
   platform?: NodeJS.Platform;
   /** Echo sidecar output to this process's stdout/stderr (dev). */
   echo?: boolean;
@@ -131,7 +133,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     this.log = createLogger(path.join(this.paths.logDir, "supervisor.log"), {
       echo: deps.echo ? (chunk) => process.stderr.write(`[supervisor] ${chunk}`) : undefined,
     });
-    const loaded = loadConfig(this.paths.configFile, deps.version);
+    const loaded = loadConfig(this.paths.configFile, deps.version, deps.defaultPorts);
     this.config = loaded.config;
     this.configExisted = loaded.existed;
 

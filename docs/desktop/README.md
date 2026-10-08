@@ -12,7 +12,7 @@ Tracking issue: #61.
   postgres/{bin,lib,share}    PostgreSQL 17 from zonky embedded-postgres (electron/stage-postgres.mjs)
   next-server/                Next.js standalone output (electron/stage-next.mjs)
 
-<userData>/                   app.getPath("userData"): ~/.config/Timely, ~/Library/Application Support/Timely, %APPDATA%\Timely
+<userData>/                   app.getPath("userData"): ~/.config/Timely, ~/Library/Application Support/Timely, %APPDATA%\Timely ("Timely Dev" for local builds, see Local builds)
   config.json                 non-secret settings + sealed secrets (see Config)
   postgres/data               PGDATA (initdb on first run)
   data/backups/<account>/     encrypted account backups written by the API (TIMELY_BACKUP_DIR)
@@ -161,6 +161,29 @@ cold start it re-checks, trying the remembered URL first.
 `make dev-desktop` is unchanged: it uses the dev servers on 8080/4001 and no sidecars.
 `make build-desktop` / `make dist-desktop` stage the API and Postgres for the host platform
 first. `TIMELY_TARGETS=linux-x64,darwin-arm64` stages several targets for CI.
+
+### Local builds ("Timely Dev")
+
+Only the release workflow builds "Timely": it sets `TIMELY_RELEASE=1`. Every other build
+(`make build-desktop`, `make dist-desktop`, `make dev-desktop`, `make dev-desktop-hosted`) is
+"Timely Dev", so it can run while an installed release is open without touching its data.
+`electron/flavor.ts` holds the switch; `electron/build.mjs` bakes it into `main.js` and
+`electron/pack.mjs` packs with `electron-builder.local.yml` instead of `electron-builder.yml`.
+
+| | Release (`TIMELY_RELEASE=1`) | Local build |
+| --- | --- | --- |
+| Name, window title | Timely | Timely Dev, title ends in "(Dev)" |
+| App id | `app.timely.desktop` | `app.timely.desktop.dev` |
+| Executable | `Timely`, `Timely.exe` | `timely-dev`, `timely-dev.exe` |
+| userData | `<appData>/Timely` | `<appData>/Timely Dev` (`~/.config/Timely Dev` on Linux) |
+| Single-instance lock | in its userData | in its own userData, so it never hands over to the release |
+| Default ports (Postgres, API, web) | 54329, 48080, 44001 | 54339, 48090, 44011 |
+| Updates | electron-updater | off, so it can't update itself into the release |
+
+Run the unpacked Linux build with `apps/web/release/linux-unpacked/timely-dev`
+(`win-unpacked\timely-dev.exe`, `mac*/Timely Dev.app`). Its first launch creates a fresh
+database. `TIMELY_RELEASE=1 make dist-desktop` builds an installer
+identical to the released one.
 
 ## Build and release
 

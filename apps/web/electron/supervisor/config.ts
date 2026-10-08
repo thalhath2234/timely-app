@@ -6,6 +6,10 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import path from "node:path";
 
 export const DEFAULT_PORTS = { postgresPort: 54329, apiPort: 48080, webPort: 44001 } as const;
+/** Local (non-release) builds start 10 above, so they never meet a running release. */
+export const LOCAL_BUILD_PORTS = { postgresPort: 54339, apiPort: 48090, webPort: 44011 } as const;
+
+type Ports = { postgresPort: number; apiPort: number; webPort: number };
 
 export type SecretKey = "jwtSecret" | "backupKey" | "dbPassword";
 export const SECRET_KEYS: readonly SecretKey[] = ["jwtSecret", "backupKey", "dbPassword"];
@@ -73,10 +77,12 @@ export function makeSealer(primitives: {
   };
 }
 
-export function defaultConfig(version: string): DesktopConfig {
+export function defaultConfig(version: string, ports: Ports = DEFAULT_PORTS): DesktopConfig {
   return {
     version,
-    ...DEFAULT_PORTS,
+    postgresPort: ports.postgresPort,
+    apiPort: ports.apiPort,
+    webPort: ports.webPort,
     tailscaleEnabled: false,
     allowRegistration: false,
     setupDone: false,
@@ -98,8 +104,8 @@ function isPort(value: unknown): value is number {
 }
 
 /** Reads the config file, filling anything missing or malformed with defaults. */
-export function loadConfig(file: string, fallbackVersion: string): { config: DesktopConfig; existed: boolean } {
-  const defaults = defaultConfig(fallbackVersion);
+export function loadConfig(file: string, fallbackVersion: string, ports: Ports = DEFAULT_PORTS): { config: DesktopConfig; existed: boolean } {
+  const defaults = defaultConfig(fallbackVersion, ports);
   if (!existsSync(file)) return { config: defaults, existed: false };
   let raw: unknown;
   try {

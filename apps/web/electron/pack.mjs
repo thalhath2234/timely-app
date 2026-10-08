@@ -5,6 +5,10 @@
 //   node electron/pack.mjs --target darwin-arm64 # one target (also sets TIMELY_TARGETS)
 //   node electron/pack.mjs --target darwin-x64,darwin-arm64 --publish always
 //
+// Without TIMELY_RELEASE=1 (release.yml sets it) the result is "Timely Dev":
+// electron-builder.local.yml and a matching main.js (see electron/flavor.ts),
+// so a local build runs next to an installed release with its own data.
+//
 // Steps: next build (ELECTRON_BUILD=1) → esbuild main/preload → stage Next
 // standalone → stage API → stage Postgres → electron-builder. Every other
 // argument is passed to electron-builder unchanged. Set TIMELY_SKIP_NEXT=1 to
@@ -52,6 +56,9 @@ function run(command, args, extraEnv = {}) {
 const { target, rest } = parseArgs(process.argv.slice(2));
 if (target) process.env.TIMELY_TARGETS = target;
 const targets = resolveTargets();
+const release = process.env.TIMELY_RELEASE === "1";
+const builderConfig = release ? "electron-builder.yml" : "electron-builder.local.yml";
+console.log(release ? "release build: Timely" : "local build: Timely Dev (set TIMELY_RELEASE=1 for a release build)");
 const builderFlags = target ? electronBuilderFlags(targets) : [];
 console.log(`packaging for ${targets.map((t) => t.key).join(", ")}`);
 
@@ -89,7 +96,7 @@ await run("pnpm", [
   "exec",
   "electron-builder",
   "--config",
-  "electron-builder.yml",
+  builderConfig,
   ...builderFlags,
   ...rest,
 ]);
