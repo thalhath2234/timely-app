@@ -20,6 +20,7 @@ import MessageList from "./messageList";
 import ProposalPanel from "./proposalPanel";
 import ReceiptReview from "./receiptReview";
 import { useImageUploads } from "./imageAttachments";
+import type { ModelChoice } from "./modelMenu";
 import { isBusy, phaseLabel, statusMeta } from "./chatMeta";
 import { PROVIDER_LABELS, type ProviderId } from "@/app/utils/api/agentProviders";
 
@@ -98,6 +99,7 @@ export default function Conversation({
   const uploads = useImageUploads();
   const [context, setContext] = useState(initialContext);
   const [search, setSearch] = useState(false);
+  const [choice, setChoice] = useState<ModelChoice>({ provider: "", model: "" });
   const input = useRef<HTMLTextAreaElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const receiptAnchor = useRef<HTMLDivElement>(null);
@@ -105,6 +107,9 @@ export default function Conversation({
   const busy = isBusy(chat?.status);
   const chips = chat?.context || context;
   const webSearch = chat?.webSearch ?? search;
+  const model: ModelChoice = chat
+    ? { provider: chat.chosenProvider ?? "", model: chat.chosenModel ?? "" }
+    : choice;
   const mutation = useMutation({
     mutationFn: async ({
       action,
@@ -119,6 +124,8 @@ export default function Conversation({
           imageIds: uploads.images.map((i) => i.id),
           context,
           webSearch: search,
+          provider: choice.provider,
+          model: choice.model,
         });
       return chatRequest<Chat>(
         `/${encodeURIComponent(id)}${action}`,
@@ -207,6 +214,11 @@ export default function Conversation({
       setContext(nextContext);
       setSearch(nextSearch);
     }
+  }
+  // A new choice applies from the next run; the current one keeps its model.
+  function chooseModel(next: ModelChoice) {
+    if (id) mutation.mutate({ action: "", body: next });
+    else setChoice(next);
   }
   const act = (action: string, body?: unknown) =>
     mutation.mutate({ action, body });
@@ -493,6 +505,8 @@ export default function Conversation({
         webSearch={webSearch}
         sensitive={!!chat?.sensitive}
         onToggleSearch={() => configure(chips, !webSearch)}
+        model={model}
+        onChangeModel={chooseModel}
         busy={busy}
         pending={mutation.isPending}
         onSend={send}

@@ -106,6 +106,22 @@ type sendInput struct {
 	// Device IANA timezone. The agent uses it when no timezone is saved in
 	// Working hours; invalid values are ignored.
 	Timezone string `json:"timezone"`
+	// Provider and Model pick the model for a new conversation; empty follows
+	// the account default.
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+// validChoice checks the shape of a model picked in the chat menu. Whether the
+// provider is connected is checked when a run starts, like the default.
+func validChoice(provider, model string) error {
+	if len(provider) > 40 || len(model) > 200 || strings.ContainsAny(provider+model, " \n\t") {
+		return echo.NewHTTPError(400, "Invalid model choice")
+	}
+	if provider == "" && model != "" {
+		return echo.NewHTTPError(400, "Choose a provider for this model")
+	}
+	return nil
 }
 
 func validateInput(in sendInput) error {
@@ -120,6 +136,9 @@ func validateInput(in sendInput) error {
 	}
 	if len(in.Context) > 8 {
 		return echo.NewHTTPError(400, "Too many context attachments")
+	}
+	if err := validChoice(in.Provider, in.Model); err != nil {
+		return err
 	}
 	for _, c := range in.Context {
 		if len(c.Value) > 12000 || len(c.Label) > 200 || len(c.Kind) > 30 {
@@ -152,7 +171,7 @@ func (s *Service) create(c *echo.Context) error {
 	}
 	firstMessage := message("user", in.Content)
 	firstMessage.RequestID = in.RequestID
-	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, Timezone: validTimezone(in.Timezone), Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
 	noteLanguage(&row, in.Content)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
@@ -417,15 +436,30 @@ func (s *Service) read(c *echo.Context) error { // Reading must not invalidate p
 }
 
 // Omitted fields are left unchanged. Renaming is allowed at any time; context
-// and web search wait for the current run, which already read them.
+// and web search wait for the current run, which already read them. A model
+// choice may change at any time and applies from the next run; provider and
+// model are set together, and an empty provider returns to the default.
 func (s *Service) configure(c *echo.Context) error {
 	var in struct {
 		Title     *string        `json:"title"`
 		WebSearch *bool          `json:"webSearch"`
 		Context   *[]ContextChip `json:"context"`
+		Provider  *string        `json:"provider"`
+		Model     *string        `json:"model"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid settings")
+	}
+	if in.Provider != nil {
+		model := ""
+		if in.Model != nil {
+			model = *in.Model
+		}
+		if err := validChoice(*in.Provider, model); err != nil {
+			return err
+		}
+	} else if in.Model != nil {
+		return echo.NewHTTPError(400, "Choose a provider for this model")
 	}
 	if in.Context != nil {
 		if err := validateInput(sendInput{Content: "context", Context: *in.Context}); err != nil {
@@ -448,6 +482,12 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 		if in.WebSearch != nil {
 			row.WebSearch = *in.WebSearch
+		}
+		if in.Provider != nil {
+			row.ChosenProvider, row.ChosenModel = *in.Provider, ""
+			if in.Model != nil {
+				row.ChosenModel = *in.Model
+			}
 		}
 		if in.Context != nil {
 			row.Context = *in.Context

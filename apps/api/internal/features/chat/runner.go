@@ -87,10 +87,15 @@ func (s *Service) work(ctx context.Context) {
 			if result.RowsAffected == 0 {
 				return gorm.ErrRecordNotFound
 			}
-			// A fresh run takes the account's current default; a resumed lease
-			// keeps the provider it started with.
+			// A fresh run takes the model picked for the conversation, else the
+			// account's current default; a resumed lease keeps the provider it
+			// started with.
 			if c.Status == "queued" && s.completers != nil {
-				c.Provider, c.Model, providerErr = s.completers.Resolve(ctx, c.UserID)
+				if c.ChosenProvider != "" {
+					c.Provider, c.Model = c.ChosenProvider, c.ChosenModel
+				} else {
+					c.Provider, c.Model, providerErr = s.completers.Resolve(ctx, c.UserID)
+				}
 			}
 			// One expired lease can be safely resumed: writes and checkpoints commit together.
 			lease := now.Add(3 * time.Minute)

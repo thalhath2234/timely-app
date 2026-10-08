@@ -34,6 +34,9 @@ export type Chat = {
   /** Provider and model the current or last run used; empty before the first run. */
   provider?: string;
   model?: string;
+  /** Model picked in the chat menu for later runs; empty follows the account default. */
+  chosenProvider?: string;
+  chosenModel?: string;
   context: ChatContext[];
   messages: ChatMessage[];
   plan: ChatStep[];
@@ -110,6 +113,9 @@ export type AssistantDraft = {
   text: string;
   context: ChatContext[];
   webSearch: boolean;
+  /** Model picked before the conversation exists; empty uses the default. */
+  provider?: string;
+  model?: string;
   images: PendingImage[];
   requestId?: string;
   conversationId?: string;
