@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { Check, ChevronDown, ChevronUp, Copy } from "lucide-react";
 import { normalizeCodeLanguage } from "@/app/utils/markdown";
@@ -29,9 +29,8 @@ const LANGUAGES = [
   "stl",
 ];
 
-// Languages drawn under their source. Their code is usually long and the
-// drawing is what people want to see, so the source folds to a few lines.
-const PREVIEW_LANGUAGES = new Set(["mermaid", "geojson", "topojson", "stl"]);
+// Long code folds to a few lines so it doesn't push the rest of the doc (or
+// the drawing under a diagram, map or model) far down the page.
 const FOLDED_LINES = 3;
 
 export default function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
@@ -43,8 +42,18 @@ export default function CodeBlockView({ node, updateAttributes }: NodeViewProps)
   const [expanded, setExpanded] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const lineCount = node.textContent.split("\n").length;
-  const foldable = PREVIEW_LANGUAGES.has(language) && lineCount > FOLDED_LINES;
+  const foldable = lineCount > FOLDED_LINES;
   const folded = foldable && !expanded;
+
+  // Editing the code opens it, so typing past the third line never hides
+  // what is being typed.
+  const text = node.textContent;
+  const lastText = useRef(text);
+  useEffect(() => {
+    if (lastText.current === text) return;
+    lastText.current = text;
+    setExpanded(true);
+  }, [text]);
 
   const toggle = () => {
     setExpanded((value) => !value);

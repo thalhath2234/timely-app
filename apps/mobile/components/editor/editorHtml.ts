@@ -52,12 +52,12 @@ export function buildEditorHtml(
     .tiptap h4 { font-size: 16px; line-height: 1.4; font-weight: 600; margin: 0.6em 0 0.3em; }
     .tiptap h5 { font-size: 15px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; }
     .tiptap h6 { font-size: 14px; line-height: 1.4; font-weight: 600; margin: 0.5em 0 0.25em; color: ${t.mutedForeground}; }
-    .code-wrap pre { margin: 0; }
-    .code-wrap:has(.mermaid-out:not([style*="none"])) pre { border-radius: 10px 10px 0 0; }
+    .code-wrap { background: ${t.muted}; border: 1px solid ${t.border}; border-radius: 12px; overflow: clip; margin: 0 0 0.75em; }
+    .tiptap .code-wrap pre { margin: 0; border: 0; border-radius: 0; background: transparent; }
     .code-wrap pre.is-folded { max-height: calc(36px + 3lh); overflow: hidden; padding-bottom: 0; -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent); mask-image: linear-gradient(to bottom, #000 60%, transparent); }
-    .code-fold { position: sticky; bottom: 0; z-index: 2; display: flex; justify-content: center; padding: 6px; background: ${t.background}; }
-    .code-fold button { background: ${t.muted}; color: ${t.foreground}; border: 1px solid ${t.border}; border-radius: 999px; font-size: 13px; font-weight: 600; padding: 6px 14px; }
-    .mermaid-out { padding: 10px 12px; background: ${t.muted}; border: 1px solid ${t.border}; border-top: 0; border-radius: 0 0 10px 10px; overflow-x: auto; font-size: 13px; color: ${t.mutedForeground}; }
+    .code-fold { position: sticky; bottom: 0; z-index: 2; display: flex; justify-content: center; padding: 6px; background: ${t.background}; border-top: 1px solid ${t.border}; }
+    .code-fold button { background: ${t.background}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 999px; font-size: 12px; font-weight: 600; padding: 5px 12px; }
+    .mermaid-out { padding: 10px 12px; background: ${t.background}; border-top: 1px solid ${t.border}; overflow-x: auto; font-size: 13px; color: ${t.mutedForeground}; }
     .mermaid-out svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
     .mermaid-out.mermaid-error { color: #e5484d; font-family: ui-monospace, monospace; white-space: pre-wrap; }
     .tiptap img { display: inline-block; max-width: 100%; border-radius: 8px; vertical-align: bottom; }
@@ -811,8 +811,8 @@ export function buildEditorHtml(
           const out = document.createElement("div");
           out.className = "mermaid-out";
           out.setAttribute("contenteditable", "false");
-          // Source drawn below (diagram, map, 3D) folds to a few lines; the bar
-          // sticks to the bottom of the screen while open code scrolls past.
+          // Long code folds to a few lines; the bar sticks to the bottom of the
+          // screen while open code scrolls past.
           const fold = document.createElement("div");
           fold.className = "code-fold";
           fold.setAttribute("contenteditable", "false");
@@ -822,9 +822,10 @@ export function buildEditorHtml(
           let expanded = false;
           let lines = 0;
           let foldLang = null;
+          let lastText = null;
           const paintFold = (lang) => {
             foldLang = lang;
-            const foldable = (lang === "mermaid" || lang === "geojson" || lang === "topojson" || lang === "stl") && lines > 3;
+            const foldable = lines > 3;
             fold.style.display = foldable ? "" : "none";
             pre.classList.toggle("is-folded", foldable && !expanded);
             foldBtn.textContent = expanded ? "Collapse code" : "Show all " + lines + " lines";
@@ -842,6 +843,9 @@ export function buildEditorHtml(
             const lang = current.attrs.language;
             code.className = lang ? "language-" + lang : "";
             lines = current.textContent.split("\\n").length;
+            // Editing the code opens it, so typing never disappears under the fold.
+            if (lastText !== null && lastText !== current.textContent) expanded = true;
+            lastText = current.textContent;
             paintFold(lang);
             if (lang === "mermaid") {
               out.style.display = "";
