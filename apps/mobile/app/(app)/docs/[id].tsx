@@ -3,7 +3,7 @@ import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Archive, Download, FileText, FolderUp, History, Link2, MoreHorizontal, Smile, Star, TextSearch, Trash2, Upload } from "lucide-react-native";
+import { Archive, Download, FileDown, FileText, FolderUp, History, Link2, MoreHorizontal, Smile, Star, TextSearch, Trash2, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -98,6 +98,7 @@ function DocEditor({ docId }: { docId: string }) {
   const [nextMenu, setNextMenu] = useState<Menu | null>(null);
 
   const [findOpen, setFindOpen] = useState(false);
+  const [pdfRequest, setPdfRequest] = useState<{ title: string } | null>(null);
 
   function openAfterMore(next: Menu) {
     setNextMenu(next);
@@ -217,6 +218,7 @@ function DocEditor({ docId }: { docId: string }) {
         }
         onSelectionChange={setSelectedText}
         findOpen={findOpen}
+        pdfRequest={pdfRequest}
         onFindClose={() => setFindOpen(false)}
         onFocusChange={(focused) => {
           editorFocusedRef.current = focused;
@@ -257,6 +259,15 @@ function DocEditor({ docId }: { docId: string }) {
       >
         <SheetOption onSelect={() => { setMenu(null); void shareExport(`/docs/${doc.id}/export?format=markdown`, `${doc.title || "untitled"}.md`, "text/markdown"); }} leading={<Download size={18} color={colors.mutedForeground} />}>
           Export Markdown
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setMenu(null);
+            setPdfRequest({ title: doc.title || "Untitled" });
+          }}
+          leading={<FileDown size={18} color={colors.mutedForeground} />}
+        >
+          Export PDF
         </SheetOption>
         <SheetOption
           onSelect={() => {

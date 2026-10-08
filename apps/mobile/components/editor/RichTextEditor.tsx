@@ -61,6 +61,7 @@ import { useKeyboardAccessory } from "../ui/SheetHost";
 import { buildEditorHtml } from "./editorHtml";
 import { getApiUrlSync } from "../../lib/api/client";
 import { getLinkPreview, uploadDocFile } from "../../lib/api/docs";
+import { sharePdfFromHtml } from "../../lib/api/portability";
 import { isEmbedUrl } from "@timely/contract/markdown";
 import { useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
@@ -223,6 +224,7 @@ export default function RichTextEditor({
   compact = false,
   findOpen = false,
   onFindClose,
+  pdfRequest,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
@@ -238,8 +240,11 @@ export default function RichTextEditor({
   /** Shows the find and replace bar over the editor. */
   findOpen?: boolean;
   onFindClose?: () => void;
+  /** Set to a new object to export the doc as a PDF and share it. */
+  pdfRequest?: { title: string } | null;
 }) {
   const [findResult, setFindResult] = useState({ current: -1, count: 0 });
+  const pdfTitleRef = useRef("");
   const webRef = useRef<WebView>(null);
   const themeKey = `${getThemeMode()}:${resolvedAccentHex()}`;
   const html = useMemo(() => buildEditorHtml(content, placeholder, editorThemeVars(), getApiUrlSync()), [themeKey]);
@@ -297,6 +302,12 @@ export default function RichTextEditor({
   }, []);
 
   useEffect(() => {
+    if (!ready || !pdfRequest) return;
+    pdfTitleRef.current = pdfRequest.title;
+    run("exportHtml", { title: pdfRequest.title });
+  }, [pdfRequest, ready, run]);
+
+  useEffect(() => {
     if (!ready) return;
     run("setChrome", { bottomPad: focused && keyboardHeight > 8 ? 12 : barHeight + 32 });
   }, [ready, barHeight, focused, keyboardHeight, run]);
@@ -334,7 +345,14 @@ export default function RichTextEditor({
         href?: string;
         current?: number;
         count?: number;
+        html?: string;
       };
+      if (msg.type === "exportHtml" && msg.html) {
+        const name = `${(pdfTitleRef.current || "Untitled").replace(/[\\/:*?"<>|]+/g, " ").trim() || "Untitled"}.pdf`;
+        void sharePdfFromHtml(name, msg.html).catch((error) =>
+          useToastStore.getState().show(error instanceof Error ? error.message : "Could not make the PDF"),
+        );
+      }
       if (msg.type === "find") setFindResult({ current: msg.current ?? -1, count: msg.count ?? 0 });
       if (msg.type === "openLink" && msg.href && /^https?:/i.test(msg.href)) void Linking.openURL(msg.href).catch(() => undefined);
       if (msg.type === "mathEdit" && typeof msg.pos === "number") {

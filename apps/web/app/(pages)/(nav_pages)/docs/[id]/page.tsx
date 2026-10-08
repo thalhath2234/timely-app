@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
-import { ChevronRight, Archive, Download, History, LayoutTemplate, Smile, Star, Trash2, Upload } from "lucide-react";
+import { ChevronRight, Archive, Download, FileDown, FileText, History, LayoutTemplate, Smile, Star, Trash2, Upload } from "lucide-react";
+import { exportDocPdf } from "@/app/utils/printDoc";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import HeadingMinimap from "@/app/_components/docs/headingMinimap";
 import Backlinks from "@/app/_components/docs/backlinks";
@@ -124,6 +125,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteContent, setRemoteContent] = useState<Doc["content"] | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -258,19 +260,53 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
         >
           <Upload className="size-4" />
         </button>
-        <button
-          type="button"
-          title="Download as Markdown"
-          aria-label="Download document as Markdown"
-          onClick={async () => {
-            // The file comes from the server, so save the latest typing first.
-            await flush();
-            void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`);
-          }}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
-        >
-          <Download className="size-4" />
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            title="Download"
+            aria-label="Download document"
+            aria-haspopup="menu"
+            aria-expanded={isExportOpen}
+            onClick={() => setIsExportOpen((open) => !open)}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
+          >
+            <Download className="size-4" />
+          </button>
+          {isExportOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onMouseDown={() => setIsExportOpen(false)} />
+              <div role="menu" aria-label="Download as" className="absolute right-0 top-9 z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-xl">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={async () => {
+                    setIsExportOpen(false);
+                    // The file comes from the server, so save the latest typing first.
+                    await flush();
+                    void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                >
+                  <FileText className="size-4 text-muted-foreground" />
+                  Markdown (.md)
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsExportOpen(false);
+                    const dom = editorRef.current?.view.dom;
+                    if (dom) void exportDocPdf(doc.title, dom);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                >
+                  <FileDown className="size-4 text-muted-foreground" />
+                  PDF
+                </button>
+              </div>
+            </>
+          )}
+        </div>
 
         <button
           type="button"

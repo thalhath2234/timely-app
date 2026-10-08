@@ -71,7 +71,7 @@ export default function StlPreview({ code }: { code: string }) {
           throw new Error("No triangles found in the STL.");
         }
         const width = host.clientWidth || 600;
-        const renderer = new three.WebGLRenderer({ antialias: true, alpha: true });
+        const renderer = new three.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(width, HEIGHT);
         host.replaceChildren(renderer.domElement);

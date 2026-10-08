@@ -1726,6 +1726,41 @@ export function buildEditorHtml(
         editor.view.dispatch(tr);
       }
     }
+    // PDF export: the app turns this page into a PDF (expo-print). The doc
+    // is copied as drawn, with folded parts open and editing controls gone.
+    function exportHtml(title) {
+      const source = document.querySelector(".tiptap");
+      if (!source) return;
+      const body = source.cloneNode(true);
+      body.removeAttribute("contenteditable");
+      const fields = source.querySelectorAll("input, select, textarea");
+      body.querySelectorAll("input, select, textarea").forEach((field, index) => {
+        const from = fields[index];
+        if (from && from.type === "checkbox") {
+          if (from.checked) field.setAttribute("checked", "");
+          return;
+        }
+        const text = from ? (from.tagName === "SELECT" ? (from.selectedOptions[0] ? from.selectedOptions[0].text : "") : from.value) : "";
+        if (!text) { field.remove(); return; }
+        const span = document.createElement("span");
+        span.className = field.className;
+        span.textContent = text;
+        field.replaceWith(span);
+      });
+      body.querySelectorAll(".doc-embed-frame, .doc-bookmark-open, .code-copy, .code-delete, .code-fold, .details-toggle, .ProseMirror-gapcursor, .ProseMirror-trailingBreak").forEach((el) => el.remove());
+      body.querySelectorAll(".is-folded").forEach((el) => el.classList.remove("is-folded"));
+      body.querySelectorAll(".details").forEach((el) => el.setAttribute("data-open", ""));
+      body.querySelectorAll("[contenteditable]").forEach((el) => el.removeAttribute("contenteditable"));
+      body.querySelectorAll(".code-wrap > .block-head").forEach((el) => el.remove());
+      body.querySelectorAll(".block-head button").forEach((el) => el.remove());
+      const styles = Array.from(document.querySelectorAll("style")).map((el) => el.textContent).join("\\n");
+      const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map((el) => '<link rel="stylesheet" href="' + el.href + '">').join("");
+      const heading = document.createElement("h1");
+      heading.className = "print-title";
+      heading.textContent = title || "Untitled";
+      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } pre, table, img, svg, .callout { break-inside: avoid; } @page { margin: 18mm 16mm; }";
+      send({ type: "exportHtml", html: "<!doctype html><html><head><meta charset=\\"utf-8\\">" + links + "<style>" + styles + "</style><style>" + light + "</style></head><body>" + heading.outerHTML + body.outerHTML + "</body></html>" });
+    }
     const FIND_CMDS = { find: true, findStep: true, replaceCurrent: true, replaceAll: true };
 
     const NEW_LINE_CMDS = { diagram: true, mathBlock: true, map: true, stl: true };
@@ -1741,6 +1776,10 @@ export function buildEditorHtml(
           return;
         }
         // Find runs from the app's find bar, so it must not focus the editor.
+        if (name === "exportHtml") {
+          exportHtml(payload && payload.title);
+          return;
+        }
         if (FIND_CMDS[name]) {
           runFind(name, payload || {});
           return;

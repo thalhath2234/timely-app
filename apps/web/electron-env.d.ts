@@ -68,6 +68,8 @@ export type TimelyDesktop = {
   platform: NodeJS.Platform;
   notifyChat: (payload: { id: string; title: string; body: string; revision: number }) => void;
   onOpenChat: (callback: (id: string) => void) => () => void;
+  /** Saves the page, as laid out for print, to a PDF the user picks. */
+  savePdf?: (title: string) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string }>;
   versions: {
     electron: string;
     chrome: string;

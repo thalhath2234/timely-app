@@ -534,10 +534,10 @@ body::-webkit-scrollbar-corner,
 .tok-number { color: oklch(0.58 0.15 50); }
 .tok-type { color: oklch(0.5 0.13 240); }
 
-.dark .tok-keyword { color: oklch(0.76 0.13 280); }
-.dark .tok-string { color: oklch(0.78 0.12 160); }
-.dark .tok-number { color: oklch(0.8 0.12 65); }
-.dark .tok-type { color: oklch(0.78 0.1 225); }
+.dark :not(#doc-print *).tok-keyword { color: oklch(0.76 0.13 280); }
+.dark :not(#doc-print *).tok-string { color: oklch(0.78 0.12 160); }
+.dark :not(#doc-print *).tok-number { color: oklch(0.8 0.12 65); }
+.dark :not(#doc-print *).tok-type { color: oklch(0.78 0.1 225); }
 
 .doc-editor-content code {
   background: var(--muted);
@@ -1535,5 +1535,58 @@ html.reduce-motion .tl-bar {
 @media (max-width: 640px) {
   .doc-editor-content .doc-columns {
     grid-auto-flow: row;
+  }
+}
+
+/* PDF export (utils/printDoc.ts): only the copied doc prints. */
+#doc-print {
+  display: none;
+}
+@media print {
+  @page {
+    margin: 18mm 16mm;
+  }
+  html.printing-doc,
+  html.printing-doc body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  html.printing-doc body > *:not(#doc-print) {
+    display: none !important;
+  }
+  html.printing-doc #doc-print {
+    display: block;
+    color: #111;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #doc-print .doc-print-title {
+    margin: 0 0 1rem;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  #doc-print .doc-editor-content {
+    outline: none;
+  }
+  #doc-print .doc-code-block,
+  #doc-print table,
+  #doc-print img,
+  #doc-print svg,
+  #doc-print .doc-bookmark,
+  #doc-print .doc-callout {
+    break-inside: avoid;
+  }
+  #doc-print h1,
+  #doc-print h2,
+  #doc-print h3 {
+    break-after: avoid;
+  }
+  #doc-print .doc-column {
+    outline: none !important;
+  }
+  #doc-print a {
+    color: inherit;
   }
 }

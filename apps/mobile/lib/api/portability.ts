@@ -1,4 +1,5 @@
 import { File, Paths } from "expo-file-system";
+import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { api, ApiError, getApiUrl, readError, tunnelHeaders } from "./client";
 import { getToken } from "../auth/session";
@@ -51,6 +52,16 @@ export async function shareLocalText(filename: string, contents: string, mimeTyp
   if (target.exists) target.delete();
   target.write(contents);
   await Sharing.shareAsync(target.uri, { mimeType, dialogTitle: `Export ${filename}` });
+}
+
+/** Lays an HTML page out as a PDF on the device and shares it. */
+export async function sharePdfFromHtml(filename: string, html: string) {
+  if (!(await Sharing.isAvailableAsync())) throw new Error("File sharing is not available on this device.");
+  const printed = await Print.printToFileAsync({ html });
+  const target = new File(Paths.cache, filename);
+  if (target.exists) target.delete();
+  await new File(printed.uri).move(target);
+  await Sharing.shareAsync(target.uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf", dialogTitle: `Export ${filename}` });
 }
 
 export async function restoreBackupJSON(contents: string) {
