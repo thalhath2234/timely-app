@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   AlertTriangle,
+  ArrowUpRight,
   ClipboardList,
   MessageCircle,
   Plus,
@@ -46,7 +47,7 @@ import HistoryPage from "./HistoryPage";
 import ProposalPage from "./ProposalPage";
 import ReceiptReview from "./ReceiptReview";
 import Thread, { FailureCard, RunStatus, StatusCard, Welcome } from "./Thread";
-import { isBusy, phaseLabel } from "./chatMeta";
+import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
 import { Action, IconButton } from "./shared";
 import TimelyLogo from "../ui/TimelyLogo";
 
@@ -577,7 +578,7 @@ export default function Assistant() {
       const task = href.match(/^\/tasks\?taskId=([^&]+)/);
       if (task) assistant.openResult(`/(app)/tasks/${task[1]}`);
       else if (
-        /^\/(tasks|projects|docs|sheets|events|calendar|today)(\/|\?|$)/.test(
+        /^\/(tasks|projects|docs|sheets|events|calendar|today|settings)(\/|\?|$)/.test(
           href,
         )
       )
@@ -891,6 +892,7 @@ export default function Assistant() {
                   {chat?.plan?.length ? (
                     <PlanSummary
                       chat={chat}
+                      onLink={openLink}
                       onOpen={() => {
                         setReviewSteps(null);
                         setPage("proposal");
@@ -975,12 +977,23 @@ export default function Assistant() {
 }
 
 /** Compact entry point to the proposal page from the thread. */
-function PlanSummary({ chat, onOpen }: { chat: Chat; onOpen: () => void }) {
+function PlanSummary({
+  chat,
+  onOpen,
+  onLink,
+}: {
+  chat: Chat;
+  onOpen: () => void;
+  onLink: (href: string) => void;
+}) {
   const done = chat.plan.filter((step) => step.status === "done").length;
   const total = chat.plan.length;
   const approval = chat.status === "approval";
   const failed = chat.status === "failed";
   const applying = isBusy(chat.status) && chat.phase === "apply";
+  // When everything applied changed one screen, open it straight from here.
+  const target =
+    !approval && !isBusy(chat.status) ? sharedTarget(chat.plan) : null;
   const tone = approval
     ? "warning"
     : failed
@@ -1008,12 +1021,27 @@ function PlanSummary({ chat, onOpen }: { chat: Chat; onOpen: () => void }) {
       }
       body={`${done} of ${total} ${total === 1 ? "change" : "changes"} applied`}
     >
-      <Action
-        label={approval ? "Review and apply" : "View changes"}
-        primary={approval}
-        compact
-        onPress={onOpen}
-      />
+      <View style={styles.planActions}>
+        {target ? (
+          <View style={{ flex: 1 }}>
+            <Action
+              label={`Open ${target.noun}`}
+              icon={ArrowUpRight}
+              primary
+              compact
+              onPress={() => onLink(target.href)}
+            />
+          </View>
+        ) : null}
+        <View style={{ flex: 1 }}>
+          <Action
+            label={approval ? "Review and apply" : "View changes"}
+            primary={approval}
+            compact
+            onPress={onOpen}
+          />
+        </View>
+      </View>
     </StatusCard>
   );
 }
@@ -1022,6 +1050,7 @@ const styles = createThemedStyleSheet(() => ({
   root: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, paddingBottom: 24, gap: 16, flexGrow: 1 },
   preview: { flex: 1, padding: 16, gap: 12 },
+  planActions: { flexDirection: "row", gap: 10 },
   badge: {
     position: "absolute",
     top: -6,

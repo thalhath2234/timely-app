@@ -161,58 +161,97 @@ export function stepIcon(tool: string): LucideIcon {
   if (tool.includes("focus")) return Timer;
   if (tool === "undo_schedule") return Undo2;
   if (tool.includes("sheet")) return Table2;
-  if (tool.includes("doc")) return FileText;
+  if (tool.includes("doc") || tool.includes("3d_model")) return FileText;
   if (tool.includes("event") || tool.includes("schedule")) return CalendarDays;
   if (tool.includes("workspace")) return Layers;
   return FolderKanban;
 }
-/** App-relative links from a step's stored result, resolved by the assistant. */
-export function stepLinks(step: ChatStep): { href: string; label: string }[] {
-  const result = step.result;
-  // A removed object has nothing left to open.
-  if (!result || isRemoval(step.tool)) return [];
-  const entries: [string, string][] = [
-    ["sheet", "sheets"],
-    ["task", "tasks"],
-    ["project", "projects"],
-    ["doc", "docs"],
-    ["event", "events"],
-  ];
-  const links = entries.flatMap(([key, path]) => {
-    const item = result[key] as
-      | { id?: string; title?: string; name?: string }
-      | undefined;
-    return item?.id
-      ? [
-          {
-            href: `/${path}/${item.id}`,
-            label: item.title || item.name || `Open ${key}`,
-          },
-        ]
-      : [];
-  });
-  if (!links.length && typeof result.id === "string") {
-    const path = step.tool.includes("sheet_template")
-      ? "sheets/templates"
-      : step.tool.includes("sheet")
-        ? "sheets"
-        : step.tool.includes("doc")
-          ? "docs"
-          : step.tool.includes("project")
-            ? "projects"
-            : step.tool.includes("event")
-              ? "events"
-              : step.tool.includes("task")
-                ? "tasks"
-                : "";
-    if (path)
-      links.push({
-        href: `/${path}/${result.id}`,
-        label: String(result.title || result.name || "Open item"),
-      });
+/**
+ * Where each ID prefix opens. Server IDs are `<prefix>_<uuid>`, so the kind of
+ * object comes from the ID itself, not from guessing at the tool's name.
+ * Prefixes without a screen (checklist items, stages, rows) are skipped so the
+ * parent's ID is used instead.
+ */
+const targetKinds: [
+  prefix: string,
+  noun: string,
+  href: (id: string) => string,
+][] = [
+  ["shtpl_", "template", (id) => `/sheets/templates/${id}`],
+  ["sht_", "sheet", (id) => `/sheets/${id}`],
+  ["doc_", "doc", (id) => `/docs/${id}`],
+  ["tsk_", "task", (id) => `/tasks/${id}`],
+  ["pr_", "project", (id) => `/projects/${id}`],
+  ["evt_", "event", (id) => `/events/${id}`],
+  ["blk_", "calendar", () => "/calendar"],
+  ["ws_", "workspace", () => "/settings/workspaces"],
+  ["lbl_", "workspace", () => "/settings/workspaces"],
+  ["tst_", "workspace", () => "/settings/workspaces"],
+  ["cf_", "workspace", () => "/settings/workspaces"],
+];
+
+const partPrefixes = ["blk_", "lbl_", "tst_", "cf_"];
+
+// Nested result objects first (the object a write returns), then the step's
+// own ID fields, then the parents it names.
+const nestedKeys = ["sheet", "task", "project", "doc", "event", "workspace"];
+const idKeys = [
+  "id",
+  "docId",
+  "sheetId",
+  "taskId",
+  "projectId",
+  "eventId",
+  "workspaceId",
+];
+
+/** `title` is the object's own name when the step returned it. */
+export type StepTarget = { href: string; title?: string; noun: string };
+
+/**
+ * The screen that shows what a finished step changed, from its stored result
+ * or, failing that, its arguments. Null when nothing it touched has a screen.
+ */
+export function stepTarget(step: ChatStep): StepTarget | null {
+  const result = step.result ?? {};
+  const sources: Record<string, unknown>[] = [];
+  for (const key of nestedKeys) {
+    const item = result[key];
+    if (item && typeof item === "object")
+      sources.push(item as Record<string, unknown>);
   }
-  return links;
+  sources.push(result, step.arguments ?? {});
+  for (const source of sources) {
+    for (const key of idKeys) {
+      const id = source[key];
+      if (typeof id !== "string") continue;
+      const kind = targetKinds.find(([prefix]) => id.startsWith(prefix));
+      if (!kind) continue;
+      const [, noun, href] = kind;
+      // A title only names the object when it came from the same record, and
+      // not for parts shown on another page (a label opens its workspace).
+      const named =
+        key === "id" && !partPrefixes.includes(kind[0])
+          ? source.title || source.name
+          : "";
+      return {
+        href: href(encodeURIComponent(id)),
+        title: named ? String(named) : undefined,
+        noun,
+      };
+    }
+  }
+  return null;
 }
+
+/** One target when every finished step changed the same screen, else null. */
+export function sharedTarget(steps: ChatStep[]): StepTarget | null {
+  const targets = steps.filter((s) => s.status === "done").map(stepTarget);
+  const first = targets[0];
+  if (!first || targets.some((t) => t?.href !== first.href)) return null;
+  return targets.find((t) => t?.title) ?? first;
+}
+
 export function relativeTime(iso: string, now = Date.now()) {
   const minutes = Math.round((now - Date.parse(iso)) / 60000);
   if (minutes < 1) return "Just now";
