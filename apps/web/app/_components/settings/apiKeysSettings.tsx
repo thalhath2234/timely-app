@@ -1,17 +1,22 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState, useSyncExternalStore } from "react";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import {
   useApiKeys,
   useCreateApiKey,
   useRevokeApiKey,
 } from "@/app/utils/hooks/apiKeys";
+import { useDesktopInstance } from "@/app/utils/hooks/desktop";
+import { API_BASE } from "@/app/utils/api/client";
+import { mcpUrls } from "@/app/utils/mcpUrl";
 
-function hermesSnippet(key: string) {
+const noopSubscribe = () => () => {};
+
+function hermesSnippet(url: string, key: string) {
   return `mcp_servers:
   timely:
-    url: "http://localhost:8080/mcp"
+    url: "${url}"
     headers:
       Authorization: "Bearer ${key}"`;
 }
@@ -29,18 +34,27 @@ export default function ApiKeysSettings() {
   const revokeKey = useRevokeApiKey();
   const [name, setName] = useState("Hermes");
   const [revealed, setRevealed] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"snippet" | "url" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { instance: desktop, loading: desktopLoading } = useDesktopInstance();
+  const origin = useSyncExternalStore(noopSubscribe, () => window.location.origin, () => "");
+
+  // Null until the address is known: on the server, and in the desktop app
+  // until it reports the port its API runs on.
+  const urls = useMemo(
+    () => (origin && !desktopLoading ? mcpUrls({ desktop, apiBase: API_BASE, origin }) : null),
+    [desktop, desktopLoading, origin],
+  );
 
   const snippet = useMemo(
-    () => hermesSnippet(revealed ?? "tk_..."),
-    [revealed],
+    () => hermesSnippet(urls?.local ?? "", revealed ?? "tk_..."),
+    [urls, revealed],
   );
 
   const onCreate = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
-    setCopied(false);
+    setCopied(null);
     try {
       const created = await createKey.mutateAsync(name.trim() || "Hermes");
       setRevealed(created.key);
@@ -50,10 +64,10 @@ export default function ApiKeysSettings() {
     }
   };
 
-  const onCopy = async () => {
+  const onCopy = async (what: "snippet" | "url") => {
     try {
-      await navigator.clipboard.writeText(snippet);
-      setCopied(true);
+      await navigator.clipboard.writeText(what === "url" ? (urls?.local ?? "") : snippet);
+      setCopied(what);
     } catch {
       setError("Could not copy to clipboard.");
     }
@@ -80,6 +94,40 @@ export default function ApiKeysSettings() {
           Personal API keys let Hermes (and other MCP clients) read and edit your
           Timely data. The full key is shown only once.
         </p>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className="text-xs text-muted-foreground">MCP server address</span>
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded-md bg-muted/40 px-2 py-1.5 text-xs text-foreground">
+            {urls?.local ?? "…"}
+          </code>
+          <button
+            type="button"
+            onClick={() => onCopy("url")}
+            disabled={!urls}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60 disabled:opacity-60"
+          >
+            <Copy className="size-3.5" />
+            {copied === "url" ? "Copied" : "Copy"}
+          </button>
+        </div>
+        {desktop && (
+          <p className="text-[11px] text-muted-foreground">
+            Works while Timely is running on this computer.
+          </p>
+        )}
+        {urls && urls.remote.length > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            From your other devices on Tailscale:{" "}
+            {urls.remote.map((url, index) => (
+              <span key={url}>
+                {index > 0 && ", "}
+                <code className="break-all">{url}</code>
+              </span>
+            ))}
+          </p>
+        )}
       </div>
 
       <form onSubmit={onCreate} className="flex items-end gap-2">
@@ -120,11 +168,12 @@ export default function ApiKeysSettings() {
           </pre>
           <button
             type="button"
-            onClick={onCopy}
+            onClick={() => onCopy("snippet")}
+            disabled={!urls}
             className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60"
           >
             <Copy className="size-3.5" />
-            {copied ? "Copied" : "Copy Hermes snippet"}
+            {copied === "snippet" ? "Copied" : "Copy Hermes snippet"}
           </button>
         </div>
       )}
