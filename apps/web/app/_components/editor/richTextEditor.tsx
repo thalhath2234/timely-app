@@ -29,6 +29,7 @@ import {
   BetweenVerticalEnd,
   BetweenVerticalStart,
   Bold,
+  Box,
   Check,
   CheckSquare,
   Code,
@@ -37,16 +38,22 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Info,
   Highlighter,
   Italic,
   Link2,
   List,
   ListOrdered,
+  Map as MapIcon,
   Minus,
-  Quote,
+  Radical,
+  SquareSigma,
   Strikethrough,
+  Superscript,
+  Tags,
   Trash2,
   Unlink,
+  Workflow,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -64,6 +71,9 @@ import { Mention, MentionPluginKey } from "./mention";
 import { createMentionRenderer, filterMentionItems } from "./mentionMenu";
 import { SlashCommand, SlashCommandPluginKey } from "./slashCommand";
 import {
+  DIAGRAM_SAMPLE,
+  MAP_SAMPLE,
+  MODEL_SAMPLE,
   OPEN_LINK_EDITOR_EVENT,
   createSlashItems,
   createSlashRenderer,
@@ -658,7 +668,30 @@ export default function RichTextEditor({
     );
   }
 
-  let toolbarButtons = [
+  // Blocks from the toolbar replace the caret's empty line, or go in as a new
+  // block after the current one so the text being written stays as it is.
+  const insertBlock = (content: JSONContent) => {
+    const { $from } = editor.state.selection;
+    const chain = editor.chain().focus();
+    if ($from.parent.isTextblock && $from.parent.content.size === 0) {
+      chain.insertContent(content).run();
+    } else {
+      chain.insertContentAt($from.after(), content).run();
+    }
+  };
+  const codeSample = (language: string, text: string): JSONContent => ({
+    type: "codeBlock",
+    attrs: { language },
+    content: [{ type: "text", text }],
+  });
+
+  let toolbarButtons: {
+    label: string;
+    icon: typeof Bold;
+    isActive: boolean;
+    run: () => void;
+    startsGroup?: boolean;
+  }[] = [
     {
       label: "Bold",
       icon: Bold,
@@ -726,10 +759,13 @@ export default function RichTextEditor({
       run: () => editor.chain().focus().toggleTaskList().run(),
     },
     {
-      label: "Quote",
-      icon: Quote,
-      isActive: editor.isActive("blockquote"),
-      run: () => editor.chain().focus().toggleBlockquote().run(),
+      label: "Callout",
+      icon: Info,
+      isActive: editor.isActive("callout"),
+      run: () =>
+        editor.isActive("callout")
+          ? editor.chain().focus().lift("callout").run()
+          : editor.chain().focus().setCallout({ kind: "note" }).run(),
     },
     {
       label: "Code block",
@@ -742,6 +778,49 @@ export default function RichTextEditor({
       icon: AtSign,
       isActive: false,
       run: () => editor.chain().focus().insertContent("@").run(),
+    },
+    {
+      label: "Diagram",
+      icon: Workflow,
+      isActive: false,
+      run: () => insertBlock(codeSample("mermaid", DIAGRAM_SAMPLE)),
+      startsGroup: true,
+    },
+    {
+      label: "Equation",
+      icon: SquareSigma,
+      isActive: editor.isActive("mathBlock"),
+      run: () => insertBlock({ type: "mathBlock" }),
+    },
+    {
+      label: "Formula",
+      icon: Radical,
+      isActive: false,
+      run: () => editor.chain().focus().insertMathInline().run(),
+    },
+    {
+      label: "Footnote",
+      icon: Superscript,
+      isActive: false,
+      run: () => editor.chain().focus().insertFootnote().run(),
+    },
+    {
+      label: "Map",
+      icon: MapIcon,
+      isActive: false,
+      run: () => insertBlock(codeSample("geojson", MAP_SAMPLE)),
+    },
+    {
+      label: "3D model",
+      icon: Box,
+      isActive: false,
+      run: () => insertBlock(codeSample("stl", MODEL_SAMPLE)),
+    },
+    {
+      label: "Properties",
+      icon: Tags,
+      isActive: editor.state.doc.firstChild?.type.name === "frontmatter",
+      run: () => editor.chain().focus().editFrontmatter().run(),
     },
   ];
 
@@ -756,7 +835,7 @@ export default function RichTextEditor({
       "Heading 1",
       "Heading 2",
       "Bulleted list",
-      "Quote",
+      "Callout",
     ]);
     toolbarButtons = toolbarButtons.filter((button) =>
       floatingLabels.has(button.label),
@@ -816,7 +895,10 @@ export default function RichTextEditor({
           >
             {toolbarButtons.map((button) => {
               const Icon = button.icon;
-              return (
+              return [
+                button.startsGroup && (
+                  <span key={`${button.label}-gap`} className="mx-0.5 h-5 w-px bg-border" />
+                ),
                 <button
                   key={button.label}
                   type="button"
@@ -827,8 +909,8 @@ export default function RichTextEditor({
                   }`}
                 >
                   <Icon className="size-3.5" />
-                </button>
-              );
+                </button>,
+              ];
             })}
 
             <span className="mx-0.5 h-5 w-px bg-border" />

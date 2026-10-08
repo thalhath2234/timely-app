@@ -702,9 +702,10 @@ export function buildEditorHtml(
         if (ordered) {
           rules.push(wrappingInputRule({ find: /^\\s*1\\.\\s$/, type: ordered }));
         }
-        const quote = this.editor.schema.nodes.blockquote;
-        if (quote) {
-          rules.push(wrappingInputRule({ find: /^>\\s$/, type: quote }));
+        // "> " starts a callout; quotes are only kept for imported Markdown.
+        const callout = this.editor.schema.nodes.callout;
+        if (callout) {
+          rules.push(wrappingInputRule({ find: /^>\\s$/, type: callout, getAttributes: { kind: "note" } }));
         }
         rules.push(new InputRule({
           find: /^(#{1,3})\\s$/,
@@ -939,6 +940,7 @@ export function buildEditorHtml(
           quote: editor.isActive("blockquote"),
           codeBlock: editor.isActive("codeBlock"),
           callout: editor.isActive("callout"),
+          mathBlock: editor.isActive("mathBlock"),
         },
       });
       triggerText();
@@ -1016,6 +1018,7 @@ export function buildEditorHtml(
       addColBefore: true, addColAfter: true, deleteCol: true,
       deleteTable: true,
     };
+    const NEW_LINE_CMDS = { diagram: true, mathBlock: true, map: true, stl: true };
 
     window.__timely = {
       set(content) { editor.commands.setContent(content, { emitUpdate: false }); },
@@ -1030,6 +1033,15 @@ export function buildEditorHtml(
         const chain = editor.chain().focus();
         const range = payload && payload.from != null && payload.from >= 0 ? { from: payload.from, to: payload.to } : null;
         if (range && !TABLE_CMDS[name]) chain.deleteRange(range);
+        // Blocks added from the toolbar go on a new line after the caret's
+        // line instead of turning the text being written into code.
+        if (!range && NEW_LINE_CMDS[name]) {
+          const { $from } = editor.state.selection;
+          if ($from.parent.isTextblock && $from.parent.content.size > 0) {
+            const at = $from.after();
+            chain.insertContentAt(at, { type: "paragraph" }).setTextSelection(at + 1);
+          }
+        }
         switch (name) {
           case "paragraph": chain.setParagraph(); break;
           case "h1": chain.setNode("heading", { level: 1 }); break;
@@ -1042,6 +1054,7 @@ export function buildEditorHtml(
           case "code": chain.toggleCodeBlock(); break;
           case "diagram": chain.setCodeBlock({ language: "mermaid" }).insertContent("flowchart TD\\n  A[Start] --> B[Next step]"); break;
           case "callout": chain.wrapIn("callout", { kind: "note" }); break;
+          case "liftCallout": chain.lift("callout"); break;
           case "math":
             chain.insertContent({ type: "mathInline", attrs: { latex: "" } }).command(({ tr }) => {
               send({ type: "mathEdit", pos: tr.selection.from - 1, latex: "" });

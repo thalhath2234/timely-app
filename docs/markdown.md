@@ -22,7 +22,7 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Line break (Shift+Enter) | `\` at line end; `<br>` inside a table cell |
 | Empty paragraph between blocks | a line with only `<br>` |
 | Bullet, numbered (any start), task lists, nested | `-`, `3.`, `- [x]`, indented |
-| Quote | `>` (may hold lists and code) |
+| Quote | `>` (may hold lists and code). Imported quotes are kept; the editor no longer offers quotes, and typing `> ` starts a note callout |
 | Code block with language | fenced block, fence grows past any backticks inside |
 | Diagram (Mermaid) | a ```` ```mermaid ```` code block; Timely draws it under the source, GitHub and Obsidian draw it too |
 | Divider | `---` |

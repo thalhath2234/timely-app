@@ -6,6 +6,7 @@ import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
   mergeAttributes,
+  wrappingInputRule,
   type NodeViewProps,
 } from "@tiptap/react";
 import {
@@ -77,6 +78,8 @@ function CalloutView({ node, updateAttributes }: NodeViewProps) {
 
 export const Callout = TiptapNode.create({
   name: "callout",
+  // Above the quote node so typing "> " makes a callout, not a plain quote.
+  priority: 101,
   group: "block",
   content: "block+",
   defining: true,
@@ -115,6 +118,10 @@ export const Callout = TiptapNode.create({
         ({ commands }) =>
           commands.wrapIn(this.name, { kind: attrs.kind ?? "note" }),
     };
+  },
+
+  addInputRules() {
+    return [wrappingInputRule({ find: /^\s*>\s$/, type: this.type, getAttributes: { kind: "note" } })];
   },
 
   addKeyboardShortcuts() {
