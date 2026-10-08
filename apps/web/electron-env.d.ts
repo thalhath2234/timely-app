@@ -62,6 +62,9 @@ export type DesktopAction =
   | "installUpdate"
   | "copyAddress";
 
+/** Tab shortcuts the app forwards while doc/sheet tabs are showing. */
+export type PageTabCommand = "new" | "close" | "next" | "previous" | "back" | "forward";
+
 export type DesktopActionResult = { ok: true; message?: string } | { ok: false; error: string };
 
 export type TimelyDesktop = {
@@ -73,6 +76,9 @@ export type TimelyDesktop = {
     chrome: string;
     node: string;
   };
+  /** Tells the app whether doc/sheet tabs are showing (see PageTabCommand). */
+  setPageTabsActive?: (active: boolean) => void;
+  onPageTabCommand?: (callback: (command: PageTabCommand) => void) => () => void;
   /** Present only when the app hosts its own backend (packaged build). */
   instance?: {
     get: () => Promise<DesktopInstance>;
