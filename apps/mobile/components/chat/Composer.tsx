@@ -1,6 +1,7 @@
 import { Image, ScrollView, Text, TextInput, View } from "react-native";
 import {
   ArrowUp,
+  Cpu,
   Globe2,
   ImagePlus,
   ScanLine,
@@ -70,6 +71,10 @@ export default function Composer({
   onAttach,
   search,
   onToggleSearch,
+  modelLabel,
+  modelChosen,
+  canPickModel,
+  onPickModel,
   privateImages,
   busy,
   pending,
@@ -96,6 +101,10 @@ export default function Composer({
   onAttach: () => void;
   search: boolean;
   onToggleSearch: () => void;
+  modelLabel: string;
+  modelChosen: boolean;
+  canPickModel: boolean;
+  onPickModel: () => void;
   privateImages: boolean;
   busy: boolean;
   pending: boolean;
@@ -246,6 +255,30 @@ export default function Composer({
                 {privateImages ? "Private" : "Search"}
               </Text>
             </AnimatedPressable>
+            <AnimatedPressable
+              accessibilityRole="button"
+              accessibilityLabel={`Model: ${modelLabel}`}
+              disabled={!canPickModel}
+              onPress={onPickModel}
+              style={[
+                styles.searchToggle,
+                modelChosen && styles.searchOn,
+                !canPickModel && { opacity: 0.5 },
+              ]}
+            >
+              <Cpu
+                size={16}
+                color={modelChosen ? colors.primary : colors.mutedForeground}
+              />
+              {modelChosen ? (
+                <Text
+                  numberOfLines={1}
+                  style={[styles.searchText, styles.modelText]}
+                >
+                  {modelLabel}
+                </Text>
+              ) : null}
+            </AnimatedPressable>
           </View>
           <View style={styles.tools}>
             {hasDraft && !busy ? (
@@ -394,6 +427,7 @@ const styles = createThemedStyleSheet(() => ({
     paddingHorizontal: 10,
   },
   searchOn: { backgroundColor: colors.accent },
+  modelText: { color: colors.primary, maxWidth: 96 },
   searchText: {
     color: colors.mutedForeground,
     fontSize: 13,
