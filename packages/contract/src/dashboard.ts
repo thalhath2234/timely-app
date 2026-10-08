@@ -11,7 +11,7 @@
  * fields filled.
  */
 import type { CalendarItem } from "./calendar";
-import type { Doc } from "./documents";
+import type { Doc, DocContent } from "./documents";
 import type { Project, Task, Workspace } from "./entities";
 import type { WeekdayKey, WorkingHours } from "./schedule";
 import type { Sheet } from "./sheet";
@@ -33,7 +33,16 @@ export type BuiltinCardType =
   | "streak"
   | "dayProgress"
   | "matrix"
-  | "countdown";
+  | "countdown"
+  | "topThree"
+  | "focusTime"
+  | "nextUp"
+  | "habits"
+  | "goal"
+  | "weeklyReview"
+  | "inboxZero"
+  | "clock"
+  | "journal";
 
 export type DashboardCardType = BuiltinCardType | "custom";
 
@@ -240,6 +249,93 @@ export const BUILTIN_CARDS: BuiltinCardInfo[] = [
     minW: 2,
     minH: 2,
     settings: { label: "", date: "" },
+  },
+  {
+    type: "topThree",
+    title: "Top 3 for today",
+    description: "Pick the three tasks that would make today a good day and tick them off here.",
+    w: 4,
+    h: 3,
+    minW: 3,
+    minH: 3,
+    settings: { day: "", taskIds: [] },
+  },
+  {
+    type: "focusTime",
+    title: "Focus time",
+    description: "Hours tracked on tasks today and this week, from task focus and linked pomodoros.",
+    w: 4,
+    h: 4,
+    minW: 3,
+    minH: 3,
+  },
+  {
+    type: "nextUp",
+    title: "Next up",
+    description: "Time until your next event, and how much free time is left in your working hours.",
+    w: 4,
+    h: 3,
+    minW: 3,
+    minH: 2,
+  },
+  {
+    type: "habits",
+    title: "Habits",
+    description: "Daily habits with a tick for each of the last seven days and a streak for each.",
+    w: 5,
+    h: 4,
+    minW: 4,
+    minH: 3,
+    settings: { habits: [], log: {} },
+  },
+  {
+    type: "goal",
+    title: "Daily goal",
+    description: "A ring that fills as you reach today's target: tasks done or hours focused.",
+    w: 3,
+    h: 3,
+    minW: 3,
+    minH: 3,
+    settings: { metric: "tasks", target: 5 },
+  },
+  {
+    type: "weeklyReview",
+    title: "Weekly review",
+    description: "What you finished, what slipped and what carried over this week, with a note to yourself.",
+    w: 6,
+    h: 5,
+    minW: 4,
+    minH: 4,
+    settings: { notes: {} },
+  },
+  {
+    type: "inboxZero",
+    title: "Inbox zero",
+    description: "How many items wait in your Inbox, with the oldest one ready to open or clear.",
+    w: 4,
+    h: 3,
+    minW: 3,
+    minH: 2,
+  },
+  {
+    type: "clock",
+    title: "Stopwatch and timer",
+    description: "A plain stopwatch with laps, or a countdown timer for anything that isn't a pomodoro.",
+    w: 3,
+    h: 3,
+    minW: 3,
+    minH: 3,
+    settings: { mode: "stopwatch", minutes: 10, startedAt: null, elapsed: 0, laps: [], done: false },
+  },
+  {
+    type: "journal",
+    title: "Daily journal",
+    description: "One question a day. Save your answer into today's daily note.",
+    w: 4,
+    h: 4,
+    minW: 3,
+    minH: 3,
+    settings: { day: "", text: "", savedDocId: "", savedText: "" },
   },
 ];
 
@@ -1010,7 +1106,10 @@ export function sourcesUsed(cards: DashboardCard[]): Set<CardSource | "today"> {
   const used = new Set<CardSource | "today">();
   for (const card of cards) {
     if (card.type === "custom" && card.query) used.add(card.query.source);
-    if (card.type === "matrix" || card.type === "streak") used.add("tasks");
+    if (card.type === "matrix" || card.type === "streak" || card.type === "topThree" || card.type === "weeklyReview") used.add("tasks");
+    if (card.type === "goal" || card.type === "focusTime") used.add("tasks");
+    if (card.type === "nextUp") used.add("events");
+    if (card.type === "inboxZero") used.add("inbox");
     if (card.type === "today") used.add("today");
   }
   return used;
@@ -1775,4 +1874,473 @@ export function formatMetric(value: number, unit: CardUnit): string {
   if (unit === "hours") return formatHours(value);
   if (Math.abs(value) >= 10_000) return `${Math.round(value / 100) / 10}K`;
   return Number.isInteger(value) ? value.toLocaleString("en-US") : (Math.round(value * 10) / 10).toLocaleString("en-US");
+}
+
+// ---- Top 3 for today ----
+
+/** The picks still standing: they belong to the day they were made on. */
+export function topThreePicks(settings: Record<string, unknown> | undefined, today: string): string[] {
+  if (!settings || settings.day !== today || !Array.isArray(settings.taskIds)) return [];
+  return settings.taskIds.filter((id): id is string => typeof id === "string").slice(0, 3);
+}
+
+/** Yesterday's (or any earlier day's) picks that were never finished, to carry over. */
+export function topThreeLeftover(settings: Record<string, unknown> | undefined, today: string, tasks: Task[]): string[] {
+  if (!settings || typeof settings.day !== "string" || !settings.day || settings.day >= today || !Array.isArray(settings.taskIds)) return [];
+  const open = new Set(tasks.filter((task) => !task.completedAt).map((task) => task.id));
+  return settings.taskIds.filter((id): id is string => typeof id === "string" && open.has(id)).slice(0, 3);
+}
+
+/**
+ * Open work worth picking for today, most pressing first: overdue, then due
+ * or scheduled today, then by priority and deadline.
+ */
+export function topThreeSuggestions(tasks: Task[], today: string, exclude: string[] = []): Task[] {
+  const skip = new Set(exclude);
+  const score = (task: Task) => {
+    const deadline = task.deadline?.slice(0, 10) ?? null;
+    if (deadline && deadline < today) return 0;
+    if (deadline === today || task.todayFocusOn === today) return 1;
+    if (task.scheduledOn?.slice(0, 10) === today) return 2;
+    return 3;
+  };
+  return tasks
+    .filter((task) => !task.completedAt && task.kind !== "inbox" && task.kind !== "reminder" && !skip.has(task.id))
+    .sort(
+      (a, b) =>
+        score(a) - score(b) ||
+        priorityRank(a.priorityLevel) - priorityRank(b.priorityLevel) ||
+        compareText(a.deadline, b.deadline, "asc") ||
+        a.name.localeCompare(b.name),
+    );
+}
+
+// ---- Focus time ----
+
+/** One finished stretch of focus on a task (`GET /tasks/focus-sessions`). */
+export interface FocusSessionLike {
+  taskId: string | null;
+  taskName: string;
+  endedAt: string;
+  minutes: number;
+}
+
+export interface FocusSummary {
+  /** Minutes focused today, including a session still running. */
+  today: number;
+  /** Minutes this week (Monday on). */
+  week: number;
+  /** Minutes per day of this week, Monday first. */
+  days: { day: string; minutes: number }[];
+  /** Tasks focused on most this week. */
+  tasks: { id: string | null; name: string; minutes: number }[];
+}
+
+export function focusSummary(sessions: FocusSessionLike[], tasks: Task[], now: Date, timeZone?: string): FocusSummary {
+  const today = dateInZone(now, timeZone);
+  const monday = weekStart(today);
+  const days = Array.from({ length: 7 }, (_, index) => ({ day: addDaysToDate(monday, index), minutes: 0 }));
+  const byTask = new Map<string, { id: string | null; name: string; minutes: number }>();
+  const add = (day: string, minutes: number, id: string | null, name: string) => {
+    const slot = days.find((entry) => entry.day === day);
+    if (!slot || minutes <= 0) return;
+    slot.minutes += minutes;
+    const key = id ?? `name:${name}`;
+    const entry = byTask.get(key) ?? { id, name, minutes: 0 };
+    entry.minutes += minutes;
+    byTask.set(key, entry);
+  };
+  for (const session of sessions) {
+    const ended = new Date(session.endedAt);
+    if (Number.isNaN(ended.getTime())) continue;
+    add(dateInZone(ended, timeZone), session.minutes, session.taskId, session.taskName);
+  }
+  // A focus still running has no session yet; count it toward today.
+  for (const task of tasks) {
+    if (!task.focusStartedAt || task.completedAt) continue;
+    const started = new Date(task.focusStartedAt).getTime();
+    if (Number.isNaN(started)) continue;
+    add(today, Math.max(0, Math.floor((now.getTime() - started) / 60_000)), task.id, task.name);
+  }
+  return {
+    today: days.find((entry) => entry.day === today)?.minutes ?? 0,
+    week: days.reduce((sum, entry) => sum + entry.minutes, 0),
+    days,
+    tasks: [...byTask.values()].sort((a, b) => b.minutes - a.minutes || a.name.localeCompare(b.name)).slice(0, 5),
+  };
+}
+
+/** 95 → "1h 35m", 40 → "40m". */
+export function formatMinutes(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  if (hours === 0) return `${rest}m`;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}
+
+// ---- Next up ----
+
+export interface NextUp {
+  /** An event happening right now. */
+  current: CalendarItem | null;
+  /** The next event that hasn't started. */
+  next: CalendarItem | null;
+  /** The rest of today's events after `next`, in order. */
+  later: CalendarItem[];
+  /** Free minutes left inside today's working hours; null without working hours. */
+  freeMinutes: number | null;
+  /** Working minutes left today, busy or not; null without working hours. */
+  workMinutesLeft: number | null;
+}
+
+function minuteOfDay(date: Date, timeZone?: string): { day: string; minute: number } {
+  const parts = zonedParts(date, timeZone);
+  const day = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  return { day, minute: parts.hour * 60 + parts.minute };
+}
+
+function clockMinutes(value: string): number {
+  const [hour, minute] = value.split(":").map(Number);
+  return (hour || 0) * 60 + (minute || 0);
+}
+
+/** Events only (not task blocks); all-day events don't take time. */
+export function nextUp(items: CalendarItem[], now: Date, workday: { start: string; end: string } | null, timeZone?: string): NextUp {
+  const at = now.getTime();
+  const events = items
+    .filter((item) => (item.kind === "event" || item.kind === "eventOccurrence") && !item.allDay)
+    .filter((item) => new Date(item.end).getTime() > at)
+    .sort((a, b) => a.start.localeCompare(b.start));
+  const current = events.find((item) => new Date(item.start).getTime() <= at) ?? null;
+  const upcoming = events.filter((item) => new Date(item.start).getTime() > at);
+  const here = minuteOfDay(now, timeZone);
+  const later = upcoming.slice(1).filter((item) => minuteOfDay(new Date(item.start), timeZone).day === here.day);
+
+  if (!workday) return { current, next: upcoming[0] ?? null, later, freeMinutes: null, workMinutesLeft: null };
+  const from = Math.max(here.minute, clockMinutes(workday.start));
+  const to = clockMinutes(workday.end);
+  if (to <= from) return { current, next: upcoming[0] ?? null, later, freeMinutes: 0, workMinutesLeft: 0 };
+  // Busy stretches inside what's left of the workday, merged where they overlap.
+  const busy: [number, number][] = [];
+  for (const item of events) {
+    const start = minuteOfDay(new Date(item.start), timeZone);
+    const end = minuteOfDay(new Date(item.end), timeZone);
+    const a = start.day < here.day ? 0 : start.day > here.day ? Infinity : start.minute;
+    const b = end.day > here.day ? 24 * 60 : end.day < here.day ? -Infinity : end.minute;
+    const lo = Math.max(a, from);
+    const hi = Math.min(b, to);
+    if (hi > lo) busy.push([lo, hi]);
+  }
+  busy.sort((x, y) => x[0] - y[0]);
+  let taken = 0;
+  let reach = from;
+  for (const [lo, hi] of busy) {
+    const start = Math.max(lo, reach);
+    if (hi > start) {
+      taken += hi - start;
+      reach = hi;
+    }
+  }
+  const workMinutesLeft = to - from;
+  return { current, next: upcoming[0] ?? null, later, freeMinutes: Math.max(0, workMinutesLeft - taken), workMinutesLeft };
+}
+
+// ---- Habits ----
+
+export interface Habit {
+  id: string;
+  name: string;
+}
+
+export const HABIT_LIMIT = 12;
+/** Days of ticks kept in the saved layout. */
+export const HABIT_HISTORY_DAYS = 120;
+
+export function habitList(settings: Record<string, unknown> | undefined): Habit[] {
+  const list = Array.isArray(settings?.habits) ? settings.habits : [];
+  return list
+    .filter((entry): entry is Habit => Boolean(entry) && typeof entry.id === "string" && typeof entry.name === "string")
+    .slice(0, HABIT_LIMIT);
+}
+
+export function habitLog(settings: Record<string, unknown> | undefined): Record<string, string[]> {
+  const raw = settings?.log;
+  if (!raw || typeof raw !== "object") return {};
+  const log: Record<string, string[]> = {};
+  for (const [day, ids] of Object.entries(raw as Record<string, unknown>)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day) && Array.isArray(ids)) log[day] = ids.filter((id): id is string => typeof id === "string");
+  }
+  return log;
+}
+
+/** Ticks or unticks a habit on a day, and drops ticks older than the kept history. */
+export function toggleHabit(log: Record<string, string[]>, habitId: string, day: string, today: string): Record<string, string[]> {
+  const oldest = addDaysToDate(today, -HABIT_HISTORY_DAYS);
+  const next: Record<string, string[]> = {};
+  for (const [entryDay, ids] of Object.entries(log)) {
+    if (entryDay >= oldest && ids.length > 0) next[entryDay] = ids;
+  }
+  const ids = next[day] ?? [];
+  const updated = ids.includes(habitId) ? ids.filter((id) => id !== habitId) : [...ids, habitId];
+  if (updated.length > 0) next[day] = updated;
+  else delete next[day];
+  return next;
+}
+
+/** Current run of days the habit was done; today not done yet doesn't break it. */
+export function habitStreak(log: Record<string, string[]>, habitId: string, today: string): number {
+  const done = (day: string) => (log[day] ?? []).includes(habitId);
+  let cursor = done(today) ? today : addDaysToDate(today, -1);
+  let streak = 0;
+  while (done(cursor)) {
+    streak += 1;
+    cursor = addDaysToDate(cursor, -1);
+  }
+  return streak;
+}
+
+// ---- Daily goal ----
+
+export type GoalMetric = "tasks" | "focus";
+
+export interface GoalSettings {
+  metric: GoalMetric;
+  /** Tasks for "tasks", hours for "focus". */
+  target: number;
+}
+
+export function goalSettings(settings: Record<string, unknown> | undefined): GoalSettings {
+  const metric: GoalMetric = settings?.metric === "focus" ? "focus" : "tasks";
+  const raw = typeof settings?.target === "number" && Number.isFinite(settings.target) ? settings.target : metric === "focus" ? 4 : 5;
+  const target = metric === "focus" ? Math.min(16, Math.max(0.5, Math.round(raw * 2) / 2)) : Math.min(50, Math.max(1, Math.round(raw)));
+  return { metric, target };
+}
+
+// ---- Weekly review ----
+
+export interface WeeklyReview {
+  /** Monday of the week shown. */
+  from: string;
+  /** Sunday of the week shown. */
+  to: string;
+  done: Task[];
+  /** Still open, due during the week (up to today for this week). */
+  slipped: Task[];
+  /** Still open and overdue from before the week. */
+  carried: Task[];
+}
+
+/** `weeksBack` 0 is this week, 1 last week, and so on. */
+export function weeklyReview(tasks: Task[], today: string, weeksBack = 0, timeZone?: string): WeeklyReview {
+  const from = addDaysToDate(weekStart(today), -7 * weeksBack);
+  const to = addDaysToDate(from, 6);
+  const end = weeksBack === 0 ? today : to;
+  const done: Task[] = [];
+  const slipped: Task[] = [];
+  const carried: Task[] = [];
+  for (const task of tasks) {
+    if (task.kind === "inbox" || task.kind === "reminder") continue;
+    if (task.completedAt) {
+      const date = new Date(task.completedAt);
+      if (Number.isNaN(date.getTime())) continue;
+      const day = dateInZone(date, timeZone);
+      if (day >= from && day <= to) done.push(task);
+      continue;
+    }
+    const deadline = task.deadline?.slice(0, 10);
+    if (!deadline) continue;
+    // "Slipped" is a deadline that passed in the week; today's isn't missed yet.
+    if (deadline >= from && deadline < end) slipped.push(task);
+    else if (deadline < from) carried.push(task);
+  }
+  done.sort((a, b) => compareText(a.completedAt, b.completedAt, "desc"));
+  slipped.sort((a, b) => compareText(a.deadline, b.deadline, "asc"));
+  carried.sort((a, b) => compareText(a.deadline, b.deadline, "asc"));
+  return { from, to, done, slipped, carried };
+}
+
+/** Weekly notes kept in the saved layout. */
+export const REVIEW_NOTES_KEPT = 8;
+
+export function setReviewNote(notes: Record<string, unknown> | undefined, week: string, text: string): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const [key, value] of Object.entries(notes ?? {})) {
+    if (typeof value === "string" && value) next[key] = value;
+  }
+  if (text) next[week] = text.slice(0, 4000);
+  else delete next[week];
+  const keep = Object.keys(next).sort().slice(-REVIEW_NOTES_KEPT);
+  return Object.fromEntries(keep.map((key) => [key, next[key]]));
+}
+
+// ---- Stopwatch and timer ----
+
+export interface ClockState {
+  mode: "stopwatch" | "timer";
+  /** Timer length. */
+  minutes: number;
+  /** Epoch ms the clock was last started; null while stopped. */
+  startedAt: number | null;
+  /** Ms counted before `startedAt`. */
+  elapsed: number;
+  /** Stopwatch lap times, ms since start, newest last. */
+  laps: number[];
+  /** The timer ran out and hasn't been reset. */
+  done: boolean;
+}
+
+export const CLOCK_MAX_LAPS = 20;
+
+export function clockState(settings: Record<string, unknown> | undefined): ClockState {
+  const minutes = typeof settings?.minutes === "number" && Number.isFinite(settings.minutes) ? settings.minutes : 10;
+  return {
+    mode: settings?.mode === "timer" ? "timer" : "stopwatch",
+    minutes: Math.min(600, Math.max(1, Math.round(minutes))),
+    startedAt: typeof settings?.startedAt === "number" ? settings.startedAt : null,
+    elapsed: typeof settings?.elapsed === "number" && settings.elapsed > 0 ? settings.elapsed : 0,
+    laps: Array.isArray(settings?.laps) ? settings.laps.filter((lap): lap is number => typeof lap === "number").slice(-CLOCK_MAX_LAPS) : [],
+    done: settings?.done === true,
+  };
+}
+
+/** Ms counted so far. */
+export function clockElapsed(state: ClockState, now: number): number {
+  return state.elapsed + (state.startedAt === null ? 0 : Math.max(0, now - state.startedAt));
+}
+
+/** Ms left on the timer. */
+export function clockRemaining(state: ClockState, now: number): number {
+  return Math.max(0, state.minutes * 60_000 - clockElapsed(state, now));
+}
+
+/** When a running timer runs out, epoch ms; null otherwise. */
+export function clockEndsAt(state: ClockState): number | null {
+  if (state.mode !== "timer" || state.startedAt === null) return null;
+  return state.startedAt + state.minutes * 60_000 - state.elapsed;
+}
+
+/** 3725000 → "1:02:05", 65000 → "01:05". */
+export function formatStopwatch(ms: number, tenths = false): string {
+  const total = Math.max(0, Math.floor(ms / 100));
+  const deci = total % 10;
+  const seconds = Math.floor(total / 10) % 60;
+  const minutes = Math.floor(total / 600) % 60;
+  const hours = Math.floor(total / 36000);
+  const base = hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}` : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return tenths ? `${base}.${deci}` : base;
+}
+
+// ---- Daily journal ----
+
+export const JOURNAL_PROMPTS = [
+  "What would make today a good day?",
+  "What are you grateful for right now?",
+  "What's one thing you learned yesterday?",
+  "What's taking up the most space in your head?",
+  "What did you avoid doing, and why?",
+  "Who helped you recently, and how?",
+  "What's one small win from this week?",
+  "What would you do today if you had twice the energy?",
+  "What are you looking forward to?",
+  "What drained you yesterday, and what gave you energy?",
+  "What's one thing you can let go of today?",
+  "Which task are you most proud of lately?",
+  "What would you tell yourself a year ago?",
+  "What's a decision you've been putting off?",
+  "How did you take care of yourself this week?",
+  "What surprised you recently?",
+  "What's one habit you want to build, and the first step?",
+  "Where did your time go yesterday? Is that where you wanted it?",
+  "What conversation do you need to have?",
+  "What does done look like for today?",
+  "What made you laugh recently?",
+  "What's something you're curious about right now?",
+  "What would make this week feel finished?",
+  "What's one thing you'd do differently tomorrow?",
+  "What are you holding on to that you could delegate?",
+  "When did you feel most focused this week?",
+  "What's a worry you can write down and leave here?",
+  "What progress have you made that nobody sees?",
+  "What does a calm day look like for you?",
+  "What would you like to remember about today?",
+];
+
+/** The same question all day, a different one each day. */
+export function journalPrompt(day: string): string {
+  const index = Math.abs(daysBetween("2024-01-01", day)) % JOURNAL_PROMPTS.length;
+  return JOURNAL_PROMPTS[index];
+}
+
+/** The section heading a journal answer goes under in the daily note. */
+export const JOURNAL_HEADING = "Journal";
+
+function textNode(text: string, marks?: unknown[]) {
+  return marks ? { type: "text", text, marks } : { type: "text", text };
+}
+
+function nodeText(node: unknown): string {
+  if (!node || typeof node !== "object") return "";
+  const entry = node as { text?: unknown; content?: unknown[] };
+  if (typeof entry.text === "string") return entry.text;
+  return Array.isArray(entry.content) ? entry.content.map(nodeText).join("") : "";
+}
+
+/**
+ * Puts the day's journal answer into a doc under a "Journal" heading:
+ * replaces that section when it's already there (up to the next heading of
+ * the same or a higher level), or adds it at the end.
+ */
+export function upsertJournalSection(content: DocContent | null | undefined, prompt: string, answer: string): DocContent {
+  const blocks = Array.isArray(content?.content) ? [...(content!.content as unknown[])] : [];
+  const section: unknown[] = [
+    { type: "heading", attrs: { level: 2 }, content: [textNode(JOURNAL_HEADING)] },
+    { type: "paragraph", content: [textNode(prompt, [{ type: "italic" }])] },
+    ...answer
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.trim())
+      .filter(Boolean)
+      .map((paragraph) => {
+        const lines = paragraph.split("\n");
+        const inline: unknown[] = [];
+        lines.forEach((line, index) => {
+          if (index > 0) inline.push({ type: "hardBreak" });
+          if (line) inline.push(textNode(line));
+        });
+        return { type: "paragraph", content: inline };
+      }),
+  ];
+  const isJournalHeading = (node: unknown) =>
+    Boolean(node) && (node as { type?: string }).type === "heading" && nodeText(node).trim() === JOURNAL_HEADING;
+  const start = blocks.findIndex(isJournalHeading);
+  if (start < 0) {
+    // A fresh daily note is a single empty paragraph; replace it rather than leave a gap.
+    const empty = blocks.length === 1 && (blocks[0] as { type?: string }).type === "paragraph" && !nodeText(blocks[0]).trim();
+    return { type: "doc", content: empty ? section : [...blocks, ...section] };
+  }
+  const level = Number((blocks[start] as { attrs?: { level?: number } }).attrs?.level ?? 2);
+  let end = start + 1;
+  while (end < blocks.length) {
+    const node = blocks[end] as { type?: string; attrs?: { level?: number } };
+    if (node.type === "heading" && Number(node.attrs?.level ?? 1) <= level) break;
+    end += 1;
+  }
+  blocks.splice(start, end - start, ...section);
+  return { type: "doc", content: blocks };
+}
+
+/** Plain text of a doc, one line per block, for `plainText` on save. */
+export function docPlainText(content: DocContent | null | undefined): string {
+  const lines: string[] = [];
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== "object") return;
+    const entry = node as { type?: string; content?: unknown[] };
+    if (entry.type === "paragraph" || entry.type === "heading" || entry.type === "codeBlock") {
+      lines.push(nodeText(node));
+      return;
+    }
+    if (Array.isArray(entry.content)) entry.content.forEach(walk);
+  };
+  walk(content);
+  return lines.join("\n");
 }

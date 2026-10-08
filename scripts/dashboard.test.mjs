@@ -30,6 +30,26 @@ const {
   timeProgress,
   weekStart,
   CARD_TEMPLATES,
+  topThreePicks,
+  topThreeLeftover,
+  topThreeSuggestions,
+  focusSummary,
+  formatMinutes,
+  nextUp,
+  toggleHabit,
+  habitStreak,
+  goalSettings,
+  weeklyReview,
+  setReviewNote,
+  clockState,
+  clockElapsed,
+  clockRemaining,
+  clockEndsAt,
+  formatStopwatch,
+  journalPrompt,
+  upsertJournalSection,
+  docPlainText,
+  sourcesUsed,
 } = await import("../packages/contract/src/dashboard.ts");
 
 // Thursday 8 Oct 2026, mid-morning UTC.
@@ -302,5 +322,145 @@ describe("built-in helpers", () => {
     const paused = adjustPomodoro({ ...idle, remaining: 10 * 60_000 }, settings, 60_000, 0);
     assert.equal(paused.remaining, 11 * 60_000);
     assert.equal(paused.endsAt, null);
+  });
+
+  test("top 3 picks belong to their day and unfinished ones carry over", () => {
+    const tasks = [task("a"), task("b", { completedAt: "2026-10-07T12:00:00Z" }), task("c")];
+    const settings = { day: "2026-10-07", taskIds: ["a", "b", "c", "d"] };
+    assert.deepEqual(topThreePicks(settings, "2026-10-07"), ["a", "b", "c"]);
+    assert.deepEqual(topThreePicks(settings, "2026-10-08"), []);
+    assert.deepEqual(topThreeLeftover(settings, "2026-10-08", tasks), ["a", "c"]);
+    assert.deepEqual(topThreeLeftover(settings, "2026-10-07", tasks), []);
+  });
+
+  test("top 3 suggestions put overdue and due-today work first", () => {
+    const tasks = [
+      task("later", { deadline: "2026-10-20", priorityLevel: "urgent" }),
+      task("today", { deadline: "2026-10-08" }),
+      task("late", { deadline: "2026-10-01" }),
+      task("inbox", { kind: "inbox" }),
+      task("done", { completedAt: "2026-10-08T08:00:00Z" }),
+    ];
+    assert.deepEqual(topThreeSuggestions(tasks, "2026-10-08", ["today"]).map((entry) => entry.id), ["late", "later"]);
+    assert.deepEqual(topThreeSuggestions(tasks, "2026-10-08").map((entry) => entry.id), ["late", "today", "later"]);
+  });
+
+  test("focus time adds sessions by day and a focus still running", () => {
+    const sessions = [
+      { taskId: "a", taskName: "A", endedAt: "2026-10-08T09:00:00Z", minutes: 50 },
+      { taskId: "b", taskName: "B", endedAt: "2026-10-06T15:00:00Z", minutes: 30 },
+      { taskId: "a", taskName: "A", endedAt: "2026-10-04T15:00:00Z", minutes: 99 },
+    ];
+    const tasks = [task("b", { focusStartedAt: "2026-10-08T09:40:00Z" })];
+    const summary = focusSummary(sessions, tasks, now, "UTC");
+    assert.equal(summary.today, 70);
+    assert.equal(summary.week, 100);
+    assert.equal(summary.days[0].day, "2026-10-05");
+    assert.equal(summary.days[1].minutes, 30);
+    assert.deepEqual(summary.tasks.map((entry) => [entry.id, entry.minutes]), [["a", 50], ["b", 50]]);
+    assert.equal(formatMinutes(95), "1h 35m");
+    assert.equal(formatMinutes(120), "2h");
+    assert.equal(formatMinutes(40), "40m");
+  });
+
+  test("next up finds the next event and free time left in the workday", () => {
+    const event = (id, start, end, extra = {}) => ({ id, kind: "event", title: id, start, end, allDay: false, ...extra });
+    const items = [
+      event("past", "2026-10-08T08:00:00Z", "2026-10-08T09:00:00Z"),
+      event("now", "2026-10-08T09:30:00Z", "2026-10-08T10:30:00Z"),
+      event("next", "2026-10-08T11:00:00Z", "2026-10-08T12:00:00Z"),
+      event("overlap", "2026-10-08T11:30:00Z", "2026-10-08T12:30:00Z"),
+      event("tomorrow", "2026-10-09T11:00:00Z", "2026-10-09T12:00:00Z"),
+      event("allday", "2026-10-08T00:00:00Z", "2026-10-09T00:00:00Z", { allDay: true }),
+      event("block", "2026-10-08T13:00:00Z", "2026-10-08T14:00:00Z", { kind: "task" }),
+    ];
+    const result = nextUp(items, now, { start: "09:00", end: "17:00" }, "UTC");
+    assert.equal(result.current.id, "now");
+    assert.equal(result.next.id, "next");
+    assert.deepEqual(result.later.map((item) => item.id), ["overlap"]);
+    // 10:00-17:00 is 420 minutes; busy 10:00-10:30 and 11:00-12:30.
+    assert.equal(result.workMinutesLeft, 420);
+    assert.equal(result.freeMinutes, 300);
+    assert.equal(nextUp(items, now, null, "UTC").freeMinutes, null);
+    assert.equal(nextUp(items, now, { start: "09:00", end: "10:00" }, "UTC").freeMinutes, 0);
+  });
+
+  test("habits toggle per day, trim old ticks and count streaks", () => {
+    let log = { "2026-01-01": ["h1"] };
+    log = toggleHabit(log, "h1", "2026-10-07", "2026-10-08");
+    log = toggleHabit(log, "h1", "2026-10-06", "2026-10-08");
+    assert.equal(log["2026-01-01"], undefined);
+    assert.equal(habitStreak(log, "h1", "2026-10-08"), 2);
+    log = toggleHabit(log, "h1", "2026-10-08", "2026-10-08");
+    assert.equal(habitStreak(log, "h1", "2026-10-08"), 3);
+    log = toggleHabit(log, "h1", "2026-10-07", "2026-10-08");
+    assert.equal(habitStreak(log, "h1", "2026-10-08"), 1);
+    assert.equal(habitStreak(log, "h2", "2026-10-08"), 0);
+  });
+
+  test("goal settings clamp the target to the metric", () => {
+    assert.deepEqual(goalSettings(undefined), { metric: "tasks", target: 5 });
+    assert.deepEqual(goalSettings({ metric: "focus", target: 3.3 }), { metric: "focus", target: 3.5 });
+    assert.deepEqual(goalSettings({ metric: "tasks", target: 0 }), { metric: "tasks", target: 1 });
+  });
+
+  test("weekly review splits done, slipped and carried over", () => {
+    const tasks = [
+      task("done", { completedAt: "2026-10-06T10:00:00Z" }),
+      task("old-done", { completedAt: "2026-10-01T10:00:00Z" }),
+      task("slipped", { deadline: "2026-10-06" }),
+      task("due-today", { deadline: "2026-10-08" }),
+      task("carried", { deadline: "2026-09-20" }),
+    ];
+    const review = weeklyReview(tasks, "2026-10-08", 0, "UTC");
+    assert.equal(review.from, "2026-10-05");
+    assert.deepEqual(review.done.map((entry) => entry.id), ["done"]);
+    assert.deepEqual(review.slipped.map((entry) => entry.id), ["slipped"]);
+    assert.deepEqual(review.carried.map((entry) => entry.id), ["carried"]);
+    const last = weeklyReview(tasks, "2026-10-08", 1, "UTC");
+    assert.deepEqual(last.done.map((entry) => entry.id), ["old-done"]);
+    const notes = setReviewNote({ "2026-01-05": "old", "2026-10-05": "x" }, "2026-10-05", "");
+    assert.deepEqual(notes, { "2026-01-05": "old" });
+  });
+
+  test("stopwatch and timer count from their saved state", () => {
+    const idle = clockState({ mode: "timer", minutes: 2 });
+    assert.equal(clockRemaining(idle, 0), 120_000);
+    assert.equal(clockEndsAt(idle), null);
+    const running = { ...idle, startedAt: 1000, elapsed: 30_000 };
+    assert.equal(clockElapsed(running, 11_000), 40_000);
+    assert.equal(clockEndsAt(running), 1000 + 120_000 - 30_000);
+    assert.equal(formatStopwatch(3_725_000), "1:02:05");
+    assert.equal(formatStopwatch(65_400, true), "01:05.4");
+    assert.equal(clockState({ laps: Array.from({ length: 30 }, (_, i) => i) }).laps.length, 20);
+  });
+
+  test("journal answers replace their own section in the daily note", () => {
+    assert.equal(journalPrompt("2026-10-08"), journalPrompt("2026-10-08"));
+    assert.notEqual(journalPrompt("2026-10-08"), journalPrompt("2026-10-09"));
+    const fresh = upsertJournalSection({ type: "doc", content: [{ type: "paragraph" }] }, "Why?", "Because.\nReally.");
+    assert.equal(fresh.content.length, 3);
+    assert.equal(docPlainText(fresh), "Journal\nWhy?\nBecause.Really.");
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Oct 8" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Plans" }] },
+      ],
+    };
+    const once = upsertJournalSection(doc, "Why?", "First");
+    const twice = upsertJournalSection({ ...once, content: [...once.content, { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "After" }] }] }, "Why?", "Second\n\nThird");
+    const text = docPlainText(twice);
+    assert.ok(text.startsWith("Oct 8\nPlans\nJournal\nWhy?\nSecond\nThird\nAfter"), text);
+    assert.equal(text.match(/Journal/g).length, 1);
+  });
+
+  test("new cards ask only for the data they read", () => {
+    const card = (type) => ({ id: type, type, w: 4, h: 3 });
+    assert.deepEqual([...sourcesUsed([card("nextUp")])], ["events"]);
+    assert.deepEqual([...sourcesUsed([card("inboxZero")])], ["inbox"]);
+    assert.deepEqual([...sourcesUsed([card("clock"), card("journal"), card("habits")])], []);
+    const restored = normalizeDashboard({ cards: [card("habits"), card("clock")] });
+    assert.deepEqual(restored.cards.map((entry) => entry.settings?.mode ?? entry.settings?.habits), [[], "stopwatch"]);
   });
 });
