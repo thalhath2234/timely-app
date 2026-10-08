@@ -1154,34 +1154,72 @@ html.reduce-motion .tl-bar {
   text-transform: uppercase;
 }
 
-.doc-frontmatter-summary {
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
+.doc-editor-content pre.doc-frontmatter-source[hidden] {
+  display: none;
+}
+
+.doc-frontmatter-list {
+  display: grid;
   gap: 6px;
-  letter-spacing: 0;
+  grid-template-columns: max-content 1fr;
+  padding: 8px 12px 10px;
+}
+
+.doc-frontmatter-row {
+  align-items: baseline;
+  display: contents;
+}
+
+.doc-frontmatter-key {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  padding-right: 12px;
+}
+
+.doc-frontmatter-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   min-width: 0;
-  text-transform: none;
 }
 
 .doc-frontmatter-chip {
   background: var(--accent);
   border-radius: 999px;
   color: var(--accent-foreground);
-  font-weight: 400;
-  padding: 1px 8px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  padding: 0 9px;
 }
 
-.doc-frontmatter-remove {
+.doc-frontmatter-none,
+.doc-frontmatter-empty {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+.doc-frontmatter-empty {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  grid-column: 1 / -1;
+  padding: 0;
+  text-align: left;
+}
+
+.doc-frontmatter-action {
   background: transparent;
   border: 0;
+  border-radius: var(--radius-md);
   color: inherit;
   cursor: pointer;
   font: inherit;
+  padding: 2px 6px;
 }
 
-.doc-frontmatter-remove:hover {
-  color: var(--foreground);
+.doc-frontmatter-action:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .doc-wiki-link {

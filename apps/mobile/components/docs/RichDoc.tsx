@@ -2,6 +2,7 @@ import { Fragment, type ReactNode } from "react";
 import { Linking, ScrollView, StyleSheet, Text, View, type TextStyle } from "react-native";
 import type { DocContent } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { frontmatterEntries } from "@timely/contract/properties";
 
 type Mark = { type?: string; attrs?: Record<string, unknown> };
 type Node = {
@@ -75,9 +76,25 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
         </View>
       );
     }
-    case "mathBlock":
     case "frontmatter":
-      // Read-only text shows the TeX / YAML source as code.
+      return (
+        <View style={styles.props}>
+          {frontmatterEntries(plain(node)).map(({ key, values }, i) => (
+            <View key={`${key}-${i}`} style={styles.propRow}>
+              <Text style={styles.propKey}>{key}</Text>
+              <View style={styles.propValues}>
+                {values.map((value, j) => (
+                  <Text key={j} style={styles.propChip}>
+                    {value}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+      );
+    case "mathBlock":
+      // Read-only text shows the TeX source as code.
       return (
         <ScrollView horizontal style={styles.code} contentContainerStyle={styles.codeInner}>
           <Text style={styles.codeText}>{plain(node)}</Text>
@@ -251,6 +268,19 @@ const styles = createThemedStyleSheet((colors) => ({
     borderColor: colors.border,
   },
   codeInner: { padding: 12 },
+  props: { borderRadius: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, padding: 10, gap: 6 },
+  propRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  propKey: { color: colors.mutedForeground, fontSize: 13, lineHeight: 22, minWidth: 64 },
+  propValues: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  propChip: {
+    backgroundColor: colors.accent,
+    color: colors.accentForeground,
+    borderRadius: 999,
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+    fontSize: 13,
+  },
   codeText: { color: colors.foreground, fontFamily: "monospace", fontSize: 13, lineHeight: 18 },
   hr: { height: 1, backgroundColor: colors.border, marginVertical: 8 },
   tableScroll: { marginVertical: 4 },

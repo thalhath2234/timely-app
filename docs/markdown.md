@@ -32,7 +32,7 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Equation (block) | `$$` on its own line, TeX lines, `$$`; `$$x$$` on one line is read too |
 | Callout | `> [!NOTE]`, then the body as quoted lines; `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]` and any other word Obsidian allows; `> [!NOTE] Title` keeps a title |
 | Footnote | `[^1]` in the text, `[^1]: the note` where the file has it (continuation lines indented four spaces); `[^x]` without a definition stays text |
-| Properties (frontmatter) | `---` / `key: value` lines / `---` at the very top, kept verbatim; it can only be the first block |
+| Properties (frontmatter) | `---` / `key: value` lines / `---` at the very top, kept verbatim; it can only be the first block. The editor shows them as chips (YAML only while editing); `key: [a, b]`, `tags: a, b` and `- item` lists become several values. Search takes `key:value` terms (`status:draft`, `owner:"Sam Lee"`) to filter docs by them, and semantic search embeds them |
 | Wiki link | `[[Page title]]`, `[[Page title\|alias]]`, `![[Page title]]` (embed); clicking opens the doc with that title |
 | Map | a ```` ```geojson ```` or ```` ```topojson ```` code block, drawn as an outline (GitHub draws it over a street map) |
 | 3D model | a ```` ```stl ```` code block (ASCII STL), drawn with three.js; each `solid <name>` is a part, and a `#rrggbb` word in the name colors it (`solid head #f2c6a0`). Other STL readers ignore the color. Normals are recomputed, so `facet normal 0 0 0` is fine |

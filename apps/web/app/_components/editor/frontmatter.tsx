@@ -10,6 +10,8 @@ import {
 } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
 import { Tags } from "lucide-react";
+import { frontmatterEntries } from "@timely/contract/properties";
+import { useEffect, useState } from "react";
 
 /*
  * Frontmatter is the "---" block of key: value lines at the top of a
@@ -33,35 +35,84 @@ export const DocumentWithFrontmatter = TiptapNode.create({
   content: "frontmatter? block+",
 });
 
-/** key: value lines, for the summary row. Anything else is left out. */
-export function frontmatterEntries(text: string) {
-  const entries: [string, string][] = [];
-  for (const line of text.split("\n")) {
-    const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
-    if (match) entries.push([match[1], match[2]]);
-  }
-  return entries;
-}
-
-function FrontmatterView({ node, deleteNode }: NodeViewProps) {
+function FrontmatterView({ node, editor, getPos, deleteNode }: NodeViewProps) {
   const entries = frontmatterEntries(node.textContent);
+  // The YAML shows only while the caret is in it; otherwise just the values.
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      const pos = getPos();
+      if (typeof pos !== "number") return;
+      const { from, to } = editor.state.selection;
+      const end = pos + editor.state.doc.nodeAt(pos)!.nodeSize;
+      setEditing(editor.isFocused && from > pos && to < end);
+    };
+    check();
+    const events = ["selectionUpdate", "update", "focus", "blur"] as const;
+    events.forEach((name) => editor.on(name, check));
+    return () => events.forEach((name) => editor.off(name, check));
+  }, [editor, getPos]);
+
+  const edit = () => {
+    const pos = getPos();
+    if (typeof pos === "number") editor.chain().focus(pos + node.nodeSize - 1).scrollIntoView().run();
+  };
+  const done = () => {
+    const pos = getPos();
+    if (typeof pos === "number") editor.chain().focus(pos + node.nodeSize + 1).run();
+  };
+
   return (
-    <NodeViewWrapper className="doc-frontmatter" data-frontmatter="">
+    <NodeViewWrapper className={`doc-frontmatter${editing ? " is-editing" : ""}`} data-frontmatter="">
       <div className="doc-frontmatter-head" contentEditable={false}>
         <Tags className="size-3.5" aria-hidden />
-        <span>Properties</span>
-        <span className="doc-frontmatter-summary">
-          {entries.map(([key, value]) => (
-            <span key={key} className="doc-frontmatter-chip">
-              <b>{key}</b> {value}
-            </span>
-          ))}
-        </span>
-        <button type="button" className="doc-frontmatter-remove" onClick={deleteNode} title="Remove properties">
+        <span className="flex-1">Properties</span>
+        <button
+          type="button"
+          className="doc-frontmatter-action"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={editing ? done : edit}
+          title={editing ? "Finish editing properties" : "Edit properties"}
+        >
+          {editing ? "Done" : "Edit"}
+        </button>
+        <button
+          type="button"
+          className="doc-frontmatter-action"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={deleteNode}
+          title="Remove properties"
+        >
           Remove
         </button>
       </div>
-      <pre className="doc-frontmatter-source" spellCheck={false}>
+      {!editing && (
+        <div className="doc-frontmatter-list" contentEditable={false} onDoubleClick={edit}>
+          {entries.length === 0 ? (
+            <button type="button" className="doc-frontmatter-empty" onClick={edit}>
+              No properties yet. Add some as key: value lines.
+            </button>
+          ) : (
+            entries.map(({ key, values }, index) => (
+              <div key={`${key}-${index}`} className="doc-frontmatter-row">
+                <span className="doc-frontmatter-key">{key}</span>
+                <span className="doc-frontmatter-values">
+                  {values.length === 0 ? (
+                    <span className="doc-frontmatter-none">Empty</span>
+                  ) : (
+                    values.map((value, i) => (
+                      <span key={i} className="doc-frontmatter-chip">
+                        {value}
+                      </span>
+                    ))
+                  )}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+      <pre className="doc-frontmatter-source" spellCheck={false} hidden={!editing}>
         <NodeViewContent />
       </pre>
     </NodeViewWrapper>

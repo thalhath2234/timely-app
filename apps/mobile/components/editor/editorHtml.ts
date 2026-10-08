@@ -87,6 +87,12 @@ export function buildEditorHtml(
     .math-empty { color: ${t.mutedForeground}; font-style: italic; font-size: 13px; }
     .math-block, .frontmatter { border: 1px solid ${t.border}; border-radius: 10px; margin: 0 0 0.75em; overflow: hidden; }
     .frontmatter { border-style: dashed; }
+    .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
+    .props-key { color: ${t.mutedForeground}; }
+    .props-values { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+    .props-chip { background: ${t.accent}; color: ${t.accentForeground}; border-radius: 999px; padding: 1px 9px; }
+    .props-empty { grid-column: 1 / -1; color: ${t.mutedForeground}; }
+    .block-head button + button { margin-left: 0; }
     .math-block pre, .frontmatter pre { padding: 10px 12px; border: 0; border-radius: 0; white-space: pre-wrap; }
     .math-out { padding: 12px; border-top: 1px solid ${t.border}; text-align: center; overflow-x: auto; }
     .math-out .katex-display { margin: 0; }
@@ -253,6 +259,124 @@ export function buildEditorHtml(
       return editor.chain().command(({ tr }) => { tr.delete($from.pos - 2, $from.pos); return true; }).exitCode().run();
     }
 
+    // Properties show as key and value chips; the YAML shows only while the
+    // caret is in it (Edit puts it there, Done takes it out).
+    const LIST_KEYS = new Set(["tags", "tag", "aliases", "alias", "categories", "category", "keywords", "cssclasses"]);
+    const unquoteValue = (value) => value.trim().replace(/^(["'])(.*)\\1$/, "$2").trim();
+    function frontmatterEntries(text) {
+      const entries = [];
+      for (const line of text.split("\\n")) {
+        const item = /^\\s*-\\s+(.*)$/.exec(line);
+        if (item && entries.length) {
+          const value = unquoteValue(item[1]);
+          if (value) entries[entries.length - 1].values.push(value);
+          continue;
+        }
+        const match = /^([A-Za-z0-9_-]+)\\s*:\\s*(.*)$/.exec(line);
+        if (!match) continue;
+        const raw = match[2].replace(/\\s+#.*$/, "").trim();
+        let values;
+        if (raw.startsWith("[") && raw.endsWith("]")) values = raw.slice(1, -1).split(",").map(unquoteValue);
+        else if (LIST_KEYS.has(match[1].toLowerCase())) values = raw.split(",").map(unquoteValue);
+        else values = [unquoteValue(raw)];
+        entries.push({ key: match[1], values: values.filter(Boolean) });
+      }
+      return entries;
+    }
+    function frontmatterView({ node, getPos, editor }) {
+      let current = node;
+      const dom = document.createElement("div");
+      dom.className = "frontmatter";
+      const bar = document.createElement("div");
+      bar.className = "block-head";
+      bar.setAttribute("contenteditable", "false");
+      const title = document.createElement("span");
+      title.textContent = "Properties";
+      title.style.flex = "1";
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      bar.append(title, editBtn, remove);
+      const list = document.createElement("div");
+      list.className = "props-list";
+      list.setAttribute("contenteditable", "false");
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      pre.appendChild(code);
+      dom.append(bar, list, pre);
+      let editing = false;
+      const start = () => editor.chain().focus(getPos() + current.nodeSize - 1).scrollIntoView().run();
+      const finish = () => editor.chain().focus(getPos() + current.nodeSize + 1).run();
+      [editBtn, remove].forEach((btn) => btn.addEventListener("mousedown", (event) => event.preventDefault()));
+      editBtn.addEventListener("click", () => (editing ? finish() : start()));
+      remove.addEventListener("click", () => {
+        const pos = getPos();
+        editor.chain().focus().deleteRange({ from: pos, to: pos + current.nodeSize }).run();
+      });
+      list.addEventListener("click", start);
+      const paint = () => {
+        editBtn.textContent = editing ? "Done" : "Edit";
+        pre.style.display = editing ? "" : "none";
+        list.style.display = editing ? "none" : "";
+        const entries = frontmatterEntries(current.textContent);
+        list.replaceChildren();
+        if (!entries.length) {
+          const empty = document.createElement("div");
+          empty.className = "props-empty";
+          empty.textContent = "No properties yet. Tap to add key: value lines.";
+          list.appendChild(empty);
+        }
+        entries.forEach(({ key, values }) => {
+          const k = document.createElement("div");
+          k.className = "props-key";
+          k.textContent = key;
+          const v = document.createElement("div");
+          v.className = "props-values";
+          if (!values.length) {
+            const none = document.createElement("span");
+            none.className = "props-empty";
+            none.textContent = "Empty";
+            v.appendChild(none);
+          }
+          values.forEach((value) => {
+            const chip = document.createElement("span");
+            chip.className = "props-chip";
+            chip.textContent = value;
+            v.appendChild(chip);
+          });
+          list.append(k, v);
+        });
+      };
+      const check = () => {
+        const pos = getPos();
+        if (typeof pos !== "number") return;
+        const { from, to } = editor.state.selection;
+        const next = editor.isFocused && from > pos && to < pos + current.nodeSize;
+        if (next !== editing) { editing = next; paint(); }
+      };
+      const events = ["selectionUpdate", "focus", "blur"];
+      events.forEach((name) => editor.on(name, check));
+      paint();
+      setTimeout(check, 0);
+      return {
+        dom,
+        contentDOM: code,
+        update(next) {
+          if (next.type !== current.type) return false;
+          current = next;
+          if (!editing) paint();
+          return true;
+        },
+        ignoreMutation(mutation) {
+          if (mutation.type === "selection") return false;
+          return !code.contains(mutation.target);
+        },
+        destroy() { events.forEach((name) => editor.off(name, check)); },
+      };
+    }
+
     function verbatimBlockView(className, head, drawOut) {
       return ({ node, getPos, editor }) => {
         const dom = document.createElement("div");
@@ -331,7 +455,7 @@ export function buildEditorHtml(
       isolating: true,
       parseHTML() { return [{ tag: "div[data-frontmatter]", preserveWhitespace: "full" }]; },
       renderHTML({ HTMLAttributes }) { return ["div", { ...HTMLAttributes, "data-frontmatter": "" }, 0]; },
-      addNodeView() { return verbatimBlockView("frontmatter", "Properties", null); },
+      addNodeView() { return frontmatterView; },
       addKeyboardShortcuts() {
         return { Enter: () => exitOnTripleEnter(this.editor, this.name) };
       },
@@ -838,8 +962,10 @@ export function buildEditorHtml(
 
     function capitalizeTyped(view, from, to, text) {
       if (!/^[a-z]$/.test(text)) return false;
+      // Code, formulas and properties are typed exactly as written.
+      if (view.state.doc.resolve(from).parent.type.spec.code) return false;
       const before = view.state.doc.textBetween(Math.max(0, from - 8), from, "\\n", "\\n");
-      if (before && !/[.!?]\s+$/.test(before) && !/[\\n\\r]$/.test(before)) return false;
+      if (before && !/[.!?]\\s+$/.test(before) && !/[\\n\\r]$/.test(before)) return false;
       view.dispatch(view.state.tr.insertText(text.toUpperCase(), from, to));
       return true;
     }

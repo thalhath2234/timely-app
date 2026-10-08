@@ -19,6 +19,8 @@ export const AutoCapitalize = Extension.create({
         key: new PluginKey("autoCapitalize"),
         props: {
           handleTextInput(view, from, to, text) {
+            // Code, formulas and properties are typed exactly as written.
+            if (view.state.doc.resolve(from).parent.type.spec.code) return false;
             if (!shouldCapitalize(view.state.doc.textBetween(Math.max(0, from - 8), from, "\n", "\n"), text)) {
               return false;
             }
