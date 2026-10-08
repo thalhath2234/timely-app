@@ -5,10 +5,10 @@
  * of each phase is also scheduled as a local notification, so it rings while
  * the app is in the background.
  *
- * Anything that shows running work reads `usePomodoroStore` with
- * `selectActivePomodoros` and drives a timer through the store's actions
- * (`start`, `pause`, `skip`, `reset`); the time left is
- * `pomodoroTimeLeft(timer, Date.now())`.
+ * Anything that shows running work reads
+ * `usePomodoroStore(useShallow(selectActivePomodoros))` and drives a timer
+ * through the store's actions (`start`, `pause`, `skip`, `reset`); the time
+ * left is `pomodoroTimeLeft(timer, Date.now())`.
  */
 import { AppState } from "react-native";
 import { File, Paths } from "expo-file-system";
