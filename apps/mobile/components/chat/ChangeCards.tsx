@@ -8,7 +8,7 @@ import {
   beforeLabel,
   isRemoval,
   stepIcon,
-  stepLinks,
+  stepTarget,
   stepMeta,
   toneColor,
 } from "./chatMeta";
@@ -34,7 +34,7 @@ function Card({
   const meta = stepMeta(step.status, active);
   const Badge = meta.icon;
   const color = toneColor(meta.tone, colors);
-  const links = step.status === "done" ? stepLinks(step) : [];
+  const link = step.status === "done" ? stepTarget(step) : null;
   return (
     <View
       style={[
@@ -91,20 +91,22 @@ function Card({
               <Text style={styles.errorText}>{step.error}</Text>
             </View>
           ) : null}
-          {links.map((link) => (
+          {link ? (
             <AnimatedPressable
-              key={link.href}
               accessibilityRole="link"
-              accessibilityLabel={link.label}
+              accessibilityLabel={`Open ${link.noun}${link.title ? `: ${link.title}` : ""}`}
               onPress={() => onLink(link.href)}
               style={styles.link}
             >
               <Text numberOfLines={1} style={styles.linkText}>
-                {link.label}
+                Open {link.noun}
+                {link.title ? (
+                  <Text style={styles.linkTitle}> · {link.title}</Text>
+                ) : null}
               </Text>
               <ArrowUpRight size={14} color={colors.primary} />
             </AnimatedPressable>
-          ))}
+          ) : null}
         </View>
       </View>
       <AnimatedPressable
@@ -260,6 +262,7 @@ const styles = createThemedStyleSheet(() => ({
     fontWeight: "700",
     flexShrink: 1,
   },
+  linkTitle: { fontWeight: "500" },
   toggle: {
     flexDirection: "row",
     alignItems: "center",
