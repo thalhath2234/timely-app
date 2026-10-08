@@ -13,6 +13,7 @@
 import type { CalendarItem } from "./calendar";
 import type { Doc } from "./documents";
 import type { Project, Task, Workspace } from "./entities";
+import type { WeekdayKey, WorkingHours } from "./schedule";
 import type { Sheet } from "./sheet";
 import { addDaysToDate, dateInZone, daysBetween, isOverdue, todayInZone } from "./workStatus";
 
@@ -1223,10 +1224,13 @@ function categoricalBuckets(items: Item[], query: CardQuery, lookups: Lookups, t
   };
   for (const item of items) {
     switch (query.groupBy) {
-      case "status":
-        if (item.statusId) add(item.statusId, item.statusName || lookups.statuses.get(item.statusId) || "Unknown status", 0, item);
+      case "status": {
+        // Each workspace has its own "Todo"; a chart reads them as one status.
+        const name = item.statusId ? item.statusName || lookups.statuses.get(item.statusId) || "Unknown status" : null;
+        if (name) add(`status:${name.trim().toLowerCase()}`, name, 0, item);
         else add("none", "No status", 1, item);
         break;
+      }
       case "priority": {
         const name = priorityName(item.priority);
         add(name, name, priorityRank(item.priority), item);
@@ -1627,6 +1631,24 @@ function zonedParts(now: Date, timeZone?: string) {
       second: now.getSeconds(),
     };
   }
+}
+
+const WEEKDAY_KEYS: WeekdayKey[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+/**
+ * Today's working window (`HH:MM`, first start to last end) from Working
+ * hours, or null on a day off or when none are saved.
+ */
+export function workdayWindow(hours: WorkingHours | null | undefined, now: Date): { start: string; end: string } | null {
+  if (!hours?.days) return null;
+  const today = dateInZone(now, hours.timezone || undefined);
+  const [year, month, day] = today.split("-").map(Number);
+  const key = WEEKDAY_KEYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+  const windows = (hours.days[key] ?? []).filter((window) => window.start && window.end);
+  if (windows.length === 0) return null;
+  const starts = windows.map((window) => window.start).sort();
+  const ends = windows.map((window) => window.end).sort();
+  return { start: starts[0], end: ends[ends.length - 1] };
 }
 
 /** Whole days from today to `date`; negative once it has passed. */

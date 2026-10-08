@@ -342,3 +342,28 @@ export async function updateAppearanceConfig(appearance: NonNullable<Config["app
 
   return response.json();
 }
+
+/** Saves the whole Report dashboard layout (`config.reportDashboard`). */
+export async function updateReportDashboard(reportDashboard: NonNullable<Config["reportDashboard"]>): Promise<Config> {
+  const response = await apiFetch("/config", {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ reportDashboard }),
+  });
+
+  if (!response.ok) {
+    let message = "Failed to save the dashboard";
+    try {
+      const body = await response.json();
+      if (typeof body?.message === "string") message = body.message;
+    } catch {
+      // Keep the generic message.
+    }
+    throw new ApiError(message, response.status);
+  }
+
+  return response.json();
+}

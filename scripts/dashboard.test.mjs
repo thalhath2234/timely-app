@@ -177,6 +177,22 @@ describe("computeCard", () => {
     assert.equal(result.target, 5);
   });
 
+  test("statuses with the same name in two workspaces group together", () => {
+    const tasks = [
+      task("s1", { statusId: "st_a", status: { id: "st_a", name: "Todo" } }),
+      task("s2", { statusId: "st_b", status: { id: "st_b", name: "todo " } }),
+      task("s3", { statusId: "st_c", status: { id: "st_c", name: "Done" } }),
+    ];
+    const result = computeCard({ ...defaultQuery("tasks"), display: "bar", groupBy: "status", filters: { state: "all" } }, { tasks }, ctx);
+    assert.deepEqual(
+      result.points.map((point) => [point.label, point.value]),
+      [
+        ["Todo", 2],
+        ["Done", 1],
+      ],
+    );
+  });
+
   test("pies fold the tail into Other", () => {
     const many = Array.from({ length: 10 }, (_, index) => task(`t${index}`, { projectId: `p${index}`, project: { id: `p${index}`, title: `P${index}` } }));
     const result = computeCard({ ...defaultQuery("tasks"), display: "pie", groupBy: "project", limit: 5 }, { tasks: many }, ctx);
