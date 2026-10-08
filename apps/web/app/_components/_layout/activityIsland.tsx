@@ -64,7 +64,10 @@ export function morphIntoIsland(from: HTMLElement | null, update: () => void) {
   });
 }
 
-type ChatItem = Pick<ChatSummary, "id" | "title" | "status" | "phase">;
+type ChatItem = Pick<
+  ChatSummary,
+  "id" | "title" | "status" | "phase" | "revision"
+>;
 
 function elapsedLabel(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -80,7 +83,8 @@ function elapsedLabel(seconds: number) {
  * and bounces when an Agent run finishes.
  */
 export default function ActivityIsland() {
-  const { tracked, untrack, openChat } = useChatStore();
+  const { tracked, dismissed, untrack, openChat } = useChatStore();
+  const dismissChat = useChatStore((s) => s.dismiss);
   const openTask = useEntityDetailStore((s) => s.openTask);
   const schedule = useScheduleActivityStore();
   const { data: chats } = useChats();
@@ -93,6 +97,10 @@ export default function ActivityIsland() {
   const [now, setNow] = useState(() => Date.now());
   const [scope, animate] = useAnimate();
   const wrap = useRef<HTMLDivElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  // Keyboard closes (Esc, Close) hand focus back to the pill; a click
+  // elsewhere leaves it where the person clicked.
+  const refocusPill = useRef(false);
 
   const focusing = today.data?.focusing ?? null;
   const scheduling = schedule.status === "running";
@@ -107,16 +115,18 @@ export default function ActivityIsland() {
           title: "New chat",
           status: "queued",
           phase: "",
+          revision: 0,
         },
     );
     for (const c of chats ?? [])
       if (
         !tracked.includes(c.id) &&
+        dismissed[c.id] !== c.revision &&
         (isBusy(c.status) || c.status === "approval" || c.unread)
       )
         items.push(c);
     return items;
-  }, [chats, tracked, cache]);
+  }, [chats, tracked, dismissed, cache]);
 
   const count = chatItems.length + (focusing ? 1 : 0) + (scheduling ? 1 : 0);
   const expanded = open && count > 0;
@@ -168,13 +178,30 @@ export default function ActivityIsland() {
     return () => window.clearInterval(timer);
   }, [focusing]);
 
+  function closeIsland(restoreFocus: boolean) {
+    refocusPill.current = restoreFocus;
+    setOpen(false);
+  }
+
+  useEffect(() => {
+    if (expanded) {
+      closeButton.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (!refocusPill.current) return;
+    refocusPill.current = false;
+    wrap.current
+      ?.querySelector<HTMLElement>("[data-activity-island]")
+      ?.focus({ preventScroll: true });
+  }, [expanded]);
+
   useEffect(() => {
     if (!expanded) return;
     function onDown(event: MouseEvent) {
-      if (!wrap.current?.contains(event.target as Node)) setOpen(false);
+      if (!wrap.current?.contains(event.target as Node)) closeIsland(false);
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") closeIsland(true);
     }
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -197,8 +224,9 @@ export default function ActivityIsland() {
     openChat(id);
   }
 
-  function dismiss(id: string) {
-    untrack(id);
+  function dismiss(c: ChatItem) {
+    const id = c.id;
+    dismissChat(id, c.revision);
     void chatRequest(`/${encodeURIComponent(id)}/read`, "POST").then(() =>
       cache.invalidateQueries({ queryKey: chatsKey }),
     );
@@ -232,6 +260,7 @@ export default function ActivityIsland() {
                 data-activity-island=""
                 aria-label={`Activity: ${count} in progress`}
                 aria-expanded={false}
+                aria-haspopup="dialog"
                 title="Activity"
                 onClick={() => {
                   setOpen(true);
@@ -291,8 +320,9 @@ export default function ActivityIsland() {
                     </p>
                     <button
                       type="button"
+                      ref={closeButton}
                       aria-label="Close activity"
-                      onClick={() => setOpen(false)}
+                      onClick={() => closeIsland(true)}
                       className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     >
                       <X className="size-3.5" />
@@ -346,7 +376,7 @@ export default function ActivityIsland() {
                             <button
                               type="button"
                               aria-label={`Dismiss ${c.title || "chat"}`}
-                              onClick={() => dismiss(c.id)}
+                              onClick={() => dismiss(c)}
                               className="mr-2 shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-background hover:text-foreground"
                             >
                               <X className="size-3.5" />

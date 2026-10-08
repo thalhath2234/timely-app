@@ -660,8 +660,19 @@ const fs = require("node:fs");
   await page.getByRole("dialog", { name: "Activity" }).waitFor();
   await page.waitForTimeout(600);
   await page.screenshot({ path: "/tmp/timely-island-dark.png" });
+  // Keyboard: opening focuses Close, Esc hands focus back to the pill.
+  await expect(
+    page.getByRole("button", { name: "Close activity" }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Activity" })).toHaveCount(0);
+  await expect(page.locator("[data-activity-island]")).toBeFocused();
+  // Dismissing a chat that waits for review hides it until it changes.
+  await page.keyboard.press("Enter");
+  await page
+    .getByRole("button", { name: "Dismiss Build a project budget" })
+    .click();
+  await expect(page.locator("[data-activity-island]")).toHaveCount(0);
   receiptMode = true;
   themeMode = "light";
   await page.setViewportSize({ width: 1440, height: 1100 });

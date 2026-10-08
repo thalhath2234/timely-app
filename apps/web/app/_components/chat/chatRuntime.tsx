@@ -11,6 +11,7 @@ import { useChats } from "@/app/utils/hooks/chat";
 import type { ChatContext } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import { morphIntoIsland } from "@/app/_components/_layout/activityIsland";
+import { usePreferences } from "@/app/_components/_layout/clientRuntime";
 
 export default function ChatRuntime() {
   const { open: overlayOpen, openNew, close } = useChatStore();
@@ -145,7 +146,9 @@ export default function ChatRuntime() {
   return overlayOpen ? <ChatOverlay /> : null;
 }
 function ChatOverlay() {
-  const { context, conversationId, close, openNew, track } = useChatStore();
+  const { context, conversationId, setId, close, openNew, track } =
+    useChatStore();
+  const { sidebarAutoHide } = usePreferences();
   const dialog = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   useEffect(() => {
@@ -182,12 +185,18 @@ function ChatOverlay() {
           key={conversationId || "new"}
           id={conversationId}
           initialContext={context}
-          onCreated={(id) =>
-            morphIntoIsland(dialog.current, () => {
+          onCreated={(id) => {
+            const handOff = () => {
               track(id);
               close();
-            })
-          }
+            };
+            // An auto-hidden sidebar would hide the island, so the reply
+            // stays in view here instead.
+            if (sidebarAutoHide) {
+              track(id);
+              setId(id);
+            } else morphIntoIsland(dialog.current, handOff);
+          }}
           onNew={conversationId ? () => openNew([]) : undefined}
           onOpenFull={
             conversationId
