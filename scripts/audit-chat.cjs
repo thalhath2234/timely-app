@@ -83,6 +83,9 @@ const fs = require("node:fs");
   let themeMode = "light";
   let receiptMode = false;
   let deleted = false;
+  // A chat sent from the quick prompt, served separately from chat_audit.
+  let quickMode = false;
+  let quick = null;
   const receiptSheets = [
     {
       id: "sheet_audit",
@@ -221,6 +224,34 @@ const fs = require("node:fs");
     });
     if (url.pathname.endsWith("/read")) chat.unread = false;
     if (
+      quickMode &&
+      url.pathname.endsWith("/chats") &&
+      route.request().method() === "POST"
+    ) {
+      quick = {
+        ...chat,
+        id: "chat_quick",
+        title: "Plan my week",
+        status: "running",
+        phase: "",
+        unread: false,
+        plan: [],
+        revision: 1,
+        messages: [{ id: "q1", role: "user", content: payload.content }],
+      };
+      return route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify(quick),
+      });
+    }
+    if (quick && url.pathname.includes("/chats/chat_quick"))
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(quick),
+      });
+    if (
       route.request().method() === "PATCH" &&
       url.pathname.endsWith("/chat_audit")
     ) {
@@ -255,7 +286,14 @@ const fs = require("node:fs");
       return route.fulfill({ status: 204 });
     }
     if (url.pathname.endsWith("/chats"))
-      body = route.request().method() === "POST" ? chat : deleted ? [] : [chat];
+      body =
+        route.request().method() === "POST"
+          ? chat
+          : deleted
+            ? []
+            : quick
+              ? [quick, chat]
+              : [chat];
     else if (receiptMode && url.pathname.endsWith("/workspaces"))
       body = [{ id: "workspace", name: "Personal" }];
     else if (receiptMode && url.pathname.endsWith("/sheets"))
@@ -431,6 +469,12 @@ const fs = require("node:fs");
   chat.revision = 2;
   await page.goto("http://localhost:4002/chat?id=chat_audit");
   await page.getByRole("button", { name: "Apply changes" }).waitFor();
+  // Motion on, so the island's morph and bounce run (Reduce motion defaults on).
+  await page.evaluate(() =>
+    localStorage.setItem("timely.reducedMotion", "false"),
+  );
+  await page.reload();
+  await page.getByRole("button", { name: "Apply changes" }).waitFor();
   await page.keyboard.press("Control+Shift+J");
   const overlay = page.getByRole("dialog", { name: "Chat with Timely" });
   await overlay.waitFor();
@@ -469,8 +513,65 @@ const fs = require("node:fs");
     overlay.getByRole("dialog", { name: "Choose a model" }),
   ).toHaveCount(0);
   await expect(overlay).toBeVisible();
+  // Sending shrinks the prompt into the Activity island above Sign out.
+  quickMode = true;
   await overlay.getByLabel("Message Timely").fill("Plan my week");
   await page.keyboard.press("Enter");
+  await expect(overlay).toHaveCount(0);
+  const island = page.locator("[data-activity-island]");
+  await expect(island).toBeVisible();
+  const islandBox = await island.boundingBox();
+  const signOut = await page
+    .getByRole("button", { name: "Sign out" })
+    .boundingBox();
+  assert(islandBox.x < 70, "island should sit in the sidebar");
+  assert(
+    islandBox.y < signOut.y && signOut.y - islandBox.y < 80,
+    "island should sit right above Sign out",
+  );
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "/tmp/timely-island-working.png" });
+  // When the run finishes, the pill bounces and keeps an attention dot.
+  await page.evaluate(() => {
+    window.__islandMoves = [];
+    const target = document.querySelector(
+      "[data-activity-island]",
+    ).parentElement;
+    const watch = () => {
+      const t = getComputedStyle(target).transform;
+      if (t !== "none") window.__islandMoves.push(t);
+      requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
+  });
+  quick.status = "idle";
+  quick.unread = true;
+  quick.revision++;
+  quick.messages.push({
+    id: "q2",
+    role: "assistant",
+    content: "Here is a plan for your week.",
+  });
+  await expect(page.locator("[data-activity-attention]")).toHaveCount(0);
+  await expect(page.locator("[data-activity-attention]")).toBeVisible({
+    timeout: 12000,
+  });
+  await page.waitForTimeout(300);
+  const moves = await page.evaluate(() => window.__islandMoves);
+  assert(
+    moves.some((t) => t.startsWith("matrix") && parseFloat(t.split(",")[5]) < -2),
+    `island did not bounce: ${JSON.stringify(moves.slice(0, 5))}`,
+  );
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: "/tmp/timely-island-done.png" });
+  await island.click();
+  const activity = page.getByRole("dialog", { name: "Activity" });
+  await activity.waitFor();
+  await expect(activity.getByText("Plan my week")).toBeVisible();
+  await expect(activity.getByText("Build a project budget")).toBeVisible();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "/tmp/timely-island-open.png" });
+  await activity.getByRole("button", { name: /^Plan my week/ }).click();
   await overlay.getByLabel("Conversation messages").waitFor();
   await overlay.getByRole("button", { name: "Open in Chat tab" }).waitFor();
   await page.waitForTimeout(450);
@@ -481,6 +582,8 @@ const fs = require("node:fs");
   await page.keyboard.press("Escape");
   if (await page.getByRole("dialog").count())
     throw new Error("Escape failed to close overlay");
+  quickMode = false;
+  quick = null;
   await page.keyboard.press("Control+Shift+J");
   await overlay.waitFor();
   await page.mouse.click(20, 980);
@@ -642,6 +745,9 @@ const fs = require("node:fs");
         "/tmp/timely-chat-overlay.png",
         "/tmp/timely-chat-overlay-models.png",
         "/tmp/timely-chat-overlay-sent.png",
+        "/tmp/timely-island-working.png",
+        "/tmp/timely-island-done.png",
+        "/tmp/timely-island-open.png",
         "/tmp/timely-chat-discarded.png",
         "/tmp/timely-receipt-review.png",
       ],

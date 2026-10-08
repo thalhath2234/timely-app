@@ -10,6 +10,7 @@ import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useChats } from "@/app/utils/hooks/chat";
 import type { ChatContext } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
+import { morphIntoIsland } from "@/app/_components/_layout/activityIsland";
 
 export default function ChatRuntime() {
   const { open: overlayOpen, openNew, close } = useChatStore();
@@ -144,7 +145,7 @@ export default function ChatRuntime() {
   return overlayOpen ? <ChatOverlay /> : null;
 }
 function ChatOverlay() {
-  const { context, conversationId, setId, close, openNew } = useChatStore();
+  const { context, conversationId, close, openNew, track } = useChatStore();
   const dialog = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   useEffect(() => {
@@ -166,8 +167,9 @@ function ChatOverlay() {
       onClick={(e) => {
         if (e.target === e.currentTarget) close();
       }}
-      // Opens as a floating prompt bar near the bottom of the page (no dimmed backdrop) and
-      // grows upward into a panel once the first message starts a conversation.
+      // Opens as a floating prompt bar near the bottom of the page (no dimmed
+      // backdrop). Sending shrinks it into the Activity island; opening a chat
+      // from the island shows it here as a panel.
       className={cn(
         "fixed inset-0 mx-auto mb-[max(1.5rem,5dvh)] mt-auto max-h-[85dvh] w-[min(760px,94vw)] max-w-none p-0 text-foreground backdrop:bg-transparent open:animate-[vt-panel-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] motion-safe:transition-[height] motion-safe:duration-300 motion-reduce:open:animate-none [interpolate-size:allow-keywords]",
         conversationId
@@ -180,7 +182,12 @@ function ChatOverlay() {
           key={conversationId || "new"}
           id={conversationId}
           initialContext={context}
-          onCreated={setId}
+          onCreated={(id) =>
+            morphIntoIsland(dialog.current, () => {
+              track(id);
+              close();
+            })
+          }
           onNew={conversationId ? () => openNew([]) : undefined}
           onOpenFull={
             conversationId
