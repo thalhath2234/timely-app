@@ -1,11 +1,12 @@
 import type { Doc } from "@/app/_types/types";
-import type { CreateDocPayload, DocBacklink, UpdateDocPayload } from "@timely/contract/documents";
+import type { CreateDocPayload, DocBacklink, DocVersion, UpdateDocPayload } from "@timely/contract/documents";
 import { isRichContentEmpty } from "@/app/utils/richText";
 import { apiFetch, apiUrl } from "./client";
 
 export type {
   CreateDocPayload,
   DocBacklink,
+  DocVersion,
   UpdateDocPayload,
 };
 
@@ -143,4 +144,23 @@ export async function getDocBacklinks(id: string): Promise<DocBacklink[]> {
     throw new Error(await readError(response, "Failed to load backlinks"));
   }
   return response.json();
+}
+
+export async function getDocVersions(id: string): Promise<DocVersion[]> {
+  const response = await apiFetch(`/docs/${id}/versions`);
+  if (!response.ok) throw new Error(await readError(response, "Failed to load history"));
+  return response.json();
+}
+
+export async function getDocVersion(id: string, versionId: string): Promise<DocVersion> {
+  const response = await apiFetch(`/docs/${id}/versions/${versionId}`);
+  if (!response.ok) throw new Error(await readError(response, "Failed to load this version"));
+  return response.json();
+}
+
+export async function restoreDocVersion(id: string, versionId: string): Promise<Doc> {
+  const response = await apiFetch(`/docs/${id}/versions/${versionId}/restore`, { method: "POST" });
+  if (!response.ok) throw new Error(await readError(response, "Could not restore this version"));
+  const body = await response.json();
+  return body.document;
 }

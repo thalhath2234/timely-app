@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
-import { ChevronRight, Archive, Download, Smile, Star, Trash2, Upload } from "lucide-react";
+import { ChevronRight, Archive, Download, History, Smile, Star, Trash2, Upload } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import HeadingMinimap from "@/app/_components/docs/headingMinimap";
 import Backlinks from "@/app/_components/docs/backlinks";
+import DocHistory from "@/app/_components/docs/docHistory";
 import { insertPageMention } from "@/app/_components/editor/mention";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
@@ -122,6 +123,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [wordCount, setWordCount] = useState(() => countWords(doc.plainText));
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteContent, setRemoteContent] = useState<Doc["content"] | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -272,6 +274,16 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
 
         <button
           type="button"
+          title="Version history"
+          aria-label="Version history"
+          onClick={() => setIsHistoryOpen(true)}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
+        >
+          <History className="size-4" />
+        </button>
+
+        <button
+          type="button"
           title={doc.isFavorite ? "Remove from favorites" : "Add to favorites"}
           onClick={() => schedule({ isFavorite: !doc.isFavorite })}
           className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground"
@@ -418,6 +430,22 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
       </div>
 
       <HeadingMinimap editor={editor} />
+
+      {isHistoryOpen && (
+        <DocHistory
+          docId={doc.id}
+          onClose={() => setIsHistoryOpen(false)}
+          beforeRestore={flush}
+          onRestored={(restored) => {
+            lastSavedAtRef.current = restored.updatedAt;
+            queryClient.setQueryData(docKey(doc.id), restored);
+            setTitle(restored.title);
+            setWordCount(countWords(restored.plainText));
+            setRemoteContent(resolveDocContent(restored.content, restored.plainText));
+            setRemoteEpoch((epoch) => epoch + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -52,6 +52,7 @@ var exportTables = []tableSpec{
 	{"custom_field_values", `SELECT to_jsonb(x) FROM custom_field_values x JOIN custom_fields f ON f.id = x.custom_field_id JOIN workspaces w ON w.id = f.workspace_id WHERE w.user_id = ? ORDER BY x.id`},
 	{"task_activities", `SELECT to_jsonb(x) FROM task_activities x WHERE x.user_id = ? ORDER BY x.id`},
 	{"documents", `SELECT to_jsonb(x) FROM documents x WHERE x.user_id = ? ORDER BY x.id`},
+	{"doc_versions", `SELECT to_jsonb(x) FROM doc_versions x WHERE x.user_id = ? ORDER BY x.created_at`},
 	{"doc_files", `SELECT to_jsonb(x) FROM doc_files x WHERE x.user_id = ? ORDER BY x.id`},
 	{"sheets", `SELECT to_jsonb(x) FROM sheets x WHERE x.user_id = ? ORDER BY x.id`},
 	{"events", `SELECT to_jsonb(x) FROM events x WHERE x.user_id = ? ORDER BY x.id`},
@@ -236,6 +237,7 @@ var restoreParents = map[string][]parentRef{
 	"tasks":                 {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}, {"status_id", "statuses", false}, {"stage_id", "stages", false}},
 	"custom_field_values":   {{"custom_field_id", "custom_fields", true}, {"task_id", "tasks", false}, {"project_id", "projects", false}},
 	"documents":             {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}},
+	"doc_versions":          {{"document_id", "documents", true}},
 	"sheets":                {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}},
 	"recurrence_exceptions": {{"rule_id", "recurrence_rules", true}},
 }

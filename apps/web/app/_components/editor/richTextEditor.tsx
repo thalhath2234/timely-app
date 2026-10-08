@@ -106,6 +106,8 @@ export interface RichTextEditorProps {
   syncKey?: number | string;
   /** Docs only: slash "Page" creates a child of this page and links it. */
   onCreateSubpage?: (props: { editor: Editor; range: Range }) => void | Promise<void>;
+  /** False shows the doc read-only, without toolbars (version previews). */
+  editable?: boolean;
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -184,6 +186,7 @@ export default function RichTextEditor({
   autoFocus = false,
   syncKey = 0,
   onCreateSubpage,
+  editable = true,
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -347,6 +350,7 @@ export default function RichTextEditor({
     // The editor is rendered inside a client page, and Tiptap requires this
     // flag to avoid hydration mismatches in the Next.js app router.
     immediatelyRender: false,
+    editable,
     autofocus: autoFocus ? "end" : false,
     extensions,
     content: toEditorContent(content),
@@ -891,6 +895,10 @@ export default function RichTextEditor({
       },
     ],
   ];
+
+  if (!editable) {
+    return <EditorContent editor={editor} />;
+  }
 
   return (
     <>

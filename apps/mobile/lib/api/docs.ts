@@ -1,12 +1,12 @@
 import { File as ExpoFile } from "expo-file-system";
 import type { Doc, DocContent } from "../types";
-import type { CreateDocPayload, DocBacklink, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
+import type { CreateDocPayload, DocBacklink, DocVersion, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
 import { getToken } from "../auth/session";
 import { isRichContentEmpty } from "../richText";
 import { api, getApiUrl, tunnelHeaders, unwrap } from "./client";
 import { clearNulls, type Clearable } from "./clearable";
 
-export type { CreateDocPayload, DocBacklink };
+export type { CreateDocPayload, DocBacklink, DocVersion };
 
 const CLEARABLE_DOC_FIELDS = ["parentId", "projectId"] as const;
 
@@ -164,4 +164,17 @@ export function uploadDocFile(uri: string) {
 
 export function getDocBacklinks(id: string) {
   return api<DocBacklink[]>(`/docs/${id}/backlinks`);
+}
+
+export function getDocVersions(id: string) {
+  return api<DocVersion[]>(`/docs/${id}/versions`);
+}
+
+export function getDocVersion(id: string, versionId: string) {
+  return api<DocVersion>(`/docs/${id}/versions/${versionId}`);
+}
+
+export async function restoreDocVersion(id: string, versionId: string) {
+  const res = await api<{ document: Doc }>(`/docs/${id}/versions/${versionId}/restore`, { method: "POST", queueIfOffline: false });
+  return res.document;
 }

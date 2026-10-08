@@ -78,3 +78,26 @@ export interface DocBacklink {
   icon: string | null;
   snippets: string[];
 }
+
+/** A saved state of a doc (GET /docs/:id/versions). `content` is only on
+ * GET /docs/:id/versions/:versionId. `reason` is why it was saved: "edit"
+ * (editing started again after a pause), "assistant" (just before the
+ * assistant changed the doc) or "restore" (just before an older version was
+ * put back). */
+export interface DocVersion {
+  id: string;
+  documentId: string;
+  title: string;
+  words: number;
+  reason: "edit" | "assistant" | "restore" | string;
+  editedAt: string;
+  createdAt: string;
+  content?: DocContent;
+  plainText?: string;
+}
+
+export const DOC_VERSION_REASONS: Record<string, string> = {
+  edit: "Edited",
+  assistant: "Before an assistant change",
+  restore: "Before a restore",
+};

@@ -199,6 +199,42 @@ func (h *Handler) Backlinks(c *echo.Context) error {
 	return c.JSON(http.StatusOK, links)
 }
 
+func (h *Handler) Versions(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	versions, err := h.documentService.Versions(userID, c.Param("id"))
+	if err != nil {
+		return documentError(err)
+	}
+	return c.JSON(http.StatusOK, versions)
+}
+
+func (h *Handler) GetVersion(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	version, err := h.documentService.GetVersion(userID, c.Param("id"), c.Param("versionId"))
+	if err != nil {
+		return documentError(err)
+	}
+	return c.JSON(http.StatusOK, version)
+}
+
+func (h *Handler) RestoreVersion(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	document, err := h.documentService.RestoreVersion(userID, c.Param("id"), c.Param("versionId"))
+	if err != nil {
+		return documentError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"message": "version restored", "document": document})
+}
+
 // Watch is an SSE stream of last-write-wins invalidations for one document.
 // Auth is the same as the rest of the API: session cookie (web) or Bearer (mobile).
 func (h *Handler) Watch(c *echo.Context) error {

@@ -2,6 +2,7 @@ package doc
 
 import (
 	"errors"
+	"log"
 	"strings"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
@@ -27,6 +28,10 @@ type DocumentUpdate struct {
 	IsFavorite *bool
 	Archived   *bool
 	Order      *int
+	// Snapshot saves the doc as it is before this change, whatever the
+	// timing; the assistant's edits use it so they can always be undone.
+	Snapshot    bool
+	skipVersion bool
 }
 
 type DocumentFilter struct {
@@ -46,6 +51,9 @@ type DocumentService interface {
 	Update(userID string, documentID string, update DocumentUpdate) (*models.Document, error)
 	Delete(userID string, documentID string) error
 	Backlinks(userID string, documentID string) ([]Backlink, error)
+	Versions(userID, documentID string) ([]Version, error)
+	GetVersion(userID, documentID, versionID string) (*Version, error)
+	RestoreVersion(userID, documentID, versionID string) (*models.Document, error)
 }
 
 type documentService struct {
@@ -151,6 +159,20 @@ func (s *documentService) Update(userID string, documentID string, update Docume
 		updates["icon"] = *update.Icon
 	}
 	if update.Content != nil {
+		if !update.skipVersion {
+			current, err := s.repo.GetDocumentByID(userID, documentID)
+			if err != nil {
+				return nil, err
+			}
+			reason := VersionEdit
+			if update.Snapshot {
+				reason = VersionAssistant
+			}
+			// History is a safety net; a failure there must not lose the edit.
+			if err := s.saveVersion(current, reason, update.Snapshot); err != nil {
+				log.Printf("doc %s: could not save a version: %v", documentID, err)
+			}
+		}
 		content := models.NormalizeDocumentContent(*update.Content)
 		if update.PlainText != nil && strings.TrimSpace(*update.PlainText) != "" && models.IsDocumentContentEmpty(content) {
 			content = models.DocumentFromPlainText(*update.PlainText)

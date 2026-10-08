@@ -3,7 +3,7 @@ import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Archive, Download, FileText, FolderUp, Link2, MoreHorizontal, Smile, Star, Trash2, Upload } from "lucide-react-native";
+import { Archive, Download, FileText, FolderUp, History, Link2, MoreHorizontal, Smile, Star, Trash2, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -20,6 +20,11 @@ import type { UpdateDocPayload } from "../../../lib/api/docs";
 import type { DocContent } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { shareExport } from "../../../lib/api/portability";
+import { getDocVersion, getDocVersions, restoreDocVersion, type DocVersion } from "../../../lib/api/docs";
+import { DOC_VERSION_REASONS } from "@timely/contract/documents";
+import RichDoc from "../../../components/docs/RichDoc";
+import { PrimaryButton } from "../../../components/ui/primitives";
+import { useQueryClient } from "@tanstack/react-query";
 
 const ICON_CHOICES = ["📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯", "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠"];
 
@@ -66,6 +71,10 @@ function DocEditor({ docId }: { docId: string }) {
   const createDoc = useCreateDoc();
   const remove = useDeleteDoc();
   const backlinks = useDocBacklinksQuery(docId).data ?? [];
+  const queryClient = useQueryClient();
+  const [versions, setVersions] = useState<DocVersion[] | null>(null);
+  const [version, setVersion] = useState<DocVersion | null>(null);
+  const [restoring, setRestoring] = useState(false);
 
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteContent, setRemoteContent] = useState<DocContent | null>(null);
@@ -84,7 +93,7 @@ function DocEditor({ docId }: { docId: string }) {
   const [icon, setIcon] = useState(doc?.icon ?? "");
   const [favorite, setFavorite] = useState(Boolean(doc?.isFavorite));
   const [wordCount, setWordCount] = useState(() => countWords(doc?.plainText ?? ""));
-  type Menu = "icon" | "parent" | "delete" | "backlinks";
+  type Menu = "icon" | "parent" | "delete" | "backlinks" | "history" | "version";
   const [menu, setMenu] = useState<"more" | Menu | null>(null);
   const [nextMenu, setNextMenu] = useState<Menu | null>(null);
 
@@ -270,6 +279,16 @@ function DocEditor({ docId }: { docId: string }) {
         >
           Import Markdown
         </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setVersions(null);
+            void getDocVersions(docId).then(setVersions, () => setVersions([]));
+            openAfterMore("history");
+          }}
+          leading={<History size={18} color={colors.mutedForeground} />}
+        >
+          Version history
+        </SheetOption>
         <SheetOption onSelect={() => openAfterMore("backlinks")} leading={<Link2 size={18} color={colors.mutedForeground} />}>
           {`Backlinks (${backlinks.length})`}
         </SheetOption>
@@ -296,6 +315,89 @@ function DocEditor({ docId }: { docId: string }) {
         >
           <Text style={{ color: colors.destructive }}>Delete doc</Text>
         </SheetOption>
+      </BottomSheet>
+
+      <BottomSheet
+        open={menu === "history"}
+        onClose={() => setMenu(null)}
+        onClosed={() => {
+          if (nextMenu) {
+            setMenu(nextMenu);
+            setNextMenu(null);
+          }
+        }}
+        title="Version history"
+      >
+        {versions === null ? (
+          <Text style={styles.sheetEmpty}>Loading…</Text>
+        ) : versions.length === 0 ? (
+          <Text style={styles.sheetEmpty}>
+            No earlier versions yet. Timely saves one when you start editing again after a pause, every hour while you keep editing, and before the assistant changes this doc.
+          </Text>
+        ) : (
+          versions.map((item) => {
+            const edited = new Date(item.editedAt);
+            return (
+              <SheetOption
+                key={item.id}
+                onSelect={() => {
+                  setVersion(null);
+                  void getDocVersion(docId, item.id).then(setVersion, () => setMenu(null));
+                  setNextMenu("version");
+                  setMenu(null);
+                }}
+                leading={<History size={18} color={colors.mutedForeground} />}
+              >
+                <View>
+                  <Text style={styles.linkTitle}>
+                    {edited.toLocaleDateString(undefined, { month: "short", day: "numeric" })},{" "}
+                    {edited.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  </Text>
+                  <Text style={styles.linkSnippet}>
+                    {DOC_VERSION_REASONS[item.reason] ?? "Saved"} · {item.words} {item.words === 1 ? "word" : "words"}
+                  </Text>
+                </View>
+              </SheetOption>
+            );
+          })
+        )}
+      </BottomSheet>
+
+      <BottomSheet
+        open={menu === "version"}
+        onClose={() => setMenu(null)}
+        title={version ? version.title || "Untitled" : "Version"}
+        footer={
+          <PrimaryButton
+            label={restoring ? "Restoring…" : "Restore this version"}
+            disabled={!version || restoring}
+            onPress={() => {
+              if (!version) return;
+              setRestoring(true);
+              void (async () => {
+                try {
+                  // Save any typing first so it lands in the history too.
+                  await flush();
+                  const restored = await restoreDocVersion(docId, version.id);
+                  lastSavedAtRef.current = restored.updatedAt;
+                  queryClient.setQueryData(["docs", docId], restored);
+                  setTitle(restored.title);
+                  setWordCount(countWords(restored.plainText));
+                  setRemoteContent(resolveDocContent(restored.content, restored.plainText));
+                  setEditorSync((value) => value + 1);
+                  showUndoToast("Version restored. The doc as it was is in the history too.");
+                  setMenu(null);
+                } catch (error) {
+                  Alert.alert("Could not restore", error instanceof Error ? error.message : "Try again.");
+                } finally {
+                  setRestoring(false);
+                }
+              })();
+            }}
+          />
+        }
+      >
+        {version?.content ? <RichDoc content={version.content} /> : <Text style={styles.sheetEmpty}>Loading…</Text>}
       </BottomSheet>
 
       <BottomSheet open={menu === "backlinks"} onClose={() => setMenu(null)} title="Linked from">
