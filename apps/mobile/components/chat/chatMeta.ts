@@ -177,9 +177,9 @@ const targetKinds: [
   noun: string,
   href: (id: string) => string,
 ][] = [
-  ["shtpl_", "template", (id) => `/sheets/templates/${id}`],
-  ["sht_", "sheet", (id) => `/sheets/${id}`],
-  ["doc_", "doc", (id) => `/docs/${id}`],
+  ["shtpl_", "template", (id) => `/files/${id}`],
+  ["sht_", "sheet", (id) => `/files/${id}`],
+  ["doc_", "doc", (id) => `/files/${id}`],
   ["tsk_", "task", (id) => `/tasks/${id}`],
   ["pr_", "project", (id) => `/projects/${id}`],
   ["evt_", "event", (id) => `/events/${id}`],

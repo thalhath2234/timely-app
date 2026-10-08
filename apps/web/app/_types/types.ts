@@ -130,14 +130,9 @@ export const SIDEBAR_ITEMS = [
     href: "/projects",
   },
   {
-    name: "Docs",
-    icon: "FileText",
-    href: "/docs",
-  },
-  {
-    name: "Sheets",
-    icon: "Sheet",
-    href: "/sheets",
+    name: "Files",
+    icon: "Files",
+    href: "/files",
   },
   {
     name: "Report",

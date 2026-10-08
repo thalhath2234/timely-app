@@ -7,18 +7,18 @@ import { ArrowLeft, ArrowRight, FileText, LayoutTemplate, Plus, Sheet, X } from 
 import {
   currentHref,
   isSectionIndex,
-  sectionOf,
   usePageTabsStore,
   type PageTab,
 } from "@/app/_store/pageTabsStore";
 import { useDocs } from "@/app/utils/hooks/docs";
 import { useSheets } from "@/app/utils/hooks/sheets";
+import { fileIdFromPath, fileKind, FILES_PATH } from "@/app/utils/fileRoutes";
 import { cn } from "@/app/utils/cn";
 
 type Scroll = NonNullable<PageTab["scroll"]>;
 
 // Survives the remount when a doc tab hands over to a sheet tab (the two
-// sections have different layouts).
+// pages have different layouts).
 let pendingRestore: Scroll | null = null;
 
 /** The page's main scroller: the largest element that actually scrolls. */
@@ -73,12 +73,11 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
     const active = store.tabs.find((tab) => tab.id === store.activeId);
     if (active && currentHref(active) === pathname) return;
 
-    // Back in Docs or Sheets from elsewhere: pick up where the user left off.
+    // Back in Files from elsewhere: pick up where the user left off.
     if (firstVisit && isSectionIndex(pathname)) {
-      const section = sectionOf(pathname);
       const last = store.recent
         .map((id) => store.tabs.find((tab) => tab.id === id))
-        .find((tab) => tab && sectionOf(currentHref(tab)) === section);
+        .find(Boolean);
       if (last) {
         store.activate(last.id);
         show(last);
@@ -139,9 +138,11 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
     const docIds = new Set(docs.data.map((doc) => doc.id));
     const sheetIds = new Set(sheets.data.map((sheet) => sheet.id));
     usePageTabsStore.getState().prune((href) => {
-      const [, section, id] = href.split("/");
-      if (!id || id === "templates") return true;
-      return section === "docs" ? docIds.has(id) : sheetIds.has(id);
+      const id = fileIdFromPath(href);
+      if (!id) return true;
+      const kind = fileKind(id);
+      if (kind === "template") return true;
+      return kind === "doc" ? docIds.has(id) : sheetIds.has(id);
     });
   }, [hydrated, docs.isSuccess, docs.isFetching, docs.data, sheets.isSuccess, sheets.isFetching, sheets.data]);
 
@@ -210,19 +211,17 @@ function PageTabStrip({
 
   const newTab = useCallback(() => {
     rememberScroll();
-    const section = sectionOf(window.location.pathname);
-    show(usePageTabsStore.getState().open(`/${section}`));
+    show(usePageTabsStore.getState().open(FILES_PATH));
   }, [rememberScroll, show]);
 
   const closeTab = useCallback(
     (id: string) => {
       const store = usePageTabsStore.getState();
       const wasActive = store.activeId === id;
-      const section = sectionOf(window.location.pathname);
       const next = store.close(id);
       if (!wasActive) return;
       // Closing the last tab leaves an empty one, like Obsidian.
-      show(next ?? usePageTabsStore.getState().open(`/${section}`));
+      show(next ?? usePageTabsStore.getState().open(FILES_PATH));
     },
     [show],
   );
@@ -404,19 +403,20 @@ function StripButton({
 function TabLabel({ href }: { href: string }) {
   const { data: docs } = useDocs();
   const { data: sheets } = useSheets();
-  const [, section, first, second] = href.split("/");
+  const id = fileIdFromPath(href);
+  const kind = id ? fileKind(id) : null;
 
   let icon: ReactNode = null;
   let title = "New tab";
-  if (section === "docs" && first) {
-    const doc = docs?.find((item) => item.id === first);
+  if (kind === "doc") {
+    const doc = docs?.find((item) => item.id === id);
     icon = doc?.icon ? <span className="text-sm leading-none">{doc.icon}</span> : <FileText className="size-3.5" />;
     title = doc ? doc.title || "Untitled" : "Doc";
-  } else if (section === "sheets" && first === "templates" && second) {
+  } else if (kind === "template") {
     icon = <LayoutTemplate className="size-3.5" />;
     title = "Sheet template";
-  } else if (section === "sheets" && first) {
-    const sheet = sheets?.find((item) => item.id === first);
+  } else if (kind === "sheet") {
+    const sheet = sheets?.find((item) => item.id === id);
     icon = sheet?.icon ? <span className="text-sm leading-none">{sheet.icon}</span> : <Sheet className="size-3.5" />;
     title = sheet ? sheet.title || "Untitled" : "Sheet";
   }

@@ -11,7 +11,7 @@ import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { useSearchQuery } from "../../../lib/hooks";
 import type { SearchKind } from "../../../lib/api/search";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
-import { sheetHref } from "../../../lib/sheet";
+import { FILES_TAB, fileHref } from "../../../lib/fileRoutes";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 const categories = [
@@ -25,18 +25,17 @@ const categories = [
 type Category = typeof categories[number]["id"];
 
 const destinations: Record<Exclude<Category, "all">, Href> = {
-  sheet: "/(app)/(tabs)/sheets",
-  doc: "/(app)/(tabs)/docs",
+  sheet: { pathname: FILES_TAB, params: { filter: "sheets" } },
+  doc: { pathname: FILES_TAB, params: { filter: "docs" } },
   task: "/(app)/(tabs)/tasks",
   project: "/(app)/projects",
   event: "/(app)/(tabs)/calendar",
 };
 
 function hrefFor(kind: SearchKind, id: string): Href {
-  if (kind === "sheet") return sheetHref(id);
+  if (kind === "sheet" || kind === "doc") return fileHref(id);
   const encoded = encodeURIComponent(id);
   if (kind === "task") return `/(app)/tasks/${encoded}`;
-  if (kind === "doc") return `/(app)/docs/${encoded}`;
   if (kind === "event") return `/(app)/events/${encoded}`;
   if (kind === "project") return `/(app)/projects/${encoded}`;
   return "/(app)/(tabs)/tasks";

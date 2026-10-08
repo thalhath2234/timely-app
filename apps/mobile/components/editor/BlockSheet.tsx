@@ -32,6 +32,7 @@ import { shareImage } from "../../lib/api/portability";
 import { resolveDocContent } from "../../lib/markdown";
 import { useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { fileHref } from "../../lib/fileRoutes";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import { Field } from "../ui/primitives";
 
@@ -151,7 +152,7 @@ export default function BlockSheet({
       if (createdId) {
         // A new page opens right away, to carry on from the block.
         useToastStore.getState().show(`${mode === "move" ? "Moved" : "Copied"} to the new page`);
-        router.push(`/(app)/docs/${createdId}`);
+        router.push(fileHref(createdId));
         return;
       }
       useToastStore.getState().show(`${mode === "move" ? "Moved" : "Copied"} to ${target.title || "Untitled"}`);

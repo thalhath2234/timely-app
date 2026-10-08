@@ -4,15 +4,14 @@ import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
 import { useDocsQuery, useProjectsQuery, useSheetsQuery, useTasksQuery, useWorkingHoursZone, useWorkspacesQuery } from "../../lib/hooks";
 import { buildReportData, formatReportDate } from "../../lib/report";
-import { sheetHref } from "../../lib/sheet";
+import { fileHref } from "../../lib/fileRoutes";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
 
 function entityPath(kind: string, id: string) {
   if (kind === "task") return `/(app)/tasks/${id}`;
   if (kind === "project") return `/(app)/projects/${id}`;
-  if (kind === "doc") return `/(app)/docs/${id}`;
-  if (kind === "sheet") return sheetHref(id);
+  if (kind === "doc" || kind === "sheet") return fileHref(id);
   if (kind === "event") return `/(app)/events/${id}`;
   return null;
 }

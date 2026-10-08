@@ -36,7 +36,7 @@ Ownership is always “this user owns this row.” No members, roles, invites, o
 
 **Protected routes (web proxy)**
 
-`/chat`, `/calendar`, `/today`, `/inbox`, `/tasks`, `/projects`, `/report`, `/settings`, `/docs`, `/sheets`, `/notifications`, plus `/onboarding` when logged out. Requests to `/m` or `/m/*` redirect to `/calendar`.
+`/chat`, `/calendar`, `/today`, `/inbox`, `/tasks`, `/projects`, `/report`, `/settings`, `/files`, `/notifications`, plus `/onboarding` when logged out. Requests to `/m` or `/m/*` redirect to `/calendar`. Old `/docs/*` and `/sheets/*` links (including `/sheets/templates/<id>`) redirect to their `/files` page.
 
 **What does not exist**
 
@@ -690,11 +690,9 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/tasks` | Saved views, List / Kanban / Gantt |
 | `/projects` | Project hub |
 | `/projects/[id]` | Overview, tasks, stages, activity |
-| `/docs` | Docs home + Markdown import |
-| `/docs/[id]` | Doc editor |
-| `/sheets` | Sheets and template home |
-| `/sheets/[id]` | Multi-tab spreadsheet |
-| `/sheets/templates/[id]` | Template preview and create-from-template |
+| `/files` | Files home: recent docs and sheets together, sheet templates, Markdown/CSV import |
+| `/files/[id]` | Doc editor (`doc_` IDs), multi-tab spreadsheet (`sht_`), or template preview and create-from-template (`shtpl_`) |
+| `/docs/*`, `/sheets/*` | Redirect to the matching `/files` page (links from before the merge) |
 | `/report` | Productivity snapshot |
 | `/notifications` | In-app notification center |
 | `/settings` | Account (incl. devices), Appearance, Schedule, Notifications, Workspaces, Agent, Data & privacy, Integrations (`?tab=`) |
@@ -709,7 +707,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/(app)/(tabs)/calendar` | Calendar tab |
 | `/(app)/(tabs)/tasks` | Task list |
 | `/(app)/(tabs)/search` | Command palette search |
-| `/(app)/(tabs)/docs` | Files (Docs \| Sheets) |
+| `/(app)/(tabs)/files` | Files: docs and sheets in one list (All \| Docs \| Sheets), sheet templates |
 | `/(app)/(tabs)/more` | Hidden; redirects to settings |
 | `/(app)/assistant` | Deep-link shim: opens the assistant overlay at `?chatId=` |
 | `/(app)/search` | Redirects to the Search tab |
@@ -719,9 +717,8 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/(app)/events/[id]` | Event detail |
 | `/(app)/projects` | Project list |
 | `/(app)/projects/[id]` | Project detail + stages |
-| `/(app)/docs/[id]` | Doc editor |
-| `/(app)/sheets/[id]` | Sheet editor |
-| `/(app)/sheets/templates/[id]` | Template preview and create-from-template |
+| `/(app)/files/[id]` | Doc editor (`doc_`), sheet editor (`sht_`), or template preview and create-from-template (`shtpl_`) |
+| `/(app)/docs/*`, `/(app)/sheets/*` | Redirect to the matching Files route (links from before the merge) |
 | `/(app)/report` | Report |
 | `/(app)/settings/*` | Account, notifications, schedule, workspaces, API keys |
 | `/(app)/settings/agent` | AI provider and model settings |

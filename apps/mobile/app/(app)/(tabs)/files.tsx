@@ -1,8 +1,8 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { availableTemplates, contentFromTemplate, dailyNoteTemplate, dateKey, templateVars, type DocTemplate } from "@timely/contract/templates";
 import Animated, {
@@ -22,7 +22,7 @@ import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import { keys, useCreateDoc, useCreateSheet, useDeleteDoc, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { fromMarkdown } from "../../../lib/markdown";
 import { csvToGrid } from "../../../lib/sheetCsv";
-import { sheetHref } from "../../../lib/sheet";
+import { fileHref } from "../../../lib/fileRoutes";
 import { buildDocTree, countDocDescendants, type DocNode } from "../../../lib/docTree";
 import { timeAgo } from "../../../lib/format";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
@@ -30,9 +30,7 @@ import { easeOut, expandEntering, expandExiting, listLayout, overlayDuration } f
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
 import { openDailyDoc } from "../../../lib/api/docs";
-import type { Doc } from "../../../lib/types";
-
-type Kind = "docs" | "sheets";
+import type { Doc, Sheet } from "../../../lib/types";
 
 function DocsExpandButton({
   expanded,
@@ -70,17 +68,49 @@ function DocsExpandButton({
   );
 }
 
+type Filter = "all" | "docs" | "sheets";
+type PendingAction = "templates" | "markdown" | "csv" | null;
+
+function FileGlyph({ icon, kind }: { icon?: string | null; kind: "doc" | "sheet" }) {
+  // An item's own emoji wins; otherwise the type icon says what it is.
+  if (icon) return <Text style={styles.icon}>{icon}</Text>;
+  const Glyph = kind === "doc" ? FileText : SheetIcon;
+  return (
+    <View style={styles.iconBox}>
+      <Glyph size={20} color={colors.foreground} />
+    </View>
+  );
+}
+
+function byFavoriteThenRecent(a: { isFavorite?: boolean; updatedAt?: string }, b: { isFavorite?: boolean; updatedAt?: string }) {
+  return Number(Boolean(b.isFavorite)) - Number(Boolean(a.isFavorite)) || (b.updatedAt || "").localeCompare(a.updatedAt || "");
+}
+
+type Entry = { kind: "doc"; node: DocNode; updatedAt: string } | { kind: "sheet"; sheet: Sheet; updatedAt: string };
+
+function entryItem(entry: Entry) {
+  return entry.kind === "doc" ? entry.node : entry.sheet;
+}
+
 export default function FilesScreen() {
   const router = useRouter();
   const reduceMotion = Boolean(useReducedMotion());
-  const [kind, setKind] = useState<Kind>("docs");
+  const [filter, setFilter] = useState<Filter>("all");
+  // Other screens (search categories) can open the tab on one kind.
+  const requestedFilter = useLocalSearchParams<{ filter?: string }>().filter;
+  useEffect(() => {
+    if (requestedFilter === "all" || requestedFilter === "docs" || requestedFilter === "sheets") setFilter(requestedFilter);
+  }, [requestedFilter]);
   const [showArchived, setShowArchived] = useState(false);
-  useAssistantScreen([contextChip("file-view", "Files", { kind, showArchived })]);
+  useAssistantScreen([contextChip("file-view", "Files", { kind: filter, showArchived })]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [menuDoc, setMenuDoc] = useState<Doc | null>(null);
   const [deleteDocItem, setDeleteDocItem] = useState<Doc | null>(null);
   const [pendingDeleteDoc, setPendingDeleteDoc] = useState<Doc | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const pendingAction = useRef<PendingAction>(null);
   const queryClient = useQueryClient();
   const docsQ = useDocsQuery();
   const sheetsQ = useSheetsQuery();
@@ -90,6 +120,8 @@ export default function FilesScreen() {
   const removeDoc = useDeleteDoc();
   const createSheet = useCreateSheet();
   const spaces = useWorkspacesQuery().data ?? [];
+  const showDocs = filter !== "sheets";
+  const showSheets = filter !== "docs";
   const docs = useMemo(
     () => (docsQ.data ?? []).filter((d) => (showArchived ? Boolean(d.archivedAt) : !d.archivedAt)),
     [docsQ.data, showArchived],
@@ -102,12 +134,36 @@ export default function FilesScreen() {
         .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")),
     [sheetsQ.data, showArchived],
   );
-  const networkCopy = needsNetworkCopy(kind === "docs" ? docsQ : sheetsQ);
+  const networkCopy =
+    filter === "docs"
+      ? needsNetworkCopy(docsQ)
+      : filter === "sheets"
+        ? needsNetworkCopy(sheetsQ)
+        : // All: only when neither list can load; one failing still shows the other.
+          needsNetworkCopy(docsQ) && needsNetworkCopy(sheetsQ);
   const wsById = useMemo(() => new Map(spaces.map((w) => [w.id, w])), [spaces]);
   const favoriteDocs = docs.filter((d) => d.isFavorite);
   const favoriteSheets = sheets.filter((s) => s.isFavorite);
   const restSheets = sheets.filter((s) => !s.isFavorite);
   const templates = showArchived ? [] : templatesQ.data ?? [];
+  // All: favourites pinned on top, then every file (docs keep their
+  // subpages nested) by most recent update.
+  const favoriteEntries = useMemo<Entry[]>(
+    () =>
+      [
+        ...docs.filter((d) => d.isFavorite).map((d) => ({ kind: "doc" as const, node: { ...d, children: [] }, updatedAt: d.updatedAt })),
+        ...sheets.filter((s) => s.isFavorite).map((s) => ({ kind: "sheet" as const, sheet: s, updatedAt: s.updatedAt })),
+      ].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")),
+    [docs, sheets],
+  );
+  const allEntries = useMemo<Entry[]>(
+    () =>
+      [
+        ...tree.map((node) => ({ kind: "doc" as const, node, updatedAt: node.updatedAt })),
+        ...sheets.map((sheet) => ({ kind: "sheet" as const, sheet, updatedAt: sheet.updatedAt })),
+      ].sort((a, b) => byFavoriteThenRecent(entryItem(a), entryItem(b))),
+    [tree, sheets],
+  );
 
   function toggleExpanded(id: string) {
     setExpandedIds((previous) => {
@@ -118,6 +174,10 @@ export default function FilesScreen() {
     });
   }
 
+  function openFile(id: string) {
+    router.push(fileHref(id));
+  }
+
   async function addSubpage(parent: Doc) {
     const page = await createDoc.mutateAsync({
       title: "Untitled",
@@ -126,7 +186,25 @@ export default function FilesScreen() {
     });
     setExpandedIds((previous) => new Set(previous).add(parent.id));
     setMenuDoc(null);
-    router.push(`/(app)/docs/${page.id}`);
+    openFile(page.id);
+  }
+
+  async function newDoc() {
+    try {
+      const doc = await createDoc.mutateAsync({ title: "Untitled", workspaceId: spaces[0]?.id });
+      openFile(doc.id);
+    } catch (error) {
+      Alert.alert("Could not create the doc", error instanceof Error ? error.message : "Try again.");
+    }
+  }
+
+  async function newSheet() {
+    try {
+      const sheet = await createSheet.mutateAsync({ title: "Untitled", workspaceId: spaces[0]?.id });
+      openFile(sheet.id);
+    } catch (error) {
+      Alert.alert("Could not create the sheet", error instanceof Error ? error.message : "Try again.");
+    }
   }
 
   async function createFromTemplate(template: DocTemplate) {
@@ -135,7 +213,7 @@ export default function FilesScreen() {
       const title = template.id.startsWith("builtin:") ? template.title : `${template.title} copy`;
       const { content, plainText } = contentFromTemplate(template, templateVars(new Date(), title));
       const doc = await createDoc.mutateAsync({ title, icon: template.icon, content, plainText, workspaceId: spaces[0]?.id });
-      router.push(`/(app)/docs/${doc.id}`);
+      openFile(doc.id);
     } catch (error) {
       Alert.alert("Could not create the doc", error instanceof Error ? error.message : "Try again.");
     }
@@ -148,7 +226,7 @@ export default function FilesScreen() {
       const { content, plainText } = contentFromTemplate(dailyNoteTemplate(docsQ.data ?? []), templateVars(now, date));
       const { document } = await openDailyDoc({ date, title: date, content, plainText, workspaceId: spaces[0]?.id });
       await queryClient.invalidateQueries({ queryKey: keys.docs });
-      router.push(`/(app)/docs/${document.id}`);
+      openFile(document.id);
     } catch (error) {
       Alert.alert("Could not open today's note", error instanceof Error ? error.message : "Try again.");
     }
@@ -172,7 +250,7 @@ export default function FilesScreen() {
         plainText: parsed.plainText,
         workspaceId: spaces[0]?.id,
       });
-      router.push(`/(app)/docs/${doc.id}`);
+      openFile(doc.id);
     } catch (error) {
       Alert.alert("Could not import", error instanceof Error ? error.message : "Pick a .md file and try again.");
     }
@@ -190,10 +268,71 @@ export default function FilesScreen() {
       const grid = csvToGrid(source);
       const title = (asset.name || "Imported sheet").replace(/\.csv$/i, "").trim() || "Imported sheet";
       const sheet = await createSheet.mutateAsync({ title, ...grid, workspaceId: spaces[0]?.id });
-      router.push(sheetHref(sheet.id) as never);
+      openFile(sheet.id);
     } catch (error) {
       Alert.alert("Could not import CSV", error instanceof Error ? error.message : "Pick a .csv file and try again.");
     }
+  }
+
+  // Menus close before the next sheet or the system file picker opens.
+  function runPendingAction() {
+    const action = pendingAction.current;
+    pendingAction.current = null;
+    if (action === "templates") setTemplatesOpen(true);
+    else if (action === "markdown") void importMarkdown();
+    else if (action === "csv") void importCsv();
+  }
+
+  function onNew() {
+    if (filter === "docs") setTemplatesOpen(true);
+    else if (filter === "sheets") void newSheet();
+    else setNewOpen(true);
+  }
+
+  function onImport() {
+    if (filter === "docs") void importMarkdown();
+    else if (filter === "sheets") void importCsv();
+    else setImportOpen(true);
+  }
+
+  function renderDocRow(doc: Doc, meta: ReactNode, key: string) {
+    return (
+      <View key={key} style={styles.card}>
+        <AnimatedPressable onPress={() => openFile(doc.id)} onLongPress={() => setMenuDoc(doc)} style={styles.cardBody}>
+          <FileGlyph icon={doc.icon} kind="doc" />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.title}>{doc.title || "Untitled"}</Text>
+            <Text numberOfLines={2} style={styles.meta}>
+              {meta}
+            </Text>
+          </View>
+        </AnimatedPressable>
+        {doc.isFavorite ? <Star size={16} color={colors.warning} fill={colors.warning} /> : null}
+        <Pressable accessibilityRole="button" accessibilityLabel="Page menu" onPress={() => setMenuDoc(doc)} hitSlop={8} style={styles.menuBtn}>
+          <MoreVertical size={18} color={colors.mutedForeground} />
+        </Pressable>
+      </View>
+    );
+  }
+
+  function renderSheetRow(sheet: Sheet, key: string, indent = false) {
+    return (
+      <AnimatedPressable key={key} onPress={() => openFile(sheet.id)} style={styles.card}>
+        {indent ? <View style={styles.chevron} /> : null}
+        <View style={styles.sheetBody}>
+          <FileGlyph icon={sheet.icon} kind="sheet" />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.title}>{sheet.title || "Untitled"}</Text>
+            <Text numberOfLines={2} style={styles.meta}>
+              {(sheet.rows ?? []).length} rows · {(sheet.columns ?? []).length} cols
+              {sheet.updatedAt ? ` · ${timeAgo(sheet.updatedAt)}` : ""}
+              {wsById.get(sheet.workspaceId) ? ` · ${wsById.get(sheet.workspaceId)?.name}` : ""}
+            </Text>
+          </View>
+        </View>
+        {sheet.isFavorite ? <Star size={16} color={colors.warning} fill={colors.warning} /> : null}
+      </AnimatedPressable>
+    );
   }
 
   function renderNode(node: DocNode, depth: number): ReactNode {
@@ -209,11 +348,11 @@ export default function FilesScreen() {
             onPress={() => toggleExpanded(node.id)}
           />
           <AnimatedPressable
-            onPress={() => router.push(`/(app)/docs/${node.id}`)}
+            onPress={() => openFile(node.id)}
             onLongPress={() => setMenuDoc(node)}
             style={styles.cardBody}
           >
-            <Text style={styles.icon}>{node.icon || "📄"}</Text>
+            <FileGlyph icon={node.icon} kind="doc" />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.title}>{node.title || "Untitled"}</Text>
               <Text numberOfLines={2} style={styles.meta}>
@@ -246,11 +385,114 @@ export default function FilesScreen() {
     );
   }
 
+  function renderTemplates() {
+    return (
+      <>
+        {templates.length ? <Text style={styles.section}>Sheet templates</Text> : null}
+        {templates.map((template) => (
+          <AnimatedPressable key={template.id} onPress={() => openFile(template.id)} style={styles.card}>
+            {filter === "all" ? <View style={styles.chevron} /> : null}
+            <View style={styles.sheetBody}>
+              {template.icon ? (
+                <Text style={styles.icon}>{template.icon}</Text>
+              ) : (
+                <View style={styles.iconBox}>
+                  <LayoutTemplate size={20} color={colors.foreground} />
+                </View>
+              )}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.title}>{template.name}</Text>
+                <Text numberOfLines={2} style={styles.meta}>
+                  {template.rows.length} rows · {template.columns.length} cols
+                  {(template.tabs?.length ?? 0) > 1 ? ` · ${template.tabs?.length} tabs` : ""}
+                </Text>
+              </View>
+            </View>
+          </AnimatedPressable>
+        ))}
+      </>
+    );
+  }
+
+  const templatesError = templatesQ.isError ? (
+    <Pressable onPress={() => void templatesQ.refetch()}>
+      <Text style={styles.templateError}>Could not load templates. Tap to retry.</Text>
+    </Pressable>
+  ) : null;
+
+  const pageCount = `${docs.length} ${docs.length === 1 ? "page" : "pages"}`;
+  const tableCount = `${sheets.length} ${sheets.length === 1 ? "table" : "tables"}`;
+  const subtitle =
+    filter === "docs"
+      ? pageCount
+      : filter === "sheets"
+        ? `${tableCount} · ${templates.length} ${templates.length === 1 ? "template" : "templates"}`
+        : `${pageCount} · ${tableCount}`;
+
+  const refreshing =
+    ((showDocs && docsQ.isRefetching) || (showSheets && (sheetsQ.isRefetching || templatesQ.isRefetching))) &&
+    !((showDocs && docsQ.isPending) || (showSheets && sheetsQ.isPending));
+
+  function renderList() {
+    if (networkCopy) {
+      return (
+        <EmptyState
+          icon={filter === "sheets" ? SheetIcon : FileText}
+          title={filter === "docs" ? "Couldn't load docs" : filter === "sheets" ? "Couldn't load sheets" : "Couldn't load files"}
+          description={networkCopy}
+        />
+      );
+    }
+    if (filter === "docs") {
+      if (docs.length === 0) return <EmptyState icon={FileText} title="No docs yet" description="Tap + to start a page." />;
+      return (
+        <>
+          {favoriteDocs.length ? <Text style={styles.section}>Favorites</Text> : null}
+          {favoriteDocs.map((doc) => renderDocRow(doc, doc.plainText || timeAgo(doc.updatedAt), `fav-${doc.id}`))}
+          <Text style={styles.section}>Pages</Text>
+          {tree.map((node) => renderNode(node, 0))}
+        </>
+      );
+    }
+    if (filter === "sheets") {
+      if (sheets.length === 0 && templates.length === 0 && !templatesQ.isError) {
+        return <EmptyState icon={SheetIcon} title="No sheets yet" description="Tap + to create a table, or import a CSV." />;
+      }
+      return (
+        <>
+          {templatesError}
+          {favoriteSheets.length ? <Text style={styles.section}>Favorites</Text> : null}
+          {favoriteSheets.map((sheet) => renderSheetRow(sheet, sheet.id))}
+          {restSheets.length ? <Text style={styles.section}>All sheets</Text> : null}
+          {restSheets.map((sheet) => renderSheetRow(sheet, `a-${sheet.id}`))}
+          {renderTemplates()}
+        </>
+      );
+    }
+    if (docs.length === 0 && sheets.length === 0 && templates.length === 0 && !templatesQ.isError) {
+      return <EmptyState icon={FileText} title="No files yet" description="Tap + to start a page or a table, or import Markdown or CSV." />;
+    }
+    return (
+      <>
+        {templatesError}
+        {favoriteEntries.length ? <Text style={styles.section}>Favorites</Text> : null}
+        {favoriteEntries.map((entry) =>
+          entry.kind === "doc"
+            ? renderDocRow(entry.node, entry.node.plainText || timeAgo(entry.node.updatedAt), `fav-${entry.node.id}`)
+            : renderSheetRow(entry.sheet, `fav-${entry.sheet.id}`),
+        )}
+        {allEntries.length ? <Text style={styles.section}>All files</Text> : null}
+        {allEntries.map((entry) => (entry.kind === "doc" ? renderNode(entry.node, 0) : renderSheetRow(entry.sheet, `a-${entry.sheet.id}`, true)))}
+        {renderTemplates()}
+      </>
+    );
+  }
+
   return (
     <Screen>
       <MobileHeader
         title="Files"
-        subtitle={kind === "docs" ? `${docs.length} ${docs.length === 1 ? "page" : "pages"}` : `${sheets.length} ${sheets.length === 1 ? "table" : "tables"} · ${templates.length} ${templates.length === 1 ? "template" : "templates"}`}
+        subtitle={subtitle}
         actions={
           <>
             <HeaderIconButton
@@ -260,19 +502,20 @@ export default function FilesScreen() {
             >
               {showArchived ? <ArchiveRestore size={20} color={colors.primary} /> : <Archive size={20} color={colors.foreground} />}
             </HeaderIconButton>
-            {kind === "docs" ? (
-              <>
-                <HeaderIconButton label="Open today's daily note" onPress={() => void openToday()}>
-                  <CalendarDays size={20} color={colors.foreground} />
-                </HeaderIconButton>
-                <HeaderIconButton label="New doc from a template" onPress={() => setTemplatesOpen(true)}>
-                  <LayoutTemplate size={20} color={colors.foreground} />
-                </HeaderIconButton>
-              </>
+            {showDocs ? (
+              <HeaderIconButton label="Open today's daily note" onPress={() => void openToday()}>
+                <CalendarDays size={20} color={colors.foreground} />
+              </HeaderIconButton>
             ) : null}
             <HeaderIconButton
-              label={kind === "docs" ? "Import Markdown" : "Import CSV"}
-              onPress={() => void (kind === "docs" ? importMarkdown() : importCsv())}
+              label={filter === "docs" ? "New doc from a template" : filter === "sheets" ? "New sheet" : "New file"}
+              onPress={onNew}
+            >
+              {filter === "docs" ? <LayoutTemplate size={20} color={colors.foreground} /> : <FilePlus size={20} color={colors.foreground} />}
+            </HeaderIconButton>
+            <HeaderIconButton
+              label={filter === "docs" ? "Import Markdown" : filter === "sheets" ? "Import CSV" : "Import a file"}
+              onPress={onImport}
             >
               <Upload size={20} color={colors.foreground} />
             </HeaderIconButton>
@@ -282,11 +525,12 @@ export default function FilesScreen() {
         <View style={styles.headerControls}>
           <SegmentedControl
             options={[
+              { label: "All", value: "all" },
               { label: "Docs", value: "docs" },
               { label: "Sheets", value: "sheets" },
             ]}
-            value={kind}
-            onChange={setKind}
+            value={filter}
+            onChange={setFilter}
           />
         </View>
       </MobileHeader>
@@ -294,102 +538,69 @@ export default function FilesScreen() {
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
-            refreshing={(kind === "docs" ? docsQ.isRefetching : sheetsQ.isRefetching || templatesQ.isRefetching) && !(kind === "docs" ? docsQ.isPending : sheetsQ.isPending)}
+            refreshing={refreshing}
             onRefresh={() => {
-              if (kind === "docs") void docsQ.refetch();
-              else { void sheetsQ.refetch(); void templatesQ.refetch(); }
+              if (showDocs) void docsQ.refetch();
+              if (showSheets) {
+                void sheetsQ.refetch();
+                void templatesQ.refetch();
+              }
             }}
             tintColor={colors.primary}
           />
         }
       >
-        {networkCopy ? (
-          <EmptyState
-            icon={kind === "docs" ? FileText : SheetIcon}
-            title={kind === "docs" ? "Couldn't load docs" : "Couldn't load sheets"}
-            description={networkCopy}
-          />
-        ) : kind === "docs" ? (
-          docs.length === 0 ? (
-            <EmptyState icon={FileText} title="No docs yet" description="Tap + to start a page." />
-          ) : (
-            <>
-              {favoriteDocs.length ? <Text style={styles.section}>Favorites</Text> : null}
-              {favoriteDocs.map((doc) => (
-                <View key={`fav-${doc.id}`} style={styles.card}>
-                  <AnimatedPressable onPress={() => router.push(`/(app)/docs/${doc.id}`)} onLongPress={() => setMenuDoc(doc)} style={styles.cardBody}>
-                    <Text style={styles.icon}>{doc.icon || "📄"}</Text>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.title}>{doc.title || "Untitled"}</Text>
-                      <Text numberOfLines={2} style={styles.meta}>
-                        {doc.plainText || timeAgo(doc.updatedAt)}
-                      </Text>
-                    </View>
-                  </AnimatedPressable>
-                  <Star size={16} color={colors.warning} fill={colors.warning} />
-                  <Pressable accessibilityRole="button" accessibilityLabel="Page menu" onPress={() => setMenuDoc(doc)} hitSlop={8} style={styles.menuBtn}>
-                    <MoreVertical size={18} color={colors.mutedForeground} />
-                  </Pressable>
-                </View>
-              ))}
-              <Text style={styles.section}>Pages</Text>
-              {tree.map((node) => renderNode(node, 0))}
-            </>
-          )
-        ) : sheets.length === 0 && templates.length === 0 && !templatesQ.isError ? (
-          <EmptyState icon={SheetIcon} title="No sheets yet" description="Tap + to create a table, or import a CSV." />
-        ) : (
-          <>
-            {templatesQ.isError ? <Pressable onPress={() => void templatesQ.refetch()}><Text style={styles.templateError}>Could not load templates. Tap to retry.</Text></Pressable> : null}
-            {favoriteSheets.length ? <Text style={styles.section}>Favorites</Text> : null}
-            {favoriteSheets.map((sheet) => (
-              <AnimatedPressable key={sheet.id} onPress={() => router.push(sheetHref(sheet.id))} style={styles.card}>
-                <Text style={styles.icon}>{sheet.icon || "▦"}</Text>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.title}>{sheet.title || "Untitled"}</Text>
-                  <Text numberOfLines={2} style={styles.meta}>
-                    {(sheet.rows ?? []).length} rows · {(sheet.columns ?? []).length} cols
-                    {sheet.updatedAt ? ` · ${timeAgo(sheet.updatedAt)}` : ""}
-                    {wsById.get(sheet.workspaceId) ? ` · ${wsById.get(sheet.workspaceId)?.name}` : ""}
-                  </Text>
-                </View>
-                <Star size={16} color={colors.warning} fill={colors.warning} />
-              </AnimatedPressable>
-            ))}
-            {restSheets.length ? <Text style={styles.section}>All sheets</Text> : null}
-            {restSheets.map((sheet) => (
-              <AnimatedPressable key={`a-${sheet.id}`} onPress={() => router.push(sheetHref(sheet.id))} style={styles.card}>
-                <Text style={styles.icon}>{sheet.icon || "▦"}</Text>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.title}>{sheet.title || "Untitled"}</Text>
-                  <Text numberOfLines={2} style={styles.meta}>
-                    {(sheet.rows ?? []).length} rows · {(sheet.columns ?? []).length} cols
-                    {sheet.updatedAt ? ` · ${timeAgo(sheet.updatedAt)}` : ""}
-                    {wsById.get(sheet.workspaceId) ? ` · ${wsById.get(sheet.workspaceId)?.name}` : ""}
-                  </Text>
-                </View>
-              </AnimatedPressable>
-            ))}
-            {templates.length ? <Text style={styles.section}>Templates</Text> : null}
-            {templates.map((template) => (
-              <AnimatedPressable
-                key={template.id}
-                onPress={() => router.push({ pathname: "/(app)/sheets/templates/[id]", params: { id: template.id } })}
-                style={styles.card}
-              >
-                {template.icon ? <Text style={styles.icon}>{template.icon}</Text> : <LayoutTemplate size={20} color={colors.foreground} style={{ width: 28 }} />}
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.title}>{template.name}</Text>
-                  <Text numberOfLines={2} style={styles.meta}>
-                    {template.rows.length} rows · {template.columns.length} cols
-                    {(template.tabs?.length ?? 0) > 1 ? ` · ${template.tabs?.length} tabs` : ""}
-                  </Text>
-                </View>
-              </AnimatedPressable>
-            ))}
-          </>
-        )}
+        {renderList()}
       </ScrollView>
+      <BottomSheet open={newOpen} onClose={() => setNewOpen(false)} onClosed={runPendingAction} title="New file">
+        <SheetOption
+          onSelect={() => {
+            setNewOpen(false);
+            void newDoc();
+          }}
+          leading={<FileText size={18} color={colors.mutedForeground} />}
+        >
+          New doc
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setNewOpen(false);
+            void newSheet();
+          }}
+          leading={<SheetIcon size={18} color={colors.mutedForeground} />}
+        >
+          New sheet
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            pendingAction.current = "templates";
+            setNewOpen(false);
+          }}
+          leading={<LayoutTemplate size={18} color={colors.mutedForeground} />}
+        >
+          Doc from a template
+        </SheetOption>
+      </BottomSheet>
+      <BottomSheet open={importOpen} onClose={() => setImportOpen(false)} onClosed={runPendingAction} title="Import">
+        <SheetOption
+          onSelect={() => {
+            pendingAction.current = "markdown";
+            setImportOpen(false);
+          }}
+          leading={<FileText size={18} color={colors.mutedForeground} />}
+        >
+          Markdown as a doc
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            pendingAction.current = "csv";
+            setImportOpen(false);
+          }}
+          leading={<SheetIcon size={18} color={colors.mutedForeground} />}
+        >
+          CSV as a sheet
+        </SheetOption>
+      </BottomSheet>
       <BottomSheet
         open={Boolean(menuDoc)}
         onClose={() => setMenuDoc(null)}
@@ -406,7 +617,7 @@ export default function FilesScreen() {
             if (!menuDoc) return;
             const id = menuDoc.id;
             setMenuDoc(null);
-            router.push(`/(app)/docs/${id}`);
+            openFile(id);
           }}
           leading={<FileText size={18} color={colors.mutedForeground} />}
         >
@@ -465,7 +676,16 @@ export default function FilesScreen() {
           <Text style={styles.destructive}>Delete page</Text>
         </SheetOption>
       </BottomSheet>
-      <BottomSheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} title="New from template">
+      <BottomSheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} title="New doc">
+        <SheetOption
+          onSelect={() => {
+            setTemplatesOpen(false);
+            void newDoc();
+          }}
+          leading={<FileText size={18} color={colors.mutedForeground} />}
+        >
+          Blank page
+        </SheetOption>
         {availableTemplates(docsQ.data ?? []).map((template) => (
           <SheetOption
             key={template.id}
@@ -522,6 +742,8 @@ const styles = createThemedStyleSheet((colors) => ({
     gap: 12,
     paddingVertical: 10,
   },
+  sheetBody: { flex: 1, minWidth: 0, minHeight: 76, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
+  iconBox: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent },
   chevron: { width: 32, height: 44, alignItems: "center", justifyContent: "center", overflow: "visible" },
   chevronGlyph: { width: 20, height: 20, alignItems: "center", justifyContent: "center" },
   menuBtn: { width: 36, height: 44, alignItems: "center", justifyContent: "center" },

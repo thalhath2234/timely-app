@@ -26,8 +26,7 @@ const GO_SHORTCUTS: Record<string, string> = {
   Calendar: "G then C",
   Tasks: "G then T",
   Projects: "G then P",
-  Docs: "G then D",
-  Sheets: "G then S",
+  Files: "G then F",
   Report: "G then R",
   Notifications: "G then N",
 };

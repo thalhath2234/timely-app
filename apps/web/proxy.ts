@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { decrypt } from "@/app/utils/session";
+import { legacyFilePath } from "@/app/utils/fileRoutes";
 
 const protectedPrefixes = [
   "/chat",
@@ -12,8 +13,7 @@ const protectedPrefixes = [
   "/report",
   "/settings",
   "/setup",
-  "/docs",
-  "/sheets",
+  "/files",
   "/notifications",
 ];
 const publicExact = new Set(["/login", "/signup", "/"]);
@@ -31,6 +31,14 @@ export default async function proxy(req: NextRequest) {
 
   if (path === "/m" || path.startsWith("/m/")) {
     return NextResponse.redirect(new URL("/calendar", req.url));
+  }
+
+  // Docs and sheets moved under /files; old links keep working.
+  const moved = legacyFilePath(path);
+  if (moved) {
+    const url = req.nextUrl.clone();
+    url.pathname = moved;
+    return NextResponse.redirect(url);
   }
 
   if (isProtectedPath(path) && !authenticated) {

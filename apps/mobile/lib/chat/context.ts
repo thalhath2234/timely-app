@@ -35,6 +35,22 @@ export function mergeContext(
     );
   return result;
 }
+/**
+ * The object a screen path shows, as [collection, id]. Docs and sheets live
+ * under `/files/<id>`; the ID's prefix says which (sheet templates have no
+ * object reference). Kept import-free so plain Node tests can load it.
+ */
+export function routeObject(path: string): [string, string] | null {
+  const match = path.match(
+    /\/(tasks|docs|sheets|projects|events|files)\/([^/]+)$/,
+  );
+  if (!match) return null;
+  if (match[1] !== "files") return [match[1], match[2]];
+  const id = match[2];
+  if (id.startsWith("shtpl_")) return null;
+  return [id.startsWith("sht_") ? "sheets" : "docs", id];
+}
+
 export function routeContext(
   path: string,
   params: Record<string, unknown>,
@@ -46,13 +62,13 @@ export function routeContext(
   },
 ): ChatContext[] {
   const chips = [contextChip("location", "Current screen", path)];
-  const match = path.match(/\/(tasks|docs|sheets|projects|events)\/([^/]+)$/);
-  if (match && match[2] !== "new")
+  const match = routeObject(path);
+  if (match && match[1] !== "new")
     chips.push(
       contextChip(
         "object",
-        entity?.title || entity?.name || match[1],
-        `${match[1]}/${match[2]}`,
+        entity?.title || entity?.name || match[0],
+        `${match[0]}/${match[1]}`,
       ),
     );
   const workspaceId = entity?.workspaceId || params.workspaceId;

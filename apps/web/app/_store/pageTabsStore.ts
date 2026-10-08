@@ -1,11 +1,12 @@
 "use client";
 
 import { create } from "zustand";
+import { FILES_PATH, legacyFilePath } from "@/app/utils/fileRoutes";
 
 /**
  * Open docs and sheets, Obsidian style. Each tab keeps its own back/forward
- * history of pathnames under /docs and /sheets; the URL always shows the
- * active tab's current entry. Saved per device in localStorage.
+ * history of pathnames under /files; the URL always shows the active tab's
+ * current entry. Saved per device in localStorage.
  */
 export type PageTab = {
   id: string;
@@ -43,20 +44,16 @@ const MAX_TABS = 30;
 const MAX_HISTORY = 50;
 
 export function currentHref(tab: PageTab) {
-  return tab.history[tab.index] ?? "/docs";
+  return tab.history[tab.index] ?? FILES_PATH;
 }
 
 export function isTabbedPath(pathname: string) {
-  return /^\/(docs|sheets)(\/|$)/.test(pathname);
+  return /^\/files(\/|$)/.test(pathname);
 }
 
-/** The section's start page ("/docs" or "/sheets"), shown as a new tab. */
+/** The Files start page, shown as a new tab. */
 export function isSectionIndex(pathname: string) {
-  return pathname === "/docs" || pathname === "/sheets";
-}
-
-export function sectionOf(pathname: string): "docs" | "sheets" {
-  return pathname.startsWith("/sheets") ? "sheets" : "docs";
+  return pathname === FILES_PATH;
 }
 
 function newTab(href: string): PageTab {
@@ -82,12 +79,30 @@ function isTab(value: unknown): value is PageTab {
   );
 }
 
+/**
+ * Tabs saved before docs and sheets merged into Files hold /docs and /sheets
+ * paths; point them at /files. Anything else passes through for isTab to judge.
+ */
+function migrateTab(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const tab = value as PageTab;
+  if (!Array.isArray(tab.history)) return value;
+  const moved = (href: unknown) => (typeof href === "string" ? legacyFilePath(href) ?? href : href);
+  return {
+    ...tab,
+    history: tab.history.map(moved),
+    scroll: tab.scroll ? { ...tab.scroll, href: moved(tab.scroll.href) } : tab.scroll,
+  };
+}
+
 function load(): Pick<PageTabsState, "tabs" | "activeId" | "recent"> {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return { tabs: [], activeId: null, recent: [] };
     const parsed = JSON.parse(raw) as Partial<PageTabsState>;
-    const tabs = Array.isArray(parsed.tabs) ? parsed.tabs.filter(isTab).slice(0, MAX_TABS) : [];
+    const tabs = Array.isArray(parsed.tabs)
+      ? parsed.tabs.map(migrateTab).filter(isTab).slice(0, MAX_TABS)
+      : [];
     const ids = new Set(tabs.map((tab) => tab.id));
     const activeId = parsed.activeId && ids.has(parsed.activeId) ? parsed.activeId : tabs[0]?.id ?? null;
     const recent = Array.isArray(parsed.recent) ? parsed.recent.filter((id) => ids.has(id)) : [];

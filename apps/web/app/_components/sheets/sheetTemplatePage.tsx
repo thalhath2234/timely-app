@@ -18,6 +18,7 @@ import type { SheetTab, SheetTemplate } from "@/app/_types/types";
 import { useToastStore } from "@/app/_store/toastStore";
 import { addWorkbookTab, tabsFromSheet, workbookPayload } from "@/app/utils/sheetWorkbook";
 import { SHEET_ICON_CHOICES } from "@/app/_components/sheets/sheetIcons";
+import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 
 export default function TemplatePage() {
   const { id } = useParams<{ id: string }>();
@@ -31,7 +32,7 @@ export default function TemplatePage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
         <p className="text-sm text-muted-foreground">{templatesQuery.isError ? "Could not load templates." : "Template not found."}</p>
-        <Link href="/sheets" className="rounded-lg bg-secondary px-4 py-2 text-sm text-secondary-foreground">Back to sheets</Link>
+        <Link href={FILES_PATH} className="rounded-lg bg-secondary px-4 py-2 text-sm text-secondary-foreground">Back to files</Link>
       </div>
     );
   }
@@ -93,7 +94,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
     }
     try {
       const sheet = await createSheet.mutateAsync({ templateId: template.id });
-      router.push(`/sheets/${sheet.id}`);
+      router.push(fileHref(sheet.id));
     } catch (error) {
       useToastStore.getState().show(error instanceof Error ? error.message : "Could not create sheet");
     }
@@ -102,7 +103,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
   const handleDelete = async () => {
     try {
       await deleteTemplate.mutateAsync(template.id);
-      router.push("/sheets");
+      router.push(FILES_PATH);
     } catch (error) {
       useToastStore.getState().show(error instanceof Error ? error.message : "Could not delete template");
     }
@@ -111,7 +112,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
       <header className="flex min-h-14 items-center gap-2 border-b border-border px-4 py-2">
-        <Link href="/sheets" className="shrink-0 text-xs text-muted-foreground hover:text-foreground">Sheets</Link>
+        <Link href={FILES_PATH} className="shrink-0 text-xs text-muted-foreground hover:text-foreground">Files</Link>
         <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
         <LayoutTemplate className="size-4 shrink-0 text-primary" />
 

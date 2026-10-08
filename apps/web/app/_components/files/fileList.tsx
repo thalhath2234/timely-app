@@ -19,12 +19,22 @@ import {
   PanelLeftClose,
   Plus,
   Search,
+  Sheet as SheetIcon,
   Star,
   Trash2,
   Upload,
 } from "lucide-react";
-import { Doc } from "@/app/_types/types";
+import type { Doc, Sheet } from "@/app/_types/types";
 import { docsKey, useCreateDoc, useDeleteDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
+import {
+  useCreateSheet,
+  useDeleteSheet,
+  useSheets,
+  useSheetTemplates,
+  useUpdateSheet,
+} from "@/app/utils/hooks/sheets";
+import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
+import { csvToGrid } from "@/app/utils/sheetCsv";
 import { openDailyDoc } from "@/app/utils/api/docs";
 import { useToastStore } from "@/app/_store/toastStore";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
@@ -32,10 +42,28 @@ import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
+import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
+import { newSheetMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
+import { tidyEntries } from "@/app/_store/contextMenuStore";
 
 interface DocNode extends Doc {
   children: DocNode[];
 }
+
+/** A top-level row: a doc (with its subpages) or a sheet. */
+type RootRow = { kind: "doc"; node: DocNode } | { kind: "sheet"; sheet: Sheet };
+
+type KindFilter = "all" | "doc" | "sheet";
+
+const KIND_FILTERS: { value: KindFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "doc", label: "Docs" },
+  { value: "sheet", label: "Sheets" },
+];
+
+// Sheets have no manual order, so they sit with docs that were never moved.
+const rootOrder = (row: RootRow) => (row.kind === "doc" ? row.node.order : 0);
+const rootUpdatedAt = (row: RootRow) => (row.kind === "doc" ? row.node.updatedAt : row.sheet.updatedAt);
 
 function buildTree(docs: Doc[]): DocNode[] {
   const byId = new Map<string, DocNode>();
@@ -87,16 +115,24 @@ function countDescendants(node: DocNode): number {
 const quickButton =
   "flex cursor-pointer items-center justify-center gap-1 rounded-lg border border-dashed border-border px-1.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground";
 
-export default function DocList() {
+/** Docs and sheets in one list: the Files section's sidebar. */
+export default function FileList() {
   const router = useRouter();
   const params = useParams<{ id?: string }>();
   const activeId = params?.id;
 
   const docsQuery = useDocs();
-  const { data: docs, isLoading } = docsQuery;
+  const { data: docs } = docsQuery;
   const createDoc = useCreateDoc();
   const deleteDoc = useDeleteDoc();
   const updateDoc = useUpdateDoc();
+  const sheetsQuery = useSheets();
+  const { data: sheets } = sheetsQuery;
+  const sheetTemplates = useSheetTemplates().data ?? [];
+  const createSheet = useCreateSheet();
+  const deleteSheet = useDeleteSheet();
+  const updateSheet = useUpdateSheet();
+  const isLoading = docsQuery.isLoading || sheetsQuery.isLoading;
 
   const [search, setSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -104,9 +140,11 @@ export default function DocList() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const { collapsed, toggle } = useCollapsedPanel("timely.docsListCollapsed");
+  const [kindFilter, setKindFilter] = useState<KindFilter>("all");
+  const { collapsed, toggle } = useCollapsedPanel("timely.filesListCollapsed");
   const openMenu = useContextMenu();
   const docMenu = useDocContextMenu();
+  const sheetMenu = useSheetContextMenu();
 
   const allDocs = useMemo(
     () =>
@@ -115,7 +153,25 @@ export default function DocList() {
       ),
     [docs, showArchived],
   );
+  const allSheets = useMemo(
+    () =>
+      (sheets ?? []).filter((sheet) =>
+        showArchived ? Boolean(sheet.archivedAt) : !sheet.archivedAt,
+      ),
+    [sheets, showArchived],
+  );
   const tree = useMemo(() => buildTree(allDocs), [allDocs]);
+
+  // Root docs and sheets share one order: manual order first, then newest.
+  const rootRows = useMemo(() => {
+    const rows: RootRow[] = [
+      ...(kindFilter === "sheet" ? [] : tree.map((node) => ({ kind: "doc" as const, node }))),
+      ...(kindFilter === "doc" ? [] : allSheets.map((sheet) => ({ kind: "sheet" as const, sheet }))),
+    ];
+    return rows.sort(
+      (a, b) => rootOrder(a) - rootOrder(b) || rootUpdatedAt(b).localeCompare(rootUpdatedAt(a)),
+    );
+  }, [tree, allSheets, kindFilter]);
 
   const searchResults = useMemo(() => {
     if (!search.trim()) return null;
@@ -123,7 +179,7 @@ export default function DocList() {
     const { text, filters } = splitPropertyQuery(search);
     const query = text.toLowerCase();
 
-    return allDocs.filter(
+    const docHits = allDocs.filter(
       (doc) =>
         (filters.length === 0 ||
           matchesPropertyFilters(frontmatterEntries(docFrontmatter(doc.content)), filters)) &&
@@ -131,7 +187,15 @@ export default function DocList() {
           doc.title.toLowerCase().includes(query) ||
           doc.plainText.toLowerCase().includes(query)),
     );
-  }, [allDocs, search]);
+    // Sheets have no properties, so a property filter leaves only docs.
+    const sheetHits = filters.length > 0
+      ? []
+      : allSheets.filter((sheet) => sheet.title.toLowerCase().includes(query));
+    return [
+      ...(kindFilter === "sheet" ? [] : docHits.map((doc) => ({ kind: "doc" as const, node: { ...doc, children: [] } }))),
+      ...(kindFilter === "doc" ? [] : sheetHits.map((sheet) => ({ kind: "sheet" as const, sheet }))),
+    ] satisfies RootRow[];
+  }, [allDocs, allSheets, search, kindFilter]);
 
   // Ancestors of the open doc are revealed automatically, unless the user has
   // explicitly collapsed them.
@@ -167,7 +231,45 @@ export default function DocList() {
     const doc = await createDoc.mutateAsync(parentId ? { parentId } : {});
 
     if (parentId) expandNode(parentId);
-    router.push(`/docs/${doc.id}`);
+    router.push(fileHref(doc.id));
+  };
+
+  const handleCreateSheet = async (templateId?: string) => {
+    const sheet = await createSheet.mutateAsync(templateId ? { templateId } : {});
+    router.push(fileHref(sheet.id));
+  };
+
+  const onNewClick = (event: React.MouseEvent) =>
+    openMenu(
+      event,
+      tidyEntries([
+        { kind: "action", label: "New doc", icon: FileText, onSelect: () => void handleCreate() },
+        { kind: "separator" },
+        ...newSheetMenuItems({
+          templates: sheetTemplates,
+          onBlank: () => void handleCreateSheet(),
+          onTemplate: (templateId) => void handleCreateSheet(templateId),
+        }),
+      ]),
+      { title: "New" },
+    );
+
+  const importFile = async (file: File) => {
+    // A .csv becomes a sheet; anything else is read as Markdown into a doc.
+    if (/\.csv$/i.test(file.name) || file.type === "text/csv") {
+      const grid = csvToGrid(await file.text());
+      const title = file.name.replace(/\.csv$/i, "") || "Imported sheet";
+      const sheet = await createSheet.mutateAsync({ title, ...grid });
+      router.push(fileHref(sheet.id));
+      return;
+    }
+    const imported = await readMarkdownFile(file);
+    const doc = await createDoc.mutateAsync({
+      title: imported.title,
+      content: imported.content,
+      plainText: imported.plainText,
+    });
+    router.push(fileHref(doc.id));
   };
 
   const queryClient = useQueryClient();
@@ -179,7 +281,7 @@ export default function DocList() {
     const title = template.id.startsWith("builtin:") ? template.title : `${template.title} copy`;
     const { content, plainText } = contentFromTemplate(template, templateVars(new Date(), title));
     const doc = await createDoc.mutateAsync({ title, icon: template.icon, content, plainText });
-    router.push(`/docs/${doc.id}`);
+    router.push(fileHref(doc.id));
   };
 
   const openToday = async () => {
@@ -189,7 +291,7 @@ export default function DocList() {
       const { content, plainText } = contentFromTemplate(dailyNoteTemplate(docs ?? []), templateVars(now, date));
       const { document } = await openDailyDoc({ date, title: date, content, plainText });
       await queryClient.invalidateQueries({ queryKey: docsKey });
-      router.push(`/docs/${document.id}`);
+      router.push(fileHref(document.id));
     } catch (error) {
       useToastStore.getState().show(error instanceof Error ? error.message : "Could not open today's note");
     }
@@ -199,7 +301,35 @@ export default function DocList() {
     await deleteDoc.mutateAsync(id);
     setPendingDeleteId(null);
 
-    if (activeId === id) router.push("/docs");
+    if (activeId === id) router.push(FILES_PATH);
+  };
+
+  const handleDeleteSheet = async (id: string) => {
+    await deleteSheet.mutateAsync(id);
+    setPendingDeleteId(null);
+
+    if (activeId === id) router.push(FILES_PATH);
+  };
+
+  const commitSheetRename = (sheet: Sheet, next: string) => {
+    const title = next.trim();
+    setRenamingId(null);
+    if (!title || title === sheet.title) return;
+    void updateSheet.mutateAsync({ id: sheet.id, title });
+  };
+
+  const onSheetContextMenu = (event: React.MouseEvent, sheet: Sheet) => {
+    openMenu(
+      event,
+      sheetMenu(sheet, {
+        onRename: () => setRenamingId(sheet.id),
+        onDeleted: (id) => {
+          setPendingDeleteId(null);
+          if (activeId === id) router.push(FILES_PATH);
+        },
+      }),
+      { title: sheet.title },
+    );
   };
 
   const onRowContextMenu = (event: React.MouseEvent, node: DocNode) => {
@@ -212,7 +342,7 @@ export default function DocList() {
         onRename: () => setRenamingId(node.id),
         onDeleted: (id) => {
           setPendingDeleteId(null);
-          if (activeId === id) router.push("/docs");
+          if (activeId === id) router.push(FILES_PATH);
         },
       }),
       { title: node.title },
@@ -286,7 +416,7 @@ export default function DocList() {
             </form>
           ) : (
             <Link
-              href={`/docs/${node.id}`}
+              href={fileHref(node.id)}
               className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-sm"
             >
               <span className="shrink-0 text-base leading-none">
@@ -358,18 +488,121 @@ export default function DocList() {
     );
   };
 
+  const renderSheetRow = (sheet: Sheet) => {
+    const isActive = sheet.id === activeId;
+    const icon = (
+      <span className="flex size-4 shrink-0 items-center justify-center text-base leading-none text-primary">
+        {sheet.icon ? sheet.icon : <SheetIcon className="size-3.5" />}
+      </span>
+    );
+
+    return (
+      <div key={sheet.id}>
+        <div
+          className={`group flex items-center gap-0.5 rounded-md pr-1 transition-colors ${
+            isActive ? "bg-primary/12 text-foreground" : "hover:bg-accent"
+          }`}
+          onContextMenu={(event) => onSheetContextMenu(event, sheet)}
+        >
+          {/* Lines sheets up with docs, which have an expand arrow here. */}
+          <span className="size-5 shrink-0" />
+
+          {renamingId === sheet.id ? (
+            <form
+              className="flex min-w-0 flex-1 items-center gap-1.5 py-1"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const title = new FormData(event.currentTarget).get("title");
+                commitSheetRename(sheet, typeof title === "string" ? title : "");
+              }}
+            >
+              {icon}
+              <input
+                name="title"
+                autoFocus
+                defaultValue={sheet.title}
+                aria-label="Rename sheet"
+                onBlur={(event) => commitSheetRename(sheet, event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setRenamingId(null);
+                  }
+                }}
+                className="min-w-0 flex-1 rounded border border-ring bg-input/40 px-1 py-0.5 text-sm outline-none"
+              />
+            </form>
+          ) : (
+            <Link
+              href={fileHref(sheet.id)}
+              className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-sm"
+            >
+              {icon}
+              <span className="truncate">{sheet.title}</span>
+              {sheet.isFavorite && (
+                <Star className="size-3 shrink-0 fill-warning text-warning" />
+              )}
+            </Link>
+          )}
+
+          <button
+            type="button"
+            title="Delete"
+            onClick={() => setPendingDeleteId(sheet.id)}
+            className="flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition hover:bg-sidebar-border hover:text-destructive group-hover:opacity-100"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
+
+        {pendingDeleteId === sheet.id && (
+          <div className="my-1 rounded-md border border-border bg-card p-2 text-xs">
+            <p className="text-muted-foreground">
+              Delete <span className="text-foreground">{sheet.title}</span>?
+            </p>
+            <div className="mt-2 flex justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteId(null)}
+                className="cursor-pointer rounded-md bg-secondary px-2 py-1 text-secondary-foreground transition-colors hover:bg-accent"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteSheet(sheet.id)}
+                disabled={deleteSheet.isPending}
+                className="cursor-pointer rounded-md bg-destructive-container px-2 py-1 text-destructive-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (collapsed) return null;
+
+  const listFailed = (docsQuery.isError && !docs) || (sheetsQuery.isError && !sheets);
+  const isEmpty = rootRows.length === 0;
+  const emptyLabel = {
+    all: "No docs or sheets yet.",
+    doc: "No docs yet. Create your first page.",
+    sheet: "No sheets yet.",
+  }[kindFilter];
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-background">
       <div className="flex items-center justify-between px-3 py-3">
         <h2 className="text-sm font-semibold text-foreground">
-          {showArchived ? "Archived" : "Docs"}
+          {showArchived ? "Archived" : "Files"}
         </h2>
         <div className="flex items-center gap-1">
           <button
             type="button"
-            title="Collapse docs list"
+            title="Collapse files list"
             onClick={toggle}
             className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
           >
@@ -377,9 +610,9 @@ export default function DocList() {
           </button>
           <button
             type="button"
-            title="New doc"
-            onClick={() => handleCreate()}
-            disabled={createDoc.isPending}
+            title="New doc or sheet"
+            onClick={onNewClick}
+            disabled={createDoc.isPending || createSheet.isPending}
             className="flex size-7 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
             <Plus className="size-4" />
@@ -396,7 +629,7 @@ export default function DocList() {
           <div className="relative">
             <button
               type="button"
-              title="New doc from a template"
+              title="New doc or sheet from a template"
               aria-expanded={isTemplateMenuOpen}
               onClick={() => setIsTemplateMenuOpen((open) => !open)}
               className={`${quickButton} w-full`}
@@ -407,7 +640,7 @@ export default function DocList() {
             {isTemplateMenuOpen && (
               <>
                 <div className="fixed inset-0 z-40" onMouseDown={() => setIsTemplateMenuOpen(false)} />
-                <div role="menu" aria-label="Templates" className="absolute left-0 top-9 z-50 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl">
+                <div role="menu" aria-label="Templates" className="absolute left-0 top-9 z-50 max-h-[70vh] w-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl">
                   {templates.map((template) => (
                     <button
                       key={template.id}
@@ -424,30 +657,45 @@ export default function DocList() {
                   <p className="px-2 pb-1 pt-1.5 text-[11px] leading-snug text-muted-foreground">
                     Turn any doc into a template from its header. Text like {"{{date}}"} is filled in.
                   </p>
+                  {sheetTemplates.length > 0 && (
+                    <>
+                      <p className="border-t border-border px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Sheets
+                      </p>
+                      {sheetTemplates.map((template) => (
+                        <button
+                          key={template.id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setIsTemplateMenuOpen(false);
+                            void handleCreateSheet(template.id);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                        >
+                          <span className="flex w-5 justify-center">
+                            {template.icon ?? <SheetIcon className="size-3.5 text-primary" />}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{template.name || "Untitled"}</span>
+                        </button>
+                      ))}
+                    </>
+                  )}
                 </div>
               </>
             )}
           </div>
-          <label title="Import a Markdown file" className={quickButton}>
+          <label title="Import a Markdown file as a doc, or a CSV file as a sheet" className={quickButton}>
             <Upload className="size-3.5" />
             Import
             <input
               type="file"
-              accept=".md,.markdown,text/markdown,text/plain"
+              accept=".md,.markdown,.csv,text/markdown,text/csv,text/plain"
               className="sr-only"
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
-                if (!file) return;
-                void readMarkdownFile(file).then((imported) =>
-                  createDoc
-                    .mutateAsync({
-                      title: imported.title,
-                      content: imported.content,
-                      plainText: imported.plainText,
-                    })
-                    .then((doc) => router.push(`/docs/${doc.id}`)),
-                );
+                if (file) void importFile(file);
               }}
             />
           </label>
@@ -457,17 +705,37 @@ export default function DocList() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search docs, or status:draft"
+            placeholder="Search files, or status:draft"
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
         </div>
-        <button
-          type="button"
-          onClick={() => setShowArchived((previous) => !previous)}
-          className="mt-2 text-xs text-muted-foreground hover:text-foreground"
-        >
-          {showArchived ? "Show active docs" : "Show archived"}
-        </button>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div role="radiogroup" aria-label="Show" className="flex rounded-md bg-muted p-0.5">
+            {KIND_FILTERS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={kindFilter === option.value}
+                onClick={() => setKindFilter(option.value)}
+                className={`rounded px-2 py-0.5 text-xs transition-colors ${
+                  kindFilter === option.value
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowArchived((previous) => !previous)}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            {showArchived ? "Show active" : "Show archived"}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">
@@ -488,31 +756,26 @@ export default function DocList() {
           </div>
         )}
 
-        {!isLoading && !(docsQuery.isError && !docs) && allDocs.length === 0 && (
-          <p className="px-2 py-1.5 text-sm text-muted-foreground">
-            No docs yet. Create your first page.
-          </p>
+        {sheetsQuery.isError && (
+          <div className="px-2 py-1.5">
+            <QueryFailure
+              what="sheets"
+              hasData={Boolean(sheets)}
+              error={sheetsQuery.error}
+              onRetry={() => sheetsQuery.refetch()}
+              retrying={sheetsQuery.isFetching}
+              className="px-3 py-4"
+            />
+          </div>
         )}
 
-        {searchResults
-          ? searchResults.map((doc) => (
-              <Link
-                key={doc.id}
-                href={`/docs/${doc.id}`}
-                onContextMenu={(event) =>
-                  onRowContextMenu(event, { ...doc, children: [] })
-                }
-                className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors ${
-                  doc.id === activeId
-                    ? "bg-primary/12 text-foreground"
-                    : "hover:bg-accent"
-                }`}
-              >
-                <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate">{doc.title}</span>
-              </Link>
-            ))
-          : tree.map((node) => renderRow(node, 0))}
+        {!isLoading && !listFailed && !searchResults && isEmpty && (
+          <p className="px-2 py-1.5 text-sm text-muted-foreground">{emptyLabel}</p>
+        )}
+
+        {(searchResults ?? rootRows).map((row) =>
+          row.kind === "doc" ? renderRow(row.node, 0) : renderSheetRow(row.sheet),
+        )}
 
         {searchResults?.length === 0 && (
           <p className="px-2 py-1.5 text-sm text-muted-foreground">

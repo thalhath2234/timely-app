@@ -17,7 +17,7 @@ import { isRichContentEmpty } from "../../lib/richText";
 import type { DocContent } from "../../lib/types";
 import { useCreateDoc, useCreateEvent, useCreateSheet, useCreateTask, useAddBlock, useProjectsQuery, useWorkspacesQuery } from "../../lib/hooks";
 import { buildRecurrenceInput, type RecurrenceDraft } from "../../lib/recurrence";
-import { sheetHref } from "../../lib/sheet";
+import { fileHref } from "../../lib/fileRoutes";
 import { formatDuration, formatShortDate, formatTime, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../lib/format";
 import type { CustomFieldValueInput } from "../../lib/types";
 import type { QuickAddPreset } from "../../lib/quickAddIntent";
@@ -348,13 +348,13 @@ export default function QuickAddSheet({
       const doc = await createDoc.mutateAsync({ title: name, workspaceId: activeWorkspaceId });
       reset();
       onClose();
-      router.push(`/(app)/docs/${doc.id}`);
+      router.push(fileHref(doc.id));
       return;
     }
     const sheet = await createSheet.mutateAsync({ title: name, workspaceId: activeWorkspaceId });
     reset();
     onClose();
-    router.push(sheetHref(sheet.id));
+    router.push(fileHref(sheet.id));
   }
 
   function finish(href: string) {

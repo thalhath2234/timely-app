@@ -76,6 +76,7 @@ import { buildRecurrenceInput, type RecurrenceDraft } from "@/app/utils/recurren
 import { isRichContentEmpty } from "@/app/utils/richText";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
 import { stagesForProject } from "@/app/utils/stages";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 interface RichDescription {
   content: DocContent;
@@ -538,7 +539,7 @@ function AddItemModalInner() {
     });
 
     closeModal();
-    router.push(`/docs/${doc.id}`);
+    router.push(fileHref(doc.id));
   };
 
   const createSheetMutation = useCreateSheet();
@@ -552,7 +553,7 @@ function AddItemModalInner() {
     });
 
     closeModal();
-    router.push(`/sheets/${sheet.id}`);
+    router.push(fileHref(sheet.id));
   };
 
   const closeModal = () => {
