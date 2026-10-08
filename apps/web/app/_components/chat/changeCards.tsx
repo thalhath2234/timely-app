@@ -210,11 +210,17 @@ export default function ChangeCards({
                 )}
                 {link && step.status === "done" && (
                   <Link
-                    className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
+                    className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-md bg-primary/8 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
                     href={link.href}
+                    aria-label={`Open ${link.noun}${link.title ? `: ${link.title}` : ""}`}
                   >
-                    {link.title}
-                    <ArrowUpRight className="size-3" />
+                    <span className="shrink-0">Open {link.noun}</span>
+                    {link.title && (
+                      <span className="min-w-0 truncate font-normal text-primary/80">
+                        · {link.title}
+                      </span>
+                    )}
+                    <ArrowUpRight className="size-3 shrink-0" />
                   </Link>
                 )}
               </div>

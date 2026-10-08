@@ -60,7 +60,7 @@ func New(deps Deps) *mcp.Server {
 IDs: usr_, ws_, pr_, tsk_, evt_, doc_, sht_, tst_ (status), lbl_, stg_, cf_, blk_, rr_, view_, ntf_, job_.
 Dates are ISO-8601. Recurrence is an RFC 5545 RRULE (FREQ, INTERVAL, COUNT, UNTIL, BYDAY, BYMONTHDAY, BYMONTH).
 Recurring tasks expand on the calendar; complete an occurrence with edit_task_occurrence, not complete_task.
-Docs and descriptions accept markdown. Mentions: [@Label](timely://task/<id>).
+Docs and descriptions accept markdown: CommonMark + GFM (tables, task lists), ==highlight==, $inline math$ and $$ display math $$ blocks, > [!NOTE]/[!TIP]/[!IMPORTANT]/[!WARNING]/[!CAUTION] callouts (optional title after the marker), [^1] footnotes with [^1]: definitions, --- frontmatter at the top (key: value lines, shown as page properties), [[Page title]] and [[Page title|alias]] links to other docs by title, toggles written as <details open><summary>Plain title</summary> then a blank line, the folded blocks, a blank line and </details> (drop "open" to start folded), embeds written as an image of a YouTube, Vimeo, Loom, Spotify, Figma or CodePen page on its own line (![](https://www.youtube.com/watch?v=...)), bookmarks (link cards) written as [Page title](https://url "Short description")<!-- bookmark --> on its own line, columns (2 to 4 side by side) written as <!-- columns -->, the first column's blocks, <!-- column --> before each next column, and <!-- /columns -->, each marker on its own line between blank lines, and fenced blocks that render: mermaid (diagrams), geojson/topojson (maps), stl (3D models; build them with add_3d_model, and an STL "solid <name> #rrggbb" line colors that part). get_doc returns the same syntax, so edit what it gives back; big data blocks (3D models, maps, very long code) come back as one [kept doc_id#hash ...] line inside their fence, and writing that line back keeps the block unchanged. Mentions: [@Label](timely://task/<id>) (also project, doc, sheet); subpage links: [Title](timely://doc/<id>).
 Reminders fire as server jobs even when the UI is closed. snooze_reminder moves the underlying reminder. Quiet hours still write the in-app row and delay push. Failed jobs are listed with list_jobs and recovered with retry_job.
 
 Projects can have ordered stages (stg_). Move cards with move_task_to_stage (empty stageId = Unstaged) or move_task_to_status for kanban.
@@ -90,8 +90,8 @@ func Handler(mcpServer *mcp.Server, verifier mcpauth.TokenVerifier) http.Handler
 
 func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "get_context", Description: "User, workspaces (statuses, labels, custom fields), projects with stages and open/done counts, working hours, saved views, and current time. Call this first."}, reads, s.getContext)
-	registerTool(s, server, &mcp.Tool{Name: "search", Description: "Keyword search over tasks, projects, docs, sheets, and events: exact title first, then title prefix, title substring, body substring. No embeddings."}, reads, s.search)
-	registerTool(s, server, &mcp.Tool{Name: "semantic_search", Description: "Hybrid search across tasks, projects, docs, sheets, and events: keyword and embedding hits fused, so exact titles and related meaning both rank. Prefer this for most lookups; falls back to keyword-only when no embedding provider is set. Returns ranked chunks; follow with get_task/get_doc/… for the full record."}, reads, s.semanticSearch)
+	registerTool(s, server, &mcp.Tool{Name: "search", Description: "Keyword search over tasks, projects, docs, sheets, and events: exact title first, then title prefix, title substring, body substring. No embeddings. key:value terms (status:draft, tags:travel, owner:\"Sam Lee\") keep only docs whose properties (frontmatter) match."}, reads, s.search)
+	registerTool(s, server, &mcp.Tool{Name: "semantic_search", Description: "Hybrid search across tasks, projects, docs, sheets, and events: keyword and embedding hits fused, so exact titles and related meaning both rank. Prefer this for most lookups; falls back to keyword-only when no embedding provider is set. Returns ranked chunks; follow with get_task/get_doc/… for the full record. key:value terms (status:draft, tags:travel) keep only docs whose properties (frontmatter) match; doc properties are also embedded."}, reads, s.semanticSearch)
 	registerTool(s, server, &mcp.Tool{Name: "reindex_search", Description: "Rebuild the user's search index (same as POST /search/reindex). Use after bulk imports or if semantic results look stale."}, mcpOnly, s.reindexSearch)
 	registerTool(s, server, &mcp.Tool{Name: "get_agenda", Description: "Calendar items, overdue tasks, and unscheduled work for a day or week."}, reads, s.getAgenda)
 	registerTool(s, server, &mcp.Tool{Name: "get_free_time", Description: "Working-hour gaps with no events or task blocks."}, reads, s.getFreeTime)
@@ -186,10 +186,11 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "clear_task_blocks", Description: "Remove all blocks from a task."}, writes.reviewed(), s.clearTaskBlocks)
 
 	registerTool(s, server, &mcp.Tool{Name: "list_docs", Description: "List active documents by default. archived=true lists the archive; archived=false is the default."}, reads, s.listDocs)
-	registerTool(s, server, &mcp.Tool{Name: "get_doc", Description: "Get a document as markdown."}, reads, s.getDoc)
-	registerTool(s, server, &mcp.Tool{Name: "create_doc", Description: "Create a document from markdown."}, writes, s.createDoc)
+	registerTool(s, server, &mcp.Tool{Name: "get_doc", Description: "Get a document as markdown (GFM plus math, callouts, footnotes, frontmatter, [[wiki links]] and mermaid/geojson/stl blocks). Big stl/geojson/topojson blocks and very long code show as a [kept ...] placeholder line with a short summary; keep that line to keep the block."}, reads, s.getDoc)
+	registerTool(s, server, &mcp.Tool{Name: "create_doc", Description: "Create a document from markdown. Supports GFM, $math$, > [!NOTE] callouts, [^1] footnotes, --- frontmatter, [[wiki links]], and mermaid/geojson/topojson/stl fences that render."}, writes, s.createDoc)
 	registerTool(s, server, &mcp.Tool{Name: "update_doc", Description: "Update a document (replace markdown, title, parent, archived, …)."}, writes.reviewedWhen(hasAny("markdown")), s.updateDoc)
-	registerTool(s, server, &mcp.Tool{Name: "append_to_doc", Description: "Append markdown to a document."}, writes, s.appendToDoc)
+	registerTool(s, server, &mcp.Tool{Name: "append_to_doc", Description: "Append markdown to a document (same syntax as create_doc)."}, writes, s.appendToDoc)
+	registerTool(s, server, &mcp.Tool{Name: "add_3d_model", Description: "Add a 3D model to a document, built from parts (sphere, box, cylinder, cone, capsule) with a center, size, optional rotation and a #rrggbb color each. Use this instead of writing STL triangles by hand: it writes a colored stl block the doc draws. Overlap parts so they join, z is up; e.g. a figure is a sphere head on a capsule body with capsule arms and legs. replace=true swaps the doc's first stl block, so you can refine a model."}, writes.reviewedWhen(isTrue("replace")), s.add3DModel)
 	registerTool(s, server, &mcp.Tool{Name: "archive_doc", Description: "Archive a document (archived=false unarchives). Prefer this over delete."}, mcpOnly, s.archiveDoc)
 	registerTool(s, server, &mcp.Tool{Name: "delete_doc", Description: "Delete a document. Requires confirm=true. Subpages are not deleted; descendantCount is returned."}, mcpOnly.reviewed(), s.deleteDoc)
 
@@ -312,4 +313,24 @@ func nowRFC() string { return time.Now().UTC().Format(time.RFC3339) }
 
 func md(src string) (models.JSONMap, string) {
 	return richtext.FromMarkdown(src)
+}
+
+// docMarkdown parses a doc's new Markdown, putting back the big blocks that
+// get_doc showed as [kept ...] placeholders.
+func (s *Server) docMarkdown(uid, src string) (models.JSONMap, string, error) {
+	rich, plain := md(src)
+	restored, err := restoreBlocks(rich, func(docID string) (models.JSONMap, error) {
+		d, err := s.Docs.GetByID(uid, docID)
+		if err != nil {
+			return nil, err
+		}
+		return d.Content, nil
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	if restored {
+		plain = richtext.PlainText(rich)
+	}
+	return rich, plain, nil
 }

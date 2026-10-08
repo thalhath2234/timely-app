@@ -9,6 +9,7 @@ import (
 	"strings"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
+	"timely-api/internal/richtext"
 
 	"gorm.io/gorm"
 )
@@ -45,12 +46,12 @@ func (s *service) Search(userID, query string, limit int) ([]Hit, error) {
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
-	query = strings.TrimSpace(query)
-	if query == "" {
+	query, filters := splitQuery(strings.TrimSpace(query))
+	if query == "" && len(filters) == 0 {
 		return []Hit{}, nil
 	}
 	limit = clampLimit(limit)
-	ranked := s.keyword(userID, query, limit, nil)
+	ranked := s.keyword(userID, query, limit, nil, filters)
 	hits := make([]Hit, 0, len(ranked))
 	for _, kw := range ranked {
 		hits = append(hits, kw.Hit)
@@ -62,17 +63,27 @@ func (s *service) SemanticSearch(ctx context.Context, userID, query string, limi
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
-	query = strings.TrimSpace(query)
-	if query == "" {
+	query, filters := splitQuery(strings.TrimSpace(query))
+	if query == "" && len(filters) == 0 {
 		return []Hit{}, nil
 	}
 	limit = clampLimit(limit)
 	kinds = allowedKinds(kinds)
+	if len(filters) > 0 {
+		// Only docs have properties.
+		if len(kinds) > 0 && !contains(kinds, "doc") {
+			return []Hit{}, nil
+		}
+		kinds = []string{"doc"}
+	}
 
 	// Fetch past the limit so an item ranked low in one list can still be
 	// lifted by the other.
 	fetch := limit * 2
-	keyword := s.keyword(userID, query, fetch, kinds)
+	keyword := s.keyword(userID, query, fetch, kinds, filters)
+	if query == "" {
+		return fuse(keyword, nil, limit), nil
+	}
 
 	semantic, err := s.vector(ctx, userID, query, fetch, kinds)
 	if err != nil {
@@ -81,7 +92,45 @@ func (s *service) SemanticSearch(ctx context.Context, userID, query string, limi
 		}
 		semantic = nil
 	}
+	if len(filters) > 0 && len(semantic) > 0 {
+		semantic = s.keepMatching(userID, semantic, filters)
+	}
 	return fuse(keyword, semantic, limit), nil
+}
+
+// keepMatching drops vector hits whose doc lacks the filtered properties.
+func (s *service) keepMatching(userID string, hits []Hit, filters []propertyFilter) []Hit {
+	ids := make([]string, 0, len(hits))
+	for _, hit := range hits {
+		ids = append(ids, hit.ID)
+	}
+	var keep []string
+	if err := withProperties(filters)(s.db.Model(&models.Document{}).
+		Where("user_id = ? AND id IN ?", userID, ids)).
+		Pluck("id", &keep).Error; err != nil {
+		log.Printf("search: property filter failed: %v", err)
+		return nil
+	}
+	ok := map[string]bool{}
+	for _, id := range keep {
+		ok[id] = true
+	}
+	out := hits[:0]
+	for _, hit := range hits {
+		if ok[hit.ID] {
+			out = append(out, hit)
+		}
+	}
+	return out
+}
+
+func contains(list []string, item string) bool {
+	for _, v := range list {
+		if v == item {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *service) vector(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error) {
@@ -131,7 +180,10 @@ func (s *service) Reindex(ctx context.Context, userID string) (int, error) {
 // keyword runs the ranked substring query over every requested kind and
 // returns the merged list ordered by tier (exact title, title prefix, title
 // substring, body substring), then by most recently updated.
-func (s *service) keyword(userID, query string, limit int, kinds []string) []keywordHit {
+func (s *service) keyword(userID, query string, limit int, kinds []string, filters []propertyFilter) []keywordHit {
+	if len(filters) > 0 {
+		kinds = []string{"doc"}
+	}
 	want := map[string]bool{}
 	for _, kind := range kinds {
 		want[kind] = true
@@ -165,8 +217,8 @@ func (s *service) keyword(userID, query string, limit int, kinds []string) []key
 	if all || want["doc"] {
 		out = append(out, s.keywordKind(query, perKind, kindQuery{
 			kind: "doc", model: &models.Document{},
-			title: "title", body: "plain_text",
-			scope: func(db *gorm.DB) *gorm.DB { return db.Where("user_id = ?", userID) },
+			title: "title", body: "plain_text", lead: frontmatterText,
+			scope: func(db *gorm.DB) *gorm.DB { return withProperties(filters)(db.Where("user_id = ?", userID)) },
 		})...)
 	}
 	if all || want["sheet"] {
@@ -198,6 +250,7 @@ type kindQuery struct {
 	model   any
 	title   string
 	body    string // empty when the kind has no body column
+	lead    string // properties text at the start of body, shown tidied in snippets
 	id      string // defaults to "id"
 	updated string // defaults to "updated_at"
 	scope   func(*gorm.DB) *gorm.DB
@@ -218,6 +271,10 @@ func (s *service) keywordKind(query string, limit int, q kindQuery) []keywordHit
 		"CASE WHEN lower(%[1]s) = lower(?) THEN %[2]d WHEN %[1]s ILIKE ? THEN %[3]d WHEN %[1]s ILIKE ? THEN %[4]d ELSE %[5]d END",
 		q.title, tierExactTitle, tierTitlePrefix, tierTitleMatch, tierBodyMatch,
 	)
+	leadSelect := "'' AS lead"
+	if q.lead != "" {
+		leadSelect = "COALESCE(" + q.lead + ", '') AS lead"
+	}
 	bodySelect := "'' AS body"
 	match := q.title + " ILIKE ?"
 	matchArgs := []any{like}
@@ -226,16 +283,21 @@ func (s *service) keywordKind(query string, limit int, q kindQuery) []keywordHit
 		match = "(" + q.title + " ILIKE ? OR " + q.body + " ILIKE ?)"
 		matchArgs = append(matchArgs, like)
 	}
+	if query == "" {
+		// Filters alone (status:draft): every record in scope, newest first.
+		match, matchArgs = "TRUE", nil
+	}
 
 	type row struct {
 		ID    string
 		Title string
 		Body  string
+		Lead  string
 		Tier  int
 	}
 	var rows []row
 	db := s.db.Model(q.model).
-		Select(q.id+" AS id, "+q.title+" AS title, "+bodySelect+", "+tier+" AS tier", query, prefix, like).
+		Select(q.id+" AS id, "+q.title+" AS title, "+bodySelect+", "+leadSelect+", "+tier+" AS tier", query, prefix, like).
 		Where(match, matchArgs...).
 		Order("tier DESC").
 		Order(q.updated + " DESC").
@@ -253,6 +315,14 @@ func (s *service) keywordKind(query string, limit int, q kindQuery) []keywordHit
 		text := r.Body
 		if q.body == "" {
 			text = r.Title
+		}
+		if r.Lead != "" {
+			// "tags: travel, 2026; status: draft · Book flights..." instead of raw YAML.
+			rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), strings.TrimSpace(r.Lead)))
+			if line := richtext.DescribeProperties(richtext.ParseProperties(r.Lead)); line != "" {
+				rest = strings.TrimSpace(line + " · " + rest)
+			}
+			text = rest
 		}
 		out = append(out, keywordHit{
 			Hit:  Hit{Kind: q.kind, ID: r.ID, Title: r.Title, Snippet: snippet(text)},

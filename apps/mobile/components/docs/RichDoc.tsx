@@ -1,7 +1,10 @@
 import { Fragment, type ReactNode } from "react";
-import { Linking, ScrollView, StyleSheet, Text, View, type TextStyle } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle } from "react-native";
 import type { DocContent } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { frontmatterEntries } from "@timely/contract/properties";
+import { embedInfo, linkHost } from "@timely/contract/embeds";
+import { getApiUrlSync } from "../../lib/api/client";
 
 type Mark = { type?: string; attrs?: Record<string, unknown> };
 type Node = {
@@ -37,7 +40,7 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
     case "orderedList":
       return (
         <View style={styles.list}>
-          {(node.content ?? []).map((item, i) => <ListItem key={i} bullet={`${i + 1}.`} node={item} onLink={onLink} />)}
+          {(node.content ?? []).map((item, i) => <ListItem key={i} bullet={`${(Number(node.attrs?.start) || 1) + i}.`} node={item} onLink={onLink} />)}
         </View>
       );
     case "taskList":
@@ -64,6 +67,79 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
       return <View style={styles.hr} />;
     case "table":
       return <Table rows={node.content ?? []} />;
+    case "callout": {
+      const kind = String(node.attrs?.kind || "note");
+      const label = kind.charAt(0).toUpperCase() + kind.slice(1);
+      const title = node.attrs?.title ? String(node.attrs.title) : "";
+      return (
+        <View style={[styles.quote, styles.callout]}>
+          <Text style={styles.calloutHead}>{title ? `${label}: ${title}` : label}</Text>
+          {(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}
+        </View>
+      );
+    }
+    case "frontmatter":
+      return (
+        <View style={styles.props}>
+          {frontmatterEntries(plain(node)).map(({ key, values }, i) => (
+            <View key={`${key}-${i}`} style={styles.propRow}>
+              <Text style={styles.propKey}>{key}</Text>
+              <View style={styles.propValues}>
+                {values.map((value, j) => (
+                  <Text key={j} style={styles.propChip}>
+                    {value}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+      );
+    case "details": {
+      // Toggles show open in read-only text.
+      const [summary, ...body] = node.content ?? [];
+      return (
+        <View>
+          <Text style={[styles.p, styles.bold]}>▾ {plain(summary ?? {})}</Text>
+          <View style={styles.liBody}>{body.map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>
+        </View>
+      );
+    }
+    case "columns":
+      // A phone shows columns one under another.
+      return <View style={styles.columns}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>;
+    case "column":
+      return <View style={styles.column}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>;
+    case "embed":
+    case "bookmark": {
+      // Read-only text shows both as a link card; the player is in the editor.
+      const href = String(node.attrs?.src ?? node.attrs?.url ?? "");
+      if (!href) return null;
+      const info = node.type === "embed" ? embedInfo(href) : null;
+      const title = node.type === "embed" ? info?.provider ?? "Embed" : String(node.attrs?.title || linkHost(href));
+      const description = node.type === "bookmark" ? String(node.attrs?.description ?? "") : "";
+      return (
+        <Pressable accessibilityRole="link" onPress={() => (onLink ? onLink(href) : void Linking.openURL(href))} style={styles.linkCard}>
+          <Text style={[styles.p, styles.bold]} numberOfLines={1}>{title}</Text>
+          {description ? <Text style={styles.linkCardText} numberOfLines={2}>{description}</Text> : null}
+          <Text style={styles.linkCardText} numberOfLines={1}>{href.replace(/^https?:\/\//, "")}</Text>
+        </Pressable>
+      );
+    }
+    case "mathBlock":
+      // Read-only text shows the TeX source as code.
+      return (
+        <ScrollView horizontal style={styles.code} contentContainerStyle={styles.codeInner}>
+          <Text style={styles.codeText}>{plain(node)}</Text>
+        </ScrollView>
+      );
+    case "footnote":
+      return (
+        <View style={styles.li}>
+          <Text style={[styles.bullet, styles.mention]}>[{String(node.attrs?.label ?? "")}]</Text>
+          <View style={styles.liBody}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>
+        </View>
+      );
     default:
       return (
         <Text style={styles.p}>
@@ -120,6 +196,42 @@ function Inline({ nodes, onLink }: { nodes?: Node[]; onLink?: (href: string) => 
             </Text>
           );
         }
+        if (node.type === "mathInline") {
+          return (
+            <Text key={i} style={styles.inlineCode}>
+              {String(node.attrs?.latex ?? "")}
+            </Text>
+          );
+        }
+        if (node.type === "footnoteRef") {
+          return (
+            <Text key={i} style={styles.mention}>
+              [{String(node.attrs?.label ?? "")}]
+            </Text>
+          );
+        }
+        if (node.type === "wikiLink") {
+          return (
+            <Text key={i} style={styles.mention}>
+              {String(node.attrs?.alias || node.attrs?.target || "page")}
+            </Text>
+          );
+        }
+        if (node.type === "image") {
+          // Inline images in read-only text show as a link to the picture.
+          const raw = node.attrs?.src;
+          // Uploaded doc images are stored as "/files/<id>" on the server.
+          const src = typeof raw === "string" && raw.startsWith("/files/") ? getApiUrlSync() + raw : raw;
+          return (
+            <Text
+              key={i}
+              style={styles.link}
+              onPress={typeof src === "string" ? () => onLink ? onLink(src) : void Linking.openURL(src) : undefined}
+            >
+              {String(node.attrs?.alt || "Image")}
+            </Text>
+          );
+        }
         if (node.type === "text") {
           const href = node.marks?.find((m) => m.type === "link")?.attrs?.href;
           return (
@@ -160,6 +272,8 @@ function plain(node?: Node): string {
     return node.attrs?.appearance === "page" ? label : `@${label}`;
   }
   if (node.type === "hardBreak") return "\n";
+  if (node.type === "mathInline") return String(node.attrs?.latex ?? "");
+  if (node.type === "wikiLink") return String(node.attrs?.alias || node.attrs?.target || "");
   return (node.content ?? []).map(plain).join("");
 }
 
@@ -180,6 +294,12 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingLeft: 12,
     gap: 8,
   },
+  columns: { gap: 10 },
+  column: { paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 6 },
+  linkCard: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, gap: 2 },
+  linkCardText: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
+  callout: { backgroundColor: colors.accent, borderRadius: 8, paddingVertical: 8, paddingRight: 12 },
+  calloutHead: { color: colors.primary, fontWeight: "700", fontSize: 14 },
   code: {
     borderRadius: 10,
     backgroundColor: colors.card,
@@ -187,6 +307,19 @@ const styles = createThemedStyleSheet((colors) => ({
     borderColor: colors.border,
   },
   codeInner: { padding: 12 },
+  props: { borderRadius: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, padding: 10, gap: 6 },
+  propRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  propKey: { color: colors.mutedForeground, fontSize: 13, lineHeight: 22, minWidth: 64 },
+  propValues: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  propChip: {
+    backgroundColor: colors.accent,
+    color: colors.accentForeground,
+    borderRadius: 999,
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+    fontSize: 13,
+  },
   codeText: { color: colors.foreground, fontFamily: "monospace", fontSize: 13, lineHeight: 18 },
   hr: { height: 1, backgroundColor: colors.border, marginVertical: 8 },
   tableScroll: { marginVertical: 4 },

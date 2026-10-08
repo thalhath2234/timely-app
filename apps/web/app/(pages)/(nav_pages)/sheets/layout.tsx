@@ -1,4 +1,5 @@
 import SheetList from "@/app/_components/sheets/sheetList";
+import TabbedPane from "@/app/_components/pageTabs/tabbedPane";
 
 export default function SheetsLayout({
   children,
@@ -6,7 +7,7 @@ export default function SheetsLayout({
   return (
     <div className="flex h-full w-full overflow-hidden">
       <SheetList />
-      <div className="min-w-0 flex-1 overflow-hidden">{children}</div>
+      <TabbedPane>{children}</TabbedPane>
     </div>
   );
 }

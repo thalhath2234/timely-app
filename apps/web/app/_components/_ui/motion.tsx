@@ -166,12 +166,17 @@ export function PopoverView({ children }: { children: ReactNode }) {
   );
 }
 
-/** Enter-only page fade so route changes stay snappy. */
+/**
+ * Enter-only page fade so route changes stay snappy. It is keyed by the top
+ * level section, not the full path: keying by path remounted the whole page
+ * (doc and sheet lists included) every time a doc or sheet was opened, which
+ * looked like a full reload.
+ */
 export function PageFade({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
+  const section = usePathname().split("/")[1] ?? "";
   return (
     <motion.div
-      key={pathname}
+      key={section}
       className="h-full min-h-0"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}

@@ -182,9 +182,23 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
     });
   }, [anchor, items]);
 
+  // The panel can't take focus while it is hidden: until it is placed, and
+  // while the opening view transition runs. Without focus, arrow keys and
+  // Esc never reach the menu, so keep trying for a few frames.
+  const placed = placement !== null;
   useEffect(() => {
-    panelRef.current?.focus({ preventScroll: true });
-  }, []);
+    if (!placed) return;
+    let frame = 0;
+    let tries = 0;
+    const focus = () => {
+      const panel = panelRef.current;
+      if (!panel || panel.contains(document.activeElement)) return;
+      panel.focus({ preventScroll: true });
+      if (document.activeElement !== panel && (tries += 1) < 60) frame = requestAnimationFrame(focus);
+    };
+    focus();
+    return () => cancelAnimationFrame(frame);
+  }, [placed]);
 
   useEffect(
     () => () => {

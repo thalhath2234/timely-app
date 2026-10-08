@@ -1,5 +1,6 @@
 import { Text, View } from "react-native";
 import {
+  ArrowUpRight,
   Check,
   ClipboardList,
   RefreshCw,
@@ -10,7 +11,7 @@ import type { Chat, ChatStep } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import ChangeCards from "./ChangeCards";
 import { ReceiptSaveSummary } from "./ReceiptReview";
-import { isBusy, phaseLabel } from "./chatMeta";
+import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
 import { Action, styles as common } from "./shared";
 
 /**
@@ -52,6 +53,11 @@ export default function ProposalPage({
   const failed = !archived && chat.status === "failed";
   const stopped = !archived && chat.status === "stopped";
   const approval = !archived && chat.status === "approval";
+  // When everything applied changed one screen, offer it from the summary.
+  const target =
+    approval || applying || (!archived && isBusy(chat.status))
+      ? null
+      : sharedTarget(steps);
   const heading = archived
     ? "Earlier changes"
     : approval
@@ -123,6 +129,14 @@ export default function ProposalPage({
           />
         </View>
         {hint ? <Text style={common.muted}>{hint}</Text> : null}
+        {target ? (
+          <Action
+            label={`Open ${target.noun}`}
+            icon={ArrowUpRight}
+            compact
+            onPress={() => onLink(target.href)}
+          />
+        ) : null}
         {applying ? (
           <Action
             label="Stop"

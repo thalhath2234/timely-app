@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"strings"
 	"timely-api/internal/models"
+	"timely-api/internal/richtext"
 	"unicode"
 	"unicode/utf8"
 )
@@ -26,6 +27,23 @@ func Combine(title, body string) string {
 	default:
 		return title + "\n\n" + body
 	}
+}
+
+// DocBody is what a doc contributes to its embeddings: its properties as one
+// readable line ("Properties: tags: travel, 2026; status: draft"), then its
+// text without the raw frontmatter, so "draft trip notes" finds the doc.
+func DocBody(doc *models.Document) string {
+	plain := strings.TrimSpace(doc.PlainText)
+	fm := richtext.Frontmatter(doc.Content)
+	if fm == "" {
+		return plain
+	}
+	plain = strings.TrimSpace(strings.TrimPrefix(plain, strings.TrimSpace(fm)))
+	line := richtext.DescribeProperties(richtext.ParseProperties(fm))
+	if line == "" {
+		return plain
+	}
+	return "Properties: " + line + "\n\n" + plain
 }
 
 func contentHash(model, content string) string {

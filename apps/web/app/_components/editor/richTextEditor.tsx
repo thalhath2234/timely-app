@@ -1,6 +1,7 @@
 "use client";
 
 import { useSidebarStore } from "@/app/_store/sidebarStore";
+import { useToastStore } from "@/app/_store/toastStore";
 import { DocContent } from "@/app/_types/types";
 import { openTasksEntityHref } from "@/app/utils/entityDetail";
 import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
@@ -27,33 +28,56 @@ import {
   BetweenVerticalEnd,
   BetweenVerticalStart,
   Bold,
+  Box,
   Check,
   CheckSquare,
   Code,
   Code2,
-  Columns2,
   ExternalLink,
-  Heading,
   Heading1,
   Heading2,
   Heading3,
+  Info,
   Highlighter,
+  ImageIcon,
   Italic,
   Link2,
   List,
+  ListCollapse,
+  Columns2,
+  TextSearch,
+  MonitorPlay,
+  Bookmark as BookmarkIcon,
   ListOrdered,
+  Map as MapIcon,
   Minus,
-  Quote,
+  Radical,
+  SquareSigma,
   Strikethrough,
-  TableCellsMerge,
-  TableCellsSplit,
+  Superscript,
+  Tags,
   Trash2,
   Unlink,
+  Workflow,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AutoCapitalize } from "./autoCapitalize";
+import { Callout } from "./callout";
+import { DocImage } from "./docImage";
+import { Details, DetailsSummary } from "./details";
+import { BlockHandle } from "./blockHandle";
+import { BlockSelection } from "./blockSelection";
+import BlockTransferDialog from "./blockTransfer";
+import { Bookmark, Embed } from "./linkBlocks";
+import { FindReplace } from "./findReplace";
+import { Column, Columns } from "./columns";
+import FindBar from "./findBar";
 import CodeBlockView from "./codeBlockView";
+import { Footnote, FootnoteRef } from "./footnotes";
+import { DocumentWithFrontmatter, Frontmatter } from "./frontmatter";
+import { MathBlock, MathInline } from "./mathNodes";
+import { WikiLink, wikiLinkPage } from "./wikiLink";
 import { CodeHighlight } from "./codeHighlight";
 import { dismissSuggestionAndQuery } from "./dismissSuggestion";
 import { DotBulletShortcut } from "./dotBullet";
@@ -61,6 +85,9 @@ import { Mention, MentionPluginKey } from "./mention";
 import { createMentionRenderer, filterMentionItems } from "./mentionMenu";
 import { SlashCommand, SlashCommandPluginKey } from "./slashCommand";
 import {
+  DIAGRAM_SAMPLE,
+  MAP_SAMPLE,
+  MODEL_SAMPLE,
   OPEN_LINK_EDITOR_EVENT,
   createSlashItems,
   createSlashRenderer,
@@ -69,7 +96,7 @@ import {
 
 const LINK_POPOVER_WIDTH = 320;
 const TOOLBAR_WIDTH = 340;
-const TABLE_TOOLBAR_WIDTH = 470;
+const TABLE_TOOLBAR_WIDTH = 260;
 
 interface FloatingPosition {
   top: number;
@@ -92,6 +119,8 @@ export interface RichTextEditorProps {
   syncKey?: number | string;
   /** Docs only: slash "Page" creates a child of this page and links it. */
   onCreateSubpage?: (props: { editor: Editor; range: Range }) => void | Promise<void>;
+  /** False shows the doc read-only, without toolbars (version previews). */
+  editable?: boolean;
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -170,6 +199,7 @@ export default function RichTextEditor({
   autoFocus = false,
   syncKey = 0,
   onCreateSubpage,
+  editable = true,
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -183,6 +213,7 @@ export default function RichTextEditor({
   );
   const [linkDraft, setLinkDraft] = useState("");
   const linkInputRef = useRef<HTMLInputElement>(null);
+  const [findOpen, setFindOpen] = useState(false);
   const editorRef = useRef<Editor | null>(null);
 
   // The suggestion plugin lives outside React, so it reads the latest list
@@ -218,8 +249,12 @@ export default function RichTextEditor({
         : "Type '/' for commands, '@' to mention, or just start writing...";
 
     const list: Extensions = [
+      // Frontmatter may only come first, which the document node enforces.
+      DocumentWithFrontmatter,
       StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
+        document: false,
+        // The toolbar offers H1-H3; H4-H6 exist so Markdown imports keep them.
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
         codeBlock: false,
         link: {
           openOnClick: false,
@@ -255,6 +290,7 @@ export default function RichTextEditor({
           if (node.type.name === "heading") {
             return `Heading ${node.attrs.level}`;
           }
+          if (node.type.name === "detailsSummary") return "Toggle";
           if (isInsideTable(placeholderEditor, pos)) {
             return hasAnchor ? "Type @ to mention" : "";
           }
@@ -266,11 +302,30 @@ export default function RichTextEditor({
       TaskList,
       TaskItem.configure({ nested: true }),
       Highlight.configure({ multicolor: false }),
+      // Inline like Markdown's ![alt](src), so imported images keep their place.
+      DocImage.configure({ inline: true, HTMLAttributes: { class: "doc-image" } }),
       TableKit.configure({
         table: { resizable: true, handleWidth: 6, cellMinWidth: 80 },
       }),
       DotBulletShortcut,
+      // Markdown extras (see docs/markdown.md): math, callouts, footnotes,
+      // frontmatter and [[wiki links]].
+      MathInline,
+      MathBlock,
+      Callout,
+      Details,
+      DetailsSummary,
+      Embed,
+      Bookmark,
+      Columns,
+      Column,
+      FootnoteRef,
+      Footnote,
+      Frontmatter,
+      WikiLink,
     ];
+
+    if (variant === "page") list.push(BlockHandle, BlockSelection, FindReplace.configure({ onOpen: () => setFindOpen(true) }));
 
     if (enableSlashCommands) {
       list.push(
@@ -318,6 +373,7 @@ export default function RichTextEditor({
     // The editor is rendered inside a client page, and Tiptap requires this
     // flag to avoid hydration mismatches in the Next.js app router.
     immediatelyRender: false,
+    editable,
     autofocus: autoFocus ? "end" : false,
     extensions,
     content: toEditorContent(content),
@@ -415,6 +471,34 @@ export default function RichTextEditor({
 
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
+
+      // A footnote marker scrolls to its note.
+      const footnoteRef = target?.closest?.("sup[data-footnote-ref]");
+      if (footnoteRef) {
+        const label = footnoteRef.getAttribute("data-label") ?? "";
+        const note = element.querySelector(`[data-footnote="${CSS.escape(label)}"]`);
+        if (note) {
+          event.preventDefault();
+          note.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        return;
+      }
+
+      // A [[wiki link]] opens the doc with that title, if there is one.
+      const wikiLink = target?.closest?.("a[data-wiki-link]");
+      if (wikiLink) {
+        event.preventDefault();
+        event.stopPropagation();
+        const page = wikiLinkPage(wikiLink.getAttribute("data-target") ?? "");
+        const wanted = page.toLowerCase();
+        const doc = mentionBox
+          .get()
+          .find((item) => item.entityType === "doc" && item.label.trim().toLowerCase() === wanted);
+        if (doc) router.push(`/docs/${doc.id}`);
+        else useToastStore.getState().show(`No page named "${page}" yet.`);
+        return;
+      }
+
       const mention = target?.closest?.("a[data-mention]");
       const internalLink =
         mention ??
@@ -435,7 +519,7 @@ export default function RichTextEditor({
 
     element.addEventListener("click", handleClick, true);
     return () => element.removeEventListener("click", handleClick, true);
-  }, [editor, router]);
+  }, [editor, mentionBox, router]);
 
   // Search (Ctrl+K) owns that shortcut — close editor overlays so they do
   // not sit under the search palette.
@@ -612,7 +696,30 @@ export default function RichTextEditor({
     );
   }
 
-  let toolbarButtons = [
+  // Blocks from the toolbar replace the caret's empty line, or go in as a new
+  // block after the current one so the text being written stays as it is.
+  const insertBlock = (content: JSONContent) => {
+    const { $from } = editor.state.selection;
+    const chain = editor.chain().focus();
+    if ($from.parent.isTextblock && $from.parent.content.size === 0) {
+      chain.insertContent(content).run();
+    } else {
+      chain.insertContentAt($from.after(), content).run();
+    }
+  };
+  const codeSample = (language: string, text: string): JSONContent => ({
+    type: "codeBlock",
+    attrs: { language },
+    content: [{ type: "text", text }],
+  });
+
+  let toolbarButtons: {
+    label: string;
+    icon: typeof Bold;
+    isActive: boolean;
+    run: () => void;
+    startsGroup?: boolean;
+  }[] = [
     {
       label: "Bold",
       icon: Bold,
@@ -680,10 +787,25 @@ export default function RichTextEditor({
       run: () => editor.chain().focus().toggleTaskList().run(),
     },
     {
-      label: "Quote",
-      icon: Quote,
-      isActive: editor.isActive("blockquote"),
-      run: () => editor.chain().focus().toggleBlockquote().run(),
+      label: "Callout",
+      icon: Info,
+      isActive: editor.isActive("callout"),
+      run: () =>
+        editor.isActive("callout")
+          ? editor.chain().focus().lift("callout").run()
+          : editor.chain().focus().setCallout({ kind: "note" }).run(),
+    },
+    {
+      label: "Toggle",
+      icon: ListCollapse,
+      isActive: editor.isActive("details"),
+      run: () => editor.chain().focus().toggleDetails().run(),
+    },
+    {
+      label: "Columns",
+      icon: Columns2,
+      isActive: editor.isActive("columns"),
+      run: () => editor.chain().focus().toggleColumns(2).run(),
     },
     {
       label: "Code block",
@@ -696,6 +818,67 @@ export default function RichTextEditor({
       icon: AtSign,
       isActive: false,
       run: () => editor.chain().focus().insertContent("@").run(),
+    },
+    {
+      label: "Image",
+      icon: ImageIcon,
+      isActive: false,
+      run: () => editor.chain().focus().pickImage().run(),
+      startsGroup: true,
+    },
+    {
+      label: "Embed",
+      icon: MonitorPlay,
+      isActive: false,
+      run: () => insertBlock({ type: "embed" }),
+    },
+    {
+      label: "Bookmark",
+      icon: BookmarkIcon,
+      isActive: false,
+      run: () => insertBlock({ type: "bookmark" }),
+    },
+    {
+      label: "Diagram",
+      icon: Workflow,
+      isActive: false,
+      run: () => insertBlock(codeSample("mermaid", DIAGRAM_SAMPLE)),
+    },
+    {
+      label: "Equation",
+      icon: SquareSigma,
+      isActive: editor.isActive("mathBlock"),
+      run: () => insertBlock({ type: "mathBlock" }),
+    },
+    {
+      label: "Formula",
+      icon: Radical,
+      isActive: false,
+      run: () => editor.chain().focus().insertMathInline().run(),
+    },
+    {
+      label: "Footnote",
+      icon: Superscript,
+      isActive: false,
+      run: () => editor.chain().focus().insertFootnote().run(),
+    },
+    {
+      label: "Map",
+      icon: MapIcon,
+      isActive: false,
+      run: () => insertBlock(codeSample("geojson", MAP_SAMPLE)),
+    },
+    {
+      label: "3D model",
+      icon: Box,
+      isActive: false,
+      run: () => insertBlock(codeSample("stl", MODEL_SAMPLE)),
+    },
+    {
+      label: "Properties",
+      icon: Tags,
+      isActive: editor.state.doc.firstChild?.type.name === "frontmatter",
+      run: () => editor.chain().focus().editFrontmatter().run(),
     },
   ];
 
@@ -710,7 +893,7 @@ export default function RichTextEditor({
       "Heading 1",
       "Heading 2",
       "Bulleted list",
-      "Quote",
+      "Callout",
     ]);
     toolbarButtons = toolbarButtons.filter((button) =>
       floatingLabels.has(button.label),
@@ -758,35 +941,11 @@ export default function RichTextEditor({
         run: () => editor.chain().focus().deleteRow().run(),
       },
     ],
-    [
-      {
-        label: "Toggle header row",
-        icon: Heading,
-        disabled: !editor.can().toggleHeaderRow(),
-        run: () => editor.chain().focus().toggleHeaderRow().run(),
-      },
-      {
-        label: "Toggle header column",
-        icon: Columns2,
-        disabled: !editor.can().toggleHeaderColumn(),
-        run: () => editor.chain().focus().toggleHeaderColumn().run(),
-      },
-    ],
-    [
-      {
-        label: "Merge selected cells",
-        icon: TableCellsMerge,
-        disabled: !editor.can().mergeCells(),
-        run: () => editor.chain().focus().mergeCells().run(),
-      },
-      {
-        label: "Split cell",
-        icon: TableCellsSplit,
-        disabled: !editor.can().splitCell(),
-        run: () => editor.chain().focus().splitCell().run(),
-      },
-    ],
   ];
+
+  if (!editable) {
+    return <EditorContent editor={editor} />;
+  }
 
   return (
     <>
@@ -798,7 +957,10 @@ export default function RichTextEditor({
           >
             {toolbarButtons.map((button) => {
               const Icon = button.icon;
-              return (
+              return [
+                button.startsGroup && (
+                  <span key={`${button.label}-gap`} className="mx-0.5 h-5 w-px bg-border" />
+                ),
                 <button
                   key={button.label}
                   type="button"
@@ -809,8 +971,8 @@ export default function RichTextEditor({
                   }`}
                 >
                   <Icon className="size-3.5" />
-                </button>
-              );
+                </button>,
+              ];
             })}
 
             <span className="mx-0.5 h-5 w-px bg-border" />
@@ -825,10 +987,28 @@ export default function RichTextEditor({
             >
               <Link2 className="size-3.5" />
             </button>
+            {variant === "page" && (
+              <button
+                type="button"
+                title="Find and replace (Ctrl+F)"
+                aria-label="Find and replace"
+                onClick={() => setFindOpen(true)}
+                className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+                  findOpen ? "bg-accent text-accent-foreground" : ""
+                }`}
+              >
+                <TextSearch className="size-3.5" />
+              </button>
+            )}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <EditorContent editor={editor} className="min-h-full" />
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {findOpen && <FindBar editor={editor} onClose={() => setFindOpen(false)} />}
+            {variant === "page" && <BlockTransferDialog />}
+            {/* The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped. */}
+            <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
+              <EditorContent editor={editor} className="min-h-full" />
+            </div>
           </div>
         </div>
       ) : (

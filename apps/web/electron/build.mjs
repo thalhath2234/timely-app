@@ -18,6 +18,9 @@ await esbuild.build({
   // electron-updater stays a runtime dependency (it is in package.json
   // "dependencies", so electron-builder ships it) rather than being bundled.
   external: ["electron", "electron-updater"],
+  // electron/flavor.ts: only release.yml sets TIMELY_RELEASE=1; every other
+  // build is the side-by-side "Timely Dev".
+  define: { __TIMELY_RELEASE__: process.env.TIMELY_RELEASE === "1" ? "true" : "false" },
   logLevel: "info",
 });
 

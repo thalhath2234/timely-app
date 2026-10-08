@@ -1,4 +1,5 @@
 import DocList from "@/app/_components/docs/docList";
+import TabbedPane from "@/app/_components/pageTabs/tabbedPane";
 
 export default function DocsLayout({
   children,
@@ -6,7 +7,7 @@ export default function DocsLayout({
   return (
     <div className="flex h-full w-full overflow-hidden">
       <DocList />
-      <div className="min-w-0 flex-1 overflow-hidden">{children}</div>
+      <TabbedPane>{children}</TabbedPane>
     </div>
   );
 }

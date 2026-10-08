@@ -8,6 +8,7 @@ import { apiBinds, buildApiEnv } from "../apps/web/electron/supervisor/api.ts";
 import { copyDataDir, manualBackupName, preUpgradeBackupName, pruneBackups } from "../apps/web/electron/supervisor/backup.ts";
 import {
   DEFAULT_PORTS,
+  LOCAL_BUILD_PORTS,
   ensureSecrets,
   loadConfig,
   makeSealer,
@@ -29,6 +30,7 @@ import {
   scanInterfaces,
   urlFor,
 } from "../apps/web/electron/supervisor/tailscale.ts";
+import { FLAVOR, flavorFor } from "../apps/web/electron/flavor.ts";
 
 function tmpdir() {
   const dir = mkdtempSync(path.join(os.tmpdir(), "timely-supervisor-test-"));
@@ -38,6 +40,30 @@ function tmpdir() {
 // ---------------------------------------------------------------------------
 // config.json
 // ---------------------------------------------------------------------------
+
+test("flavor: release keeps Timely's name, app id and ports; local builds get their own", () => {
+  const release = flavorFor(true);
+  assert.equal(release.name, "Timely");
+  assert.equal(release.appId, "app.timely.desktop");
+  assert.deepEqual(release.ports, { ...DEFAULT_PORTS });
+  const local = flavorFor(false);
+  assert.equal(local.name, "Timely Dev");
+  assert.equal(local.appId, "app.timely.desktop.dev");
+  assert.deepEqual(local.ports, { ...LOCAL_BUILD_PORTS });
+  for (const key of Object.keys(DEFAULT_PORTS)) assert.notEqual(local.ports[key], release.ports[key], key);
+  // Without the build-time define (tests, plain tsc) the flavor is the local one.
+  assert.equal(FLAVOR.release, false);
+});
+
+test("config: a fresh config takes the caller's default ports", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const { config } = loadConfig(path.join(dir, "config.json"), "0.1.0", LOCAL_BUILD_PORTS);
+    assert.deepEqual({ postgresPort: config.postgresPort, apiPort: config.apiPort, webPort: config.webPort }, { ...LOCAL_BUILD_PORTS });
+  } finally {
+    cleanup();
+  }
+});
 
 test("config: missing file yields defaults and is not reported as existing", () => {
   const { dir, cleanup } = tmpdir();

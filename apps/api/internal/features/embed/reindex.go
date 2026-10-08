@@ -52,12 +52,12 @@ func (i *indexer) collect(ctx context.Context, userID string) ([]Document, error
 	}
 
 	var docs []models.Document
-	if err := i.db.WithContext(ctx).Select("id", "user_id", "title", "plain_text").
+	if err := i.db.WithContext(ctx).Select("id", "user_id", "title", "plain_text", "content").
 		Where("user_id = ?", userID).Find(&docs).Error; err != nil {
 		return nil, err
 	}
 	for _, doc := range docs {
-		out = append(out, Document{UserID: userID, Kind: KindDoc, EntityID: doc.ID, Title: doc.Title, Body: doc.PlainText})
+		out = append(out, Document{UserID: userID, Kind: KindDoc, EntityID: doc.ID, Title: doc.Title, Body: DocBody(&doc)})
 	}
 
 	var sheets []models.Sheet

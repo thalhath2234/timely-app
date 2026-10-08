@@ -12,7 +12,9 @@ import {
   shell,
 } from "electron";
 import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { FLAVOR } from "./flavor";
 import { isOpenableExternally, isPermissionAllowed, isSameOrigin } from "./origin";
 import { waitForHttp } from "./supervisor/api";
 import { makeSealer } from "./supervisor/config";
@@ -20,7 +22,7 @@ import { checkPrivileges } from "./supervisor/guards";
 import { ACTIONS, BootError, SETTING_KEYS, Supervisor, type BootProgress, type BootStep } from "./supervisor/index";
 import { resolveResourceDirs } from "./supervisor/paths";
 import { createElectronUpdater } from "./supervisor/updater";
-import type { DesktopAction, DesktopSettingKey } from "../electron-env";
+import type { DesktopAction, DesktopSettingKey, PageTabCommand } from "../electron-env";
 
 const DEFAULT_RENDERER_URL = "http://127.0.0.1:4001";
 const WAIT_TIMEOUT_MS = 120_000;
@@ -68,6 +70,25 @@ ipcMain.on("chat:notify", (event, payload: unknown) => {
 });
 
 // ---------------------------------------------------------------------------
+// Doc PDF export: the renderer lays the doc out for print, this saves it.
+// ---------------------------------------------------------------------------
+
+ipcMain.handle("doc:savePdf", async (event, title: unknown) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed() || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) return { ok: false };
+  if (!isSameOrigin(event.senderFrame.url, new URL(rendererUrl).origin)) return { ok: false };
+  const name = (typeof title === "string" ? title : "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").trim().slice(0, 120) || "Untitled";
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: path.join(app.getPath("documents"), `${name}.pdf`),
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  });
+  if (canceled || !filePath) return { ok: false, canceled: true };
+  const data = await event.sender.printToPDF({ printBackground: true, pageSize: "A4", preferCSSPageSize: true });
+  await writeFile(filePath, data);
+  return { ok: true, filePath };
+});
+
+// ---------------------------------------------------------------------------
 // Instance bridge (hosted mode only)
 // ---------------------------------------------------------------------------
 
@@ -102,6 +123,51 @@ ipcMain.on("boot:quit", (event) => {
   if (!bootWindow || event.sender !== bootWindow.webContents) return;
   requestQuit();
 });
+
+// ---------------------------------------------------------------------------
+// Doc/sheet tab shortcuts
+// ---------------------------------------------------------------------------
+
+// Pages whose doc/sheet tab strip is showing. Only those get Ctrl/Cmd+W and
+// friends as tab commands; everywhere else the menu's own shortcuts apply.
+const pageTabPages = new Set<number>();
+
+ipcMain.on("pageTabs:active", (event, active: unknown) => {
+  if (active === true) pageTabPages.add(event.sender.id);
+  else pageTabPages.delete(event.sender.id);
+});
+
+function pageTabCommand(input: Electron.Input): PageTabCommand | null {
+  if (input.type !== "keyDown") return null;
+  const key = input.key.toLowerCase();
+  const mod = process.platform === "darwin" ? input.meta : input.control;
+  if (mod && !input.shift && !input.alt && key === "t") return "new";
+  if (mod && !input.shift && !input.alt && key === "w") return "close";
+  if (input.control && !input.alt && key === "tab") return input.shift ? "previous" : "next";
+  // macOS keeps Option+arrows for moving by word, so it gets Cmd+[ and Cmd+].
+  if (process.platform === "darwin") {
+    if (input.meta && !input.shift && !input.alt && key === "[") return "back";
+    if (input.meta && !input.shift && !input.alt && key === "]") return "forward";
+    return null;
+  }
+  if (input.alt && !input.control && !input.meta && key === "arrowleft") return "back";
+  if (input.alt && !input.control && !input.meta && key === "arrowright") return "forward";
+  return null;
+}
+
+// Menu accelerators fire before the page sees the key, so tab shortcuts are
+// caught here and handed to the page instead.
+function attachPageTabShortcuts(contents: Electron.WebContents) {
+  contents.on("before-input-event", (event, input) => {
+    if (!pageTabPages.has(contents.id)) return;
+    const command = pageTabCommand(input);
+    if (!command) return;
+    event.preventDefault();
+    contents.send("pageTabs:command", command);
+  });
+  contents.on("destroyed", () => pageTabPages.delete(contents.id));
+  contents.on("did-create-window", (child) => attachPageTabShortcuts(child.webContents));
+}
 
 // ---------------------------------------------------------------------------
 // Dev mode helpers (unchanged behaviour)
@@ -213,7 +279,7 @@ async function createWindow(url: string) {
     height: 840,
     minWidth: 900,
     minHeight: 600,
-    title: "Timely",
+    title: FLAVOR.name,
     icon: windowIcon(),
     show: false,
     autoHideMenuBar: process.platform === "linux",
@@ -233,6 +299,14 @@ async function createWindow(url: string) {
 
   attachWindowGuards(win, url);
   attachPermissionGuards(win, url);
+  attachPageTabShortcuts(win.webContents);
+  // Local builds say so in the title bar, next to an installed release.
+  if (!FLAVOR.release) {
+    win.on("page-title-updated", (event, title) => {
+      event.preventDefault();
+      win.setTitle(`${title} (Dev)`);
+    });
+  }
   win.once("ready-to-show", () => {
     if (isWindows) win.maximize();
     win.show();
@@ -300,7 +374,7 @@ async function createBootWindow() {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    title: "Timely",
+    title: FLAVOR.name,
     icon: windowIcon(),
     show: false,
     autoHideMenuBar: true,
@@ -353,10 +427,10 @@ function rebuildTrayMenu() {
     instance.api.status === "running"
       ? `Server: running on ${instance.api.localUrl}`
       : `Server: ${instance.api.status}${instance.api.lastError ? ` (${instance.api.lastError})` : ""}`;
-  tray.setToolTip(`Timely — ${serverLabel}`);
+  tray.setToolTip(`${FLAVOR.name} — ${serverLabel}`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Open Timely", click: () => showMainWindow() },
+      { label: `Open ${FLAVOR.name}`, click: () => showMainWindow() },
       { label: serverLabel, enabled: false },
       { type: "separator" },
       { label: "Copy address", click: () => void supervisor?.action("copyAddress") },
@@ -372,7 +446,7 @@ function rebuildTrayMenu() {
         },
       },
       { type: "separator" },
-      { label: "Quit Timely", click: () => requestQuit() },
+      { label: `Quit ${FLAVOR.name}`, click: () => requestQuit() },
     ]),
   );
 }
@@ -432,7 +506,9 @@ async function bootHosted() {
     runAsNode: !process.env.ELECTRON_NODE_BINARY,
     openPath: (target) => shell.openPath(target),
     writeClipboard: (text) => clipboard.writeText(text),
-    updater: createElectronUpdater({ isPackaged: app.isPackaged, log: (m) => supervisor?.log.warn(m) }),
+    // A local build must not update itself into the release.
+    updater: FLAVOR.release ? createElectronUpdater({ isPackaged: app.isPackaged, log: (m) => supervisor?.log.warn(m) }) : undefined,
+    defaultPorts: FLAVOR.ports,
     echo: !app.isPackaged,
   });
   if (!encryptionAvailable) supervisor.log.warn("safeStorage encryption unavailable; secrets are stored with the plain: prefix (file mode 0600)");
@@ -506,15 +582,26 @@ async function boot() {
   });
 }
 
+// The single-instance lock lives in userData, so a local build points
+// userData at its own folder first; otherwise opening it would hand over to an
+// installed release and quit. Release builds keep Electron's default
+// (<appData>/Timely). An explicit --user-data-dir (make dev-desktop-hosted) wins.
+if (!FLAVOR.release) {
+  app.setName(FLAVOR.name);
+  if (!app.commandLine.hasSwitch("user-data-dir")) {
+    app.setPath("userData", path.join(app.getPath("appData"), FLAVOR.name));
+  }
+}
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
   app.on("second-instance", () => showMainWindow());
 
-  app.setName("Timely");
+  app.setName(FLAVOR.name);
   if (process.platform === "win32") {
-    app.setAppUserModelId("app.timely.desktop");
+    app.setAppUserModelId(FLAVOR.appId);
   }
 
   app.whenReady().then(() => void boot());

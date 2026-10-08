@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopAction, DesktopInstance, DesktopSettingKey } from "../electron-env";
+import type { DesktopAction, DesktopInstance, DesktopSettingKey, PageTabCommand } from "../electron-env";
 
 const hosted = process.argv.includes("--timely-hosted");
 
@@ -11,10 +11,19 @@ contextBridge.exposeInMainWorld("timelyDesktop", {
     ipcRenderer.on("chat:open", handler);
     return () => ipcRenderer.removeListener("chat:open", handler);
   },
+  /** Saves the page, as laid out for print, to a PDF the user picks. */
+  savePdf: (title: string): Promise<{ ok: boolean; canceled?: boolean; filePath?: string }> => ipcRenderer.invoke("doc:savePdf", title),
   versions: {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
     node: process.versions.node,
+  },
+  /** Doc/sheet tabs are on screen, so tab shortcuts should reach the page. */
+  setPageTabsActive: (active: boolean) => ipcRenderer.send("pageTabs:active", active),
+  onPageTabCommand: (callback: (command: PageTabCommand) => void) => {
+    const handler = (_event: unknown, command: PageTabCommand) => callback(command);
+    ipcRenderer.on("pageTabs:command", handler);
+    return () => ipcRenderer.removeListener("pageTabs:command", handler);
   },
   // Present only when this app hosts its own backend (contract: docs/desktop/README.md).
   ...(hosted

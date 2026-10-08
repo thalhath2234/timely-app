@@ -142,10 +142,10 @@ build-api: ## Compile the API to apps/api/bin/timely-api
 build-web: ## Production build of the Next.js app
 	@pnpm --filter @timely/web build
 
-build-desktop: ## Package an unpacked Electron app for this OS, with the API and Postgres sidecars (release/<platform>-unpacked)
+build-desktop: ## Package an unpacked "Timely Dev" app for this OS, with the API and Postgres sidecars (release/<platform>-unpacked); runs next to an installed release
 	@pnpm --filter @timely/web electron:pack
 
-dist-desktop: ## Build a distributable Electron installer for this OS (AppImage / dmg / nsis). TIMELY_TARGETS=linux-x64,darwin-arm64 for several
+dist-desktop: ## Build a "Timely Dev" installer for this OS (AppImage / dmg / nsis); TIMELY_RELEASE=1 for the release app. TIMELY_TARGETS=linux-x64,darwin-arm64 for several
 	@pnpm --filter @timely/web electron:dist
 
 .PHONY: stage-desktop
@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-sheet-formulas test-work-status test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-markdown-parity test-sheet-formulas test-work-status test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -276,6 +276,10 @@ lint-sheet-formulas: ## Lint the shared sheet logic in packages/contract
 	@apps/web/node_modules/.bin/eslint -c apps/web/eslint.config.mjs packages/contract/src/sheetFormula.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts
 format-sheet-formulas: ## Format shared sheet logic and tests
 	@pnpm exec prettier --write packages/contract/src/sheetFormula.ts packages/contract/src/sheetFormulaInput.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts scripts/sheet-formulas.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs apps/mobile/lib/sheetGrow.ts scripts/sheet-grid-grow.test.mjs
+
+.PHONY: test-markdown-parity
+test-markdown-parity: ## Test that the web/mobile Markdown importer reads the API's export back into the same doc
+	@node --experimental-strip-types --test scripts/markdown-parity.test.mjs
 
 .PHONY: test-work-status
 test-work-status: ## Test the shared Overdue and Unscheduled work status logic

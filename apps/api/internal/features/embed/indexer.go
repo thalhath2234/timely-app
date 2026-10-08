@@ -179,7 +179,7 @@ func (i *indexer) IndexDoc(doc *models.Document) {
 		Kind:     KindDoc,
 		EntityID: doc.ID,
 		Title:    doc.Title,
-		Body:     doc.PlainText,
+		Body:     DocBody(doc),
 	})
 }
 

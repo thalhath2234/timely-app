@@ -98,6 +98,14 @@ func (a Authority) NeedsProposal(args map[string]any) bool {
 }
 
 // hasAny matches calls that set any of the named arguments, even to null.
+// isTrue reports whether the call sets key to true.
+func isTrue(key string) func(map[string]any) bool {
+	return func(args map[string]any) bool {
+		v, _ := args[key].(bool)
+		return v
+	}
+}
+
 func hasAny(keys ...string) func(map[string]any) bool {
 	return func(args map[string]any) bool {
 		for _, k := range keys {

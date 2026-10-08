@@ -13,6 +13,7 @@ import type { ChatContext, ChatImage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import { chipIcon } from "./chatMeta";
 import { PendingImages } from "./imageAttachments";
+import ModelMenu, { type ModelChoice } from "./modelMenu";
 
 export function ContextChips({
   chips,
@@ -66,6 +67,8 @@ export default function Composer({
   webSearch,
   sensitive,
   onToggleSearch,
+  model,
+  onChangeModel,
   busy,
   pending,
   onSend,
@@ -85,6 +88,8 @@ export default function Composer({
   webSearch: boolean;
   sensitive: boolean;
   onToggleSearch: () => void;
+  model: ModelChoice;
+  onChangeModel: (next: ModelChoice) => void;
   busy: boolean;
   pending: boolean;
   onSend: () => void;
@@ -190,6 +195,11 @@ export default function Composer({
                 {privateImages ? "Private image chat" : "Web search"}
                 {searchOn && <Check className="size-3" />}
               </button>
+              <ModelMenu
+                value={model}
+                onChange={onChangeModel}
+                disabled={pending}
+              />
             </div>
             <div className="flex items-center gap-2">
               <span className="hidden text-[11px] text-muted-foreground sm:block">

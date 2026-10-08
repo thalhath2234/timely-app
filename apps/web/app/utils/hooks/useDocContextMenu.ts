@@ -11,6 +11,7 @@ import {
   FileText,
   FolderUp,
   Link2,
+  PanelTop,
   Pencil,
   Plus,
   Star,
@@ -21,6 +22,7 @@ import type { Doc } from "@/app/_types/types";
 import { useCreateDoc, useDeleteDoc, useUpdateDoc } from "@/app/utils/hooks/docs";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
+import { openInTab } from "@/app/_components/pageTabs/openInTab";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 
 export type DocMenuOptions = {
@@ -57,6 +59,12 @@ export function useDocContextMenu() {
           icon: FileText,
           shortcut: "Enter",
           onSelect: () => router.push(`/docs/${doc.id}`),
+        },
+        {
+          kind: "action",
+          label: "Open in new tab",
+          icon: PanelTop,
+          onSelect: () => openInTab(`/docs/${doc.id}`, (href) => router.push(href)),
         },
         {
           kind: "action",

@@ -1,9 +1,17 @@
 "use client";
-import { Check, ClipboardList, RefreshCw, Square, Trash2 } from "lucide-react";
+import Link from "next/link";
+import {
+  ArrowUpRight,
+  Check,
+  ClipboardList,
+  RefreshCw,
+  Square,
+  Trash2,
+} from "lucide-react";
 import type { Chat } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import ChangeCards from "./changeCards";
-import { isBusy, phaseLabel } from "./chatMeta";
+import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
 
 const button =
   "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
@@ -33,6 +41,9 @@ export default function ProposalPanel({
     ? steps.findIndex((s) => s.status !== "done")
     : -1;
   const complete = done === steps.length;
+  // When everything applied changed one page, offer it from the header.
+  const target =
+    !busy && chat.status !== "approval" ? sharedTarget(steps) : null;
   const heading =
     chat.status === "approval"
       ? "Ready for your review"
@@ -91,6 +102,12 @@ export default function ProposalPanel({
             applied
           </p>
         </div>
+        {target && (
+          <Link href={target.href} title={target.title} className={secondary}>
+            Open {target.noun}
+            <ArrowUpRight className="size-3.5" />
+          </Link>
+        )}
         {applying && (
           <button
             type="button"

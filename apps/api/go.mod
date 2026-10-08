@@ -10,6 +10,7 @@ require (
 	github.com/labstack/echo/v5 v5.4.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/pressly/goose/v3 v3.27.1
+	github.com/yuin/goldmark v1.8.6
 	golang.org/x/crypto v0.50.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1

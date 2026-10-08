@@ -413,3 +413,78 @@ func TestIntegrationConversationManagement(t *testing.T) {
 		t.Fatal("image not erased")
 	}
 }
+
+type recordingCompleters struct {
+	resolved bool
+	got      chan [2]string
+}
+
+func (r *recordingCompleters) Resolve(context.Context, string) (string, string, error) {
+	r.resolved = true
+	return "openrouter", "default-model", nil
+}
+func (r *recordingCompleters) Completer(_ context.Context, _, provider, model string) (Completer, error) {
+	r.got <- [2]string{provider, model}
+	return nil, fmt.Errorf("stop here")
+}
+
+func TestIntegrationChosenModelOverridesDefault(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	rec := &recordingCompleters{got: make(chan [2]string, 4)}
+	s.SetCompleters(rec)
+	e := echo.New()
+	g := e.Group("")
+	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", "user-a"); return next(c) }
+	})
+	s.Routes(g)
+	call := func(method, path, body string) (int, Conversation) {
+		t.Helper()
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		e.ServeHTTP(w, r)
+		var row Conversation
+		_ = json.Unmarshal(w.Body.Bytes(), &row)
+		return w.Code, row
+	}
+	if code, _ := call("POST", "/chats", `{"content":"hi","model":"x"}`); code != 400 {
+		t.Fatalf("model without provider accepted: %d", code)
+	}
+	code, c := call("POST", "/chats", `{"content":"hi","provider":"anthropic","model":"claude-opus-5-5"}`)
+	if code != 201 || c.ChosenProvider != "anthropic" || c.ChosenModel != "claude-opus-5-5" {
+		t.Fatalf("choice not saved on create: %d %+v", code, c)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.work(ctx)
+	select {
+	case got := <-rec.got:
+		if got != [2]string{"anthropic", "claude-opus-5-5"} || rec.resolved {
+			t.Fatalf("run ignored the chosen model: %v resolved=%v", got, rec.resolved)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run not claimed")
+	}
+	// Back to the default: the next run resolves the account's model.
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if db.First(&c, "id = ?", c.ID); c.Status == "failed" {
+			break
+		}
+	}
+	if code, row := call("PATCH", "/chats/"+c.ID, `{"provider":""}`); code != 200 || row.ChosenProvider != "" || row.ChosenModel != "" {
+		t.Fatalf("clearing the choice failed: %d %+v", code, row)
+	}
+	if code, _ := call("POST", "/chats/"+c.ID+"/retry", ""); code != 200 {
+		t.Fatalf("retry failed: %d", code)
+	}
+	select {
+	case got := <-rec.got:
+		if got != [2]string{"openrouter", "default-model"} || !rec.resolved {
+			t.Fatalf("default not used after clearing: %v", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("retry not claimed")
+	}
+}

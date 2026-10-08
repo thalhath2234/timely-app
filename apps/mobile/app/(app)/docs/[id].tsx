@@ -3,7 +3,7 @@ import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Archive, Download, FileText, FolderUp, MoreHorizontal, Smile, Star, Trash2, Upload } from "lucide-react-native";
+import { Archive, Download, FileDown, FileText, FolderUp, History, Link2, MoreHorizontal, Smile, Star, TextSearch, Trash2, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -11,7 +11,7 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import RichTextEditor from "../../../components/editor/RichTextEditor";
-import { useCreateDoc, useDeleteDoc, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
+import { useCreateDoc, useDeleteDoc, useDocBacklinksQuery, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../../lib/autosave";
 import { showUndoToast } from "../../../lib/toast";
 import { fromMarkdown, resolveDocContent } from "../../../lib/markdown";
@@ -20,6 +20,11 @@ import type { UpdateDocPayload } from "../../../lib/api/docs";
 import type { DocContent } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { shareExport } from "../../../lib/api/portability";
+import { getDocVersion, getDocVersions, restoreDocVersion, type DocVersion } from "../../../lib/api/docs";
+import { DOC_VERSION_REASONS } from "@timely/contract/documents";
+import RichDoc from "../../../components/docs/RichDoc";
+import { PrimaryButton } from "../../../components/ui/primitives";
+import { useQueryClient } from "@tanstack/react-query";
 
 const ICON_CHOICES = ["📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯", "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠"];
 
@@ -65,6 +70,11 @@ function DocEditor({ docId }: { docId: string }) {
   const updateDoc = useUpdateDoc();
   const createDoc = useCreateDoc();
   const remove = useDeleteDoc();
+  const backlinks = useDocBacklinksQuery(docId).data ?? [];
+  const queryClient = useQueryClient();
+  const [versions, setVersions] = useState<DocVersion[] | null>(null);
+  const [version, setVersion] = useState<DocVersion | null>(null);
+  const [restoring, setRestoring] = useState(false);
 
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteContent, setRemoteContent] = useState<DocContent | null>(null);
@@ -83,10 +93,14 @@ function DocEditor({ docId }: { docId: string }) {
   const [icon, setIcon] = useState(doc?.icon ?? "");
   const [favorite, setFavorite] = useState(Boolean(doc?.isFavorite));
   const [wordCount, setWordCount] = useState(() => countWords(doc?.plainText ?? ""));
-  const [menu, setMenu] = useState<"more" | "icon" | "parent" | "delete" | null>(null);
-  const [nextMenu, setNextMenu] = useState<"icon" | "parent" | "delete" | null>(null);
+  type Menu = "icon" | "parent" | "delete" | "backlinks" | "history" | "version";
+  const [menu, setMenu] = useState<"more" | Menu | null>(null);
+  const [nextMenu, setNextMenu] = useState<Menu | null>(null);
 
-  function openAfterMore(next: "icon" | "parent" | "delete") {
+  const [findOpen, setFindOpen] = useState(false);
+  const [pdfRequest, setPdfRequest] = useState<{ title: string } | null>(null);
+
+  function openAfterMore(next: Menu) {
     setNextMenu(next);
     setMenu(null);
   }
@@ -182,9 +196,19 @@ function DocEditor({ docId }: { docId: string }) {
           style={styles.title}
         />
       </View>
-      <Text style={styles.words}>
-        {wordCount} {wordCount === 1 ? "word" : "words"}
-      </Text>
+      <View style={styles.metaRow}>
+        <Text style={styles.words}>
+          {wordCount} {wordCount === 1 ? "word" : "words"}
+        </Text>
+        {backlinks.length > 0 ? (
+          <Pressable accessibilityRole="button" onPress={() => setMenu("backlinks")} hitSlop={8} style={styles.backlinkChip}>
+            <Link2 size={12} color={colors.primary} />
+            <Text style={styles.backlinkText}>
+              Linked from {backlinks.length} {backlinks.length === 1 ? "page" : "pages"}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       <RichTextEditor
         content={
@@ -193,6 +217,9 @@ function DocEditor({ docId }: { docId: string }) {
             : (remoteContent ?? seedContent)
         }
         onSelectionChange={setSelectedText}
+        findOpen={findOpen}
+        pdfRequest={pdfRequest}
+        onFindClose={() => setFindOpen(false)}
         onFocusChange={(focused) => {
           editorFocusedRef.current = focused;
         }}
@@ -200,6 +227,13 @@ function DocEditor({ docId }: { docId: string }) {
           setAssistantText(plainText);
           setWordCount(countWords(plainText));
           schedule({ content, plainText });
+        }}
+        onWikiLink={(target) => {
+          // [[Page]] names a doc by title; open it when there is one.
+          const wanted = target.split("#")[0].trim().toLowerCase();
+          const hit = docs.find((d) => (d.title || "").trim().toLowerCase() === wanted);
+          if (hit) router.push(`/(app)/docs/${hit.id}`);
+          else Alert.alert("No page yet", `There is no page named "${target.split("#")[0].trim()}".`);
         }}
         onCreateSubpage={async () => {
           const page = await createDoc.mutateAsync({
@@ -229,6 +263,15 @@ function DocEditor({ docId }: { docId: string }) {
         <SheetOption
           onSelect={() => {
             setMenu(null);
+            setPdfRequest({ title: doc.title || "Untitled" });
+          }}
+          leading={<FileDown size={18} color={colors.mutedForeground} />}
+        >
+          Export PDF
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setMenu(null);
             void (async () => {
               try {
                 const picked = await DocumentPicker.getDocumentAsync({
@@ -250,6 +293,28 @@ function DocEditor({ docId }: { docId: string }) {
           leading={<Upload size={18} color={colors.mutedForeground} />}
         >
           Import Markdown
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setMenu(null);
+            setFindOpen(true);
+          }}
+          leading={<TextSearch size={18} color={colors.mutedForeground} />}
+        >
+          Find and replace
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            setVersions(null);
+            void getDocVersions(docId).then(setVersions, () => setVersions([]));
+            openAfterMore("history");
+          }}
+          leading={<History size={18} color={colors.mutedForeground} />}
+        >
+          Version history
+        </SheetOption>
+        <SheetOption onSelect={() => openAfterMore("backlinks")} leading={<Link2 size={18} color={colors.mutedForeground} />}>
+          {`Backlinks (${backlinks.length})`}
         </SheetOption>
         <SheetOption onSelect={() => openAfterMore("icon")} leading={<Smile size={18} color={colors.mutedForeground} />}>
           Change icon
@@ -274,6 +339,111 @@ function DocEditor({ docId }: { docId: string }) {
         >
           <Text style={{ color: colors.destructive }}>Delete doc</Text>
         </SheetOption>
+      </BottomSheet>
+
+      <BottomSheet
+        open={menu === "history"}
+        onClose={() => setMenu(null)}
+        onClosed={() => {
+          if (nextMenu) {
+            setMenu(nextMenu);
+            setNextMenu(null);
+          }
+        }}
+        title="Version history"
+      >
+        {versions === null ? (
+          <Text style={styles.sheetEmpty}>Loading…</Text>
+        ) : versions.length === 0 ? (
+          <Text style={styles.sheetEmpty}>
+            No earlier versions yet. Timely saves one when you start editing again after a pause, every hour while you keep editing, and before the assistant changes this doc.
+          </Text>
+        ) : (
+          versions.map((item) => {
+            const edited = new Date(item.editedAt);
+            return (
+              <SheetOption
+                key={item.id}
+                onSelect={() => {
+                  setVersion(null);
+                  void getDocVersion(docId, item.id).then(setVersion, () => setMenu(null));
+                  setNextMenu("version");
+                  setMenu(null);
+                }}
+                leading={<History size={18} color={colors.mutedForeground} />}
+              >
+                <View>
+                  <Text style={styles.linkTitle}>
+                    {edited.toLocaleDateString(undefined, { month: "short", day: "numeric" })},{" "}
+                    {edited.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                  </Text>
+                  <Text style={styles.linkSnippet}>
+                    {DOC_VERSION_REASONS[item.reason] ?? "Saved"} · {item.words} {item.words === 1 ? "word" : "words"}
+                  </Text>
+                </View>
+              </SheetOption>
+            );
+          })
+        )}
+      </BottomSheet>
+
+      <BottomSheet
+        open={menu === "version"}
+        onClose={() => setMenu(null)}
+        title={version ? version.title || "Untitled" : "Version"}
+        footer={
+          <PrimaryButton
+            label={restoring ? "Restoring…" : "Restore this version"}
+            disabled={!version || restoring}
+            onPress={() => {
+              if (!version) return;
+              setRestoring(true);
+              void (async () => {
+                try {
+                  // Save any typing first so it lands in the history too.
+                  await flush();
+                  const restored = await restoreDocVersion(docId, version.id);
+                  lastSavedAtRef.current = restored.updatedAt;
+                  queryClient.setQueryData(["docs", docId], restored);
+                  setTitle(restored.title);
+                  setWordCount(countWords(restored.plainText));
+                  setRemoteContent(resolveDocContent(restored.content, restored.plainText));
+                  setEditorSync((value) => value + 1);
+                  showUndoToast("Version restored. The doc as it was is in the history too.");
+                  setMenu(null);
+                } catch (error) {
+                  Alert.alert("Could not restore", error instanceof Error ? error.message : "Try again.");
+                } finally {
+                  setRestoring(false);
+                }
+              })();
+            }}
+          />
+        }
+      >
+        {version?.content ? <RichDoc content={version.content} /> : <Text style={styles.sheetEmpty}>Loading…</Text>}
+      </BottomSheet>
+
+      <BottomSheet open={menu === "backlinks"} onClose={() => setMenu(null)} title="Linked from">
+        {backlinks.length === 0 ? (
+          <Text style={styles.sheetEmpty}>No other pages link here yet. Mention this page with @ or write [[{title || "Untitled"}]] in another doc.</Text>
+        ) : (
+          backlinks.map((link) => (
+            <SheetOption
+              key={link.id}
+              onSelect={() => {
+                setMenu(null);
+                router.push(`/(app)/docs/${link.id}`);
+              }}
+              leading={link.icon ? <Text>{link.icon}</Text> : <FileText size={18} color={colors.mutedForeground} />}
+            >
+              <View>
+                <Text style={styles.linkTitle}>{link.title || "Untitled"}</Text>
+                {link.snippets[0] ? <Text numberOfLines={2} style={styles.linkSnippet}>{link.snippets[0]}</Text> : null}
+              </View>
+            </SheetOption>
+          ))
+        )}
       </BottomSheet>
 
       <BottomSheet open={menu === "icon"} onClose={() => setMenu(null)} title="Icon">
@@ -365,7 +535,13 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   icon: { fontSize: 26, lineHeight: 32, textAlign: "center" },
   title: { flex: 1, color: colors.foreground, fontSize: 24, fontWeight: "600", paddingTop: 6 },
-  words: { color: colors.mutedForeground, fontSize: 12, paddingHorizontal: 20, marginTop: 8, marginBottom: 8 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, marginTop: 8, marginBottom: 8 },
+  words: { color: colors.mutedForeground, fontSize: 12 },
+  backlinkChip: { flexDirection: "row", alignItems: "center", gap: 4 },
+  backlinkText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
+  sheetEmpty: { color: colors.mutedForeground, fontSize: 14, padding: 12 },
+  linkTitle: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
+  linkSnippet: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   icons: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 4 },
   iconPick: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   iconOn: { backgroundColor: colors.accent },

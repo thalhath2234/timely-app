@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   AlertTriangle,
+  ArrowUpRight,
   ClipboardList,
   MessageCircle,
   Plus,
@@ -41,12 +42,13 @@ import { useToastStore } from "../../lib/toast";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import AssistantHeader from "./AssistantHeader";
 import AttachSheet, { type ImageSource } from "./AttachSheet";
+import ModelSheet, { modelLabel, type ModelChoice } from "./ModelSheet";
 import Composer from "./Composer";
 import HistoryPage from "./HistoryPage";
 import ProposalPage from "./ProposalPage";
 import ReceiptReview from "./ReceiptReview";
 import Thread, { FailureCard, RunStatus, StatusCard, Welcome } from "./Thread";
-import { isBusy, phaseLabel } from "./chatMeta";
+import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
 import { Action, IconButton } from "./shared";
 import TimelyLogo from "../ui/TimelyLogo";
 
@@ -64,6 +66,7 @@ export default function Assistant() {
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [preview, setPreview] = useState<{
     uri: string;
@@ -118,6 +121,9 @@ export default function Assistant() {
       ]);
   const context = chat?.context ?? draft.context;
   const search = chat?.webSearch ?? draft.webSearch;
+  const model: ModelChoice = chat
+    ? { provider: chat.chosenProvider ?? "", model: chat.chosenModel ?? "" }
+    : { provider: draft.provider ?? "", model: draft.model ?? "" };
   const lastRevision = useRef<number | undefined>(undefined);
   const openedReceipt = useRef("");
   const unreadCount = (list.data ?? []).filter(
@@ -300,6 +306,18 @@ export default function Assistant() {
         requestId: undefined,
       }));
   }
+  // A model choice may change during a run; it applies from the next one.
+  const canPickModel = !pending && !(offline && !!id);
+  function chooseModel(next: ModelChoice) {
+    if (!canPickModel) return;
+    if (id) act("", next);
+    else
+      assistant.setDraft((value) => ({
+        ...value,
+        ...next,
+        requestId: undefined,
+      }));
+  }
   function addScreen() {
     try {
       configure(mergeContext(context, assistant.currentContext()));
@@ -350,7 +368,7 @@ export default function Assistant() {
           content: draft.text.trim(),
           imageIds,
           requestId,
-          ...(!id ? { context, webSearch: search } : {}),
+          ...(!id ? { context, webSearch: search, ...model } : {}),
         },
       });
     } catch (reason) {
@@ -577,7 +595,7 @@ export default function Assistant() {
       const task = href.match(/^\/tasks\?taskId=([^&]+)/);
       if (task) assistant.openResult(`/(app)/tasks/${task[1]}`);
       else if (
-        /^\/(tasks|projects|docs|sheets|events|calendar|today)(\/|\?|$)/.test(
+        /^\/(tasks|projects|docs|sheets|events|calendar|today|settings)(\/|\?|$)/.test(
           href,
         )
       )
@@ -891,6 +909,7 @@ export default function Assistant() {
                   {chat?.plan?.length ? (
                     <PlanSummary
                       chat={chat}
+                      onLink={openLink}
                       onOpen={() => {
                         setReviewSteps(null);
                         setPage("proposal");
@@ -937,6 +956,10 @@ export default function Assistant() {
                 onAttach={() => setAttachOpen(true)}
                 search={search}
                 onToggleSearch={() => configure(context, !search)}
+                modelLabel={modelLabel(model)}
+                modelChosen={!!model.provider}
+                canPickModel={canPickModel}
+                onPickModel={() => setModelOpen(true)}
                 privateImages={!!chat?.sensitive || draft.images.length > 0}
                 busy={busy}
                 pending={pending}
@@ -956,6 +979,12 @@ export default function Assistant() {
           </>
         )}
       </KeyboardAvoidingView>
+      <ModelSheet
+        open={modelOpen}
+        value={model}
+        onClose={() => setModelOpen(false)}
+        onPick={chooseModel}
+      />
       <AttachSheet
         open={attachOpen}
         remaining={Math.max(0, 5 - draft.images.length)}
@@ -975,12 +1004,23 @@ export default function Assistant() {
 }
 
 /** Compact entry point to the proposal page from the thread. */
-function PlanSummary({ chat, onOpen }: { chat: Chat; onOpen: () => void }) {
+function PlanSummary({
+  chat,
+  onOpen,
+  onLink,
+}: {
+  chat: Chat;
+  onOpen: () => void;
+  onLink: (href: string) => void;
+}) {
   const done = chat.plan.filter((step) => step.status === "done").length;
   const total = chat.plan.length;
   const approval = chat.status === "approval";
   const failed = chat.status === "failed";
   const applying = isBusy(chat.status) && chat.phase === "apply";
+  // When everything applied changed one screen, open it straight from here.
+  const target =
+    !approval && !isBusy(chat.status) ? sharedTarget(chat.plan) : null;
   const tone = approval
     ? "warning"
     : failed
@@ -1008,12 +1048,27 @@ function PlanSummary({ chat, onOpen }: { chat: Chat; onOpen: () => void }) {
       }
       body={`${done} of ${total} ${total === 1 ? "change" : "changes"} applied`}
     >
-      <Action
-        label={approval ? "Review and apply" : "View changes"}
-        primary={approval}
-        compact
-        onPress={onOpen}
-      />
+      <View style={styles.planActions}>
+        {target ? (
+          <View style={{ flex: 1 }}>
+            <Action
+              label={`Open ${target.noun}`}
+              icon={ArrowUpRight}
+              primary
+              compact
+              onPress={() => onLink(target.href)}
+            />
+          </View>
+        ) : null}
+        <View style={{ flex: 1 }}>
+          <Action
+            label={approval ? "Review and apply" : "View changes"}
+            primary={approval}
+            compact
+            onPress={onOpen}
+          />
+        </View>
+      </View>
     </StatusCard>
   );
 }
@@ -1022,6 +1077,7 @@ const styles = createThemedStyleSheet(() => ({
   root: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, paddingBottom: 24, gap: 16, flexGrow: 1 },
   preview: { flex: 1, padding: 16, gap: 12 },
+  planActions: { flexDirection: "row", gap: 10 },
   badge: {
     position: "absolute",
     top: -6,

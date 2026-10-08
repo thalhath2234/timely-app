@@ -26,9 +26,11 @@ import (
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/doc"
+	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/instance"
+	"timely-api/internal/features/linkpreview"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/placement"
 	"timely-api/internal/features/portability"
@@ -164,6 +166,8 @@ func main() {
 		Project:   project.NewHandler(projectService),
 		Workspace: workspace.NewHandler(workspaceService),
 		Document:  doc.NewHandler(documentService, live),
+		DocFiles:  docfile.New(db),
+		Links:     linkpreview.New(),
 		Sheet:     sheet.NewHandler(sheetService),
 		Event:     event.NewHandler(eventService),
 		Calendar:  calendar.NewHandler(calendarService),

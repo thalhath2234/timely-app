@@ -8,8 +8,10 @@ import (
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/doc"
+	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/instance"
+	"timely-api/internal/features/linkpreview"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
@@ -33,6 +35,8 @@ type Handlers struct {
 	Project   *project.Handler
 	Workspace *workspace.Handler
 	Document  *doc.Handler
+	DocFiles  *docfile.Service
+	Links     *linkpreview.Service
 	Sheet     *sheet.Handler
 	Event     *event.Handler
 	Calendar  *calendar.Handler
@@ -60,6 +64,10 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 		e.GET("/health", h.Instance.Health)
 	}
 
+	if h.DocFiles != nil {
+		h.DocFiles.PublicRoutes(e)
+	}
+
 	if h.MCP != nil {
 		e.Any("/mcp", echo.WrapHandler(h.MCP))
 	}
@@ -82,6 +90,12 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	setupProjectRoutes(protected, h.Project)
 	setupWorkspaceRoutes(protected, h.Workspace)
 	setupDocumentRoutes(protected, h.Document)
+	if h.DocFiles != nil {
+		h.DocFiles.Routes(protected)
+	}
+	if h.Links != nil {
+		h.Links.Routes(protected)
+	}
 	setupSheetRoutes(protected, h.Sheet)
 	setupEventRoutes(protected, h.Event)
 	setupCalendarRoutes(protected, h.Calendar)
@@ -234,9 +248,14 @@ func setupWorkspaceRoutes(g *echo.Group, workspaceHandler *workspace.Handler) {
 // setupDocumentRoutes defines all protected document endpoints
 func setupDocumentRoutes(g *echo.Group, documentHandler *doc.Handler) {
 	g.POST("/docs", documentHandler.Create)
+	g.POST("/docs/daily", documentHandler.Daily)
 	g.GET("/docs", documentHandler.GetAllDocumentsByUser)
 	g.GET("/docs/:id", documentHandler.GetDocumentById)
 	g.GET("/docs/:id/watch", documentHandler.Watch)
+	g.GET("/docs/:id/backlinks", documentHandler.Backlinks)
+	g.GET("/docs/:id/versions", documentHandler.Versions)
+	g.GET("/docs/:id/versions/:versionId", documentHandler.GetVersion)
+	g.POST("/docs/:id/versions/:versionId/restore", documentHandler.RestoreVersion)
 	g.PUT("/docs/:id", documentHandler.Update)
 	g.DELETE("/docs/:id", documentHandler.Delete)
 }

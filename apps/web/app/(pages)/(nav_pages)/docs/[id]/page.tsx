@@ -1,11 +1,15 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
-import { ChevronRight, Archive, Download, Smile, Star, Trash2, Upload } from "lucide-react";
+import { ChevronRight, Archive, Download, FileDown, FileText, History, LayoutTemplate, Smile, Star, Trash2, Upload } from "lucide-react";
+import { exportDocPdf } from "@/app/utils/printDoc";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
+import HeadingMinimap from "@/app/_components/docs/headingMinimap";
+import Backlinks from "@/app/_components/docs/backlinks";
+import DocHistory from "@/app/_components/docs/docHistory";
 import { insertPageMention } from "@/app/_components/editor/mention";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
@@ -32,8 +36,22 @@ const ICON_CHOICES = [
   "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠",
 ];
 
+// Runs on every keystroke, so it counts in place instead of splitting the
+// text: a doc holding a large 3D model or map has hundreds of thousands of
+// "words", and building that array each time stalled typing.
 function countWords(text: string) {
-  return text.trim().split(/\s+/).filter(Boolean).length;
+  let count = 0;
+  let inWord = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    const space = code === 32 || (code >= 9 && code <= 13) || code === 160 || code === 0x2028 || code === 0x2029 || code === 0xfeff || (code >= 0x2000 && code <= 0x200a) || code === 0x1680 || code === 0x202f || code === 0x205f || code === 0x3000;
+    if (space) inWord = false;
+    else if (!inWord) {
+      inWord = true;
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function buildBreadcrumb(docs: Doc[], docId: string) {
@@ -106,9 +124,12 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [wordCount, setWordCount] = useState(() => countWords(doc.plainText));
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteContent, setRemoteContent] = useState<Doc["content"] | null>(null);
   const editorRef = useRef<Editor | null>(null);
+  const [editor, setEditor] = useState<Editor | null>(null);
   const lastSavedAtRef = useRef<string | null>(doc.updatedAt);
   // The editor is seeded once per document; later remote updates arrive via
   // `remoteContent`, so this deliberately does not track content changes.
@@ -144,13 +165,19 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     [allDocs, doc.id],
   );
 
-  const handleEditorReady = useCallback((editor: Editor) => {
-    editorRef.current = editor;
+  const handleEditorReady = useCallback((readyEditor: Editor) => {
+    editorRef.current = readyEditor;
+    setEditor(readyEditor);
   }, []);
+
+  // The word count waits for a pause in typing, so long docs stay responsive.
+  const wordTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(wordTimerRef.current), []);
 
   const handleEditorChange = useCallback(
     ({ content, plainText }: { content: Doc["content"]; plainText: string }) => {
-      setWordCount(countWords(plainText));
+      window.clearTimeout(wordTimerRef.current);
+      wordTimerRef.current = window.setTimeout(() => setWordCount(countWords(plainText)), 300);
       schedule({ content, plainText });
     },
     [schedule],
@@ -180,7 +207,8 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    // Dragging a box from anywhere around the doc selects blocks (blockSelection.ts).
+    <div className="relative flex h-full flex-col overflow-hidden" data-block-select-root="">
       <header className="flex items-center gap-2 border-b border-border px-6 py-2.5">
         <ExpandCollapsedListButton
           storageKey="timely.docsListCollapsed"
@@ -233,14 +261,80 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
         >
           <Upload className="size-4" />
         </button>
+        <div className="relative">
+          <button
+            type="button"
+            title="Download"
+            aria-label="Download document"
+            aria-haspopup="menu"
+            aria-expanded={isExportOpen}
+            onClick={() => setIsExportOpen((open) => !open)}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
+          >
+            <Download className="size-4" />
+          </button>
+          {isExportOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onMouseDown={() => setIsExportOpen(false)} />
+              <div role="menu" aria-label="Download as" className="absolute right-0 top-9 z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-xl">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={async () => {
+                    setIsExportOpen(false);
+                    // The file comes from the server, so save the latest typing first.
+                    await flush();
+                    void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                >
+                  <FileText className="size-4 text-muted-foreground" />
+                  Markdown (.md)
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsExportOpen(false);
+                    const dom = editorRef.current?.view.dom;
+                    if (dom) void exportDocPdf(doc.title, dom);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                >
+                  <FileDown className="size-4 text-muted-foreground" />
+                  PDF
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
         <button
           type="button"
-          title="Download Markdown"
-          aria-label="Download document as Markdown"
-          onClick={() => void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`)}
+          title={doc.isTemplate ? "Stop using as a template" : "Use as a template"}
+          aria-pressed={Boolean(doc.isTemplate)}
+          onClick={() => {
+            const next = !doc.isTemplate;
+            schedule({ isTemplate: next });
+            useToastStore
+              .getState()
+              .show(next ? "Now offered under Template in the docs list" : "No longer a template");
+          }}
+          className={`flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent ${
+            doc.isTemplate ? "text-primary" : ""
+          }`}
+        >
+          <LayoutTemplate className="size-4" />
+        </button>
+
+        <button
+          type="button"
+          title="Version history"
+          aria-label="Version history"
+          onClick={() => setIsHistoryOpen(true)}
           className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
         >
-          <Download className="size-4" />
+          <History className="size-4" />
         </button>
 
         <button
@@ -370,9 +464,15 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             className="w-full bg-transparent text-4xl font-bold text-foreground outline-none placeholder:text-muted-foreground/50"
           />
 
-          <p className="mb-4 mt-3 text-xs text-muted-foreground">
-            {wordCount} {wordCount === 1 ? "word" : "words"}
-          </p>
+          <div className="mb-4 mt-3 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+            <span>
+              {wordCount} {wordCount === 1 ? "word" : "words"}
+            </span>
+            {doc.isTemplate && (
+              <span className="rounded-full bg-primary/12 px-2 py-0.5 font-medium text-primary">Template</span>
+            )}
+            <Backlinks docId={doc.id} />
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 pb-8">
@@ -386,6 +486,24 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           />
         </div>
       </div>
+
+      <HeadingMinimap editor={editor} />
+
+      {isHistoryOpen && (
+        <DocHistory
+          docId={doc.id}
+          onClose={() => setIsHistoryOpen(false)}
+          beforeRestore={flush}
+          onRestored={(restored) => {
+            lastSavedAtRef.current = restored.updatedAt;
+            queryClient.setQueryData(docKey(doc.id), restored);
+            setTitle(restored.title);
+            setWordCount(countWords(restored.plainText));
+            setRemoteContent(resolveDocContent(restored.content, restored.plainText));
+            setRemoteEpoch((epoch) => epoch + 1);
+          }}
+        />
+      )}
     </div>
   );
 }
