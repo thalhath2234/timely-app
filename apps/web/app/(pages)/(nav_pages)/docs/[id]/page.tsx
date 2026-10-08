@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
-import { ChevronRight, Archive, Download, History, Smile, Star, Trash2, Upload } from "lucide-react";
+import { ChevronRight, Archive, Download, History, LayoutTemplate, Smile, Star, Trash2, Upload } from "lucide-react";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import HeadingMinimap from "@/app/_components/docs/headingMinimap";
 import Backlinks from "@/app/_components/docs/backlinks";
@@ -274,6 +274,24 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
 
         <button
           type="button"
+          title={doc.isTemplate ? "Stop using as a template" : "Use as a template"}
+          aria-pressed={Boolean(doc.isTemplate)}
+          onClick={() => {
+            const next = !doc.isTemplate;
+            schedule({ isTemplate: next });
+            useToastStore
+              .getState()
+              .show(next ? "Now offered under Template in the docs list" : "No longer a template");
+          }}
+          className={`flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent ${
+            doc.isTemplate ? "text-primary" : ""
+          }`}
+        >
+          <LayoutTemplate className="size-4" />
+        </button>
+
+        <button
+          type="button"
           title="Version history"
           aria-label="Version history"
           onClick={() => setIsHistoryOpen(true)}
@@ -413,6 +431,9 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             <span>
               {wordCount} {wordCount === 1 ? "word" : "words"}
             </span>
+            {doc.isTemplate && (
+              <span className="rounded-full bg-primary/12 px-2 py-0.5 font-medium text-primary">Template</span>
+            )}
             <Backlinks docId={doc.id} />
           </div>
         </div>

@@ -243,6 +243,7 @@ func setupWorkspaceRoutes(g *echo.Group, workspaceHandler *workspace.Handler) {
 // setupDocumentRoutes defines all protected document endpoints
 func setupDocumentRoutes(g *echo.Group, documentHandler *doc.Handler) {
 	g.POST("/docs", documentHandler.Create)
+	g.POST("/docs/daily", documentHandler.Daily)
 	g.GET("/docs", documentHandler.GetAllDocumentsByUser)
 	g.GET("/docs/:id", documentHandler.GetDocumentById)
 	g.GET("/docs/:id/watch", documentHandler.Watch)

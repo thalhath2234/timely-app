@@ -3,13 +3,15 @@ import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { availableTemplates, contentFromTemplate, dailyNoteTemplate, dateKey, templateVars, type DocTemplate } from "@timely/contract/templates";
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { Archive, ArchiveRestore, ChevronRight, FilePlus, FileText, FolderUp, LayoutTemplate, MoreVertical, Sheet as SheetIcon, Star, Trash2, Upload } from "lucide-react-native";
+import { Archive, ArchiveRestore, CalendarDays, ChevronRight, FilePlus, FileText, FolderUp, LayoutTemplate, MoreVertical, Sheet as SheetIcon, Star, Trash2, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -17,7 +19,7 @@ import SegmentedControl from "../../../components/ui/SegmentedControl";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
-import { useCreateDoc, useCreateSheet, useDeleteDoc, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
+import { keys, useCreateDoc, useCreateSheet, useDeleteDoc, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { fromMarkdown } from "../../../lib/markdown";
 import { csvToGrid } from "../../../lib/sheetCsv";
 import { sheetHref } from "../../../lib/sheet";
@@ -27,6 +29,7 @@ import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { easeOut, expandEntering, expandExiting, listLayout, overlayDuration } from "../../../lib/motion";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
+import { openDailyDoc } from "../../../lib/api/docs";
 import type { Doc } from "../../../lib/types";
 
 type Kind = "docs" | "sheets";
@@ -77,6 +80,8 @@ export default function FilesScreen() {
   const [menuDoc, setMenuDoc] = useState<Doc | null>(null);
   const [deleteDocItem, setDeleteDocItem] = useState<Doc | null>(null);
   const [pendingDeleteDoc, setPendingDeleteDoc] = useState<Doc | null>(null);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const queryClient = useQueryClient();
   const docsQ = useDocsQuery();
   const sheetsQ = useSheetsQuery();
   const templatesQ = useSheetTemplatesQuery();
@@ -122,6 +127,31 @@ export default function FilesScreen() {
     setExpandedIds((previous) => new Set(previous).add(parent.id));
     setMenuDoc(null);
     router.push(`/(app)/docs/${page.id}`);
+  }
+
+  async function createFromTemplate(template: DocTemplate) {
+    setTemplatesOpen(false);
+    try {
+      const title = template.id.startsWith("builtin:") ? template.title : `${template.title} copy`;
+      const { content, plainText } = contentFromTemplate(template, templateVars(new Date(), title));
+      const doc = await createDoc.mutateAsync({ title, icon: template.icon, content, plainText, workspaceId: spaces[0]?.id });
+      router.push(`/(app)/docs/${doc.id}`);
+    } catch (error) {
+      Alert.alert("Could not create the doc", error instanceof Error ? error.message : "Try again.");
+    }
+  }
+
+  async function openToday() {
+    try {
+      const now = new Date();
+      const date = dateKey(now);
+      const { content, plainText } = contentFromTemplate(dailyNoteTemplate(docsQ.data ?? []), templateVars(now, date));
+      const { document } = await openDailyDoc({ date, title: date, content, plainText, workspaceId: spaces[0]?.id });
+      await queryClient.invalidateQueries({ queryKey: keys.docs });
+      router.push(`/(app)/docs/${document.id}`);
+    } catch (error) {
+      Alert.alert("Could not open today's note", error instanceof Error ? error.message : "Try again.");
+    }
   }
 
   async function importMarkdown() {
@@ -230,6 +260,16 @@ export default function FilesScreen() {
             >
               {showArchived ? <ArchiveRestore size={20} color={colors.primary} /> : <Archive size={20} color={colors.foreground} />}
             </HeaderIconButton>
+            {kind === "docs" ? (
+              <>
+                <HeaderIconButton label="Open today's daily note" onPress={() => void openToday()}>
+                  <CalendarDays size={20} color={colors.foreground} />
+                </HeaderIconButton>
+                <HeaderIconButton label="New doc from a template" onPress={() => setTemplatesOpen(true)}>
+                  <LayoutTemplate size={20} color={colors.foreground} />
+                </HeaderIconButton>
+              </>
+            ) : null}
             <HeaderIconButton
               label={kind === "docs" ? "Import Markdown" : "Import CSV"}
               onPress={() => void (kind === "docs" ? importMarkdown() : importCsv())}
@@ -398,6 +438,16 @@ export default function FilesScreen() {
         <SheetOption
           onSelect={() => {
             if (!menuDoc) return;
+            updateDoc.mutate({ id: menuDoc.id, data: { isTemplate: !menuDoc.isTemplate } });
+            setMenuDoc(null);
+          }}
+          leading={<LayoutTemplate size={18} color={colors.mutedForeground} />}
+        >
+          {menuDoc?.isTemplate ? "Stop using as a template" : "Use as a template"}
+        </SheetOption>
+        <SheetOption
+          onSelect={() => {
+            if (!menuDoc) return;
             updateDoc.mutate({ id: menuDoc.id, data: { archived: !Boolean(menuDoc.archivedAt) } });
             setMenuDoc(null);
           }}
@@ -414,6 +464,18 @@ export default function FilesScreen() {
         >
           <Text style={styles.destructive}>Delete page</Text>
         </SheetOption>
+      </BottomSheet>
+      <BottomSheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} title="New from template">
+        {availableTemplates(docsQ.data ?? []).map((template) => (
+          <SheetOption
+            key={template.id}
+            onSelect={() => void createFromTemplate(template)}
+            leading={<Text style={styles.templateIcon}>{template.icon}</Text>}
+          >
+            {template.title}
+          </SheetOption>
+        ))}
+        <Text style={styles.templateHint}>Turn any page into a template from its menu. Text like {"{{date}}"} is filled in.</Text>
       </BottomSheet>
       <ConfirmSheet
         open={deleteDocItem !== null}
@@ -435,6 +497,8 @@ const styles = createThemedStyleSheet((colors) => ({
   headerControls: { paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
   listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120, gap: 10 },
   templateError: { color: colors.destructive, fontSize: 13 },
+  templateIcon: { fontSize: 18, width: 22, textAlign: "center" },
+  templateHint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, paddingHorizontal: 16, paddingTop: 8 },
   destructive: { color: colors.destructive, fontSize: 15, fontWeight: "600" },
   section: { color: colors.foreground, fontSize: 19, fontWeight: "800", marginTop: 12, marginBottom: 2, letterSpacing: -0.3 },
   card: {

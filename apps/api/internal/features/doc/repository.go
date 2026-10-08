@@ -25,6 +25,8 @@ type DocumentRepository interface {
 	PruneVersions(documentID string, keep int) error
 	ListVersions(userID, documentID string) ([]Version, error)
 	GetVersion(userID, documentID, versionID string) (*Version, error)
+	FindDaily(userID, date string) (*models.Document, error)
+	FindTopLevelByTitle(userID, workspaceID, title string) (*models.Document, error)
 }
 
 type documentRepository struct {
@@ -249,4 +251,23 @@ func (r *documentRepository) GetVersion(userID, documentID, versionID string) (*
 		return nil, err
 	}
 	return &version, nil
+}
+
+func (r *documentRepository) FindDaily(userID, date string) (*models.Document, error) {
+	var document models.Document
+	err := r.db.Where("user_id = ? AND daily_date = ?", userID, date).First(&document).Error
+	if err != nil {
+		return nil, err
+	}
+	return &document, nil
+}
+
+func (r *documentRepository) FindTopLevelByTitle(userID, workspaceID, title string) (*models.Document, error) {
+	var document models.Document
+	err := r.db.Where("user_id = ? AND workspace_id = ? AND parent_id IS NULL AND archived_at IS NULL AND title = ? AND daily_date IS NULL AND is_template = false", userID, workspaceID, title).
+		Order("created_at ASC").First(&document).Error
+	if err != nil {
+		return nil, err
+	}
+	return &document, nil
 }

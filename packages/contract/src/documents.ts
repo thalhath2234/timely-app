@@ -35,6 +35,10 @@ export interface Doc {
   isFavorite: boolean;
   archivedAt: string | null;
   order: number;
+  /** Offered under "New from template". */
+  isTemplate?: boolean;
+  /** YYYY-MM-DD when this is the daily note for that day. */
+  dailyDate?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,6 +73,17 @@ export interface UpdateDocPayload {
   isFavorite?: boolean;
   archived?: boolean;
   order?: number;
+  isTemplate?: boolean;
+}
+
+/** POST /docs/daily: opens the daily note for `date` (the user's own day),
+ * creating it from `content` when there is none yet. */
+export interface DailyDocPayload {
+  date: string;
+  title?: string;
+  content?: DocContent;
+  plainText?: string;
+  workspaceId?: string;
 }
 
 /** GET /docs/:id/backlinks: another doc linking here, with the text around each link. */

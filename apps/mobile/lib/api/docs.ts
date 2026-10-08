@@ -1,6 +1,6 @@
 import { File as ExpoFile } from "expo-file-system";
 import type { Doc, DocContent } from "../types";
-import type { CreateDocPayload, DocBacklink, DocVersion, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
+import type { CreateDocPayload, DailyDocPayload, DocBacklink, DocVersion, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
 import { getToken } from "../auth/session";
 import { isRichContentEmpty } from "../richText";
 import { api, getApiUrl, tunnelHeaders, unwrap } from "./client";
@@ -177,4 +177,9 @@ export function getDocVersion(id: string, versionId: string) {
 export async function restoreDocVersion(id: string, versionId: string) {
   const res = await api<{ document: Doc }>(`/docs/${id}/versions/${versionId}/restore`, { method: "POST", queueIfOffline: false });
   return res.document;
+}
+
+/** Opens the daily note for `date`, creating it from the payload's content when there is none yet. */
+export function openDailyDoc(data: DailyDocPayload) {
+  return api<{ document: Doc; created: boolean }>("/docs/daily", { method: "POST", body: data, queueIfOffline: false });
 }

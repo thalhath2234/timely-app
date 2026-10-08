@@ -28,6 +28,7 @@ type DocumentUpdate struct {
 	IsFavorite *bool
 	Archived   *bool
 	Order      *int
+	IsTemplate *bool
 	// Snapshot saves the doc as it is before this change, whatever the
 	// timing; the assistant's edits use it so they can always be undone.
 	Snapshot    bool
@@ -54,6 +55,7 @@ type DocumentService interface {
 	Versions(userID, documentID string) ([]Version, error)
 	GetVersion(userID, documentID, versionID string) (*Version, error)
 	RestoreVersion(userID, documentID, versionID string) (*models.Document, error)
+	Daily(userID string, request DailyRequest) (*models.Document, bool, error)
 }
 
 type documentService struct {
@@ -207,6 +209,9 @@ func (s *documentService) Update(userID string, documentID string, update Docume
 	}
 	if update.Order != nil {
 		updates["order"] = *update.Order
+	}
+	if update.IsTemplate != nil {
+		updates["is_template"] = *update.IsTemplate
 	}
 	if update.Archived != nil {
 		if *update.Archived {

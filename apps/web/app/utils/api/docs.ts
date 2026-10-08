@@ -1,5 +1,5 @@
 import type { Doc } from "@/app/_types/types";
-import type { CreateDocPayload, DocBacklink, DocVersion, UpdateDocPayload } from "@timely/contract/documents";
+import type { CreateDocPayload, DailyDocPayload, DocBacklink, DocVersion, UpdateDocPayload } from "@timely/contract/documents";
 import { isRichContentEmpty } from "@/app/utils/richText";
 import { apiFetch, apiUrl } from "./client";
 
@@ -163,4 +163,15 @@ export async function restoreDocVersion(id: string, versionId: string): Promise<
   if (!response.ok) throw new Error(await readError(response, "Could not restore this version"));
   const body = await response.json();
   return body.document;
+}
+
+/** Opens (or makes) the daily note for a day. */
+export async function openDailyDoc(data: DailyDocPayload): Promise<{ document: Doc; created: boolean }> {
+  const response = await apiFetch("/docs/daily", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error(await readError(response, "Could not open today's note"));
+  return response.json();
 }

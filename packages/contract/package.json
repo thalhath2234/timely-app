@@ -21,6 +21,7 @@
     "./sheetFormulaInput": "./src/sheetFormulaInput.ts",
     "./sheetRange": "./src/sheetRange.ts",
     "./sheetTypes": "./src/sheetTypes.ts",
+    "./templates": "./src/templates.ts",
     "./workStatus": "./src/workStatus.ts"
   },
   "dependencies": {

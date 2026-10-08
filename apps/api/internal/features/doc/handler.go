@@ -45,6 +45,7 @@ type updateDocumentRequest struct {
 	IsFavorite *bool           `json:"isFavorite"`
 	Archived   *bool           `json:"archived"`
 	Order      *int            `json:"order"`
+	IsTemplate *bool           `json:"isTemplate"`
 }
 
 func (h *Handler) Create(c *echo.Context) error {
@@ -161,6 +162,7 @@ func (h *Handler) Update(c *echo.Context) error {
 		IsFavorite: req.IsFavorite,
 		Archived:   req.Archived,
 		Order:      req.Order,
+		IsTemplate: req.IsTemplate,
 	})
 	if err != nil {
 		return documentError(err)
@@ -233,6 +235,28 @@ func (h *Handler) RestoreVersion(c *echo.Context) error {
 		return documentError(err)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"message": "version restored", "document": document})
+}
+
+// Daily opens the daily note for a day, creating it (from the content the
+// app sends, usually a template) when it does not exist yet. 201 means new.
+func (h *Handler) Daily(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	var req DailyRequest
+	if err := decodeJSON(c, &req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
+	}
+	document, created, err := h.documentService.Daily(userID, req)
+	if err != nil {
+		return documentError(err)
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	return c.JSON(status, map[string]any{"document": document, "created": created})
 }
 
 // Watch is an SSE stream of last-write-wins invalidations for one document.

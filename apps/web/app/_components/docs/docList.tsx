@@ -9,9 +9,13 @@ import {
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { availableTemplates, contentFromTemplate, dailyNoteTemplate, dateKey, templateVars, type DocTemplate } from "@timely/contract/templates";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  CalendarDays,
   ChevronRight,
   FileText,
+  LayoutTemplate,
   PanelLeftClose,
   Plus,
   Search,
@@ -20,7 +24,9 @@ import {
   Upload,
 } from "lucide-react";
 import { Doc } from "@/app/_types/types";
-import { useCreateDoc, useDeleteDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
+import { docsKey, useCreateDoc, useDeleteDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
+import { openDailyDoc } from "@/app/utils/api/docs";
+import { useToastStore } from "@/app/_store/toastStore";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
@@ -77,6 +83,9 @@ function countDescendants(node: DocNode): number {
     0,
   );
 }
+
+const quickButton =
+  "flex cursor-pointer items-center justify-center gap-1 rounded-lg border border-dashed border-border px-1.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground";
 
 export default function DocList() {
   const router = useRouter();
@@ -159,6 +168,31 @@ export default function DocList() {
 
     if (parentId) expandNode(parentId);
     router.push(`/docs/${doc.id}`);
+  };
+
+  const queryClient = useQueryClient();
+  const [isTemplateMenuOpen, setIsTemplateMenuOpen] = useState(false);
+  const templates = useMemo(() => availableTemplates(docs ?? []), [docs]);
+
+  const createFromTemplate = async (template: DocTemplate) => {
+    setIsTemplateMenuOpen(false);
+    const title = template.id.startsWith("builtin:") ? template.title : `${template.title} copy`;
+    const { content, plainText } = contentFromTemplate(template, templateVars(new Date(), title));
+    const doc = await createDoc.mutateAsync({ title, icon: template.icon, content, plainText });
+    router.push(`/docs/${doc.id}`);
+  };
+
+  const openToday = async () => {
+    try {
+      const now = new Date();
+      const date = dateKey(now);
+      const { content, plainText } = contentFromTemplate(dailyNoteTemplate(docs ?? []), templateVars(now, date));
+      const { document } = await openDailyDoc({ date, title: date, content, plainText });
+      await queryClient.invalidateQueries({ queryKey: docsKey });
+      router.push(`/docs/${document.id}`);
+    } catch (error) {
+      useToastStore.getState().show(error instanceof Error ? error.message : "Could not open today's note");
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -354,29 +388,70 @@ export default function DocList() {
       </div>
 
       <div className="px-3 pb-2">
-        <label className="mb-2 flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground">
-          <Upload className="size-3.5" />
-          Import Markdown
-          <input
-            type="file"
-            accept=".md,.markdown,text/markdown,text/plain"
-            className="sr-only"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (!file) return;
-              void readMarkdownFile(file).then((imported) =>
-                createDoc
-                  .mutateAsync({
-                    title: imported.title,
-                    content: imported.content,
-                    plainText: imported.plainText,
-                  })
-                  .then((doc) => router.push(`/docs/${doc.id}`)),
-              );
-            }}
-          />
-        </label>
+        <div className="mb-2 grid grid-cols-3 gap-1">
+          <button type="button" title="Open today's daily note" onClick={() => void openToday()} className={quickButton}>
+            <CalendarDays className="size-3.5" />
+            Today
+          </button>
+          <div className="relative">
+            <button
+              type="button"
+              title="New doc from a template"
+              aria-expanded={isTemplateMenuOpen}
+              onClick={() => setIsTemplateMenuOpen((open) => !open)}
+              className={`${quickButton} w-full`}
+            >
+              <LayoutTemplate className="size-3.5" />
+              Template
+            </button>
+            {isTemplateMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onMouseDown={() => setIsTemplateMenuOpen(false)} />
+                <div role="menu" aria-label="Templates" className="absolute left-0 top-9 z-50 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl">
+                  {templates.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void createFromTemplate(template)}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                    >
+                      <span className="w-5 text-center">{template.icon}</span>
+                      <span className="min-w-0 flex-1 truncate">{template.title}</span>
+                      {!template.id.startsWith("builtin:") && <span className="text-[10px] uppercase text-muted-foreground">Yours</span>}
+                    </button>
+                  ))}
+                  <p className="px-2 pb-1 pt-1.5 text-[11px] leading-snug text-muted-foreground">
+                    Turn any doc into a template from its header. Text like {"{{date}}"} is filled in.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+          <label title="Import a Markdown file" className={quickButton}>
+            <Upload className="size-3.5" />
+            Import
+            <input
+              type="file"
+              accept=".md,.markdown,text/markdown,text/plain"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                void readMarkdownFile(file).then((imported) =>
+                  createDoc
+                    .mutateAsync({
+                      title: imported.title,
+                      content: imported.content,
+                      plainText: imported.plainText,
+                    })
+                    .then((doc) => router.push(`/docs/${doc.id}`)),
+                );
+              }}
+            />
+          </label>
+        </div>
         <div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-2 py-1.5 transition focus-within:border-ring focus-within:ring-1 focus-within:ring-ring">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
           <input

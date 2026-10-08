@@ -179,6 +179,11 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 				if hasUser {
 					row["user_id"] = userID
 				}
+				for column, value := range restoreDefaults[spec.name] {
+					if _, ok := row[column]; !ok {
+						row[column] = value
+					}
+				}
 				if err := checkRestoreParents(spec.name, row, owned.has); err != nil {
 					return err
 				}
@@ -216,6 +221,12 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 		s.afterRestore(userID)
 	}
 	return &RestoreResult{RestoredAt: time.Now().UTC(), Counts: counts}, nil
+}
+
+// restoreDefaults fills NOT NULL columns added after older backups were
+// made; a missing key would otherwise insert NULL instead of the default.
+var restoreDefaults = map[string]map[string]any{
+	"documents": {"is_template": false},
 }
 
 type parentRef struct {
