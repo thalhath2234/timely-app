@@ -101,6 +101,12 @@ export function buildEditorHtml(
     .math-out .katex-display { margin: 0; }
     .block-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: ${t.mutedForeground}; background: ${t.muted}; }
     .block-head button { margin-left: auto; background: transparent; border: 0; color: inherit; font: inherit; }
+    .details { position: relative; margin: 0 0 0.25em; padding-left: 28px; }
+    .details-toggle { position: absolute; left: 0; top: 2px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: ${t.mutedForeground}; }
+    .details-toggle svg { transition: transform 0.15s ease; }
+    .details[data-open] > .details-toggle svg { transform: rotate(90deg); }
+    .details-summary { font-weight: 600; }
+    .details:not([data-open]) > .details-body > :not(.details-summary) { display: none; }
     .callout { --callout: ${t.primary}; border-left: 3px solid var(--callout); background: color-mix(in oklab, var(--callout) 10%, transparent); border-radius: 0 8px 8px 0; padding: 8px 12px 10px; margin: 0 0 0.75em; }
     .callout[data-kind="tip"] { --callout: #2fa36b; }
     .callout[data-kind="important"] { --callout: #8957e5; }
@@ -483,6 +489,145 @@ export function buildEditorHtml(
     });
 
     const CALLOUT_KINDS = { note: "Note", tip: "Tip", important: "Important", warning: "Warning", caution: "Caution" };
+
+
+    // --- Toggle blocks: a plain-text summary that folds the blocks under it
+    // (web: apps/web/app/_components/editor/details.ts). ---
+    const DetailsSummary = Node.create({
+      name: "detailsSummary",
+      content: "text*",
+      marks: "",
+      defining: true,
+      isolating: true,
+      parseHTML() { return [{ tag: "summary" }, { tag: "div[data-details-summary]" }]; },
+      renderHTML({ HTMLAttributes }) { return ["div", { ...HTMLAttributes, class: "details-summary", "data-details-summary": "" }, 0]; },
+    });
+    function toggleDetailsCmd(state, tr) {
+      const schema = state.schema;
+      const { $from } = state.selection;
+      for (let depth = $from.depth; depth > 0; depth--) {
+        const node = $from.node(depth);
+        if (node.type.name !== "details") continue;
+        const pos = $from.before(depth);
+        const blocks = [schema.nodes.paragraph.create(null, node.firstChild.content)];
+        node.forEach((child, _offset, index) => { if (index > 0) blocks.push(child); });
+        tr.replaceWith(pos, pos + node.nodeSize, blocks);
+        tr.setSelection(TextSelection.near(tr.doc.resolve(pos + 1)));
+        return true;
+      }
+      const block = $from.parent;
+      if (!block.isTextblock || block.type.spec.code || $from.depth < 1) return false;
+      const text = block.textContent;
+      const start = $from.before();
+      tr.replaceWith(start, $from.after(), schema.nodes.details.create({ open: true }, [
+        schema.nodes.detailsSummary.create(null, text ? schema.text(text) : null),
+        schema.nodes.paragraph.create(),
+      ]));
+      tr.setSelection(TextSelection.create(tr.doc, start + 2 + text.length));
+      return true;
+    }
+    const Details = Node.create({
+      name: "details",
+      priority: 1000,
+      group: "block",
+      content: "detailsSummary block+",
+      defining: true,
+      addAttributes() {
+        return {
+          open: {
+            default: true,
+            parseHTML: (el) => el.hasAttribute("open"),
+            renderHTML: (attrs) => (attrs.open ? { open: "" } : {}),
+          },
+        };
+      },
+      parseHTML() { return [{ tag: "details" }]; },
+      renderHTML({ HTMLAttributes }) { return ["details", HTMLAttributes, 0]; },
+      addNodeView() {
+        return ({ node, getPos, editor }) => {
+          let current = node;
+          const dom = document.createElement("div");
+          dom.className = "details";
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "details-toggle";
+          button.contentEditable = "false";
+          button.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+          const body = document.createElement("div");
+          body.className = "details-body";
+          dom.append(button, body);
+          const paint = () => {
+            if (current.attrs.open) dom.setAttribute("data-open", "");
+            else dom.removeAttribute("data-open");
+            button.setAttribute("aria-expanded", String(Boolean(current.attrs.open)));
+          };
+          paint();
+          button.addEventListener("mousedown", (event) => event.preventDefault());
+          button.addEventListener("click", () => {
+            const pos = getPos();
+            if (typeof pos !== "number") return;
+            const open = !current.attrs.open;
+            const tr = editor.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, open });
+            tr.setMeta("addToHistory", false);
+            const { from } = editor.state.selection;
+            const end = pos + current.firstChild.nodeSize;
+            if (!open && from > end && from < pos + current.nodeSize) tr.setSelection(TextSelection.create(tr.doc, end));
+            editor.view.dispatch(tr);
+          });
+          return {
+            dom,
+            contentDOM: body,
+            update(next) {
+              if (next.type !== current.type) return false;
+              current = next;
+              paint();
+              return true;
+            },
+            ignoreMutation: (mutation) => button.contains(mutation.target),
+          };
+        };
+      },
+      addKeyboardShortcuts() {
+        const foldedBefore = (ed) => {
+          const { $from, empty } = ed.state.selection;
+          if (!empty || $from.parentOffset > 0 || $from.depth < 1) return null;
+          const before = ed.state.doc.resolve($from.before()).nodeBefore;
+          if (!before || before.type.name !== "details" || before.attrs.open) return null;
+          return { pos: $from.before() - before.nodeSize, details: before };
+        };
+        return {
+          Enter: ({ editor: ed }) => {
+            const { state } = ed;
+            const { $from, empty } = state.selection;
+            if (!empty || $from.parent.type.name !== "detailsSummary") return false;
+            const pos = $from.before($from.depth - 1);
+            const details = state.doc.nodeAt(pos);
+            const bodyStart = pos + 1 + details.firstChild.nodeSize;
+            const tr = state.tr;
+            if (!details.attrs.open) tr.setNodeMarkup(pos, undefined, { ...details.attrs, open: true });
+            const first = details.child(1);
+            if (!(first.type.name === "paragraph" && first.content.size === 0)) tr.insert(bodyStart, state.schema.nodes.paragraph.create());
+            tr.setSelection(TextSelection.create(tr.doc, bodyStart + 1));
+            ed.view.dispatch(tr.scrollIntoView());
+            return true;
+          },
+          Backspace: ({ editor: ed }) => {
+            const folded = foldedBefore(ed);
+            if (folded) {
+              const { $from } = ed.state.selection;
+              const tr = ed.state.tr;
+              if ($from.parent.content.size === 0) tr.delete($from.before(), $from.after());
+              tr.setSelection(TextSelection.create(tr.doc, folded.pos + folded.details.firstChild.nodeSize));
+              ed.view.dispatch(tr.scrollIntoView());
+              return true;
+            }
+            const { $from, empty } = ed.state.selection;
+            if (!empty || $from.parent.type.name !== "detailsSummary" || $from.parentOffset > 0) return false;
+            return ed.commands.command(({ state, tr }) => toggleDetailsCmd(state, tr));
+          },
+        };
+      },
+    });
 
     const Callout = Node.create({
       name: "callout",
@@ -1203,6 +1348,7 @@ export function buildEditorHtml(
           quote: editor.isActive("blockquote"),
           codeBlock: editor.isActive("codeBlock"),
           callout: editor.isActive("callout"),
+          toggle: editor.isActive("details"),
           mathBlock: editor.isActive("mathBlock"),
         },
       });
@@ -1222,7 +1368,9 @@ export function buildEditorHtml(
         }),
         Placeholder.configure({
           showOnlyCurrent: false,
-          placeholder: ({ editor: ed, pos }) => {
+          includeChildren: true,
+          placeholder: ({ editor: ed, pos, node }) => {
+            if (node.type.name === "detailsSummary") return "Toggle";
             if (!ed.isEmpty || pos !== 0) return "";
             return placeholder;
           },
@@ -1237,6 +1385,8 @@ export function buildEditorHtml(
         MathInline,
         MathBlock,
         Callout,
+        Details,
+        DetailsSummary,
         FootnoteRef,
         Footnote,
         Frontmatter,
@@ -1322,6 +1472,7 @@ export function buildEditorHtml(
           case "diagram": chain.setCodeBlock({ language: "mermaid" }).insertContent("flowchart TD\\n  A[Start] --> B[Next step]"); break;
           case "callout": chain.wrapIn("callout", { kind: "note" }); break;
           case "liftCallout": chain.lift("callout"); break;
+          case "toggle": chain.command(({ state, tr }) => toggleDetailsCmd(state, tr)); break;
           case "math":
             chain.insertContent({ type: "mathInline", attrs: { latex: "" } }).command(({ tr }) => {
               send({ type: "mathEdit", pos: tr.selection.from - 1, latex: "" });

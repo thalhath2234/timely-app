@@ -1293,3 +1293,42 @@ html.reduce-motion .tl-bar {
   display: block;
   width: 100% !important;
 }
+
+/* Toggle blocks (details.ts): a chevron, the summary line, and the body
+ * blocks, which hide while the toggle is folded. */
+.doc-editor-content .doc-details {
+  position: relative;
+  margin: 0.25rem 0;
+  padding-left: 1.6rem;
+}
+.doc-editor-content .doc-details-toggle {
+  position: absolute;
+  left: 0;
+  top: 0.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 0.3rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.doc-editor-content .doc-details-toggle:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.doc-editor-content .doc-details-toggle svg {
+  transition: transform 0.15s ease;
+}
+.doc-editor-content .doc-details[data-open] > .doc-details-toggle svg {
+  transform: rotate(90deg);
+}
+.doc-editor-content .doc-details-summary {
+  display: block;
+  font-weight: 600;
+  list-style: none;
+}
+.doc-editor-content .doc-details:not([data-open]) > .doc-details-body > :not(.doc-details-summary) {
+  display: none;
+}

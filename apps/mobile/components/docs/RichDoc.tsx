@@ -94,6 +94,16 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
           ))}
         </View>
       );
+    case "details": {
+      // Toggles show open in read-only text.
+      const [summary, ...body] = node.content ?? [];
+      return (
+        <View>
+          <Text style={[styles.p, styles.bold]}>▾ {plain(summary ?? {})}</Text>
+          <View style={styles.liBody}>{body.map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>
+        </View>
+      );
+    }
     case "mathBlock":
       // Read-only text shows the TeX source as code.
       return (

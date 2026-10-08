@@ -73,8 +73,19 @@ func (r reader) parse(src []byte) []any {
 }
 
 func (r reader) blocks(parent ast.Node) []any {
+	return r.blocksFrom(parent.FirstChild())
+}
+
+// blocksFrom converts first and the siblings after it. Toggles span several
+// sibling nodes (see details), so they are read here rather than in block.
+func (r reader) blocksFrom(first ast.Node) []any {
 	var out []any
-	for n := parent.FirstChild(); n != nil; n = n.NextSibling() {
+	for n := first; n != nil; n = n.NextSibling() {
+		if node, end, ok := r.details(n); ok {
+			out = append(out, node)
+			n = end
+			continue
+		}
 		out = append(out, r.block(n)...)
 	}
 	return out
@@ -121,10 +132,7 @@ func (r reader) block(n ast.Node) []any {
 	case *east.Table:
 		out = append(out, r.table(b))
 	case *ast.HTMLBlock:
-		raw := strings.TrimSpace(r.lines(b.Lines()))
-		if b.HasClosure() {
-			raw = strings.TrimSpace(raw + "\n" + string(b.ClosureLine.Value(r.source)))
-		}
+		raw := r.htmlBlockRaw(b)
 		if brTagRe.MatchString(raw) {
 			out = append(out, paragraphNode(nil))
 			return out
@@ -175,9 +183,7 @@ func (r reader) callout(quote *ast.Blockquote) map[string]any {
 		}
 		content = append(content, r.parse([]byte(rest.String()))...)
 	}
-	for n := first.NextSibling(); n != nil; n = n.NextSibling() {
-		content = append(content, r.block(n)...)
-	}
+	content = append(content, r.blocksFrom(first.NextSibling())...)
 	if len(content) == 0 {
 		content = []any{paragraphNode(nil)}
 	}

@@ -86,6 +86,26 @@ $$
 >
 > - item
 
+<details open>
+<summary>Toggle &lt;one&gt; &amp; more</summary>
+
+Hidden **body**
+
+- inside
+
+<details>
+<summary>Nested</summary>
+
+Deep
+
+</details>
+
+</details>
+
+<details>
+<summary>Closed and empty</summary>
+</details>
+
 [^1]: The note, with **bold**.
 
     Second paragraph.

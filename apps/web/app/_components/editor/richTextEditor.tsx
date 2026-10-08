@@ -43,6 +43,7 @@ import {
   Italic,
   Link2,
   List,
+  ListCollapse,
   ListOrdered,
   Map as MapIcon,
   Minus,
@@ -60,6 +61,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AutoCapitalize } from "./autoCapitalize";
 import { Callout } from "./callout";
 import { DocImage } from "./docImage";
+import { Details, DetailsSummary } from "./details";
 import CodeBlockView from "./codeBlockView";
 import { Footnote, FootnoteRef } from "./footnotes";
 import { DocumentWithFrontmatter, Frontmatter } from "./frontmatter";
@@ -276,6 +278,7 @@ export default function RichTextEditor({
           if (node.type.name === "heading") {
             return `Heading ${node.attrs.level}`;
           }
+          if (node.type.name === "detailsSummary") return "Toggle";
           if (isInsideTable(placeholderEditor, pos)) {
             return hasAnchor ? "Type @ to mention" : "";
           }
@@ -298,6 +301,8 @@ export default function RichTextEditor({
       MathInline,
       MathBlock,
       Callout,
+      Details,
+      DetailsSummary,
       FootnoteRef,
       Footnote,
       Frontmatter,
@@ -771,6 +776,12 @@ export default function RichTextEditor({
         editor.isActive("callout")
           ? editor.chain().focus().lift("callout").run()
           : editor.chain().focus().setCallout({ kind: "note" }).run(),
+    },
+    {
+      label: "Toggle",
+      icon: ListCollapse,
+      isActive: editor.isActive("details"),
+      run: () => editor.chain().focus().toggleDetails().run(),
     },
     {
       label: "Code block",

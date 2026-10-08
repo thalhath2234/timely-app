@@ -435,9 +435,59 @@ function calloutOf(quote: Tokens.Blockquote, options: FromMarkdownOptions): Mark
   return { type: "callout", attrs, content: content.length ? content : [paragraph()] };
 }
 
+// Toggles are HTML <details> with a plain-text <summary> (see
+// richtext/blocks.go): the opening tag, the body blocks, then </details>.
+const detailsOpenRe = /^<details(\s+open(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)?\s*>\s*<summary>([\s\S]*?)<\/summary>\s*(<\/details>)?$/i;
+const detailsCloseRe = /^<\/details>$/i;
+
+function detailsNode(summary: string, open: boolean, body: MarkdownNode[]): MarkdownNode {
+  return {
+    type: "details",
+    attrs: { open },
+    content: [
+      summary ? { type: "detailsSummary", content: [{ type: "text", text: summary }] } : { type: "detailsSummary" },
+      ...(body.length ? body : [paragraph()]),
+    ],
+  };
+}
+
+/** Reads a toggle starting at tokens[start]; returns it and the index of the
+ * closing tag, or null when there is no closing tag (then it is raw HTML). */
+function detailsAt(tokens: Token[], start: number, options: FromMarkdownOptions): [MarkdownNode, number] | null {
+  const token = tokens[start];
+  if (token.type !== "html") return null;
+  const match = detailsOpenRe.exec((token as Tokens.HTML).text.trim());
+  if (!match) return null;
+  const summary = decodeEntities(match[2].trim());
+  const open = match[1] !== undefined;
+  if (match[3]) return [detailsNode(summary, open, []), start];
+  const body: MarkdownNode[] = [];
+  for (let i = start + 1; i < tokens.length; i += 1) {
+    const current = tokens[i];
+    if (current.type === "html" && detailsCloseRe.test((current as Tokens.HTML).text.trim())) {
+      return [detailsNode(summary, open, body), i];
+    }
+    const nested = detailsAt(tokens, i, options);
+    if (nested) {
+      body.push(nested[0]);
+      i = nested[1];
+      continue;
+    }
+    body.push(...blocksOf([current], options));
+  }
+  return null;
+}
+
 function blocksOf(tokens: Token[], options: FromMarkdownOptions): MarkdownNode[] {
   const out: MarkdownNode[] = [];
-  for (const token of tokens) {
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const toggle = detailsAt(tokens, index, options);
+    if (toggle) {
+      out.push(toggle[0]);
+      index = toggle[1];
+      continue;
+    }
     switch (token.type) {
       case "space":
       case "def":

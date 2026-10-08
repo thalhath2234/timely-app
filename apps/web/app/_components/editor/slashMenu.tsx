@@ -24,6 +24,7 @@ import {
   ImageIcon,
   Link2,
   List,
+  ListCollapse,
   ListOrdered,
   Minus,
   Table2,
@@ -132,6 +133,14 @@ export function createSlashItems(options?: {
       keywords: ["todo", "task", "checkbox", "check"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.toggleTaskList().run()),
+    },
+    {
+      title: "Toggle",
+      description: "A title that folds the blocks under it",
+      icon: ListCollapse,
+      keywords: ["toggle", "fold", "collapse", "details", "expand", "accordion"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.toggleDetails().run()),
     },
     {
       title: "Code block",
