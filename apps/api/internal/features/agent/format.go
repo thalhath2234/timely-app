@@ -75,7 +75,8 @@ func docPayload(d *models.Document) map[string]any {
 	if d == nil {
 		return nil
 	}
-	return map[string]any{
+	content, kept := shortenBlocks(d.ID, d.Content)
+	payload := map[string]any{
 		"id":          d.ID,
 		"title":       d.Title,
 		"icon":        d.Icon,
@@ -85,11 +86,17 @@ func docPayload(d *models.Document) map[string]any {
 		"isFavorite":  d.IsFavorite,
 		"archivedAt":  d.ArchivedAt,
 		"order":       d.Order,
-		"markdown":    richtext.ToMarkdown(d.Content),
+		"markdown":    richtext.ToMarkdown(content),
 		"plainText":   d.PlainText,
 		"createdAt":   d.CreatedAt,
 		"updatedAt":   d.UpdatedAt,
 	}
+	if kept > 0 {
+		// The search copy holds the same big blocks in full.
+		delete(payload, "plainText")
+		payload["keptBlocks"] = fmt.Sprintf("%d big data block(s) are shown as a [kept ...] line. Leave that line inside its fence to keep the block as is (moving the fence moves the block); delete the fence to remove it, or write a new block in its place to replace it", kept)
+	}
+	return payload
 }
 
 func sheetMarkdown(sh *models.Sheet) string {

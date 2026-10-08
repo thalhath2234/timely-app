@@ -54,9 +54,15 @@ func FromMarkdown(src string) (models.JSONMap, string) {
 	if len(content) == 0 {
 		content = []any{paragraphNode(nil)}
 	}
+	doc := models.JSONMap{"type": "doc", "content": content}
+	return doc, PlainText(doc)
+}
+
+// PlainText is the search copy of a document, one line per block.
+func PlainText(doc models.JSONMap) string {
 	var texts []string
-	blockTexts(content, &texts)
-	return models.JSONMap{"type": "doc", "content": content}, strings.Join(texts, "\n")
+	blockTexts(asSlice(doc["content"]), &texts)
+	return strings.Join(texts, "\n")
 }
 
 type reader struct {

@@ -89,7 +89,10 @@ func (s *Server) createDoc(ctx context.Context, req *mcp.CallToolRequest, in cre
 		Icon:        strPtr(in.Icon),
 	}
 	if in.Markdown != "" {
-		rich, plain := md(in.Markdown)
+		rich, plain, err := s.docMarkdown(uid, in.Markdown)
+		if err != nil {
+			return fail(err)
+		}
 		d.Content = rich
 		d.PlainText = plain
 	}
@@ -127,7 +130,10 @@ func (s *Server) updateDoc(ctx context.Context, req *mcp.CallToolRequest, in upd
 		Order:      in.Order,
 	}
 	if in.Markdown != nil {
-		rich, plain := md(*in.Markdown)
+		rich, plain, err := s.docMarkdown(uid, *in.Markdown)
+		if err != nil {
+			return fail(err)
+		}
 		update.Content = &rich
 		update.PlainText = &plain
 		update.Snapshot = true
@@ -158,7 +164,10 @@ func (s *Server) appendToDoc(ctx context.Context, req *mcp.CallToolRequest, in a
 		combined += "\n\n"
 	}
 	combined += in.Markdown
-	rich, plain := md(combined)
+	rich, plain, err := s.docMarkdown(uid, combined)
+	if err != nil {
+		return fail(err)
+	}
 	d, err := s.Docs.Update(uid, in.DocID, doc.DocumentUpdate{Content: &rich, PlainText: &plain, Snapshot: true})
 	if err != nil {
 		return fail(err)
