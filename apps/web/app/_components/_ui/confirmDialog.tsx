@@ -40,6 +40,16 @@ export default function ConfirmDialog({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [onCancel, pending]);
 
+  // Desktop app: put the mouse pointer on Cancel, like Windows' "Snap To",
+  // so the dialog is under the pointer without landing on Delete.
+  useEffect(() => {
+    const button = cancelRef.current;
+    const snapPointer = window.timelyDesktop?.snapPointer;
+    if (!button || !snapPointer) return;
+    const rect = button.getBoundingClientRect();
+    snapPointer(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }, []);
+
   if (typeof document === "undefined") return null;
 
   return createPortal(
