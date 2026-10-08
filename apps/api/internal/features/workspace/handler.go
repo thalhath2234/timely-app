@@ -471,6 +471,7 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 		ActiveTaskViewId      *string                  `json:"activeTaskViewId"`
 		ProjectTaskViews      *models.ProjectTaskViews `json:"projectTaskViews"`
 		Appearance            *models.Appearance       `json:"appearance"`
+		ReportDashboard       *models.ReportDashboard  `json:"reportDashboard"`
 	}
 
 	if err := c.Bind(&req); err != nil {
@@ -496,6 +497,9 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 	}
 	if req.Appearance != nil {
 		config.Appearance = *req.Appearance
+	}
+	if req.ReportDashboard != nil {
+		config.ReportDashboard = *req.ReportDashboard
 	}
 
 	updatedConfig, err := h.workspaceService.UpdateConfig(config)

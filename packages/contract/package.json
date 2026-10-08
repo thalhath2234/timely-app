@@ -8,6 +8,7 @@
     "./account": "./src/account.ts",
     "./calendar": "./src/calendar.ts",
     "./config": "./src/config.ts",
+    "./dashboard": "./src/dashboard.ts",
     "./documents": "./src/documents.ts",
     "./embeds": "./src/embeds.ts",
     "./entities": "./src/entities.ts",

@@ -1615,3 +1615,43 @@ html.reduce-motion .tl-bar {
     color: inherit;
   }
 }
+
+/* Report dashboard charts: a fixed categorical order checked for colour-blind
+   separation, stepped separately for the light and dark card surfaces. Slot 1
+   is the default single-series colour; "other" is the folded tail. The heat
+   ramp is one hue, light to dark, for the completion heatmap. */
+.report-dashboard {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --series-other: #a3a29c;
+  --heat-0: oklch(0.955 0.005 270);
+  --heat-1: #b7d3f6;
+  --heat-2: #86b6ef;
+  --heat-3: #3987e5;
+  --heat-4: #1c5cab;
+  --chart-grid: oklch(0.93 0.005 270);
+}
+
+.dark .report-dashboard {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --series-other: #6b6a66;
+  --heat-0: #23252d;
+  --heat-1: #184f95;
+  --heat-2: #256abf;
+  --heat-3: #3987e5;
+  --heat-4: #86b6ef;
+  --chart-grid: rgb(255 255 255 / 7%);
+}

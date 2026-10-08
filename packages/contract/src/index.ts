@@ -14,6 +14,7 @@
  *   sheet          Sheet, SheetTemplate and cell formats (cell logic: sheet*.ts)
  *   account        User, ApiKey, DeviceSession
  *   config         Config and saved task views
+ *   dashboard      Report dashboard layout, card queries and the card engine
  */
 
 /**

@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-sheet-formulas test-work-status test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-markdown-parity test-sheet-formulas test-work-status test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -284,6 +284,10 @@ test-markdown-parity: ## Test that the web/mobile Markdown importer reads the AP
 .PHONY: test-work-status
 test-work-status: ## Test the shared Overdue and Unscheduled work status logic
 	@node --experimental-strip-types --test scripts/work-status.test.mjs
+
+.PHONY: test-dashboard
+test-dashboard: ## Test the shared Report dashboard engine (card queries, layouts, built-in cards)
+	@node --experimental-strip-types --test scripts/dashboard.test.mjs
 
 .PHONY: test-mobile-clearable
 test-mobile-clearable: ## Test how mobile update bodies turn null into a server-side clear

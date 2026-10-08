@@ -273,3 +273,34 @@ export function addReminderResponseListener(
   const sub = N.addNotificationResponseReceivedListener(handleResponse);
   return () => sub.remove();
 }
+
+const POMODORO_PREFIX = "timely-pomodoro:";
+
+/** Rings when a Report pomodoro phase ends, even with the app in the background. */
+export async function schedulePomodoroNotification(cardId: string, at: number, title: string, body: string, sound = true) {
+  const N = notifications();
+  if (!N) return;
+  await cancelPomodoroNotification(cardId);
+  const current = await N.getPermissionsAsync();
+  if (!current.granted && current.ios?.status !== N.IosAuthorizationStatus.PROVISIONAL) return;
+  await ensureReminderChannel();
+  try {
+    await N.scheduleNotificationAsync({
+      identifier: `${POMODORO_PREFIX}${cardId}`,
+      content: { title, body, sound: sound ? ("default" as const) : false, data: { kind: "pomodoro" } },
+      trigger: { type: N.SchedulableTriggerInputTypes.DATE, date: new Date(at), channelId: CHANNEL },
+    });
+  } catch {
+    // A missed chime is not worth an error.
+  }
+}
+
+export async function cancelPomodoroNotification(cardId: string) {
+  const N = notifications();
+  if (!N) return;
+  try {
+    await N.cancelScheduledNotificationAsync(`${POMODORO_PREFIX}${cardId}`);
+  } catch {
+    // Nothing was scheduled.
+  }
+}

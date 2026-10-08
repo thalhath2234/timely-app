@@ -369,6 +369,9 @@ func (s *workspaceService) UpdateConfig(config *models.Config) (*models.Config, 
 		return nil, err
 	}
 	config.Appearance = appearance
+	if err := config.ReportDashboard.Validate(); err != nil {
+		return nil, err
+	}
 
 	updatedConfig, err := s.repo.UpdateConfig(config)
 	if err != nil {
