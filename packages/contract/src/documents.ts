@@ -116,3 +116,43 @@ export const DOC_VERSION_REASONS: Record<string, string> = {
   assistant: "Before an assistant change",
   restore: "Before a restore",
 };
+
+/** A row of a page picker: the doc, how deep it sits, and its parents' titles. */
+export interface PageChoice<T> {
+  doc: T;
+  depth: number;
+  path: string[];
+}
+
+type PageLike = { id: string; title: string; parentId: string | null; archivedAt: string | null; isTemplate?: boolean; order: number };
+
+/**
+ * Pages to pick from (Copy to / Move to page): live docs as the sidebar
+ * nests them, subpages under their parent; with a query, every page whose
+ * title matches, with its parents' titles to tell them apart.
+ */
+export function pageChoices<T extends PageLike>(docs: T[], query = ""): PageChoice<T>[] {
+  const live = docs.filter((doc) => !doc.archivedAt && !doc.isTemplate);
+  const byId = new Map(live.map((doc) => [doc.id, doc]));
+  const children = new Map<string | null, T[]>();
+  for (const doc of live) {
+    const parent = doc.parentId && byId.has(doc.parentId) ? doc.parentId : null;
+    children.set(parent, [...(children.get(parent) ?? []), doc]);
+  }
+  for (const list of children.values()) list.sort((a, b) => a.order - b.order || (a.title || "").localeCompare(b.title || ""));
+
+  const out: PageChoice<T>[] = [];
+  const walk = (parent: string | null, path: string[]) => {
+    for (const doc of children.get(parent) ?? []) {
+      // Guards against a parent loop in bad data.
+      if (out.length > live.length) return;
+      out.push({ doc, depth: path.length, path });
+      walk(doc.id, [...path, doc.title || "Untitled"]);
+    }
+  };
+  walk(null, []);
+
+  const needle = query.trim().toLowerCase();
+  if (!needle) return out;
+  return out.filter((row) => (row.doc.title || "Untitled").toLowerCase().includes(needle)).map((row) => ({ ...row, depth: 0 }));
+}

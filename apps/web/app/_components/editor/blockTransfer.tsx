@@ -6,7 +6,7 @@ import type { Slice } from "@tiptap/pm/model";
 import { usePathname, useRouter } from "next/navigation";
 import { create } from "zustand";
 import { FileText, Plus, Search } from "lucide-react";
-import type { DocContent } from "@timely/contract/documents";
+import { pageChoices, type DocContent } from "@timely/contract/documents";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { getDoc } from "@/app/utils/api/docs";
 import { useCreateDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
@@ -68,14 +68,8 @@ function TransferDialog({ transfer, onClose }: { transfer: Transfer; onClose: ()
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const matches = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return docs
-      .filter((doc) => doc.id !== currentId && !doc.archivedAt && !doc.isTemplate)
-      .filter((doc) => !needle || (doc.title || "Untitled").toLowerCase().includes(needle))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, 50);
-  }, [docs, query, currentId]);
+  // Pages nest as in the sidebar; this page stays in the list so its subpages keep their place.
+  const matches = useMemo(() => pageChoices(docs, query), [docs, query]);
   // The last row makes a new page.
   const count = matches.length + 1;
   const blockCount = transfer.slice.content.childCount;
@@ -122,7 +116,10 @@ function TransferDialog({ transfer, onClose }: { transfer: Transfer; onClose: ()
   };
 
   const choose = (index: number) => {
-    if (index < matches.length) void finish({ id: matches[index].id, title: matches[index].title });
+    if (index < matches.length) {
+      const { doc } = matches[index];
+      if (doc.id !== currentId) void finish({ id: doc.id, title: doc.title });
+    }
     else void finish({ title: query.trim() || "Untitled" });
   };
 
@@ -163,22 +160,32 @@ function TransferDialog({ transfer, onClose }: { transfer: Transfer; onClose: ()
             />
           </div>
           <ul ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1" role="listbox" aria-label="Pages">
-            {matches.map((doc, index) => (
-              <li key={doc.id} role="option" aria-selected={index === active} data-index={index}>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onMouseEnter={() => setActive(index)}
-                  onClick={() => choose(index)}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${index === active ? "bg-accent text-accent-foreground" : ""}`}
-                >
-                  <span className="flex size-4 shrink-0 items-center justify-center text-sm leading-none">
-                    {doc.icon || <FileText className="size-3.5 text-muted-foreground" aria-hidden />}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{doc.title || "Untitled"}</span>
-                </button>
-              </li>
-            ))}
+            {matches.map(({ doc, depth, path }, index) => {
+              const here = doc.id === currentId;
+              return (
+                <li key={doc.id} role="option" aria-selected={index === active} aria-disabled={here} data-index={index}>
+                  <button
+                    type="button"
+                    disabled={busy || here}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => choose(index)}
+                    style={{ paddingLeft: 8 + depth * 18 }}
+                    className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pr-2 text-left text-sm transition-colors disabled:opacity-50 ${index === active && !here ? "bg-accent text-accent-foreground" : ""}`}
+                  >
+                    <span className="flex size-4 shrink-0 items-center justify-center text-sm leading-none">
+                      {doc.icon || <FileText className="size-3.5 text-muted-foreground" aria-hidden />}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {doc.title || "Untitled"}
+                      {here && <span className="ml-1.5 text-xs text-muted-foreground">(this page)</span>}
+                    </span>
+                    {query.trim() && path.length > 0 && (
+                      <span className="max-w-[45%] shrink truncate text-xs text-muted-foreground">{path.join(" / ")}</span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
             {matches.length === 0 && <li className="px-2 py-2 text-sm text-muted-foreground">No pages match.</li>}
             <li role="option" aria-selected={active === matches.length} data-index={matches.length}>
               <button

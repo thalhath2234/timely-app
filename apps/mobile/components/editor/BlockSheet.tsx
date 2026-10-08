@@ -25,6 +25,7 @@ import {
   Trash2,
   Type,
 } from "lucide-react-native";
+import { pageChoices } from "@timely/contract/documents";
 import type { DocContent } from "../../lib/types";
 import { createDoc, getDoc, getDocs, updateDoc } from "../../lib/api/docs";
 import { shareImage } from "../../lib/api/portability";
@@ -110,14 +111,8 @@ export default function BlockSheet({
   const transferring = step === "copy" || step === "move";
   const docs = useQuery({ queryKey: ["docs"], queryFn: getDocs, enabled: transferring });
 
-  const matches = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return (docs.data ?? [])
-      .filter((doc) => doc.id !== currentId && !doc.archivedAt && !doc.isTemplate)
-      .filter((doc) => !needle || (doc.title || "Untitled").toLowerCase().includes(needle))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, 50);
-  }, [docs.data, query, currentId]);
+  // Pages nest as in the docs list; this page stays so its subpages keep their place.
+  const matches = useMemo(() => pageChoices(docs.data ?? [], query), [docs.data, query]);
 
   const close = () => {
     onClose();
@@ -184,11 +179,29 @@ export default function BlockSheet({
         <View>
           <Field value={query} onChangeText={setQuery} placeholder="Search pages" autoCapitalize="none" />
           <View style={{ height: 8 }} />
-          {matches.map((doc) => (
-            <SheetOption key={doc.id} leading={doc.icon ? <Text style={styles.emoji}>{doc.icon}</Text> : icon(FileText)} onSelect={() => void transfer({ id: doc.id, title: doc.title })}>
-              {doc.title || "Untitled"}
-            </SheetOption>
-          ))}
+          {matches.map(({ doc, depth, path }) => {
+            const here = doc.id === currentId;
+            return (
+              <View key={doc.id} style={{ paddingLeft: depth * 18, opacity: here ? 0.5 : 1 }}>
+                <SheetOption
+                  leading={doc.icon ? <Text style={styles.emoji}>{doc.icon}</Text> : icon(FileText)}
+                  onSelect={() => {
+                    if (!here) void transfer({ id: doc.id, title: doc.title });
+                  }}
+                >
+                  <Text style={styles.label} numberOfLines={1}>
+                    {doc.title || "Untitled"}
+                    {here ? <Text style={styles.hint}> (this page)</Text> : null}
+                  </Text>
+                  {query.trim() && path.length > 0 ? (
+                    <Text style={styles.hint} numberOfLines={1}>
+                      {path.join(" / ")}
+                    </Text>
+                  ) : null}
+                </SheetOption>
+              </View>
+            );
+          })}
           {docs.isSuccess && matches.length === 0 ? <Text style={styles.empty}>No pages match.</Text> : null}
           <SheetOption leading={icon(Plus)} onSelect={() => void transfer({ title: query.trim() || "Untitled" })}>
             {query.trim() ? `New page “${query.trim()}”` : "New page"}
@@ -258,5 +271,6 @@ const styles = createThemedStyleSheet((colors) => ({
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   label: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" },
   emoji: { width: 18, textAlign: "center", fontSize: 15 },
+  hint: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   empty: { color: colors.mutedForeground, fontSize: 14, paddingVertical: 10, paddingHorizontal: 4 },
 }));
