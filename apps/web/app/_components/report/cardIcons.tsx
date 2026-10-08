@@ -1,4 +1,22 @@
-import { CalendarCheck, Flame, Grid2x2, Hourglass, NotebookPen, Sun, Timer, Zap } from "lucide-react";
+import {
+  AlarmClock,
+  BookOpen,
+  CalendarCheck,
+  CalendarClock,
+  ClipboardList,
+  Clock3,
+  Flame,
+  Goal,
+  Grid2x2,
+  Hourglass,
+  Inbox,
+  ListChecks,
+  NotebookPen,
+  Repeat,
+  Sun,
+  Timer,
+  Zap,
+} from "lucide-react";
 import type { BuiltinCardType } from "@timely/contract/dashboard";
 
 const ICONS: Record<BuiltinCardType, typeof Timer> = {
@@ -10,6 +28,15 @@ const ICONS: Record<BuiltinCardType, typeof Timer> = {
   dayProgress: Hourglass,
   matrix: Grid2x2,
   countdown: CalendarCheck,
+  topThree: ListChecks,
+  focusTime: Clock3,
+  nextUp: CalendarClock,
+  habits: Repeat,
+  goal: Goal,
+  weeklyReview: ClipboardList,
+  inboxZero: Inbox,
+  clock: AlarmClock,
+  journal: BookOpen,
 };
 
 export function BuiltinIcon({ type, className }: { type: BuiltinCardType; className?: string }) {
