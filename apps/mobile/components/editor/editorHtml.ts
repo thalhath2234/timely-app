@@ -1,4 +1,5 @@
 import type { DocContent } from "../../lib/types";
+import { EMBED_PATTERNS } from "@timely/contract/markdown";
 
 const BLANK: DocContent = { type: "doc", content: [{ type: "paragraph" }] };
 
@@ -21,6 +22,8 @@ export function buildEditorHtml(
     accentForeground: string;
     border: string;
   },
+  /** The server address; uploaded images are stored as "/files/<id>". */
+  apiBase = "",
 ) {
   const initial = content && typeof content.type === "string" ? content : BLANK;
   const t = theme ?? {
@@ -88,6 +91,7 @@ export function buildEditorHtml(
     .math-empty { color: ${t.mutedForeground}; font-style: italic; font-size: 13px; }
     .math-block, .frontmatter { border: 1px solid ${t.border}; border-radius: 10px; margin: 0 0 0.75em; overflow: hidden; }
     .frontmatter { border-style: dashed; }
+    .ProseMirror .block-picked { background: rgba(59, 130, 246, 0.16); border-radius: 6px; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16); }
     .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
     .props-key { color: ${t.mutedForeground}; }
     .props-values { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
@@ -99,6 +103,27 @@ export function buildEditorHtml(
     .math-out .katex-display { margin: 0; }
     .block-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: ${t.mutedForeground}; background: ${t.muted}; }
     .block-head button { margin-left: auto; background: transparent; border: 0; color: inherit; font: inherit; }
+    .details { position: relative; margin: 0 0 0.25em; padding-left: 28px; }
+    .details-toggle { position: absolute; left: 0; top: 2px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: ${t.mutedForeground}; }
+    .details-toggle svg { transition: transform 0.15s ease; }
+    .find-match { background: color-mix(in srgb, #f5b041 35%, transparent); border-radius: 2px; }
+    .find-current { background: color-mix(in srgb, #f5b041 80%, transparent); }
+    .doc-columns { margin: 8px 0; }
+    .doc-column { padding-left: 10px; border-left: 2px solid ${t.border}; }
+    .doc-column + .doc-column { margin-top: 10px; }
+    .doc-embed, .doc-bookmark { margin: 10px 0; }
+    .doc-embed-frame { width: 100%; overflow: hidden; border: 1px solid ${t.border}; border-radius: 10px; background: ${t.muted}; }
+    .doc-embed-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
+    .doc-embed-caption { display: block; margin-top: 4px; padding: 0; border: 0; background: transparent; color: ${t.mutedForeground}; font: inherit; font-size: 12px; text-align: left; }
+    .doc-bookmark { position: relative; padding: 10px 12px; border: 1px solid ${t.border}; border-radius: 10px; }
+    .doc-bookmark-title { padding-right: 56px; font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc-bookmark-description { margin-top: 2px; color: ${t.mutedForeground}; font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .doc-bookmark-host { margin-top: 4px; color: ${t.mutedForeground}; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc-bookmark-open { position: absolute; top: 8px; right: 8px; padding: 4px 10px; border: 1px solid ${t.border}; border-radius: 999px; background: transparent; color: ${t.foreground}; font: inherit; font-size: 12px; }
+    .ProseMirror-selectednode.doc-embed .doc-embed-frame, .ProseMirror-selectednode.doc-bookmark { outline: 2px solid ${t.primary}; outline-offset: 2px; }
+    .details[data-open] > .details-toggle svg { transform: rotate(90deg); }
+    .details-summary { font-weight: 600; }
+    .details:not([data-open]) > .details-body > :not(.details-summary) { display: none; }
     .callout { --callout: ${t.primary}; border-left: 3px solid var(--callout); background: color-mix(in oklab, var(--callout) 10%, transparent); border-radius: 0 8px 8px 0; padding: 8px 12px 10px; margin: 0 0 0.75em; }
     .callout[data-kind="tip"] { --callout: #2fa36b; }
     .callout[data-kind="important"] { --callout: #8957e5; }
@@ -140,8 +165,289 @@ export function buildEditorHtml(
     import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
     import { TextSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
+    import { Decoration, DecorationSet } from "https://esm.sh/@tiptap/pm@3.31.4/view";
 
     const placeholder = ${embed(placeholder)};
+
+    // Uploaded images are stored as "/files/<id>" and shown from the server.
+    const apiBase = ${embed(apiBase.replace(/\/+$/, ""))};
+    const DocImage = Image.extend({
+      addAttributes() {
+        return {
+          ...this.parent?.(),
+          src: {
+            default: null,
+            parseHTML: (el) => {
+              const src = el.getAttribute("src") || "";
+              return apiBase && src.startsWith(apiBase + "/files/") ? src.slice(apiBase.length) : src;
+            },
+            renderHTML: (attrs) => ({ src: attrs.src && attrs.src.startsWith("/files/") ? apiBase + attrs.src : attrs.src }),
+          },
+        };
+      },
+    });
+    // Find and replace, as on web (apps/web/app/_components/editor/findReplace.ts).
+    // The app's find bar drives it with the find* commands and reads back
+    // { type: "find", current, count }.
+    const findKey = new PluginKey("findReplace");
+    const FIND_EMPTY = { query: "", caseSensitive: false, matches: [], current: -1 };
+    function findMatches(doc, query, caseSensitive) {
+      const out = [];
+      if (!query) return out;
+      const needle = caseSensitive ? query : query.toLowerCase();
+      doc.descendants((node, pos) => {
+        if (!node.isTextblock) return true;
+        let text = "";
+        node.forEach((child) => { text += child.isText ? child.text : "\\uFFFC".repeat(child.nodeSize); });
+        const hay = caseSensitive ? text : text.toLowerCase();
+        for (let at = hay.indexOf(needle); at !== -1; at = hay.indexOf(needle, at + needle.length)) {
+          out.push({ from: pos + 1 + at, to: pos + 1 + at + needle.length });
+        }
+        return false;
+      });
+      return out;
+    }
+    function getFind(state) { return findKey.getState(state) || FIND_EMPTY; }
+    function revealMatch(tr, match) {
+      const $from = tr.doc.resolve(match.from);
+      for (let depth = $from.depth; depth > 0; depth -= 1) {
+        const node = $from.node(depth);
+        if (node.type.name === "details" && !node.attrs.open) tr.setNodeMarkup($from.before(depth), undefined, Object.assign({}, node.attrs, { open: true }));
+      }
+      tr.setSelection(TextSelection.create(tr.doc, match.from, match.to));
+      return tr.scrollIntoView();
+    }
+    // The block the Block menu is open for is tinted, like a selected block on desktop.
+    const blockPickKey = new PluginKey("blockPick");
+    const BlockPick = Extension.create({
+      name: "blockPick",
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            key: blockPickKey,
+            state: {
+              init: () => null,
+              apply(tr, value) {
+                const meta = tr.getMeta(blockPickKey);
+                if (meta !== undefined) return meta;
+                return value && tr.docChanged ? null : value;
+              },
+            },
+            props: {
+              decorations(state) {
+                const picked = blockPickKey.getState(state);
+                return picked ? DecorationSet.create(state.doc, [Decoration.node(picked.from, picked.to, { class: "block-picked" })]) : null;
+              },
+            },
+          }),
+        ];
+      },
+    });
+
+    const FindReplace = Extension.create({
+      name: "findReplace",
+      addProseMirrorPlugins() {
+        let lastSent = "";
+        return [
+          new Plugin({
+            key: findKey,
+            state: {
+              init: () => FIND_EMPTY,
+              apply(tr, value, _old, next) {
+                const meta = tr.getMeta(findKey);
+                if (!meta && (!tr.docChanged || !value.query)) return value;
+                const query = meta && meta.query !== undefined ? meta.query : value.query;
+                const caseSensitive = meta && meta.caseSensitive !== undefined ? meta.caseSensitive : value.caseSensitive;
+                const matches = findMatches(tr.doc, query, caseSensitive);
+                let current;
+                if (meta && meta.current !== undefined) current = matches.length ? ((meta.current % matches.length) + matches.length) % matches.length : -1;
+                else if (meta) {
+                  const index = matches.findIndex((m) => m.from >= next.selection.from);
+                  current = matches.length ? (index === -1 ? 0 : index) : -1;
+                } else current = matches.length ? Math.min(Math.max(value.current, 0), matches.length - 1) : -1;
+                return { query, caseSensitive, matches, current };
+              },
+            },
+            props: {
+              decorations(state) {
+                const find = findKey.getState(state);
+                if (!find || !find.matches.length) return null;
+                return DecorationSet.create(state.doc, find.matches.map((m, i) => Decoration.inline(m.from, m.to, { class: i === find.current ? "find-match find-current" : "find-match" })));
+              },
+            },
+            view: () => ({
+              update(view) {
+                const find = getFind(view.state);
+                const key = find.query ? find.current + "/" + find.matches.length : "";
+                if (key === lastSent) return;
+                lastSent = key;
+                send({ type: "find", current: find.current, count: find.matches.length });
+              },
+            }),
+          }),
+        ];
+      },
+    });
+    // Columns (see apps/web/app/_components/editor/columns.ts). A phone is
+    // too narrow for them, so they show one under another.
+    const ColumnNode = Node.create({
+      name: "column",
+      content: "block+",
+      isolating: true,
+      defining: true,
+      parseHTML() { return [{ tag: "div[data-column]" }]; },
+      renderHTML({ HTMLAttributes }) { return ["div", Object.assign({}, HTMLAttributes, { "data-column": "", class: "doc-column" }), 0]; },
+    });
+    const ColumnsNode = Node.create({
+      name: "columns",
+      group: "block",
+      content: "column{2,4}",
+      defining: true,
+      parseHTML() { return [{ tag: "div[data-columns]" }]; },
+      renderHTML({ HTMLAttributes }) { return ["div", Object.assign({}, HTMLAttributes, { "data-columns": "", class: "doc-columns" }), 0]; },
+    });
+    function toggleColumnsCmd(state, tr) {
+      const { $from } = tr.selection;
+      for (let depth = $from.depth; depth > 0; depth -= 1) {
+        const node = $from.node(depth);
+        if (node.type.name !== "columns") continue;
+        const pos = $from.before(depth);
+        const blocks = [];
+        node.forEach((column) => column.forEach((block) => blocks.push(block)));
+        tr.replaceWith(pos, pos + node.nodeSize, blocks);
+        tr.setSelection(TextSelection.near(tr.doc.resolve(pos + 1)));
+        return true;
+      }
+      if ($from.depth < 1) return false;
+      const start = $from.before(1);
+      const block = tr.doc.child($from.index(0));
+      if (block.type.name === "frontmatter" || block.type.name === "footnote") return false;
+      const schema = state.schema;
+      const first = schema.nodes.column.create(null, block);
+      const node = schema.nodes.columns.create(null, [first, schema.nodes.column.create(null, schema.nodes.paragraph.create())]);
+      tr.replaceWith(start, start + block.nodeSize, node);
+      tr.setSelection(TextSelection.near(tr.doc.resolve(start + 1 + first.nodeSize + 1)));
+      return true;
+    }
+    const EMBED_PATTERNS = ${embed(EMBED_PATTERNS.map(({ provider, pattern }) => ({ provider, source: pattern.source, flags: pattern.flags })))};
+    // Embeds and bookmarks (see packages/contract/src/embeds.ts). They are
+    // added from the app's toolbar, which asks for the link.
+    function embedPlayer(link) {
+      let url;
+      try { url = new URL(link); } catch (e) { return null; }
+      for (const item of EMBED_PATTERNS) {
+        const m = new RegExp(item.source, item.flags).exec(link);
+        if (!m) continue;
+        switch (item.provider) {
+          case "YouTube": {
+            const t = url.searchParams.get("t") || url.searchParams.get("start") || "";
+            const parts = /^(?:(\\d+)h)?(?:(\\d+)m)?(?:(\\d+)s?)?$/.exec(t);
+            const start = parts ? Number(parts[1] || 0) * 3600 + Number(parts[2] || 0) * 60 + Number(parts[3] || 0) : 0;
+            return { provider: item.provider, src: "https://www.youtube-nocookie.com/embed/" + m[1] + (start ? "?start=" + start : ""), aspect: 16 / 9 };
+          }
+          case "Vimeo": return { provider: item.provider, src: "https://player.vimeo.com/video/" + m[1], aspect: 16 / 9 };
+          case "Loom": return { provider: item.provider, src: "https://www.loom.com/embed/" + m[1], aspect: 16 / 9 };
+          case "Spotify": {
+            const kind = m[1].toLowerCase();
+            return { provider: item.provider, src: "https://open.spotify.com/embed/" + kind + "/" + m[2], height: kind === "track" || kind === "episode" ? 152 : 352 };
+          }
+          case "Figma": return { provider: item.provider, src: "https://www.figma.com/embed?embed_host=timely&url=" + encodeURIComponent(url.href), aspect: 16 / 10 };
+          default: return { provider: item.provider, src: "https://codepen.io/" + m[1] + "/embed/" + m[2] + "?default-tab=result", height: 420 };
+        }
+      }
+      return null;
+    }
+    function linkHost(link) {
+      try { return new URL(link).host.replace(/^www\\./, ""); } catch (e) { return link; }
+    }
+    function openLink(href) {
+      send({ type: "openLink", href });
+    }
+    const EmbedNode = Node.create({
+      name: "embed",
+      group: "block",
+      atom: true,
+      selectable: true,
+      addAttributes() { return { src: { default: "" } }; },
+      parseHTML() { return [{ tag: "div[data-embed]", getAttrs: (el) => ({ src: el.getAttribute("data-src") || "" }) }]; },
+      renderHTML({ node, HTMLAttributes }) { return ["div", Object.assign({}, HTMLAttributes, { "data-embed": "", "data-src": node.attrs.src })]; },
+      addNodeView() {
+        return ({ node }) => {
+          const dom = document.createElement("div");
+          dom.className = "doc-embed";
+          dom.contentEditable = "false";
+          const src = node.attrs.src || "";
+          const info = src ? embedPlayer(src) : null;
+          if (info) {
+            const frame = document.createElement("div");
+            frame.className = "doc-embed-frame";
+            if (info.aspect) frame.style.aspectRatio = String(info.aspect);
+            if (info.height) frame.style.height = info.height + "px";
+            const iframe = document.createElement("iframe");
+            iframe.src = info.src;
+            iframe.title = info.provider + " embed";
+            iframe.loading = "lazy";
+            iframe.allow = "autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture";
+            iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups allow-presentation allow-forms");
+            frame.append(iframe);
+            dom.append(frame);
+          }
+          const caption = document.createElement("button");
+          caption.type = "button";
+          caption.className = "doc-embed-caption";
+          caption.textContent = src ? (info ? info.provider + " · " : "") + linkHost(src) : "Empty embed";
+          if (src) caption.addEventListener("click", () => openLink(src));
+          dom.append(caption);
+          return { dom, ignoreMutation: () => true, stopEvent: (event) => event.target === caption };
+        };
+      },
+    });
+    const BookmarkNode = Node.create({
+      name: "bookmark",
+      group: "block",
+      atom: true,
+      selectable: true,
+      addAttributes() { return { url: { default: "" }, title: { default: "" }, description: { default: "" } }; },
+      parseHTML() {
+        return [{ tag: "div[data-bookmark]", getAttrs: (el) => ({ url: el.getAttribute("data-url") || "", title: el.getAttribute("data-title") || "", description: el.getAttribute("data-description") || "" }) }];
+      },
+      renderHTML({ node, HTMLAttributes }) {
+        return ["div", Object.assign({}, HTMLAttributes, { "data-bookmark": "", "data-url": node.attrs.url, "data-title": node.attrs.title, "data-description": node.attrs.description })];
+      },
+      addNodeView() {
+        return ({ node }) => {
+          const dom = document.createElement("div");
+          dom.className = "doc-bookmark";
+          dom.contentEditable = "false";
+          const url = node.attrs.url || "";
+          const title = document.createElement("div");
+          title.className = "doc-bookmark-title";
+          title.textContent = node.attrs.title || (url ? linkHost(url) : "Empty bookmark");
+          dom.append(title);
+          if (node.attrs.description) {
+            const description = document.createElement("div");
+            description.className = "doc-bookmark-description";
+            description.textContent = node.attrs.description;
+            dom.append(description);
+          }
+          if (url) {
+            const host = document.createElement("div");
+            host.className = "doc-bookmark-host";
+            host.textContent = url.replace(/^https?:\\/\\//, "");
+            dom.append(host);
+          }
+          const open = document.createElement("button");
+          open.type = "button";
+          open.className = "doc-bookmark-open";
+          open.textContent = "Open";
+          if (url) {
+            open.addEventListener("click", () => openLink(url));
+            dom.append(open);
+          }
+          return { dom, ignoreMutation: () => true, stopEvent: (event) => event.target === open };
+        };
+      },
+    });
     const Mention = Node.create({
       name: "mention",
       group: "inline",
@@ -463,6 +769,145 @@ export function buildEditorHtml(
     });
 
     const CALLOUT_KINDS = { note: "Note", tip: "Tip", important: "Important", warning: "Warning", caution: "Caution" };
+
+
+    // --- Toggle blocks: a plain-text summary that folds the blocks under it
+    // (web: apps/web/app/_components/editor/details.ts). ---
+    const DetailsSummary = Node.create({
+      name: "detailsSummary",
+      content: "text*",
+      marks: "",
+      defining: true,
+      isolating: true,
+      parseHTML() { return [{ tag: "summary" }, { tag: "div[data-details-summary]" }]; },
+      renderHTML({ HTMLAttributes }) { return ["div", { ...HTMLAttributes, class: "details-summary", "data-details-summary": "" }, 0]; },
+    });
+    function toggleDetailsCmd(state, tr) {
+      const schema = state.schema;
+      const { $from } = state.selection;
+      for (let depth = $from.depth; depth > 0; depth--) {
+        const node = $from.node(depth);
+        if (node.type.name !== "details") continue;
+        const pos = $from.before(depth);
+        const blocks = [schema.nodes.paragraph.create(null, node.firstChild.content)];
+        node.forEach((child, _offset, index) => { if (index > 0) blocks.push(child); });
+        tr.replaceWith(pos, pos + node.nodeSize, blocks);
+        tr.setSelection(TextSelection.near(tr.doc.resolve(pos + 1)));
+        return true;
+      }
+      const block = $from.parent;
+      if (!block.isTextblock || block.type.spec.code || $from.depth < 1) return false;
+      const text = block.textContent;
+      const start = $from.before();
+      tr.replaceWith(start, $from.after(), schema.nodes.details.create({ open: true }, [
+        schema.nodes.detailsSummary.create(null, text ? schema.text(text) : null),
+        schema.nodes.paragraph.create(),
+      ]));
+      tr.setSelection(TextSelection.create(tr.doc, start + 2 + text.length));
+      return true;
+    }
+    const Details = Node.create({
+      name: "details",
+      priority: 1000,
+      group: "block",
+      content: "detailsSummary block+",
+      defining: true,
+      addAttributes() {
+        return {
+          open: {
+            default: true,
+            parseHTML: (el) => el.hasAttribute("open"),
+            renderHTML: (attrs) => (attrs.open ? { open: "" } : {}),
+          },
+        };
+      },
+      parseHTML() { return [{ tag: "details" }]; },
+      renderHTML({ HTMLAttributes }) { return ["details", HTMLAttributes, 0]; },
+      addNodeView() {
+        return ({ node, getPos, editor }) => {
+          let current = node;
+          const dom = document.createElement("div");
+          dom.className = "details";
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "details-toggle";
+          button.contentEditable = "false";
+          button.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+          const body = document.createElement("div");
+          body.className = "details-body";
+          dom.append(button, body);
+          const paint = () => {
+            if (current.attrs.open) dom.setAttribute("data-open", "");
+            else dom.removeAttribute("data-open");
+            button.setAttribute("aria-expanded", String(Boolean(current.attrs.open)));
+          };
+          paint();
+          button.addEventListener("mousedown", (event) => event.preventDefault());
+          button.addEventListener("click", () => {
+            const pos = getPos();
+            if (typeof pos !== "number") return;
+            const open = !current.attrs.open;
+            const tr = editor.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, open });
+            tr.setMeta("addToHistory", false);
+            const { from } = editor.state.selection;
+            const end = pos + current.firstChild.nodeSize;
+            if (!open && from > end && from < pos + current.nodeSize) tr.setSelection(TextSelection.create(tr.doc, end));
+            editor.view.dispatch(tr);
+          });
+          return {
+            dom,
+            contentDOM: body,
+            update(next) {
+              if (next.type !== current.type) return false;
+              current = next;
+              paint();
+              return true;
+            },
+            ignoreMutation: (mutation) => button.contains(mutation.target),
+          };
+        };
+      },
+      addKeyboardShortcuts() {
+        const foldedBefore = (ed) => {
+          const { $from, empty } = ed.state.selection;
+          if (!empty || $from.parentOffset > 0 || $from.depth < 1) return null;
+          const before = ed.state.doc.resolve($from.before()).nodeBefore;
+          if (!before || before.type.name !== "details" || before.attrs.open) return null;
+          return { pos: $from.before() - before.nodeSize, details: before };
+        };
+        return {
+          Enter: ({ editor: ed }) => {
+            const { state } = ed;
+            const { $from, empty } = state.selection;
+            if (!empty || $from.parent.type.name !== "detailsSummary") return false;
+            const pos = $from.before($from.depth - 1);
+            const details = state.doc.nodeAt(pos);
+            const bodyStart = pos + 1 + details.firstChild.nodeSize;
+            const tr = state.tr;
+            if (!details.attrs.open) tr.setNodeMarkup(pos, undefined, { ...details.attrs, open: true });
+            const first = details.child(1);
+            if (!(first.type.name === "paragraph" && first.content.size === 0)) tr.insert(bodyStart, state.schema.nodes.paragraph.create());
+            tr.setSelection(TextSelection.create(tr.doc, bodyStart + 1));
+            ed.view.dispatch(tr.scrollIntoView());
+            return true;
+          },
+          Backspace: ({ editor: ed }) => {
+            const folded = foldedBefore(ed);
+            if (folded) {
+              const { $from } = ed.state.selection;
+              const tr = ed.state.tr;
+              if ($from.parent.content.size === 0) tr.delete($from.before(), $from.after());
+              tr.setSelection(TextSelection.create(tr.doc, folded.pos + folded.details.firstChild.nodeSize));
+              ed.view.dispatch(tr.scrollIntoView());
+              return true;
+            }
+            const { $from, empty } = ed.state.selection;
+            if (!empty || $from.parent.type.name !== "detailsSummary" || $from.parentOffset > 0) return false;
+            return ed.commands.command(({ state, tr }) => toggleDetailsCmd(state, tr));
+          },
+        };
+      },
+    });
 
     const Callout = Node.create({
       name: "callout",
@@ -1183,6 +1628,8 @@ export function buildEditorHtml(
           quote: editor.isActive("blockquote"),
           codeBlock: editor.isActive("codeBlock"),
           callout: editor.isActive("callout"),
+          toggle: editor.isActive("details"),
+          columns: editor.isActive("columns"),
           mathBlock: editor.isActive("mathBlock"),
         },
       });
@@ -1202,7 +1649,9 @@ export function buildEditorHtml(
         }),
         Placeholder.configure({
           showOnlyCurrent: false,
-          placeholder: ({ editor: ed, pos }) => {
+          includeChildren: true,
+          placeholder: ({ editor: ed, pos, node }) => {
+            if (node.type.name === "detailsSummary") return "Toggle";
             if (!ed.isEmpty || pos !== 0) return "";
             return placeholder;
           },
@@ -1210,13 +1659,21 @@ export function buildEditorHtml(
         TaskList,
         TaskItem.configure({ nested: true }),
         Highlight,
-        Image.configure({ inline: true }),
+        DocImage.configure({ inline: true }),
         DiagramCodeBlock,
         TableKit.configure({ table: { resizable: false } }),
         Mention,
         MathInline,
         MathBlock,
         Callout,
+        Details,
+        DetailsSummary,
+        EmbedNode,
+        BookmarkNode,
+        ColumnsNode,
+        ColumnNode,
+        FindReplace,
+        BlockPick,
         FootnoteRef,
         Footnote,
         Frontmatter,
@@ -1265,6 +1722,170 @@ export function buildEditorHtml(
       addColBefore: true, addColAfter: true, deleteCol: true,
       deleteTable: true,
     };
+    function runFind(name, payload) {
+      const state = editor.state;
+      const find = getFind(state);
+      const tr = state.tr;
+      if (name === "find") {
+        editor.view.dispatch(tr.setMeta(findKey, { query: String(payload.query || ""), caseSensitive: Boolean(payload.caseSensitive) }));
+        return;
+      }
+      if (name === "findStep") {
+        if (!find.matches.length) return;
+        const index = (((find.current + (payload.direction < 0 ? -1 : 1)) % find.matches.length) + find.matches.length) % find.matches.length;
+        editor.view.dispatch(revealMatch(tr.setMeta(findKey, { current: index }), find.matches[index]).setMeta("addToHistory", false));
+        return;
+      }
+      const text = String(payload.text || "");
+      if (name === "replaceCurrent") {
+        const match = find.matches[find.current];
+        if (!match) return;
+        if (text) tr.insertText(text, match.from, match.to); else tr.delete(match.from, match.to);
+        tr.setMeta(findKey, { current: find.current });
+        const next = findMatches(tr.doc, find.query, find.caseSensitive);
+        const target = next[find.current % Math.max(next.length, 1)];
+        if (target) revealMatch(tr, target);
+        editor.view.dispatch(tr);
+        return;
+      }
+      if (name === "replaceAll") {
+        for (const match of find.matches.slice().reverse()) {
+          if (text) tr.insertText(text, match.from, match.to); else tr.delete(match.from, match.to);
+        }
+        editor.view.dispatch(tr);
+      }
+    }
+    // PDF export: the app turns this page into a PDF (expo-print). The doc
+    // is copied as drawn, with folded parts open and editing controls gone.
+    function exportHtml(title) {
+      const source = document.querySelector(".tiptap");
+      if (!source) return;
+      const body = source.cloneNode(true);
+      body.removeAttribute("contenteditable");
+      const fields = source.querySelectorAll("input, select, textarea");
+      body.querySelectorAll("input, select, textarea").forEach((field, index) => {
+        const from = fields[index];
+        if (from && from.type === "checkbox") {
+          if (from.checked) field.setAttribute("checked", "");
+          return;
+        }
+        const text = from ? (from.tagName === "SELECT" ? (from.selectedOptions[0] ? from.selectedOptions[0].text : "") : from.value) : "";
+        if (!text) { field.remove(); return; }
+        const span = document.createElement("span");
+        span.className = field.className;
+        span.textContent = text;
+        field.replaceWith(span);
+      });
+      body.querySelectorAll(".doc-embed-frame, .doc-bookmark-open, .code-copy, .code-delete, .code-fold, .details-toggle, .ProseMirror-gapcursor, .ProseMirror-trailingBreak").forEach((el) => el.remove());
+      body.querySelectorAll(".is-folded").forEach((el) => el.classList.remove("is-folded"));
+      body.querySelectorAll(".details").forEach((el) => el.setAttribute("data-open", ""));
+      body.querySelectorAll("[contenteditable]").forEach((el) => el.removeAttribute("contenteditable"));
+      body.querySelectorAll(".code-wrap > .block-head").forEach((el) => el.remove());
+      body.querySelectorAll(".block-head button").forEach((el) => el.remove());
+      const styles = Array.from(document.querySelectorAll("style")).map((el) => el.textContent).join("\\n");
+      const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map((el) => '<link rel="stylesheet" href="' + el.href + '">').join("");
+      const heading = document.createElement("h1");
+      heading.className = "print-title";
+      heading.textContent = title || "Untitled";
+      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } pre, table, img, svg, .callout { break-inside: avoid; } @page { margin: 18mm 16mm; }";
+      send({ type: "exportHtml", html: "<!doctype html><html><head><meta charset=\\"utf-8\\">" + links + "<style>" + styles + "</style><style>" + light + "</style></head><body>" + heading.outerHTML + body.outerHTML + "</body></html>" });
+    }
+    // The Block menu (BlockSheet.tsx) works on the caret's block: the
+    // innermost list item, a block in a column, or else the top-level block.
+    function caretBlock(state) {
+      const sel = state.selection;
+      if (sel.node) return sel.node.type.name === "frontmatter" ? null : { from: sel.from, to: sel.to, node: sel.node };
+      const $from = sel.$from;
+      let depth = 0;
+      for (let d = $from.depth; d > 0; d -= 1) {
+        const name = $from.node(d).type.name;
+        if (name === "listItem" || name === "taskItem") { depth = d; break; }
+        if (name === "column" && d < $from.depth) { depth = d + 1; break; }
+      }
+      if (!depth) depth = 1;
+      if ($from.depth < depth) return null;
+      const node = $from.node(depth);
+      if (node.type.name === "frontmatter") return null;
+      const from = $from.before(depth);
+      return { from: from, to: from + node.nodeSize, node: node };
+    }
+
+    function markBlock(block) {
+      editor.view.dispatch(editor.state.tr.setMeta(blockPickKey, block ? { from: block.from, to: block.to } : null));
+    }
+
+    function blockInfo() {
+      const state = editor.state;
+      const block = caretBlock(state);
+      markBlock(block);
+      if (!block) {
+        send({ type: "blockInfo", block: null });
+        return;
+      }
+      const $pos = state.doc.resolve(block.from);
+      const index = $pos.index();
+      const prev = index > 0 ? $pos.parent.child(index - 1) : null;
+      const images = [];
+      const addImage = (n) => { if (n.type.name === "image" && n.attrs.src) images.push({ src: n.attrs.src, alt: n.attrs.alt || "" }); };
+      addImage(block.node);
+      block.node.descendants(addImage);
+      const kind = block.node.type.name;
+      send({
+        type: "blockInfo",
+        block: {
+          kind: kind,
+          level: kind === "heading" ? block.node.attrs.level : 0,
+          textual: (kind === "paragraph" || kind === "heading") && images.length === 0,
+          canUp: Boolean(prev) && prev.type.name !== "frontmatter",
+          canDown: index < $pos.parent.childCount - 1,
+          topLevel: $pos.depth === 0,
+          images: images,
+          node: block.node.toJSON(),
+          text: state.doc.textBetween(block.from, block.to, "\\n\\n", " "),
+        },
+      });
+    }
+
+    function blockAction(action) {
+      const state = editor.state;
+      const block = caretBlock(state);
+      markBlock(null);
+      if (!block) return;
+      const view = editor.view;
+      if (action === "delete") {
+        // An emptied list or column goes too, or keeps an empty line.
+        view.dispatch(state.tr.deleteRange(block.from, block.to).scrollIntoView());
+        return;
+      }
+      if (action === "duplicate") {
+        const tr = state.tr.insert(block.to, block.node.copy(block.node.content));
+        tr.setSelection(TextSelection.near(tr.doc.resolve(block.to + 1)));
+        view.dispatch(tr.scrollIntoView());
+        return;
+      }
+      if (action !== "up" && action !== "down") return;
+      const $pos = state.doc.resolve(block.from);
+      const index = $pos.index() + (action === "up" ? -1 : 1);
+      if (index < 0 || index >= $pos.parent.childCount) return;
+      const sibling = $pos.parent.child(index);
+      if (sibling.type.name === "frontmatter") return;
+      // The caret moves with its block.
+      const offset = state.selection.from - block.from;
+      const tr = state.tr;
+      let start;
+      if (action === "up") {
+        start = block.from - sibling.nodeSize;
+        tr.delete(start, block.from).insert(block.to - sibling.nodeSize, sibling);
+      } else {
+        tr.delete(block.to, block.to + sibling.nodeSize).insert(block.from, sibling);
+        start = block.from + sibling.nodeSize;
+      }
+      tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(start + offset, tr.doc.content.size))));
+      view.dispatch(tr.scrollIntoView());
+    }
+
+    const FIND_CMDS = { find: true, findStep: true, replaceCurrent: true, replaceAll: true };
+
     const NEW_LINE_CMDS = { diagram: true, mathBlock: true, map: true, stl: true };
 
     window.__timely = {
@@ -1274,6 +1895,28 @@ export function buildEditorHtml(
           const pad = Number(payload && payload.bottomPad) || 120;
           const root = document.getElementById("editor");
           if (root) root.style.paddingBottom = pad + "px";
+          requestAnimationFrame(scrollCaret);
+          return;
+        }
+        // Find runs from the app's find bar, so it must not focus the editor.
+        if (name === "exportHtml") {
+          exportHtml(payload && payload.title);
+          return;
+        }
+        if (FIND_CMDS[name]) {
+          runFind(name, payload || {});
+          return;
+        }
+        if (name === "blockInfo") {
+          blockInfo();
+          return;
+        }
+        if (name === "blockDone") {
+          markBlock(null);
+          return;
+        }
+        if (name === "blockAction") {
+          blockAction(payload && payload.action);
           requestAnimationFrame(scrollCaret);
           return;
         }
@@ -1302,6 +1945,8 @@ export function buildEditorHtml(
           case "diagram": chain.setCodeBlock({ language: "mermaid" }).insertContent("flowchart TD\\n  A[Start] --> B[Next step]"); break;
           case "callout": chain.wrapIn("callout", { kind: "note" }); break;
           case "liftCallout": chain.lift("callout"); break;
+          case "toggle": chain.command(({ state, tr }) => toggleDetailsCmd(state, tr)); break;
+          case "columns": chain.command(({ state, tr }) => toggleColumnsCmd(state, tr)); break;
           case "math":
             chain.insertContent({ type: "mathInline", attrs: { latex: "" } }).command(({ tr }) => {
               send({ type: "mathEdit", pos: tr.selection.from - 1, latex: "" });
@@ -1353,6 +1998,43 @@ export function buildEditorHtml(
             break;
           case "map": chain.setCodeBlock({ language: "geojson" }).insertContent('{\\n  "type": "Feature",\\n  "geometry": {\\n    "type": "Polygon",\\n    "coordinates": [[[-0.2, 51.45], [0.05, 51.45], [0.05, 51.6], [-0.2, 51.6], [-0.2, 51.45]]]\\n  }\\n}'); break;
           case "stl": chain.setCodeBlock({ language: "stl" }).insertContent("solid pyramid\\n  facet normal 0 0 -1\\n    outer loop\\n      vertex 0 0 0\\n      vertex 1 0 0\\n      vertex 1 1 0\\n    endloop\\n  endfacet\\n  facet normal 0 0 -1\\n    outer loop\\n      vertex 0 0 0\\n      vertex 1 1 0\\n      vertex 0 1 0\\n    endloop\\n  endfacet\\n  facet normal 0 -1 0\\n    outer loop\\n      vertex 0 0 0\\n      vertex 0.5 0.5 1\\n      vertex 1 0 0\\n    endloop\\n  endfacet\\n  facet normal 1 0 0\\n    outer loop\\n      vertex 1 0 0\\n      vertex 0.5 0.5 1\\n      vertex 1 1 0\\n    endloop\\n  endfacet\\n  facet normal 0 1 0\\n    outer loop\\n      vertex 1 1 0\\n      vertex 0.5 0.5 1\\n      vertex 0 1 0\\n    endloop\\n  endfacet\\n  facet normal -1 0 0\\n    outer loop\\n      vertex 0 1 0\\n      vertex 0.5 0.5 1\\n      vertex 0 0 0\\n    endloop\\n  endfacet\\nendsolid pyramid"); break;
+          case "image":
+            chain.command(({ tr, state }) => {
+              const images = ((payload && payload.images) || []).map((image) => state.schema.nodes.image.create({ src: image.src, alt: image.alt || null }));
+              if (images.length === 0) return false;
+              const { $from } = tr.selection;
+              if ($from.parent.type.name === "paragraph" && $from.parent.content.size === 0) {
+                tr.replaceWith($from.pos, $from.pos, images);
+              } else {
+                const at = $from.depth > 0 ? $from.after() : $from.pos;
+                tr.insert(at, state.schema.nodes.paragraph.create(null, images));
+              }
+              tr.scrollIntoView();
+              return true;
+            });
+            break;
+          case "linkBlock":
+            chain.command(({ tr, state }) => {
+              if (!payload || !payload.node) return false;
+              const node = state.schema.nodeFromJSON(payload.node);
+              const { $from } = tr.selection;
+              let at;
+              if ($from.parent.type.name === "paragraph" && $from.parent.content.size === 0 && $from.depth > 0) {
+                at = $from.before();
+                tr.replaceWith(at, $from.after(), node);
+              } else {
+                at = $from.depth > 0 ? $from.after() : $from.pos;
+                tr.insert(at, node);
+              }
+              // Carry on typing on the line after it.
+              const after = at + node.nodeSize;
+              const next = tr.doc.nodeAt(after);
+              if (!next || next.type.name !== "paragraph" || next.content.size > 0) tr.insert(after, state.schema.nodes.paragraph.create());
+              tr.setSelection(TextSelection.create(tr.doc, after + 1));
+              tr.scrollIntoView();
+              return true;
+            });
+            break;
           case "hr": chain.setHorizontalRule(); break;
           case "table": chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }); break;
           case "addRowBefore": chain.addRowBefore(); break;

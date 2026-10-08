@@ -86,6 +86,47 @@ $$
 >
 > - item
 
+<details open>
+<summary>Toggle &lt;one&gt; &amp; more</summary>
+
+Hidden **body**
+
+- inside
+
+<details>
+<summary>Nested</summary>
+
+Deep
+
+</details>
+
+</details>
+
+<details>
+<summary>Closed and empty</summary>
+</details>
+
+![](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[The \*guide\* \[v2\]](https://example.com/guide "Says \"hello\" with a \\ slash")<!-- bookmark -->
+
+[https://example.com/plain](https://example.com/plain)<!-- bookmark -->
+
+<!-- columns -->
+
+Left side
+
+- one
+- two
+
+<!-- column -->
+
+Right **side**
+
+<!-- column -->
+
+<!-- /columns -->
+
 [^1]: The note, with **bold**.
 
     Second paragraph.

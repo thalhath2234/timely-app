@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("timelyDesktop", {
     ipcRenderer.on("chat:open", handler);
     return () => ipcRenderer.removeListener("chat:open", handler);
   },
+  /** Saves the page, as laid out for print, to a PDF the user picks. */
+  savePdf: (title: string): Promise<{ ok: boolean; canceled?: boolean; filePath?: string }> => ipcRenderer.invoke("doc:savePdf", title),
   versions: {
     electron: process.versions.electron,
     chrome: process.versions.chrome,

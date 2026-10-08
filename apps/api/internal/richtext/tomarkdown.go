@@ -104,6 +104,14 @@ func renderBlock(n map[string]any) string {
 			head += "\n\n" + body
 		}
 		return quoteLines(head)
+	case "details":
+		return renderDetails(n)
+	case "columns":
+		return renderColumns(n)
+	case "embed":
+		return renderEmbed(n)
+	case "bookmark":
+		return renderBookmark(n)
 	case "mathBlock":
 		return "$$\n" + textContent(asSlice(n["content"])) + "\n$$"
 	case "frontmatter":

@@ -11,6 +11,8 @@ import {
   Dimensions,
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
 import {
   AtSign,
@@ -20,14 +22,20 @@ import {
   Code2,
   FileText,
   FolderKanban,
+  GripVertical,
   Heading1,
   Heading2,
   Heading3,
   Highlighter,
+  Image as ImageIcon,
   Info,
   Italic,
   Link2,
   List,
+  ListCollapse,
+  Columns2,
+  MonitorPlay,
+  Bookmark as BookmarkIcon,
   ListOrdered,
   ListTodo,
   Minus,
@@ -52,7 +60,14 @@ import BottomSheet from "../ui/BottomSheet";
 import { Field, PrimaryButton } from "../ui/primitives";
 import { useKeyboardAccessory } from "../ui/SheetHost";
 import { buildEditorHtml } from "./editorHtml";
+import { getApiUrlSync } from "../../lib/api/client";
+import { getLinkPreview, uploadDocFile } from "../../lib/api/docs";
+import { sharePdfFromHtml } from "../../lib/api/portability";
+import { isEmbedUrl } from "@timely/contract/markdown";
+import { useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
+import FindBar from "./FindBar";
+import BlockSheet, { type BlockInfo } from "./BlockSheet";
 
 type Picker = { kind: "slash" | "mention"; query: string; from: number; to: number } | null;
 
@@ -70,7 +85,12 @@ const SLASH: {
   { title: "Bulleted list", description: "Simple bulleted list", cmd: "bullet", shortcut: ".", keywords: ["ul", "bullet", "-"] },
   { title: "Numbered list", description: "List with ordering", cmd: "ordered", shortcut: "1.", keywords: ["ol", "number"] },
   { title: "To-do list", description: "Track tasks with checkboxes", cmd: "task", shortcut: "[]", keywords: ["todo", "check"] },
+  { title: "Toggle", description: "A title that folds the blocks under it", cmd: "toggle", keywords: ["fold", "collapse", "details", "expand", "accordion"] },
+  { title: "Columns", description: "Blocks side by side (stacked on a phone)", cmd: "columns", keywords: ["columns", "side", "layout", "split"] },
   { title: "Code block", description: "Monospaced code", cmd: "code", shortcut: "```", keywords: ["pre"] },
+  { title: "Image", description: "Add a photo from this device", cmd: "imagePick", keywords: ["image", "picture", "photo", "upload", "img"] },
+  { title: "Embed", description: "A YouTube, Vimeo, Loom, Spotify, Figma or CodePen link", cmd: "embedPrompt", keywords: ["video", "youtube", "vimeo", "loom", "spotify", "figma", "codepen"] },
+  { title: "Bookmark", description: "A link card with the page's title", cmd: "bookmarkPrompt", keywords: ["link", "card", "preview", "url", "web"] },
   { title: "Diagram", description: "Mermaid flowchart or other diagram", cmd: "diagram", keywords: ["mermaid", "flowchart", "chart", "graph"] },
   { title: "Callout", description: "Note, tip, warning or caution box", cmd: "callout", shortcut: ">", keywords: ["note", "tip", "warning", "caution", "important", "alert", "quote", "blockquote"] },
   { title: "Formula", description: "Inline math, like $E = mc^2$", cmd: "math", keywords: ["math", "latex", "tex", "inline"] },
@@ -87,6 +107,7 @@ const SLASH: {
 ];
 
 const FORMAT_TOOLS = [
+  { label: "Block", Icon: GripVertical, cmd: "blockMenu" },
   { label: "Bold", Icon: Bold, cmd: "bold" },
   { label: "Italic", Icon: Italic, cmd: "italic" },
   { label: "Strike", Icon: Strikethrough, cmd: "strike" },
@@ -98,8 +119,13 @@ const FORMAT_TOOLS = [
   { label: "Numbered", Icon: ListOrdered, cmd: "ordered" },
   { label: "Todo", Icon: CheckSquare, cmd: "task" },
   { label: "Inline code", Icon: Code, cmd: "inlineCode" },
+  { label: "Toggle", Icon: ListCollapse, cmd: "toggle" },
+  { label: "Columns", Icon: Columns2, cmd: "columns" },
   { label: "Code block", Icon: Code2, cmd: "code" },
   { label: "Callout", Icon: Info, cmd: "callout" },
+  { label: "Image", Icon: ImageIcon, cmd: "imagePick" },
+  { label: "Embed", Icon: MonitorPlay, cmd: "embedPrompt" },
+  { label: "Bookmark", Icon: BookmarkIcon, cmd: "bookmarkPrompt" },
   { label: "Diagram", Icon: Workflow, cmd: "diagram" },
   { label: "Equation", Icon: SquareSigma, cmd: "mathBlock" },
   { label: "Formula", Icon: Radical, cmd: "math" },
@@ -182,6 +208,9 @@ function isEditorUrl(url: string | undefined): boolean {
 
 function onShouldStartLoad(request: ShouldStartLoadRequest): boolean {
   if (isEditorUrl(request.url)) return true;
+  // Embedded players (YouTube, Spotify...) load in iframes; they cannot
+  // navigate the editor itself.
+  if (request.isTopFrame === false && /^https:/i.test(request.url)) return true;
   if (/^(https?|mailto):/i.test(request.url)) void Linking.openURL(request.url).catch(() => undefined);
   return false;
 }
@@ -196,6 +225,9 @@ export default function RichTextEditor({
   placeholder = "Start writing. Type '/' for blocks, '@' to mention…",
   syncKey = 0,
   compact = false,
+  findOpen = false,
+  onFindClose,
+  pdfRequest,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
@@ -208,10 +240,18 @@ export default function RichTextEditor({
   /** Increment when remote content should replace the local draft. */
   syncKey?: number;
   compact?: boolean;
+  /** Shows the find and replace bar over the editor. */
+  findOpen?: boolean;
+  onFindClose?: () => void;
+  /** Set to a new object to export the doc as a PDF and share it. */
+  pdfRequest?: { title: string } | null;
 }) {
+  const [findResult, setFindResult] = useState({ current: -1, count: 0 });
+  const [blockMenu, setBlockMenu] = useState<BlockInfo | null>(null);
+  const pdfTitleRef = useRef("");
   const webRef = useRef<WebView>(null);
   const themeKey = `${getThemeMode()}:${resolvedAccentHex()}`;
-  const html = useMemo(() => buildEditorHtml(content, placeholder, editorThemeVars()), [themeKey]);
+  const html = useMemo(() => buildEditorHtml(content, placeholder, editorThemeVars(), getApiUrlSync()), [themeKey]);
   const focusedRef = useRef(false);
   const appliedRef = useRef(JSON.stringify(content));
   const contentRef = useRef(content);
@@ -225,6 +265,7 @@ export default function RichTextEditor({
   const [active, setActive] = useState<EditorActive>({});
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("https://");
+  const [linkKind, setLinkKind] = useState<"link" | "embed" | "bookmark">("link");
   const [mathEdit, setMathEdit] = useState<{ pos: number; latex: string } | null>(null);
   const onWikiLinkRef = useRef(onWikiLink);
   onWikiLinkRef.current = onWikiLink;
@@ -265,6 +306,12 @@ export default function RichTextEditor({
   }, []);
 
   useEffect(() => {
+    if (!ready || !pdfRequest) return;
+    pdfTitleRef.current = pdfRequest.title;
+    run("exportHtml", { title: pdfRequest.title });
+  }, [pdfRequest, ready, run]);
+
+  useEffect(() => {
     if (!ready) return;
     run("setChrome", { bottomPad: focused && keyboardHeight > 8 ? 12 : barHeight + 32 });
   }, [ready, barHeight, focused, keyboardHeight, run]);
@@ -299,7 +346,24 @@ export default function RichTextEditor({
         pos?: number;
         latex?: string;
         target?: string;
+        href?: string;
+        current?: number;
+        count?: number;
+        html?: string;
+        block?: BlockInfo | null;
       };
+      if (msg.type === "exportHtml" && msg.html) {
+        const name = `${(pdfTitleRef.current || "Untitled").replace(/[\\/:*?"<>|]+/g, " ").trim() || "Untitled"}.pdf`;
+        void sharePdfFromHtml(name, msg.html).catch((error) =>
+          useToastStore.getState().show(error instanceof Error ? error.message : "Could not make the PDF"),
+        );
+      }
+      if (msg.type === "blockInfo") {
+        if (msg.block) setBlockMenu(msg.block);
+        else useToastStore.getState().show("Tap a block first");
+      }
+      if (msg.type === "find") setFindResult({ current: msg.current ?? -1, count: msg.count ?? 0 });
+      if (msg.type === "openLink" && msg.href && /^https?:/i.test(msg.href)) void Linking.openURL(msg.href).catch(() => undefined);
       if (msg.type === "mathEdit" && typeof msg.pos === "number") {
         setMathEdit({ pos: msg.pos, latex: msg.latex ?? "" });
       }
@@ -360,7 +424,8 @@ export default function RichTextEditor({
   const safeBottom = 8;
   const floatBar = focused && keyboardHeight > 8;
 
-  function openLinkPrompt(range?: { from: number; to: number } | null) {
+  function openLinkPrompt(range?: { from: number; to: number } | null, kind: "link" | "embed" | "bookmark" = "link") {
+    setLinkKind(kind);
     setLinkRange(range ?? null);
     setLinkHref("https://");
     setLinkOpen(true);
@@ -371,6 +436,16 @@ export default function RichTextEditor({
     setPicker(null);
     if (item.cmd === "linkPrompt") {
       openLinkPrompt(range ?? null);
+      return;
+    }
+    if (item.cmd === "embedPrompt" || item.cmd === "bookmarkPrompt") {
+      if (range) run("deleteRange", range);
+      openLinkPrompt(null, item.cmd === "embedPrompt" ? "embed" : "bookmark");
+      return;
+    }
+    if (item.cmd === "imagePick") {
+      if (range) run("deleteRange", range);
+      void pickImages();
       return;
     }
     if (item.cmd === "page") {
@@ -391,7 +466,69 @@ export default function RichTextEditor({
     run(item.cmd, range ?? {});
   }
 
+  /** Picks photos, uploads them and puts them at the caret. Photos are
+   * saved as JPEG first, so HEIC pictures from iPhones work too. */
+  async function pickImages() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 1,
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
+    });
+    if (result.canceled) return;
+    useToastStore.getState().show(result.assets.length === 1 ? "Uploading photo…" : `Uploading ${result.assets.length} photos…`);
+    const images: { src: string; alt: string }[] = [];
+    for (const asset of result.assets) {
+      try {
+        const image = ImageManipulator.ImageManipulator.manipulate(asset.uri);
+        if (asset.width * asset.height > 20_000_000) {
+          const factor = Math.sqrt(20_000_000 / (asset.width * asset.height));
+          image.resize({ width: Math.floor(asset.width * factor), height: Math.floor(asset.height * factor) });
+        }
+        const rendered = await image.renderAsync();
+        const saved = await rendered.saveAsync({ format: ImageManipulator.SaveFormat.JPEG, compress: 0.9 });
+        const file = await uploadDocFile(saved.uri);
+        images.push({ src: file.url, alt: asset.fileName?.replace(/\.[^.]+$/, "") || "Photo" });
+      } catch (error) {
+        useToastStore.getState().show(error instanceof Error ? error.message : "Could not upload the photo");
+      }
+    }
+    if (images.length) run("image", { images });
+  }
+
+  /** Adds an embed or bookmark for the link typed in the link sheet. */
+  async function addLinkBlock(kind: "embed" | "bookmark", href: string) {
+    if (!/^https?:\/\/\S+$/i.test(href)) {
+      useToastStore.getState().show("Paste a full link that starts with https://");
+      return;
+    }
+    if (kind === "embed") {
+      if (!isEmbedUrl(href)) {
+        useToastStore.getState().show("That link cannot be embedded. Use YouTube, Vimeo, Loom, Spotify, Figma or CodePen, or add it as a bookmark.");
+        return;
+      }
+      setLinkOpen(false);
+      run("linkBlock", { node: { type: "embed", attrs: { src: href } } });
+      return;
+    }
+    setLinkOpen(false);
+    const preview = await getLinkPreview(href).catch(() => ({ title: "", description: "" }));
+    run("linkBlock", { node: { type: "bookmark", attrs: { url: href, title: preview.title, description: preview.description } } });
+  }
+
   function applyFormat(cmd: string) {
+    if (cmd === "blockMenu") {
+      run("blockInfo");
+      return;
+    }
+    if (cmd === "embedPrompt" || cmd === "bookmarkPrompt") {
+      openLinkPrompt(null, cmd === "embedPrompt" ? "embed" : "bookmark");
+      return;
+    }
+    if (cmd === "imagePick") {
+      void pickImages();
+      return;
+    }
     if (cmd === "callout" && active.callout) {
       run("liftCallout");
       return;
@@ -452,6 +589,7 @@ export default function RichTextEditor({
 
   return (
     <View style={[styles.wrap, compact && styles.compact, compact && floatBar && styles.compactFloating]}>
+      {findOpen && ready ? <FindBar run={run} result={findResult} onClose={() => onFindClose?.()} /> : null}
       <View style={[styles.webWrap, compact && styles.compactWeb]}>
         <WebView
           key={themeKey}
@@ -464,6 +602,9 @@ export default function RichTextEditor({
           hideKeyboardAccessoryView
           keyboardDisplayRequiresUserAction={false}
           setSupportMultipleWindows={false}
+          // The page is https://localhost; doc images come from the server,
+          // which is often plain http on a home network.
+          mixedContentMode="compatibility"
           nestedScrollEnabled
           style={styles.web}
           onMessage={onMessage}
@@ -553,7 +694,7 @@ export default function RichTextEditor({
 
       {floatBar ? null : dock}
 
-      <BottomSheet open={linkOpen} onClose={() => setLinkOpen(false)} title="Link">
+      <BottomSheet open={linkOpen} onClose={() => setLinkOpen(false)} title={linkKind === "embed" ? "Embed" : linkKind === "bookmark" ? "Bookmark" : "Link"}>
         <Field
           value={linkHref}
           onChangeText={setLinkHref}
@@ -563,16 +704,20 @@ export default function RichTextEditor({
         />
         <View style={{ height: 12 }} />
         <PrimaryButton
-          label="Apply link"
+          label={linkKind === "embed" ? "Embed" : linkKind === "bookmark" ? "Add bookmark" : "Apply link"}
           onPress={() => {
             const href = linkHref.trim();
             if (!href) return;
+            if (linkKind !== "link") {
+              void addLinkBlock(linkKind, href);
+              return;
+            }
             run("setLink", { ...(linkRange ?? {}), href, label: href.replace(/^https?:\/\//, "") });
             setLinkOpen(false);
             setLinkRange(null);
           }}
         />
-        {active.link ? (
+        {linkKind === "link" && active.link ? (
           <Pressable
             onPress={() => {
               run("unsetLink");
@@ -584,6 +729,15 @@ export default function RichTextEditor({
           </Pressable>
         ) : null}
       </BottomSheet>
+
+      <BlockSheet
+        block={blockMenu}
+        run={run}
+        onClose={() => {
+          setBlockMenu(null);
+          run("blockDone");
+        }}
+      />
 
       <BottomSheet open={mathEdit !== null} onClose={() => closeMath(true)} title="Formula">
         <Field

@@ -9,6 +9,7 @@
     "./calendar": "./src/calendar.ts",
     "./config": "./src/config.ts",
     "./documents": "./src/documents.ts",
+    "./embeds": "./src/embeds.ts",
     "./entities": "./src/entities.ts",
     "./markdown": "./src/markdown.ts",
     "./notifications": "./src/notifications.ts",
@@ -21,6 +22,7 @@
     "./sheetFormulaInput": "./src/sheetFormulaInput.ts",
     "./sheetRange": "./src/sheetRange.ts",
     "./sheetTypes": "./src/sheetTypes.ts",
+    "./templates": "./src/templates.ts",
     "./workStatus": "./src/workStatus.ts"
   },
   "dependencies": {

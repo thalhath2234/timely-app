@@ -1,10 +1,13 @@
 import type { Doc } from "@/app/_types/types";
-import type { CreateDocPayload, UpdateDocPayload } from "@timely/contract/documents";
+import type { CreateDocPayload, DailyDocPayload, DocBacklink, DocVersion, UpdateDocPayload } from "@timely/contract/documents";
+import type { LinkPreview } from "@timely/contract/embeds";
 import { isRichContentEmpty } from "@/app/utils/richText";
 import { apiFetch, apiUrl } from "./client";
 
 export type {
   CreateDocPayload,
+  DocBacklink,
+  DocVersion,
   UpdateDocPayload,
 };
 
@@ -121,4 +124,62 @@ export async function deleteDoc(id: string): Promise<void> {
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to delete doc"));
   }
+}
+
+export type DocFile = { id: string; url: string; name: string; mime: string; width: number; height: number };
+
+/** Uploads an image for a doc; `url` ("/files/<id>") is what the doc stores. */
+export async function uploadDocFile(file: File): Promise<DocFile> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await apiFetch("/docs/files", { method: "POST", body: form });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Could not upload the image"));
+  }
+  return response.json();
+}
+
+export async function getDocBacklinks(id: string): Promise<DocBacklink[]> {
+  const response = await apiFetch(`/docs/${id}/backlinks`);
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to load backlinks"));
+  }
+  return response.json();
+}
+
+export async function getDocVersions(id: string): Promise<DocVersion[]> {
+  const response = await apiFetch(`/docs/${id}/versions`);
+  if (!response.ok) throw new Error(await readError(response, "Failed to load history"));
+  return response.json();
+}
+
+export async function getDocVersion(id: string, versionId: string): Promise<DocVersion> {
+  const response = await apiFetch(`/docs/${id}/versions/${versionId}`);
+  if (!response.ok) throw new Error(await readError(response, "Failed to load this version"));
+  return response.json();
+}
+
+export async function restoreDocVersion(id: string, versionId: string): Promise<Doc> {
+  const response = await apiFetch(`/docs/${id}/versions/${versionId}/restore`, { method: "POST" });
+  if (!response.ok) throw new Error(await readError(response, "Could not restore this version"));
+  const body = await response.json();
+  return body.document;
+}
+
+/** Opens (or makes) the daily note for a day. */
+export async function openDailyDoc(data: DailyDocPayload): Promise<{ document: Doc; created: boolean }> {
+  const response = await apiFetch("/docs/daily", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error(await readError(response, "Could not open today's note"));
+  return response.json();
+}
+
+/** Title and description of a web page, for a bookmark. */
+export async function getLinkPreview(url: string): Promise<LinkPreview> {
+  const response = await apiFetch(`/docs/link-preview?url=${encodeURIComponent(url)}`);
+  if (!response.ok) throw new Error(await readError(response, "Could not read that link"));
+  return response.json();
 }

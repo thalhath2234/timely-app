@@ -79,7 +79,7 @@ func (s *Server) add3DModel(ctx context.Context, req *mcp.CallToolRequest, in ad
 		markdown += block
 	}
 	rich, plain := md(markdown)
-	d, err := s.Docs.Update(uid, in.DocID, doc.DocumentUpdate{Content: &rich, PlainText: &plain})
+	d, err := s.Docs.Update(uid, in.DocID, doc.DocumentUpdate{Content: &rich, PlainText: &plain, Snapshot: true})
 	if err != nil {
 		return fail(err)
 	}

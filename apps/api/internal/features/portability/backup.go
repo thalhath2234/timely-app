@@ -52,6 +52,8 @@ var exportTables = []tableSpec{
 	{"custom_field_values", `SELECT to_jsonb(x) FROM custom_field_values x JOIN custom_fields f ON f.id = x.custom_field_id JOIN workspaces w ON w.id = f.workspace_id WHERE w.user_id = ? ORDER BY x.id`},
 	{"task_activities", `SELECT to_jsonb(x) FROM task_activities x WHERE x.user_id = ? ORDER BY x.id`},
 	{"documents", `SELECT to_jsonb(x) FROM documents x WHERE x.user_id = ? ORDER BY x.id`},
+	{"doc_versions", `SELECT to_jsonb(x) FROM doc_versions x WHERE x.user_id = ? ORDER BY x.created_at`},
+	{"doc_files", `SELECT to_jsonb(x) FROM doc_files x WHERE x.user_id = ? ORDER BY x.id`},
 	{"sheets", `SELECT to_jsonb(x) FROM sheets x WHERE x.user_id = ? ORDER BY x.id`},
 	{"events", `SELECT to_jsonb(x) FROM events x WHERE x.user_id = ? ORDER BY x.id`},
 	{"recurrence_rules", `SELECT to_jsonb(x) FROM recurrence_rules x WHERE x.user_id = ? ORDER BY x.id`},
@@ -177,6 +179,11 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 				if hasUser {
 					row["user_id"] = userID
 				}
+				for column, value := range restoreDefaults[spec.name] {
+					if _, ok := row[column]; !ok {
+						row[column] = value
+					}
+				}
 				if err := checkRestoreParents(spec.name, row, owned.has); err != nil {
 					return err
 				}
@@ -216,6 +223,12 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 	return &RestoreResult{RestoredAt: time.Now().UTC(), Counts: counts}, nil
 }
 
+// restoreDefaults fills NOT NULL columns added after older backups were
+// made; a missing key would otherwise insert NULL instead of the default.
+var restoreDefaults = map[string]map[string]any{
+	"documents": {"is_template": false},
+}
+
 type parentRef struct {
 	column, table string
 	required      bool
@@ -235,6 +248,7 @@ var restoreParents = map[string][]parentRef{
 	"tasks":                 {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}, {"status_id", "statuses", false}, {"stage_id", "stages", false}},
 	"custom_field_values":   {{"custom_field_id", "custom_fields", true}, {"task_id", "tasks", false}, {"project_id", "projects", false}},
 	"documents":             {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}},
+	"doc_versions":          {{"document_id", "documents", true}},
 	"sheets":                {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}},
 	"recurrence_exceptions": {{"rule_id", "recurrence_rules", true}},
 }
@@ -336,6 +350,7 @@ func clearAccountData(tx *gorm.DB, userID string) error {
 		`DELETE FROM recurrence_rules WHERE user_id = ?`,
 		`DELETE FROM events WHERE user_id = ?`,
 		`DELETE FROM documents WHERE user_id = ?`,
+		`DELETE FROM doc_files WHERE user_id = ?`,
 		`DELETE FROM sheets WHERE user_id = ?`,
 		`DELETE FROM tasks WHERE user_id = ?`,
 		`DELETE FROM stages WHERE project_id IN (SELECT p.id FROM projects p JOIN workspaces w ON w.id = p.workspace_id WHERE w.user_id = ?)`,

@@ -2,10 +2,12 @@ package doc
 
 import (
 	"errors"
+	"log"
 	"strings"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
 	"timely-api/internal/realtime"
+	"timely-api/internal/richtext"
 	"timely-api/internal/utils"
 )
 
@@ -26,6 +28,11 @@ type DocumentUpdate struct {
 	IsFavorite *bool
 	Archived   *bool
 	Order      *int
+	IsTemplate *bool
+	// Snapshot saves the doc as it is before this change, whatever the
+	// timing; the assistant's edits use it so they can always be undone.
+	Snapshot    bool
+	skipVersion bool
 }
 
 type DocumentFilter struct {
@@ -44,6 +51,11 @@ type DocumentService interface {
 	GetByID(userID string, documentID string) (*models.Document, error)
 	Update(userID string, documentID string, update DocumentUpdate) (*models.Document, error)
 	Delete(userID string, documentID string) error
+	Backlinks(userID string, documentID string) ([]Backlink, error)
+	Versions(userID, documentID string) ([]Version, error)
+	GetVersion(userID, documentID, versionID string) (*Version, error)
+	RestoreVersion(userID, documentID, versionID string) (*models.Document, error)
+	Daily(userID string, request DailyRequest) (*models.Document, bool, error)
 }
 
 type documentService struct {
@@ -149,6 +161,20 @@ func (s *documentService) Update(userID string, documentID string, update Docume
 		updates["icon"] = *update.Icon
 	}
 	if update.Content != nil {
+		if !update.skipVersion {
+			current, err := s.repo.GetDocumentByID(userID, documentID)
+			if err != nil {
+				return nil, err
+			}
+			reason := VersionEdit
+			if update.Snapshot {
+				reason = VersionAssistant
+			}
+			// History is a safety net; a failure there must not lose the edit.
+			if err := s.saveVersion(current, reason, update.Snapshot); err != nil {
+				log.Printf("doc %s: could not save a version: %v", documentID, err)
+			}
+		}
 		content := models.NormalizeDocumentContent(*update.Content)
 		if update.PlainText != nil && strings.TrimSpace(*update.PlainText) != "" && models.IsDocumentContentEmpty(content) {
 			content = models.DocumentFromPlainText(*update.PlainText)
@@ -183,6 +209,9 @@ func (s *documentService) Update(userID string, documentID string, update Docume
 	}
 	if update.Order != nil {
 		updates["order"] = *update.Order
+	}
+	if update.IsTemplate != nil {
+		updates["is_template"] = *update.IsTemplate
 	}
 	if update.Archived != nil {
 		if *update.Archived {
@@ -310,4 +339,32 @@ func (s *documentService) assertProject(userID, projectID string) error {
 		return errors.New("project not found")
 	}
 	return nil
+}
+
+// Backlink is another doc that links to this one, with the text around each link.
+type Backlink struct {
+	ID       string   `json:"id"`
+	Title    string   `json:"title"`
+	Icon     *string  `json:"icon"`
+	Snippets []string `json:"snippets"`
+}
+
+func (s *documentService) Backlinks(userID string, documentID string) ([]Backlink, error) {
+	doc, err := s.GetByID(userID, documentID)
+	if err != nil {
+		return nil, err
+	}
+	candidates, err := s.repo.BacklinkCandidates(userID, documentID, doc.Title)
+	if err != nil {
+		return nil, err
+	}
+	out := []Backlink{}
+	for _, candidate := range candidates {
+		snippets := richtext.LinkSnippets(candidate.Content, documentID, doc.Title)
+		if len(snippets) == 0 {
+			continue
+		}
+		out = append(out, Backlink{ID: candidate.ID, Title: candidate.Title, Icon: candidate.Icon, Snippets: snippets})
+	}
+	return out, nil
 }

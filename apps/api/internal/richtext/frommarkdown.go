@@ -73,8 +73,20 @@ func (r reader) parse(src []byte) []any {
 }
 
 func (r reader) blocks(parent ast.Node) []any {
+	return r.blocksFrom(parent.FirstChild())
+}
+
+// blocksFrom converts first and the siblings after it. Toggles and columns
+// span several sibling nodes (see container), so they are read here rather
+// than in block.
+func (r reader) blocksFrom(first ast.Node) []any {
 	var out []any
-	for n := parent.FirstChild(); n != nil; n = n.NextSibling() {
+	for n := first; n != nil; n = n.NextSibling() {
+		if node, end, ok := r.container(n); ok {
+			out = append(out, node)
+			n = end
+			continue
+		}
 		out = append(out, r.block(n)...)
 	}
 	return out
@@ -87,7 +99,9 @@ func (r reader) block(n ast.Node) []any {
 	case *ast.Heading:
 		out = append(out, withContent(map[string]any{"type": "heading", "attrs": map[string]any{"level": b.Level}}, r.inline(b)))
 	case *ast.Paragraph, *ast.TextBlock:
-		if r.isOnlyBreak(n) {
+		if link := r.linkBlock(n); link != nil {
+			out = append(out, link)
+		} else if r.isOnlyBreak(n) {
 			out = append(out, paragraphNode(nil))
 		} else {
 			out = append(out, paragraphNode(r.inline(n)))
@@ -121,10 +135,7 @@ func (r reader) block(n ast.Node) []any {
 	case *east.Table:
 		out = append(out, r.table(b))
 	case *ast.HTMLBlock:
-		raw := strings.TrimSpace(r.lines(b.Lines()))
-		if b.HasClosure() {
-			raw = strings.TrimSpace(raw + "\n" + string(b.ClosureLine.Value(r.source)))
-		}
+		raw := r.htmlBlockRaw(b)
 		if brTagRe.MatchString(raw) {
 			out = append(out, paragraphNode(nil))
 			return out
@@ -175,9 +186,7 @@ func (r reader) callout(quote *ast.Blockquote) map[string]any {
 		}
 		content = append(content, r.parse([]byte(rest.String()))...)
 	}
-	for n := first.NextSibling(); n != nil; n = n.NextSibling() {
-		content = append(content, r.block(n)...)
-	}
+	content = append(content, r.blocksFrom(first.NextSibling())...)
 	if len(content) == 0 {
 		content = []any{paragraphNode(nil)}
 	}
@@ -605,6 +614,12 @@ func blockTexts(nodes []any, out *[]string) {
 			if c, ok := asMap(child); ok && !inlineTypes[c["type"].(string)] {
 				hasBlocks = true
 			}
+		}
+		if n["type"] == "bookmark" {
+			if s := bookmarkText(n); s != "" {
+				*out = append(*out, s)
+			}
+			continue
 		}
 		if n["type"] == "codeBlock" || !hasBlocks {
 			if s := plainText(asSlice(n["content"])); s != "" {

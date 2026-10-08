@@ -1,8 +1,10 @@
 import { Fragment, type ReactNode } from "react";
-import { Linking, ScrollView, StyleSheet, Text, View, type TextStyle } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle } from "react-native";
 import type { DocContent } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { frontmatterEntries } from "@timely/contract/properties";
+import { embedInfo, linkHost } from "@timely/contract/embeds";
+import { getApiUrlSync } from "../../lib/api/client";
 
 type Mark = { type?: string; attrs?: Record<string, unknown> };
 type Node = {
@@ -93,6 +95,37 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
           ))}
         </View>
       );
+    case "details": {
+      // Toggles show open in read-only text.
+      const [summary, ...body] = node.content ?? [];
+      return (
+        <View>
+          <Text style={[styles.p, styles.bold]}>▾ {plain(summary ?? {})}</Text>
+          <View style={styles.liBody}>{body.map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>
+        </View>
+      );
+    }
+    case "columns":
+      // A phone shows columns one under another.
+      return <View style={styles.columns}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>;
+    case "column":
+      return <View style={styles.column}>{(node.content ?? []).map((child, i) => <Block key={i} node={child} onLink={onLink} />)}</View>;
+    case "embed":
+    case "bookmark": {
+      // Read-only text shows both as a link card; the player is in the editor.
+      const href = String(node.attrs?.src ?? node.attrs?.url ?? "");
+      if (!href) return null;
+      const info = node.type === "embed" ? embedInfo(href) : null;
+      const title = node.type === "embed" ? info?.provider ?? "Embed" : String(node.attrs?.title || linkHost(href));
+      const description = node.type === "bookmark" ? String(node.attrs?.description ?? "") : "";
+      return (
+        <Pressable accessibilityRole="link" onPress={() => (onLink ? onLink(href) : void Linking.openURL(href))} style={styles.linkCard}>
+          <Text style={[styles.p, styles.bold]} numberOfLines={1}>{title}</Text>
+          {description ? <Text style={styles.linkCardText} numberOfLines={2}>{description}</Text> : null}
+          <Text style={styles.linkCardText} numberOfLines={1}>{href.replace(/^https?:\/\//, "")}</Text>
+        </Pressable>
+      );
+    }
     case "mathBlock":
       // Read-only text shows the TeX source as code.
       return (
@@ -186,7 +219,9 @@ function Inline({ nodes, onLink }: { nodes?: Node[]; onLink?: (href: string) => 
         }
         if (node.type === "image") {
           // Inline images in read-only text show as a link to the picture.
-          const src = node.attrs?.src;
+          const raw = node.attrs?.src;
+          // Uploaded doc images are stored as "/files/<id>" on the server.
+          const src = typeof raw === "string" && raw.startsWith("/files/") ? getApiUrlSync() + raw : raw;
           return (
             <Text
               key={i}
@@ -259,6 +294,10 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingLeft: 12,
     gap: 8,
   },
+  columns: { gap: 10 },
+  column: { paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: colors.border, gap: 6 },
+  linkCard: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, gap: 2 },
+  linkCardText: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   callout: { backgroundColor: colors.accent, borderRadius: 8, paddingVertical: 8, paddingRight: 12 },
   calloutHead: { color: colors.primary, fontWeight: "700", fontSize: 14 },
   code: {

@@ -7,7 +7,6 @@ import { openTasksEntityHref } from "@/app/utils/entityDetail";
 import { useMentionItems } from "@/app/utils/hooks/useMentionItems";
 import CodeBlock from "@tiptap/extension-code-block";
 import Highlight from "@tiptap/extension-highlight";
-import TiptapImage from "@tiptap/extension-image";
 import { TableKit } from "@tiptap/extension-table";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -40,9 +39,15 @@ import {
   Heading3,
   Info,
   Highlighter,
+  ImageIcon,
   Italic,
   Link2,
   List,
+  ListCollapse,
+  Columns2,
+  TextSearch,
+  MonitorPlay,
+  Bookmark as BookmarkIcon,
   ListOrdered,
   Map as MapIcon,
   Minus,
@@ -59,6 +64,15 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AutoCapitalize } from "./autoCapitalize";
 import { Callout } from "./callout";
+import { DocImage } from "./docImage";
+import { Details, DetailsSummary } from "./details";
+import { BlockHandle } from "./blockHandle";
+import { BlockSelection } from "./blockSelection";
+import BlockTransferDialog from "./blockTransfer";
+import { Bookmark, Embed } from "./linkBlocks";
+import { FindReplace } from "./findReplace";
+import { Column, Columns } from "./columns";
+import FindBar from "./findBar";
 import CodeBlockView from "./codeBlockView";
 import { Footnote, FootnoteRef } from "./footnotes";
 import { DocumentWithFrontmatter, Frontmatter } from "./frontmatter";
@@ -105,6 +119,8 @@ export interface RichTextEditorProps {
   syncKey?: number | string;
   /** Docs only: slash "Page" creates a child of this page and links it. */
   onCreateSubpage?: (props: { editor: Editor; range: Range }) => void | Promise<void>;
+  /** False shows the doc read-only, without toolbars (version previews). */
+  editable?: boolean;
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -183,6 +199,7 @@ export default function RichTextEditor({
   autoFocus = false,
   syncKey = 0,
   onCreateSubpage,
+  editable = true,
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -196,6 +213,7 @@ export default function RichTextEditor({
   );
   const [linkDraft, setLinkDraft] = useState("");
   const linkInputRef = useRef<HTMLInputElement>(null);
+  const [findOpen, setFindOpen] = useState(false);
   const editorRef = useRef<Editor | null>(null);
 
   // The suggestion plugin lives outside React, so it reads the latest list
@@ -272,6 +290,7 @@ export default function RichTextEditor({
           if (node.type.name === "heading") {
             return `Heading ${node.attrs.level}`;
           }
+          if (node.type.name === "detailsSummary") return "Toggle";
           if (isInsideTable(placeholderEditor, pos)) {
             return hasAnchor ? "Type @ to mention" : "";
           }
@@ -284,7 +303,7 @@ export default function RichTextEditor({
       TaskItem.configure({ nested: true }),
       Highlight.configure({ multicolor: false }),
       // Inline like Markdown's ![alt](src), so imported images keep their place.
-      TiptapImage.configure({ inline: true, HTMLAttributes: { class: "doc-image" } }),
+      DocImage.configure({ inline: true, HTMLAttributes: { class: "doc-image" } }),
       TableKit.configure({
         table: { resizable: true, handleWidth: 6, cellMinWidth: 80 },
       }),
@@ -294,11 +313,19 @@ export default function RichTextEditor({
       MathInline,
       MathBlock,
       Callout,
+      Details,
+      DetailsSummary,
+      Embed,
+      Bookmark,
+      Columns,
+      Column,
       FootnoteRef,
       Footnote,
       Frontmatter,
       WikiLink,
     ];
+
+    if (variant === "page") list.push(BlockHandle, BlockSelection, FindReplace.configure({ onOpen: () => setFindOpen(true) }));
 
     if (enableSlashCommands) {
       list.push(
@@ -346,6 +373,7 @@ export default function RichTextEditor({
     // The editor is rendered inside a client page, and Tiptap requires this
     // flag to avoid hydration mismatches in the Next.js app router.
     immediatelyRender: false,
+    editable,
     autofocus: autoFocus ? "end" : false,
     extensions,
     content: toEditorContent(content),
@@ -768,6 +796,18 @@ export default function RichTextEditor({
           : editor.chain().focus().setCallout({ kind: "note" }).run(),
     },
     {
+      label: "Toggle",
+      icon: ListCollapse,
+      isActive: editor.isActive("details"),
+      run: () => editor.chain().focus().toggleDetails().run(),
+    },
+    {
+      label: "Columns",
+      icon: Columns2,
+      isActive: editor.isActive("columns"),
+      run: () => editor.chain().focus().toggleColumns(2).run(),
+    },
+    {
       label: "Code block",
       icon: Code2,
       isActive: editor.isActive("codeBlock"),
@@ -780,11 +820,29 @@ export default function RichTextEditor({
       run: () => editor.chain().focus().insertContent("@").run(),
     },
     {
+      label: "Image",
+      icon: ImageIcon,
+      isActive: false,
+      run: () => editor.chain().focus().pickImage().run(),
+      startsGroup: true,
+    },
+    {
+      label: "Embed",
+      icon: MonitorPlay,
+      isActive: false,
+      run: () => insertBlock({ type: "embed" }),
+    },
+    {
+      label: "Bookmark",
+      icon: BookmarkIcon,
+      isActive: false,
+      run: () => insertBlock({ type: "bookmark" }),
+    },
+    {
       label: "Diagram",
       icon: Workflow,
       isActive: false,
       run: () => insertBlock(codeSample("mermaid", DIAGRAM_SAMPLE)),
-      startsGroup: true,
     },
     {
       label: "Equation",
@@ -885,6 +943,10 @@ export default function RichTextEditor({
     ],
   ];
 
+  if (!editable) {
+    return <EditorContent editor={editor} />;
+  }
+
   return (
     <>
       {toolbar === "fixed" ? (
@@ -925,10 +987,28 @@ export default function RichTextEditor({
             >
               <Link2 className="size-3.5" />
             </button>
+            {variant === "page" && (
+              <button
+                type="button"
+                title="Find and replace (Ctrl+F)"
+                aria-label="Find and replace"
+                onClick={() => setFindOpen(true)}
+                className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+                  findOpen ? "bg-accent text-accent-foreground" : ""
+                }`}
+              >
+                <TextSearch className="size-3.5" />
+              </button>
+            )}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <EditorContent editor={editor} className="min-h-full" />
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {findOpen && <FindBar editor={editor} onClose={() => setFindOpen(false)} />}
+            {variant === "page" && <BlockTransferDialog />}
+            {/* The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped. */}
+            <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
+              <EditorContent editor={editor} className="min-h-full" />
+            </div>
           </div>
         </div>
       ) : (

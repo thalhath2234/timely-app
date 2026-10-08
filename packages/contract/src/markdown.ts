@@ -435,9 +435,144 @@ function calloutOf(quote: Tokens.Blockquote, options: FromMarkdownOptions): Mark
   return { type: "callout", attrs, content: content.length ? content : [paragraph()] };
 }
 
+// Toggles are HTML <details> with a plain-text <summary> (see
+// richtext/blocks.go): the opening tag, the body blocks, then </details>.
+const detailsOpenRe = /^<details(\s+open(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)?\s*>\s*<summary>([\s\S]*?)<\/summary>\s*(<\/details>)?$/i;
+const detailsCloseRe = /^<\/details>$/i;
+
+function detailsNode(summary: string, open: boolean, body: MarkdownNode[]): MarkdownNode {
+  return {
+    type: "details",
+    attrs: { open },
+    content: [
+      summary ? { type: "detailsSummary", content: [{ type: "text", text: summary }] } : { type: "detailsSummary" },
+      ...(body.length ? body : [paragraph()]),
+    ],
+  };
+}
+
+/** Reads a toggle starting at tokens[start]; returns it and the index of the
+ * closing tag, or null when there is no closing tag (then it is raw HTML). */
+function detailsAt(tokens: Token[], start: number, options: FromMarkdownOptions): [MarkdownNode, number] | null {
+  const token = tokens[start];
+  if (token.type !== "html") return null;
+  const match = detailsOpenRe.exec((token as Tokens.HTML).text.trim());
+  if (!match) return null;
+  const summary = decodeEntities(match[2].trim());
+  const open = match[1] !== undefined;
+  if (match[3]) return [detailsNode(summary, open, []), start];
+  const body: MarkdownNode[] = [];
+  for (let i = start + 1; i < tokens.length; i += 1) {
+    const current = tokens[i];
+    if (current.type === "html" && detailsCloseRe.test((current as Tokens.HTML).text.trim())) {
+      return [detailsNode(summary, open, body), i];
+    }
+    const nested = containerAt(tokens, i, options);
+    if (nested) {
+      body.push(nested[0]);
+      i = nested[1];
+      continue;
+    }
+    body.push(...blocksOf([current], options));
+  }
+  return null;
+}
+
+const columnsOpenRe = /^<!--\s*columns\s*-->$/;
+const columnBreakRe = /^<!--\s*column\s*-->$/;
+const columnsCloseRe = /^<!--\s*\/columns\s*-->$/;
+
+function columnNode(body: MarkdownNode[]): MarkdownNode {
+  return { type: "column", content: body.length ? body : [paragraph()] };
+}
+
+/** Reads columns starting at tokens[start] (`<!-- columns -->`, blocks,
+ * `<!-- column -->` between columns, `<!-- /columns -->`); see
+ * apps/api/internal/richtext/columns.go. */
+function columnsAt(tokens: Token[], start: number, options: FromMarkdownOptions): [MarkdownNode, number] | null {
+  const token = tokens[start];
+  if (token.type !== "html" || !columnsOpenRe.test((token as Tokens.HTML).text.trim())) return null;
+  const columns: MarkdownNode[] = [];
+  let body: MarkdownNode[] = [];
+  for (let i = start + 1; i < tokens.length; i += 1) {
+    const current = tokens[i];
+    if (current.type === "html") {
+      const raw = (current as Tokens.HTML).text.trim();
+      if (columnsCloseRe.test(raw)) {
+        columns.push(columnNode(body));
+        return [{ type: "columns", content: columns }, i];
+      }
+      if (columnBreakRe.test(raw)) {
+        columns.push(columnNode(body));
+        body = [];
+        continue;
+      }
+    }
+    const nested = containerAt(tokens, i, options);
+    if (nested) {
+      body.push(nested[0]);
+      i = nested[1];
+      continue;
+    }
+    body.push(...blocksOf([current], options));
+  }
+  return null;
+}
+
+/** A block written over several tokens: a toggle or columns. */
+function containerAt(tokens: Token[], start: number, options: FromMarkdownOptions) {
+  return detailsAt(tokens, start, options) ?? columnsAt(tokens, start, options);
+}
+
+/** Links Timely can show as an embed (see embeds.ts, which builds the
+ * player from the match). Kept here so this module has no value imports;
+ * keep in step with apps/api/internal/richtext/embeds.go. */
+export const EMBED_PATTERNS: { provider: string; pattern: RegExp }[] = [
+  { provider: "YouTube", pattern: /^https?:\/\/(?:www\.|m\.|music\.)?youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|embed\/|live\/)([\w-]{11})/i },
+  { provider: "YouTube", pattern: /^https?:\/\/youtu\.be\/([\w-]{11})/i },
+  { provider: "Vimeo", pattern: /^https?:\/\/(?:www\.)?vimeo\.com\/(?:video\/)?(\d+)/i },
+  { provider: "Loom", pattern: /^https?:\/\/(?:www\.)?loom\.com\/(?:share|embed)\/([0-9a-f]+)/i },
+  { provider: "Spotify", pattern: /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(track|album|playlist|episode|show|artist)\/(\w+)/i },
+  { provider: "Figma", pattern: /^https?:\/\/(?:www\.)?figma\.com\/(?:file|design|proto|board)\/\w+/i },
+  { provider: "CodePen", pattern: /^https?:\/\/codepen\.io\/([\w-]+)\/(?:pen|full|details|embed)\/(\w+)/i },
+];
+
+export function isEmbedUrl(link: string) {
+  return EMBED_PATTERNS.some(({ pattern }) => pattern.test(link));
+}
+
+const BOOKMARK_MARKER = "<!-- bookmark -->";
+
+/** A paragraph that is only an embeddable image (`![](https://youtu.be/...)`)
+ * or only a bookmark link (`[Title](url "description")<!-- bookmark -->`).
+ * See embeds.ts and apps/api/internal/richtext/embeds.go. */
+function linkBlockOf(tokens: Token[] | undefined, options: FromMarkdownOptions): MarkdownNode | null {
+  const [first, second, ...rest] = tokens ?? [];
+  if (!first || rest.length) return null;
+  if (first.type === "image" && !second && isEmbedUrl((first as Tokens.Image).href)) {
+    return { type: "embed", attrs: { src: (first as Tokens.Image).href } };
+  }
+  if (first.type === "link" && second?.type === "html" && (second as Tokens.HTML).text.trim() === BOOKMARK_MARKER) {
+    const link = first as Tokens.Link;
+    const title = plainOf(inlineOf(link.tokens, options));
+    return {
+      type: "bookmark",
+      attrs: { url: link.href, title: title === link.href ? "" : title, description: link.title ?? "" },
+    };
+  }
+  return null;
+}
+
 function blocksOf(tokens: Token[], options: FromMarkdownOptions): MarkdownNode[] {
   const out: MarkdownNode[] = [];
-  for (const token of tokens) {
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const toggle = containerAt(tokens, index, options);
+    if (toggle) {
+      out.push(toggle[0]);
+      index = toggle[1];
+      continue;
+    }
     switch (token.type) {
       case "space":
       case "def":
@@ -455,6 +590,11 @@ function blocksOf(tokens: Token[], options: FromMarkdownOptions): MarkdownNode[]
       case "paragraph":
       case "text": {
         const tokens = (token as Tokens.Paragraph).tokens;
+        const link = linkBlockOf(tokens, options);
+        if (link) {
+          out.push(link);
+          break;
+        }
         out.push(isOnlyBreak(tokens) ? paragraph() : paragraph(inlineOf(tokens, options)));
         break;
       }
@@ -590,6 +730,11 @@ const INLINE_TYPES = new Set(["text", "hardBreak", "mention", "image", "mathInli
 
 function blockTexts(nodes: MarkdownNode[], out: string[]) {
   for (const node of nodes) {
+    if (node.type === "bookmark") {
+      const text = `${node.attrs?.title ?? ""} ${node.attrs?.description ?? ""}`.trim();
+      if (text) out.push(text);
+      continue;
+    }
     const hasBlocks = node.content?.some((child) => !INLINE_TYPES.has(child.type));
     if (node.type === "codeBlock" || !hasBlocks) {
       const text = plainOf(node.content);

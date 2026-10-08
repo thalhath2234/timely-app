@@ -534,10 +534,10 @@ body::-webkit-scrollbar-corner,
 .tok-number { color: oklch(0.58 0.15 50); }
 .tok-type { color: oklch(0.5 0.13 240); }
 
-.dark .tok-keyword { color: oklch(0.76 0.13 280); }
-.dark .tok-string { color: oklch(0.78 0.12 160); }
-.dark .tok-number { color: oklch(0.8 0.12 65); }
-.dark .tok-type { color: oklch(0.78 0.1 225); }
+.dark :not(#doc-print *).tok-keyword { color: oklch(0.76 0.13 280); }
+.dark :not(#doc-print *).tok-string { color: oklch(0.78 0.12 160); }
+.dark :not(#doc-print *).tok-number { color: oklch(0.8 0.12 65); }
+.dark :not(#doc-print *).tok-type { color: oklch(0.78 0.1 225); }
 
 .doc-editor-content code {
   background: var(--muted);
@@ -1292,4 +1292,326 @@ html.reduce-motion .tl-bar {
   cursor: grab;
   display: block;
   width: 100% !important;
+}
+
+/* Toggle blocks (details.ts): a chevron, the summary line, and the body
+ * blocks, which hide while the toggle is folded. */
+.doc-editor-content .doc-details {
+  position: relative;
+  margin: 0.25rem 0;
+  padding-left: 1.6rem;
+}
+.doc-editor-content .doc-details-toggle {
+  position: absolute;
+  left: 0;
+  top: 0.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 0.3rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.doc-editor-content .doc-details-toggle:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.doc-editor-content .doc-details-toggle svg {
+  transition: transform 0.15s ease;
+}
+.doc-editor-content .doc-details[data-open] > .doc-details-toggle svg {
+  transform: rotate(90deg);
+}
+.doc-editor-content .doc-details-summary {
+  display: block;
+  font-weight: 600;
+  list-style: none;
+}
+.doc-editor-content .doc-details:not([data-open]) > .doc-details-body > :not(.doc-details-summary) {
+  display: none;
+}
+
+/* Block drag handle (blockHandle.ts): a grip in the left gutter of the
+ * hovered block. */
+.doc-block-handle-host {
+  position: relative;
+}
+.doc-block-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.5rem;
+  border-radius: 0.3rem;
+  color: var(--muted-foreground);
+  cursor: grab;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.doc-block-handle[data-visible] {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+.doc-block-handle:hover {
+  opacity: 1;
+  background: var(--accent);
+  color: var(--foreground);
+}
+.doc-block-handle[data-dragging] {
+  cursor: grabbing;
+}
+.doc-editor-content .ProseMirror-selectednode:not(img) {
+  border-radius: 0.375rem;
+  outline: 2px solid color-mix(in oklab, var(--ring) 55%, transparent);
+  outline-offset: 2px;
+}
+@media print, (hover: none) {
+  .doc-block-handle {
+    display: none;
+  }
+}
+
+/* Block selection (blockSelection.ts): selected blocks are tinted blue, and
+ * the box dragged to select them is blue, like a desktop's. */
+:root {
+  --block-select: oklch(0.62 0.19 255);
+}
+.doc-editor-content .doc-block-selected {
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--block-select) 16%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--block-select) 16%, transparent);
+}
+.doc-editor-content.has-block-selection {
+  caret-color: transparent;
+}
+.doc-editor-content.has-block-selection ::selection {
+  background: transparent;
+}
+.doc-block-box {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  border: 1px solid color-mix(in oklab, var(--block-select) 80%, transparent);
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--block-select) 14%, transparent);
+}
+
+/* Embeds and bookmarks (linkBlocks.ts). */
+.doc-editor-content .doc-embed,
+.doc-editor-content .doc-bookmark {
+  margin: 0.75rem 0;
+}
+.doc-editor-content .doc-embed-frame {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--muted);
+}
+.doc-editor-content .doc-embed-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.doc-editor-content .doc-embed-caption {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.doc-editor-content .doc-embed-caption a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: inherit;
+  text-decoration: none;
+}
+.doc-editor-content .doc-embed-caption a:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+.doc-editor-content .doc-bookmark-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background-color 0.12s ease;
+}
+.doc-editor-content .doc-bookmark-card:hover {
+  background: var(--accent);
+}
+.doc-editor-content .doc-bookmark-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-editor-content .doc-bookmark-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+.doc-editor-content .doc-bookmark-host {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  overflow: hidden;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-editor-content .doc-bookmark-host svg {
+  flex-shrink: 0;
+}
+.doc-editor-content .doc-link-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.6rem;
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+}
+.doc-editor-content .doc-link-input {
+  min-width: 0;
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--background);
+  font-size: 0.85rem;
+  outline: none;
+}
+.doc-editor-content .doc-link-input:focus {
+  border-color: var(--ring);
+}
+.doc-editor-content .doc-link-form button {
+  padding: 0.35rem 0.8rem;
+  border-radius: 0.4rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+.doc-editor-content .doc-link-form button:disabled {
+  opacity: 0.5;
+}
+.doc-editor-content .doc-link-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.doc-editor-content .doc-link-hint[data-error] {
+  color: var(--destructive);
+}
+
+/* Find and replace (findReplace.ts). */
+.doc-editor-content .doc-find-match {
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--warning) 35%, transparent);
+}
+.doc-editor-content .doc-find-current {
+  background: color-mix(in oklab, var(--warning) 80%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 35%, transparent);
+}
+
+/* Columns (columns.ts): equal widths side by side. */
+.doc-editor-content .doc-columns {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 1.5rem;
+  margin: 0.5rem 0;
+}
+.doc-editor-content .doc-column {
+  min-width: 0;
+  border-radius: 0.375rem;
+  outline: 1px dashed transparent;
+  outline-offset: 0.35rem;
+  transition: outline-color 0.12s ease;
+}
+.doc-editor-content .doc-columns:hover > .doc-column {
+  outline-color: var(--border);
+}
+.doc-editor-content .doc-column > :first-child {
+  margin-top: 0;
+}
+@media (max-width: 640px) {
+  .doc-editor-content .doc-columns {
+    grid-auto-flow: row;
+  }
+}
+
+/* PDF export (utils/printDoc.ts): only the copied doc prints. */
+#doc-print {
+  display: none;
+}
+@media print {
+  @page {
+    margin: 18mm 16mm;
+  }
+  html.printing-doc,
+  html.printing-doc body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  html.printing-doc body > *:not(#doc-print) {
+    display: none !important;
+  }
+  html.printing-doc #doc-print {
+    display: block;
+    color: #111;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #doc-print .doc-print-title {
+    margin: 0 0 1rem;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  #doc-print .doc-editor-content {
+    outline: none;
+  }
+  #doc-print .doc-code-block,
+  #doc-print table,
+  #doc-print img,
+  #doc-print svg,
+  #doc-print .doc-bookmark,
+  #doc-print .doc-callout {
+    break-inside: avoid;
+  }
+  #doc-print h1,
+  #doc-print h2,
+  #doc-print h3 {
+    break-after: avoid;
+  }
+  #doc-print .doc-column {
+    outline: none !important;
+  }
+  #doc-print a {
+    color: inherit;
+  }
 }

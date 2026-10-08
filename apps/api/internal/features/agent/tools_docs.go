@@ -130,6 +130,7 @@ func (s *Server) updateDoc(ctx context.Context, req *mcp.CallToolRequest, in upd
 		rich, plain := md(*in.Markdown)
 		update.Content = &rich
 		update.PlainText = &plain
+		update.Snapshot = true
 	}
 	d, err := s.Docs.Update(uid, in.DocID, update)
 	if err != nil {
@@ -158,7 +159,7 @@ func (s *Server) appendToDoc(ctx context.Context, req *mcp.CallToolRequest, in a
 	}
 	combined += in.Markdown
 	rich, plain := md(combined)
-	d, err := s.Docs.Update(uid, in.DocID, doc.DocumentUpdate{Content: &rich, PlainText: &plain})
+	d, err := s.Docs.Update(uid, in.DocID, doc.DocumentUpdate{Content: &rich, PlainText: &plain, Snapshot: true})
 	if err != nil {
 		return fail(err)
 	}

@@ -21,8 +21,14 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  ImageIcon,
   Link2,
   List,
+  ListCollapse,
+  Columns2,
+  Columns3,
+  MonitorPlay,
+  Bookmark as BookmarkIcon,
   ListOrdered,
   Minus,
   Table2,
@@ -133,12 +139,60 @@ export function createSlashItems(options?: {
         runSlash(editor, range, (chain) => chain.toggleTaskList().run()),
     },
     {
+      title: "Toggle",
+      description: "A title that folds the blocks under it",
+      icon: ListCollapse,
+      keywords: ["toggle", "fold", "collapse", "details", "expand", "accordion"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.toggleDetails().run()),
+    },
+    {
+      title: "2 columns",
+      description: "Put blocks side by side",
+      icon: Columns2,
+      keywords: ["columns", "side", "layout", "split", "two"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.toggleColumns(2).run()),
+    },
+    {
+      title: "3 columns",
+      description: "Three blocks side by side",
+      icon: Columns3,
+      keywords: ["columns", "side", "layout", "split", "three"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.toggleColumns(3).run()),
+    },
+    {
       title: "Code block",
       description: "Monospace code with syntax",
       icon: Code2,
       keywords: ["snippet", "pre", "monospace"],
       run: ({ editor, range }) =>
         runSlash(editor, range, (chain) => chain.toggleCodeBlock().run()),
+    },
+    {
+      title: "Image",
+      description: "Upload a picture, or paste or drop one",
+      icon: ImageIcon,
+      keywords: ["image", "picture", "photo", "upload", "img", "screenshot"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.pickImage().run()),
+    },
+    {
+      title: "Embed",
+      description: "A YouTube, Vimeo, Loom, Spotify, Figma or CodePen link, shown in the doc",
+      icon: MonitorPlay,
+      keywords: ["embed", "video", "youtube", "vimeo", "loom", "spotify", "figma", "codepen", "iframe"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.insertLinkBlock("embed").run()),
+    },
+    {
+      title: "Bookmark",
+      description: "A link card with the page's title and description",
+      icon: BookmarkIcon,
+      keywords: ["bookmark", "link", "card", "preview", "url", "web"],
+      run: ({ editor, range }) =>
+        runSlash(editor, range, (chain) => chain.insertLinkBlock("bookmark").run()),
     },
     {
       title: "Diagram",

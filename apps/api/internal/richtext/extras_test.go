@@ -69,3 +69,19 @@ func TestExportEscapesDollarsAndLeadingDivider(t *testing.T) {
 		t.Fatalf("divider did not survive: %v", back)
 	}
 }
+
+func TestHandwrittenToggles(t *testing.T) {
+	doc, plain := FromMarkdown("<details><summary>One line</summary>\n\nBody\n\n</details>\n\n<details>\n<summary>No end</summary>\n\nText\n")
+	content := doc["content"].([]any)
+	first := content[0].(map[string]any)
+	if first["type"] != "details" || first["attrs"].(map[string]any)["open"] != false {
+		t.Fatalf("one-line toggle not read: %v", first)
+	}
+	if !strings.Contains(plain, "One line") || !strings.Contains(plain, "Body") {
+		t.Fatalf("plain text: %q", plain)
+	}
+	// Without </details> the HTML stays visible text.
+	if second := content[1].(map[string]any); second["type"] != "paragraph" {
+		t.Fatalf("unclosed toggle became %v", second["type"])
+	}
+}

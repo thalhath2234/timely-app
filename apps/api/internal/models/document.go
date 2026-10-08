@@ -189,6 +189,10 @@ type Document struct {
 	IsFavorite bool    `gorm:"not null;default:false" json:"isFavorite"`
 	ArchivedAt *string `gorm:"type:text" json:"archivedAt"`
 	Order      int     `gorm:"column:order;not null;default:0" json:"order"`
+	// IsTemplate offers the doc under "New from template".
+	IsTemplate bool `gorm:"not null;default:false" json:"isTemplate"`
+	// DailyDate (YYYY-MM-DD) marks the daily note for that day.
+	DailyDate *string `gorm:"type:text" json:"dailyDate"`
 
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`

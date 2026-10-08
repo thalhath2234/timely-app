@@ -12,6 +12,7 @@ import {
   shell,
 } from "electron";
 import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isOpenableExternally, isPermissionAllowed, isSameOrigin } from "./origin";
 import { waitForHttp } from "./supervisor/api";
@@ -65,6 +66,25 @@ ipcMain.on("chat:notify", (event, payload: unknown) => {
     win.webContents.send("chat:open", data.id);
   });
   notification.show();
+});
+
+// ---------------------------------------------------------------------------
+// Doc PDF export: the renderer lays the doc out for print, this saves it.
+// ---------------------------------------------------------------------------
+
+ipcMain.handle("doc:savePdf", async (event, title: unknown) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed() || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) return { ok: false };
+  if (!isSameOrigin(event.senderFrame.url, new URL(rendererUrl).origin)) return { ok: false };
+  const name = (typeof title === "string" ? title : "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").trim().slice(0, 120) || "Untitled";
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    defaultPath: path.join(app.getPath("documents"), `${name}.pdf`),
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  });
+  if (canceled || !filePath) return { ok: false, canceled: true };
+  const data = await event.sender.printToPDF({ printBackground: true, pageSize: "A4", preferCSSPageSize: true });
+  await writeFile(filePath, data);
+  return { ok: true, filePath };
 });
 
 // ---------------------------------------------------------------------------

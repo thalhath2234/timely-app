@@ -858,6 +858,211 @@
    ]
   },
   {
+   "type": "details",
+   "attrs": {
+    "open": true
+   },
+   "content": [
+    {
+     "type": "detailsSummary",
+     "content": [
+      {
+       "type": "text",
+       "text": "Toggle <one> & more"
+      }
+     ]
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Hidden "
+      },
+      {
+       "type": "text",
+       "marks": [
+        {
+         "type": "bold"
+        }
+       ],
+       "text": "body"
+      }
+     ]
+    },
+    {
+     "type": "bulletList",
+     "content": [
+      {
+       "type": "listItem",
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "inside"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "details",
+     "attrs": {
+      "open": false
+     },
+     "content": [
+      {
+       "type": "detailsSummary",
+       "content": [
+        {
+         "type": "text",
+         "text": "Nested"
+        }
+       ]
+      },
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Deep"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "details",
+   "attrs": {
+    "open": false
+   },
+   "content": [
+    {
+     "type": "detailsSummary",
+     "content": [
+      {
+       "type": "text",
+       "text": "Closed and empty"
+      }
+     ]
+    },
+    {
+     "type": "paragraph"
+    }
+   ]
+  },
+  {
+   "type": "embed",
+   "attrs": {
+    "src": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+   }
+  },
+  {
+   "type": "bookmark",
+   "attrs": {
+    "url": "https://example.com/guide",
+    "title": "The *guide* [v2]",
+    "description": "Says \"hello\" with a \\ slash"
+   }
+  },
+  {
+   "type": "bookmark",
+   "attrs": {
+    "url": "https://example.com/plain",
+    "title": "",
+    "description": ""
+   }
+  },
+  {
+   "type": "columns",
+   "content": [
+    {
+     "type": "column",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Left side"
+        }
+       ]
+      },
+      {
+       "type": "bulletList",
+       "content": [
+        {
+         "type": "listItem",
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "one"
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "listItem",
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "two"
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "column",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Right "
+        },
+        {
+         "type": "text",
+         "text": "side",
+         "marks": [
+          {
+           "type": "bold"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "column",
+     "content": [
+      {
+       "type": "paragraph"
+      }
+     ]
+    }
+   ]
+  },
+  {
    "type": "footnote",
    "attrs": {
     "label": "1"
