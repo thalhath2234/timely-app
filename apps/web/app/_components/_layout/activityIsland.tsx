@@ -3,12 +3,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { AnimatePresence, motion, useAnimate } from "motion/react";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Sparkles, Square, Timer, X } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
+import { CalendarClock, Pause, Play, Sparkles, Square, Timer, X } from "lucide-react";
+import { formatClock } from "@timely/contract/dashboard";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
+import { useClientGate } from "@/app/_components/_ui/motion";
 import { useChatStore } from "@/app/_store/chatStore";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
+import {
+  bindPomodoroQueryClient,
+  pomodoroTimeLeft,
+  selectActivePomodoros,
+  usePomodoroStore,
+  type PomodoroTimer,
+} from "@/app/_store/pomodoroStore";
 import { chatRequest, type Chat, type ChatSummary } from "@/app/utils/api/chat";
 import { chatKey, chatsKey, useChats } from "@/app/utils/hooks/chat";
 import { useToday } from "@/app/utils/hooks/calendar";
@@ -77,10 +88,19 @@ function elapsedLabel(seconds: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+const POMODORO_PHASE = { focus: "Focus", short: "Short break", long: "Long break" } as const;
+
+function pomodoroDetail(timer: PomodoroTimer, now: number) {
+  const left = `${formatClock(pomodoroTimeLeft(timer, now))} left`;
+  return timer.endsAt === null
+    ? `Paused · ${left}`
+    : `${POMODORO_PHASE[timer.phase]} · ${left}`;
+}
+
 /**
  * The Activity island: a pill above Sign out that tracks what is running —
- * Agent runs, the Work being focused and Auto-schedule. It opens into a list
- * and bounces when an Agent run finishes.
+ * Agent runs, the Work being focused, Report pomodoro timers and
+ * Auto-schedule. It opens into a list and bounces when an Agent run finishes.
  */
 export default function ActivityIsland() {
   const { tracked, dismissed, untrack, openChat } = useChatStore();
@@ -91,6 +111,11 @@ export default function ActivityIsland() {
   const today = useToday();
   const stopFocus = useStopFocus();
   const cache = useQueryClient();
+  const router = useRouter();
+  // Timers are saved in this browser, so the server render has none.
+  const mounted = useClientGate();
+  const storedPomodoros = usePomodoroStore(useShallow(selectActivePomodoros));
+  const pomodoros = mounted ? storedPomodoros : [];
   const [open, setOpen] = useState(false);
   const [attention, setAttention] = useState(false);
   const [bounces, setBounces] = useState(0);
@@ -102,8 +127,19 @@ export default function ActivityIsland() {
   // elsewhere leaves it where the person clicked.
   const refocusPill = useRef(false);
 
-  const focusing = today.data?.focusing ?? null;
+  const focusTask = today.data?.focusing ?? null;
+  // A pomodoro linked to the focused task already shows it, with its own Stop.
+  const focusing =
+    focusTask &&
+    pomodoros.some((t) => t.endsAt !== null && t.taskId === focusTask.id)
+      ? null
+      : focusTask;
   const scheduling = schedule.status === "running";
+  const timing = Boolean(focusing) || pomodoros.some((t) => t.endsAt !== null);
+
+  useEffect(() => {
+    bindPomodoroQueryClient(cache);
+  }, [cache]);
 
   const chatItems = useMemo(() => {
     const byId = new Map((chats ?? []).map((c) => [c.id, c]));
@@ -128,7 +164,11 @@ export default function ActivityIsland() {
     return items;
   }, [chats, tracked, dismissed, cache]);
 
-  const count = chatItems.length + (focusing ? 1 : 0) + (scheduling ? 1 : 0);
+  const count =
+    chatItems.length +
+    (focusing ? 1 : 0) +
+    pomodoros.length +
+    (scheduling ? 1 : 0);
   const expanded = open && count > 0;
   const anyBusy = chatItems.some((c) => isBusy(c.status));
 
@@ -173,10 +213,10 @@ export default function ActivityIsland() {
   }, [bounces, animate, scope]);
 
   useEffect(() => {
-    if (!focusing) return;
+    if (!timing) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [focusing]);
+  }, [timing]);
 
   function closeIsland(restoreFocus: boolean) {
     refocusPill.current = restoreFocus;
@@ -235,8 +275,11 @@ export default function ActivityIsland() {
   const pillIcons = [
     anyBusy ? "busy" : chatItems.length ? "chat" : null,
     focusing ? "focus" : null,
+    pomodoros.length ? "pomodoro" : null,
     scheduling ? "schedule" : null,
-  ].filter(Boolean) as ("busy" | "chat" | "focus" | "schedule")[];
+  ].filter(Boolean) as ("busy" | "chat" | "focus" | "pomodoro" | "schedule")[];
+  const lonePomodoro =
+    pillIcons.length === 1 && pomodoros.length === 1 ? pomodoros[0] : null;
 
   return (
     <AnimatePresence>
@@ -279,6 +322,8 @@ export default function ActivityIsland() {
                       <Sparkles key={kind} className="size-3.5 text-primary" />
                     ) : kind === "focus" ? (
                       <Timer key={kind} className="size-3.5 text-success" />
+                    ) : kind === "pomodoro" ? (
+                      <Timer key={kind} className="size-3.5 text-primary" />
                     ) : (
                       <CalendarClock key={kind} className="size-3.5" />
                     ),
@@ -286,6 +331,11 @@ export default function ActivityIsland() {
                 {pillIcons.length === 1 && focusing && (
                   <span className="text-[10px] font-medium tabular-nums">
                     {elapsedLabel(elapsed)}
+                  </span>
+                )}
+                {lonePomodoro && (
+                  <span className="text-[10px] font-medium tabular-nums">
+                    {formatClock(pomodoroTimeLeft(lonePomodoro, now))}
                   </span>
                 )}
               </motion.button>
@@ -418,6 +468,68 @@ export default function ActivityIsland() {
                         </button>
                       </li>
                     )}
+                    {pomodoros.map((timer) => {
+                      const running = timer.endsAt !== null;
+                      const actions = usePomodoroStore.getState();
+                      return (
+                        <li
+                          key={timer.cardId}
+                          className="flex items-center rounded-2xl hover:bg-accent"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpen(false);
+                              router.push("/report");
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-2 text-left"
+                          >
+                            <span
+                              className={cn(
+                                "flex size-8 shrink-0 items-center justify-center rounded-full",
+                                timer.phase === "focus"
+                                  ? "bg-primary/15 text-primary"
+                                  : "bg-success/15 text-success",
+                              )}
+                            >
+                              <Timer className="size-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">
+                                {timer.taskName || "Pomodoro"}
+                              </span>
+                              <span className="block text-xs tabular-nums text-muted-foreground">
+                                {pomodoroDetail(timer, now)}
+                              </span>
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={running ? "Pause pomodoro" : "Resume pomodoro"}
+                            onClick={() => {
+                              setNow(Date.now());
+                              if (running) actions.pause(timer.cardId);
+                              else actions.start(timer.cardId);
+                            }}
+                            className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                          >
+                            {running ? (
+                              <Pause className="size-3.5 fill-current" />
+                            ) : (
+                              <Play className="size-3.5 fill-current" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Stop pomodoro"
+                            onClick={() => actions.reset(timer.cardId)}
+                            className="mr-2 shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                          >
+                            <Square className="size-3.5 fill-current" />
+                          </button>
+                        </li>
+                      );
+                    })}
                     {scheduling && (
                       <li className="flex items-center gap-3 px-2 py-2">
                         <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">

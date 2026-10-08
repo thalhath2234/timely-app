@@ -6,10 +6,10 @@
  * the Report page is open. One timer per pomodoro card, keyed by card id, and
  * saved on this device so a reload keeps the clock.
  *
- * Anything that shows running work (the sidebar activity pill, for one) reads
- * `usePomodoroStore` with `selectActivePomodoros` and drives a timer through
- * the store's actions (`start`, `pause`, `skip`, `reset`); the time left is
- * `pomodoroTimeLeft(timer, Date.now())`.
+ * Anything that shows running work (the Activity island, for one) reads
+ * `usePomodoroStore(useShallow(selectActivePomodoros))` and drives a timer
+ * through the store's actions (`start`, `pause`, `skip`, `reset`); the time
+ * left is `pomodoroTimeLeft(timer, Date.now())`.
  */
 import { create } from "zustand";
 import type { QueryClient } from "@tanstack/react-query";
