@@ -271,7 +271,10 @@ func TestIntegrationProjectInsights(t *testing.T) {
 		must(t, w.db.Create(p).Error)
 	}
 	tiles := w.task(t, "Choose tiles", func(task *models.Task) { task.ProjectID = &kitchen.ID })
-	hedge := w.task(t, "Trim the hedge", func(task *models.Task) { task.ProjectID = &kitchen.ID; task.Deadline = ptr(now.AddDate(0, 0, -3).Format("2006-01-02")) })
+	hedge := w.task(t, "Trim the hedge", func(task *models.Task) {
+		task.ProjectID = &kitchen.ID
+		task.Deadline = ptr(now.AddDate(0, 0, -3).Format("2006-01-02"))
+	})
 	w.task(t, "Measure walls", func(task *models.Task) {
 		task.ProjectID = &kitchen.ID
 		task.CompletedAt = ptr(now.Add(-48 * time.Hour).Format(time.RFC3339))
