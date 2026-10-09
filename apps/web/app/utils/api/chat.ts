@@ -17,6 +17,7 @@ export type ChatStatus =
   | "queued"
   | "running"
   | "approval"
+  | "choose"
   | "idle"
   | "failed"
   | "stopped";

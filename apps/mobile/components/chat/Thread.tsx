@@ -220,7 +220,7 @@ export default function Thread({
                 </View>
                 {message === last &&
                 !message.choice &&
-                chat.status === "idle" ? (
+                chat.status === "choose" ? (
                   <View style={styles.similarRow}>
                     <AnimatedPressable
                       accessibilityRole="button"

@@ -170,6 +170,10 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 				opts = append(opts, decide.Option{Name: name})
 			}
 			questions["similar"] = decide.Choice("The person already has these chats with the assistant. Which one, if any, is about the same request as this message, so it could be continued there?", opts...).Twice()
+			// With near-duplicate earlier chats the two option orders can pick
+			// different ones; a confident "there is a match" keeps the first pick.
+			questions["hasSimilar"] = decide.YesNo("Is one of the person's earlier chats about the same request as this message, so it could be continued there?",
+				"Yes, an earlier chat is about the same request", "No, this is a new request")
 		}
 	}
 	a, err := s.decisions.Ask(ctx, c.UserID, decide.Request{Feature: "chat_triage", State: state, Questions: questions})
@@ -195,7 +199,15 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 	if lang, ok := a.Choice("language", decide.Route); ok {
 		t.language = supportedLanguage(lang)
 	}
-	if name, ok := a.Choice("similar", decide.Route); ok && name != "none" {
+	name, ok := a.Choice("similar", decide.Route)
+	if !ok {
+		if yes, sure := a.Yes("hasSimilar", decide.Route); sure && yes {
+			if raw, found := a.Raw("similar"); found {
+				name, ok = raw.Choice, true
+			}
+		}
+	}
+	if ok && name != "none" {
 		if ref, found := similar[name]; found {
 			t.similar = &ref
 		}
@@ -340,7 +352,7 @@ func continuing(c *Conversation) bool {
 // openPointer is the "similar" message still waiting for the person's choice:
 // the chat's last message, while the run waits.
 func openPointer(c *Conversation) *Message {
-	if c.Status != "idle" || len(c.Messages) == 0 {
+	if c.Status != "choose" || len(c.Messages) == 0 {
 		return nil
 	}
 	m := &c.Messages[len(c.Messages)-1]

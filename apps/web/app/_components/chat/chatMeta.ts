@@ -9,6 +9,7 @@ import {
   Clock,
   FileText,
   FolderKanban,
+  History,
   Layers,
   LoaderCircle,
   MapPin,
@@ -68,6 +69,12 @@ export function statusMeta(status: string): {
         label: "Needs your review",
         tone: "warning",
         icon: AlertTriangle,
+      };
+    case "choose":
+      return {
+        label: "Choose where to continue",
+        tone: "warning",
+        icon: History,
       };
     case "failed":
       return {
@@ -296,7 +303,7 @@ export function groupChats(chats: ChatSummary[], now = new Date()): Group[] {
     { label: "Earlier", items: [] },
   ];
   for (const chat of chats) {
-    if (["approval", "failed"].includes(chat.status)) {
+    if (["approval", "choose", "failed"].includes(chat.status)) {
       groups[0].items.push(chat);
       continue;
     }

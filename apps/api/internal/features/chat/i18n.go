@@ -33,6 +33,7 @@ const (
 	txtPushReceiptRevised   = "pushReceiptRevised"
 	txtNoteNotAsked         = "noteNotAsked"
 	txtNoteMissing          = "noteMissing"
+	txtPushChoose           = "pushChoose"
 )
 
 var texts = map[string]map[string]string{
@@ -61,6 +62,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "Your revised receipt is ready to review.",
 		txtNoteNotAsked:         "You may not have asked for this change:",
 		txtNoteMissing:          "Something you asked for may be missing from these changes.",
+		txtPushChoose:           "You already have a chat about this. Choose where to continue.",
 	},
 	"ja": {
 		txtDone:                 "完了しました。変更は保存されています。",
@@ -87,6 +89,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "修正したレシートの確認の準備ができました。",
 		txtNoteNotAsked:         "この変更は依頼されていない可能性があります:",
 		txtNoteMissing:          "依頼した内容の一部が、これらの変更に含まれていない可能性があります。",
+		txtPushChoose:           "この件についてのチャットがすでにあります。どこで続けるか選んでください。",
 	},
 	"zh": {
 		txtDone:                 "完成——您的更改已保存。",
@@ -113,6 +116,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "修改后的收据已可以查看。",
 		txtNoteNotAsked:         "您可能没有要求这项更改:",
 		txtNoteMissing:          "您要求的部分内容可能不在这些更改中。",
+		txtPushChoose:           "您已经有一个关于此事的聊天。请选择在哪里继续。",
 	},
 	"ko": {
 		txtDone:                 "완료되었습니다. 변경 사항이 저장되었습니다.",
@@ -139,6 +143,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "수정된 영수증을 검토할 준비가 되었습니다.",
 		txtNoteNotAsked:         "요청하지 않은 변경일 수 있습니다:",
 		txtNoteMissing:          "요청하신 내용 중 일부가 이 변경 사항에 빠져 있을 수 있습니다.",
+		txtPushChoose:           "이 내용에 대한 채팅이 이미 있습니다. 어디에서 계속할지 선택하세요.",
 	},
 	"es": {
 		txtDone:                 "Listo: tus cambios están guardados.",
@@ -165,6 +170,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "Tu recibo revisado está listo para revisar.",
 		txtNoteNotAsked:         "Puede que no hayas pedido este cambio:",
 		txtNoteMissing:          "Puede que falte algo de lo que pediste en estos cambios.",
+		txtPushChoose:           "Ya tienes un chat sobre esto. Elige dónde continuar.",
 	},
 	"fr": {
 		txtDone:                 "Terminé — vos modifications sont enregistrées.",
@@ -191,6 +197,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "Votre reçu révisé est prêt à être vérifié.",
 		txtNoteNotAsked:         "Vous n'avez peut-être pas demandé cette modification :",
 		txtNoteMissing:          "Une partie de votre demande manque peut-être dans ces modifications.",
+		txtPushChoose:           "Vous avez déjà une conversation à ce sujet. Choisissez où continuer.",
 	},
 	"de": {
 		txtDone:                 "Fertig – deine Änderungen sind gespeichert.",
@@ -217,6 +224,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "Dein überarbeiteter Beleg kann geprüft werden.",
 		txtNoteNotAsked:         "Diese Änderung hast du vielleicht nicht angefordert:",
 		txtNoteMissing:          "Etwas, worum du gebeten hast, fehlt möglicherweise in diesen Änderungen.",
+		txtPushChoose:           "Du hast schon einen Chat dazu. Wähle, wo es weitergehen soll.",
 	},
 	"pt": {
 		txtDone:                 "Pronto — suas alterações foram salvas.",
@@ -243,6 +251,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "Seu recibo revisado está pronto para revisão.",
 		txtNoteNotAsked:         "Talvez você não tenha pedido esta alteração:",
 		txtNoteMissing:          "Algo que você pediu pode estar faltando nestas alterações.",
+		txtPushChoose:           "Você já tem um chat sobre isso. Escolha onde continuar.",
 	},
 	"it": {
 		txtDone:                 "Fatto: le modifiche sono salvate.",
@@ -269,6 +278,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "Lo scontrino rivisto è pronto per la revisione.",
 		txtNoteNotAsked:         "Potresti non aver chiesto questa modifica:",
 		txtNoteMissing:          "Qualcosa che hai chiesto potrebbe mancare in queste modifiche.",
+		txtPushChoose:           "Hai già una chat su questo. Scegli dove continuare.",
 	},
 	"ru": {
 		txtDone:                 "Готово — изменения сохранены.",
@@ -295,6 +305,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "Обновлённый чек готов к проверке.",
 		txtNoteNotAsked:         "Возможно, вы не просили об этом изменении:",
 		txtNoteMissing:          "Возможно, в этих изменениях не хватает чего-то из того, что вы просили.",
+		txtPushChoose:           "У вас уже есть чат об этом. Выберите, где продолжить.",
 	},
 	"ar": {
 		txtDone:                 "تم — حُفظت تغييراتك.",
@@ -321,6 +332,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "إيصالك المعدّل جاهز للمراجعة.",
 		txtNoteNotAsked:         "ربما لم تطلب هذا التغيير:",
 		txtNoteMissing:          "قد يكون شيء مما طلبته غير موجود في هذه التغييرات.",
+		txtPushChoose:           "لديك بالفعل محادثة حول هذا. اختر أين تتابع.",
 	},
 	"hi": {
 		txtDone:                 "हो गया — आपके बदलाव सहेज दिए गए हैं।",
@@ -347,6 +359,7 @@ var texts = map[string]map[string]string{
 		txtPushReceiptRevised:   "आपकी संशोधित रसीद समीक्षा के लिए तैयार है।",
 		txtNoteNotAsked:         "हो सकता है आपने यह बदलाव नहीं माँगा था:",
 		txtNoteMissing:          "आपने जो माँगा था उसमें से कुछ इन बदलावों में छूट गया हो सकता है।",
+		txtPushChoose:           "इस बारे में आपकी पहले से एक चैट है। चुनें कि कहाँ जारी रखना है।",
 	},
 }
 

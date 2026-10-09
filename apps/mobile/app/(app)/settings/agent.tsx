@@ -447,8 +447,9 @@ function SmartSuggestionsCard({
         />
       </View>
       <Text style={styles.meta}>
-        Suggests fields when you clarify Inbox items, using TypeSafe’s Jev
-        model.
+        Suggests fields when you clarify Inbox items, points you to an earlier
+        chat about the same thing and flags agent changes worth a check, using
+        TypeSafe’s Jev model.
       </Text>
       <Text style={styles.meta}>
         {provider === "typesafe"

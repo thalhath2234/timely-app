@@ -158,7 +158,10 @@ export default function ActivityIsland() {
       if (
         !tracked.includes(c.id) &&
         dismissed[c.id] !== c.revision &&
-        (isBusy(c.status) || c.status === "approval" || c.unread)
+        (isBusy(c.status) ||
+          c.status === "approval" ||
+          c.status === "choose" ||
+          c.unread)
       )
         items.push(c);
     return items;

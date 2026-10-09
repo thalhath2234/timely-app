@@ -88,10 +88,13 @@ function Similar({
       className="mx-auto flex max-w-xl flex-wrap items-center justify-center gap-2 rounded-2xl border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
       data-testid="similar-chat"
     >
-      <History className="size-3.5 shrink-0" />
-      <span className="min-w-0">
-        You already have a chat about this:{" "}
-        <span className="font-medium text-foreground">{message.chat.title}</span>
+      {/* Icon and text wrap as one unit, so a long title can't strand the icon. */}
+      <span className="flex min-w-0 items-start gap-2">
+        <History className="mt-0.5 size-3.5 shrink-0" />
+        <span className="min-w-0 break-words">
+          You already have a chat about this:{" "}
+          <span className="font-medium text-foreground">{message.chat.title}</span>
+        </span>
       </span>
       {waiting && onChoose && (
         <span className="flex shrink-0 gap-1.5">
@@ -190,7 +193,7 @@ export default function MessageList({
             ) : m.kind === "similar" ? (
               <Similar
                 message={m}
-                waiting={m === last && !m.choice && chat.status === "idle"}
+                waiting={m === last && !m.choice && chat.status === "choose"}
                 pending={pending}
                 onChoose={onSimilar}
               />

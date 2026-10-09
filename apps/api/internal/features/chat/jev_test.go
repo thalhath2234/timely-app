@@ -18,7 +18,8 @@ import (
 )
 
 // fakeJev answers each question by its id ("area__2", the second order of a
-// Twice question, gets the same answer as "area"). Unlisted ids get no answer.
+// Twice question, gets the same answer as "area" unless listed itself).
+// Unlisted ids get no answer.
 func fakeJev(t *testing.T, answers map[string]any) (*decide.Service, *[]string) {
 	t.Helper()
 	var mu sync.Mutex
@@ -33,7 +34,9 @@ func fakeJev(t *testing.T, answers map[string]any) (*decide.Service, *[]string) 
 		mu.Lock()
 		for id := range req.Questions {
 			asked = append(asked, id)
-			if a, ok := answers[strings.TrimSuffix(id, "__2")]; ok {
+			if a, ok := answers[id]; ok {
+				out[id] = a
+			} else if a, ok := answers[strings.TrimSuffix(id, "__2")]; ok {
 				out[id] = a
 			}
 		}
@@ -194,7 +197,7 @@ func TestIntegrationSimilarChatWaitsForAChoice(t *testing.T) {
 	// The run stops at the pointer and the model is never called.
 	earlier, c := newChat()
 	last := c.Messages[len(c.Messages)-1]
-	if c.Status != "idle" || last.Kind != "similar" || last.Chat == nil || last.Chat.ID != earlier.ID || len(model.seen) != 0 {
+	if c.Status != "choose" || last.Kind != "similar" || last.Chat == nil || last.Chat.ID != earlier.ID || len(model.seen) != 0 {
 		t.Fatalf("the run must wait at the pointer: %s %+v (model calls %d)", c.Status, last, len(model.seen))
 	}
 
@@ -318,5 +321,27 @@ func TestReviewNotesSkipMissingForBatches(t *testing.T) {
 	c.Messages = c.Messages[:1]
 	if notes := s.reviewNotes(context.Background(), c, proposal{Steps: []Step{step}}); len(notes) != 1 {
 		t.Fatalf("a whole request is checked for missing parts: %q", notes)
+	}
+}
+
+// Near-duplicate earlier chats: the two option orders pick different ones,
+// but Jev is sure there is a match, so the first pick is kept.
+func TestTriageKeepsFirstPickWhenSureThereIsAMatch(t *testing.T) {
+	db := integrationDB(t)
+	jev, _ := fakeJev(t, map[string]any{
+		"similar":    choice("Plan the Porto weekend", 0.7),
+		"similar__2": choice("Porto weekend food list", 0.7),
+		"hasSimilar": yesNo(0.97),
+	})
+	s := New(db, readCatalog, &scripted{})
+	s.SetDecisions(jev)
+	for _, title := range []string{"Plan the Porto weekend", "Porto weekend food list"} {
+		db.Create(&Conversation{ID: id("chat_"), UserID: "user-a", Title: title, Status: "idle", Phase: "plan", Context: []ContextChip{}, Messages: []Message{message("user", title)}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}})
+	}
+	c := planFixture(t, db)
+	c.Messages = []Message{message("user", "Help me plan my Porto weekend")}
+	tri, ok := s.triage(context.Background(), &c)
+	if !ok || tri.similar == nil || tri.similar.Title != "Plan the Porto weekend" {
+		t.Fatalf("expected the first pick, got %+v (ok %v)", tri.similar, ok)
 	}
 }

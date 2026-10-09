@@ -205,9 +205,10 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 			m := message("assistant", tri.similar.Title)
 			m.Kind, m.Chat = "similar", tri.similar
 			row.Messages = append(row.Messages, m)
-			row.Status = "idle"
+			// "choose" reads as "Needs you", not as a finished reply.
+			row.Status = "choose"
 			row.Transcript = []WireMessage{}
-			return notify(tx, row, tr(row.Language, txtPushReply))
+			return notify(tx, row, tr(row.Language, txtPushChoose))
 		})
 	}
 	if triaged && tri.language != "" && tri.language != c.Language {
