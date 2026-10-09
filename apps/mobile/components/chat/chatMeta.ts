@@ -9,6 +9,7 @@ import {
   Clock,
   FileText,
   FolderKanban,
+  History,
   Layers,
   ListChecks,
   LoaderCircle,
@@ -81,6 +82,12 @@ export function statusMeta(status: string): {
         label: "Needs your review",
         tone: "warning",
         icon: AlertTriangle,
+      };
+    case "choose":
+      return {
+        label: "Choose where to continue",
+        tone: "warning",
+        icon: History,
       };
     case "failed":
       return {
@@ -308,7 +315,7 @@ export function groupChats(chats: Chat[], now = new Date()): ChatGroup[] {
     { label: "Earlier", items: [] },
   ];
   for (const chat of chats) {
-    if (chat.status === "approval" || chat.status === "failed") {
+    if (["approval", "choose", "failed"].includes(chat.status)) {
       groups[0].items.push(chat);
       continue;
     }
@@ -319,4 +326,15 @@ export function groupChats(chats: Chat[], now = new Date()): ChatGroup[] {
     else groups[4].items.push(chat);
   }
   return groups.filter((g) => g.items.length);
+}
+
+/** Notes smart suggestions left on the proposal waiting for review. */
+export function reviewNotes(chat: Chat): string[] {
+  if (chat.status !== "approval") return [];
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    const m = chat.messages[i];
+    if (m.proposal) return m.notes ?? [];
+    if (m.role === "user" && !m.kind) return [];
+  }
+  return [];
 }
