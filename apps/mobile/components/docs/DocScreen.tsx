@@ -212,7 +212,7 @@ function DocEditor({ docId }: { docId: string }) {
         ) : null}
       </View>
       <RelatedList kind="doc" id={docId} variant="chips" />
-      <DocHintsCard doc={doc} version={wordCount < 8 ? "empty" : String(Math.floor(wordCount / 50))} />
+      <DocHintsCard doc={doc} version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))} />
 
       <RichTextEditor
         content={

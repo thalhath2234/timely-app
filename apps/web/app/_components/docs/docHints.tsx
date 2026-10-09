@@ -11,6 +11,7 @@ import { useUpdateDoc } from "@/app/utils/hooks/docs";
 import { useCreateTask } from "@/app/utils/hooks/tasks";
 import { setDocProperty } from "@/app/_components/editor/frontmatter";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
+import { requestConfirm } from "@/app/_store/confirmStore";
 
 /** What smart suggestions read in a doc: a template for a near-empty page,
  * the project or page it may belong under, its type and properties, lines
@@ -82,19 +83,29 @@ export default function DocHints({
             <button
               type="button"
               className={button}
-              onClick={async () => {
-                try {
-                  const source = await getDoc(template.id);
-                  const { content, plainText } = contentFromTemplate(
-                    { id: source.id, title: source.title, icon: source.icon || "📄", content: source.content },
-                    templateVars(new Date(), doc.title || source.title),
-                  );
-                  onApplyContent(content, plainText);
-                  accept();
-                  hide("template");
-                } catch {
-                  useToastStore.getState().show("Could not open that template");
-                }
+              onClick={() => {
+                const apply = async () => {
+                  try {
+                    const source = await getDoc(template.id);
+                    const { content, plainText } = contentFromTemplate(
+                      { id: source.id, title: source.title, icon: source.icon || "📄", content: source.content },
+                      templateVars(new Date(), doc.title || source.title),
+                    );
+                    onApplyContent(content, plainText);
+                    accept();
+                    hide("template");
+                  } catch {
+                    useToastStore.getState().show("Could not open that template");
+                  }
+                };
+                // Few words can still mean an image, table or embed is there.
+                if (editor && !editor.isEmpty) {
+                  requestConfirm({
+                    title: `Replace this page with “${template.title}”?`,
+                    description: "What the page holds now is replaced. Version history keeps the current copy.",
+                    onConfirm: apply,
+                  });
+                } else void apply();
               }}
             >
               Use template

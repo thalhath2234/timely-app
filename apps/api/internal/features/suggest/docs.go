@@ -124,7 +124,8 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 
 	if len([]rune(text)) < docMinText {
 		// A near-empty doc: only which template it could start from.
-		if strings.TrimSpace(doc.Title) != "" && !daily {
+		// A new doc is titled "Untitled" until the person names it.
+		if t := strings.TrimSpace(doc.Title); t != "" && !strings.EqualFold(t, "untitled") && !daily {
 			templates = s.docTemplates(ctx, userID, doc.ID)
 			if len(templates) > 0 {
 				opts := []decide.Option{{Name: "none", Description: "Start blank; no template fits"}}

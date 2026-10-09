@@ -16,17 +16,17 @@ export default function MentionLinkButton({ editor, docId }: { editor: Editor; d
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<MentionMatch | null>(null);
-  const [range, setRange] = useState<{ from: number; to: number } | null>(null);
+  const [range, setRange] = useState<{ from: number; to: number; text: string } | null>(null);
   if (!settings?.available) return null;
 
   const run = async () => {
-    const { from, to } = editor.state.selection;
+    const { from, to, $from, $to } = editor.state.selection;
     const text = editor.state.doc.textBetween(from, to, " ").trim();
-    if (!text) {
-      useToastStore.getState().show("Select a phrase to link it to an item");
+    if (!text || !$from.sameParent($to)) {
+      useToastStore.getState().show("Select a phrase within one line to link it to an item");
       return;
     }
-    setRange({ from, to });
+    setRange({ from, to, text: editor.state.doc.textBetween(from, to, " ") });
     setResult(null);
     setOpen(true);
     setLoading(true);
@@ -42,13 +42,19 @@ export default function MentionLinkButton({ editor, docId }: { editor: Editor; d
   const pick = (target: MentionTarget) => {
     if (!range) return;
     const size = editor.state.doc.content.size;
+    // The doc may have changed while the match loaded (typing, a remote save).
+    if (range.to > size || editor.state.doc.textBetween(range.from, range.to, " ") !== range.text) {
+      useToastStore.getState().show("The text changed. Select the phrase again.");
+      setOpen(false);
+      return;
+    }
     // A space after the mention when a word or the end of the text follows,
     // none before a space or punctuation.
     const next = range.to < size ? editor.state.doc.textBetween(range.to, Math.min(range.to + 1, size), " ") : "";
     editor
       .chain()
       .focus()
-      .insertContentAt(range, [
+      .insertContentAt({ from: range.from, to: range.to }, [
         { type: "mention", attrs: { id: target.id, label: target.title, entityType: target.kind, appearance: "mention" } },
         ...(next === "" || /^[\p{L}\p{N}]/u.test(next) ? [{ type: "text", text: " " }] : []),
       ])

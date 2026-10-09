@@ -20,26 +20,43 @@ const MIN_LINES = 3;
 const MAX_LINES = 80;
 const FORMAT_WAIT_MS = 12_000;
 
-/** The non-empty lines of a plain-text file, or null when it already has
+export type PlainLine = { text: string; block: number };
+
+/** The non-empty lines of a plain-text file, each with the index of the
+ * blank-line-separated block it sits in, or null when the file already has
  * Markdown structure or is too short or long to ask about. */
-export function plainLines(source: string): string[] | null {
-  const lines = source.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+export function plainLines(source: string): PlainLine[] | null {
+  const lines: PlainLine[] = [];
+  let block = 0;
+  for (const raw of source.split(/\r?\n/)) {
+    const text = raw.trim();
+    if (!text) {
+      if (lines.length && lines[lines.length - 1].block === block) block += 1;
+      continue;
+    }
+    lines.push({ text, block });
+  }
   if (lines.length < MIN_LINES || lines.length > MAX_LINES) return null;
-  if (lines.some((line) => MARKDOWN_LINE.test(line) || MARKDOWN_INLINE.test(line))) return null;
+  if (lines.some(({ text }) => MARKDOWN_LINE.test(text) || MARKDOWN_INLINE.test(text))) return null;
   return lines;
 }
 
 const prefix: Record<ImportLineKind, string> = { heading: "## ", bullet: "- ", numbered: "1. ", quote: "> ", paragraph: "" };
 
 /** Markdown for plain lines given each line's block type. Lines of one list
- * stay together; every other line is its own block. */
-export function linesToMarkdown(lines: string[], kinds: ImportLineKind[]) {
+ * stay together, and paragraph lines of one block stay one paragraph (a
+ * hard-wrapped line is not a new paragraph); every other line is its own
+ * block. */
+export function linesToMarkdown(lines: PlainLine[], kinds: ImportLineKind[]) {
   let out = "";
   lines.forEach((line, i) => {
     const kind = kinds[i] ?? "paragraph";
-    const sameList = i > 0 && (kind === "bullet" || kind === "numbered") && kinds[i - 1] === kind;
-    if (i > 0) out += sameList ? "\n" : "\n\n";
-    out += prefix[kind] + line;
+    const previous = kinds[i - 1] ?? "paragraph";
+    const sameBlock = i > 0 && lines[i - 1].block === line.block;
+    const together =
+      sameBlock && ((kind === "paragraph" && previous === "paragraph") || ((kind === "bullet" || kind === "numbered") && previous === kind));
+    if (i > 0) out += together ? "\n" : "\n\n";
+    out += prefix[kind] + line.text;
   });
   return out;
 }
@@ -52,7 +69,7 @@ async function formatPlainText(source: string) {
   if (!lines) return source;
   try {
     const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), FORMAT_WAIT_MS));
-    const result = await Promise.race([getImportFormat(lines), timeout]);
+    const result = await Promise.race([getImportFormat(lines.map((line) => line.text)), timeout]);
     if (!result?.available || result.kinds.length !== lines.length) return source;
     if (result.kinds.every((kind) => kind === "paragraph")) return source;
     return linesToMarkdown(lines, result.kinds);

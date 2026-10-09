@@ -191,9 +191,10 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
       editorRef.current?.commands.setContent(content as Parameters<Editor["commands"]["setContent"]>[0]);
       setWordCount(countWords(plainText));
       schedule({ content, plainText });
-      void flush();
+      // Suggestions read the saved copy, so they are asked again once it is in.
+      void flush().then(() => queryClient.invalidateQueries({ queryKey: ["doc-hints", doc.id] }));
     },
-    [schedule, flush],
+    [schedule, flush, queryClient, doc.id],
   );
 
   const handleCreateSubpage = useCallback(
@@ -485,12 +486,12 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             <RelatedItems kind="doc" id={doc.id} />
           </div>
 
-          {/* Rechecks once the doc has text, then as it grows by about fifty words. */}
+          {/* Rechecks once an empty doc gets a title or text, then as it grows by about fifty words. */}
           <DocHints
             doc={doc}
             editor={editor}
             nearEmpty={wordCount < 8}
-            version={wordCount < 8 ? "empty" : String(Math.floor(wordCount / 50))}
+            version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
             onApplyContent={applyContent}
           />
         </div>
