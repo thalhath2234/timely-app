@@ -52,6 +52,7 @@ func New(db *gorm.DB, d *decide.Service, s search.Service) *Service {
 func (s *Service) Routes(g *echo.Group) {
 	g.GET("/inbox/:id/suggestions", s.clarify)
 	g.GET("/decisions/status", s.status)
+	s.sheetRoutes(g)
 }
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
@@ -316,7 +317,8 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 	if yes, ok := a.Yes("several", decide.Flag); ok && yes {
 		out.SeveralActions = true
 	}
-	if m, ok := a.Choice("missing", decide.Prefill); ok && m != "nothing" {
+	// A date already in the name rules out "it may need a date".
+	if m, ok := a.Choice("missing", decide.Prefill); ok && m != "nothing" && !(m == "date" && out.DateRole != "") {
 		out.Missing = m
 	}
 	for i, d := range dups {

@@ -80,6 +80,7 @@ func (c *Client) Call(ctx context.Context, keys Keys, body wire) ([]byte, string
 	var first error
 	if keys.TypeSafe != "" {
 		body.Model = typeSafeModel
+		body.Provider = nil
 		raw, err := c.post(ctx, ProviderTypeSafe, c.TypeSafeURL, keys.TypeSafe, body)
 		if err == nil {
 			return raw, ProviderTypeSafe, nil
@@ -99,8 +100,13 @@ func (c *Client) Call(ctx context.Context, keys Keys, body wire) ([]byte, string
 		return nil, "", ErrOff
 	}
 	// TypeSafe is Jev's only provider on OpenRouter, so the request reaches
-	// the same company as a direct call; no provider routing is sent.
+	// the same company as a direct call. Private state asks for an endpoint
+	// that keeps no data, as chat does for receipts (zdr).
 	body.Model = routerModel
+	body.Provider = nil
+	if body.private {
+		body.Provider = map[string]any{"zdr": true}
+	}
 	raw, err := c.post(ctx, ProviderOpenRouter, c.OpenRouterURL, keys.OpenRouter, body)
 	if err != nil {
 		return nil, ProviderOpenRouter, errors.Join(first, err)

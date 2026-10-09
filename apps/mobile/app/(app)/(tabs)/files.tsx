@@ -21,7 +21,7 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import { keys, useCreateDoc, useCreateSheet, useDeleteDoc, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
 import { fromMarkdown } from "../../../lib/markdown";
-import { csvToGrid } from "../../../lib/sheetCsv";
+import { importCsvGrid } from "../../../lib/sheetCsv";
 import { fileHref } from "../../../lib/fileRoutes";
 import { buildDocTree, countDocDescendants, type DocNode } from "../../../lib/docTree";
 import { timeAgo } from "../../../lib/format";
@@ -265,7 +265,7 @@ export default function FilesScreen() {
       if (picked.canceled || !picked.assets?.[0]) return;
       const asset = picked.assets[0];
       const source = await (await fetch(asset.uri)).text();
-      const grid = csvToGrid(source);
+      const grid = await importCsvGrid(source);
       const title = (asset.name || "Imported sheet").replace(/\.csv$/i, "").trim() || "Imported sheet";
       const sheet = await createSheet.mutateAsync({ title, ...grid, workspaceId: spaces[0]?.id });
       openFile(sheet.id);

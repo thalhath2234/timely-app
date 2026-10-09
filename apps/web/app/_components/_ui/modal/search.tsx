@@ -70,7 +70,9 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
   const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<Category>("all");
-  const [selected, setSelected] = useState(0);
+  // The highlighted row, pinned by id once the person moves it, so results
+  // that arrive or reorder later never move the highlight to another item.
+  const [selection, setSelection] = useState<{ index: number; id?: string }>({ index: 0 });
   const trimmed = query.trim();
   const search = useSearch(demoItems ? "" : query);
   // Never show cached results for the previous query during the debounce window.
@@ -145,13 +147,15 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
     kind: suggestion.kind, icon: Plus, command: true, section: "suggested", run: () => create(suggestion.kind, suggestion.title),
   }] : [];
   const items = [...suggested, ...results, ...commands];
-  const active = Math.min(selected, Math.max(0, items.length - 1));
+  const pinned = selection.id ? items.findIndex((item) => item.id === selection.id) : -1;
+  const active = pinned >= 0 ? pinned : Math.min(selection.index, Math.max(0, items.length - 1));
+  const select = (index: number) => setSelection({ index, id: items[index]?.id });
   const activeId = items.length ? `palette-option-${active}` : undefined;
   useEffect(() => {
     if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
   }, [activeId]);
 
-  function selectCategory(next: Category) { setCategory(next); setSelected(0); }
+  function selectCategory(next: Category) { setCategory(next); setSelection({ index: 0 }); }
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.nativeEvent.isComposing) return;
     if (event.key === "Tab") {
@@ -164,7 +168,7 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
     if (event.target !== input.current) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (items.length) setSelected((active + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length);
+      if (items.length) select((active + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length);
     }
     if (event.key === "Enter" && items[active]) { event.preventDefault(); items[active].run(); }
   }
@@ -175,7 +179,7 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
       <div className="flex items-center gap-3 px-5 py-5">
         <Search size={21} className="shrink-0 text-primary" aria-hidden="true" />
         <input ref={input} role="combobox" aria-label="Search or run a command" aria-expanded="true" aria-controls="palette-results" aria-autocomplete="list" aria-activedescendant={activeId}
-          autoComplete="off" value={query} onChange={(event) => { setQuery(event.target.value); setSelected(0); setShowHidden(false); }}
+          autoComplete="off" value={query} onChange={(event) => { setQuery(event.target.value); setSelection({ index: 0 }); setShowHidden(false); }}
           placeholder="Search anything, or run a command…" className="min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground" />
         <button type="button" aria-label="Close command palette" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"><X size={18} /></button>
       </div>
@@ -217,7 +221,7 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
         <div id="palette-results" role="listbox" aria-label={`${categories.find((tab) => tab.id === category)?.label} results and commands`} aria-busy={pending}>
           {items.map((item, index) => <div key={item.id}>
             {(index === 0 || item.section !== items[index - 1].section) && <p role="presentation" className="px-3 pb-2 pt-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{item.section === "suggested" ? "Suggested" : item.section === "commands" ? "Quick actions" : demoItems && !trimmed ? "Explore the demo" : "Search results"}</p>}
-            <div id={`palette-option-${index}`} role="option" aria-selected={active === index} onClick={item.run} onPointerMove={() => setSelected(index)}
+            <div id={`palette-option-${index}`} role="option" aria-selected={active === index} onClick={item.run} onPointerMove={() => select(index)}
               className={cn("group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left", active === index ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-muted")}>
               <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg border", active === index ? "border-primary/20 bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground")}><item.icon size={17} aria-hidden="true" /></span>
               <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.title}</span><span className="block truncate text-xs text-muted-foreground">{item.description || item.kind}</span></span>

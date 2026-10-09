@@ -55,7 +55,7 @@ func registerTool[I, O any](s *Server, server *mcp.Server, tool *mcp.Tool, autho
 	}
 	description := tool.Description
 	if tool.Name == "create_task" {
-		description = "Create Work in an explicitly named or unambiguous attached workspace. Default duration 30 minutes. kind=reminder requires scheduleAt. Never infer an Inbox capture. Descriptions accept markdown."
+		description = "Create Work in an explicitly named or unambiguous attached workspace. Omit duration unless the user gives one; Timely sets an estimated length (30 minutes without one), so do not state a length the user did not give. kind=reminder requires scheduleAt. Never infer an Inbox capture. Descriptions accept markdown."
 	}
 	s.catalog[tool.Name] = Tool{Name: tool.Name, Description: description, Parameters: schema, Authority: authority,
 		Call: func(ctx context.Context, uid string, raw json.RawMessage) (any, error) {

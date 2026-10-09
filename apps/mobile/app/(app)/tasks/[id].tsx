@@ -717,12 +717,14 @@ export default function TaskDetailScreen() {
           }}
         />
         </View>
-        <RelatedList
-          kind="task"
-          id={task.id}
-          style={styles.sectionCard}
-          heading={<TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title="Related" subtitle="Similar work, docs and projects" />}
-        />
+        {task.kind !== "inbox" && (
+          <RelatedList
+            kind="task"
+            id={task.id}
+            style={styles.sectionCard}
+            heading={<TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title="Related" subtitle="Similar work, docs and projects" />}
+          />
+        )}
         <Pressable
           onPress={() =>
             setConfirm({

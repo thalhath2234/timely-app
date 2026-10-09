@@ -448,8 +448,11 @@ function SmartSuggestionsCard({
       </View>
       <Text style={styles.meta}>
         Suggests fields when you clarify Inbox items, points you to an earlier
-        chat about the same thing and flags agent changes worth a check, using
-        TypeSafe’s Jev model.
+        chat about the same thing and flags agent changes worth a check. For
+        receipts it picks a category and sheet you already use and notes
+        likely repeats, and it types the columns of an imported CSV from a
+        few of its values. Receipt photos and receipt amounts are never sent.
+        Uses TypeSafe’s Jev model.
       </Text>
       <Text style={styles.meta}>
         {provider === "typesafe"

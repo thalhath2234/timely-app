@@ -30,6 +30,22 @@ type Decider interface {
 // SetDecisions turns on Jev triage and proposal checks for runs.
 func (s *Service) SetDecisions(d Decider) { s.decisions = d }
 
+// jevOn reports whether Jev can answer for the account, so work done only to
+// ask it (reading sheets) is skipped when it is off. A Decider without
+// Status (a test fake) counts as on.
+func (s *Service) jevOn(ctx context.Context, userID string) bool {
+	if s.decisions == nil {
+		return false
+	}
+	if st, ok := s.decisions.(interface {
+		Status(context.Context, string) (bool, string)
+	}); ok {
+		on, _ := st.Status(ctx, userID)
+		return on
+	}
+	return true
+}
+
 const (
 	// The run waits for triage before its first model call, so it is short;
 	// on timeout the run continues exactly as it would without Jev.
@@ -305,6 +321,10 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 	}
 	listed := make([]map[string]string, len(steps))
 	questions := map[string]decide.Question{}
+	changes := map[int]string{}
+	if s.jevOn(ctx, c.UserID) {
+		changes = s.sheetChanges(ctx, c.UserID, steps)
+	}
 	if p.Remaining == "" && !continuing(c) {
 		questions["missing"] = decide.YesNo("Did the person ask for something that none of the proposed changes does?",
 			"Something the person asked for is not covered by any change.", "The changes cover everything the person asked for.")
@@ -313,6 +333,11 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 		listed[i] = map[string]string{"number": fmt.Sprint(i + 1), "change": clip(step.Summary, 300)}
 		questions[fmt.Sprintf("asked%d", i+1)] = decide.YesNo(fmt.Sprintf("Did the person ask for change number %d, directly or as a necessary part of what they asked?", i+1),
 			"The person asked for it, or it is needed to do what they asked.", "The person did not ask for it.")
+		if text := changes[i]; text != "" {
+			listed[i]["sheetChanges"] = text
+			questions[fmt.Sprintf("sheet%d", i+1)] = decide.YesNo(fmt.Sprintf("Does change number %d remove or alter anything in the sheet (a column, rows or values) that the person did not ask to remove or alter?", i+1),
+				"Yes: its sheetChanges remove or alter something the person did not ask about.", "No: every listed column and row change is something the person asked for.")
+		}
 	}
 	state := map[string]any{"request": latest, "changes": listed}
 	if earlier != "" {
@@ -326,6 +351,10 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 	for i, step := range steps {
 		if yes, ok := a.Yes(fmt.Sprintf("asked%d", i+1), decide.Route); ok && !yes {
 			notes = append(notes, tr(c.Language, txtNoteNotAsked)+" "+clip(step.Summary, 200))
+			continue
+		}
+		if yes, ok := a.Yes(fmt.Sprintf("sheet%d", i+1), decide.Route); ok && yes {
+			notes = append(notes, tr(c.Language, txtNoteSheetChange)+" "+changes[i])
 		}
 	}
 	if yes, ok := a.Yes("missing", decide.Route); ok && yes {

@@ -64,10 +64,13 @@ func (s *Server) semanticSearch(ctx context.Context, req *mcp.CallToolRequest, i
 					map[string]any{"hits": hits, "note": "none of these results looks like a match"})
 			}
 			text := fmt.Sprintf("%d semantic hits for %q", len(kept), in.Query)
+			data := map[string]any{"hits": kept}
 			if len(hidden) > 0 {
 				text += fmt.Sprintf(" (%d clear misses left out)", len(hidden))
+				// In-app chat reads only the data, so the note goes there too.
+				data["note"] = fmt.Sprintf("%d clear misses left out", len(hidden))
 			}
-			return reply(text, map[string]any{"hits": kept})
+			return reply(text, data)
 		}
 	}
 	return reply(fmt.Sprintf("%d semantic hits for %q", len(hits), in.Query), map[string]any{"hits": hits})

@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Plus,
   ReceiptText,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import type {
@@ -65,7 +66,11 @@ export default function ReceiptReview({
   const [reviewed, setReviewed] = useState(false);
   const { data: sheets = [] } = useSheets();
   const { data: workspaces = [] } = useWorkspaces();
-  const suggested = receiptDestination(chat.context, sheets);
+  const suggested = receiptDestination(
+    chat.context,
+    sheets,
+    review.suggestedDestination,
+  );
   const baseDestination = chosenDestination || suggested;
   const { data: sheet } = useSheet(baseDestination.sheetId || undefined);
   const destination = {
@@ -140,6 +145,23 @@ export default function ReceiptReview({
                 />
                 I checked the image and corrected these uncertainties.
               </label>
+            </div>
+          )}
+          {!!review.hints?.length && (
+            <div
+              role="note"
+              className="flex gap-2 rounded-xl border border-border bg-background/60 p-3 text-xs"
+              data-testid="receipt-hints"
+            >
+              <Sparkles className="mt-0.5 size-3.5 shrink-0 text-primary" />
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium">Smart suggestions</p>
+                {review.hints.map((hint) => (
+                  <p key={hint} className="text-muted-foreground">
+                    {hint}
+                  </p>
+                ))}
+              </div>
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">
