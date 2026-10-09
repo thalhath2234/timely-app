@@ -399,13 +399,21 @@ func (s *Service) moveTargets(ctx context.Context, userID string, project models
 var listLine = regexp.MustCompile(`^\s*(?:[-*•+]|\d+[.)]|\[[ xX]\])\s+(?:\[[ xX]\]\s+)?(.+)$`)
 
 // requirements are the brief's list items: from the editor document when
-// there is one, else Markdown-style lines in the plain text.
+// there is one, else Markdown-style lines in the plain text. The overview's
+// plain text box edits only the plain text, so an editor item counts only
+// while the plain text still has it.
 func requirements(p models.Project) []string {
 	out := []string{}
+	plain := strings.Join(strings.Fields(p.Description), " ")
 	add := func(text string) {
-		text = strings.TrimSpace(text)
+		text = strings.Join(strings.Fields(text), " ")
 		if len([]rune(text)) >= 3 && len(out) < maxRequirements {
 			out = append(out, clip(text, 160))
+		}
+	}
+	addRich := func(text string) {
+		if t := strings.Join(strings.Fields(text), " "); t != "" && strings.Contains(plain, t) {
+			add(t)
 		}
 	}
 	if len(p.DescriptionRich) > 0 {
@@ -422,7 +430,7 @@ func requirements(p models.Project) []string {
 						b.WriteString(" ")
 					}
 				}
-				add(b.String())
+				addRich(b.String())
 			}
 			for _, c := range children {
 				if m, ok := c.(map[string]any); ok {

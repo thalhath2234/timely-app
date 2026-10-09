@@ -225,7 +225,7 @@ func similarNames(a, b string) bool {
 	if a == b || strings.Contains(a, b) || strings.Contains(b, a) {
 		return true
 	}
-	if editDistance(a, b) <= max(1, min(len(a), len(b))/4) {
+	if editDistance(a, b) <= max(1, min(len(a), len(b))/3) {
 		return true
 	}
 	words := func(s string) []string {

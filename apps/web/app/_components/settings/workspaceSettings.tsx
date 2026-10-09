@@ -4,6 +4,7 @@ import { FormEvent, useMemo, useState } from "react";
 import Select from "@/app/_components/_ui/select";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
 import CustomFieldEditor from "@/app/_components/settings/customFieldEditor";
+import CleanupSuggestions from "@/app/_components/settings/cleanupSuggestions";
 import NamedColorEditor from "@/app/_components/settings/namedColorEditor";
 import { Workspace } from "@/app/_types/types";
 import { cn } from "@/app/utils/cn";
@@ -193,6 +194,7 @@ function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
           </form>
         )}
 
+        {tab === "status" && <CleanupSuggestions workspaceId={workspace.id} kind="status" />}
         {tab === "status" && (
           <NamedColorEditor
             title="Statuses"
@@ -227,6 +229,7 @@ function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
           />
         )}
 
+        {tab === "labels" && <CleanupSuggestions workspaceId={workspace.id} kind="label" />}
         {tab === "labels" && (
           <NamedColorEditor
             title="Labels"
@@ -259,6 +262,7 @@ function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
           />
         )}
 
+        {tab === "customFields" && <CleanupSuggestions workspaceId={workspace.id} kind="option" />}
         {tab === "customFields" && (
           <CustomFieldEditor
             fields={workspace.customFields ?? []}

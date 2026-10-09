@@ -21,6 +21,7 @@ import GanttView from "@/app/_components/_ui/tasks/ganttView";
 import BulkActionBar from "@/app/_components/_ui/tasks/bulkActionBar";
 import { TaskListStatusBar, TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToolbar";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
+import StaleWorkReview from "@/app/_components/_ui/tasks/staleWorkReview";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { filterTasks } from "@/app/utils/taskFilters";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
@@ -308,6 +309,8 @@ function Tasks() {
           {syncError}
         </div>
       )}
+
+      {tasks && <StaleWorkReview />}
 
       {tasksQuery.isError && tasks && (
         <LoadErrorBanner

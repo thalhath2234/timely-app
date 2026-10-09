@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  getCleanupSuggestions,
   getClarifySuggestions,
+  getProjectInsights,
+  getStaleWork,
+  getTaskHints,
+  keepStaleTask,
+  mergeTaxonomy,
+  type CleanupMerge,
   getDecisions,
   removeTypeSafeKey,
   sendDecisionFeedback,
@@ -25,7 +32,8 @@ function useDecisionsMutation<TVars>(
     onSuccess: (data) => queryClient.setQueryData(decisionsKey, data),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: decisionsKey, exact: true });
-      queryClient.invalidateQueries({ queryKey: ["clarify-suggestions"] });
+      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions"])
+        queryClient.invalidateQueries({ queryKey: [key] });
     },
   });
 }
@@ -57,5 +65,70 @@ export function useDecisionFeedback() {
   return useMutation({
     mutationFn: (vars: { logId: string; accepted: boolean }) =>
       sendDecisionFeedback(vars.logId, vars.accepted),
+  });
+}
+
+/** Hints from a task's own words; empty while suggestions are off. */
+export function useTaskHints(taskId: string | undefined, enabled = true, version = "") {
+  return useQuery({
+    queryKey: ["task-hints", taskId, version],
+    queryFn: () => getTaskHints(taskId!),
+    enabled: Boolean(taskId) && enabled,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+/** Open Work with no activity for three weeks, with what each likely needs. */
+export function useStaleWork(enabled = true) {
+  return useQuery({
+    queryKey: ["stale-work"],
+    queryFn: getStaleWork,
+    enabled,
+    staleTime: 30 * 60 * 1000,
+    retry: false,
+  });
+}
+
+export function useKeepStaleTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: keepStaleTask,
+    onSuccess: (_data, taskId) =>
+      queryClient.setQueryData(["stale-work"], (old: { tasks: { id: string }[] } | undefined) =>
+        old ? { ...old, tasks: old.tasks.filter((t) => t.id !== taskId) } : old,
+      ),
+  });
+}
+
+export function useProjectInsights(projectId: string | undefined, version = "") {
+  return useQuery({
+    queryKey: ["project-insights", projectId, version],
+    queryFn: () => getProjectInsights(projectId!),
+    enabled: Boolean(projectId),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+export function useCleanupSuggestions(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["cleanup-suggestions", workspaceId],
+    queryFn: () => getCleanupSuggestions(workspaceId!),
+    enabled: Boolean(workspaceId),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+/** Merges, then refreshes everything that shows labels, statuses or fields. */
+export function useMergeTaxonomy(workspaceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (merge: CleanupMerge) => mergeTaxonomy(workspaceId, merge),
+    onSuccess: () => {
+      for (const key of ["workspaces", "tasks", "today", "projects", "config", "cleanup-suggestions"])
+        queryClient.invalidateQueries({ queryKey: [key] });
+    },
   });
 }
