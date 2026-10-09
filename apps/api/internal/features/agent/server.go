@@ -45,6 +45,9 @@ type Deps struct {
 	// Estimate suggests minutes for new Work with no length (smart
 	// suggestions); nil or a false answer keeps the 30-minute default.
 	Estimate func(ctx context.Context, userID, name, description string) (int, bool)
+	// Rerank lets smart suggestions reorder semantic_search hits and set
+	// clear misses aside; nil or ok=false keeps the plain order.
+	Rerank func(ctx context.Context, userID, query string, hits []search.Hit) (kept, hidden []search.Hit, ok bool)
 }
 
 type Server struct {

@@ -295,6 +295,8 @@ func setupSearchRoutes(g *echo.Group, searchHandler *search.Handler) {
 		return
 	}
 	g.GET("/search", searchHandler.Search)
+	g.GET("/search/smart", searchHandler.Smart)
+	g.GET("/search/related", searchHandler.Related)
 	g.POST("/search/reindex", searchHandler.Reindex)
 }
 
