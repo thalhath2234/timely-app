@@ -86,7 +86,7 @@ export default function ClarifyHints({
               type="button"
               onClick={() => onOpenDuplicate(dup.id)}
               className="max-w-56 truncate rounded-md border border-border bg-background px-1.5 py-0.5 text-foreground hover:bg-muted/60"
-              title="Open this task (the Inbox item stays in the Inbox)"
+              title="Open this task here (the Inbox item stays in the Inbox)"
             >
               {dup.name}
             </button>

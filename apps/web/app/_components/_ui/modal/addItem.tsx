@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
+import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
+import { isTasksListPath } from "@/app/utils/entityDetail";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -1183,7 +1185,13 @@ function AddItemModalInner() {
                 error={suggestionsQuery.data?.error}
                 onOpenDuplicate={(id) => {
                   closeModal();
-                  router.push(`/tasks?taskId=${encodeURIComponent(id)}`);
+                  // Open the task over the current page, like a task chip;
+                  // the Tasks list has its own detail view keyed by the URL.
+                  if (isTasksListPath(window.location.pathname)) {
+                    router.push(`/tasks?taskId=${encodeURIComponent(id)}`);
+                  } else {
+                    useEntityDetailStore.getState().openTask(id);
+                  }
                 }}
               />
             )}
