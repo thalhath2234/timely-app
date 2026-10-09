@@ -183,6 +183,15 @@ func TestIntegrationClarifySuggestions(t *testing.T) {
 		t.Fatalf("shared words must find the duplicate: %+v %v", got.Duplicates, err)
 	}
 
+	// A project named in the title wins over Jev's pick.
+	db.Model(&models.Task{}).Where("id = ?", inbox).Update("name", "Plan tiles for the Q4 launch")
+	got, err = s.Clarify(context.Background(), uid, inbox)
+	var q4 models.Project
+	db.Where("title = ?", "Q4 launch").First(&q4)
+	if err != nil || got.ProjectID != q4.ID || got.WorkspaceID != *q4.WorkspaceID {
+		t.Fatalf("named project: %+v %v", got, err)
+	}
+
 	// A vague thought keeps the form's kind, even when Jev is sure.
 	db.Model(&models.Task{}).Where("id = ?", inbox).Update("name", "test")
 	got, err = s.Clarify(context.Background(), uid, inbox)

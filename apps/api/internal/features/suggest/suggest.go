@@ -299,7 +299,12 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 	} else if name, ok := a.Choice("workspace", decide.Prefill); ok {
 		out.WorkspaceID = wsByName[name]
 	}
-	if name, ok := a.Choice("project", decide.Prefill); ok && name != "none" {
+	// A project named in the title is a plain fact, so it wins over Jev,
+	// which can be unsure between "none" and a project it was never told about.
+	if p, ok := namedIn(item.Name, projects); ok {
+		out.ProjectID = p.ID
+		out.WorkspaceID = p.WorkspaceID
+	} else if name, ok := a.Choice("project", decide.Prefill); ok && name != "none" {
 		if p, found := projByName[name]; found {
 			out.ProjectID = p.ID
 			out.WorkspaceID = p.WorkspaceID // a project decides its workspace
@@ -426,14 +431,40 @@ func (s *Service) sharedWords(ctx context.Context, userID string, item models.Ta
 	return ids
 }
 
+// namedIn finds the one project whose whole title appears in the item's
+// title as words ("audit Timely" names "Timely", "Timelyish" does not). When
+// several do, the longest title wins; a tie names none.
+func namedIn(title string, projects []namedProject) (namedProject, bool) {
+	words := " " + strings.Join(splitWords(title), " ") + " "
+	var best namedProject
+	bestLen, tie := 0, false
+	for _, p := range projects {
+		name := strings.Join(splitWords(p.Title), " ")
+		if name == "" || !strings.Contains(words, " "+name+" ") {
+			continue
+		}
+		switch n := len(name); {
+		case n > bestLen:
+			best, bestLen, tie = p, n, false
+		case n == bestLen && p.ID != best.ID:
+			tie = true
+		}
+	}
+	return best, bestLen > 0 && !tie
+}
+
+func splitWords(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+}
+
 // titleWords is the lower-cased words of a title that say something: three
 // or more letters, minus the most common filler words.
 func titleWords(title string) []string {
 	var out []string
 	seen := map[string]bool{}
-	for _, w := range strings.FieldsFunc(strings.ToLower(title), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	}) {
+	for _, w := range splitWords(title) {
 		if len([]rune(w)) < 3 || fillerWords[w] || seen[w] {
 			continue
 		}
