@@ -140,6 +140,7 @@ func main() {
 	workEstimate = suggestions.Estimate
 	smartSearch := search.NewSmart(searchService, indexer, decisions)
 	searchRerank = smartSearch.Rerank
+	taskPick = smartSearch.Pick
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -156,6 +157,7 @@ func main() {
 		Portable:   portabilityService,
 		Estimate:   suggestions.Estimate,
 		Rerank:     smartSearch.Rerank,
+		Pick:       smartSearch.Pick,
 	})
 
 	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) }, chat.NewOpenRouter())

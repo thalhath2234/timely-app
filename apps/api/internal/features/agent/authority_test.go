@@ -21,7 +21,7 @@ var expectedAuthority = []struct {
 	{Read, Applies, `
 	auto_schedule_preview get_agenda get_calendar get_capacity get_context get_doc get_event get_free_time
 	get_notification_settings get_project get_schedule_settings get_sheet get_sheet_template get_task get_today
-	get_working_hours get_workspace list_docs list_events list_inbox list_notifications list_projects
+	get_working_hours get_workspace list_docs list_events list_inbox list_notifications list_projects pick_tasks
 	list_sheet_templates list_sheets list_tasks list_workspaces search semantic_search undo_schedule_preview
 	unread_notification_count what_next`},
 	// Applied directly when the plan is one clear step.

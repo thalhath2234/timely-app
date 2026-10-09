@@ -23,6 +23,8 @@ const (
 	rerankTop     = 20 // results Jev checks: every result the search box shows
 	relatedPool   = 8  // nearest items Jev checks for Related
 	relatedShown  = 5
+	pickBudget    = 8 * time.Second
+	PickPool      = 40 // nearest tasks Jev checks for a bulk edit
 )
 
 // Decider asks Jev; *decide.Service implements it.
@@ -191,6 +193,47 @@ func applyRerank(hits []Hit, answers decide.Answers) (kept, hidden []Hit) {
 		kept = append(kept, hits[n:]...)
 	}
 	return kept, hidden
+}
+
+// Pick checks which of a shortlist of tasks fit a bulk edit's description
+// ("everything about the website launch"), one yes/no per task. Matches are
+// clear yeses, unsure are the rest Jev did not rule out, and clear misses are
+// left out. ok is false when Jev did not answer: the caller treats the
+// shortlist as unchecked.
+func (s *Smart) Pick(ctx context.Context, userID, description string, hits []Hit) (matches, unsure []Hit, left int, ok bool) {
+	if s == nil || s.decisions == nil || len(hits) == 0 || strings.TrimSpace(description) == "" {
+		return nil, hits, 0, false
+	}
+	if len(hits) > PickPool {
+		hits = hits[:PickPool]
+	}
+	ctx, cancel := context.WithTimeout(ctx, pickBudget)
+	defer cancel()
+	tasks := make([]stateHit, len(hits))
+	questions := map[string]decide.Question{}
+	for i, hit := range hits {
+		tasks[i] = stateHit{N: i + 1, Kind: kindLabels[hit.Kind], Title: titleOr(hit.Title), Text: clip(hit.Snippet, 160)}
+		questions[fmt.Sprintf("pick%d", i+1)] = decide.YesNo(
+			fmt.Sprintf("Does task number %d belong to the group the person described?", i+1),
+			"Yes, it clearly belongs to that group", "No, it is about something else")
+	}
+	state := map[string]any{"group": clip(description, 300), "tasks": tasks}
+	answers, err := s.decisions.Ask(ctx, userID, decide.Request{Feature: "bulk_pick", State: state, Questions: questions})
+	if err != nil {
+		return nil, hits, 0, false
+	}
+	for i, hit := range hits {
+		yes, sure := answers.Yes(fmt.Sprintf("pick%d", i+1), decide.Route)
+		switch {
+		case sure && yes:
+			matches = append(matches, hit)
+		case sure:
+			left++
+		default:
+			unsure = append(unsure, hit)
+		}
+	}
+	return matches, unsure, left, true
 }
 
 // RelatedItem is one entry in a Related list.

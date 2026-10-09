@@ -66,11 +66,11 @@ type ChatRef struct {
 var (
 	essentialTools = []string{"get_context", "search", "semantic_search", "get_task", "get_project", "get_workspace", "list_workspaces", "list_projects"}
 	areaTools      = map[string][]string{
-		"tasks":         {"list_tasks", "list_inbox", "get_today", "what_next", "get_agenda", "get_calendar", "get_free_time"},
+		"tasks":         {"list_tasks", "pick_tasks", "list_inbox", "get_today", "what_next", "get_agenda", "get_calendar", "get_free_time"},
 		"calendar":      {"get_calendar", "list_events", "get_event", "get_free_time", "get_capacity", "get_agenda", "get_today", "get_working_hours", "get_schedule_settings", "auto_schedule_preview", "undo_schedule_preview", "list_tasks"},
 		"docs":          {"list_docs", "get_doc"},
 		"sheets":        {"list_sheets", "get_sheet", "list_sheet_templates", "get_sheet_template"},
-		"projects":      {"list_tasks", "list_docs", "list_sheets"},
+		"projects":      {"list_tasks", "pick_tasks", "list_docs", "list_sheets"},
 		"notifications": {"list_notifications", "unread_notification_count", "get_notification_settings", "list_tasks"},
 	}
 	latinLanguages = []decide.Option{

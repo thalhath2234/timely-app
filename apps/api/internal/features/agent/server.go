@@ -48,6 +48,9 @@ type Deps struct {
 	// Rerank lets smart suggestions reorder semantic_search hits and set
 	// clear misses aside; nil or ok=false keeps the plain order.
 	Rerank func(ctx context.Context, userID, query string, hits []search.Hit) (kept, hidden []search.Hit, ok bool)
+	// Pick lets smart suggestions check a bulk edit's shortlist; nil or
+	// ok=false returns the shortlist unchecked.
+	Pick func(ctx context.Context, userID, description string, hits []search.Hit) (matches, unsure []search.Hit, left int, ok bool)
 }
 
 type Server struct {
@@ -76,6 +79,7 @@ Checklist items are lightweight completion text on a task and are not scheduled.
 Today: get_today, set_today_focus, start_focus/stop_focus (actualMinutes is focused time, separate from duration).
 Duplicate with duplicate_task / duplicate_project (checklist copied; no blocks/completion).
 Auto-schedule v2: preview shows add/move/remove/pin, skip messages, capacity, and deadline risk. Recurring work occurrences in the horizon are placed without creating extra task rows. Frozen hours, locked tasks, and manual pins stay put. undo_schedule reverts the last apply. Scores from what_next and the engine are ordering hints, not certainty.
+To pick the targets of a bulk edit described in words ("everything about the website launch"), call pick_tasks and review its matches and unsure tasks before bulk_update_tasks.
 bulk_update_tasks applies one patch to many tasks: complete/reopen, status, priority, project, stage, deadline, and labelIds (replaces the full set; [] clears). It never schedules; place tasks one at a time with schedule_task.
 Archive docs/sheets with archive_doc / archive_sheet (archived=false unarchives). list_docs/list_sheets archived=true lists the archive. Prefer archive over delete.
 Sheet columns are text, number, date, boolean, currency, percent, formula, or select (dropdown with options); update_sheet_cells coerces literal values to the column type and appends unknown select values to the options. A sheet is a workbook of tabs; the first tab is the primary grid and is renamed with rename_sheet_tab (tabId empty). ` + SheetFormulaHelp + `
@@ -136,6 +140,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "get_task", Description: "Get a task with blocks, recurrence, checklist, progress, and recent activity."}, reads, s.getTask)
 	registerTool(s, server, &mcp.Tool{Name: "create_task", Description: "Create a work task with workspaceId. Ask which workspace to use unless the user specified one in this request; do not infer it from context or past tasks. Omit duration unless the user specifies one; Timely then sets an estimated length (30 minutes when it has no estimate). Never silently capture a task to Inbox; use capture_inbox_item for intentional Inbox capture. Explicit kind=reminder with scheduleAt creates a reminder. Description is markdown."}, writes, s.createTask)
 	registerTool(s, server, &mcp.Tool{Name: "update_task", Description: "Partial-update a task, including statusId (kanban) and stageId (project board; empty unstages)."}, writes.reviewedWhen(hasAny("recurrence", "clearRecurrence")), s.updateTask)
+	registerTool(s, server, &mcp.Tool{Name: "pick_tasks", Description: "Find the tasks a bulk edit is about from a description in words (\"everything about the website launch\"). Searches up to 40 nearby tasks and, when smart suggestions are on, checks each one: matches clearly fit, unsure ones need the person's or your judgement, clear misses are left out. Without smart suggestions every candidate comes back unchecked. Read-only; pass the ids you keep to bulk_update_tasks."}, reads, s.pickTasks)
 	registerTool(s, server, &mcp.Tool{Name: "bulk_update_tasks", Description: "Apply the same patch to many tasks: completedAt (set or empty to reopen), statusId, priorityLevel, projectId, stageId, deadline, and labelIds (replaces the full set; [] clears). It cannot schedule: place tasks one at a time with schedule_task."}, writes.reviewed(), s.bulkUpdateTasks)
 	registerTool(s, server, &mcp.Tool{Name: "complete_task", Description: "Mark a one-off task complete."}, writes, s.completeTask)
 	registerTool(s, server, &mcp.Tool{Name: "reopen_task", Description: "Clear completedAt on a one-off task."}, writes, s.reopenTask)

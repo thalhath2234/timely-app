@@ -231,3 +231,19 @@ func TestRerankHidesUncheckedTailAfterAMiss(t *testing.T) {
 		t.Fatalf("kept %d, hidden %d", len(kept), len(hidden))
 	}
 }
+
+func TestPickSplitsMatchesUnsureAndMisses(t *testing.T) {
+	var calls atomic.Int32
+	hits := []Hit{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}}
+	s := NewSmart(nil, nil, jevService(t, true, map[string]any{"pick1": yes(0.97), "pick2": yes(0.03), "pick3": yes(0.6)}, &calls))
+	matches, unsure, left, ok := s.Pick(context.Background(), "u1", "website launch", hits)
+	if !ok || len(matches) != 1 || matches[0].ID != "a" || left != 1 || len(unsure) != 2 || unsure[0].ID != "c" || unsure[1].ID != "d" {
+		t.Fatalf("matches %v unsure %v left %d ok %v", matches, unsure, left, ok)
+	}
+	// Off: the whole shortlist comes back unchecked.
+	s = NewSmart(nil, nil, jevService(t, false, nil, &calls))
+	matches, unsure, _, ok = s.Pick(context.Background(), "u1", "website launch", hits)
+	if ok || len(matches) != 0 || len(unsure) != 4 {
+		t.Fatalf("off: matches %v unsure %v ok %v", matches, unsure, ok)
+	}
+}

@@ -53,6 +53,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/inbox/:id/suggestions", s.clarify)
 	g.GET("/decisions/status", s.status)
 	s.sheetRoutes(g)
+	s.workRoutes(g)
 }
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
