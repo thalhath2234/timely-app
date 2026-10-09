@@ -204,7 +204,7 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 		"kind": decide.Choice("What kind of item is this captured thought?",
 			decide.Option{Name: "work", Description: "Something the person has to spend effort doing, such as writing, fixing, buying or preparing something."},
 			decide.Option{Name: "reminder", Description: "Only a timed nudge to remember something at a moment, with no real effort to plan for."},
-			decide.Option{Name: "event", Description: "A meeting, appointment or other commitment at a set time with other people or a place."}),
+			decide.Option{Name: "event", Description: "A meeting, appointment or other commitment at a set time with other people or a place."}).Twice(),
 		"effort":   effortQuestion(),
 		"priority": decide.Score("How urgent and important does this sound?", "Low: whenever there is time", "Medium: should happen soon", "High: important and time-sensitive", "Urgent: needs attention right away"),
 		"dateRole": decide.Choice("Does the thought mention a date or time, and if so what is it for?",
@@ -269,7 +269,12 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 		return ClarifySuggestions{Error: failure(ctx, err)}, nil
 	}
 	out := ClarifySuggestions{Available: true, LogID: a.LogID}
-	if k, ok := a.Choice("kind", decide.Prefill); ok {
+	// Work is the form's default, so only a sure answer on a clear thought
+	// switches it: a vague one like "test" reads as "no effort" to Jev.
+	if yes, ok := a.Yes("ready", decide.Flag); ok && !yes {
+		out.NotReady = true
+	}
+	if k, ok := a.Choice("kind", decide.Route); ok && !out.NotReady {
 		switch k {
 		case "work":
 			out.Kind = models.KindTask
@@ -303,9 +308,6 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 	}
 	if yes, ok := a.Yes("several", decide.Flag); ok && yes {
 		out.SeveralActions = true
-	}
-	if yes, ok := a.Yes("ready", decide.Flag); ok && !yes {
-		out.NotReady = true
 	}
 	if m, ok := a.Choice("missing", decide.Prefill); ok && m != "nothing" {
 		out.Missing = m

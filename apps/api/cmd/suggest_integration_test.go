@@ -35,13 +35,20 @@ func fakeClarifyJev(t *testing.T, calls *atomic.Int32) *httptest.Server {
 		calls.Add(1)
 		raw, _ := io.ReadAll(r.Body)
 		var req struct {
+			State     struct{ Thought string }   `json:"state"`
 			Questions map[string]json.RawMessage `json:"questions"`
 		}
 		_ = json.Unmarshal(raw, &req)
+		// A vague thought like "test": Jev calls it a reminder, and unclear.
+		vague := req.State.Thought == "test"
 		answers := map[string]any{}
 		for id := range req.Questions {
 			switch {
-			case id == "kind":
+			case vague && strings.HasPrefix(id, "kind"):
+				answers[id] = map[string]any{"type": "choice", "choice": "reminder", "confidence": 0.9}
+			case vague && id == "ready":
+				answers[id] = map[string]any{"type": "noul", "noul": 0.1}
+			case strings.HasPrefix(id, "kind"):
 				answers[id] = map[string]any{"type": "choice", "choice": "work", "confidence": 0.9}
 			case id == "effort":
 				answers[id] = map[string]any{"type": "score", "score": 2.2, "confidence": 0.7} // about an hour
@@ -168,6 +175,14 @@ func TestIntegrationClarifySuggestions(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Fatalf("want one call for the form and one for labels, got %d", calls.Load())
 	}
+
+	// A vague thought keeps the form's kind, even when Jev is sure.
+	db.Model(&models.Task{}).Where("id = ?", inbox).Update("name", "test")
+	got, err = s.Clarify(context.Background(), uid, inbox)
+	if err != nil || !got.Available || got.Kind != "" || !got.NotReady {
+		t.Fatalf("a vague thought must not switch the kind: %+v %v", got, err)
+	}
+	db.Model(&models.Task{}).Where("id = ?", inbox).Update("name", "Buy tiles for the kitchen by Friday")
 
 	// Another account cannot read this item's suggestions.
 	if _, err := s.Clarify(context.Background(), "someone-else", inbox); err == nil {
