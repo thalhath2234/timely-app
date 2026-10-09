@@ -317,7 +317,8 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 	if yes, ok := a.Yes("several", decide.Flag); ok && yes {
 		out.SeveralActions = true
 	}
-	if m, ok := a.Choice("missing", decide.Prefill); ok && m != "nothing" {
+	// A date already in the name rules out "it may need a date".
+	if m, ok := a.Choice("missing", decide.Prefill); ok && m != "nothing" && !(m == "date" && out.DateRole != "") {
 		out.Missing = m
 	}
 	for i, d := range dups {

@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -209,5 +210,24 @@ func TestCreateTitle(t *testing.T) {
 		if got := createTitle(in, "sheet"); got != want {
 			t.Errorf("createTitle(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRerankHidesUncheckedTailAfterAMiss(t *testing.T) {
+	var calls atomic.Int32
+	hits := make([]Hit, rerankTop+2)
+	for i := range hits {
+		hits[i] = Hit{ID: fmt.Sprintf("h%d", i+1)}
+	}
+	s := NewSmart(nil, nil, jevService(t, true, map[string]any{"match3": yes(0.03)}, &calls))
+	kept, hidden, ok := s.Rerank(context.Background(), "u1", "milk", hits)
+	if !ok || len(kept) != rerankTop-1 || len(hidden) != 3 || hidden[0].ID != "h3" || hidden[2].ID != fmt.Sprintf("h%d", rerankTop+2) {
+		t.Fatalf("kept %d, hidden %+v", len(kept), hidden)
+	}
+	// Without a clear miss the unchecked tail stays in order after the rest.
+	s = NewSmart(nil, nil, jevService(t, true, map[string]any{}, &calls))
+	kept, hidden, _ = s.Rerank(context.Background(), "u1", "milk", hits)
+	if len(hidden) != 0 || len(kept) != rerankTop+2 || kept[rerankTop+1].ID != hits[rerankTop+1].ID {
+		t.Fatalf("kept %d, hidden %d", len(kept), len(hidden))
 	}
 }

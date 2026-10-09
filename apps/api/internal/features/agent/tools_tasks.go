@@ -103,7 +103,7 @@ type createTaskIn struct {
 	Name          string      `json:"name"`
 	WorkspaceID   string      `json:"workspaceId,omitempty" jsonschema:"required for work; ask the user unless specified in this request; optional on reminders when setting labels or custom fields"`
 	Description   string      `json:"description,omitempty" jsonschema:"markdown"`
-	Duration      *int        `json:"duration,omitempty" jsonschema:"minutes of work; defaults to 30 when omitted; must be positive if supplied for Work"`
+	Duration      *int        `json:"duration,omitempty" jsonschema:"minutes of work; when omitted Timely estimates it (30 without an estimate); must be positive if supplied for Work"`
 	Kind          string      `json:"kind,omitempty" jsonschema:"task by default; use reminder only for a timed ping; use capture_inbox_item for Inbox"`
 	Deadline      string      `json:"deadline,omitempty"`
 	StartDate     string      `json:"startDate,omitempty"`

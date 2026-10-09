@@ -20,7 +20,7 @@ import (
 const (
 	smartBudget   = 3 * time.Second
 	relatedBudget = 4 * time.Second
-	rerankTop     = 10 // results Jev checks; the rest keep their order after them
+	rerankTop     = 20 // results Jev checks: every result the search box shows
 	relatedPool   = 8  // nearest items Jev checks for Related
 	relatedShown  = 5
 )
@@ -152,8 +152,10 @@ func rerankQuestions(query string, hits []Hit) (map[string]any, map[string]decid
 }
 
 // applyRerank sorts the checked results by how likely each is a match and
-// moves clear misses to hidden. Unchecked results keep their order after
-// them. A result Jev didn't answer about counts as an even chance.
+// moves clear misses to hidden. Unchecked results rank below every checked
+// one, so they keep their order after them, or are hidden too once a checked
+// result was a clear miss. A result Jev didn't answer about counts as an even
+// chance.
 func applyRerank(hits []Hit, answers decide.Answers) (kept, hidden []Hit) {
 	type scored struct {
 		hit Hit
@@ -183,7 +185,11 @@ func applyRerank(hits []Hit, answers decide.Answers) (kept, hidden []Hit) {
 	for _, c := range checked {
 		kept = append(kept, c.hit)
 	}
-	kept = append(kept, hits[n:]...)
+	if len(hidden) > 0 {
+		hidden = append(hidden, hits[n:]...)
+	} else {
+		kept = append(kept, hits[n:]...)
+	}
 	return kept, hidden
 }
 
