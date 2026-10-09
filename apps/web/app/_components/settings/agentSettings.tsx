@@ -1014,8 +1014,9 @@ function DecisionsCard() {
             changes worth a check before you apply them. For receipts it
             picks a category and sheet you already use and notes likely
             repeats; it also suggests a template for a new sheet and column
-            types for an imported CSV. Receipt photos and amounts are never
-            sent. Runs on Jev, TypeSafe&apos;s fast decision model.
+            types for an imported CSV from a few of its values. Receipt photos
+            and receipt amounts are never sent. Runs on Jev, TypeSafe&apos;s
+            fast decision model.
             Suggestions never change anything until you save or apply.
           </p>
           <p className="mt-1 text-xs text-foreground" data-testid="decisions-source">
