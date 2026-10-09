@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -43,6 +44,9 @@ type Service struct {
 	search   search.Service
 	schedule schedule.Service                                          // nil until SetSchedule
 	estimate func(context.Context, string, string, string) (int, bool) // overridable in tests
+	// traitsPause holds, per user, when the Preview hook may ask again after
+	// it ran out of time, so a slow model does not slow every Preview.
+	traitsPause sync.Map
 }
 
 func New(db *gorm.DB, d *decide.Service, s search.Service) *Service {

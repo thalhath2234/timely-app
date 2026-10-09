@@ -155,6 +155,12 @@ func (r *repository) Upsert(row *models.Notification) (*models.Notification, err
 	return row, nil
 }
 
+// SetSuggestion adds the suggested next step to a notification's data and
+// replaces its text with the one naming the step.
+func (r *repository) SetSuggestion(id, step, body string) error {
+	return r.db.Exec(`UPDATE notifications SET body = ?, data = data || jsonb_build_object('suggest', ?::text) WHERE id = ?`, body, step, id).Error
+}
+
 func mustJSON(payload models.JobPayload) string {
 	raw, err := payload.Value()
 	if err != nil {

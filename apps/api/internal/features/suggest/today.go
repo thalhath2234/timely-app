@@ -24,13 +24,14 @@ import (
 // finds the free time; Jev only reads words.
 
 const (
-	todayBudget   = 10 * time.Second
-	traitsBudget  = 4 * time.Second
-	maxTraitTasks = 12
-	maxGapTasks   = 8
-	maxFocusPicks = 3
-	minGapMinutes = 20
-	maxGoals      = 5
+	todayBudget    = 10 * time.Second
+	traitsBudget   = 4 * time.Second
+	traitsPauseFor = 2 * time.Minute
+	maxTraitTasks  = 12
+	maxGapTasks    = 8
+	maxFocusPicks  = 3
+	minGapMinutes  = 20
+	maxGoals       = 5
 )
 
 // SetSchedule connects Auto-schedule: Today reads its rank and free time, and
@@ -38,9 +39,15 @@ const (
 func (s *Service) SetSchedule(sched schedule.Service) {
 	s.schedule = sched
 	schedule.SetBeforePreview(func(userID string) {
+		if until, ok := s.traitsPause.Load(userID); ok && time.Now().Before(until.(time.Time)) {
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), traitsBudget)
 		defer cancel()
 		s.fillTopTraits(ctx, userID, "")
+		if ctx.Err() != nil {
+			s.traitsPause.Store(userID, time.Now().Add(traitsPauseFor))
+		}
 	})
 }
 
@@ -178,6 +185,27 @@ func (s *Service) FillTraits(ctx context.Context, userID string, tasks []models.
 			keys[r] = out[i].ID
 		}
 	}
+	// Work outside this set keeps no key this set used or now uses, so an
+	// old group cannot pull an unrelated task in beside a new one.
+	ids := make([]string, 0, len(out))
+	used := map[string]bool{}
+	for i := range out {
+		ids = append(ids, out[i].ID)
+		if out[i].GroupKey != "" {
+			used[out[i].GroupKey] = true
+		}
+		if r := find(i); size[r] > 1 {
+			used[keys[r]] = true
+		}
+	}
+	if len(used) > 0 {
+		stale := make([]string, 0, len(used))
+		for k := range used {
+			stale = append(stale, k)
+		}
+		s.db.WithContext(ctx).Model(&models.Task{}).Where("user_id = ? AND id NOT IN ? AND group_key IN ?", userID, ids, stale).
+			UpdateColumn("group_key", "")
+	}
 	for i := range out {
 		key := ""
 		if r := find(i); size[r] > 1 {
@@ -247,6 +275,53 @@ var deepWindows = map[string]models.PreferredWindow{
 	"morning":   {Start: "06:00", End: "12:00"},
 	"afternoon": {Start: "12:00", End: "17:00"},
 	"evening":   {Start: "17:00", End: "22:00"},
+}
+
+// minDeepWindow is the shortest stretch of working hours worth steering
+// deep-focus work into.
+const minDeepWindow = 60
+
+// deepWindow is the person's best time for deep work clipped to their working
+// hours, since Auto-schedule only places Work inside a preferred window. It is
+// false when too little of the window falls inside working hours.
+func (s *Service) deepWindow(userID, when string) (models.PreferredWindow, bool) {
+	w, ok := deepWindows[when]
+	if !ok {
+		return w, false
+	}
+	if s.schedule == nil {
+		return w, true
+	}
+	hours, err := s.schedule.GetWorkingHours(userID, "")
+	if err != nil {
+		return w, true
+	}
+	start, _ := models.ParseClock(w.Start)
+	end, _ := models.ParseClock(w.End)
+	first, last := -1, -1
+	for _, windows := range hours.WorkingHours.Days {
+		for _, ww := range windows {
+			a, errA := models.ParseClock(ww.Start)
+			b, errB := models.ParseClock(ww.End)
+			if errA != nil || errB != nil || b <= a {
+				continue
+			}
+			if first < 0 || a < first {
+				first = a
+			}
+			if b > last {
+				last = b
+			}
+		}
+	}
+	if first < 0 {
+		return w, false
+	}
+	start, end = max(start, first), min(end, last)
+	if end-start < minDeepWindow {
+		return w, false
+	}
+	return models.PreferredWindow{Start: fmt.Sprintf("%02d:%02d", start/60, start%60), End: fmt.Sprintf("%02d:%02d", end/60, end%60)}, true
 }
 
 func partOfDay(t time.Time) string {

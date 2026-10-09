@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"timely-api/internal/features/schedule"
@@ -42,17 +43,29 @@ var triageBody = map[string]map[string]string{
 	},
 }
 
-// suggestStep asks the Triager and returns the step and its body, or "" and
-// the fallback body.
-func (s *Service) suggestStep(ctx context.Context, userID string, item *models.Task, category, kind string, overdueDays int, fallback string) (string, string) {
+// triageParallel caps how many suggestions are asked at once, so a sweep of
+// many overdue tasks never queues a burst of model calls.
+const triageParallel = 2
+
+// suggestLater asks the Triager for a new notification's next step in the
+// background and adds it to the notification's text and data. The job (and
+// the push) never waits on the model, so reminders behind it stay on time.
+func (s *Service) suggestLater(notificationID, userID string, item *models.Task, category, kind string, overdueDays int) {
 	if s.triage == nil {
-		return "", fallback
+		return
 	}
-	step := s.triage(ctx, userID, item, kind, overdueDays)
-	if body, ok := triageBody[category][step]; ok {
-		return step, body
-	}
-	return "", fallback
+	s.triageWait.Add(1)
+	go func() {
+		defer s.triageWait.Done()
+		s.triageSlots <- struct{}{}
+		defer func() { <-s.triageSlots }()
+		step := s.triage(context.Background(), userID, item, kind, overdueDays)
+		if body, ok := triageBody[category][step]; ok {
+			if err := s.repo.SetSuggestion(notificationID, step, body); err != nil {
+				log.Printf("notify: save suggested step: %v", err)
+			}
+		}
+	}()
 }
 
 func daysPast(deadline string, today task.Today) int {
@@ -102,9 +115,25 @@ func (s *Service) ApplyTriage(userID, notificationID, action string) (string, er
 	}
 	// The person asked to move this task, so its hand-placed blocks (the
 	// missed one included) are replaced too; other tasks are not touched.
+	// A dry run comes first: Apply drops those blocks even when the engine
+	// finds no new time, so nothing changes unless the task gets placed.
 	replan := func() error {
-		_, err := s.schedule.Apply(userID, schedule.PlanRequest{TaskIDs: []string{item.ID}, Timezone: s.notificationTimezone(userID), IncludeManual: true})
-		return err
+		req := schedule.PlanRequest{TaskIDs: []string{item.ID}, Timezone: s.notificationTimezone(userID), IncludeManual: true}
+		plan, err := s.schedule.Preview(userID, req)
+		if err != nil {
+			return err
+		}
+		if !placed(plan, item.ID) {
+			return errNoTime
+		}
+		plan, err = s.schedule.Apply(userID, req)
+		if err != nil {
+			return err
+		}
+		if !placed(plan, item.ID) {
+			return errNoTime
+		}
+		return nil
 	}
 	var message string
 	switch action {
@@ -121,7 +150,7 @@ func (s *Service) ApplyTriage(userID, notificationID, action string) (string, er
 		if err := replan(); err != nil {
 			return "", err
 		}
-		message = "Moved the rest to your next free time"
+		message = "Moved it to your next free time"
 	case triageExtend:
 		day := s.notificationToday(userID).Now().AddDate(0, 0, 7)
 		date := day.Format("2006-01-02")
@@ -145,6 +174,10 @@ func (s *Service) ApplyTriage(userID, notificationID, action string) (string, er
 			return "", err
 		}
 		if err := replan(); err != nil {
+			if errors.Is(err, errNoTime) {
+				previous := item.Duration
+				_, _ = s.tasks.Update(userID, item.ID, task.TaskUpdate{Duration: &previous})
+			}
 			return "", err
 		}
 		message = fmt.Sprintf("Added %d minutes and found time for it", extra)
@@ -156,6 +189,19 @@ func (s *Service) ApplyTriage(userID, notificationID, action string) (string, er
 		return "", err
 	}
 	return message, nil
+}
+
+// errNoTime is a move or added time the engine found no room for.
+var errNoTime = errors.New("no free time for it in the planning window, so nothing changed")
+
+// placed is true when plan gives the task at least one block.
+func placed(plan *schedule.PlanResponse, taskID string) bool {
+	for _, p := range plan.Proposals {
+		if p.TaskID == taskID && len(p.Blocks) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func derefPriority(v *string) string {

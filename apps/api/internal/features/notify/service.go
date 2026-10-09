@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/embed"
@@ -30,6 +31,8 @@ type Service struct {
 	http         *http.Client
 	overdueSwept map[string]time.Time
 	triage       Triager // nil until SetTriage
+	triageSlots  chan struct{}
+	triageWait   sync.WaitGroup
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -42,6 +45,7 @@ func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks
 		indexer:      indexer,
 		http:         &http.Client{Timeout: 15 * time.Second},
 		overdueSwept: map[string]time.Time{},
+		triageSlots:  make(chan struct{}, triageParallel),
 	}
 }
 
@@ -322,20 +326,19 @@ func (s *Service) HandleOverdueTask(ctx context.Context, job *models.Job) error 
 	}
 	entity := item.ID
 	today := s.notificationDay(job.UserID, settings, time.Now())
-	step, body := s.suggestStep(ctx, job.UserID, item, models.NotifyOverdue, "overdue", daysPast(deadline, today), "Past deadline. Reschedule as urgent?")
-	data := models.JobPayload{"taskId": item.ID, "deadline": deadline}
-	if step != "" {
-		data["suggest"] = step
-	}
-	ntf, err := s.repo.Upsert(&models.Notification{
+	row := &models.Notification{
 		UserID: job.UserID, Category: models.NotifyOverdue,
-		Title: item.Name, Body: body,
+		Title: item.Name, Body: "Past deadline. Reschedule as urgent?",
 		EntityType: strPtr("task"), EntityID: &entity,
-		Data:      data,
+		Data:      models.JobPayload{"taskId": item.ID, "deadline": deadline},
 		DedupeKey: job.DedupeKey,
-	})
+	}
+	ntf, err := s.repo.Upsert(row)
 	if err != nil {
 		return err
+	}
+	if ntf.ID == row.ID {
+		s.suggestLater(ntf.ID, job.UserID, item, models.NotifyOverdue, "overdue", daysPast(deadline, today))
 	}
 	return s.deliver(ctx, ntf, settings)
 }
@@ -439,22 +442,22 @@ func (s *Service) HandleMissedBlock(ctx context.Context, job *models.Job) error 
 		return nil
 	}
 	entity := taskID
-	step, body := s.suggestStep(ctx, job.UserID, item, models.NotifyMissed, "missed", 0, "This block ended and the work is still open.")
 	data := models.JobPayload{}
 	for k, v := range job.Payload {
 		data[k] = v
 	}
-	if step != "" {
-		data["suggest"] = step
-	}
-	ntf, err := s.repo.Upsert(&models.Notification{
+	row := &models.Notification{
 		UserID: job.UserID, Category: models.NotifyMissed,
-		Title: item.Name, Body: body,
+		Title: item.Name, Body: "This block ended and the work is still open.",
 		EntityType: strPtr("task"), EntityID: &entity,
 		Data: data, DedupeKey: job.DedupeKey,
-	})
+	}
+	ntf, err := s.repo.Upsert(row)
 	if err != nil {
 		return err
+	}
+	if ntf.ID == row.ID {
+		s.suggestLater(ntf.ID, job.UserID, item, models.NotifyMissed, "missed", 0)
 	}
 	return s.deliver(ctx, ntf, settings)
 }

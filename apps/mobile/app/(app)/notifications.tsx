@@ -179,7 +179,7 @@ export default function NotificationsScreen() {
                             void triage
                               .mutateAsync({ id: item.id, action: step })
                               .then((res) => useToastStore.getState().show(res.message))
-                              .catch(() => useToastStore.getState().show("Could not do that"))
+                              .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
                           }
                           style={[styles.chip, suggested && styles.suggested]}
                         >

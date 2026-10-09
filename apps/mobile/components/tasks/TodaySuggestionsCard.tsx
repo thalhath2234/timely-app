@@ -15,6 +15,13 @@ function clock(iso: string) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+/** The free gap's start, or the next five minutes when it has already begun
+ * (suggestions are fetched ahead of the click). */
+function gapStart(iso: string) {
+  const step = 5 * 60_000;
+  return new Date(Math.max(new Date(iso).getTime(), Math.ceil(Date.now() / step) * step));
+}
+
 /** Smart suggestions on Today (phone): Work worth focusing on today and the
  * best task for the next free gap. Renders nothing while suggestions are off. */
 export default function TodaySuggestionsCard({
@@ -112,14 +119,18 @@ export default function TodaySuggestionsCard({
             disabled={addBlock.isPending}
             onPress={() => {
               const task = gap.task!;
-              const start = new Date(gap.start);
+              const start = gapStart(gap.start);
               const end = new Date(start.getTime() + task.minutes * 60_000);
+              hide(`gap:${task.id}`);
+              if (end > new Date(gap.end)) {
+                toast("That free time has passed");
+                return;
+              }
               accept();
               void addBlock
                 .mutateAsync({ taskId: task.id, data: { start: start.toISOString(), end: end.toISOString() } })
-                .then(() => toast(`Scheduled at ${clock(gap.start)}: ${task.name}`))
+                .then(() => toast(`Scheduled at ${clock(start.toISOString())}: ${task.name}`))
                 .catch(() => toast("Could not schedule it"));
-              hide(`gap:${task.id}`);
             }}
             style={styles.button}
           >

@@ -18,6 +18,13 @@ export const EFFORT_LABELS: Record<EffortKind, string> = {
   routine: "Routine",
 };
 
+/** The free gap's start, or the next five minutes when it has already begun
+ * (suggestions are fetched ahead of the click). */
+function gapStart(iso: string) {
+  const step = 5 * 60_000;
+  return new Date(Math.max(new Date(iso).getTime(), Math.ceil(Date.now() / step) * step));
+}
+
 /** Smart suggestions on Today: open Work worth focusing on today, the best
  * Work for the next free gap, and how the top open Work lines up with the
  * person's goals. Code ranks the Work and finds the gap; nothing shows while
@@ -139,14 +146,18 @@ export default function TodaySuggestions({
               disabled={addBlock.isPending}
               onClick={() => {
                 const task = gap.task!;
-                const start = new Date(gap.start);
+                const start = gapStart(gap.start);
                 const end = new Date(start.getTime() + task.minutes * 60_000);
+                hide(`gap:${task.id}`);
+                if (end > new Date(gap.end)) {
+                  toast("That free time has passed");
+                  return;
+                }
                 accept();
                 void addBlock
                   .mutateAsync({ taskId: task.id, start: start.toISOString(), end: end.toISOString() })
                   .then(() => toast(`Scheduled “${task.name}” at ${formatTime(start)}`))
                   .catch(() => toast("Could not schedule it"));
-                hide(`gap:${task.id}`);
               }}
               className={button}
             >

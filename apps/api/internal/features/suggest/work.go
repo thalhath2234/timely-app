@@ -352,8 +352,9 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 	}
 	if out.EffortKind == "deep" && len(task.PreferredWindows) == 0 {
 		if when := s.prefs(ctx, userID).DeepWorkTime; when != "" {
-			w := deepWindows[when]
-			out.PreferredTime, out.PreferredWindow = when, &w
+			if w, ok := s.deepWindow(userID, when); ok {
+				out.PreferredTime, out.PreferredWindow = when, &w
+			}
 		}
 	}
 	return out, nil

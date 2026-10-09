@@ -124,7 +124,7 @@ func (s *service) Undo(userID string) (*PlanResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.Preview(userID, PlanRequest{})
+	return s.preview(userID, PlanRequest{})
 }
 
 // UndoBlock is one engine block an undo removes or restores.
@@ -173,7 +173,7 @@ func (s *service) PreviewUndo(userID string) (*UndoPreview, error) {
 }
 
 func (s *service) Capacity(userID string, from, to time.Time, timezone string) ([]DayCapacity, error) {
-	plan, err := s.Preview(userID, PlanRequest{
+	plan, err := s.preview(userID, PlanRequest{
 		From:     strPtrTime(from),
 		To:       strPtrTime(to),
 		Timezone: timezone,

@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"testing"
+	"time"
 
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
@@ -53,6 +54,7 @@ func TestIntegrationOverdueTriageSuggestsAndApplies(t *testing.T) {
 	if err := svc.HandleOverdueTask(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
+	svc.triageWait.Wait()
 	var ntf models.Notification
 	if err := db.Where("user_id = ? AND category = ?", user, models.NotifyOverdue).First(&ntf).Error; err != nil {
 		t.Fatal(err)
@@ -94,10 +96,57 @@ func TestIntegrationOverdueTriageSuggestsAndApplies(t *testing.T) {
 	if err := svc.HandleOverdueTask(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
+	svc.triageWait.Wait()
 	var plain models.Notification
 	db.Where("dedupe_key = ?", *job.DedupeKey).First(&plain)
 	if plain.Body != "Past deadline. Reschedule as urgent?" || plain.Data.String("suggest") != "" {
 		t.Fatalf("plain %q %+v", plain.Body, plain.Data)
+	}
+}
+
+// Moving missed work the engine has no room for changes nothing: the
+// hand-placed block stays and the step reports why.
+func TestIntegrationMissedMoveWithoutRoomKeepsBlocks(t *testing.T) {
+	_, db := zoneService(t, models.NotificationSettings{Reminders: true})
+	tasks := task.NewTaskRepository(db)
+	sched := schedule.NewRepository(db)
+	place := placement.New(db, sched.GetWorkingHours)
+	indexer := embed.New(db)
+	taskService := task.NewTaskService(tasks, project.NewProjectRepository(db), workspace.NewWorkspaceRepository(db), recurrence.NewStore(db), place, indexer)
+	svc := NewService(db, jobs.NewQueue(db), nil, taskService, schedule.NewService(sched, tasks, event.NewEventRepository(db), place), indexer)
+
+	user := zoneTestUser
+	ws := models.Workspace{ID: "ws_room", Name: "Home", UserID: &user}
+	if err := db.Create(&ws).Error; err != nil {
+		t.Fatal(err)
+	}
+	// One unbroken 20-hour stretch never fits a working day.
+	item := models.Task{ID: "tsk_room", Name: "Write the thesis", Kind: models.KindTask, Duration: 1200, Contiguous: true, UserID: &user, WorkspaceID: &ws.ID}
+	if err := db.Create(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+	end := time.Now().Add(-time.Hour).UTC()
+	block := models.ScheduledBlock{ID: "blk_room", TaskID: item.ID, UserID: user, StartAt: end.Add(-time.Hour), EndAt: end, Source: models.BlockSourceManual}
+	if err := db.Create(&block).Error; err != nil {
+		t.Fatal(err)
+	}
+	ntf, err := svc.repo.Upsert(&models.Notification{UserID: user, Category: models.NotifyMissed, Title: item.Name, Body: "missed",
+		EntityType: ptrTo("task"), EntityID: &item.ID, Data: models.JobPayload{"taskId": item.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{"move", "addtime"} {
+		if _, err := svc.ApplyTriage(user, ntf.ID, step); err == nil {
+			t.Fatalf("%s ran without room", step)
+		}
+	}
+	var count int64
+	db.Model(&models.ScheduledBlock{}).Where("task_id = ? AND source = ?", item.ID, models.BlockSourceManual).Count(&count)
+	var after models.Task
+	db.First(&after, "id = ?", item.ID)
+	db.First(ntf, "id = ?", ntf.ID)
+	if count != 1 || after.Duration != 1200 || ntf.ReadAt != nil {
+		t.Fatalf("block kept %d, duration %d, read %v", count, after.Duration, ntf.ReadAt)
 	}
 }
 
