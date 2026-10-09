@@ -3,24 +3,26 @@ import { contextChip } from "../../../lib/chat/context";
 import { useRef, useState } from "react";
 import { Keyboard, ScrollView, Text, TextInput, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
-import { ArrowUpRight, CalendarDays, FileText, FolderKanban, LayoutGrid, ListTodo, Plus, Search as SearchIcon, Table2, X } from "lucide-react-native";
+import { ArrowUpRight, LayoutGrid, Plus, Search as SearchIcon, Sparkles, X } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
-import { useSearchQuery } from "../../../lib/hooks";
-import type { SearchKind } from "../../../lib/api/search";
+import { useSearchQuery, useSmartSearchQuery } from "../../../lib/hooks";
+import type { SearchHit, SmartCategory } from "../../../lib/api/search";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
-import { FILES_TAB, fileHref } from "../../../lib/fileRoutes";
+import { FILES_TAB } from "../../../lib/fileRoutes";
+import { hrefFor } from "../../../lib/searchRoutes";
+import { SEARCH_KIND_ICONS, searchKindIcon } from "../../../components/search/kindIcon";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 const categories = [
   { id: "all", label: "All", icon: LayoutGrid },
-  { id: "sheet", label: "Sheets", icon: Table2 },
-  { id: "doc", label: "Docs", icon: FileText },
-  { id: "task", label: "Tasks", icon: ListTodo },
-  { id: "project", label: "Projects", icon: FolderKanban },
-  { id: "event", label: "Events", icon: CalendarDays },
+  { id: "sheet", label: "Sheets", icon: SEARCH_KIND_ICONS.sheet },
+  { id: "doc", label: "Docs", icon: SEARCH_KIND_ICONS.doc },
+  { id: "task", label: "Tasks", icon: SEARCH_KIND_ICONS.task },
+  { id: "project", label: "Projects", icon: SEARCH_KIND_ICONS.project },
+  { id: "event", label: "Events", icon: SEARCH_KIND_ICONS.event },
 ] as const;
 type Category = typeof categories[number]["id"];
 
@@ -32,13 +34,8 @@ const destinations: Record<Exclude<Category, "all">, Href> = {
   event: "/(app)/(tabs)/calendar",
 };
 
-function hrefFor(kind: SearchKind, id: string): Href {
-  if (kind === "sheet" || kind === "doc") return fileHref(id);
-  const encoded = encodeURIComponent(id);
-  if (kind === "task") return `/(app)/tasks/${encoded}`;
-  if (kind === "event") return `/(app)/events/${encoded}`;
-  if (kind === "project") return `/(app)/projects/${encoded}`;
-  return "/(app)/(tabs)/tasks";
+function nounFor(kind: Exclude<Category, "all">) {
+  return kind === "doc" ? "document" : kind;
 }
 
 export default function SearchTab() {
@@ -51,7 +48,18 @@ export default function SearchTab() {
   const results = useSearchQuery(query);
   const trimmed = query.trim();
   const current = results.query === trimmed;
-  const hits = trimmed && current ? (results.data ?? []).filter((hit) => category === "all" || hit.kind === category) : [];
+  const [showHidden, setShowHidden] = useState<string | null>(null);
+  // Smart suggestions rerank the same debounced text; they land a few seconds
+  // after the plain results and only apply while the query hasn't changed.
+  const smart = useSmartSearchQuery(results.query);
+  const smartData = trimmed && current && smart.query === trimmed ? smart.data : undefined;
+  const ranked = smartData?.hits != null;
+  const inCategory = (hit: SearchHit) => category === "all" || hit.kind === category;
+  const hits = trimmed && current ? (ranked ? smartData.hits ?? [] : results.data ?? []).filter(inCategory) : [];
+  const hidden = ranked ? smartData.hidden.filter(inCategory) : [];
+  const hiddenShown = hidden.length > 0 && showHidden === trimmed;
+  const smartCategory = category === "all" && smartData?.category ? categories.find((tab) => tab.id === smartData.category) : undefined;
+  const smartCreate = smartData?.create;
   const pending = !!trimmed && (!current || results.isFetching);
   const failed = !!trimmed && current && results.isError;
 
@@ -60,19 +68,21 @@ export default function SearchTab() {
     router.push(href);
   }
 
+  function create(kind: SmartCategory, title?: string) {
+    Keyboard.dismiss();
+    if (kind === "project") router.push(destinations.project);
+    else requestQuickAdd(title ? { kind, title } : { kind });
+  }
+
   const commands = categories.flatMap((tab) => {
     if (tab.id === "all") return [];
     const kind = tab.id;
-    const noun = kind === "doc" ? "document" : kind;
+    const noun = nounFor(kind);
     const destination = kind === "event" ? "calendar" : tab.label.toLowerCase();
     return [
       {
         id: `create-${kind}`, kind, title: `Create ${noun}`, description: `Start a new ${noun}`, icon: Plus,
-        run: () => {
-          Keyboard.dismiss();
-          if (kind === "project") router.push(destinations.project);
-          else requestQuickAdd({ kind });
-        },
+        run: () => create(kind),
       },
       {
         id: `goto-${kind}`, kind, title: `Go to ${destination}`, description: `Open your ${destination}`, icon: tab.icon,
@@ -81,6 +91,43 @@ export default function SearchTab() {
     ];
   }).filter((command) => (category === "all" || command.kind === category)
     && `${command.title} ${command.description}`.toLowerCase().includes(trimmed.toLowerCase()));
+  // A query that reads like a command ("make a budget sheet") leads the actions.
+  if (smartCreate && (category === "all" || category === smartCreate.kind)) {
+    const noun = nounFor(smartCreate.kind);
+    commands.unshift({
+      id: `smart-create-${smartCreate.kind}`, kind: smartCreate.kind, title: `Create ${noun} “${smartCreate.title}”`,
+      description: `Start a new ${noun} with this title`, icon: Plus,
+      run: () => create(smartCreate.kind, smartCreate.title),
+    });
+  }
+
+  function renderHit(hit: SearchHit) {
+    const Icon = searchKindIcon(hit.kind);
+    return (
+      <AnimatedPressable key={`${hit.kind}:${hit.id}`} accessibilityRole="button" accessibilityLabel={`Open ${hit.kind}: ${hit.title || "Untitled"}`}
+        onPress={() => navigate(hrefFor(hit.kind, hit.id))} style={styles.row}>
+        <View style={styles.resultIcon}><Icon size={20} color={colors.primary} /></View>
+        <View style={styles.resultContent}>
+          <Text style={styles.kind}>{hit.kind}</Text>
+          <Text numberOfLines={2} style={styles.title}>{hit.title || "Untitled"}</Text>
+          {hit.snippet ? <Text numberOfLines={2} style={styles.snippet}>{hit.snippet}</Text> : null}
+        </View>
+        <ArrowUpRight size={16} color={colors.mutedForeground} />
+      </AnimatedPressable>
+    );
+  }
+
+  const hiddenToggle = hidden.length > 0 && !hiddenShown ? (
+    <View style={styles.hiddenRow}>
+      <Text style={styles.hiddenText}>
+        {hits.length === 0 ? "No good matches." : `${hidden.length} weak ${hidden.length === 1 ? "match" : "matches"} hidden`}
+      </Text>
+      <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Show ${hidden.length} weak ${hidden.length === 1 ? "match" : "matches"}`}
+        onPress={() => setShowHidden(trimmed)} hitSlop={8} style={styles.hiddenShow}>
+        <Text style={styles.tabLabelSelected}>Show</Text>
+      </AnimatedPressable>
+    </View>
+  ) : null;
 
   return (
     <Screen>
@@ -125,6 +172,14 @@ export default function SearchTab() {
         </ScrollView>
       </View>
       <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.results}>
+        {!pending && !failed && smartCategory ? (
+          <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Looking for ${smartCategory.label}? Show only ${smartCategory.label.toLowerCase()}`}
+            onPress={() => { setCategory(smartCategory.id); scroll.current?.scrollTo({ y: 0, animated: false }); }}
+            style={styles.suggestChip}>
+            <Sparkles size={14} color={colors.primary} />
+            <Text style={styles.suggestText}>Looking for {smartCategory.label}?</Text>
+          </AnimatedPressable>
+        ) : null}
         <View accessibilityLiveRegion="polite">
           {pending ? <Text style={styles.status}>Searching your workspace…</Text> : failed ? (
             <View style={styles.error}>
@@ -133,25 +188,15 @@ export default function SearchTab() {
                 <Text style={styles.tabLabelSelected}>Retry search</Text>
               </AnimatedPressable>
             </View>
+          ) : trimmed && hits.length === 0 && hidden.length > 0 ? (
+            hiddenToggle ?? <Text style={styles.status}>No good matches.</Text>
           ) : trimmed && hits.length === 0 ? (
             <EmptyState icon={SearchIcon} title="No matching items" description="Try another keyword or category." />
           ) : hits.length > 0 ? <Text style={styles.sectionHeading}>{hits.length} {hits.length === 1 ? "result" : "results"}</Text> : null}
         </View>
-        {hits.map((hit) => {
-          const Icon = categories.find((tab) => tab.id === hit.kind)?.icon ?? FileText;
-          return (
-            <AnimatedPressable key={`${hit.kind}:${hit.id}`} accessibilityRole="button" accessibilityLabel={`Open ${hit.kind}: ${hit.title || "Untitled"}`}
-              onPress={() => navigate(hrefFor(hit.kind, hit.id))} style={styles.row}>
-              <View style={styles.resultIcon}><Icon size={20} color={colors.primary} /></View>
-              <View style={styles.resultContent}>
-                <Text style={styles.kind}>{hit.kind}</Text>
-                <Text numberOfLines={2} style={styles.title}>{hit.title || "Untitled"}</Text>
-                {hit.snippet ? <Text numberOfLines={2} style={styles.snippet}>{hit.snippet}</Text> : null}
-              </View>
-              <ArrowUpRight size={16} color={colors.mutedForeground} />
-            </AnimatedPressable>
-          );
-        })}
+        {hits.map(renderHit)}
+        {hits.length > 0 ? hiddenToggle : null}
+        {hiddenShown ? hidden.map(renderHit) : null}
         {commands.length > 0 && <Text style={styles.sectionHeading}>Quick actions</Text>}
         {commands.map((command) => (
           <AnimatedPressable key={command.id} accessibilityRole="button" accessibilityLabel={command.title} onPress={command.run} style={styles.row}>
@@ -192,5 +237,10 @@ const styles = createThemedStyleSheet((colors) => ({
   status: { color: colors.mutedForeground, fontSize: 13, paddingVertical: 12 },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18, paddingVertical: 12 },
   error: { gap: 4 },
+  hiddenRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 },
+  hiddenText: { color: colors.mutedForeground, fontSize: 12 },
+  hiddenShow: { minHeight: 44, justifyContent: "center", paddingHorizontal: 4 },
+  suggestChip: { alignSelf: "flex-start", minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: 18, backgroundColor: colors.accent },
+  suggestText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   retry: { minHeight: 48, alignSelf: "flex-start", justifyContent: "center", paddingHorizontal: 16, borderRadius: 12, backgroundColor: colors.accent },
 }));

@@ -8,6 +8,7 @@ import { ChevronRight, Archive, Download, FileDown, FileText, History, LayoutTem
 import { exportDocPdf } from "@/app/utils/printDoc";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import HeadingMinimap from "@/app/_components/docs/headingMinimap";
+import RelatedItems from "@/app/_components/_ui/relatedItems";
 import Backlinks from "@/app/_components/docs/backlinks";
 import DocHistory from "@/app/_components/docs/docHistory";
 import { insertPageMention } from "@/app/_components/editor/mention";
@@ -472,6 +473,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               <span className="rounded-full bg-primary/12 px-2 py-0.5 font-medium text-primary">Template</span>
             )}
             <Backlinks docId={doc.id} />
+            <RelatedItems kind="doc" id={doc.id} />
           </div>
         </div>
 

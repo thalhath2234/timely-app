@@ -38,6 +38,7 @@ import { useAutosave } from "../../../lib/autosave";
 import type { UpdateProjectPayload } from "../../../lib/api/projects";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import DescriptionCard from "../../../components/editor/DescriptionCard";
+import RelatedList from "../../../components/search/RelatedList";
 import { isRichContentEmpty, toRichContent } from "../../../lib/richText";
 import type { DocContent, Stage, Task } from "../../../lib/types";
 
@@ -343,6 +344,7 @@ export default function ProjectDetailScreen() {
             void duplicate.mutateAsync(project.id).then((copy) => router.push(`/(app)/projects/${copy.id}`))
           }
         />
+        <RelatedList kind="project" id={project.id} />
         <SectionLabel>Activity</SectionLabel>
         <Text style={styles.meta}>Edits to the project’s own title, dates and description are not recorded yet.</Text>
         {(activity.data ?? []).slice(0, 20).map((entry) => (

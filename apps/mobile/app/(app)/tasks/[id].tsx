@@ -18,6 +18,7 @@ import DescriptionCard from "../../../components/editor/DescriptionCard";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import TaskSectionHeader from "../../../components/tasks/TaskSectionHeader";
 import InboxSuggestionsCard from "../../../components/tasks/InboxSuggestionsCard";
+import RelatedList from "../../../components/search/RelatedList";
 import { toCustomFieldDrafts } from "../../../lib/customFields";
 import type { CustomFieldValueInput, DocContent } from "../../../lib/types";
 import {
@@ -716,6 +717,12 @@ export default function TaskDetailScreen() {
           }}
         />
         </View>
+        <RelatedList
+          kind="task"
+          id={task.id}
+          style={styles.sectionCard}
+          heading={<TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title="Related" subtitle="Similar work, docs and projects" />}
+        />
         <Pressable
           onPress={() =>
             setConfirm({

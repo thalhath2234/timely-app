@@ -28,7 +28,7 @@ import {
 } from "./api/schedule";
 import { useScheduleActivity } from "./scheduleActivity";
 import { createEvent, deleteEvent, editEventOccurrence, getEvent, splitEventSeries, updateEvent } from "./api/events";
-import { searchItems } from "./api/search";
+import { relatedItems, searchItems, smartSearch, type RelatedKind } from "./api/search";
 import { listApiKeys, createApiKey, revokeApiKey } from "./api/apiKeys";
 import {
   connectProvider,
@@ -102,6 +102,8 @@ export const keys = {
   scheduleSettings: ["schedule-settings"] as const,
   activity: (id: string) => ["task-activity", id] as const,
   search: (q: string) => ["search", q] as const,
+  smartSearch: (q: string) => ["smart-search", q] as const,
+  related: (kind: string, id: string) => ["related", kind, id] as const,
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
   agentProviders: ["agent-providers"] as const,
@@ -366,6 +368,36 @@ export function useSearchQuery(query: string) {
     enabled: trimmed.length > 0,
   });
   return { ...result, query: trimmed };
+}
+
+/**
+ * Smart suggestions' take on a search. Pass the `query` useSearchQuery
+ * returns (already debounced and trimmed) so both run on the same text.
+ * Nothing is requested while Smart suggestions are off.
+ */
+export function useSmartSearchQuery(debouncedQuery: string, enabled = true) {
+  const query = debouncedQuery.trim();
+  const status = useDecisionsStatusQuery(enabled && query.length >= 2);
+  const result = useQuery({
+    queryKey: keys.smartSearch(query),
+    queryFn: () => smartSearch(query),
+    enabled: enabled && query.length >= 2 && status.data?.available === true,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  return { ...result, query };
+}
+
+/** Items related to one task, project, doc or sheet; quiet while Smart suggestions are off. */
+export function useRelatedQuery(kind: RelatedKind, id: string | undefined, enabled = true) {
+  const status = useDecisionsStatusQuery(enabled && !!id);
+  return useQuery({
+    queryKey: keys.related(kind, id ?? ""),
+    queryFn: () => relatedItems(kind, id ?? ""),
+    enabled: enabled && !!id && status.data?.available === true,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
 }
 
 export function useApiKeysQuery() {

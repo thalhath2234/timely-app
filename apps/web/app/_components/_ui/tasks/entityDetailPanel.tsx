@@ -85,6 +85,7 @@ import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import ConfirmDialog from "@/app/_components/_ui/confirmDialog";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import TaskExecution from "@/app/_components/_ui/tasks/taskExecution";
+import RelatedItems from "@/app/_components/_ui/relatedItems";
 import { runViewTransition } from "@/app/utils/viewTransition";
 import {
   attachMorphTarget,
@@ -370,6 +371,7 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
       }}
     >
       <TaskExecution task={task} />
+      {task.kind !== "inbox" && <RelatedItems kind="task" id={task.id} section />}
     </DetailBody>
   );
 }
@@ -448,6 +450,7 @@ function ProjectDetail({
           </ul>
         </section>
       )}
+      <RelatedItems kind="project" id={project.id} section />
     </DetailBody>
   );
 }

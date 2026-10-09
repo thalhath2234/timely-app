@@ -5,6 +5,8 @@ export type QuickAddPreset = {
   start?: Date;
   projectId?: string;
   workspaceId?: string;
+  /** Prefills the title field, e.g. from a "make a budget sheet" search. */
+  title?: string;
 };
 
 type Listener = (preset: QuickAddPreset) => void;

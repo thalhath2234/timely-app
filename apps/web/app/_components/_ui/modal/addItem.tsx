@@ -810,6 +810,19 @@ function AddItemModalInner() {
     filledRef.current = { ...filled, secondDone: true };
   }, [suggestions, selectedTaskWorkspaceId, selectedTaskWorkspace, availableTaskProjects, getTaskFieldState, setValueTask]);
 
+  // A title suggested elsewhere (smart search's "Create sheet “Budget”")
+  // pre-fills the doc, sheet or project form once.
+  useEffect(() => {
+    const name = createTaskDraft?.name;
+    if (!isAddItemModalOpen || !name) return;
+    if (addNewMode === "doc" || addNewMode === "sheet") {
+      setValuePage("title", name, { shouldValidate: true });
+    } else if (addNewMode === "project") {
+      setValue("title", name, { shouldValidate: true });
+    } else return;
+    setCreateTaskDraft({ ...createTaskDraft, name: undefined });
+  }, [isAddItemModalOpen, addNewMode, createTaskDraft, setValuePage, setValue, setCreateTaskDraft]);
+
   // Sync Doc / Sheet Workspace
   useEffect(() => {
     if (
