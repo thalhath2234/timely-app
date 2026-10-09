@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"reflect"
@@ -41,6 +42,9 @@ type Deps struct {
 	Notify     *notify.Service
 	Jobs       *jobs.Queue
 	Portable   *portability.Service
+	// Estimate suggests minutes for new Work with no length (smart
+	// suggestions); nil or a false answer keeps the 30-minute default.
+	Estimate func(ctx context.Context, userID, name, description string) (int, bool)
 }
 
 type Server struct {

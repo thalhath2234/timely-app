@@ -17,6 +17,7 @@ import EmptyState from "../../../components/ui/EmptyState";
 import DescriptionCard from "../../../components/editor/DescriptionCard";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import TaskSectionHeader from "../../../components/tasks/TaskSectionHeader";
+import InboxSuggestionsCard from "../../../components/tasks/InboxSuggestionsCard";
 import { toCustomFieldDrafts } from "../../../lib/customFields";
 import type { CustomFieldValueInput, DocContent } from "../../../lib/types";
 import {
@@ -234,7 +235,7 @@ export default function TaskDetailScreen() {
       id: task!.id,
       data: {
         ...data,
-        ...(!task!.workspaceId && assigningMeta && metaWorkspaceId ? { workspaceId: metaWorkspaceId } : {}),
+        ...(!task!.workspaceId && !data.workspaceId && assigningMeta && metaWorkspaceId ? { workspaceId: metaWorkspaceId } : {}),
       },
     });
   }
@@ -274,6 +275,19 @@ export default function TaskDetailScreen() {
             autoCapitalize="sentences"
           />
         </View>
+        <InboxSuggestionsCard
+          key={task.id}
+          task={task}
+          spaces={spaces}
+          projects={projects}
+          fallbackWorkspaceId={metaWorkspaceId}
+          onApply={(data) => {
+            if (data.workspaceId) setMetaWorkspaceId(data.workspaceId);
+            if (data.labelIds) setLabelIds(data.labelIds.map((label) => label.id));
+            persist(data);
+          }}
+          onOpenTask={(taskId) => router.push(`/(app)/tasks/${taskId}`)}
+        />
         <DescriptionCard
             onSelectionChange={setAssistantSelection}
             content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}

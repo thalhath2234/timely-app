@@ -163,6 +163,11 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	if err != nil {
 		return fail(err)
 	}
+	if in.Duration == nil && s.Estimate != nil && (in.Kind == "" || strings.EqualFold(in.Kind, models.KindTask)) {
+		if minutes, ok := s.Estimate(ctx, uid, in.Name, in.Description); ok {
+			in.Duration = &minutes
+		}
+	}
 	in, err = prepareCreateTask(in)
 	if err != nil {
 		return fail(err)
