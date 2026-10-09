@@ -23,6 +23,7 @@ import { shareExport } from "../../lib/api/portability";
 import { getDocVersion, getDocVersions, restoreDocVersion, type DocVersion } from "../../lib/api/docs";
 import { DOC_VERSION_REASONS } from "@timely/contract/documents";
 import RichDoc from "./RichDoc";
+import RelatedList from "../search/RelatedList";
 import { PrimaryButton } from "../ui/primitives";
 import { FILES_TAB, fileHref } from "../../lib/fileRoutes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -209,6 +210,7 @@ function DocEditor({ docId }: { docId: string }) {
           </Pressable>
         ) : null}
       </View>
+      <RelatedList kind="doc" id={docId} variant="chips" />
 
       <RichTextEditor
         content={

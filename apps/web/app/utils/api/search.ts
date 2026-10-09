@@ -54,3 +54,44 @@ export async function searchItems(
     return true;
   });
 }
+
+/** What smart suggestions (Jev) make of a search. `hits` is null when Jev
+ * did not answer: keep the plain order. */
+export type SmartSearch = {
+  hits: SearchHit[] | null;
+  hidden?: SearchHit[];
+  category?: "doc" | "sheet" | "task" | "project" | "event";
+  create?: { kind: "doc" | "sheet" | "task" | "project" | "event"; title: string };
+  logId?: string;
+};
+
+export async function smartSearch(query: string): Promise<SmartSearch> {
+  const params = new URLSearchParams({ q: query.trim() });
+  const response = await apiFetch(`/search/smart?${params.toString()}`, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Search failed"));
+  }
+  return response.json();
+}
+
+export type RelatedItem = {
+  kind: "task" | "project" | "doc" | "sheet";
+  id: string;
+  title: string;
+  snippet?: string;
+};
+
+/** Items Jev confirms are about the same thing; [] when it is off. */
+export async function relatedItems(kind: RelatedItem["kind"], id: string): Promise<RelatedItem[]> {
+  const params = new URLSearchParams({ kind, id });
+  const response = await apiFetch(`/search/related?${params.toString()}`, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Couldn't load related items"));
+  }
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}

@@ -221,3 +221,31 @@ func TestIntegrationHybridFusesVectorAndKeyword(t *testing.T) {
 		}
 	}
 }
+
+func TestIntegrationExistingDropsGoneItems(t *testing.T) {
+	db := integrationDB(t)
+	user, other := uuid.NewString(), uuid.NewString()
+	seed(t, db, user)
+	svc := NewService(db, nil)
+	got := svc.Existing(user, []embed.Hit{
+		{Kind: "task", EntityID: "t-exact"},
+		{Kind: "doc", EntityID: "d-deleted"}, // its embeddings outlived it
+		{Kind: "project", EntityID: "p-title"},
+		{Kind: "sheet", EntityID: "s-prefix"},
+		{Kind: "event", EntityID: "e-body"},
+		{Kind: "task", EntityID: "t-gone"},
+	})
+	want := []string{"t-exact", "p-title", "s-prefix", "e-body"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i, hit := range got {
+		if hit.EntityID != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	// Another account's items are never "existing" for this one.
+	if got := svc.Existing(other, []embed.Hit{{Kind: "task", EntityID: "t-exact"}, {Kind: "project", EntityID: "p-title"}}); len(got) != 0 {
+		t.Fatalf("other account's items must be dropped: %v", got)
+	}
+}

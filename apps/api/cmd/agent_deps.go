@@ -27,6 +27,10 @@ import (
 // without a length (nil keeps the 30-minute default). Set in main.
 var workEstimate func(ctx context.Context, userID, name, description string) (int, bool)
 
+// searchRerank lets smart suggestions reorder the agent's semantic_search
+// results; nil keeps the plain order. Set in main once Jev is wired.
+var searchRerank func(ctx context.Context, userID, query string, hits []search.Hit) (kept, hidden []search.Hit, ok bool)
+
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
 // creds supplies each account's own embedding key, as for the REST indexer;
@@ -59,5 +63,6 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		Docs:   doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer),
 		Search:   search.NewService(db, indexer),
 		Estimate: workEstimate,
+		Rerank:   searchRerank,
 	})
 }

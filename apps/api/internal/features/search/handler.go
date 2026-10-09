@@ -11,7 +11,11 @@ import (
 
 type Handler struct {
 	service Service
+	smart   *Smart
 }
+
+// SetSmart turns on GET /search/smart and /search/related.
+func (h *Handler) SetSmart(smart *Smart) { h.smart = smart }
 
 func NewHandler(service Service) *Handler {
 	return &Handler{service: service}
@@ -41,6 +45,40 @@ func (h *Handler) Search(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	return c.JSON(http.StatusOK, hits)
+}
+
+// Smart answers what Jev makes of a search: a new order, clear misses, the
+// likely kind and a create command. Clients show plain results first and
+// apply this when it arrives; an empty answer changes nothing.
+func (h *Handler) Smart(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	if h.smart == nil {
+		return c.JSON(http.StatusOK, SmartResult{})
+	}
+	out, err := h.smart.Search(c.Request().Context(), userID, c.QueryParam("q"), splitKinds(c.QueryParam("kinds")))
+	if err != nil {
+		return searchError(err)
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
+// Related lists items closely related to one task, project, doc or sheet.
+func (h *Handler) Related(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	if h.smart == nil {
+		return c.JSON(http.StatusOK, []RelatedItem{})
+	}
+	items, err := h.smart.Related(c.Request().Context(), userID, c.QueryParam("kind"), c.QueryParam("id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return c.JSON(http.StatusOK, items)
 }
 
 func (h *Handler) Reindex(c *echo.Context) error {

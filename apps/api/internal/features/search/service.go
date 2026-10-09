@@ -31,6 +31,8 @@ type Service interface {
 	// instead of failing, so callers always get something.
 	SemanticSearch(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error)
 	Reindex(ctx context.Context, userID string) (int, error)
+	// Existing keeps the vector hits whose item still exists for the account.
+	Existing(userID string, hits []embed.Hit) []embed.Hit
 }
 
 type service struct {
@@ -150,6 +152,7 @@ func (s *service) vector(ctx context.Context, userID, query string, limit int, k
 	if err != nil {
 		return nil, err
 	}
+	raw = s.Existing(userID, raw)
 	hits := make([]Hit, 0, len(raw))
 	for _, item := range raw {
 		if item.EntityID == "" {
@@ -165,6 +168,51 @@ func (s *service) vector(ctx context.Context, userID, query string, limit int, k
 		})
 	}
 	return hits, nil
+}
+
+// Existing drops hits for items that are gone. Embeddings can outlive an
+// item removed by a path that doesn't clean them up (a deleted workspace, for
+// one), and a hit for it would open a missing page. On a lookup error the
+// hits are kept: a stale hit is better than no results.
+func (s *service) Existing(userID string, hits []embed.Hit) []embed.Hit {
+	ids := map[string][]string{}
+	for _, hit := range hits {
+		ids[hit.Kind] = append(ids[hit.Kind], hit.EntityID)
+	}
+	live := map[string]bool{}
+	for kind, list := range ids {
+		var q *gorm.DB
+		switch kind {
+		case embed.KindTask:
+			q = s.db.Model(&models.Task{}).Where("user_id = ? AND id IN ?", userID, list)
+		case embed.KindProject:
+			q = s.db.Model(&models.Project{}).Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
+				Where("workspaces.user_id = ? AND projects.id IN ?", userID, list).Select("projects.id")
+		case embed.KindDoc:
+			q = s.db.Model(&models.Document{}).Where("user_id = ? AND id IN ?", userID, list)
+		case embed.KindSheet:
+			q = s.db.Model(&models.Sheet{}).Where("user_id = ? AND id IN ?", userID, list)
+		case embed.KindEvent:
+			q = s.db.Model(&models.Event{}).Where("user_id = ? AND id IN ?", userID, list)
+		default:
+			continue
+		}
+		var found []string
+		if err := q.Pluck("id", &found).Error; err != nil {
+			log.Printf("search: checking %s hits failed: %v", kind, err)
+			return hits
+		}
+		for _, id := range found {
+			live[kind+"/"+id] = true
+		}
+	}
+	out := hits[:0:0]
+	for _, hit := range hits {
+		if live[hit.Kind+"/"+hit.EntityID] {
+			out = append(out, hit)
+		}
+	}
+	return out
 }
 
 func (s *service) Reindex(ctx context.Context, userID string) (int, error) {

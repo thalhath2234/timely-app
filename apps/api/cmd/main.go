@@ -138,6 +138,8 @@ func main() {
 	providerService.SetDecisions(decisions, jev)
 	suggestions := suggest.New(db, decisions, searchService)
 	workEstimate = suggestions.Estimate
+	smartSearch := search.NewSmart(searchService, indexer, decisions)
+	searchRerank = smartSearch.Rerank
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -153,6 +155,7 @@ func main() {
 		Jobs:       jobQueue,
 		Portable:   portabilityService,
 		Estimate:   suggestions.Estimate,
+		Rerank:     smartSearch.Rerank,
 	})
 
 	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) }, chat.NewOpenRouter())
@@ -189,7 +192,7 @@ func main() {
 		Calendar:  calendar.NewHandler(calendarService),
 		Schedule:  schedule.NewHandler(scheduleService),
 		ApiKey:    apikey.NewHandler(apiKeyService),
-		Search:    search.NewHandler(searchService),
+		Search:    searchHandler(searchService, smartSearch),
 		Suggest:   suggestions,
 		Notify:    notify.NewHandler(notifyService, jobQueue),
 		Portable:  portability.NewHandler(portabilityService),
@@ -274,6 +277,13 @@ func main() {
 // listenConfig reads API_PORT (fallback PORT, default 8080) and API_BIND, a
 // comma-separated list of hosts that defaults to loopback only. Hosting on a
 // server still works with API_BIND=0.0.0.0.
+// searchHandler serves /search with smart search on top.
+func searchHandler(service search.Service, smart *search.Smart) *search.Handler {
+	h := search.NewHandler(service)
+	h.SetSmart(smart)
+	return h
+}
+
 func listenConfig() (int, []string) {
 	portText := strings.TrimSpace(os.Getenv("API_PORT"))
 	if portText == "" {

@@ -180,6 +180,27 @@ func (i *indexer) Query(ctx context.Context, userID, query string, limit int, ki
 	return rank(chunks, vectors[0], kinds, limit), nil
 }
 
+// Related returns the items nearest to an indexed one. It needs no
+// embedding call: the source's own vectors are the query. ErrNotIndexed
+// means the source has no vectors yet.
+func (i *indexer) Related(ctx context.Context, userID, kind, entityID string, limit int, kinds []string) (Source, []Hit, error) {
+	if !i.EnabledFor(userID) {
+		return Source{}, nil, ErrDisabled
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	chunks, err := i.vectors.get(ctx, userID)
+	if err != nil {
+		return Source{}, nil, err
+	}
+	src, hits, ok := related(chunks, kind, entityID, normalizeKinds(kinds), limit)
+	if !ok {
+		return Source{}, nil, ErrNotIndexed
+	}
+	return src, hits, nil
+}
+
 func normalizeKinds(kinds []string) []string {
 	allowed := map[string]bool{
 		KindTask: true, KindProject: true, KindDoc: true, KindSheet: true, KindEvent: true,

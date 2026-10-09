@@ -193,6 +193,7 @@ export default function QuickAddSheet({
   useEffect(() => {
     if (!open || !preset) return;
     if (preset.kind) setKind(preset.kind);
+    if (preset.title) setTitle(preset.title);
     if (preset.workspaceId) setWorkspaceId(preset.workspaceId);
     if (preset.start) {
       if (preset.kind === "event") setEventStart(preset.start);

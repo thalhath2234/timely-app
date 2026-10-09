@@ -100,3 +100,26 @@ func TestVectorCacheLoadError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestRelatedUsesTheSourcesOwnVectors(t *testing.T) {
+	chunks := fixtureChunks()
+	for i := range chunks {
+		chunks[i].norm = norm(chunks[i].vec)
+	}
+	src, hits, ok := related(chunks, KindDoc, "d1", nil, 10)
+	if !ok || src.Title != "Notes" || src.Content != "orthogonal" {
+		t.Fatalf("source = %+v, ok %v", src, ok)
+	}
+	for _, hit := range hits {
+		if hit.EntityID == "d1" {
+			t.Fatalf("the source itself is listed: %+v", hits)
+		}
+	}
+	// t1's second chunk leans toward d1, so t1 beats the opposite event.
+	if len(hits) != 2 || hits[0].EntityID != "t1" || hits[1].EntityID != "e1" {
+		t.Fatalf("hits = %+v", hits)
+	}
+	if _, _, ok := related(chunks, KindDoc, "missing", nil, 10); ok {
+		t.Fatal("an item with no chunks should report not found")
+	}
+}
