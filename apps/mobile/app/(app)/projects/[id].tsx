@@ -39,6 +39,7 @@ import type { UpdateProjectPayload } from "../../../lib/api/projects";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import DescriptionCard from "../../../components/editor/DescriptionCard";
 import RelatedList from "../../../components/search/RelatedList";
+import ProjectInsightsCard from "../../../components/projects/ProjectInsightsCard";
 import { isRichContentEmpty, toRichContent } from "../../../lib/richText";
 import type { DocContent, Stage, Task } from "../../../lib/types";
 
@@ -344,6 +345,7 @@ export default function ProjectDetailScreen() {
             void duplicate.mutateAsync(project.id).then((copy) => router.push(`/(app)/projects/${copy.id}`))
           }
         />
+        <ProjectInsightsCard project={project} />
         <RelatedList kind="project" id={project.id} />
         <SectionLabel>Activity</SectionLabel>
         <Text style={styles.meta}>Edits to the project’s own title, dates and description are not recorded yet.</Text>

@@ -65,3 +65,43 @@ export const getSheetTemplateSuggestion = (title: string) =>
   api<SheetTemplateSuggestion>(`/suggestions/sheet-template?title=${encodeURIComponent(title)}`);
 export const getColumnTypeSuggestions = (columns: { name: string; values: string[] }[]) =>
   api<ColumnTypeSuggestions>("/suggestions/column-types", { method: "POST", body: { columns } });
+
+/** What a task's own words suggest. Every field is optional. */
+export type TaskHints = {
+  available: boolean;
+  logId?: string;
+  statusId?: string;
+  stageId?: string;
+  fields?: { fieldId: string; type: string; optionIds?: string[]; value?: string }[];
+  blockedBy?: { id: string; name: string };
+  vagueOutcome?: boolean;
+  checklistGap?: boolean;
+  notDone?: boolean;
+  openChecklist?: number;
+};
+export const getTaskHints = (id: string) => api<TaskHints>(`/suggestions/task/${encodeURIComponent(id)}`);
+
+export type StaleVerdict = "actionable" | "clarify" | "blocked" | "obsolete";
+export type StaleWork = {
+  available: boolean;
+  logId?: string;
+  tasks: { id: string; name: string; idleDays: number; verdict?: StaleVerdict }[];
+};
+export const getStaleWork = () => api<StaleWork>("/suggestions/stale-work");
+export const keepStaleTask = (id: string) =>
+  api<void>(`/suggestions/stale-work/${encodeURIComponent(id)}/keep`, { method: "POST" });
+
+export type ProjectInsights = {
+  available: boolean;
+  logId?: string;
+  facts: { open: number; done: number; doneRecent: number; overdue: number; blocked: number; idleDays: number; daysLeft?: number };
+  health?: "progressing" | "stalled" | "blocked";
+  noBrief?: boolean;
+  noOutcome?: boolean;
+  noNextAction?: boolean;
+  uncovered?: string[];
+  misfiled?: { taskId: string; name: string; moveTo?: string; moveToTitle?: string }[];
+  overlaps?: { id: string; title: string }[];
+};
+export const getProjectInsights = (id: string) =>
+  api<ProjectInsights>(`/suggestions/project/${encodeURIComponent(id)}`);

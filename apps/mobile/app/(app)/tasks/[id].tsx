@@ -18,8 +18,9 @@ import DescriptionCard from "../../../components/editor/DescriptionCard";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import TaskSectionHeader from "../../../components/tasks/TaskSectionHeader";
 import InboxSuggestionsCard from "../../../components/tasks/InboxSuggestionsCard";
+import TaskHintsCard from "../../../components/tasks/TaskHintsCard";
 import RelatedList from "../../../components/search/RelatedList";
-import { toCustomFieldDrafts } from "../../../lib/customFields";
+import { toCustomFieldDrafts, withCustomFieldDraft } from "../../../lib/customFields";
 import type { CustomFieldValueInput, DocContent } from "../../../lib/types";
 import {
   useAddBlock,
@@ -289,6 +290,21 @@ export default function TaskDetailScreen() {
           }}
           onOpenTask={(taskId) => router.push(`/(app)/tasks/${taskId}`)}
         />
+        {!isInbox && !isReminder ? (
+          <TaskHintsCard
+            key={`hints:${task.id}`}
+            task={task}
+            workspace={workspace}
+            stages={stages}
+            fieldValues={customFieldValues}
+            onApply={persist}
+            onField={(field, value) => {
+              const next = withCustomFieldDraft(customFieldValues, field, value);
+              setCustomFieldValues(next);
+              persist({ customFieldValues: next });
+            }}
+          />
+        ) : null}
         <DescriptionCard
             onSelectionChange={setAssistantSelection}
             content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}

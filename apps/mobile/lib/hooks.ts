@@ -49,6 +49,10 @@ import {
   getDecisionSettings,
   getDecisionsStatus,
   getInboxSuggestions,
+  getProjectInsights,
+  getStaleWork,
+  getTaskHints,
+  keepStaleTask,
   patchDecisionSettings,
   removeTypeSafeKey,
   sendDecisionFeedback,
@@ -111,6 +115,9 @@ export const keys = {
   decisionSettings: ["decisions", "settings"] as const,
   decisionsStatus: ["decisions", "status"] as const,
   inboxSuggestions: (id: string) => ["inbox-suggestions", id] as const,
+  taskHints: (id: string, version: string) => ["task-hints", id, version] as const,
+  staleWork: ["stale-work"] as const,
+  projectInsights: (id: string, version: string) => ["project-insights", id, version] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
   freeTime: ["schedule", "free-time"] as const,
@@ -485,6 +492,52 @@ export function useInboxSuggestionsQuery(id: string | undefined, enabled = true)
     enabled: Boolean(id) && enabled,
     retry: false,
     staleTime: Infinity,
+  });
+}
+
+/** Hints from a task's own words; asked again when `version` changes. */
+export function useTaskHintsQuery(id: string | undefined, version: string, enabled = true) {
+  const status = useDecisionsStatusQuery(enabled && !!id);
+  return useQuery({
+    queryKey: keys.taskHints(id ?? "", version),
+    queryFn: () => getTaskHints(id!),
+    enabled: enabled && !!id && status.data?.available === true,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Open Work with no activity for three weeks, with what each likely needs. */
+export function useStaleWorkQuery(enabled = true) {
+  const status = useDecisionsStatusQuery(enabled);
+  return useQuery({
+    queryKey: keys.staleWork,
+    queryFn: getStaleWork,
+    enabled: enabled && status.data?.available === true,
+    retry: false,
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
+export function useKeepStaleTask() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: keepStaleTask,
+    onSuccess: (_data, id) =>
+      client.setQueryData(keys.staleWork, (old: { tasks: { id: string }[] } | undefined) =>
+        old ? { ...old, tasks: old.tasks.filter((task) => task.id !== id) } : old,
+      ),
+  });
+}
+
+export function useProjectInsightsQuery(id: string | undefined, version: string) {
+  const status = useDecisionsStatusQuery(!!id);
+  return useQuery({
+    queryKey: keys.projectInsights(id ?? "", version),
+    queryFn: () => getProjectInsights(id!),
+    enabled: !!id && status.data?.available === true,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
