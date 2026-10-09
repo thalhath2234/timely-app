@@ -196,6 +196,7 @@ func main() {
 		ApiKey:    apikey.NewHandler(apiKeyService),
 		Search:    searchHandler(searchService, smartSearch),
 		Suggest:   suggestions,
+		Merge:     workspace.NewMerger(db),
 		Notify:    notify.NewHandler(notifyService, jobQueue),
 		Portable:  portability.NewHandler(portabilityService),
 		MCP:       agent.Handler(mcpServer, apiKeyService.Verifier()),

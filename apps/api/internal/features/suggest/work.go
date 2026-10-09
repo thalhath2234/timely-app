@@ -533,14 +533,13 @@ func (s *Service) keepStale(c *echo.Context) error {
 	return c.NoContent(204)
 }
 
-// parseWhen reads the timestamps tasks and activities store: RFC3339, or a
-// bare date for older rows.
+// parseWhen reads the timestamps tasks and activities store: RFC3339,
+// Postgres' own text form, or a bare date for older rows.
 func parseWhen(v string) time.Time {
-	if t, err := time.Parse(time.RFC3339, v); err == nil {
-		return t
-	}
-	if t, err := time.Parse("2006-01-02", v); err == nil {
-		return t
+	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05.999999999-07", "2006-01-02 15:04:05.999999999-07:00", "2006-01-02"} {
+		if t, err := time.Parse(layout, v); err == nil {
+			return t
+		}
 	}
 	return time.Time{}
 }
