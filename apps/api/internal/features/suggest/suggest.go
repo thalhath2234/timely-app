@@ -20,10 +20,18 @@ import (
 
 // Budget is how long a screen waits for suggestions before showing without them.
 const (
-	screenBudget   = 3 * time.Second
-	estimateBudget = 1500 * time.Millisecond
-	maxLabels      = 30
-	maxDuplicates  = 3
+	// The Clarify form stays usable while it waits, so its budget covers a
+	// slow OpenRouter round trip: semantic search, then up to two Jev calls.
+	screenBudget   = 10 * time.Second
+	estimateBudget = 3 * time.Second
+	// searchBudget caps the duplicate search so a slow embedding call costs
+	// only the duplicate hints, not the whole answer.
+	searchBudget = 2 * time.Second
+	// labelsMinLeft is the time the labels call needs; with less left the
+	// form gets the rest of its suggestions without labels.
+	labelsMinLeft = 1500 * time.Millisecond
+	maxLabels     = 30
+	maxDuplicates = 3
 )
 
 type Service struct {
@@ -308,7 +316,9 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 		}
 	}
 	if out.WorkspaceID != "" {
-		out.LabelIDs = s.labels(ctx, userID, out.WorkspaceID, state)
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > labelsMinLeft {
+			out.LabelIDs = s.labels(ctx, userID, out.WorkspaceID, state)
+		}
 	}
 	return out, nil
 }
@@ -318,7 +328,9 @@ func (s *Service) candidates(ctx context.Context, userID string, item models.Tas
 	if s.search == nil {
 		return nil
 	}
-	hits, err := s.search.SemanticSearch(ctx, userID, item.Name, 8, []string{"task"})
+	sctx, cancel := context.WithTimeout(ctx, searchBudget)
+	defer cancel()
+	hits, err := s.search.SemanticSearch(sctx, userID, item.Name, 8, []string{"task"})
 	if err != nil || len(hits) == 0 {
 		return nil
 	}
