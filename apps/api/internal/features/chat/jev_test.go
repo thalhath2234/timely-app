@@ -13,6 +13,7 @@ import (
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/decide"
 
+	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
 )
 
@@ -155,50 +156,80 @@ func TestIntegrationTriageOffOrUnsureChangesNothing(t *testing.T) {
 	}
 }
 
-func TestIntegrationSimilarChatIsPointedOut(t *testing.T) {
+func TestIntegrationSimilarChatWaitsForAChoice(t *testing.T) {
 	db := integrationDB(t)
-	earlier := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Plan the Lisbon trip", Status: "idle", Phase: "plan", Context: []ContextChip{}, Messages: []Message{}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
-	other := Conversation{ID: id("chat_"), UserID: "user-b", Title: "Plan the Lisbon trip", Status: "idle", Phase: "plan", Context: []ContextChip{}, Messages: []Message{}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
-	db.Create(&earlier)
-	db.Create(&other)
 	jev, _ := fakeJev(t, map[string]any{"similar": choice("Plan the Lisbon trip", 0.9)})
-	model := &scripted{responses: []WireMessage{{Role: "assistant", Content: "Sure."}}}
+	model := &scripted{}
 	s := New(db, readCatalog, model)
 	s.SetDecisions(jev)
-	c := planFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil {
-		t.Fatal(err)
+	e := echo.New()
+	g := e.Group("")
+	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", "user-a"); return next(c) }
+	})
+	s.Routes(g)
+	post := func(path, body string) (int, Conversation) {
+		t.Helper()
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		e.ServeHTTP(w, r)
+		var row Conversation
+		_ = json.Unmarshal(w.Body.Bytes(), &row)
+		return w.Code, row
 	}
-	var found *Message
-	for i := range c.Messages {
-		if c.Messages[i].Kind == "similar" {
-			found = &c.Messages[i]
+	newChat := func() (Conversation, Conversation) {
+		earlier := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Plan the Lisbon trip", Status: "idle", Phase: "plan", Context: []ContextChip{}, Messages: []Message{message("user", "Plan the Lisbon trip")}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		db.Create(&earlier)
+		c := planFixture(t, db)
+		c.Messages = []Message{message("user", "Help me plan the Lisbon trip")}
+		db.Save(&c)
+		model.responses = nil
+		if err := s.plan(context.Background(), &c); err != nil {
+			t.Fatal(err)
 		}
+		return earlier, c
 	}
-	if found == nil || found.Chat == nil || found.Chat.ID != earlier.ID {
-		t.Fatalf("similar chat not pointed out: %+v", c.Messages)
+
+	// The run stops at the pointer and the model is never called.
+	earlier, c := newChat()
+	last := c.Messages[len(c.Messages)-1]
+	if c.Status != "idle" || last.Kind != "similar" || last.Chat == nil || last.Chat.ID != earlier.ID || len(model.seen) != 0 {
+		t.Fatalf("the run must wait at the pointer: %s %+v (model calls %d)", c.Status, last, len(model.seen))
+	}
+
+	// Answer here: the run continues in this chat, without the pointer.
+	code, row := post("/chats/"+c.ID+"/similar", `{"action":"stay"}`)
+	if code != 200 || row.Status != "queued" || row.Messages[len(row.Messages)-1].Choice != "stay" {
+		t.Fatalf("stay: %d %s %+v", code, row.Status, row.Messages)
+	}
+	if code, _ := post("/chats/"+c.ID+"/similar", `{"action":"stay"}`); code != 409 {
+		t.Fatalf("a second choice must be refused: %d", code)
+	}
+	db.First(&row, "id = ?", c.ID) // the JSON leaves out the owner and lease
+	row.Status, row.Lease = "running", "test-lease"
+	db.Save(&row)
+	model.responses = []WireMessage{{Role: "assistant", Content: "Sure."}}
+	if err := s.plan(context.Background(), &row); err != nil || row.Status != "idle" {
+		t.Fatalf("the run did not continue: %v %s", err, row.Status)
 	}
 	for _, m := range model.seen[0] {
-		if strings.Contains(m.Content, "Lisbon") {
+		if strings.Contains(m.Content, "Plan the Lisbon trip") && m.Role != "user" {
 			t.Fatal("the pointer must not reach the model")
 		}
 	}
-	// A second message in the same chat does not look again.
-	model.responses = []WireMessage{{Role: "assistant", Content: "Ok."}}
-	c.Messages = append(c.Messages, message("user", "And add a packing list"))
-	c.Status = "running"
-	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
-		t.Fatal(err)
+
+	// Continue there: the message moves to the earlier chat and this one goes.
+	earlier, c = newChat()
+	code, moved := post("/chats/"+c.ID+"/similar", `{"action":"move"}`)
+	if code != 200 || moved.ID != earlier.ID || moved.Status != "queued" ||
+		moved.Messages[len(moved.Messages)-1].Content != "Help me plan the Lisbon trip" {
+		t.Fatalf("move: %d %+v", code, moved)
 	}
-	count := 0
-	for _, m := range c.Messages {
-		if m.Kind == "similar" {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Fatalf("similar chat pointed out %d times", count)
+	var count int64
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Count(&count)
+	if count != 0 {
+		t.Fatal("the new chat must be removed after moving")
 	}
 }
 

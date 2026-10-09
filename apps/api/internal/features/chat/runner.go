@@ -196,16 +196,23 @@ func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 func (s *Service) plan(ctx context.Context, c *Conversation) error {
 	ctx, loc, source := s.zoned(ctx, c)
 	tri, triaged := s.triage(ctx, c)
-	if triaged && ((tri.language != "" && tri.language != c.Language) || tri.similar != nil) {
-		if err := s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
+	if triaged && tri.similar != nil {
+		// Wait for the person: continue in the earlier chat, or answer here.
+		return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
 			if tri.language != "" {
 				row.Language = tri.language
 			}
-			if tri.similar != nil {
-				m := message("assistant", tri.similar.Title)
-				m.Kind, m.Chat = "similar", tri.similar
-				row.Messages = append(row.Messages, m)
-			}
+			m := message("assistant", tri.similar.Title)
+			m.Kind, m.Chat = "similar", tri.similar
+			row.Messages = append(row.Messages, m)
+			row.Status = "idle"
+			row.Transcript = []WireMessage{}
+			return notify(tx, row, tr(row.Language, txtPushReply))
+		})
+	}
+	if triaged && tri.language != "" && tri.language != c.Language {
+		if err := s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
+			row.Language = tri.language
 			return nil
 		}); err != nil {
 			return err

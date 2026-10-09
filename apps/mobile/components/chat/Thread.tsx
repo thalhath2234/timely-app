@@ -169,15 +169,18 @@ export default function Thread({
   onLink,
   onPreviewImage,
   onReviewArchive,
-  onOpenChat,
+  pending,
+  onSimilar,
 }: {
   chat: Chat;
   onLink: (href: string) => void;
   onPreviewImage: (uri: string) => void;
   onReviewArchive: (steps: ChatStep[]) => void;
-  onOpenChat: (id: string) => void;
+  pending: boolean;
+  onSimilar: (action: "move" | "stay") => void;
 }) {
   let lastDay = "";
+  const last = chat.messages[chat.messages.length - 1];
   return (
     <View style={{ gap: 18 }}>
       {chat.messages.map((message) => {
@@ -208,21 +211,43 @@ export default function Thread({
                 </Text>
               </View>
             ) : message.kind === "similar" && message.chat ? (
-              <AnimatedPressable
-                accessibilityRole="button"
-                accessibilityLabel={`Continue in your chat ${message.chat.title}`}
-                onPress={() => onOpenChat(message.chat!.id)}
-                style={styles.notice}
-              >
-                <History size={14} color={colors.mutedForeground} />
-                <Text
-                  numberOfLines={2}
-                  style={[common.muted, { flexShrink: 1 }]}
-                >
-                  You already have a chat about this: {message.chat.title}
-                </Text>
-                <Text style={styles.noticeAction}>Continue there</Text>
-              </AnimatedPressable>
+              <View style={styles.similar}>
+                <View style={styles.similarRow}>
+                  <History size={14} color={colors.mutedForeground} />
+                  <Text style={[common.muted, { flexShrink: 1 }]}>
+                    You already have a chat about this: {message.chat.title}
+                  </Text>
+                </View>
+                {message === last &&
+                !message.choice &&
+                chat.status === "idle" ? (
+                  <View style={styles.similarRow}>
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Continue in your chat ${message.chat.title}`}
+                      disabled={pending}
+                      onPress={() => onSimilar("move")}
+                      style={[
+                        styles.choice,
+                        styles.choicePrimary,
+                        pending && { opacity: 0.5 },
+                      ]}
+                    >
+                      <Text style={styles.choicePrimaryText}>
+                        Continue there
+                      </Text>
+                    </AnimatedPressable>
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      disabled={pending}
+                      onPress={() => onSimilar("stay")}
+                      style={[styles.choice, pending && { opacity: 0.5 }]}
+                    >
+                      <Text style={styles.choiceText}>Answer here</Text>
+                    </AnimatedPressable>
+                  </View>
+                ) : null}
+              </View>
             ) : message.kind === "archive" ? (
               <Archive message={message} onReview={onReviewArchive} />
             ) : isUser ? (
@@ -436,7 +461,37 @@ const styles = createThemedStyleSheet(() => ({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  noticeAction: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  similar: {
+    alignSelf: "center",
+    maxWidth: "92%",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.muted,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  similarRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  choice: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  choicePrimary: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  choiceText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
+  choicePrimaryText: {
+    color: colors.primaryForeground,
+    fontSize: 13,
+    fontWeight: "600",
+  },
   archive: {
     flexDirection: "row",
     alignItems: "center",

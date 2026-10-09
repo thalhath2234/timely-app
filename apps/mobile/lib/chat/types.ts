@@ -27,6 +27,8 @@ export type ChatMessage = {
   notes?: string[];
   /** The earlier chat a "similar" message points at. */
   chat?: { id: string; title: string };
+  /** The person's answer to a "similar" message; empty while the run waits. */
+  choice?: "move" | "stay";
 };
 export type Chat = {
   images?: ChatImage[];

@@ -1,7 +1,6 @@
 "use client";
 
 import TimelyLogo from "@/app/_components/_ui/timelyLogo";
-import Link from "next/link";
 import { useState } from "react";
 import {
   ArrowUpRight,
@@ -65,26 +64,59 @@ function Notice({ message }: { message: ChatMessage }) {
   );
 }
 
-/** An earlier chat smart suggestions think is about the same request. */
-function Similar({ message }: { message: ChatMessage }) {
+/**
+ * An earlier chat smart suggestions think is about the same request. The run
+ * waits until the person moves the message there or answers here.
+ */
+function Similar({
+  message,
+  waiting,
+  pending,
+  onChoose,
+}: {
+  message: ChatMessage;
+  waiting: boolean;
+  pending: boolean;
+  onChoose?: (action: "move" | "stay") => void;
+}) {
   if (!message.chat) return null;
+  const choice =
+    "rounded-full px-2.5 py-1 font-medium transition-colors disabled:opacity-50";
   return (
     <div
       role="note"
-      className="mx-auto flex max-w-lg items-center gap-2 rounded-full border border-border bg-muted/40 py-1 pl-3 pr-1 text-xs text-muted-foreground"
+      className="mx-auto flex max-w-xl flex-wrap items-center justify-center gap-2 rounded-2xl border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
       data-testid="similar-chat"
     >
       <History className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate">
-        You already have a chat about this: {message.chat.title}
+      <span className="min-w-0">
+        You already have a chat about this:{" "}
+        <span className="font-medium text-foreground">{message.chat.title}</span>
       </span>
-      <Link
-        href={`/chat?id=${encodeURIComponent(message.chat.id)}`}
-        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-background px-2 py-0.5 font-medium text-foreground hover:bg-muted"
-      >
-        Continue there
-        <ArrowUpRight className="size-3" />
-      </Link>
+      {waiting && onChoose && (
+        <span className="flex shrink-0 gap-1.5">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => onChoose("move")}
+            className={cn(
+              choice,
+              "inline-flex items-center gap-1 bg-primary text-primary-foreground hover:bg-primary/90",
+            )}
+          >
+            Continue there
+            <ArrowUpRight className="size-3" />
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => onChoose("stay")}
+            className={cn(choice, "bg-background text-foreground hover:bg-muted")}
+          >
+            Answer here
+          </button>
+        </span>
+      )}
     </div>
   );
 }
@@ -121,8 +153,17 @@ function Archive({ message }: { message: ChatMessage }) {
   );
 }
 
-export default function MessageList({ chat }: { chat: Chat }) {
+export default function MessageList({
+  chat,
+  pending = false,
+  onSimilar,
+}: {
+  chat: Chat;
+  pending?: boolean;
+  onSimilar?: (action: "move" | "stay") => void;
+}) {
   let lastDay = "";
+  const last = chat.messages?.[chat.messages.length - 1];
   return (
     <div
       className="space-y-5"
@@ -147,7 +188,12 @@ export default function MessageList({ chat }: { chat: Chat }) {
             {m.kind === "notice" ? (
               <Notice message={m} />
             ) : m.kind === "similar" ? (
-              <Similar message={m} />
+              <Similar
+                message={m}
+                waiting={m === last && !m.choice && chat.status === "idle"}
+                pending={pending}
+                onChoose={onSimilar}
+              />
             ) : m.kind === "archive" ? (
               <Archive message={m} />
             ) : isUser ? (

@@ -40,6 +40,8 @@ export type ChatMessage = {
   notes?: string[];
   /** The earlier chat a "similar" message points at. */
   chat?: { id: string; title: string };
+  /** What the person chose on a "similar" message. */
+  choice?: "move" | "stay";
 };
 /** GET /chats returns only these columns. */
 export type ChatSummary = {

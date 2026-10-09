@@ -33,6 +33,8 @@ type Message struct {
 	// Notes are a proposal's review notes from Jev (see jev.go).
 	Notes []string `json:"notes,omitempty"`
 	Chat  *ChatRef `json:"chat,omitempty"`
+	// Choice is what the person did with a "similar" pointer: "move" or "stay".
+	Choice string `json:"choice,omitempty"`
 }
 type Step struct {
 	Tool      string          `json:"tool"`

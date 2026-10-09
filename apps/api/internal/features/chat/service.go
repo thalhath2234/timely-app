@@ -69,6 +69,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/chats/:id/retry", s.retry)
 	g.POST("/chats/:id/read", s.read)
 	g.PATCH("/chats/:id", s.configure)
+	g.POST("/chats/:id/similar", s.similar)
 }
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
 func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {

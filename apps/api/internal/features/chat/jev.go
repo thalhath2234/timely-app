@@ -7,6 +7,11 @@ import (
 	"time"
 
 	"timely-api/internal/features/decide"
+	"timely-api/internal/models"
+
+	"github.com/labstack/echo/v5"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Jev (ADR 0012) answers small typed questions about a run: what kind of
@@ -78,7 +83,11 @@ func fresh(c *Conversation) bool {
 	if len(c.Transcript) > 0 || len(c.Messages) == 0 || c.Sensitive || c.ImageReview != nil {
 		return false
 	}
+	// A run resumed with "answer here" still starts on the person's message.
 	last := c.Messages[len(c.Messages)-1]
+	for i := len(c.Messages) - 1; i > 0 && last.Kind == "similar"; i-- {
+		last = c.Messages[i-1]
+	}
 	return last.Role == "user" && last.Kind == ""
 }
 
@@ -322,6 +331,105 @@ func continuing(c *Conversation) bool {
 			return false
 		}
 		if m.Continue != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// openPointer is the "similar" message still waiting for the person's choice:
+// the chat's last message, while the run waits.
+func openPointer(c *Conversation) *Message {
+	if c.Status != "idle" || len(c.Messages) == 0 {
+		return nil
+	}
+	m := &c.Messages[len(c.Messages)-1]
+	if m.Kind != "similar" || m.Chat == nil || m.Choice != "" {
+		return nil
+	}
+	return m
+}
+
+// similar answers a "You already have a chat about this" pointer. "stay" runs
+// the request in this chat after all; "move" sends the person's message to
+// the earlier chat, which runs it, and deletes this one.
+func (s *Service) similar(c *echo.Context) error {
+	var in struct {
+		Action string `json:"action"`
+	}
+	if err := c.Bind(&in); err != nil || (in.Action != "move" && in.Action != "stay") {
+		return echo.NewHTTPError(400, "Choose move or stay")
+	}
+	if in.Action == "stay" {
+		return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+			pointer := openPointer(row)
+			if pointer == nil {
+				return echo.NewHTTPError(409, "This chat is not waiting for that choice")
+			}
+			pointer.Choice = "stay"
+			row.Status, row.Phase = "queued", "plan"
+			return nil
+		})
+	}
+	var target Conversation
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var row Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {
+			return err
+		}
+		pointer := openPointer(&row)
+		if pointer == nil {
+			return echo.NewHTTPError(409, "This chat is not waiting for that choice")
+		}
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), row.UserID, pointer.Chat.ID, &target); err != nil {
+			return err
+		}
+		if busy(&target) {
+			return echo.NewHTTPError(409, "That chat is still working. Wait for it, or answer here")
+		}
+		if len(target.Messages) > 150 {
+			return echo.NewHTTPError(400, "That chat is full. Answer here instead")
+		}
+		// The same steps as sending a message there (see send).
+		target.ForceReview = target.Status == "approval" || target.Sensitive
+		archivePlan(&target)
+		for _, m := range row.Messages {
+			if m.Role == "user" && m.Kind == "" {
+				noteLanguage(&target, m.Content)
+				moved := message("user", m.Content)
+				moved.RequestID = m.RequestID
+				target.Messages = append(target.Messages, moved)
+			}
+		}
+		for _, chip := range row.Context {
+			if len(target.Context) < 8 && !hasChip(target.Context, chip) {
+				target.Context = append(target.Context, chip)
+			}
+		}
+		if row.Timezone != "" {
+			target.Timezone = row.Timezone
+		}
+		target.Status, target.Phase = "queued", "plan"
+		target.Error, target.Unread = "", false
+		target.Revision++
+		if err := tx.Save(&target).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND entity_type = 'chat' AND entity_id = ?", row.UserID, row.ID).Delete(&models.Notification{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ? AND user_id = ?", row.ID, row.UserID).Delete(&Conversation{}).Error
+	})
+	if err != nil {
+		return err
+	}
+	s.fillImages(&target)
+	return c.JSON(200, target)
+}
+
+func hasChip(chips []ContextChip, chip ContextChip) bool {
+	for _, c := range chips {
+		if c == chip {
 			return true
 		}
 	}
