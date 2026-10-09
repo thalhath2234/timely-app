@@ -31,6 +31,10 @@ var workEstimate func(ctx context.Context, userID, name, description string) (in
 // results; nil keeps the plain order. Set in main once Jev is wired.
 var searchRerank func(ctx context.Context, userID, query string, hits []search.Hit) (kept, hidden []search.Hit, ok bool)
 
+// taskPick lets smart suggestions check which tasks fit a bulk edit's
+// description; nil leaves pick_tasks returning an unchecked shortlist.
+var taskPick func(ctx context.Context, userID, description string, hits []search.Hit) (matches, unsure []search.Hit, left int, ok bool)
+
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
 // creds supplies each account's own embedding key, as for the REST indexer;
@@ -64,5 +68,6 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		Search:   search.NewService(db, indexer),
 		Estimate: workEstimate,
 		Rerank:   searchRerank,
+		Pick:     taskPick,
 	})
 }

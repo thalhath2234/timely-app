@@ -451,7 +451,10 @@ function SmartSuggestionsCard({
         chat about the same thing and flags agent changes worth a check. For
         receipts it picks a category and sheet you already use and notes
         likely repeats, and it types the columns of an imported CSV from a
-        few of its values. Receipt photos and receipt amounts are never sent.
+        few of its values. On tasks and projects it suggests a status, stage,
+        fields or blocker from the description, lists work idle for three
+        weeks and reads how a project is going. Receipt photos and receipt
+        amounts are never sent.
         Uses TypeSafe’s Jev model.
       </Text>
       <Text style={styles.meta}>

@@ -139,7 +139,7 @@ export function useReorderStages(projectId: string) {
 export function useDuplicateProject() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: duplicateProject,
+    mutationFn: (id: string) => duplicateProject(id),
     onSuccess: (project) => {
       syncProjectCaches(queryClient, project);
       queryClient.invalidateQueries({ queryKey: ["tasks"] });

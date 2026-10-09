@@ -1014,7 +1014,10 @@ function DecisionsCard() {
             changes worth a check before you apply them. For receipts it
             picks a category and sheet you already use and notes likely
             repeats; it also suggests a template for a new sheet and column
-            types for an imported CSV from a few of its values. Receipt photos
+            types for an imported CSV from a few of its values. On tasks and
+            projects it suggests a status, stage, fields or blocker from the
+            description, lists work idle for three weeks, reads how a project
+            is going and spots labels or statuses that mean the same. Receipt photos
             and receipt amounts are never sent. Runs on Jev, TypeSafe&apos;s
             fast decision model.
             Suggestions never change anything until you save or apply.

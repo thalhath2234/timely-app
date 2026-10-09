@@ -30,7 +30,11 @@ import { useProjects } from "@/app/utils/hooks/projects";
 import { useCreateDoc } from "@/app/utils/hooks/docs";
 import { useCreateSheet, useSheetTemplates } from "@/app/utils/hooks/sheets";
 import { getSheetTemplateSuggestion } from "@/app/utils/api/decisions";
-import { createProject } from "@/app/utils/api/projects";
+import {
+  createProjectWithStart,
+  ProjectStartChoices,
+  useProjectStart,
+} from "@/app/_components/_ui/modal/projectStart";
 import { useCreateTask, useClarifyInbox } from "@/app/utils/hooks/tasks";
 import {
   useClarifySuggestions,
@@ -421,12 +425,21 @@ function AddItemModalInner() {
     createWorkspaceMutation.mutate(data);
   };
 
+  const projectTitle = useWatch({ control: projectControl, name: "title" }) ?? "";
+  const projectStart = useProjectStart(
+    projectTitle,
+    selectedWorkspaceId ?? "",
+    isAddItemModalOpen && addNewMode === "project",
+  );
   const createProjectMutation = useMutation({
-    mutationFn: createProject,
+    mutationFn: (payload: Parameters<typeof createProjectWithStart>[0]) =>
+      createProjectWithStart(payload, projectStart.suggestion, projectStart.choices),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["projects"],
-      });
+      await Promise.all(
+        [["projects"], ["tasks"], ["docs"], ["sheets"]].map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }),
+        ),
+      );
 
       closeModal();
     },
@@ -1043,6 +1056,12 @@ function AddItemModalInner() {
                 />
               </div>
             </div>
+
+            <ProjectStartChoices
+              suggestion={projectStart.suggestion}
+              choices={projectStart.choices}
+              onChange={projectStart.setChoices}
+            />
           </ModalMain>
 
           <ModalSidebar>

@@ -45,6 +45,7 @@ type Handlers struct {
 	ApiKey    *apikey.Handler
 	Search    *search.Handler
 	Suggest   *suggest.Service
+	Merge     *workspace.Merger
 	Notify    *notify.Handler
 	Portable  *portability.Handler
 	Instance  *instance.Handler
@@ -83,6 +84,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	}
 	if h.Providers != nil {
 		h.Providers.Routes(protected)
+	}
+	if h.Merge != nil {
+		h.Merge.Routes(protected)
 	}
 	if h.Suggest != nil {
 		h.Suggest.Routes(protected)

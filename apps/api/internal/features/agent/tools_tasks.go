@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"timely-api/internal/features/search"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 
@@ -330,11 +331,87 @@ func (s *Server) bulkUpdateTasks(ctx context.Context, req *mcp.CallToolRequest, 
 	if err != nil {
 		return fail(err)
 	}
-	tasks, err := s.tasksFor(req).BulkUpdate(uid, in.IDs, in.Update.toUpdate())
+	// The service takes at most 50 ids per call; a larger set goes in
+	// batches inside the same run (and the same transaction in chat).
+	service := s.tasksFor(req)
+	update := in.Update.toUpdate()
+	tasks := []models.Task{}
+	for start := 0; start < len(in.IDs) || start == 0; start += bulkBatch {
+		end := min(start+bulkBatch, len(in.IDs))
+		batch, err := service.BulkUpdate(uid, in.IDs[start:end], update)
+		if err != nil {
+			if start > 0 {
+				return fail(fmt.Errorf("updated %d tasks, then: %w", len(tasks), err))
+			}
+			return fail(err)
+		}
+		tasks = append(tasks, batch...)
+	}
+	return reply(fmt.Sprintf("updated %d tasks", len(tasks)), map[string]any{"tasks": tasks})
+}
+
+const bulkBatch = 50
+
+type pickTasksIn struct {
+	Description      string `json:"description" jsonschema:"the group of tasks in the person's words, e.g. everything about the website launch"`
+	IncludeCompleted bool   `json:"includeCompleted,omitempty" jsonschema:"also consider completed tasks (default false)"`
+}
+
+type pickedTask struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ProjectID string `json:"projectId,omitempty"`
+	Completed bool   `json:"completed,omitempty"`
+}
+
+func (s *Server) pickTasks(ctx context.Context, req *mcp.CallToolRequest, in pickTasksIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
 	}
-	return reply(fmt.Sprintf("updated %d tasks", len(tasks)), map[string]any{"tasks": tasks})
+	if strings.TrimSpace(in.Description) == "" {
+		return fail(errors.New("description is required"))
+	}
+	hits, err := s.Search.SemanticSearch(ctx, uid, in.Description, search.PickPool, []string{"task"})
+	if err != nil {
+		return fail(err)
+	}
+	// Only Work the person can bulk edit: no reminders or Inbox items, and
+	// completed tasks only when asked.
+	service := s.tasksFor(req)
+	shortlist := []search.Hit{}
+	byID := map[string]pickedTask{}
+	for _, h := range hits {
+		t, err := service.GetForUser(uid, h.ID)
+		if err != nil || t.Kind != models.KindTask {
+			continue
+		}
+		done := t.CompletedAt != nil && *t.CompletedAt != ""
+		if done && !in.IncludeCompleted {
+			continue
+		}
+		p := pickedTask{ID: t.ID, Name: t.Name, Completed: done}
+		if t.ProjectID != nil {
+			p.ProjectID = *t.ProjectID
+		}
+		byID[t.ID] = p
+		shortlist = append(shortlist, h)
+	}
+	list := func(hs []search.Hit) []pickedTask {
+		out := make([]pickedTask, 0, len(hs))
+		for _, h := range hs {
+			out = append(out, byID[h.ID])
+		}
+		return out
+	}
+	if s.Pick != nil && len(shortlist) > 0 {
+		if matches, unsure, left, ok := s.Pick(ctx, uid, in.Description, shortlist); ok {
+			text := fmt.Sprintf("%d tasks match %q, %d unsure, %d clear misses left out. Show the unsure ones to the person or check them with get_task before including them.", len(matches), in.Description, len(unsure), left)
+			return reply(text, map[string]any{"matches": list(matches), "unsure": list(unsure), "leftOut": left})
+		}
+	}
+	text := fmt.Sprintf("%d candidate tasks for %q, unchecked: confirm each one fits before a bulk edit.", len(shortlist), in.Description)
+	return reply(text, map[string]any{"matches": []pickedTask{}, "unsure": list(shortlist), "leftOut": 0})
 }
 
 func (s *Server) completeTask(ctx context.Context, req *mcp.CallToolRequest, in taskIDIn) (*mcp.CallToolResult, any, error) {

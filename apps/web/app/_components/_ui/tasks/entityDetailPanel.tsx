@@ -86,6 +86,7 @@ import ConfirmDialog from "@/app/_components/_ui/confirmDialog";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import TaskExecution from "@/app/_components/_ui/tasks/taskExecution";
 import RelatedItems from "@/app/_components/_ui/relatedItems";
+import TaskHints from "@/app/_components/_ui/tasks/taskHints";
 import { runViewTransition } from "@/app/utils/viewTransition";
 import {
   attachMorphTarget,
@@ -581,6 +582,16 @@ function DetailBody({
     setCustomFieldValues(savedCustomFields);
   }
 
+  const filledFieldIds = useMemo(
+    () =>
+      new Set(
+        customFieldValues
+          .filter((draft) => (draft.stringValue ?? "") !== "" || (draft.optionsValue ?? []).length > 0)
+          .map((draft) => draft.id),
+      ),
+    [customFieldValues],
+  );
+
   const changeCustomField = (
     field: CustomField,
     next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">,
@@ -831,7 +842,40 @@ function DetailBody({
           ) : null}
         </div>
 
-        <div className="mt-5">{children}</div>
+        <div className="mt-5">
+          {view.kind === "task" && !isInbox && !isReminder && (
+            <TaskHints
+              taskId={view.id}
+              version={`${view.description.length}:${view.description.slice(-40)}:${view.completedAt ?? ""}:${view.blockedById ?? ""}:${view.stageId ?? ""}`}
+              statusId={view.statusId}
+              stageId={view.stageId}
+              blockedById={view.blockedById}
+              statusOptions={statusOptions}
+              stageOptions={stageOptions}
+              customFields={customFields}
+              filledFieldIds={filledFieldIds}
+              onStatus={(statusId) => {
+                const next = statusOptions.find((option) => option.id === statusId);
+                const completing = next ? isCompletedStatus(next) : false;
+                commit({
+                  statusId,
+                  ...(completing && !view.completedAt
+                    ? { completedAt: new Date().toISOString() }
+                    : !completing && view.completedAt
+                      ? { completedAt: "" }
+                      : {}),
+                });
+              }}
+              onStage={(stageId) => commit({ stageId })}
+              onField={(field, next) => {
+                changeCustomField(field, next);
+                void flush();
+              }}
+              onBlocker={(blockedById) => commit({ blockedById })}
+            />
+          )}
+          {children}
+        </div>
 
         <section className="mt-6 border-t border-border pt-5">
           <div className="mb-3 flex items-center justify-between">

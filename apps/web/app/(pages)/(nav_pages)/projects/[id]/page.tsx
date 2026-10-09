@@ -11,6 +11,7 @@ import ColorChip from "@/app/_components/_ui/colorChip";
 import Select from "@/app/_components/_ui/select";
 import StageBoard from "@/app/_components/projects/stageBoard";
 import StageCatalog from "@/app/_components/projects/stageCatalog";
+import ProjectInsights from "@/app/_components/projects/projectInsights";
 import ProjectTaskList from "@/app/_components/_ui/tasks/projectTaskList";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
@@ -236,6 +237,7 @@ function ProjectHub({ project }: { project: Project }) {
                 <Fact label="Scheduled" value={String(stats.scheduled)} />
                 <Fact label="Next deadline" value={formatShortDate(stats.nextDeadline)} />
               </div>
+              <ProjectInsights project={project} />
             </div>
             <aside className="space-y-3 rounded-2xl border border-border bg-card p-4">
               <label className="block text-xs text-muted-foreground">Status</label>
