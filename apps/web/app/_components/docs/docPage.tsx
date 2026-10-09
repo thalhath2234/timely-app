@@ -11,6 +11,7 @@ import HeadingMinimap from "@/app/_components/docs/headingMinimap";
 import RelatedItems from "@/app/_components/_ui/relatedItems";
 import Backlinks from "@/app/_components/docs/backlinks";
 import DocHistory from "@/app/_components/docs/docHistory";
+import DocHints from "@/app/_components/docs/docHints";
 import { insertPageMention } from "@/app/_components/editor/mention";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
@@ -184,6 +185,17 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     [schedule],
   );
 
+  // Replaces the whole body (an import or a template) and saves it at once.
+  const applyContent = useCallback(
+    (content: Doc["content"], plainText: string) => {
+      editorRef.current?.commands.setContent(content as Parameters<Editor["commands"]["setContent"]>[0]);
+      setWordCount(countWords(plainText));
+      schedule({ content, plainText });
+      void flush();
+    },
+    [schedule, flush],
+  );
+
   const handleCreateSubpage = useCallback(
     async ({ editor, range }: { editor: Editor; range: Range }) => {
       try {
@@ -251,10 +263,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               const file = input.files?.[0];
               if (!file) return;
               const imported = await readMarkdownFile(file);
-              editorRef.current?.commands.setContent(imported.content as Parameters<Editor["commands"]["setContent"]>[0]);
-              setWordCount(countWords(imported.plainText));
-              schedule({ content: imported.content, plainText: imported.plainText });
-              void flush();
+              applyContent(imported.content, imported.plainText);
             };
             input.click();
           }}
@@ -475,6 +484,15 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             <Backlinks docId={doc.id} />
             <RelatedItems kind="doc" id={doc.id} />
           </div>
+
+          {/* Rechecks once the doc has text, then as it grows by about fifty words. */}
+          <DocHints
+            doc={doc}
+            editor={editor}
+            nearEmpty={wordCount < 8}
+            version={wordCount < 8 ? "empty" : String(Math.floor(wordCount / 50))}
+            onApplyContent={applyContent}
+          />
         </div>
 
         <div className="min-h-0 flex-1 pb-8">
@@ -485,6 +503,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             onReady={handleEditorReady}
             onChange={handleEditorChange}
             onCreateSubpage={handleCreateSubpage}
+            docId={doc.id}
           />
         </div>
       </div>

@@ -1017,7 +1017,11 @@ function DecisionsCard() {
             types for an imported CSV from a few of its values. On tasks and
             projects it suggests a status, stage, fields or blocker from the
             description, lists work idle for three weeks, reads how a project
-            is going and spots labels or statuses that mean the same. Receipt photos
+            is going and spots labels or statuses that mean the same. In docs
+            it suggests where a doc belongs, its type, properties and a
+            template, lines that could be tasks, a link for selected text and
+            headings for a plain-text import, and notes a doc that looks out
+            of date. Receipt photos
             and receipt amounts are never sent. Runs on Jev, TypeSafe&apos;s
             fast decision model.
             Suggestions never change anything until you save or apply.

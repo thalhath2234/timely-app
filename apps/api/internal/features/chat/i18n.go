@@ -42,6 +42,8 @@ const (
 	txtHintTaxIncluded      = "hintTaxIncluded"
 	txtHintDiscountIncluded = "hintDiscountIncluded"
 	txtNoteSheetChange      = "noteSheetChange"
+	txtNoteDraftMisses      = "noteDraftMisses"
+	txtNoteContradiction    = "noteContradiction"
 )
 
 var texts = map[string]map[string]string{
@@ -79,6 +81,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "The amounts add up if tax is already included in the prices. Tick “Tax included” if so.",
 		txtHintDiscountIncluded: "The amounts add up if the discount is already taken off the item prices. Tick “Discount included” if so.",
 		txtNoteSheetChange:      "This sheet change may not match what you asked:",
+		txtNoteDraftMisses:      "This doc draft may leave out something you asked for or miss one of your instructions:",
+		txtNoteContradiction:    "This edit may contradict what the doc already says:",
 	},
 	"ja": {
 		txtDone:                 "完了しました。変更は保存されています。",
@@ -114,6 +118,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "税が価格に含まれていれば金額が合います。その場合は「税込み」にチェックしてください。",
 		txtHintDiscountIncluded: "割引が品目の価格から引かれていれば金額が合います。その場合は「割引込み」にチェックしてください。",
 		txtNoteSheetChange:      "このシートの変更は依頼と合っていない可能性があります:",
+		txtNoteDraftMisses:      "このドキュメントの下書きは、依頼した内容や指示の一部を満たしていない可能性があります:",
+		txtNoteContradiction:    "この編集はドキュメントの既存の内容と矛盾している可能性があります:",
 	},
 	"zh": {
 		txtDone:                 "完成——您的更改已保存。",
@@ -149,6 +155,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "如果税已包含在价格中，金额就能对上。如是，请勾选“含税”。",
 		txtHintDiscountIncluded: "如果折扣已从商品价格中扣除，金额就能对上。如是，请勾选“已含折扣”。",
 		txtNoteSheetChange:      "此表格更改可能与您的要求不符:",
+		txtNoteDraftMisses:      "此文档草稿可能遗漏了您要求的内容或未遵循您的某项要求:",
+		txtNoteContradiction:    "此修改可能与文档中已有的内容相矛盾:",
 	},
 	"ko": {
 		txtDone:                 "완료되었습니다. 변경 사항이 저장되었습니다.",
@@ -184,6 +192,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "세금이 가격에 포함되어 있다면 금액이 맞습니다. 그렇다면 “세금 포함”을 선택하세요.",
 		txtHintDiscountIncluded: "할인이 품목 가격에서 이미 빠졌다면 금액이 맞습니다. 그렇다면 “할인 포함”을 선택하세요.",
 		txtNoteSheetChange:      "이 시트 변경이 요청과 다를 수 있습니다:",
+		txtNoteDraftMisses:      "이 문서 초안은 요청한 내용이나 지시 사항 일부를 빠뜨렸을 수 있습니다:",
+		txtNoteContradiction:    "이 수정은 문서에 이미 있는 내용과 모순될 수 있습니다:",
 	},
 	"es": {
 		txtDone:                 "Listo: tus cambios están guardados.",
@@ -219,6 +229,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "Los importes cuadran si el impuesto ya está incluido en los precios. Si es así, marca “Impuesto incluido”.",
 		txtHintDiscountIncluded: "Los importes cuadran si el descuento ya está restado de los precios. Si es así, marca “Descuento incluido”.",
 		txtNoteSheetChange:      "Este cambio en la hoja puede no coincidir con lo que pediste:",
+		txtNoteDraftMisses:      "Este borrador del documento puede omitir algo que pediste o no seguir alguna de tus indicaciones:",
+		txtNoteContradiction:    "Esta edición puede contradecir lo que ya dice el documento:",
 	},
 	"fr": {
 		txtDone:                 "Terminé — vos modifications sont enregistrées.",
@@ -254,6 +266,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "Les montants concordent si la taxe est déjà incluse dans les prix. Cochez « Taxe incluse » le cas échéant.",
 		txtHintDiscountIncluded: "Les montants concordent si la remise est déjà déduite des prix. Cochez « Remise incluse » le cas échéant.",
 		txtNoteSheetChange:      "Cette modification de la feuille ne correspond peut-être pas à votre demande :",
+		txtNoteDraftMisses:      "Ce brouillon de document oublie peut-être une partie de votre demande ou l’une de vos consignes :",
+		txtNoteContradiction:    "Cette modification contredit peut-être ce que le document dit déjà :",
 	},
 	"de": {
 		txtDone:                 "Fertig – deine Änderungen sind gespeichert.",
@@ -289,6 +303,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "Die Beträge gehen auf, wenn die Steuer schon in den Preisen enthalten ist. Setze dann „Steuer enthalten“.",
 		txtHintDiscountIncluded: "Die Beträge gehen auf, wenn der Rabatt schon von den Preisen abgezogen ist. Setze dann „Rabatt enthalten“.",
 		txtNoteSheetChange:      "Diese Tabellenänderung passt vielleicht nicht zu deiner Anfrage:",
+		txtNoteDraftMisses:      "Dieser Dokumententwurf lässt vielleicht etwas aus, das du wolltest, oder hält eine deiner Vorgaben nicht ein:",
+		txtNoteContradiction:    "Diese Änderung widerspricht vielleicht dem, was schon im Dokument steht:",
 	},
 	"pt": {
 		txtDone:                 "Pronto — suas alterações foram salvas.",
@@ -324,6 +340,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "Os valores batem se o imposto já estiver incluído nos preços. Se for o caso, marque “Imposto incluído”.",
 		txtHintDiscountIncluded: "Os valores batem se o desconto já tiver sido tirado dos preços. Se for o caso, marque “Desconto incluído”.",
 		txtNoteSheetChange:      "Esta alteração na planilha pode não corresponder ao que você pediu:",
+		txtNoteDraftMisses:      "Este rascunho do documento pode deixar de fora algo que você pediu ou não seguir uma das suas instruções:",
+		txtNoteContradiction:    "Esta edição pode contradizer o que o documento já diz:",
 	},
 	"it": {
 		txtDone:                 "Fatto: le modifiche sono salvate.",
@@ -359,6 +377,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "Gli importi tornano se l'imposta è già inclusa nei prezzi. In tal caso seleziona “Imposta inclusa”.",
 		txtHintDiscountIncluded: "Gli importi tornano se lo sconto è già tolto dai prezzi. In tal caso seleziona “Sconto incluso”.",
 		txtNoteSheetChange:      "Questa modifica al foglio potrebbe non corrispondere alla tua richiesta:",
+		txtNoteDraftMisses:      "Questa bozza del documento potrebbe tralasciare qualcosa che hai chiesto o non seguire una delle tue indicazioni:",
+		txtNoteContradiction:    "Questa modifica potrebbe contraddire ciò che il documento dice già:",
 	},
 	"ru": {
 		txtDone:                 "Готово — изменения сохранены.",
@@ -394,6 +414,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "Суммы сходятся, если налог уже включён в цены. Если так, отметьте «Налог включён».",
 		txtHintDiscountIncluded: "Суммы сходятся, если скидка уже вычтена из цен. Если так, отметьте «Скидка включена».",
 		txtNoteSheetChange:      "Это изменение таблицы может не соответствовать вашей просьбе:",
+		txtNoteDraftMisses:      "Этот черновик документа, возможно, упускает что-то из вашей просьбы или не следует одному из ваших указаний:",
+		txtNoteContradiction:    "Эта правка, возможно, противоречит тому, что уже сказано в документе:",
 	},
 	"ar": {
 		txtDone:                 "تم — حُفظت تغييراتك.",
@@ -429,6 +451,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "تتطابق المبالغ إذا كانت الضريبة مشمولة في الأسعار. إن كان كذلك فحدّد «الضريبة مشمولة».",
 		txtHintDiscountIncluded: "تتطابق المبالغ إذا كان الخصم مطروحاً من أسعار العناصر. إن كان كذلك فحدّد «الخصم مشمول».",
 		txtNoteSheetChange:      "قد لا يطابق هذا التغيير في الجدول ما طلبته:",
+		txtNoteDraftMisses:      "قد تُغفل مسودة المستند هذه شيئًا طلبته أو لا تتبع أحد تعليماتك:",
+		txtNoteContradiction:    "قد يتعارض هذا التعديل مع ما يقوله المستند بالفعل:",
 	},
 	"hi": {
 		txtDone:                 "हो गया — आपके बदलाव सहेज दिए गए हैं।",
@@ -464,6 +488,8 @@ var texts = map[string]map[string]string{
 		txtHintTaxIncluded:      "अगर टैक्स कीमतों में पहले से शामिल है तो राशियाँ मिलती हैं। ऐसा हो तो “टैक्स शामिल” चुनें।",
 		txtHintDiscountIncluded: "अगर छूट कीमतों से पहले ही घटा दी गई है तो राशियाँ मिलती हैं। ऐसा हो तो “छूट शामिल” चुनें।",
 		txtNoteSheetChange:      "यह शीट बदलाव शायद आपके अनुरोध से मेल नहीं खाता:",
+		txtNoteDraftMisses:      "यह दस्तावेज़ ड्राफ़्ट शायद आपकी माँगी गई कोई चीज़ छोड़ देता है या आपके किसी निर्देश का पालन नहीं करता:",
+		txtNoteContradiction:    "यह बदलाव शायद दस्तावेज़ में पहले से लिखी बात के विपरीत है:",
 	},
 }
 

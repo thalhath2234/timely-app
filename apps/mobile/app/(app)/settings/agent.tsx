@@ -453,7 +453,9 @@ function SmartSuggestionsCard({
         likely repeats, and it types the columns of an imported CSV from a
         few of its values. On tasks and projects it suggests a status, stage,
         fields or blocker from the description, lists work idle for three
-        weeks and reads how a project is going. Receipt photos and receipt
+        weeks and reads how a project is going. In docs it suggests where a
+        doc belongs and lines that could be tasks, and notes a doc that looks
+        out of date. Receipt photos and receipt
         amounts are never sent.
         Uses TypeSafe’s Jev model.
       </Text>
