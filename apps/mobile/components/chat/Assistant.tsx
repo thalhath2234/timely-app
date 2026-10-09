@@ -281,6 +281,30 @@ export default function Assistant() {
   function act(action: string, body?: unknown) {
     if (!pending && !offline) mutation.mutate({ action, body });
   }
+  function chooseSimilar(action: "move" | "stay") {
+    if (action === "stay") return act("/similar", { action });
+    const from = id;
+    if (pending || offline || !from) return;
+    mutation.mutate(
+      { action: "/similar", body: { action } },
+      {
+        onSuccess: (next) => {
+          // The new chat is gone: its message now lives in the earlier one.
+          queryClient.removeQueries({ queryKey: ["chat", uid, from] });
+          assistant.updateCache((cache) => ({
+            ...cache,
+            chats: cache.chats.filter((c) => c.id !== from),
+            conversations: Object.fromEntries(
+              Object.entries(cache.conversations).filter(
+                ([key]) => key !== from,
+              ),
+            ),
+          }));
+          assistant.select(next.id);
+        },
+      },
+    );
+  }
   function editText(text: string) {
     if (otherDraft) return;
     assistant.setDraft((current) => ({
@@ -839,6 +863,8 @@ export default function Assistant() {
                         setReviewSteps(steps);
                         setPage("proposal");
                       }}
+                      pending={pending}
+                      onSimilar={chooseSimilar}
                     />
                   ) : null}
                   {savedReceipt && review?.receipt ? (

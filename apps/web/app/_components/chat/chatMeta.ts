@@ -9,6 +9,7 @@ import {
   Clock,
   FileText,
   FolderKanban,
+  History,
   Layers,
   LoaderCircle,
   MapPin,
@@ -22,7 +23,7 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react";
-import type { ChatStep, ChatSummary } from "@/app/utils/api/chat";
+import type { Chat, ChatStep, ChatSummary } from "@/app/utils/api/chat";
 import { fileHref } from "@/app/utils/fileRoutes";
 
 /** Context chips carry a kind from the client that attached them. */
@@ -68,6 +69,12 @@ export function statusMeta(status: string): {
         label: "Needs your review",
         tone: "warning",
         icon: AlertTriangle,
+      };
+    case "choose":
+      return {
+        label: "Choose where to continue",
+        tone: "warning",
+        icon: History,
       };
     case "failed":
       return {
@@ -296,7 +303,7 @@ export function groupChats(chats: ChatSummary[], now = new Date()): Group[] {
     { label: "Earlier", items: [] },
   ];
   for (const chat of chats) {
-    if (["approval", "failed"].includes(chat.status)) {
+    if (["approval", "choose", "failed"].includes(chat.status)) {
       groups[0].items.push(chat);
       continue;
     }
@@ -307,4 +314,15 @@ export function groupChats(chats: ChatSummary[], now = new Date()): Group[] {
     else groups[4].items.push(chat);
   }
   return groups.filter((g) => g.items.length);
+}
+
+/** Notes smart suggestions left on the proposal waiting for review. */
+export function reviewNotes(chat: Chat): string[] {
+  if (chat.status !== "approval") return [];
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    const m = chat.messages[i];
+    if (m.proposal) return m.notes ?? [];
+    if (m.role === "user" && !m.kind) return [];
+  }
+  return [];
 }

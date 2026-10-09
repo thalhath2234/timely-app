@@ -17,11 +17,15 @@ export type ChatStatus =
   | "queued"
   | "running"
   | "approval"
+  | "choose"
   | "idle"
   | "failed"
   | "stopped";
-/** "" is a turn, "notice" a run event, "archive" a superseded or discarded plan. */
-export type ChatMessageKind = "" | "notice" | "archive";
+/**
+ * "" is a turn, "notice" a run event, "archive" a superseded or discarded
+ * plan, "similar" a pointer to an earlier chat about the same request.
+ */
+export type ChatMessageKind = "" | "notice" | "archive" | "similar";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
@@ -31,6 +35,14 @@ export type ChatMessage = {
   content: string;
   createdAt: string;
   steps?: ChatStep[];
+  /** Marks a proposal summary. */
+  proposal?: boolean;
+  /** Smart suggestions' notes on a proposal: worth a check before applying. */
+  notes?: string[];
+  /** The earlier chat a "similar" message points at. */
+  chat?: { id: string; title: string };
+  /** What the person chose on a "similar" message. */
+  choice?: "move" | "stay";
 };
 /** GET /chats returns only these columns. */
 export type ChatSummary = {

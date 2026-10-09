@@ -238,6 +238,21 @@ export default function Conversation({
   }
   const act = (action: string, body?: unknown) =>
     mutation.mutate({ action, body });
+  // "Continue there" sends the message to the earlier chat and removes this
+  // one, so the view follows it the way it follows a newly created chat.
+  function chooseSimilar(action: "move" | "stay") {
+    if (!id) return;
+    mutation.mutate(
+      { action: "/similar", body: { action } },
+      {
+        onSuccess: (next) => {
+          if (action !== "move" || next.id === id) return;
+          cache.removeQueries({ queryKey: chatKey(id) });
+          onCreated(next.id);
+        },
+      },
+    );
+  }
   const error = uploads.error || mutation.error?.message;
   const title = chat?.title || (id ? "" : "New conversation");
   const providerLabel = chat?.provider
@@ -400,7 +415,13 @@ export default function Conversation({
                 }}
               />
             )}
-            {chat && <MessageList chat={chat} />}
+            {chat && (
+              <MessageList
+                chat={chat}
+                pending={mutation.isPending}
+                onSimilar={chooseSimilar}
+              />
+            )}
             <div ref={receiptAnchor} />
             {chat?.imageReview?.status === "review" &&
               chat.imageReview.receipt && (

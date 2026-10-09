@@ -1008,10 +1008,12 @@ function DecisionsCard() {
             )}
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Pre-fills the Clarify form for Inbox items (type, effort, priority,
-            project, labels, possible duplicates) and estimates how long new
-            work takes. Runs on Jev, TypeSafe&apos;s fast decision model.
-            Suggestions never change anything until you save.
+            Pre-fills the Clarify form for Inbox items and estimates how long
+            new work takes. In agent chat it narrows the tools the agent gets,
+            points you to an earlier chat about the same thing and flags
+            changes worth a check before you apply them. Runs on Jev,
+            TypeSafe&apos;s fast decision model. Suggestions never change
+            anything until you save or apply.
           </p>
           <p className="mt-1 text-xs text-foreground" data-testid="decisions-source">
             {source}

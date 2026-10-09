@@ -130,7 +130,7 @@ export default function ChatRuntime() {
       if (
         !first &&
         chat.unread &&
-        ["idle", "approval", "failed"].includes(chat.status) &&
+        ["idle", "approval", "choose", "failed"].includes(chat.status) &&
         previous !== version
       ) {
         window.timelyDesktop.notifyChat({
@@ -139,7 +139,9 @@ export default function ChatRuntime() {
           body:
             chat.status === "approval"
               ? "Your changes are ready to review."
-              : chat.status === "failed"
+              : chat.status === "choose"
+                ? "You already have a chat about this. Choose where to continue."
+                : chat.status === "failed"
                 ? "Your chat needs attention."
                 : "Your chat has a new update.",
           revision: chat.revision,
