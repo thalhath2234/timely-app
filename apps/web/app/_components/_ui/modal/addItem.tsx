@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -28,6 +28,11 @@ import { useCreateDoc } from "@/app/utils/hooks/docs";
 import { useCreateSheet, useSheetTemplates } from "@/app/utils/hooks/sheets";
 import { createProject } from "@/app/utils/api/projects";
 import { useCreateTask, useClarifyInbox } from "@/app/utils/hooks/tasks";
+import {
+  useClarifySuggestions,
+  useDecisionFeedback,
+} from "@/app/utils/hooks/decisions";
+import ClarifyHints from "@/app/_components/_ui/modal/clarifyHints";
 import { useCreateEvent } from "@/app/utils/hooks/calendar";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
 import TaskTypeToggle from "@/app/_components/_ui/tasks/taskTypeToggle";
@@ -236,6 +241,13 @@ function AddItemModalInner() {
     null,
   );
   const [sheetTemplateId, setSheetTemplateId] = useState("");
+  // Which smart suggestions the Clarify form already filled, so each fills
+  // once. See the suggestion effects below.
+  const filledRef = useRef<{
+    logId?: string;
+    workspaceTarget?: string;
+    secondDone?: boolean;
+  }>({});
 
   // Form for Workspace
   const {
@@ -279,6 +291,7 @@ function AddItemModalInner() {
     reset: resetTask,
     control: taskControl,
     setValue: setValueTask,
+    getFieldState: getTaskFieldState,
     formState: { errors: taskErrors, isValid: isTaskValid },
   } = useForm<AddTaskForm>({
     resolver: zodResolver(addTaskSchema),
@@ -459,6 +472,23 @@ function AddItemModalInner() {
     }
   };
 
+  // Kept means every field the suggestions named still has that value.
+  const reportSuggestionFeedback = (data: AddTaskForm) => {
+    if (!suggestions?.logId) return;
+    const sorted = (ids: string[] | undefined) => [...(ids ?? [])].sort().join(",");
+    const checks: boolean[] = [];
+    if (suggestions.kind) checks.push(taskKind === suggestions.kind);
+    if (suggestions.duration && suggestions.kind !== "reminder")
+      checks.push(Number(data.duration) === suggestions.duration);
+    if (suggestions.priority) checks.push(data.priorityLevel === suggestions.priority);
+    if (suggestions.workspaceId) checks.push(data.workspaceId === suggestions.workspaceId);
+    if (suggestions.projectId) checks.push(data.projectId === suggestions.projectId);
+    if (suggestions.labelIds?.length)
+      checks.push(sorted(data.labelIds) === sorted(suggestions.labelIds));
+    if (checks.length === 0) return;
+    decisionFeedback.mutate({ logId: suggestions.logId, accepted: checks.every(Boolean) });
+  };
+
   const onTaskSubmit = (data: AddTaskForm) => {
     const hasDescription =
       !isRichContentEmpty(taskDescription.content) ||
@@ -495,6 +525,7 @@ function AddItemModalInner() {
     };
     if (isClarify && createTaskDraft?.inboxId) {
       if (payload.kind === "inbox") return;
+      reportSuggestionFeedback(data);
       clarifyInboxMutation.mutate(
         { inboxId: createTaskDraft.inboxId, data: payload },
         { onSuccess: () => closeModal() },
@@ -573,6 +604,7 @@ function AddItemModalInner() {
     setEventWorkspaceId("");
     setEventRecurrence(null);
     setSheetTemplateId("");
+    setSuggestedKindFor(undefined);
     setCreateTaskDraft(null);
     setIsAddItemModalOpen(false);
   };
@@ -701,6 +733,80 @@ function AddItemModalInner() {
     // Keyed by workspace id so creating a label/field does not reset the form.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by workspace id
   }, [selectedTaskWorkspace?.id, setValueTask]);
+
+  // Smart suggestions for an Inbox item being clarified. They fill only fields
+  // the person has not touched yet; nothing is saved until they press Clarify.
+  // Off or unsure returns nothing and the form stays as it is today.
+  const clarifyInboxId =
+    isAddItemModalOpen && addNewMode === "task" ? createTaskDraft?.inboxId : undefined;
+  const suggestionsQuery = useClarifySuggestions(clarifyInboxId);
+  const suggestions = suggestionsQuery.data?.available ? suggestionsQuery.data : undefined;
+  const decisionFeedback = useDecisionFeedback();
+  // A suggested Reminder switches the kind during render, like a quick-add
+  // draft does above; step one then sets its length and time.
+  const [suggestedKindFor, setSuggestedKindFor] = useState<string>();
+  if (suggestions?.kind === "reminder" && suggestions.logId && suggestedKindFor !== suggestions.logId) {
+    setSuggestedKindFor(suggestions.logId);
+    if (taskKind === "task") setTaskKind("reminder");
+  }
+
+  // Forget what was filled once the form closes, so reopening fills again.
+  useEffect(() => {
+    if (!clarifyInboxId) filledRef.current = {};
+  }, [clarifyInboxId]);
+
+  // Step one: kind, length, priority and workspace.
+  useEffect(() => {
+    if (!suggestions?.logId || filledRef.current.logId === suggestions.logId) return;
+    if (typedWorkspaces.length === 0 || !selectedTaskWorkspaceId) return;
+    const untouched = (name: "duration" | "priorityLevel" | "workspaceId") =>
+      !getTaskFieldState(name).isDirty;
+    if (suggestions.kind === "reminder" && taskKind === "reminder") {
+      // The kind itself switched during render, above.
+      setValueTask("duration", 0, { shouldValidate: true });
+      if (!taskScheduledOn) setTaskClock(toTimeInputValue(nextRoundHour()));
+    } else if (suggestions.duration && untouched("duration")) {
+      setValueTask("duration", suggestions.duration, { shouldValidate: true });
+    }
+    if (suggestions.priority && untouched("priorityLevel")) {
+      setValueTask("priorityLevel", suggestions.priority, { shouldValidate: true });
+    }
+    let workspaceTarget = selectedTaskWorkspaceId;
+    if (
+      suggestions.workspaceId &&
+      suggestions.workspaceId !== selectedTaskWorkspaceId &&
+      untouched("workspaceId") &&
+      !createTaskDraft?.workspaceId &&
+      typedWorkspaces.some((w) => w.id === suggestions.workspaceId)
+    ) {
+      setValueTask("workspaceId", suggestions.workspaceId, { shouldValidate: true });
+      workspaceTarget = suggestions.workspaceId;
+    }
+    filledRef.current = { logId: suggestions.logId, workspaceTarget };
+    // setTaskClock is recreated each render; the logId guard runs this once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestions, typedWorkspaces, selectedTaskWorkspaceId, taskKind, getTaskFieldState, setValueTask, createTaskDraft?.workspaceId]);
+
+  // Step two runs after the workspace reset above, so project and labels are
+  // not wiped by the workspace change step one made.
+  useEffect(() => {
+    const filled = filledRef.current;
+    if (!suggestions || filled.logId !== suggestions.logId || filled.secondDone) return;
+    if (selectedTaskWorkspaceId !== filled.workspaceTarget) return;
+    if (
+      suggestions.projectId &&
+      !getTaskFieldState("projectId").isDirty &&
+      availableTaskProjects.some((p) => p.id === suggestions.projectId)
+    ) {
+      setValueTask("projectId", suggestions.projectId, { shouldValidate: true });
+    }
+    const known = new Set((selectedTaskWorkspace?.lables ?? []).map((l) => l.id));
+    const labelIds = (suggestions.labelIds ?? []).filter((id) => known.has(id));
+    if (labelIds.length > 0 && !getTaskFieldState("labelIds").isDirty) {
+      setValueTask("labelIds", labelIds, { shouldValidate: true });
+    }
+    filledRef.current = { ...filled, secondDone: true };
+  }, [suggestions, selectedTaskWorkspaceId, selectedTaskWorkspace, availableTaskProjects, getTaskFieldState, setValueTask]);
 
   // Sync Doc / Sheet Workspace
   useEffect(() => {
@@ -1068,6 +1174,17 @@ function AddItemModalInner() {
               <p className="mt-2 text-xs text-destructive">
                 {taskErrors.name.message}
               </p>
+            )}
+
+            {isClarify && (
+              <ClarifyHints
+                loading={suggestionsQuery.isFetching && !suggestionsQuery.data}
+                suggestions={suggestions}
+                onOpenDuplicate={(id) => {
+                  closeModal();
+                  router.push(`/tasks?taskId=${encodeURIComponent(id)}`);
+                }}
+              />
             )}
 
             <div className="mt-4 flex h-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border">

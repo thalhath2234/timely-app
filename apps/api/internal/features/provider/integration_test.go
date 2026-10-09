@@ -71,6 +71,13 @@ func integrationDB(t *testing.T) *gorm.DB {
 	if err = db.Exec(strings.Split(string(keys), "-- +goose Down")[0]).Error; err != nil {
 		t.Fatal(err)
 	}
+	decisions, err := os.ReadFile("../../../migrations/20261009040000_jev_decisions.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(strings.Split(string(decisions), "-- +goose Down")[0]).Error; err != nil {
+		t.Fatal(err)
+	}
 	for _, uid := range []string{"user-a", "user-b"} {
 		if err = db.Exec("INSERT INTO users (id, name, email, password) VALUES (?, ?, ?, ?)", uid, uid, uid+"@example.com", "x").Error; err != nil {
 			t.Fatal(err)

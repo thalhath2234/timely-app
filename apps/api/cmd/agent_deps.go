@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"gorm.io/gorm"
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/auth"
@@ -20,6 +22,10 @@ import (
 	"timely-api/internal/realtime"
 	"timely-api/internal/recurrence"
 )
+
+// workEstimate is the smart-suggestion estimate for new Work the agent creates
+// without a length (nil keeps the 30-minute default). Set in main.
+var workEstimate func(ctx context.Context, userID, name, description string) (int, bool)
 
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
@@ -51,6 +57,7 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		// Notifications, snooze and mark-read run in the same transaction too.
 		Notify: notify.NewService(db, jobs.NewQueue(db), calendarService, taskService, scheduleService, indexer),
 		Docs:   doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer),
-		Search: search.NewService(db, indexer),
+		Search:   search.NewService(db, indexer),
+		Estimate: workEstimate,
 	})
 }

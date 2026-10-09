@@ -21,6 +21,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"timely-api/internal/features/chat"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
@@ -57,8 +58,12 @@ type Settings struct {
 	CodexModel           string       `gorm:"column:codex_model" json:"-"`
 	CodexConnectedAt     *time.Time   `gorm:"column:codex_connected_at" json:"-"`
 	Reindex              ReindexState `gorm:"column:reindex;serializer:json;type:jsonb" json:"-"`
-	CreatedAt            time.Time    `gorm:"column:created_at" json:"-"`
-	UpdatedAt            time.Time    `gorm:"column:updated_at" json:"-"`
+	// Smart suggestions (Jev): on by default once a TypeSafe or OpenRouter
+	// key exists; TypeSafeRejected is set when TypeSafe refuses the saved key.
+	DecisionsOff     bool      `gorm:"column:decisions_off" json:"-"`
+	TypeSafeRejected bool      `gorm:"column:typesafe_rejected" json:"-"`
+	CreatedAt        time.Time `gorm:"column:created_at" json:"-"`
+	UpdatedAt        time.Time `gorm:"column:updated_at" json:"-"`
 }
 
 func (Settings) TableName() string { return "agent_provider_settings" }
@@ -74,6 +79,9 @@ type Service struct {
 	localCLI bool
 	envChat  string
 	envEmbed string
+
+	decisions     *decide.Service
+	decisionCheck decide.Caller
 
 	openRouterURL string // overridable for tests
 	anthropicURL  string // overridable for tests

@@ -46,6 +46,16 @@ import {
   type ProviderPatch,
 } from "./api/agentProviders";
 import {
+  getDecisionSettings,
+  getDecisionsStatus,
+  getInboxSuggestions,
+  patchDecisionSettings,
+  removeTypeSafeKey,
+  sendDecisionFeedback,
+  setTypeSafeKey,
+  type DecisionSettings,
+} from "./api/decisions";
+import {
   getJobHealth,
   getNotificationSettings,
   listFailedJobs,
@@ -95,6 +105,10 @@ export const keys = {
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
   agentProviders: ["agent-providers"] as const,
+  decisions: ["decisions"] as const,
+  decisionSettings: ["decisions", "settings"] as const,
+  decisionsStatus: ["decisions", "status"] as const,
+  inboxSuggestions: (id: string) => ["inbox-suggestions", id] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
   freeTime: ["schedule", "free-time"] as const,
@@ -384,7 +398,11 @@ function useAgentProviderMutation<TVars>(fn: (vars: TVars) => Promise<AgentProvi
   return useMutation({
     mutationFn: fn,
     onSuccess: (data) => client.setQueryData(keys.agentProviders, data),
-    onSettled: () => client.invalidateQueries({ queryKey: keys.agentProviders, exact: true }),
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: keys.agentProviders, exact: true });
+      // Smart suggestions fall back to the OpenRouter key.
+      client.invalidateQueries({ queryKey: keys.decisions });
+    },
   });
 }
 
@@ -402,6 +420,47 @@ export const useSetApiProviderKey = () =>
   );
 export const useRemoveApiProviderKey = () =>
   useAgentProviderMutation((id: ApiProviderId) => removeApiProviderKey(id));
+
+export function useDecisionSettingsQuery() {
+  return useQuery({ queryKey: keys.decisionSettings, queryFn: getDecisionSettings, retry: false });
+}
+
+function useDecisionSettingsMutation<TVars>(fn: (vars: TVars) => Promise<DecisionSettings>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (data) => client.setQueryData(keys.decisionSettings, data),
+    onSettled: () => client.invalidateQueries({ queryKey: keys.decisions }),
+  });
+}
+
+export const usePatchDecisionSettings = () =>
+  useDecisionSettingsMutation((enabled: boolean) => patchDecisionSettings(enabled));
+export const useSetTypeSafeKey = () => useDecisionSettingsMutation((key: string) => setTypeSafeKey(key));
+export const useRemoveTypeSafeKey = () => useDecisionSettingsMutation<void>(() => removeTypeSafeKey());
+
+/** Whether smart suggestions can run. Fails quietly: an older server without
+ * the endpoint just means no suggestions. */
+export function useDecisionsStatusQuery(enabled = true) {
+  return useQuery({ queryKey: keys.decisionsStatus, queryFn: getDecisionsStatus, enabled, retry: false, staleTime: 60_000 });
+}
+
+/** One model call per item: kept for the session and never retried. */
+export function useInboxSuggestionsQuery(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.inboxSuggestions(id ?? ""),
+    queryFn: () => getInboxSuggestions(id!),
+    enabled: Boolean(id) && enabled,
+    retry: false,
+    staleTime: Infinity,
+  });
+}
+
+export function useDecisionFeedback() {
+  return useMutation({
+    mutationFn: ({ logId, accepted }: { logId: string; accepted: boolean }) => sendDecisionFeedback(logId, accepted),
+  });
+}
 
 export function useInvalidateAll() {
   const client = useQueryClient();

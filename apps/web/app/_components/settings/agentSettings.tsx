@@ -29,6 +29,12 @@ import {
   useSetApiProviderKey,
   useSetOpenRouterKey,
 } from "@/app/utils/hooks/agentProviders";
+import {
+  useDecisions,
+  useRemoveTypeSafeKey,
+  useSetDecisionsEnabled,
+  useSetTypeSafeKey,
+} from "@/app/utils/hooks/decisions";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import {
   PROVIDER_LABELS,
@@ -936,6 +942,212 @@ function CliCard({
   );
 }
 
+const TYPESAFE_KEY_URL = "https://typesafe.ai";
+
+/** Smart suggestions run on Jev, TypeSafe's small decision model. A TypeSafe
+ * key is used first; without one the OpenRouter key above is used. With
+ * neither, the app works exactly as before. */
+function DecisionsCard() {
+  const { data, isLoading, error } = useDecisions();
+  const setEnabled = useSetDecisionsEnabled();
+  const setKey = useSetTypeSafeKey();
+  const removeKey = useRemoveTypeSafeKey();
+  const [editingKey, setEditingKey] = useState(false);
+  const [key, setKeyValue] = useState("");
+  const [keyError, setKeyError] = useState<string | null>(null);
+
+  const onSaveKey = async (event: FormEvent) => {
+    event.preventDefault();
+    setKeyError(null);
+    try {
+      await setKey.mutateAsync(key.trim());
+      setKeyValue("");
+      setEditingKey(false);
+    } catch (err) {
+      setKeyError(errorMessage(err, "Could not save the key."));
+    }
+  };
+
+  if (isLoading) return null;
+  if (error || !data) {
+    return (
+      <p className="text-xs text-destructive">
+        {errorMessage(error, "Could not load smart suggestions.")}
+      </p>
+    );
+  }
+
+  const ts = data.typesafe;
+  const showForm = editingKey || (!ts.keySet && !data.openrouterKeySet);
+  let source: string;
+  if (!data.enabled) source = "Off. Timely works as it does without them.";
+  else if (data.provider === "typesafe") source = "Using your TypeSafe key.";
+  else if (data.provider === "openrouter")
+    source = ts.rejected
+      ? "TypeSafe refused your key, so your OpenRouter key is used for now."
+      : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
+  else source = "Add a TypeSafe or OpenRouter key to turn these on.";
+
+  return (
+    <section
+      data-testid="decisions-card"
+      className="flex flex-col gap-4 rounded-xl border border-border p-4"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 id="decisions-title" className="text-sm font-semibold text-foreground">
+              Smart suggestions
+            </h3>
+            {data.available ? (
+              <Badge tone="ok">On</Badge>
+            ) : (
+              <Badge tone="muted">Off</Badge>
+            )}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Pre-fills the Clarify form for Inbox items (type, effort, priority,
+            project, labels, possible duplicates) and estimates how long new
+            work takes. Runs on Jev, TypeSafe&apos;s fast decision model.
+            Suggestions never change anything until you save.
+          </p>
+          <p className="mt-1 text-xs text-foreground" data-testid="decisions-source">
+            {source}
+          </p>
+        </div>
+        <label
+          className={cn(
+            "relative inline-flex shrink-0 items-center",
+            setEnabled.isPending ? "cursor-not-allowed" : "cursor-pointer",
+          )}
+        >
+          <input
+            type="checkbox"
+            role="switch"
+            aria-checked={data.enabled}
+            aria-labelledby="decisions-title"
+            className="peer sr-only"
+            checked={data.enabled}
+            disabled={setEnabled.isPending}
+            onChange={(event) => setEnabled.mutate(event.target.checked)}
+          />
+          <span
+            aria-hidden="true"
+            className="relative block h-5 w-9 rounded-full bg-muted transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-ring/60 peer-disabled:opacity-50 peer-checked:[&>span]:translate-x-4"
+          >
+            <span className="absolute left-0.5 top-0.5 block size-4 rounded-full bg-background shadow transition-transform" />
+          </span>
+        </label>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs text-muted-foreground">TypeSafe API key</span>
+        {!showForm ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {ts.keySet ? (
+              ts.rejected ? (
+                <Badge tone="danger">
+                  <CircleAlert className="size-3" /> Key refused {ts.keyHint}
+                </Badge>
+              ) : (
+                <Badge tone="ok">
+                  <KeyRound className="size-3" /> Key saved {ts.keyHint}
+                </Badge>
+              )
+            ) : (
+              <Badge tone="muted">No key</Badge>
+            )}
+            <button
+              type="button"
+              onClick={() => setEditingKey(true)}
+              className={secondaryButton}
+            >
+              {ts.keySet ? "Replace" : "Add key"}
+            </button>
+            {ts.keySet && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      data.openrouterKeySet
+                        ? "Remove your TypeSafe key? Suggestions will use your OpenRouter key."
+                        : "Remove your TypeSafe key? Smart suggestions stop until you add a key again.",
+                    )
+                  ) {
+                    removeKey.mutate();
+                  }
+                }}
+                disabled={removeKey.isPending}
+                className="inline-flex h-9 items-center rounded-lg px-2 text-sm text-destructive hover:bg-destructive/10"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        ) : (
+          <form onSubmit={onSaveKey} className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                autoComplete="off"
+                value={key}
+                onChange={(event) => setKeyValue(event.target.value)}
+                placeholder="TypeSafe API key"
+                aria-label="TypeSafe API key"
+                className={inputClass}
+                disabled={setKey.isPending}
+              />
+              <button
+                type="submit"
+                disabled={key.trim().length < 8 || setKey.isPending}
+                className={primaryButton}
+              >
+                {setKey.isPending ? (
+                  <LogoSpinner size={14} tone="mono" label="Checking" />
+                ) : (
+                  <Check className="size-3.5" />
+                )}
+                {setKey.isPending ? "Checking…" : "Save"}
+              </button>
+              {editingKey && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingKey(false);
+                    setKeyError(null);
+                  }}
+                  className={secondaryButton}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Optional when your OpenRouter key is set. Stored encrypted and
+              never shown again; saving sends one tiny test request.{" "}
+              <a
+                href={TYPESAFE_KEY_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-0.5 underline"
+              >
+                Get a key <ExternalLink className="size-3" />
+              </a>
+            </p>
+            {keyError && <p className="text-xs text-destructive">{keyError}</p>}
+          </form>
+        )}
+        {(setEnabled.error || removeKey.error) && (
+          <p className="text-xs text-destructive">
+            {errorMessage(setEnabled.error ?? removeKey.error, "Could not save.")}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function AgentSettings() {
   const { data, isLoading, error, refetch } = useAgentProviders();
   const patch = usePatchAgentProviders();
@@ -991,6 +1203,7 @@ export default function AgentSettings() {
               <ApiProviderCard key={view.id} data={data} view={view} />
             ))}
           </div>
+          <DecisionsCard />
           {data.localCli ? (
             <>
               <CliCard id="claude" data={data} view={data.claude} />
