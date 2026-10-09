@@ -3,6 +3,7 @@ package suggest
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -163,6 +164,12 @@ var typeWords = map[string]string{
 	models.SheetColumnTypeSelect:   "One of a small fixed set of labels, such as a status or a category",
 }
 
+// plainNumber is a number written the one way that reads the same everywhere:
+// an optional sign, comma thousands groups and a decimal point. A decimal
+// comma (12,50) or a leading zero (02134, a code) stays text. The client
+// checks every row against the same pattern (packages/contract sheetCsv.ts).
+var plainNumber = regexp.MustCompile(`^[-+]?(0|[1-9]\d{0,2}(,\d{3})+|[1-9]\d*)(\.\d+)?$`)
+
 // candidates lists the types every value of a column already fits, besides
 // text. Dates count only in YYYY-MM-DD, so a day/month order is never
 // guessed; 1 and 0 read as numbers, not yes/no.
@@ -185,7 +192,7 @@ func candidates(values []string) ([]string, []string) {
 		return true
 	}
 	isNumber := func(v string) bool {
-		return !strings.HasSuffix(v, "%") && models.NormalizeTypedCell(models.SheetColumnTypeNumber, v) != ""
+		return plainNumber.MatchString(v) && models.NormalizeTypedCell(models.SheetColumnTypeNumber, v) != ""
 	}
 	out := []string{}
 	// A percent column stores fractions (12% is 0.12), so only values written
@@ -193,7 +200,8 @@ func candidates(values []string) ([]string, []string) {
 	if fits(isNumber) {
 		out = append(out, models.SheetColumnTypeNumber, models.SheetColumnTypeCurrency)
 	} else if fits(func(v string) bool {
-		return strings.HasSuffix(v, "%") && models.NormalizeTypedCell(models.SheetColumnTypePercent, v) != ""
+		return strings.HasSuffix(v, "%") && plainNumber.MatchString(strings.TrimSpace(strings.TrimSuffix(v, "%"))) &&
+			models.NormalizeTypedCell(models.SheetColumnTypePercent, v) != ""
 	}) {
 		out = append(out, models.SheetColumnTypePercent)
 	}

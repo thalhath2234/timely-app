@@ -36,7 +36,10 @@ const (
 	maxMatchFields   = 12
 )
 
-var expenseWord = regexp.MustCompile(`(?i)\bexpenses?\b`)
+var (
+	expenseWord = regexp.MustCompile(`(?i)\bexpenses?\b`)
+	anyNumber   = regexp.MustCompile(`\d+(?:[.,]\d+)*`)
+)
 
 // receiptTab is a tab a receipt could be recorded in.
 type receiptTab struct {
@@ -63,6 +66,11 @@ func isExpenseTab(sh models.Sheet, tab models.SheetTab) bool {
 	if columnID(tab.Columns, "Merchant") != "" && columnID(tab.Columns, "Total") != "" {
 		return true
 	}
+	// A sheet without stored tabs is presented as one tab named "Expenses",
+	// so only its title counts.
+	if len(sh.Tabs) == 0 {
+		return expenseWord.MatchString(sh.Title)
+	}
 	return expenseWord.MatchString(tab.Name) || expenseWord.MatchString(sh.Title)
 }
 
@@ -86,6 +94,9 @@ func (s *Service) readBook(ctx context.Context, uid string, r ReceiptDraft) rece
 		currencyCol, dateCol := columnID(tab.Columns, "Currency"), columnID(tab.Columns, "Date")
 		seen := map[string]bool{}
 		entry := receiptTab{sheetID: sh.ID, sheetTitle: sh.Title, workspaceID: sh.WorkspaceID, tabID: tab.ID, tabName: tab.Name}
+		if len(sh.Tabs) == 0 {
+			entry.tabName = ""
+		}
 		for i := len(tab.Rows) - 1; i >= 0; i-- {
 			row := tab.Rows[i]
 			if category != "" {
@@ -304,6 +315,9 @@ func (s *Service) receiptHints(ctx context.Context, c *Conversation, r *ReceiptD
 		options := make([]decide.Option, 0, len(book.tabs)+1)
 		for i, tab := range book.tabs {
 			text := fmt.Sprintf("Sheet “%s”, tab “%s”", clip(tab.sheetTitle, 80), clip(tab.tabName, 60))
+			if tab.tabName == "" {
+				text = fmt.Sprintf("Sheet “%s”", clip(tab.sheetTitle, 80))
+			}
 			if len(tab.merchants) > 0 {
 				text += "; recent shops: " + strings.Join(tab.merchants, ", ")
 			}
@@ -411,9 +425,10 @@ func (s *Service) receiptCorrection(ctx context.Context, c *Conversation) (corre
 	if latest == "" {
 		return false, false
 	}
-	state := map[string]any{"message": clip(latest, 1000), "receipt": receiptFacts(*c.ImageReview.Receipt)}
+	// Numbers are masked so amounts the person types are never sent.
+	state := map[string]any{"message": anyNumber.ReplaceAllString(clip(latest, 1000), "#"), "receipt": receiptFacts(*c.ImageReview.Receipt)}
 	a, err := s.decisions.Ask(ctx, c.UserID, decide.Request{Feature: "receipt_edit", State: state, Private: true, Questions: map[string]decide.Question{
-		"change": decide.YesNo("The person is checking a receipt that was read from a photo, before it is saved. Does their latest message correct or change the receipt in any way, including by just stating a value (\"the total is 12.40\", \"it was in euros\", \"wrong date, it was the 7th\") or asking to add, remove or edit an item, the shop, date, currency, an amount, tax, discount or category?",
+		"change": decide.YesNo("The person is checking a receipt that was read from a photo, before it is saved. Does their latest message correct or change the receipt in any way, including by just stating a value (\"the total is #\", \"it was in euros\", \"wrong date, it was the #th\"; every number in the message is shown as #) or asking to add, remove or edit an item, the shop, date, currency, an amount, tax, discount or category?",
 			"It corrects or changes something in the receipt, or states a value for it.", "It only thanks, approves, asks a question, or asks for something other than a change to the receipt's details."),
 	}})
 	if err != nil {
@@ -496,8 +511,9 @@ func (s *Service) receiptColumnMatches(ctx context.Context, uid string, d *Recei
 		for j, col := range free {
 			samples := []string{}
 			for k := len(tab.Rows) - 1; k >= 0 && len(samples) < 3; k-- {
+				// Numbers may be amounts, which are never sent: 212.00 reads as #.
 				if v := strings.TrimSpace(tab.Rows[k].Cells[col.ID]); v != "" && !strings.HasPrefix(v, "=") {
-					samples = append(samples, clip(v, 40))
+					samples = append(samples, clip(anyNumber.ReplaceAllString(v, "#"), 40))
 				}
 			}
 			name := fmt.Sprintf("k%d", j+1)

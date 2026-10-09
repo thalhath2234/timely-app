@@ -126,4 +126,16 @@ describe("applyColumnTypes", () => {
     assert.equal(typed.columns[0].type, "text");
     assert.equal(typed.rows[1].cells.c1, "about 5");
   });
+  test("decimal commas, codes and other date formats stay text", () => {
+    const grid = csvToGrid('Betrag,Zip,When,Status\n"12,50",02134,2026-10-01,Open\n"3,99",10001,03/04/2026,Gone\n', ids());
+    const typed = applyColumnTypes(grid, [{ type: "currency" }, { type: "number" }, { type: "date" }, { type: "select", options: ["Open"] }]);
+    assert.deepEqual(typed.columns.map((c) => c.type), ["text", "text", "text", "text"]);
+    assert.equal(typed.rows[0].cells.c1, "12,50");
+    assert.equal(typed.rows[0].cells.c2, "02134");
+  });
+  test("thousands groups still read as amounts", () => {
+    const grid = csvToGrid('Cost\n"1,234.50"\n-12\n0.99\n', ids());
+    const typed = applyColumnTypes(grid, [{ type: "currency" }]);
+    assert.equal(typed.columns[0].type, "currency");
+  });
 });

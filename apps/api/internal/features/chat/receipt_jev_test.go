@@ -68,6 +68,25 @@ func TestSheetChangeInWords(t *testing.T) {
 	}
 }
 
+func TestExpenseTabsAndMaskedAmounts(t *testing.T) {
+	// A sheet without stored tabs is presented as one "Expenses" tab; only its
+	// title decides.
+	plain := models.SheetTab{ID: "primary", Name: "Expenses", Columns: models.SheetColumns{{ID: "a", Name: "Title"}}}
+	if isExpenseTab(models.Sheet{Title: "Reading list"}, plain) {
+		t.Error("a tabless reading list read as an expense tab")
+	}
+	if !isExpenseTab(models.Sheet{Title: "Expenses 2026"}, plain) {
+		t.Error("a tabless sheet titled Expenses was skipped")
+	}
+	if !isExpenseTab(models.Sheet{Title: "Home", Tabs: models.SheetTabs{{ID: "t"}}}, models.SheetTab{ID: "t", Name: "Expenses"}) {
+		t.Error("a stored tab named Expenses was skipped")
+	}
+	got := anyNumber.ReplaceAllString("the total is 12.40, not 1,234.50 on the 7th", "#")
+	if got != "the total is #, not # on the #th" {
+		t.Errorf("masked %q", got)
+	}
+}
+
 func TestIncludedHintsOnlyWhenTheyReconcile(t *testing.T) {
 	r := receiptFixture()
 	r.Tax, r.Total = "30", "300" // prices already include the 30 tax

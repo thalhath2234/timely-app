@@ -28,6 +28,10 @@ func TestColumnCandidates(t *testing.T) {
 		{[]string{"Open", "Done", "Open", "Done", "Open"}, []string{"select"}, []string{"Open", "Done"}},
 		{[]string{"Alice", "Bob", "Carol"}, nil, nil}, // every value distinct: text
 		{[]string{"", " "}, nil, nil},
+		{[]string{"1,234.50", "12"}, []string{"number", "currency"}, nil},
+		{[]string{"12,50", "3,99"}, nil, nil},  // decimal comma: text
+		{[]string{"02134", "10001"}, nil, nil}, // leading zero: a code
+		{[]string{"12,5%", "3%"}, nil, nil},    // decimal comma percent
 	}
 	for _, c := range cases {
 		types, options := candidates(c.values)
@@ -68,7 +72,8 @@ func TestColumnTypesAskOnlyWhereValuesAllowIt(t *testing.T) {
 	if err != nil || !out.Available {
 		t.Fatal(out, err)
 	}
-	if _, ok := asked["c1"]; ok || len(asked) != 3 {
+	// Text and a zip code with a leading zero have no other type to offer.
+	if _, ok := asked["c3"]; ok || len(asked) != 2 {
 		t.Fatalf("asked %v", asked)
 	}
 	if out.Columns[0] != nil || out.Columns[1].Type != "currency" || out.Columns[2] != nil || out.Columns[3].Type != "select" || strings.Join(out.Columns[3].Options, ",") != "Paid,Due" {
