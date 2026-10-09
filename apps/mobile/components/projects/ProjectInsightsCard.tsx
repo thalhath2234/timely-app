@@ -66,7 +66,7 @@ export default function ProjectInsightsCard({ project }: { project: Project }) {
             label: "Move",
             run: () => {
               saveTask.mutate({ id: m.taskId, data: { projectId: m.moveTo, stageId: null } });
-              showUndoToast(`Moved to ${m.moveToTitle}`, () => saveTask.mutate({ id: m.taskId, data: { projectId: project.id } }));
+              showUndoToast(`Moved to ${m.moveToTitle}`, () => saveTask.mutate({ id: m.taskId, data: { projectId: project.id, stageId: m.stageId ?? null } }));
             },
           }
         : {}),

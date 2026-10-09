@@ -159,3 +159,28 @@ func TestUpdateRejectsForeignStatus(t *testing.T) {
 		t.Fatalf("owned status should pass: %v", err)
 	}
 }
+
+func TestDuplicateAsTakesTheNewFormInTheSameWorkspace(t *testing.T) {
+	mine, other := "ws_mine", "ws_other"
+	repo := &capturingRepo{
+		created: &models.Project{ID: "pr_src", Title: "Lisbon trip", WorkspaceID: &mine, DoesHaveStages: true},
+		fields:  map[string]string{"cf_mine": "ws_mine"},
+	}
+	svc := NewProjectService(repo, fakeWorkspaces{owned: map[string]string{"ws_mine": "usr_a", "ws_other": "usr_a"}}, nil)
+
+	if _, err := svc.DuplicateAs("usr_a", "pr_src", &models.Project{Title: "Porto trip", WorkspaceID: &other}, nil); err == nil {
+		t.Fatal("a copy into another workspace should be refused")
+	}
+	if repo.created.ID != "pr_src" {
+		t.Fatal("a refused copy must not create a project")
+	}
+
+	copied, err := svc.DuplicateAs("usr_a", "pr_src", &models.Project{Title: "Porto trip", WorkspaceID: &mine},
+		[]*models.CustomFieldValue{{CustomFieldID: "cf_mine"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.Title != "Porto trip" || !copied.DoesHaveStages {
+		t.Fatalf("copy should take the form's title and keep the source's stages, got %q stages=%v", copied.Title, copied.DoesHaveStages)
+	}
+}

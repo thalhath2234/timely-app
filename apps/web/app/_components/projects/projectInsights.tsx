@@ -145,7 +145,7 @@ export default function ProjectInsights({ project }: { project: Project }) {
                     accept();
                     hide(`move:${m.taskId}`);
                     showUndoToast(`Moved “${m.name}” to ${m.moveToTitle}`, () =>
-                      updateTask.mutate({ id: m.taskId, projectId: project.id }, { onSuccess: refresh }),
+                      updateTask.mutate({ id: m.taskId, projectId: project.id, stageId: m.stageId ?? "" }, { onSuccess: refresh }),
                     );
                   }}
                 >

@@ -5,7 +5,7 @@ import { Copy, FileText, Sparkles, Table2 } from "lucide-react";
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
 import type { Project } from "@/app/_types/types";
 import { getProjectStart, sendDecisionFeedback, type ProjectStart } from "@/app/utils/api/decisions";
-import { createProject, duplicateProject, updateProject, type CreateProjectPayload } from "@/app/utils/api/projects";
+import { createProject, duplicateProject, type CreateProjectPayload } from "@/app/utils/api/projects";
 import { createDoc, getDoc } from "@/app/utils/api/docs";
 import { createSheet } from "@/app/utils/api/sheets";
 
@@ -16,7 +16,7 @@ const none: StartChoices = { copy: false, doc: false, sheet: false };
  * a copy of an earlier project, a doc template and a sheet template. Each is
  * offered unticked; the person ticks what they want. */
 export function useProjectStart(title: string, workspaceId: string, active: boolean) {
-  const [suggestion, setSuggestion] = useState<ProjectStart>();
+  const [fetched, setFetched] = useState<{ suggestion: ProjectStart; workspaceId: string }>();
   const [choices, setChoices] = useState<StartChoices>(none);
   useEffect(() => {
     const trimmed = title.trim();
@@ -26,7 +26,7 @@ export function useProjectStart(title: string, workspaceId: string, active: bool
       getProjectStart(trimmed, workspaceId)
         .then((next) => {
           if (stale) return;
-          setSuggestion(next.available ? next : undefined);
+          setFetched(next.available ? { suggestion: next, workspaceId } : undefined);
           setChoices(none);
         })
         .catch(() => {});
@@ -36,7 +36,9 @@ export function useProjectStart(title: string, workspaceId: string, active: bool
       clearTimeout(timer);
     };
   }, [title, workspaceId, active]);
-  const shown = active && title.trim().length >= 3 ? suggestion : undefined;
+  // A suggestion only counts for the workspace it was asked for; a copy
+  // always lands in the source project's workspace.
+  const shown = active && title.trim().length >= 3 && fetched?.workspaceId === workspaceId ? fetched.suggestion : undefined;
   return { suggestion: shown, choices, setChoices };
 }
 
@@ -87,17 +89,7 @@ export async function createProjectWithStart(
 ): Promise<Project> {
   let project: Project;
   if (choices.copy && suggestion?.copyProjectId) {
-    const copy = await duplicateProject(suggestion.copyProjectId);
-    project = await updateProject(copy.id, {
-      title: payload.title,
-      description: payload.description ?? "",
-      ...(payload.descriptionRich ? { descriptionRich: payload.descriptionRich } : {}),
-      statusId: payload.statusId,
-      priorityLevel: payload.priorityLevel,
-      startDate: payload.startDate,
-      deadline: payload.deadline,
-      color: payload.color,
-    });
+    project = await duplicateProject(suggestion.copyProjectId, payload);
   } else {
     project = await createProject(payload);
   }

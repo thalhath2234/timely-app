@@ -41,6 +41,31 @@ type createProjectRequest struct {
 	CustomFieldValues []customFieldValueRequest `json:"customFieldValues"`
 }
 
+func (req createProjectRequest) project() (*models.Project, []*models.CustomFieldValue) {
+	project := &models.Project{
+		Title:           req.Title,
+		Description:     req.Description,
+		DescriptionRich: req.DescriptionRich,
+		WorkspaceID:     req.WorkspaceID,
+		StatusID:        req.StatusID,
+		Deadline:        req.Deadline,
+		StartDate:       req.StartDate,
+		PriorityLevel:   req.PriorityLevel,
+		Color:           req.Color,
+		DoesHaveStages:  req.DoesHaveStages,
+	}
+	customFieldValues := make([]*models.CustomFieldValue, len(req.CustomFieldValues))
+	for i, cfv := range req.CustomFieldValues {
+		customFieldValues[i] = &models.CustomFieldValue{
+			CustomFieldID: cfv.CustomFieldID,
+			OptionsValue:  cfv.OptionsValue,
+			Type:          cfv.Type,
+			StringValue:   cfv.StringValue,
+		}
+	}
+	return project, customFieldValues
+}
+
 func (h *Handler) Create(c *echo.Context) error {
 	var req createProjectRequest
 
@@ -63,28 +88,7 @@ func (h *Handler) Create(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
 	}
 
-	project := &models.Project{
-		Title:           req.Title,
-		Description:     req.Description,
-		DescriptionRich: req.DescriptionRich,
-		WorkspaceID:     req.WorkspaceID,
-		StatusID:        req.StatusID,
-		Deadline:        req.Deadline,
-		StartDate:       req.StartDate,
-		PriorityLevel:   req.PriorityLevel,
-		Color:           req.Color,
-		DoesHaveStages:  req.DoesHaveStages,
-	}
-
-	customFieldValues := make([]*models.CustomFieldValue, len(req.CustomFieldValues))
-	for i, cfv := range req.CustomFieldValues {
-		customFieldValues[i] = &models.CustomFieldValue{
-			CustomFieldID: cfv.CustomFieldID,
-			OptionsValue:  cfv.OptionsValue,
-			Type:          cfv.Type,
-			StringValue:   cfv.StringValue,
-		}
-	}
+	project, customFieldValues := req.project()
 
 	createdProject, err := h.projectService.Create(userID, project, customFieldValues)
 	if err != nil {
@@ -171,7 +175,18 @@ func (h *Handler) Duplicate(c *echo.Context) error {
 	if !ok {
 		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
 	}
-	project, err := h.projectService.Duplicate(userID, c.Param("id"))
+	// An optional body is a new project's form: the copy takes its fields
+	// and keeps only the source's stages and tasks.
+	var req createProjectRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
+	}
+	var as *models.Project
+	var values []*models.CustomFieldValue
+	if req.Title != "" {
+		as, values = req.project()
+	}
+	project, err := h.projectService.DuplicateAs(userID, c.Param("id"), as, values)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, "project not found")

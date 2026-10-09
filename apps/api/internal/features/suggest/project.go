@@ -55,6 +55,8 @@ type Misfiled struct {
 	// belong here" only.
 	MoveTo      string `json:"moveTo,omitempty"`
 	MoveToTitle string `json:"moveToTitle,omitempty"`
+	// StageID is the task's stage here, so undoing a move can put it back.
+	StageID string `json:"stageId,omitempty"`
 }
 
 type ProjectRef struct {
@@ -105,7 +107,7 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string,
 		return ProjectInsights{}, err
 	}
 	var tasks []models.Task
-	if err := s.db.WithContext(ctx).Select("id", "name", "description", "completed_at", "deadline", "blocked_by_id", "created_at", "updated_at").
+	if err := s.db.WithContext(ctx).Select("id", "name", "description", "completed_at", "deadline", "blocked_by_id", "stage_id", "created_at", "updated_at").
 		Where("project_id = ? AND user_id = ? AND kind = ?", project.ID, userID, models.KindTask).
 		Order("created_at").Find(&tasks).Error; err != nil {
 		return ProjectInsights{}, err
@@ -226,7 +228,11 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string,
 			break
 		}
 		if yes, ok := a.Yes(fmt.Sprintf("fit%d", i+1), decide.Route); ok && !yes {
-			out.Misfiled = append(out.Misfiled, Misfiled{TaskID: t.ID, Name: t.Name})
+			m := Misfiled{TaskID: t.ID, Name: t.Name}
+			if t.StageID != nil {
+				m.StageID = *t.StageID
+			}
+			out.Misfiled = append(out.Misfiled, m)
 		}
 	}
 	for i, p := range overlaps {

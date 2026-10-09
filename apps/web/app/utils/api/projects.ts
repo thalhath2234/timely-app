@@ -168,10 +168,13 @@ export async function reorderStages(projectId: string, ids: string[]): Promise<S
   return response.json();
 }
 
-export async function duplicateProject(id: string): Promise<Project> {
+/** Copies a project with its stages and tasks. With `as`, the copy is a new
+ * project with those fields (and custom field values) in the same workspace. */
+export async function duplicateProject(id: string, as?: CreateProjectPayload): Promise<Project> {
   const response = await apiFetch(`/projects/${id}/duplicate`, {
     method: "POST",
     credentials: "include",
+    ...(as ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(as) } : {}),
   });
   if (!response.ok) {
     throw new Error(await readError(response, "Failed to duplicate project"));

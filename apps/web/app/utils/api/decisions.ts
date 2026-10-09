@@ -144,7 +144,7 @@ export type ProjectInsights = {
   noOutcome?: boolean;
   noNextAction?: boolean;
   uncovered?: string[];
-  misfiled?: { taskId: string; name: string; moveTo?: string; moveToTitle?: string }[];
+  misfiled?: { taskId: string; name: string; moveTo?: string; moveToTitle?: string; stageId?: string }[];
   overlaps?: { id: string; title: string }[];
 };
 export const getProjectInsights = (projectId: string) =>

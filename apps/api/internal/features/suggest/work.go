@@ -108,16 +108,6 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 	if len(comments) > 0 {
 		state["latestComments"] = comments
 	}
-	if len(task.Checklist) > 0 {
-		list := []map[string]any{}
-		for _, item := range task.Checklist {
-			if len(list) == 20 {
-				break
-			}
-			list = append(list, map[string]any{"item": clip(item.Title, 120), "done": item.IsCompleted()})
-		}
-		state["checklist"] = list
-	}
 	state["completed"] = done
 	words := description != "" || len(comments) > 0
 	questions := map[string]decide.Question{}
@@ -248,6 +238,20 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 		// Done but not [18].
 		questions["left"] = decide.YesNo("The task is marked complete. Do its description or latest comments say something is still left to do or still waiting?",
 			"Yes, something still looks unfinished.", "No, nothing says work is left.")
+	}
+
+	// Only the gap and done-but-not questions read the checklist.
+	_, gap := questions["gap"]
+	_, left := questions["left"]
+	if len(task.Checklist) > 0 && (gap || left) {
+		list := []map[string]any{}
+		for _, item := range task.Checklist {
+			if len(list) == 20 {
+				break
+			}
+			list = append(list, map[string]any{"item": clip(item.Title, 120), "done": item.IsCompleted()})
+		}
+		state["checklist"] = list
 	}
 
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "task_hints", State: state, Questions: questions})
