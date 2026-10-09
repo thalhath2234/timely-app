@@ -193,3 +193,33 @@ export const mergeTaxonomy = (workspaceId: string, merge: CleanupMerge) => {
     into: merge.into.id,
   });
 };
+
+/** Suggestions for one doc: where it belongs, lines that read like Work, its
+ * type and properties, a template for a near-empty doc, and whether it looks
+ * outdated. Every field is optional. */
+export type DocHints = {
+  available: boolean;
+  logId?: string;
+  project?: { id: string; title: string };
+  parent?: { id: string; title: string };
+  work?: string[];
+  docType?: string;
+  properties?: { key: string; value: string }[];
+  template?: { id: string; title: string };
+  outdated?: boolean;
+};
+
+export const getDocHints = (docId: string) => request<DocHints>(`/suggestions/doc/${encodeURIComponent(docId)}`);
+
+export type MentionTarget = { kind: "task" | "project" | "doc" | "sheet"; id: string; title: string };
+/** What a selected phrase may refer to: Jev's match when sure, and the
+ * closest items to pick from. */
+export type MentionMatch = { available: boolean; logId?: string; match?: MentionTarget; options: MentionTarget[] };
+
+export const matchMention = (text: string, docId?: string) =>
+  request<MentionMatch>("/suggestions/mention", "POST", { text, docId });
+
+export type ImportLineKind = "heading" | "bullet" | "numbered" | "quote" | "paragraph";
+/** What each line of a plain-text import is, "paragraph" when unsure. */
+export const getImportFormat = (lines: string[]) =>
+  request<{ available: boolean; kinds: ImportLineKind[] }>("/suggestions/import-format", "POST", { lines });

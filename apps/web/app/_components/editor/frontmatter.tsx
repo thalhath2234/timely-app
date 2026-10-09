@@ -6,6 +6,7 @@ import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
   mergeAttributes,
+  type Editor,
   type NodeViewProps,
 } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
@@ -172,3 +173,24 @@ export const Frontmatter = TiptapNode.create({
     };
   },
 });
+
+/** Sets one property in the doc's properties block, creating the block when
+ * missing and replacing the key's line when it is already there. */
+export function setDocProperty(editor: Editor, key: string, value: string) {
+  const { state } = editor;
+  const line = `${key}: ${value}`;
+  const first = state.doc.firstChild;
+  const tr = state.tr;
+  if (first?.type.name === "frontmatter" && first.textContent.trim()) {
+    const lines = first.textContent.split("\n");
+    const at = lines.findIndex((l) => l.split(":")[0].trim().toLowerCase() === key.toLowerCase());
+    if (at >= 0) lines[at] = line;
+    else lines.push(line);
+    tr.replaceWith(1, 1 + first.content.size, state.schema.text(lines.join("\n")));
+  } else if (first?.type.name === "frontmatter") {
+    tr.replaceWith(0, first.nodeSize, state.schema.nodes.frontmatter.create(null, state.schema.text(line)));
+  } else {
+    tr.insert(0, state.schema.nodes.frontmatter.create(null, state.schema.text(line)));
+  }
+  editor.view.dispatch(tr);
+}

@@ -56,6 +56,7 @@ func (s *Service) Routes(g *echo.Group) {
 	s.workRoutes(g)
 	s.projectRoutes(g)
 	s.taxonomyRoutes(g)
+	s.docRoutes(g)
 }
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }

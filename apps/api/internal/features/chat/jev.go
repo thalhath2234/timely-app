@@ -322,8 +322,10 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 	listed := make([]map[string]string, len(steps))
 	questions := map[string]decide.Question{}
 	changes := map[int]string{}
+	drafts := map[int]docDraft{}
 	if s.jevOn(ctx, c.UserID) {
 		changes = s.sheetChanges(ctx, c.UserID, steps)
+		drafts = s.docDrafts(ctx, c.UserID, steps)
 	}
 	if p.Remaining == "" && !continuing(c) {
 		questions["missing"] = decide.YesNo("Did the person ask for something that none of the proposed changes does?",
@@ -333,6 +335,16 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 		listed[i] = map[string]string{"number": fmt.Sprint(i + 1), "change": clip(step.Summary, 300)}
 		questions[fmt.Sprintf("asked%d", i+1)] = decide.YesNo(fmt.Sprintf("Did the person ask for change number %d, directly or as a necessary part of what they asked?", i+1),
 			"The person asked for it, or it is needed to do what they asked.", "The person did not ask for it.")
+		if d, ok := drafts[i]; ok {
+			listed[i]["docText"] = d.draft
+			questions[fmt.Sprintf("draft%d", i+1)] = decide.YesNo(fmt.Sprintf("Does the docText of change number %d leave out something the person asked the doc to contain, or break an instruction they gave about it (length, format, sections, tone, language)?", i+1),
+				"Yes: something asked for is missing, or an instruction is not followed.", "No: it covers what was asked and follows the instructions.")
+			if d.existing != "" {
+				listed[i]["docNow"] = d.existing
+				questions[fmt.Sprintf("contra%d", i+1)] = decide.YesNo(fmt.Sprintf("Does the docText of change number %d state something that contradicts what docNow already says, in a part the person did not ask to change?", i+1),
+					"Yes: it contradicts something the doc already says.", "No: nothing it says conflicts with the rest of the doc.")
+			}
+		}
 		if text := changes[i]; text != "" {
 			listed[i]["sheetChanges"] = text
 			questions[fmt.Sprintf("sheet%d", i+1)] = decide.YesNo(fmt.Sprintf("Does change number %d remove or alter anything in the sheet (a column, rows or values) that the person did not ask to remove or alter?", i+1),
@@ -355,6 +367,12 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 		}
 		if yes, ok := a.Yes(fmt.Sprintf("sheet%d", i+1), decide.Route); ok && yes {
 			notes = append(notes, tr(c.Language, txtNoteSheetChange)+" "+changes[i])
+		}
+		if yes, ok := a.Yes(fmt.Sprintf("draft%d", i+1), decide.Route); ok && yes {
+			notes = append(notes, tr(c.Language, txtNoteDraftMisses)+" "+clip(step.Summary, 200))
+		}
+		if yes, ok := a.Yes(fmt.Sprintf("contra%d", i+1), decide.Route); ok && yes {
+			notes = append(notes, tr(c.Language, txtNoteContradiction)+" "+clip(step.Summary, 200))
 		}
 	}
 	if yes, ok := a.Yes("missing", decide.Route); ok && yes {

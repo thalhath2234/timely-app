@@ -105,3 +105,18 @@ export type ProjectInsights = {
 };
 export const getProjectInsights = (id: string) =>
   api<ProjectInsights>(`/suggestions/project/${encodeURIComponent(id)}`);
+
+/** Suggestions for one doc. The phone shows where it belongs, lines that read
+ * like tasks and whether it looks out of date. */
+export type DocHints = {
+  available: boolean;
+  logId?: string;
+  project?: { id: string; title: string };
+  parent?: { id: string; title: string };
+  work?: string[];
+  docType?: string;
+  properties?: { key: string; value: string }[];
+  template?: { id: string; title: string };
+  outdated?: boolean;
+};
+export const getDocHints = (id: string) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`);

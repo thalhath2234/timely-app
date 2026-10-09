@@ -1,0 +1,109 @@
+import { useState } from "react";
+import { Text, View } from "react-native";
+import { Sparkles, X } from "lucide-react-native";
+import AnimatedPressable from "../ui/AnimatedPressable";
+import { SectionLabel } from "../ui/primitives";
+import { useCreateTask, useDecisionFeedback, useDocHintsQuery, useUpdateDoc } from "../../lib/hooks";
+import { showUndoToast, useToastStore } from "../../lib/toast";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
+import type { Doc } from "../../lib/types";
+
+type Row = { key: string; text: string; label?: string; run?: () => void };
+
+/** Smart suggestions for a doc on the phone: the project or page it may
+ * belong under, lines that read like tasks, and whether it looks out of date.
+ * Type, property and template hints stay on the desktop editor. Renders
+ * nothing while suggestions are off. */
+export default function DocHintsCard({ doc, version }: { doc: Doc; version: string }) {
+  const { data } = useDocHintsQuery(doc.id, version, !doc.isTemplate && !doc.archivedAt);
+  const updateDoc = useUpdateDoc();
+  const createTask = useCreateTask();
+  const feedback = useDecisionFeedback();
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [sent, setSent] = useState(false);
+  if (!data?.available) return null;
+
+  const rows: Row[] = [];
+  const project = data.project;
+  if (project && !doc.projectId) {
+    rows.push({
+      key: "project",
+      text: `Looks like part of the “${project.title}” project.`,
+      label: "Add",
+      run: () => {
+        updateDoc.mutate({ id: doc.id, data: { projectId: project.id } });
+        showUndoToast(`Added to ${project.title}`, () => updateDoc.mutate({ id: doc.id, data: { projectId: null } }));
+      },
+    });
+  }
+  const parent = data.parent;
+  if (parent && !doc.parentId) {
+    rows.push({
+      key: "parent",
+      text: `Could live under “${parent.title}”.`,
+      label: "Move",
+      run: () => {
+        updateDoc.mutate({ id: doc.id, data: { parentId: parent.id } });
+        showUndoToast(`Moved under ${parent.title}`, () => updateDoc.mutate({ id: doc.id, data: { parentId: null } }));
+      },
+    });
+  }
+  for (const line of data.work ?? []) {
+    rows.push({
+      key: `work:${line}`,
+      text: `“${line}” reads like a task.`,
+      label: "Create task",
+      run: () =>
+        void createTask
+          .mutateAsync({ name: line, kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId ?? undefined })
+          .then(() => useToastStore.getState().show(`Task added: ${line}`)),
+    });
+  }
+  if (data.outdated) rows.push({ key: "outdated", text: "This doc may be out of date. It has not been edited in a while and talks about plans or dates that have likely passed." });
+  const shown = rows.filter((row) => !hidden.has(row.key));
+  if (!shown.length) return null;
+  const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
+
+  return (
+    <View style={styles.card} testID="doc-hints">
+      <View style={styles.header}>
+        <Sparkles size={16} color={colors.primary} />
+        <SectionLabel>Suggestions</SectionLabel>
+      </View>
+      {shown.map((row) => (
+        <View key={row.key} style={styles.row}>
+          <Text style={[styles.text, { flex: 1 }]}>{row.text}</Text>
+          {row.run ? (
+            <AnimatedPressable
+              accessibilityRole="button"
+              onPress={() => {
+                row.run!();
+                if (data.logId && !sent) {
+                  setSent(true);
+                  feedback.mutate({ logId: data.logId, accepted: true });
+                }
+                hide(row.key);
+              }}
+              style={styles.button}
+            >
+              <Text style={styles.buttonText}>{row.label}</Text>
+            </AnimatedPressable>
+          ) : null}
+          <AnimatedPressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => hide(row.key)} style={styles.dismiss} hitSlop={8}>
+            <X size={14} color={colors.mutedForeground} />
+          </AnimatedPressable>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const styles = createThemedStyleSheet((colors) => ({
+  card: { gap: 8, marginHorizontal: 16, marginBottom: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
+  header: { flexDirection: "row", alignItems: "center", gap: 6 },
+  row: { flexDirection: "row", alignItems: "center", gap: 6 },
+  text: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
+  button: { minHeight: 32, borderRadius: 10, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.secondary },
+  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "700" },
+  dismiss: { padding: 4 },
+}));

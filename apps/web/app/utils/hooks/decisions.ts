@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getCleanupSuggestions,
+  getDocHints,
   getClarifySuggestions,
   getProjectInsights,
   getStaleWork,
@@ -32,7 +33,7 @@ function useDecisionsMutation<TVars>(
     onSuccess: (data) => queryClient.setQueryData(decisionsKey, data),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: decisionsKey, exact: true });
-      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions"])
+      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions", "doc-hints"])
         queryClient.invalidateQueries({ queryKey: [key] });
     },
   });
@@ -130,5 +131,18 @@ export function useMergeTaxonomy(workspaceId: string) {
       for (const key of ["workspaces", "tasks", "today", "projects", "config", "cleanup-suggestions"])
         queryClient.invalidateQueries({ queryKey: [key] });
     },
+  });
+}
+
+/** Suggestions for a doc; `version` refetches after the text settles. */
+export function useDocHints(docId: string | undefined, version = "", enabled = true) {
+  return useQuery({
+    queryKey: ["doc-hints", docId, version],
+    queryFn: () => getDocHints(docId!),
+    enabled: Boolean(docId) && enabled,
+    // Keeps the card up while a newer read loads.
+    placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 }

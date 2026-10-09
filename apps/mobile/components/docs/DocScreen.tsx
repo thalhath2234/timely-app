@@ -24,6 +24,7 @@ import { getDocVersion, getDocVersions, restoreDocVersion, type DocVersion } fro
 import { DOC_VERSION_REASONS } from "@timely/contract/documents";
 import RichDoc from "./RichDoc";
 import RelatedList from "../search/RelatedList";
+import DocHintsCard from "./DocHintsCard";
 import { PrimaryButton } from "../ui/primitives";
 import { FILES_TAB, fileHref } from "../../lib/fileRoutes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -211,6 +212,7 @@ function DocEditor({ docId }: { docId: string }) {
         ) : null}
       </View>
       <RelatedList kind="doc" id={docId} variant="chips" />
+      <DocHintsCard doc={doc} version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))} />
 
       <RichTextEditor
         content={

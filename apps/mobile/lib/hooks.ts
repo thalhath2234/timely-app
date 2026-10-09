@@ -49,6 +49,7 @@ import {
   getDecisionSettings,
   getDecisionsStatus,
   getInboxSuggestions,
+  getDocHints,
   getProjectInsights,
   getStaleWork,
   getTaskHints,
@@ -118,6 +119,7 @@ export const keys = {
   taskHints: (id: string, version: string) => ["task-hints", id, version] as const,
   staleWork: ["stale-work"] as const,
   projectInsights: (id: string, version: string) => ["project-insights", id, version] as const,
+  docHints: (id: string, version: string) => ["doc-hints", id, version] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
   freeTime: ["schedule", "free-time"] as const,
@@ -536,6 +538,18 @@ export function useProjectInsightsQuery(id: string | undefined, version: string)
     queryKey: keys.projectInsights(id ?? "", version),
     queryFn: () => getProjectInsights(id!),
     enabled: !!id && status.data?.available === true,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useDocHintsQuery(id: string | undefined, version: string, enabled = true) {
+  const status = useDecisionsStatusQuery(!!id && enabled);
+  return useQuery({
+    queryKey: keys.docHints(id ?? "", version),
+    queryFn: () => getDocHints(id!),
+    enabled: !!id && enabled && status.data?.available === true,
+    placeholderData: keepPreviousData,
     retry: false,
     staleTime: 5 * 60 * 1000,
   });

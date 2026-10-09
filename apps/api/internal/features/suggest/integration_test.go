@@ -3,6 +3,7 @@ package suggest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -365,5 +366,144 @@ func TestIntegrationProjectStart(t *testing.T) {
 	_ = json.Unmarshal(asked["doc"], &docQ)
 	if len(copyQ.Criteria) != 2 || len(docQ.Criteria) != 2 {
 		t.Fatalf("copy %s doc %s", asked["copy"], asked["doc"])
+	}
+}
+
+func para(text string) map[string]any {
+	return map[string]any{"type": "paragraph", "content": []any{map[string]any{"type": "text", "text": text}}}
+}
+
+func docContent(nodes ...map[string]any) models.JSONMap {
+	content := make([]any, len(nodes))
+	for i, n := range nodes {
+		content[i] = n
+	}
+	return models.JSONMap{"type": "doc", "content": content}
+}
+
+func frontmatter(text string) map[string]any {
+	return map[string]any{"type": "frontmatter", "content": []any{map[string]any{"type": "text", "text": text}}}
+}
+
+func TestIntegrationDocHints(t *testing.T) {
+	w := newWorld(t)
+	now := time.Now()
+	trip := models.Project{ID: "pr_trip", Title: "Lisbon trip", WorkspaceID: &w.ws}
+	must(t, w.db.Create(&trip).Error)
+	travel := models.Document{ID: "doc_travel", Title: "Travel", PlainText: "All my trips", WorkspaceID: w.ws, UserID: w.user}
+	must(t, w.db.Create(&travel).Error)
+	child := models.Document{ID: "doc_child", Title: "Old child", PlainText: "x", WorkspaceID: w.ws, UserID: w.user}
+	for i, fm := range []string{"status: draft\ntype: plan", "status: done\ntype: plan", "status: draft"} {
+		must(t, w.db.Create(&models.Document{ID: fmt.Sprintf("doc_p%d", i), Title: "Props", WorkspaceID: w.ws, UserID: w.user, Content: docContent(frontmatter(fm))}).Error)
+	}
+	w.task(t, "Book flights", nil)
+	text := "Notes on the Lisbon weekend and what is left to sort out before we go."
+	doc := models.Document{ID: "doc_notes", Title: "Lisbon notes", WorkspaceID: w.ws, UserID: w.user, PlainText: text, Content: docContent(
+		para(text),
+		map[string]any{"type": "heading", "content": []any{map[string]any{"type": "text", "text": "Things to do"}}},
+		map[string]any{"type": "bulletList", "content": []any{
+			map[string]any{"type": "listItem", "content": []any{para("Book flights")}},
+			map[string]any{"type": "listItem", "content": []any{para("Renew the passport")}},
+		}},
+		map[string]any{"type": "taskList", "content": []any{
+			map[string]any{"type": "taskItem", "attrs": map[string]any{"checked": true}, "content": []any{para("Pick the dates")}},
+		}},
+		map[string]any{"type": "codeBlock", "content": []any{map[string]any{"type": "text", "text": "echo not a task"}}},
+	)}
+	must(t, w.db.Create(&doc).Error)
+	child.ParentID = &doc.ID
+	must(t, w.db.Create(&child).Error)
+	// Left alone for months, so it is asked whether it is outdated.
+	must(t, w.db.Exec("UPDATE documents SET updated_at = ? WHERE id = ?", now.AddDate(0, -3, 0).Format(time.RFC3339), doc.ID).Error)
+
+	jev := &jevStub{answers: map[string]any{
+		"project": choice("p1"), "parent": choice("d1"), "prop1": choice("v1"),
+		"outdated": yesNo(0.9), "w1": yesNo(0.95), "w2": yesNo(0.2),
+	}}
+	// The doc's own sub-page is never offered as its parent.
+	s := New(w.db, jev.service(t), nearby{hits: map[string][]search.Hit{"doc": {{ID: child.ID}, {ID: doc.ID}, {ID: travel.ID}}}})
+	out, err := s.DocHints(context.Background(), w.user, doc.ID, now)
+	must(t, err)
+	if out.Project == nil || out.Project.ID != trip.ID || out.Parent == nil || out.Parent.ID != travel.ID || !out.Outdated {
+		t.Fatalf("%+v", out)
+	}
+	if len(out.Properties) != 1 || out.Properties[0].Key != "status" || out.Properties[0].Value != "draft" {
+		t.Fatalf("properties %+v", out.Properties)
+	}
+	if len(out.Work) != 1 || out.Work[0] != text {
+		t.Fatalf("work %v", out.Work)
+	}
+	asked := jev.asked(0)
+	// The person's docs have their own "type" values, so those are asked
+	// instead of the generic kinds.
+	if _, ok := asked["type"]; ok {
+		t.Fatal("asked a generic type though the person uses a type property")
+	}
+	if _, ok := asked["prop2"]; !ok {
+		t.Fatalf("type values not asked: %v", asked)
+	}
+	// Book flights is open Work already; the checked item, the heading and
+	// the code are not candidates.
+	if _, ok := asked["w3"]; ok {
+		t.Fatalf("asked %v", asked)
+	}
+	var parentQ struct {
+		Criteria map[string]any `json:"criteria"`
+	}
+	_ = json.Unmarshal(asked["parent"], &parentQ)
+	if len(parentQ.Criteria) != 2 {
+		t.Fatalf("parent options %s", asked["parent"])
+	}
+	if _, err := s.DocHints(context.Background(), "usr_other", doc.ID, now); err == nil {
+		t.Fatal("read another account's doc")
+	}
+}
+
+func TestIntegrationDocHintsNearEmptyAsksOnlyForATemplate(t *testing.T) {
+	w := newWorld(t)
+	must(t, w.db.Create(&models.Document{ID: "doc_tpl", Title: "Meeting notes", PlainText: "Attendees\nAgenda\nActions", WorkspaceID: w.ws, UserID: w.user, IsTemplate: true}).Error)
+	must(t, w.db.Create(&models.Document{ID: "doc_new", Title: "Standup 9 Oct", WorkspaceID: w.ws, UserID: w.user}).Error)
+	jev := &jevStub{answers: map[string]any{"template": choice("t1")}}
+	s := New(w.db, jev.service(t), nil)
+	out, err := s.DocHints(context.Background(), w.user, "doc_new", time.Now())
+	must(t, err)
+	if out.Template == nil || out.Template.ID != "doc_tpl" || len(jev.asked(0)) != 1 {
+		t.Fatalf("%+v asked %v", out, jev.asked(0))
+	}
+	// A template itself gets no hints.
+	out, err = s.DocHints(context.Background(), w.user, "doc_tpl", time.Now())
+	must(t, err)
+	if !out.Available || out.Template != nil || len(jev.requests) != 1 {
+		t.Fatalf("%+v", out)
+	}
+}
+
+// mentionSearch returns fixed hits for a mixed-kind search.
+type mentionSearch struct {
+	search.Service
+	hits []search.Hit
+}
+
+func (m mentionSearch) SemanticSearch(context.Context, string, string, int, []string) ([]search.Hit, error) {
+	return m.hits, nil
+}
+
+func TestIntegrationMentionAndImportFormat(t *testing.T) {
+	w := newWorld(t)
+	jev := &jevStub{answers: map[string]any{"target": choice("i2"), "l1": choice("heading"), "l2": choice("bullet")}}
+	s := New(w.db, jev.service(t), mentionSearch{hits: []search.Hit{
+		{Kind: "doc", ID: "doc_self", Title: "This doc"},
+		{Kind: "project", ID: "pr_1", Title: "Kitchen remodel"},
+		{Kind: "task", ID: "tsk_1", Title: "Pick kitchen tiles"},
+		{Kind: "task", ID: "tsk_1", Title: "Pick kitchen tiles"},
+	}})
+	m, err := s.Mention(context.Background(), w.user, "the  tiles", "doc_self")
+	must(t, err)
+	if len(m.Options) != 2 || m.Match == nil || m.Match.ID != "tsk_1" || m.Match.Kind != "task" {
+		t.Fatalf("%+v", m)
+	}
+	f := s.ImportFormat(context.Background(), w.user, []string{"Groceries", "Milk", "", "Eggs"})
+	if !f.Available || len(f.Kinds) != 4 || f.Kinds[0] != "heading" || f.Kinds[1] != "bullet" || f.Kinds[2] != "paragraph" || f.Kinds[3] != "paragraph" {
+		t.Fatalf("%+v", f)
 	}
 }
