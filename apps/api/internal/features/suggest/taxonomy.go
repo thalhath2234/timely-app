@@ -133,7 +133,8 @@ func (s *Service) CleanupSuggestions(ctx context.Context, userID, workspaceID st
 	out.LogID = a.LogID
 	merged := map[string]bool{}
 	for i, p := range pairs {
-		if yes, ok := a.Yes(fmt.Sprintf("pair%d", i+1), decide.Route); !ok || !yes {
+		// The person confirms every merge, so a likely yes is enough to ask.
+		if yes, ok := a.Yes(fmt.Sprintf("pair%d", i+1), decide.Prefill); !ok || !yes {
 			continue
 		}
 		// One merge per item at a time; after it, the next fetch pairs again.

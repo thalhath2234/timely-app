@@ -141,7 +141,7 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 	// Stage [14]: an unstaged task in a project with stages.
 	var stages []models.Stage
 	stageByName := map[string]string{}
-	if task.ProjectID != nil && (task.StageID == nil || *task.StageID == "") {
+	if !done && task.ProjectID != nil && (task.StageID == nil || *task.StageID == "") {
 		s.db.WithContext(ctx).Where("project_id = ?", *task.ProjectID).Order(`"order"`).Find(&stages)
 	}
 	if len(stages) > 0 {
@@ -499,13 +499,16 @@ func (s *Service) StaleWork(ctx context.Context, userID string, now time.Time) (
 			decide.Option{Name: "actionable", Description: "It is still worth doing as written; it just needs time"},
 			decide.Option{Name: "clarify", Description: "It is vague or unclear and needs rethinking before anyone can act"},
 			decide.Option{Name: "blocked", Description: "It is waiting on someone or something else"},
-			decide.Option{Name: "obsolete", Description: "It was probably time-bound or one-off and is likely no longer needed"})
+			decide.Option{Name: "obsolete", Description: "It was tied to a date or event that has already passed, or is likely no longer needed"})
 	}
-	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "stale_work", State: map[string]any{"tasks": list}, Questions: questions})
+	// Today's date lets Jev tell a task tied to a past date or event.
+	state := map[string]any{"today": now.Format("Monday 2 January 2006"), "tasks": list}
+	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "stale_work", State: state, Questions: questions})
 	for i, st := range stale {
 		item := StaleTask{ID: st.task.ID, Name: st.task.Name, IdleDays: st.days}
 		if err == nil {
-			if v, ok := a.Choice(fmt.Sprintf("task%d", i+1), decide.Prefill); ok {
+			// A verdict is a review chip, not a pre-fill: the hint threshold.
+			if v, ok := a.Choice(fmt.Sprintf("task%d", i+1), decide.Flag); ok {
 				item.Verdict = v
 			}
 		}

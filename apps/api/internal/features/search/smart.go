@@ -197,8 +197,8 @@ func applyRerank(hits []Hit, answers decide.Answers) (kept, hidden []Hit) {
 
 // Pick checks which of a shortlist of tasks fit a bulk edit's description
 // ("everything about the website launch"), one yes/no per task. Matches are
-// clear yeses, unsure are the rest Jev did not rule out, and clear misses are
-// left out. ok is false when Jev did not answer: the caller treats the
+// confident yeses, misses (a fairly sure no) are left out, and the rest come
+// back as unsure. ok is false when Jev did not answer: the caller treats the
 // shortlist as unchecked.
 func (s *Smart) Pick(ctx context.Context, userID, description string, hits []Hit) (matches, unsure []Hit, left int, ok bool) {
 	if s == nil || s.decisions == nil || len(hits) == 0 || strings.TrimSpace(description) == "" {
@@ -222,14 +222,15 @@ func (s *Smart) Pick(ctx context.Context, userID, description string, hits []Hit
 	if err != nil {
 		return nil, hits, 0, false
 	}
+	// A match must be a confident yes; a fairly sure no is enough to leave a
+	// task out, since the person only reviews what comes back.
 	for i, hit := range hits {
-		yes, sure := answers.Yes(fmt.Sprintf("pick%d", i+1), decide.Route)
-		switch {
-		case sure && yes:
+		id := fmt.Sprintf("pick%d", i+1)
+		if yes, sure := answers.Yes(id, decide.Route); sure && yes {
 			matches = append(matches, hit)
-		case sure:
+		} else if yes, sure := answers.Yes(id, decide.Flag); sure && !yes {
 			left++
-		default:
+		} else {
 			unsure = append(unsure, hit)
 		}
 	}

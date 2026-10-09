@@ -230,7 +230,7 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string,
 		}
 	}
 	for i, p := range overlaps {
-		if yes, ok := a.Yes(fmt.Sprintf("overlap%d", i+1), decide.Route); ok && yes {
+		if yes, ok := a.Yes(fmt.Sprintf("overlap%d", i+1), decide.Prefill); ok && yes {
 			out.Overlaps = append(out.Overlaps, ProjectRef{ID: p.ID, Title: p.Title})
 		}
 	}
