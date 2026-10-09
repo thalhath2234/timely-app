@@ -21,6 +21,7 @@ import { useCaptureInbox } from "@/app/utils/hooks/tasks";
 import { formatTime } from "@/app/utils/calendar";
 import { useToastStore } from "@/app/_store/toastStore";
 import { cn } from "@/app/utils/cn";
+import DatePicker from "@/app/_components/_ui/datePicker";
 import { Meter, useElementSize } from "./charts";
 
 /* ------------------------------------------------------------------ */
@@ -420,13 +421,16 @@ export function CountdownCard({
           className="rounded-md border border-border bg-input/30 px-2 py-1 text-sm text-foreground outline-none focus:border-ring"
         />
         <div className="flex gap-2">
-          <input
-            type="date"
-            value={draftDate}
-            onChange={(event) => setDraftDate(event.target.value)}
-            aria-label="Date"
-            className="min-w-0 flex-1 rounded-md border border-border bg-input/30 px-2 py-1 text-sm text-foreground outline-none focus:border-ring"
-          />
+          <div className="min-w-0 flex-1">
+            <DatePicker
+              value={draftDate}
+              onChange={setDraftDate}
+              clearable={false}
+              placeholder="Pick a date"
+              aria-label="Date"
+              className="rounded-md px-2 py-1"
+            />
+          </div>
           <button type="submit" disabled={!draftDate} className="rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
             Save
           </button>

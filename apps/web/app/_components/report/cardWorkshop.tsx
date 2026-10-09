@@ -46,6 +46,7 @@ import {
   type DashboardData,
 } from "@timely/contract/dashboard";
 import Select from "@/app/_components/_ui/select";
+import DatePicker from "@/app/_components/_ui/datePicker";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
 import CustomCardView from "./customCardView";
@@ -307,19 +308,17 @@ export default function CardWorkshop({
                   {query.range.preset === "custom" ? (
                     <>
                       <Field label="From">
-                        <input
-                          type="date"
+                        <DatePicker
                           value={query.range.from ?? ""}
-                          onChange={(event) => setQuery({ range: { ...query.range, from: event.target.value || undefined } })}
-                          className={inputClass}
+                          onChange={(value) => setQuery({ range: { ...query.range, from: value || undefined } })}
+                          aria-label="From date"
                         />
                       </Field>
                       <Field label="To">
-                        <input
-                          type="date"
+                        <DatePicker
                           value={query.range.to ?? ""}
-                          onChange={(event) => setQuery({ range: { ...query.range, to: event.target.value || undefined } })}
-                          className={inputClass}
+                          onChange={(value) => setQuery({ range: { ...query.range, to: value || undefined } })}
+                          aria-label="To date"
                         />
                       </Field>
                     </>
