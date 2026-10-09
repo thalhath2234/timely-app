@@ -83,6 +83,15 @@ type Task struct {
 	PreferredWindows      PreferredWindows `gorm:"type:jsonb;not null;default:'[]'" json:"preferredWindows"`
 	ScheduleLocked        bool             `gorm:"not null;default:false" json:"scheduleLocked"`
 
+	// Traits smart suggestions read from the task's own words (Jev), stored so
+	// every ranking of the task agrees. EffortKind is deep, admin, creative or
+	// routine; Urgency 0-4 (nil: unknown); tasks with one GroupKey share a
+	// topic or tool. TraitsHash is the hash of the words they came from.
+	EffortKind string `gorm:"not null;default:''" json:"effortKind,omitempty"`
+	Urgency    *int   `json:"urgency,omitempty"`
+	GroupKey   string `gorm:"not null;default:''" json:"groupKey,omitempty"`
+	TraitsHash string `gorm:"not null;default:''" json:"-"`
+
 	Deadline    *string `gorm:"type:date" json:"deadline"`
 	StartDate   *string `gorm:"type:date" json:"startDate"`
 	ScheduledOn *string `gorm:"type:timestamptz" json:"scheduledOn"`

@@ -29,6 +29,7 @@ type Service struct {
 	indexer      embed.Indexer
 	http         *http.Client
 	overdueSwept map[string]time.Time
+	triage       Triager // nil until SetTriage
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -320,11 +321,17 @@ func (s *Service) HandleOverdueTask(ctx context.Context, job *models.Job) error 
 		return nil
 	}
 	entity := item.ID
+	today := s.notificationDay(job.UserID, settings, time.Now())
+	step, body := s.suggestStep(ctx, job.UserID, item, models.NotifyOverdue, "overdue", daysPast(deadline, today), "Past deadline. Reschedule as urgent?")
+	data := models.JobPayload{"taskId": item.ID, "deadline": deadline}
+	if step != "" {
+		data["suggest"] = step
+	}
 	ntf, err := s.repo.Upsert(&models.Notification{
 		UserID: job.UserID, Category: models.NotifyOverdue,
-		Title: item.Name, Body: "Past deadline. Reschedule as urgent?",
+		Title: item.Name, Body: body,
 		EntityType: strPtr("task"), EntityID: &entity,
-		Data:      models.JobPayload{"taskId": item.ID, "deadline": deadline},
+		Data:      data,
 		DedupeKey: job.DedupeKey,
 	})
 	if err != nil {
@@ -432,11 +439,19 @@ func (s *Service) HandleMissedBlock(ctx context.Context, job *models.Job) error 
 		return nil
 	}
 	entity := taskID
+	step, body := s.suggestStep(ctx, job.UserID, item, models.NotifyMissed, "missed", 0, "This block ended and the work is still open.")
+	data := models.JobPayload{}
+	for k, v := range job.Payload {
+		data[k] = v
+	}
+	if step != "" {
+		data["suggest"] = step
+	}
 	ntf, err := s.repo.Upsert(&models.Notification{
 		UserID: job.UserID, Category: models.NotifyMissed,
-		Title: item.Name, Body: "This block ended and the work is still open.",
+		Title: item.Name, Body: body,
 		EntityType: strPtr("task"), EntityID: &entity,
-		Data: job.Payload, DedupeKey: job.DedupeKey,
+		Data: data, DedupeKey: job.DedupeKey,
 	})
 	if err != nil {
 		return err

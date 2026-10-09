@@ -50,6 +50,9 @@ import {
   getDecisionsStatus,
   getInboxSuggestions,
   getDocHints,
+  getTodaySuggestions,
+  runNotificationTriage,
+  type TriageStep,
   getProjectInsights,
   getStaleWork,
   getTaskHints,
@@ -120,6 +123,7 @@ export const keys = {
   staleWork: ["stale-work"] as const,
   projectInsights: (id: string, version: string) => ["project-insights", id, version] as const,
   docHints: (id: string, version: string) => ["doc-hints", id, version] as const,
+  todaySuggestions: (timezone: string, version: string) => ["today-suggestions", timezone, version] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
   freeTime: ["schedule", "free-time"] as const,
@@ -552,6 +556,33 @@ export function useDocHintsQuery(id: string | undefined, version: string, enable
     placeholderData: keepPreviousData,
     retry: false,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Today's focus picks and free-gap suggestion; version changes when the
+ * focus list or agenda changes. */
+export function useTodaySuggestionsQuery(timezone: string, version: string, enabled = true) {
+  const status = useDecisionsStatusQuery(enabled);
+  return useQuery({
+    queryKey: keys.todaySuggestions(timezone, version),
+    queryFn: () => getTodaySuggestions(timezone),
+    enabled: enabled && status.data?.available === true,
+    placeholderData: keepPreviousData,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useNotificationTriage() {
+  const client = useQueryClient();
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ id, action }: { id: string; action: TriageStep }) => runNotificationTriage(id, action),
+    onSuccess: () => {
+      void invalidate().catch(() => undefined);
+      void client.invalidateQueries({ queryKey: keys.notifications });
+      void client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
   });
 }
 

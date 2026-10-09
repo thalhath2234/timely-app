@@ -35,6 +35,7 @@ import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { taskEntityColor } from "../../../lib/entityColor";
 import TimelyLogo from "../../../components/ui/TimelyLogo";
+import TodaySuggestionsCard from "../../../components/tasks/TodaySuggestionsCard";
 
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
@@ -347,6 +348,13 @@ export default function HomeScreen() {
                 <Text style={styles.addFocusText}>Add to today ({remainingSlots} left)</Text>
               </AnimatedPressable>
             ) : null}
+
+            <TodaySuggestionsCard
+              date={data.date}
+              slotsLeft={remainingSlots}
+              onOpenTask={openTask}
+              version={`${data.todayFocus.map((task) => task.id).join(",")}|${scheduled.map((item) => item.id).join(",")}`}
+            />
 
             <View style={styles.sectionHead}>
               <View style={styles.sectionTitleRow}>

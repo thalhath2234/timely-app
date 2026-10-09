@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
 	"timely-api/internal/features/decide"
+	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/models"
 )
@@ -40,6 +41,7 @@ type Service struct {
 	db       *gorm.DB
 	decide   *decide.Service
 	search   search.Service
+	schedule schedule.Service                                          // nil until SetSchedule
 	estimate func(context.Context, string, string, string) (int, bool) // overridable in tests
 }
 
@@ -57,6 +59,7 @@ func (s *Service) Routes(g *echo.Group) {
 	s.projectRoutes(g)
 	s.taxonomyRoutes(g)
 	s.docRoutes(g)
+	s.todayRoutes(g)
 }
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }

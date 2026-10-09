@@ -23,13 +23,20 @@ type Props = {
   onStage: (stageId: string) => void;
   onField: (field: CustomField, next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">) => void;
   onBlocker: (taskId: string) => void;
+  contiguous?: boolean;
+  hasPreferredWindows: boolean;
+  onOneSitting: () => void;
+  onPreferredWindow: (window: { start: string; end: string }) => void;
 };
+
+const TIME_OF_DAY: Record<string, string> = { morning: "mornings", afternoon: "afternoons", evening: "evenings" };
 
 type Row = { key: string; text: React.ReactNode; action?: { label: string; run: () => void } };
 
 /** Hints a task's own words suggest (smart suggestions): a status, stage,
- * custom field values or blocker to apply, and notes on a vague outcome or a
- * checklist gap. Nothing shows while suggestions are off or unsure. */
+ * custom field values or blocker to apply, one sitting for long work that
+ * cannot be split, the person's best time for deep work, and notes on a vague
+ * outcome or a checklist gap. Nothing shows while suggestions are off or unsure. */
 export default function TaskHints(props: Props) {
   const { data } = useTaskHints(`${props.taskId}`, true, props.version);
   const feedback = useDecisionFeedback();
@@ -83,6 +90,21 @@ export default function TaskHints(props: Props) {
   if (data.blockedBy && !props.blockedById) {
     const blocker = data.blockedBy;
     rows.push({ key: "blocker", text: <>Seems to wait on {strong(blocker.name)}.</>, action: { label: "Set as blocker", run: () => props.onBlocker(blocker.id) } });
+  }
+  if (data.oneSitting && !props.contiguous) {
+    rows.push({
+      key: "sitting",
+      text: <>Reads like it needs one unbroken stretch rather than several sessions.</>,
+      action: { label: "Keep in one sitting", run: props.onOneSitting },
+    });
+  }
+  if (data.preferredTime && data.preferredWindow && !props.hasPreferredWindows) {
+    const window = data.preferredWindow;
+    rows.push({
+      key: "deep-time",
+      text: <>Deep focus work. Plan it in your {strong(TIME_OF_DAY[data.preferredTime])} ({window.start}–{window.end}, within your working hours)?</>,
+      action: { label: `Prefer ${TIME_OF_DAY[data.preferredTime]}`, run: () => props.onPreferredWindow(window) },
+    });
   }
   if (data.vagueOutcome) rows.push({ key: "outcome", text: <>It is not clear what counts as done. A “done when” line would help.</> });
   if (data.checklistGap) rows.push({ key: "gap", text: <>The description asks for something the checklist does not cover.</> });

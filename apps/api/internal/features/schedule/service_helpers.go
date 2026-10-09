@@ -207,6 +207,8 @@ func (s *service) makeCandidate(t *models.Task, loc *time.Location, todayStamp s
 		BlockedByID:      derefString(t.BlockedByID),
 		TodayFocus:       models.NormalizeDate(derefString(t.TodayFocusOn)) == todayStamp,
 		ActualMinutes:    t.ActualMinutes,
+		Urgency:          t.Urgency,
+		GroupKey:         t.GroupKey,
 	}
 	if t.EarliestStartAt != nil && *t.EarliestStartAt != "" {
 		if parsed, err := recurrence.ParseTimeIn(*t.EarliestStartAt, loc); err == nil {

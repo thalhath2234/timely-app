@@ -314,6 +314,7 @@ func setupNotifyRoutes(g *echo.Group, h *notify.Handler) {
 	g.POST("/notifications/:id/read", h.MarkRead)
 	g.POST("/notifications/:id/snooze", h.Snooze)
 	g.POST("/notifications/:id/reschedule", h.Reschedule)
+	g.POST("/notifications/:id/triage", h.Triage)
 	g.POST("/tasks/:id/reschedule-urgent", h.PrioritizeOverdue)
 	g.PUT("/devices/push", h.RegisterDevice)
 	g.DELETE("/devices/push", h.UnregisterDevice)

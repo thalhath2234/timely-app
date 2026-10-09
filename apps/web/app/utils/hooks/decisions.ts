@@ -13,6 +13,11 @@ import {
   removeTypeSafeKey,
   sendDecisionFeedback,
   setDecisionsEnabled,
+  setDecisionPrefs,
+  getTodaySuggestions,
+  runNotificationTriage,
+  type DeepWorkTime,
+  type TriageStep,
   setTypeSafeKey,
   testDecisions,
   type DecisionsView,
@@ -33,7 +38,7 @@ function useDecisionsMutation<TVars>(
     onSuccess: (data) => queryClient.setQueryData(decisionsKey, data),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: decisionsKey, exact: true });
-      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions", "doc-hints"])
+      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions", "doc-hints", "today-suggestions"])
         queryClient.invalidateQueries({ queryKey: [key] });
     },
   });
@@ -41,6 +46,8 @@ function useDecisionsMutation<TVars>(
 
 export const useSetDecisionsEnabled = () =>
   useDecisionsMutation((enabled: boolean) => setDecisionsEnabled(enabled));
+export const useSetDecisionPrefs = () =>
+  useDecisionsMutation((prefs: { goals?: string[]; deepWorkTime?: DeepWorkTime }) => setDecisionPrefs(prefs));
 export const useSetTypeSafeKey = () =>
   useDecisionsMutation((key: string) => setTypeSafeKey(key));
 export const useRemoveTypeSafeKey = () =>
@@ -144,5 +151,30 @@ export function useDocHints(docId: string | undefined, version = "", enabled = t
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
     retry: false,
+  });
+}
+
+/** Today's focus picks and free-gap suggestion; empty while suggestions are off.
+ * version changes when Today's focus or plan changes, so picks refresh. */
+export function useTodaySuggestions(timezone: string, version = "", enabled = true) {
+  return useQuery({
+    queryKey: ["today-suggestions", timezone, version],
+    queryFn: () => getTodaySuggestions(timezone),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
+}
+
+/** Runs a notification's suggested next step, then refreshes what it touched. */
+export function useNotificationTriage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; action: TriageStep }) => runNotificationTriage(vars.id, vars.action),
+    onSettled: () => {
+      for (const key of ["notifications", "tasks", "today", "calendar", "today-suggestions"])
+        queryClient.invalidateQueries({ queryKey: [key] });
+    },
   });
 }

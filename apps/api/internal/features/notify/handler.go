@@ -143,6 +143,26 @@ func (h *Handler) PrioritizeOverdue(c *echo.Context) error {
 	return c.JSON(http.StatusOK, plan)
 }
 
+// Triage runs the next step a missed or overdue notification suggests (or
+// another one the person picked).
+func (h *Handler) Triage(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Action string `json:"action"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
+	}
+	message, err := h.service.ApplyTriage(uid, c.Param("id"), req.Action)
+	if err != nil {
+		return notifyError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]string{"message": message})
+}
+
 func (h *Handler) GetSettings(c *echo.Context) error {
 	uid, err := userID(c)
 	if err != nil {

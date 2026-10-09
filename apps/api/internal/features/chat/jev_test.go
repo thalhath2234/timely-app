@@ -345,3 +345,18 @@ func TestTriageKeepsFirstPickWhenSureThereIsAMatch(t *testing.T) {
 		t.Fatalf("expected the first pick, got %+v (ok %v)", tri.similar, ok)
 	}
 }
+
+func TestTriageHintMeetingIntent(t *testing.T) {
+	for meeting, want := range map[string]string{
+		"prepare": "time blocked before it to prepare",
+		"add":     "the event itself added",
+		"remind":  "a reminder shortly before it",
+	} {
+		if hint := (triage{meeting: meeting}).hint(true); !strings.Contains(hint, want) {
+			t.Errorf("%s: %q", meeting, hint)
+		}
+	}
+	if hint := (triage{}).hint(true); hint != "" {
+		t.Errorf("no triage, no hint: %q", hint)
+	}
+}

@@ -10,7 +10,11 @@ export type DecisionSettings = {
   provider?: DecisionProvider;
   typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
   openrouterKeySet: boolean;
+  goals?: string[];
+  deepWorkTime?: "" | "morning" | "afternoon" | "evening";
 };
+
+export type EffortKind = "deep" | "admin" | "creative" | "routine";
 
 export type DecisionsStatus = { available: boolean; provider: string };
 
@@ -120,3 +124,27 @@ export type DocHints = {
   outdated?: boolean;
 };
 export const getDocHints = (id: string) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`);
+
+/** Today: open Work worth focusing on, the best Work for the next free gap,
+ * and how the top open Work lines up with the person's goals. */
+export type TodaySuggestions = {
+  available: boolean;
+  logId?: string;
+  error?: string;
+  focus?: { taskId: string; name: string; reasons: string[]; goal?: string; effortKind?: EffortKind }[];
+  gap?: {
+    start: string;
+    end: string;
+    minutes: number;
+    task?: { id: string; name: string; minutes: number; effortKind?: EffortKind };
+  };
+  goals?: { goal: string; count: number }[];
+};
+/** Can take a few seconds: it asks the model. */
+export const getTodaySuggestions = (timezone: string) =>
+  api<TodaySuggestions>(`/suggestions/today?timezone=${encodeURIComponent(timezone)}`);
+
+export type TriageStep = "reschedule" | "extend" | "addtime" | "move" | "lower";
+/** Runs a missed or overdue notification's next step and marks it read. */
+export const runNotificationTriage = (id: string, action: TriageStep) =>
+  api<{ message: string }>(`/notifications/${encodeURIComponent(id)}/triage`, { method: "POST", body: { action } });

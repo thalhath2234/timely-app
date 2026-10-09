@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell } from "lucide-react";
+import { Bell, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
@@ -16,6 +16,9 @@ import type { AppNotification } from "@/app/_types/types";
 import { motion } from "motion/react";
 import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 import { fileHref } from "@/app/utils/fileRoutes";
+import { useNotificationTriage } from "@/app/utils/hooks/decisions";
+import type { TriageStep } from "@/app/utils/api/decisions";
+import { useToastStore } from "@/app/_store/toastStore";
 
 type NotificationTarget =
   | { kind: "task"; id: string }
@@ -48,6 +51,21 @@ function targetFor(item: AppNotification): NotificationTarget {
   return { kind: "route", href: "/today" };
 }
 
+/** Next steps for Work that is past its deadline or whose block ended unfinished.
+ * Smart suggestions may mark one as suggested ([35][36]). */
+const TRIAGE_STEPS: Record<string, { step: TriageStep; label: string }[]> = {
+  overdue: [
+    { step: "reschedule", label: "Reschedule urgently" },
+    { step: "extend", label: "Deadline +1 week" },
+    { step: "lower", label: "Lower priority" },
+  ],
+  missed: [
+    { step: "addtime", label: "Add time" },
+    { step: "move", label: "Move to next free time" },
+    { step: "lower", label: "Lower priority" },
+  ],
+};
+
 function tomorrowNine() {
   const next = new Date();
   next.setDate(next.getDate() + 1);
@@ -58,6 +76,7 @@ function tomorrowNine() {
 export default function NotificationsPage() {
   const router = useRouter();
   const list = useNotifications();
+  const triage = useNotificationTriage();
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const clearAll = useClearNotifications();
@@ -178,6 +197,31 @@ export default function NotificationsPage() {
                       >
                         Tomorrow 9:00
                       </button>
+                    </div>
+                  ) : null}
+                  {unread && TRIAGE_STEPS[item.category] ? (
+                    <div className="mt-2 flex flex-wrap gap-2" data-testid="triage-steps">
+                      {TRIAGE_STEPS[item.category].map(({ step, label }) => {
+                        const suggested = dataString(item, "suggest") === step;
+                        return (
+                          <button
+                            key={step}
+                            type="button"
+                            disabled={triage.isPending}
+                            title={suggested ? "Suggested for this task" : undefined}
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs disabled:opacity-50 ${suggested ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15" : "border-border bg-muted hover:border-primary/30"}`}
+                            onClick={() =>
+                              void triage
+                                .mutateAsync({ id: item.id, action: step })
+                                .then((res) => useToastStore.getState().show(res.message))
+                                .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
+                            }
+                          >
+                            {suggested ? <Sparkles className="size-3" /> : null}
+                            {label}
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : null}
                   {snooze.isError ? (

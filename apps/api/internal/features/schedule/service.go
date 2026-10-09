@@ -166,7 +166,18 @@ func (s *service) UpdateWorkingHours(userID string, hours models.WorkingHours) (
 	return &WorkingHoursResponse{WorkingHours: hours}, nil
 }
 
+// beforePreview runs ahead of every Preview: smart suggestions use it to read
+// and store the traits (urgency, groups) of Work they have not read yet. Apply
+// never calls it, so it places exactly what the last Preview ranked.
+var beforePreview func(userID string)
+
+// SetBeforePreview installs the hook for every schedule service in the process.
+func SetBeforePreview(fn func(userID string)) { beforePreview = fn }
+
 func (s *service) Preview(userID string, req PlanRequest) (*PlanResponse, error) {
+	if beforePreview != nil && userID != "" {
+		beforePreview(userID)
+	}
 	plan, _, _, _, err := s.plan(userID, req)
 	if err != nil {
 		return nil, err
@@ -432,6 +443,7 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 			TodayFocus:    c.TodayFocus,
 			ActualMinutes: c.ActualMinutes,
 			Duration:      c.DurationMinutes,
+			Urgency:       c.Urgency,
 		})
 	}
 

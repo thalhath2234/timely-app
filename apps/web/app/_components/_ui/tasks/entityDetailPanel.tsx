@@ -846,7 +846,7 @@ function DetailBody({
           {view.kind === "task" && !isInbox && !isReminder && (
             <TaskHints
               taskId={view.id}
-              version={`${view.description.length}:${view.description.slice(-40)}:${view.completedAt ?? ""}:${view.blockedById ?? ""}:${view.stageId ?? ""}`}
+              version={`${view.description.length}:${view.description.slice(-40)}:${view.completedAt ?? ""}:${view.blockedById ?? ""}:${view.stageId ?? ""}:${view.duration ?? 0}`}
               statusId={view.statusId}
               stageId={view.stageId}
               blockedById={view.blockedById}
@@ -872,6 +872,10 @@ function DetailBody({
                 void flush();
               }}
               onBlocker={(blockedById) => commit({ blockedById })}
+              contiguous={view.contiguous}
+              hasPreferredWindows={(view.preferredWindows ?? []).length > 0}
+              onOneSitting={() => commit({ contiguous: true })}
+              onPreferredWindow={(window) => commit({ preferredWindows: [window] })}
             />
           )}
           {children}
