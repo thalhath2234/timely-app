@@ -320,3 +320,14 @@ export function groupChats(chats: Chat[], now = new Date()): ChatGroup[] {
   }
   return groups.filter((g) => g.items.length);
 }
+
+/** Notes smart suggestions left on the proposal waiting for review. */
+export function reviewNotes(chat: Chat): string[] {
+  if (chat.status !== "approval") return [];
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    const m = chat.messages[i];
+    if (m.proposal) return m.notes ?? [];
+    if (m.role === "user" && !m.kind) return [];
+  }
+  return [];
+}

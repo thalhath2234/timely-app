@@ -839,6 +839,7 @@ export default function Assistant() {
                         setReviewSteps(steps);
                         setPage("proposal");
                       }}
+                      onOpenChat={(next) => assistant.select(next)}
                     />
                   ) : null}
                   {savedReceipt && review?.receipt ? (

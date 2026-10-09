@@ -26,6 +26,7 @@ type Service struct {
 	rehearsal  func(*gorm.DB) agent.Catalog
 	provider   Completer
 	completers Completers
+	decisions  Decider
 	wg         sync.WaitGroup
 }
 

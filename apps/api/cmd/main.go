@@ -159,6 +159,7 @@ func main() {
 	// Proposals are rehearsed in a rolled-back transaction; no live doc broadcasts.
 	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, providerService.EmbedCredentials) })
 	chatService.SetCompleters(providerService)
+	chatService.SetDecisions(decisions)
 
 	authHandler := auth.NewHandler(authService, userRepo)
 	port, bind := listenConfig()

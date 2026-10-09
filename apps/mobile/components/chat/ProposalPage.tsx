@@ -1,5 +1,6 @@
 import { Text, View } from "react-native";
 import {
+  AlertTriangle,
   ArrowUpRight,
   Check,
   ClipboardList,
@@ -11,7 +12,7 @@ import type { Chat, ChatStep } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import ChangeCards from "./ChangeCards";
 import { ReceiptSaveSummary } from "./ReceiptReview";
-import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
+import { isBusy, phaseLabel, reviewNotes, sharedTarget } from "./chatMeta";
 import { Action, styles as common } from "./shared";
 
 /**
@@ -44,6 +45,7 @@ export default function ProposalPage({
   onEditReceipt: () => void;
 }) {
   const done = steps.filter((s) => s.status === "done").length;
+  const notes = archived ? [] : reviewNotes(chat);
   const busy = isBusy(chat.status);
   const applying = !archived && busy && chat.phase === "apply";
   const activeIndex = applying
@@ -129,6 +131,21 @@ export default function ProposalPage({
           />
         </View>
         {hint ? <Text style={common.muted}>{hint}</Text> : null}
+        {notes.length ? (
+          <View style={styles.notes}>
+            <AlertTriangle size={16} color={colors.warning} />
+            <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+              <Text style={styles.notesTitle}>
+                Worth a check before you apply
+              </Text>
+              {notes.map((note) => (
+                <Text key={note} style={common.muted}>
+                  {note}
+                </Text>
+              ))}
+            </View>
+          </View>
+        ) : null}
         {target ? (
           <Action
             label={`Open ${target.noun}`}
@@ -216,6 +233,16 @@ export default function ProposalPage({
 }
 
 const styles = createThemedStyleSheet(() => ({
+  notes: {
+    flexDirection: "row",
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${colors.warning}55`,
+    backgroundColor: `${colors.warning}1a`,
+    padding: 12,
+  },
+  notesTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
   summary: {
     borderRadius: 20,
     backgroundColor: colors.card,

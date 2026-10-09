@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowUpRight,
   Check,
   ClipboardList,
@@ -11,7 +12,7 @@ import {
 import type { Chat } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import ChangeCards from "./changeCards";
-import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
+import { isBusy, phaseLabel, reviewNotes, sharedTarget } from "./chatMeta";
 
 const button =
   "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
@@ -34,6 +35,7 @@ export default function ProposalPanel({
   act: (action: string, body?: unknown) => void;
 }) {
   const steps = chat.plan;
+  const notes = reviewNotes(chat);
   const done = steps.filter((s) => s.status === "done").length;
   const busy = isBusy(chat.status);
   const applying = busy && chat.phase === "apply";
@@ -121,6 +123,22 @@ export default function ProposalPanel({
           </button>
         )}
       </header>
+      {notes.length > 0 && (
+        <div
+          className="mx-4 mt-3 flex gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground"
+          data-testid="proposal-notes"
+        >
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+          <div className="min-w-0 space-y-1">
+            <p className="font-medium">Worth a check before you apply</p>
+            {notes.map((note) => (
+              <p key={note} className="text-muted-foreground">
+                {note}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="px-4 pt-3">
         <div
           role="progressbar"

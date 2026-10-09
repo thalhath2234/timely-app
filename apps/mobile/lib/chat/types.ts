@@ -11,7 +11,7 @@ export type ChatStep = {
   error?: string;
 };
 /** "" is a turn, "notice" a run event, "archive" a superseded or discarded plan. */
-export type ChatMessageKind = "" | "notice" | "archive";
+export type ChatMessageKind = "" | "notice" | "archive" | "similar";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
@@ -21,6 +21,12 @@ export type ChatMessage = {
   content: string;
   createdAt: string;
   steps?: ChatStep[];
+  /** Marks a proposal summary. */
+  proposal?: boolean;
+  /** Smart suggestions' notes on a proposal: worth a check before applying. */
+  notes?: string[];
+  /** The earlier chat a "similar" message points at. */
+  chat?: { id: string; title: string };
 };
 export type Chat = {
   images?: ChatImage[];

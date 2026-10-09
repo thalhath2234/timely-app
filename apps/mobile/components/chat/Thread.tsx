@@ -169,11 +169,13 @@ export default function Thread({
   onLink,
   onPreviewImage,
   onReviewArchive,
+  onOpenChat,
 }: {
   chat: Chat;
   onLink: (href: string) => void;
   onPreviewImage: (uri: string) => void;
   onReviewArchive: (steps: ChatStep[]) => void;
+  onOpenChat: (id: string) => void;
 }) {
   let lastDay = "";
   return (
@@ -205,6 +207,22 @@ export default function Thread({
                   {message.content}
                 </Text>
               </View>
+            ) : message.kind === "similar" && message.chat ? (
+              <AnimatedPressable
+                accessibilityRole="button"
+                accessibilityLabel={`Continue in your chat ${message.chat.title}`}
+                onPress={() => onOpenChat(message.chat!.id)}
+                style={styles.notice}
+              >
+                <History size={14} color={colors.mutedForeground} />
+                <Text
+                  numberOfLines={2}
+                  style={[common.muted, { flexShrink: 1 }]}
+                >
+                  You already have a chat about this: {message.chat.title}
+                </Text>
+                <Text style={styles.noticeAction}>Continue there</Text>
+              </AnimatedPressable>
             ) : message.kind === "archive" ? (
               <Archive message={message} onReview={onReviewArchive} />
             ) : isUser ? (
@@ -418,6 +436,7 @@ const styles = createThemedStyleSheet(() => ({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
+  noticeAction: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   archive: {
     flexDirection: "row",
     alignItems: "center",
