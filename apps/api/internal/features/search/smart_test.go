@@ -167,6 +167,10 @@ func TestCreateTitle(t *testing.T) {
 		"a sheet for the budget":      "Budget",
 		"sheet":                       "",
 		"plan trip to Porto":          "Trip to Porto",
+		"Creata doc Test":             "Test",
+		"crate a sheet for taxes":     "Taxes",
+		"white paper":                 "White paper",
+		"write doc":                   "",
 	}
 	for in, want := range cases {
 		if got := createTitle(in, "sheet"); got != want {

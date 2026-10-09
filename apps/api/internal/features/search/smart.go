@@ -254,7 +254,7 @@ var (
 func createTitle(query, kind string) string {
 	words := strings.Fields(query)
 	start := 0
-	for start < len(words) && (createVerbs[strings.ToLower(words[start])] || fillers[strings.ToLower(words[start])]) {
+	for start < len(words) && (createVerbs[strings.ToLower(words[start])] || fillers[strings.ToLower(words[start])] || misspeltVerb(words, start)) {
 		start++
 	}
 	end := len(words)
@@ -272,6 +272,51 @@ func createTitle(query, kind string) string {
 	r := []rune(title)
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
+}
+
+// misspeltVerb reports whether words[i] is a typo of a longer create verb
+// ("creata", "crate") right before a filler or kind noun ("creata doc test").
+// The next-word check keeps real words like "white paper" intact.
+func misspeltVerb(words []string, i int) bool {
+	if i+1 >= len(words) {
+		return false
+	}
+	next := strings.ToLower(words[i+1])
+	if !kindNouns[next] && !fillers[next] {
+		return false
+	}
+	word := strings.ToLower(words[i])
+	if len(word) < 4 {
+		return false
+	}
+	for verb := range createVerbs {
+		if len(verb) >= 5 && editDistance(word, verb) <= 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// editDistance is the Levenshtein distance between two short words.
+func editDistance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	cur := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		cur[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(rb)]
 }
 
 func titleOr(title string) string {
