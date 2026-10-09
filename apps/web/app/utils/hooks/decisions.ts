@@ -6,6 +6,7 @@ import {
   sendDecisionFeedback,
   setDecisionsEnabled,
   setTypeSafeKey,
+  testDecisions,
   type DecisionsView,
 } from "@/app/utils/api/decisions";
 
@@ -46,6 +47,10 @@ export function useClarifySuggestions(inboxId: string | undefined) {
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
+}
+
+export function useTestDecisions() {
+  return useMutation({ mutationFn: testDecisions });
 }
 
 export function useDecisionFeedback() {

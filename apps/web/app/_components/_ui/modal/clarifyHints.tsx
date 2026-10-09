@@ -22,10 +22,13 @@ const MISSING: Record<NonNullable<ClarifySuggestions["missing"]>, string> = {
 export default function ClarifyHints({
   loading,
   suggestions,
+  error,
   onOpenDuplicate,
 }: {
   loading: boolean;
   suggestions?: ClarifySuggestions;
+  /** Why suggestions are on but did not run, from the server. */
+  error?: string;
   onOpenDuplicate: (id: string) => void;
 }) {
   if (loading) {
@@ -39,7 +42,14 @@ export default function ClarifyHints({
       </p>
     );
   }
-  if (!suggestions) return null;
+  if (!suggestions) {
+    if (!error) return null;
+    return (
+      <p className="mt-3 text-xs text-muted-foreground" data-testid="clarify-suggestions-error">
+        {error} Check Settings → Agent → Smart suggestions.
+      </p>
+    );
+  }
 
   const notes: string[] = [];
   if (suggestions.looksLikeEvent)

@@ -181,8 +181,26 @@ func TestIntegrationClarifySuggestions(t *testing.T) {
 	if err != nil || got.Available || got.Kind != "" || calls.Load() != before {
 		t.Fatalf("off must suggest nothing and call nothing: %+v %v", got, err)
 	}
+	if got.Error != "" {
+		t.Fatalf("off is not a failure: %q", got.Error)
+	}
 	if _, ok := s.Estimate(context.Background(), uid, "Write report", ""); ok {
 		t.Fatal("estimate must be unavailable when off")
+	}
+
+	// A refused call says why instead of looking like suggestions are off.
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		_, _ = w.Write([]byte(`{"error":{"message":"No endpoints found for typesafe/jev-latest."}}`))
+	}))
+	t.Cleanup(broken.Close)
+	client.OpenRouterURL = broken.URL
+	keys = decide.Keys{Enabled: true, OpenRouter: "or-test-key-123"}
+	// A new title, so the earlier answer is not served from the cache.
+	db.Model(&models.Task{}).Where("id = ?", inbox).Update("name", "Buy grout for the kitchen")
+	got, err = s.Clarify(context.Background(), uid, inbox)
+	if err != nil || got.Available || !strings.Contains(got.Error, "No endpoints found") {
+		t.Fatalf("a failed call must report its reason: %+v %v", got, err)
 	}
 }
 

@@ -93,6 +93,22 @@ func (s *Service) estimateMinutes(ctx context.Context, userID, name, description
 	return effortMinutes[level], true
 }
 
+// failure turns a failed Ask into a short line for the form, or "" when
+// suggestions were simply off.
+func failure(ctx context.Context, err error) string {
+	switch {
+	case err == decide.ErrOff: // plain ErrOff: off, no key or busy
+		return ""
+	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded):
+		return "Smart suggestions took too long to answer."
+	}
+	msg := err.Error()
+	if i := strings.LastIndex(msg, "\n"); i >= 0 {
+		msg = msg[i+1:] // errors.Join: the last provider tried
+	}
+	return "Smart suggestions could not run: " + msg
+}
+
 func clip(s string, n int) string {
 	r := []rune(s)
 	if len(r) > n {
@@ -106,6 +122,9 @@ func clip(s string, n int) string {
 type ClarifySuggestions struct {
 	Available bool   `json:"available"`
 	LogID     string `json:"logId,omitempty"`
+	// Error says why suggestions are on but could not run (a refused key,
+	// a timeout), so the form can say so instead of looking unchanged.
+	Error string `json:"error,omitempty"`
 
 	Kind           string   `json:"kind,omitempty"` // task or reminder
 	LooksLikeEvent bool     `json:"looksLikeEvent,omitempty"`
@@ -238,7 +257,8 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "clarify", State: state, Questions: questions})
 	if err != nil {
-		return ClarifySuggestions{}, nil // off, unsure or slow: no suggestions
+		// Off or busy: no suggestions. A failed call: no suggestions, and why.
+		return ClarifySuggestions{Error: failure(ctx, err)}, nil
 	}
 	out := ClarifySuggestions{Available: true, LogID: a.LogID}
 	if k, ok := a.Choice("kind", decide.Prefill); ok {

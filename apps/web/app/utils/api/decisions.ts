@@ -9,11 +9,21 @@ export type DecisionsView = {
   openrouterKeySet: boolean;
 };
 
+/** One live call with the keys suggestions use, in the same order. */
+export type DecisionsTest = {
+  ok: boolean;
+  provider?: "typesafe" | "openrouter";
+  latencyMs: number;
+  error?: string;
+};
+
 /** What the Clarify form may pre-fill. Every field is optional: a missing one
  * means suggestions are off or Jev was not confident enough. */
 export type ClarifySuggestions = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but the call failed. */
+  error?: string;
   kind?: "task" | "reminder";
   looksLikeEvent?: boolean;
   workspaceId?: string;
@@ -59,6 +69,8 @@ export const setTypeSafeKey = (key: string) =>
   request<DecisionsView>("/agent/decisions/key", "POST", { key });
 export const removeTypeSafeKey = () =>
   request<DecisionsView>("/agent/decisions/key", "DELETE");
+export const testDecisions = () =>
+  request<DecisionsTest>("/agent/decisions/test", "POST");
 export const sendDecisionFeedback = (logId: string, accepted: boolean) =>
   request<void>("/agent/decisions/feedback", "POST", { logId, accepted });
 export const getClarifySuggestions = (inboxId: string) =>

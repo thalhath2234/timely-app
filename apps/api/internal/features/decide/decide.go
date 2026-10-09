@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"math/rand/v2"
 	"sort"
@@ -228,6 +229,9 @@ func (s *Service) Ask(ctx context.Context, userID string, req Request) (Answers,
 	}
 	logID := s.log(userID, req.Feature, provider, time.Since(started), err)
 	if err != nil {
+		// The answer is dropped, so the server log is the only place a broken
+		// key or endpoint shows up outside Settings → Agent → Test.
+		log.Printf("decide: %s via %s failed after %s: %v", req.Feature, provider, time.Since(started).Round(time.Millisecond), err)
 		return Answers{}, errors.Join(ErrOff, err)
 	}
 	answers.LogID = logID

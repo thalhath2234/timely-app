@@ -164,6 +164,39 @@ func (s *Service) removeTypeSafeKey(c *echo.Context) error {
 	return s.decisionsOverview(c)
 }
 
+type decisionsTest struct {
+	OK        bool   `json:"ok"`
+	Provider  string `json:"provider,omitempty"`
+	LatencyMS int64  `json:"latencyMs"`
+	Error     string `json:"error,omitempty"`
+}
+
+// testDecisions makes one tiny live call with the keys suggestions would use,
+// in the same order, and says which provider answered or why none did.
+func (s *Service) testDecisions(c *echo.Context) error {
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 20*time.Second)
+	defer cancel()
+	keys, err := s.DecisionKeys(ctx, user(c))
+	if err != nil {
+		return err
+	}
+	if !keys.Usable() {
+		return c.JSON(200, decisionsTest{Error: "Smart suggestions are off or no key is saved."})
+	}
+	if s.decisionCheck == nil {
+		return c.JSON(200, decisionsTest{Error: "Smart suggestions are not set up on this server."})
+	}
+	started := time.Now()
+	provider, err := decide.CheckWith(context.WithValue(ctx, decide.UserKey, user(c)), s.decisionCheck, keys)
+	out := decisionsTest{Provider: provider, LatencyMS: time.Since(started).Milliseconds()}
+	if err != nil {
+		out.Error = err.Error()
+	} else {
+		out.OK = true
+	}
+	return c.JSON(200, out)
+}
+
 // decisionFeedback records whether the person kept a suggestion, for tuning.
 func (s *Service) decisionFeedback(c *echo.Context) error {
 	var in struct {

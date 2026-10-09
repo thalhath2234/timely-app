@@ -137,9 +137,8 @@ func TestFallbackToOpenRouter(t *testing.T) {
 		if a.Provider != ProviderOpenRouter || or.auth != "Bearer or-key-123" || or.last["model"] != routerModel {
 			t.Fatalf("%d: provider %q auth %q model %v", code, a.Provider, or.auth, or.last["model"])
 		}
-		routing, _ := or.last["provider"].(map[string]any)
-		if routing["data_collection"] != "deny" {
-			t.Fatalf("%d: OpenRouter call allows data collection: %v", code, or.last["provider"])
+		if or.last["model"] != "typesafe/jev-1.13" || or.last["state"] == nil || or.last["questions"] == nil {
+			t.Fatalf("%d: OpenRouter body must match its Decisions API: %v", code, or.last)
 		}
 		if (code == 401) != (rejected == "u1") {
 			t.Fatalf("%d: rejected hook got %q", code, rejected)
@@ -279,5 +278,16 @@ func TestCheck(t *testing.T) {
 	_, c = newTest(t, Keys{}, bad, &fakeJev{})
 	if err := Check(context.Background(), c, Keys{TypeSafe: "ts-key-123"}); err == nil {
 		t.Fatal("a refused key must fail the check")
+	}
+
+	// The Settings test follows the usual order and names who answered.
+	or := &fakeJev{answer: yesAnswer(0.9)}
+	_, c = newTest(t, Keys{}, &fakeJev{status: 503}, or)
+	provider, err := CheckWith(context.Background(), c, Keys{TypeSafe: "ts-key-123", OpenRouter: "or-key-123"})
+	if err != nil || provider != ProviderOpenRouter {
+		t.Fatalf("provider %q err %v", provider, err)
+	}
+	if _, isMap := or.last["state"].(map[string]any); !isMap {
+		t.Fatalf("Jev's state must be an object, got %T", or.last["state"])
 	}
 }

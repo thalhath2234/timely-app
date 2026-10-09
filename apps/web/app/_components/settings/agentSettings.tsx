@@ -34,6 +34,7 @@ import {
   useRemoveTypeSafeKey,
   useSetDecisionsEnabled,
   useSetTypeSafeKey,
+  useTestDecisions,
 } from "@/app/utils/hooks/decisions";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import {
@@ -952,6 +953,7 @@ function DecisionsCard() {
   const setEnabled = useSetDecisionsEnabled();
   const setKey = useSetTypeSafeKey();
   const removeKey = useRemoveTypeSafeKey();
+  const test = useTestDecisions();
   const [editingKey, setEditingKey] = useState(false);
   const [key, setKeyValue] = useState("");
   const [keyError, setKeyError] = useState<string | null>(null);
@@ -1014,6 +1016,37 @@ function DecisionsCard() {
           <p className="mt-1 text-xs text-foreground" data-testid="decisions-source">
             {source}
           </p>
+          {data.available && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => test.mutate()}
+                disabled={test.isPending}
+                className={secondaryButton}
+              >
+                {test.isPending && <LogoSpinner size={14} label="Testing" />}
+                Test
+              </button>
+              {test.data && (
+                <span
+                  data-testid="decisions-test-result"
+                  className={cn(
+                    "text-xs",
+                    test.data.ok ? "text-emerald-700 dark:text-emerald-300" : "text-destructive",
+                  )}
+                >
+                  {test.data.ok
+                    ? `Working: ${test.data.provider === "typesafe" ? "TypeSafe" : "OpenRouter"} answered in ${test.data.latencyMs} ms.`
+                    : test.data.error}
+                </span>
+              )}
+              {test.error && (
+                <span className="text-xs text-destructive">
+                  {errorMessage(test.error, "Could not run the test.")}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <label
           className={cn(

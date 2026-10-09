@@ -15,13 +15,19 @@ const (
 	ProviderTypeSafe   = "typesafe"
 	ProviderOpenRouter = "openrouter"
 
-	typeSafeURL   = "https://api.typesafe.ai/v1/systemone"
-	openRouterURL = "https://openrouter.ai/api/v1/systemone"
+	typeSafeURL = "https://api.typesafe.ai/v1/systemone"
+	// OpenRouter's Decisions API takes the same body. Its model ids differ
+	// from TypeSafe's: there is no plain "typesafe/jev-latest".
+	openRouterURL = "https://openrouter.ai/api/alpha/decisions"
 	typeSafeModel = "jev-latest"
-	routerModel   = "typesafe/jev-latest"
+	routerModel   = "typesafe/jev-1.13"
 )
 
 type userKey struct{}
+
+// UserKey carries the account id on a context passed straight to a Caller,
+// so a refused TypeSafe key is remembered for that account.
+var UserKey = userKey{}
 
 // Caller sends one request and reports which provider answered.
 type Caller interface {
@@ -92,12 +98,10 @@ func (c *Client) Call(ctx context.Context, keys Keys, body wire) ([]byte, string
 	if keys.OpenRouter == "" {
 		return nil, "", ErrOff
 	}
+	// TypeSafe is Jev's only provider on OpenRouter, so the request reaches
+	// the same company as a direct call; no provider routing is sent.
 	body.Model = routerModel
-	payload := struct {
-		wire
-		Provider map[string]any `json:"provider"`
-	}{body, map[string]any{"data_collection": "deny"}}
-	raw, err := c.post(ctx, ProviderOpenRouter, c.OpenRouterURL, keys.OpenRouter, payload)
+	raw, err := c.post(ctx, ProviderOpenRouter, c.OpenRouterURL, keys.OpenRouter, body)
 	if err != nil {
 		return nil, ProviderOpenRouter, errors.Join(first, err)
 	}
@@ -169,17 +173,24 @@ func errorMessage(raw []byte) string {
 // Check makes one tiny call with only the given key, to confirm it works
 // before it is saved.
 func Check(ctx context.Context, c Caller, keys Keys) error {
+	_, err := CheckWith(ctx, c, keys)
+	return err
+}
+
+// CheckWith makes one tiny call with the given keys in the usual order and
+// reports which provider answered.
+func CheckWith(ctx context.Context, c Caller, keys Keys) (string, error) {
 	keys.Enabled = true
-	body := wire{State: "Timely is checking that this key works.", Questions: map[string]wireQuest{
+	body := wire{State: map[string]string{"note": "Timely is checking that this key works."}, Questions: map[string]wireQuest{
 		"ok": {Type: typeNoul, Instructions: "Is this a test message?", Criteria: map[string]string{"true": "It is a test.", "false": "It is not a test."}},
 	}}
-	raw, _, err := c.Call(ctx, keys, body)
+	raw, provider, err := c.Call(ctx, keys, body)
 	if err != nil {
-		return err
+		return provider, err
 	}
 	var r response
 	if json.Unmarshal(raw, &r) != nil || r.Answers["ok"].Noul == nil {
-		return errors.New("the answer did not look like Jev's")
+		return provider, errors.New("the answer did not look like Jev's")
 	}
-	return nil
+	return provider, nil
 }

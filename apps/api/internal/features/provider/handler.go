@@ -27,6 +27,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/agent/decisions/key", s.setTypeSafeKey)
 	g.DELETE("/agent/decisions/key", s.removeTypeSafeKey)
 	g.POST("/agent/decisions/feedback", s.decisionFeedback)
+	g.POST("/agent/decisions/test", s.testDecisions)
 }
 
 type cliView struct {

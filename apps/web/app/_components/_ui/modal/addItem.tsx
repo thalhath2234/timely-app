@@ -1180,6 +1180,7 @@ function AddItemModalInner() {
               <ClarifyHints
                 loading={suggestionsQuery.isFetching && !suggestionsQuery.data}
                 suggestions={suggestions}
+                error={suggestionsQuery.data?.error}
                 onOpenDuplicate={(id) => {
                   closeModal();
                   router.push(`/tasks?taskId=${encodeURIComponent(id)}`);
