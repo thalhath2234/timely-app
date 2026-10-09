@@ -8,8 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
@@ -24,9 +26,9 @@ const (
 	// slow OpenRouter round trip: semantic search, then up to two Jev calls.
 	screenBudget   = 10 * time.Second
 	estimateBudget = 3 * time.Second
-	// searchBudget caps the duplicate search so a slow embedding call costs
-	// only the duplicate hints, not the whole answer.
-	searchBudget = 2 * time.Second
+	// searchBudget caps semantic search so a slow embedding call costs only
+	// its own duplicate hints; titles sharing words are still checked.
+	searchBudget = 3 * time.Second
 	// labelsMinLeft is the time the labels call needs; with less left the
 	// form gets the rest of its suggestions without labels.
 	labelsMinLeft = 1500 * time.Millisecond
@@ -326,22 +328,28 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 }
 
 // candidates finds existing open Work and Reminders that read like the item.
+// Titles that share words come first: they need no embedding call, so they
+// are found even when semantic search is slow, off, or has not indexed a new
+// task yet. Semantic hits fill the rest.
 func (s *Service) candidates(ctx context.Context, userID string, item models.Task) []Duplicate {
-	if s.search == nil {
-		return nil
-	}
-	sctx, cancel := context.WithTimeout(ctx, searchBudget)
-	defer cancel()
-	hits, err := s.search.SemanticSearch(sctx, userID, item.Name, 8, []string{"task"})
-	if err != nil || len(hits) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(hits))
-	for _, h := range hits {
-		if h.ID != item.ID {
+	ids := s.sharedWords(ctx, userID, item)
+	if s.search != nil {
+		sctx, cancel := context.WithTimeout(ctx, searchBudget)
+		hits, _ := s.search.SemanticSearch(sctx, userID, item.Name, 8, []string{"task"})
+		cancel()
+		for _, h := range hits {
 			ids = append(ids, h.ID)
 		}
 	}
+	seen := map[string]bool{item.ID: true}
+	unique := ids[:0]
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+	ids = unique
 	if len(ids) == 0 {
 		return nil
 	}
@@ -364,6 +372,82 @@ func (s *Service) candidates(ctx context.Context, userID string, item models.Tas
 		}
 	}
 	return out
+}
+
+// sharedWords returns open tasks whose titles share at least two of the
+// item's words (or its only word), most shared first.
+func (s *Service) sharedWords(ctx context.Context, userID string, item models.Task) []string {
+	words := titleWords(item.Name)
+	if len(words) == 0 {
+		return nil
+	}
+	need := min(2, len(words))
+	conds := make([]string, len(words))
+	args := []any{userID, models.KindInbox, item.ID}
+	for i, w := range words {
+		conds[i] = "name ILIKE ?"
+		args = append(args, "%"+w+"%")
+	}
+	var rows []models.Task
+	if s.db.WithContext(ctx).Select("id", "name").
+		Where("user_id = ? AND kind <> ? AND completed_at IS NULL AND id <> ?", args[:3]...).
+		Where("("+strings.Join(conds, " OR ")+")", args[3:]...).
+		Order("updated_at DESC").Limit(50).Find(&rows).Error != nil {
+		return nil
+	}
+	type scored struct {
+		id     string
+		shared int
+	}
+	var matches []scored
+	for _, r := range rows {
+		have := map[string]bool{}
+		for _, w := range titleWords(r.Name) {
+			have[w] = true
+		}
+		n := 0
+		for _, w := range words {
+			if have[w] {
+				n++
+			}
+		}
+		if n >= need {
+			matches = append(matches, scored{r.ID, n})
+		}
+	}
+	sort.SliceStable(matches, func(i, j int) bool { return matches[i].shared > matches[j].shared })
+	ids := make([]string, 0, maxDuplicates)
+	for _, m := range matches {
+		if len(ids) == maxDuplicates {
+			break
+		}
+		ids = append(ids, m.id)
+	}
+	return ids
+}
+
+// titleWords is the lower-cased words of a title that say something: three
+// or more letters, minus the most common filler words.
+func titleWords(title string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(title), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if len([]rune(w)) < 3 || fillerWords[w] || seen[w] {
+			continue
+		}
+		seen[w] = true
+		out = append(out, w)
+	}
+	return out
+}
+
+var fillerWords = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "from": true, "into": true, "about": true,
+	"this": true, "that": true, "you": true, "your": true, "our": true, "are": true, "was": true,
+	"has": true, "have": true, "will": true, "can": true, "not": true, "all": true, "any": true,
+	"get": true, "out": true, "off": true, "new": true,
 }
 
 // labels asks one yes/no per label of the chosen workspace. Jev has no

@@ -176,6 +176,13 @@ func TestIntegrationClarifySuggestions(t *testing.T) {
 		t.Fatalf("want one call for the form and one for labels, got %d", calls.Load())
 	}
 
+	// Titles sharing words are found without semantic search, typos and all.
+	db.Model(&models.Task{}).Where("id = ?", inbox).Update("name", "Pikc the kitchen tiles")
+	got, err = suggest.New(db, d, fixedSearch{}).Clarify(context.Background(), uid, inbox)
+	if err != nil || len(got.Duplicates) != 1 || got.Duplicates[0].ID != dup {
+		t.Fatalf("shared words must find the duplicate: %+v %v", got.Duplicates, err)
+	}
+
 	// A vague thought keeps the form's kind, even when Jev is sure.
 	db.Model(&models.Task{}).Where("id = ?", inbox).Update("name", "test")
 	got, err = s.Clarify(context.Background(), uid, inbox)
