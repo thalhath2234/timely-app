@@ -52,3 +52,16 @@ export const getDecisionsStatus = () => api<DecisionsStatus>("/decisions/status"
 /** Can take a few seconds: it asks the model. */
 export const getInboxSuggestions = (id: string) =>
   api<InboxSuggestions>(`/inbox/${encodeURIComponent(id)}/suggestions`);
+
+/** The saved template a new sheet's title calls for, if any. */
+export type SheetTemplateSuggestion = { available: boolean; logId?: string; templateId?: string };
+/** One suggested type per imported column; null keeps the column as text. */
+export type ColumnTypeSuggestions = {
+  available: boolean;
+  logId?: string;
+  columns: ({ type: string; options?: string[] } | null)[];
+};
+export const getSheetTemplateSuggestion = (title: string) =>
+  api<SheetTemplateSuggestion>(`/suggestions/sheet-template?title=${encodeURIComponent(title)}`);
+export const getColumnTypeSuggestions = (columns: { name: string; values: string[] }[]) =>
+  api<ColumnTypeSuggestions>("/suggestions/column-types", { method: "POST", body: { columns } });

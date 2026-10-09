@@ -34,6 +34,14 @@ const (
 	txtNoteNotAsked         = "noteNotAsked"
 	txtNoteMissing          = "noteMissing"
 	txtPushChoose           = "pushChoose"
+	txtReceiptNotCorrection = "receiptNotCorrection"
+	txtHintCategory         = "hintCategory"
+	txtHintCategoryFit      = "hintCategoryFit"
+	txtHintRefund           = "hintRefund"
+	txtHintSamePurchase     = "hintSamePurchase"
+	txtHintTaxIncluded      = "hintTaxIncluded"
+	txtHintDiscountIncluded = "hintDiscountIncluded"
+	txtNoteSheetChange      = "noteSheetChange"
 )
 
 var texts = map[string]map[string]string{
@@ -63,6 +71,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "You may not have asked for this change:",
 		txtNoteMissing:          "Something you asked for may be missing from these changes.",
 		txtPushChoose:           "You already have a chat about this. Choose where to continue.",
+		txtReceiptNotCorrection: "That doesn't look like a change to the receipt, so the draft is unchanged. Edit the fields below, or say what to change, for example “the total is 12.40”.",
+		txtHintCategory:         "Category set to “%s”, one you already use. Change it if it's wrong.",
+		txtHintCategoryFit:      "“%s” may not be the right category for this receipt.",
+		txtHintRefund:           "This looks like a refund or return. Check that the amounts have the right sign.",
+		txtHintSamePurchase:     "This may be the same purchase as %s on %s, already in “%s”.",
+		txtHintTaxIncluded:      "The amounts add up if tax is already included in the prices. Tick “Tax included” if so.",
+		txtHintDiscountIncluded: "The amounts add up if the discount is already taken off the item prices. Tick “Discount included” if so.",
+		txtNoteSheetChange:      "This sheet change may not match what you asked:",
 	},
 	"ja": {
 		txtDone:                 "完了しました。変更は保存されています。",
@@ -90,6 +106,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "この変更は依頼されていない可能性があります:",
 		txtNoteMissing:          "依頼した内容の一部が、これらの変更に含まれていない可能性があります。",
 		txtPushChoose:           "この件についてのチャットがすでにあります。どこで続けるか選んでください。",
+		txtReceiptNotCorrection: "レシートの変更ではないようなので、下書きはそのままです。下の項目を編集するか、「合計は12.40」のように変更内容を伝えてください。",
+		txtHintCategory:         "カテゴリをすでに使っている「%s」にしました。違う場合は変更してください。",
+		txtHintCategoryFit:      "「%s」はこのレシートに合うカテゴリではないかもしれません。",
+		txtHintRefund:           "返金または返品のようです。金額の符号を確認してください。",
+		txtHintSamePurchase:     "%s（%s）の購入と同じかもしれません。すでに「%s」にあります。",
+		txtHintTaxIncluded:      "税が価格に含まれていれば金額が合います。その場合は「税込み」にチェックしてください。",
+		txtHintDiscountIncluded: "割引が品目の価格から引かれていれば金額が合います。その場合は「割引込み」にチェックしてください。",
+		txtNoteSheetChange:      "このシートの変更は依頼と合っていない可能性があります:",
 	},
 	"zh": {
 		txtDone:                 "完成——您的更改已保存。",
@@ -117,6 +141,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "您可能没有要求这项更改:",
 		txtNoteMissing:          "您要求的部分内容可能不在这些更改中。",
 		txtPushChoose:           "您已经有一个关于此事的聊天。请选择在哪里继续。",
+		txtReceiptNotCorrection: "这看起来不是对收据的修改，因此草稿保持不变。请编辑下方字段，或说明要改什么，例如“总额是 12.40”。",
+		txtHintCategory:         "类别已设为您已在使用的“%s”。如有误请修改。",
+		txtHintCategoryFit:      "“%s”可能不是这张收据的合适类别。",
+		txtHintRefund:           "这看起来是退款或退货。请检查金额的正负号。",
+		txtHintSamePurchase:     "这可能与 %s 在 %s 的消费相同，已在“%s”中。",
+		txtHintTaxIncluded:      "如果税已包含在价格中，金额就能对上。如是，请勾选“含税”。",
+		txtHintDiscountIncluded: "如果折扣已从商品价格中扣除，金额就能对上。如是，请勾选“已含折扣”。",
+		txtNoteSheetChange:      "此表格更改可能与您的要求不符:",
 	},
 	"ko": {
 		txtDone:                 "완료되었습니다. 변경 사항이 저장되었습니다.",
@@ -144,6 +176,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "요청하지 않은 변경일 수 있습니다:",
 		txtNoteMissing:          "요청하신 내용 중 일부가 이 변경 사항에 빠져 있을 수 있습니다.",
 		txtPushChoose:           "이 내용에 대한 채팅이 이미 있습니다. 어디에서 계속할지 선택하세요.",
+		txtReceiptNotCorrection: "영수증 변경 요청이 아닌 것 같아 초안을 그대로 두었습니다. 아래 항목을 수정하거나 “합계는 12.40”처럼 바꿀 내용을 알려 주세요.",
+		txtHintCategory:         "이미 사용 중인 “%s” 카테고리로 설정했습니다. 틀리면 바꿔 주세요.",
+		txtHintCategoryFit:      "“%s”은(는) 이 영수증에 맞는 카테고리가 아닐 수 있습니다.",
+		txtHintRefund:           "환불 또는 반품으로 보입니다. 금액의 부호를 확인하세요.",
+		txtHintSamePurchase:     "%s의 %s 구매와 같은 건일 수 있으며, 이미 “%s”에 있습니다.",
+		txtHintTaxIncluded:      "세금이 가격에 포함되어 있다면 금액이 맞습니다. 그렇다면 “세금 포함”을 선택하세요.",
+		txtHintDiscountIncluded: "할인이 품목 가격에서 이미 빠졌다면 금액이 맞습니다. 그렇다면 “할인 포함”을 선택하세요.",
+		txtNoteSheetChange:      "이 시트 변경이 요청과 다를 수 있습니다:",
 	},
 	"es": {
 		txtDone:                 "Listo: tus cambios están guardados.",
@@ -171,6 +211,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "Puede que no hayas pedido este cambio:",
 		txtNoteMissing:          "Puede que falte algo de lo que pediste en estos cambios.",
 		txtPushChoose:           "Ya tienes un chat sobre esto. Elige dónde continuar.",
+		txtReceiptNotCorrection: "Eso no parece un cambio en el recibo, así que el borrador sigue igual. Edita los campos de abajo o di qué cambiar, por ejemplo “el total es 12.40”.",
+		txtHintCategory:         "Categoría establecida en “%s”, una que ya usas. Cámbiala si no es correcta.",
+		txtHintCategoryFit:      "“%s” quizá no sea la categoría adecuada para este recibo.",
+		txtHintRefund:           "Parece un reembolso o una devolución. Comprueba que los importes tengan el signo correcto.",
+		txtHintSamePurchase:     "Puede ser la misma compra que %s del %s, ya registrada en “%s”.",
+		txtHintTaxIncluded:      "Los importes cuadran si el impuesto ya está incluido en los precios. Si es así, marca “Impuesto incluido”.",
+		txtHintDiscountIncluded: "Los importes cuadran si el descuento ya está restado de los precios. Si es así, marca “Descuento incluido”.",
+		txtNoteSheetChange:      "Este cambio en la hoja puede no coincidir con lo que pediste:",
 	},
 	"fr": {
 		txtDone:                 "Terminé — vos modifications sont enregistrées.",
@@ -198,6 +246,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "Vous n'avez peut-être pas demandé cette modification :",
 		txtNoteMissing:          "Une partie de votre demande manque peut-être dans ces modifications.",
 		txtPushChoose:           "Vous avez déjà une conversation à ce sujet. Choisissez où continuer.",
+		txtReceiptNotCorrection: "Cela ne ressemble pas à une modification du reçu, le brouillon est donc inchangé. Modifiez les champs ci-dessous ou dites quoi changer, par exemple « le total est 12.40 ».",
+		txtHintCategory:         "Catégorie définie sur « %s », que vous utilisez déjà. Changez-la si elle est fausse.",
+		txtHintCategoryFit:      "« %s » n'est peut-être pas la bonne catégorie pour ce reçu.",
+		txtHintRefund:           "Cela ressemble à un remboursement ou un retour. Vérifiez le signe des montants.",
+		txtHintSamePurchase:     "Il s'agit peut-être du même achat que %s le %s, déjà dans « %s ».",
+		txtHintTaxIncluded:      "Les montants concordent si la taxe est déjà incluse dans les prix. Cochez « Taxe incluse » le cas échéant.",
+		txtHintDiscountIncluded: "Les montants concordent si la remise est déjà déduite des prix. Cochez « Remise incluse » le cas échéant.",
+		txtNoteSheetChange:      "Cette modification de la feuille ne correspond peut-être pas à votre demande :",
 	},
 	"de": {
 		txtDone:                 "Fertig – deine Änderungen sind gespeichert.",
@@ -225,6 +281,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "Diese Änderung hast du vielleicht nicht angefordert:",
 		txtNoteMissing:          "Etwas, worum du gebeten hast, fehlt möglicherweise in diesen Änderungen.",
 		txtPushChoose:           "Du hast schon einen Chat dazu. Wähle, wo es weitergehen soll.",
+		txtReceiptNotCorrection: "Das sieht nicht nach einer Änderung am Beleg aus, daher bleibt der Entwurf unverändert. Bearbeite die Felder unten oder sag, was sich ändern soll, z. B. „die Summe ist 12.40“.",
+		txtHintCategory:         "Kategorie auf „%s“ gesetzt, die du schon nutzt. Ändere sie, falls sie nicht stimmt.",
+		txtHintCategoryFit:      "„%s“ ist vielleicht nicht die richtige Kategorie für diesen Beleg.",
+		txtHintRefund:           "Das sieht nach einer Erstattung oder Rückgabe aus. Prüfe das Vorzeichen der Beträge.",
+		txtHintSamePurchase:     "Das könnte derselbe Einkauf sein wie %s am %s, bereits in „%s“.",
+		txtHintTaxIncluded:      "Die Beträge gehen auf, wenn die Steuer schon in den Preisen enthalten ist. Setze dann „Steuer enthalten“.",
+		txtHintDiscountIncluded: "Die Beträge gehen auf, wenn der Rabatt schon von den Preisen abgezogen ist. Setze dann „Rabatt enthalten“.",
+		txtNoteSheetChange:      "Diese Tabellenänderung passt vielleicht nicht zu deiner Anfrage:",
 	},
 	"pt": {
 		txtDone:                 "Pronto — suas alterações foram salvas.",
@@ -252,6 +316,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "Talvez você não tenha pedido esta alteração:",
 		txtNoteMissing:          "Algo que você pediu pode estar faltando nestas alterações.",
 		txtPushChoose:           "Você já tem um chat sobre isso. Escolha onde continuar.",
+		txtReceiptNotCorrection: "Isso não parece uma alteração no recibo, então o rascunho ficou igual. Edite os campos abaixo ou diga o que mudar, por exemplo “o total é 12.40”.",
+		txtHintCategory:         "Categoria definida como “%s”, que você já usa. Altere se estiver errada.",
+		txtHintCategoryFit:      "“%s” talvez não seja a categoria certa para este recibo.",
+		txtHintRefund:           "Parece um reembolso ou devolução. Verifique se os valores têm o sinal certo.",
+		txtHintSamePurchase:     "Pode ser a mesma compra que %s em %s, já registrada em “%s”.",
+		txtHintTaxIncluded:      "Os valores batem se o imposto já estiver incluído nos preços. Se for o caso, marque “Imposto incluído”.",
+		txtHintDiscountIncluded: "Os valores batem se o desconto já tiver sido tirado dos preços. Se for o caso, marque “Desconto incluído”.",
+		txtNoteSheetChange:      "Esta alteração na planilha pode não corresponder ao que você pediu:",
 	},
 	"it": {
 		txtDone:                 "Fatto: le modifiche sono salvate.",
@@ -279,6 +351,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "Potresti non aver chiesto questa modifica:",
 		txtNoteMissing:          "Qualcosa che hai chiesto potrebbe mancare in queste modifiche.",
 		txtPushChoose:           "Hai già una chat su questo. Scegli dove continuare.",
+		txtReceiptNotCorrection: "Non sembra una modifica allo scontrino, quindi la bozza resta invariata. Modifica i campi qui sotto o di' cosa cambiare, per esempio “il totale è 12.40”.",
+		txtHintCategory:         "Categoria impostata su “%s”, che usi già. Cambiala se è sbagliata.",
+		txtHintCategoryFit:      "“%s” potrebbe non essere la categoria giusta per questo scontrino.",
+		txtHintRefund:           "Sembra un rimborso o un reso. Controlla il segno degli importi.",
+		txtHintSamePurchase:     "Potrebbe essere lo stesso acquisto di %s del %s, già in “%s”.",
+		txtHintTaxIncluded:      "Gli importi tornano se l'imposta è già inclusa nei prezzi. In tal caso seleziona “Imposta inclusa”.",
+		txtHintDiscountIncluded: "Gli importi tornano se lo sconto è già tolto dai prezzi. In tal caso seleziona “Sconto incluso”.",
+		txtNoteSheetChange:      "Questa modifica al foglio potrebbe non corrispondere alla tua richiesta:",
 	},
 	"ru": {
 		txtDone:                 "Готово — изменения сохранены.",
@@ -306,6 +386,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "Возможно, вы не просили об этом изменении:",
 		txtNoteMissing:          "Возможно, в этих изменениях не хватает чего-то из того, что вы просили.",
 		txtPushChoose:           "У вас уже есть чат об этом. Выберите, где продолжить.",
+		txtReceiptNotCorrection: "Это не похоже на изменение чека, поэтому черновик не изменён. Отредактируйте поля ниже или напишите, что изменить, например «итого 12.40».",
+		txtHintCategory:         "Категория установлена как «%s», которую вы уже используете. Измените, если она неверна.",
+		txtHintCategoryFit:      "«%s», возможно, не подходит как категория для этого чека.",
+		txtHintRefund:           "Похоже на возврат. Проверьте знак сумм.",
+		txtHintSamePurchase:     "Возможно, это та же покупка, что и %s от %s, уже записанная в «%s».",
+		txtHintTaxIncluded:      "Суммы сходятся, если налог уже включён в цены. Если так, отметьте «Налог включён».",
+		txtHintDiscountIncluded: "Суммы сходятся, если скидка уже вычтена из цен. Если так, отметьте «Скидка включена».",
+		txtNoteSheetChange:      "Это изменение таблицы может не соответствовать вашей просьбе:",
 	},
 	"ar": {
 		txtDone:                 "تم — حُفظت تغييراتك.",
@@ -333,6 +421,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "ربما لم تطلب هذا التغيير:",
 		txtNoteMissing:          "قد يكون شيء مما طلبته غير موجود في هذه التغييرات.",
 		txtPushChoose:           "لديك بالفعل محادثة حول هذا. اختر أين تتابع.",
+		txtReceiptNotCorrection: "لا يبدو هذا تعديلاً على الإيصال، لذا بقيت المسودة كما هي. عدّل الحقول أدناه أو اذكر ما تريد تغييره، مثل «الإجمالي 12.40».",
+		txtHintCategory:         "تم ضبط الفئة على «%s» التي تستخدمها بالفعل. غيّرها إن كانت خاطئة.",
+		txtHintCategoryFit:      "قد لا تكون «%s» الفئة المناسبة لهذا الإيصال.",
+		txtHintRefund:           "يبدو هذا استرداداً أو إرجاعاً. تحقق من إشارة المبالغ.",
+		txtHintSamePurchase:     "قد تكون هذه نفس عملية الشراء من %s بتاريخ %s، المسجلة بالفعل في «%s».",
+		txtHintTaxIncluded:      "تتطابق المبالغ إذا كانت الضريبة مشمولة في الأسعار. إن كان كذلك فحدّد «الضريبة مشمولة».",
+		txtHintDiscountIncluded: "تتطابق المبالغ إذا كان الخصم مطروحاً من أسعار العناصر. إن كان كذلك فحدّد «الخصم مشمول».",
+		txtNoteSheetChange:      "قد لا يطابق هذا التغيير في الجدول ما طلبته:",
 	},
 	"hi": {
 		txtDone:                 "हो गया — आपके बदलाव सहेज दिए गए हैं।",
@@ -360,6 +456,14 @@ var texts = map[string]map[string]string{
 		txtNoteNotAsked:         "हो सकता है आपने यह बदलाव नहीं माँगा था:",
 		txtNoteMissing:          "आपने जो माँगा था उसमें से कुछ इन बदलावों में छूट गया हो सकता है।",
 		txtPushChoose:           "इस बारे में आपकी पहले से एक चैट है। चुनें कि कहाँ जारी रखना है।",
+		txtReceiptNotCorrection: "यह रसीद में बदलाव जैसा नहीं लगता, इसलिए ड्राफ़्ट वैसा ही है। नीचे के फ़ील्ड बदलें या बताएँ क्या बदलना है, जैसे “कुल 12.40 है”।",
+		txtHintCategory:         "श्रेणी “%s” रखी गई है, जिसे आप पहले से इस्तेमाल करते हैं। गलत हो तो बदलें।",
+		txtHintCategoryFit:      "“%s” शायद इस रसीद के लिए सही श्रेणी नहीं है।",
+		txtHintRefund:           "यह रिफ़ंड या वापसी लगती है। राशियों का चिह्न जाँचें।",
+		txtHintSamePurchase:     "यह %s की %s वाली खरीद जैसी हो सकती है, जो पहले से “%s” में है।",
+		txtHintTaxIncluded:      "अगर टैक्स कीमतों में पहले से शामिल है तो राशियाँ मिलती हैं। ऐसा हो तो “टैक्स शामिल” चुनें।",
+		txtHintDiscountIncluded: "अगर छूट कीमतों से पहले ही घटा दी गई है तो राशियाँ मिलती हैं। ऐसा हो तो “छूट शामिल” चुनें।",
+		txtNoteSheetChange:      "यह शीट बदलाव शायद आपके अनुरोध से मेल नहीं खाता:",
 	},
 }
 

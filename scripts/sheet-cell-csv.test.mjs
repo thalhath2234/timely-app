@@ -5,6 +5,8 @@ import {
   normalizeTypedCell,
 } from "../packages/contract/src/sheetCell.ts";
 import {
+  applyColumnTypes,
+  columnSamples,
   csvToGrid,
   parseCsvLine,
   sheetToCsv,
@@ -106,5 +108,22 @@ describe("sheet CSV", () => {
     const csv = sheetToCsv(columns, rows, () => 'x,"y"');
     const parsed = csvToGrid(csv, ids());
     assert.equal(Object.values(parsed.rows[0].cells)[0], 'x,"y"');
+  });
+});
+
+describe("applyColumnTypes", () => {
+  test("types columns the suggestions name and normalizes their values", () => {
+    const grid = csvToGrid("Item,Cost,Paid,Status\nRent,900.50,yes,Open\nFood,12,no,Done\n", ids());
+    assert.deepEqual(columnSamples(grid)[1], { name: "Cost", values: ["900.50", "12"] });
+    const typed = applyColumnTypes(grid, [null, { type: "currency" }, { type: "boolean" }, { type: "select", options: ["Open", "Done"] }]);
+    assert.deepEqual(typed.columns.map((c) => c.type), ["text", "currency", "boolean", "select"]);
+    assert.deepEqual(typed.columns[3].options, ["Open", "Done"]);
+    assert.deepEqual(typed.rows[0].cells, { c1: "Rent", c2: "900.5", c3: "TRUE", c4: "Open" });
+  });
+  test("a column whose values do not all fit stays text", () => {
+    const grid = csvToGrid("Amount\n12\nabout 5\n", ids());
+    const typed = applyColumnTypes(grid, [{ type: "number" }]);
+    assert.equal(typed.columns[0].type, "text");
+    assert.equal(typed.rows[1].cells.c1, "about 5");
   });
 });

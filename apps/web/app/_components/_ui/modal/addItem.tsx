@@ -22,12 +22,14 @@ import {
   Plus,
   Repeat,
   Sheet as SheetIcon,
+  Sparkles,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { useCreateDoc } from "@/app/utils/hooks/docs";
 import { useCreateSheet, useSheetTemplates } from "@/app/utils/hooks/sheets";
+import { getSheetTemplateSuggestion } from "@/app/utils/api/decisions";
 import { createProject } from "@/app/utils/api/projects";
 import { useCreateTask, useClarifyInbox } from "@/app/utils/hooks/tasks";
 import {
@@ -243,6 +245,10 @@ function AddItemModalInner() {
     null,
   );
   const [sheetTemplateId, setSheetTemplateId] = useState("");
+  // Smart suggestions pre-pick a saved template for the sheet's title until
+  // the person picks one themselves.
+  const [suggestedTemplateId, setSuggestedTemplateId] = useState("");
+  const [templateTouched, setTemplateTouched] = useState(false);
   // Which smart suggestions the Clarify form already filled, so each fills
   // once. See the suggestion effects below.
   const filledRef = useRef<{
@@ -347,6 +353,7 @@ function AddItemModalInner() {
   const taskTimeOnly = Boolean(taskRecurrence);
   const taskLabelIds = useWatch({ control: taskControl, name: "labelIds" }) ?? [];
   const selectedPageWorkspaceId = useWatch({ control: pageControl, name: "workspaceId" });
+  const pageTitle = useWatch({ control: pageControl, name: "title" });
 
   const typedWorkspaces = useMemo(
     () => (workspaces ?? []) as Workspace[],
@@ -606,6 +613,8 @@ function AddItemModalInner() {
     setEventWorkspaceId("");
     setEventRecurrence(null);
     setSheetTemplateId("");
+    setSuggestedTemplateId("");
+    setTemplateTouched(false);
     setSuggestedKindFor(undefined);
     setCreateTaskDraft(null);
     setIsAddItemModalOpen(false);
@@ -822,6 +831,30 @@ function AddItemModalInner() {
     } else return;
     setCreateTaskDraft({ ...createTaskDraft, name: undefined });
   }, [isAddItemModalOpen, addNewMode, createTaskDraft, setValuePage, setValue, setCreateTaskDraft]);
+
+  // Pick the saved template the sheet's title calls for, while the person
+  // has not chosen one.
+  const templates = templatesQuery.data;
+  useEffect(() => {
+    const title = (pageTitle ?? "").trim();
+    if (!isAddItemModalOpen || addNewMode !== "sheet" || !templates?.length || templateTouched || title.length < 2)
+      return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      getSheetTemplateSuggestion(title)
+        .then((suggestion) => {
+          if (stale || !suggestion.available) return;
+          const id = templates.some((t) => t.id === suggestion.templateId) ? suggestion.templateId! : "";
+          setSheetTemplateId(id);
+          setSuggestedTemplateId(id);
+        })
+        .catch(() => {});
+    }, 600);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [isAddItemModalOpen, addNewMode, pageTitle, templates, templateTouched]);
 
   // Sync Doc / Sheet Workspace
   useEffect(() => {
@@ -1731,7 +1764,10 @@ function AddItemModalInner() {
                 <Select
                   size="sm"
                   value={sheetTemplateId}
-                  onChange={setSheetTemplateId}
+                  onChange={(id) => {
+                    setTemplateTouched(true);
+                    setSheetTemplateId(id);
+                  }}
                   placeholder="Blank sheet"
                   className="border-0 bg-transparent px-0 shadow-none"
                   options={[
@@ -1743,6 +1779,15 @@ function AddItemModalInner() {
                   ]}
                 />
               </PropertyRow>
+            )}
+            {addNewMode === "sheet" && !!suggestedTemplateId && sheetTemplateId === suggestedTemplateId && (
+              <p
+                className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground"
+                data-testid="sheet-template-suggested"
+              >
+                <Sparkles className="size-3 shrink-0" />
+                Suggested for this title
+              </p>
             )}
 
             {pageErrors.workspaceId && (

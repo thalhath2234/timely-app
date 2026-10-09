@@ -1,5 +1,6 @@
 // Package self-import: Node strip-types cannot resolve an extensionless relative value import.
 import { columnIndexToLetter } from "@timely/contract/sheetFormula";
+import { normalizeTypedCell } from "@timely/contract/sheetCell";
 import type { SheetColumn, SheetRow } from "./sheetTypes";
 
 /** Id generators differ per platform, so callers supply them. */
@@ -103,5 +104,59 @@ export function csvToGrid(
     return { id: newRowId(), cells: mapped };
   });
 
+  return { columns, rows };
+}
+
+/** An imported column as smart suggestions read it: its header and up to
+ * `limit` values. */
+export function columnSamples(
+  grid: { columns: SheetColumn[]; rows: SheetRow[] },
+  limit = 200,
+): { name: string; values: string[] }[] {
+  return grid.columns.map((column) => ({
+    name: column.name,
+    values: grid.rows.slice(0, limit).map((row) => row.cells[column.id] ?? ""),
+  }));
+}
+
+/** A suggested type for one imported column; null keeps it as text. */
+export type ColumnTypeSuggestion = { type: string; options?: string[] } | null;
+
+const importTypes = new Set(["number", "currency", "percent", "date", "boolean", "select"]);
+
+/**
+ * Applies suggested column types to an imported grid. The server only
+ * suggests a type every value already fits, so normalizing keeps each value's
+ * meaning (12.50 → 12.5, yes → TRUE); a value that would still be blanked
+ * leaves its column as text.
+ */
+export function applyColumnTypes<C extends SheetColumn, R extends SheetRow>(
+  grid: { columns: C[]; rows: R[] },
+  suggestions: ColumnTypeSuggestion[],
+): { columns: C[]; rows: R[] } {
+  const columns = grid.columns.map((column, index) => {
+    const suggestion = suggestions[index];
+    if (!suggestion || !importTypes.has(suggestion.type)) return column;
+    const type = suggestion.type as SheetColumn["type"];
+    const fits = grid.rows.every((row) => {
+      const value = row.cells[column.id] ?? "";
+      return !value.trim() || normalizeTypedCell(type, value) !== "";
+    });
+    if (!fits) return column;
+    return {
+      ...column,
+      type,
+      ...(type === "select" && suggestion.options?.length ? { options: suggestion.options } : {}),
+    };
+  });
+  const rows = grid.rows.map((row) => {
+    const cells = { ...row.cells };
+    columns.forEach((column, index) => {
+      if (column.type === grid.columns[index].type) return;
+      const value = cells[column.id];
+      if (value !== undefined) cells[column.id] = normalizeTypedCell(column.type, value);
+    });
+    return { ...row, cells };
+  });
   return { columns, rows };
 }

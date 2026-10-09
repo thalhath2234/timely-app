@@ -1011,9 +1011,12 @@ function DecisionsCard() {
             Pre-fills the Clarify form for Inbox items and estimates how long
             new work takes. In agent chat it narrows the tools the agent gets,
             points you to an earlier chat about the same thing and flags
-            changes worth a check before you apply them. Runs on Jev,
-            TypeSafe&apos;s fast decision model. Suggestions never change
-            anything until you save or apply.
+            changes worth a check before you apply them. For receipts it
+            picks a category and sheet you already use and notes likely
+            repeats; it also suggests a template for a new sheet and column
+            types for an imported CSV. Receipt photos and amounts are never
+            sent. Runs on Jev, TypeSafe&apos;s fast decision model.
+            Suggestions never change anything until you save or apply.
           </p>
           <p className="mt-1 text-xs text-foreground" data-testid="decisions-source">
             {source}

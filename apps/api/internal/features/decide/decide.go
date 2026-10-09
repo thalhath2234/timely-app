@@ -92,6 +92,9 @@ type Request struct {
 	Feature   string
 	State     any
 	Questions map[string]Question
+	// Private marks state taken from private content such as a receipt.
+	// OpenRouter then routes the call only to zero-data-retention endpoints.
+	Private bool
 }
 
 // Answer is Jev's answer to one question.
@@ -244,6 +247,9 @@ type wire struct {
 	Model     string               `json:"model"`
 	State     any                  `json:"state"`
 	Questions map[string]wireQuest `json:"questions"`
+	// Provider is OpenRouter's routing preference; TypeSafe takes none.
+	Provider map[string]any `json:"provider,omitempty"`
+	private  bool
 }
 
 type wireQuest struct {
@@ -290,7 +296,7 @@ func (s *Service) build(req Request) (wire, plan, error) {
 	if len(state) > maxStateBytes {
 		return wire{}, plan{}, fmt.Errorf("decide: state for %s is %d bytes; trim it below %d", req.Feature, len(state), maxStateBytes)
 	}
-	w := wire{State: req.State, Questions: map[string]wireQuest{}}
+	w := wire{State: req.State, Questions: map[string]wireQuest{}, private: req.Private}
 	p := plan{kinds: map[string]string{}, pairs: map[string][]string{}, levels: map[string]int{}}
 	ids := make([]string, 0, len(req.Questions))
 	for id := range req.Questions {

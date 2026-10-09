@@ -73,6 +73,28 @@ export const testDecisions = () =>
   request<DecisionsTest>("/agent/decisions/test", "POST");
 export const sendDecisionFeedback = (logId: string, accepted: boolean) =>
   request<void>("/agent/decisions/feedback", "POST", { logId, accepted });
+/** The saved template a new sheet's title calls for, if any. */
+export type SheetTemplateSuggestion = {
+  available: boolean;
+  logId?: string;
+  templateId?: string;
+};
+/** One suggested type per imported column; null keeps the column as text. */
+export type ColumnTypeSuggestions = {
+  available: boolean;
+  logId?: string;
+  columns: ({ type: string; options?: string[] } | null)[];
+};
+export const getSheetTemplateSuggestion = (title: string) =>
+  request<SheetTemplateSuggestion>(
+    `/suggestions/sheet-template?title=${encodeURIComponent(title)}`,
+  );
+export const getColumnTypeSuggestions = (
+  columns: { name: string; values: string[] }[],
+) =>
+  request<ColumnTypeSuggestions>("/suggestions/column-types", "POST", {
+    columns,
+  });
 export const getClarifySuggestions = (inboxId: string) =>
   request<ClarifySuggestions>(
     `/inbox/${encodeURIComponent(inboxId)}/suggestions`,
