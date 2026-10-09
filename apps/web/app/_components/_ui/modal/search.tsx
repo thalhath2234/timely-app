@@ -84,7 +84,8 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
   const smart = useSmartSearch(demoItems ? "" : search.query);
   const smartData = !demoItems && trimmed && smart.query === trimmed && matchesCurrentQuery ? smart.data : undefined;
   const [showHidden, setShowHidden] = useState(false);
-  const hidden = smartData?.hits ? smartData.hidden ?? [] : [];
+  // Counted per tab: a weak doc match is not one of the Sheets tab's results.
+  const hidden = smartData?.hits ? (smartData.hidden ?? []).filter((hit) => category === "all" || hit.kind === category) : [];
   const shownHits = smartData?.hits ? [...smartData.hits, ...(showHidden ? hidden : [])] : hits;
   const suggestedCategory = smartData?.category && category === "all" ? categories.find((tab) => tab.id === smartData.category) : undefined;
   const pending = !demoItems && !!trimmed && (!matchesCurrentQuery || search.isFetching);

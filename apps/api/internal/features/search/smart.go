@@ -209,6 +209,9 @@ func (s *Smart) Related(ctx context.Context, userID, kind, id string) ([]Related
 		return out, nil
 	}
 	src, near, err := s.indexer.Related(ctx, userID, kind, id, relatedPool, []string{"task", "project", "doc", "sheet"})
+	if err == nil && s.search != nil {
+		near = s.search.Existing(userID, near)
+	}
 	if err != nil || len(near) == 0 {
 		return out, nil
 	}

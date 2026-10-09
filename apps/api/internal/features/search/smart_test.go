@@ -159,6 +159,39 @@ func TestRelatedKeepsOnlyConfirmedItems(t *testing.T) {
 	}
 }
 
+// liveOnly is a Service whose Existing keeps only the listed items.
+type liveOnly struct {
+	Service
+	live map[string]bool
+}
+
+func (l liveOnly) Existing(_ string, hits []embed.Hit) []embed.Hit {
+	out := []embed.Hit{}
+	for _, hit := range hits {
+		if l.live[hit.EntityID] {
+			out = append(out, hit)
+		}
+	}
+	return out
+}
+
+func TestRelatedSkipsDeletedItems(t *testing.T) {
+	var calls atomic.Int32
+	// Jev would confirm both; the doc was deleted but its vectors remain.
+	d := jevService(t, true, map[string]any{"rel1": yes(0.9), "rel2": yes(0.9)}, &calls)
+	idx := nearIndexer{near: []embed.Hit{
+		{Kind: "doc", EntityID: "gone", Title: "Mobile App bugs"},
+		{Kind: "task", EntityID: "t1", Title: "Order tiles"},
+	}}
+	got, err := NewSmart(liveOnly{live: map[string]bool{"t1": true}}, idx, d).Related(context.Background(), "u1", "project", "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "t1" {
+		t.Fatalf("a deleted item must not be offered: %+v", got)
+	}
+}
+
 func TestCreateTitle(t *testing.T) {
 	cases := map[string]string{
 		"make a budget sheet":         "Budget",
