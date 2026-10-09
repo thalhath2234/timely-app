@@ -91,6 +91,10 @@ _Avoid_: backend, engine (Auto-schedule is the engine), LLM (in copy)
 Verifying a CLI Agent provider on the API host: the binary is found, its sign-in is valid, and one test call succeeds. Connect never takes a path from the person and never signs in for them.
 _Avoid_: install, log in (those happen in a terminal on the host)
 
+**Smart suggestions**:
+Pre-filled fields and hints from Jev, TypeSafe's decision model, such as the Clarify form's type, effort, priority, project, labels and possible duplicates, or the Agent's default length for new Work. They use the account's TypeSafe key first and its OpenRouter key otherwise, and change nothing until the person saves. With neither key, or turned off in Settings → Agent, Timely behaves as it does without them.
+_Avoid_: AI autofill, auto-classify, Jev (in copy, except where the key is set up)
+
 ### Activity
 
 **Activity island**:

@@ -19,6 +19,7 @@ import (
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
+	"timely-api/internal/features/suggest"
 	"timely-api/internal/features/task"
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/middleware"
@@ -43,6 +44,7 @@ type Handlers struct {
 	Schedule  *schedule.Handler
 	ApiKey    *apikey.Handler
 	Search    *search.Handler
+	Suggest   *suggest.Service
 	Notify    *notify.Handler
 	Portable  *portability.Handler
 	Instance  *instance.Handler
@@ -81,6 +83,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	}
 	if h.Providers != nil {
 		h.Providers.Routes(protected)
+	}
+	if h.Suggest != nil {
+		h.Suggest.Routes(protected)
 	}
 	if h.Instance != nil {
 		protected.GET("/instance", h.Instance.Instance)

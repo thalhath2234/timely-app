@@ -1,0 +1,21 @@
+# Smart suggestions run on Jev through one decision service, and only suggest
+
+- Status: Accepted
+- Date: 2026-10-09
+
+Timely asks small typed questions ("Is this Work or a Reminder?", "How much effort does this take?", "Is this the same task as that one?") of Jev, TypeSafe's decision model, instead of a chat model. Jev answers a Choice, a Score or a yes/no with a confidence, in well under a second, which fits places where a chat model is too slow or too costly: the Clarify form, the agent's default work length, and later the scheduler and notifications.
+
+**One service in the API.** `internal/features/decide` is the only code that talks to Jev. Features build questions with `decide.Choice`, `decide.Score` and `decide.YesNo` and read answers with a minimum confidence (`Prefill` 0.6, `Route` 0.8, `Flag` 0.5). Below the threshold a feature behaves as if Jev had said nothing. The service shuffles choice options and can ask a question twice in reversed order (`Twice`), treating disagreement as zero confidence, to blunt Jev's first-option bias. It caches identical requests for ten minutes, caps parallel calls per account, keeps state under 32 KB, and logs one `decision_log` row per call (feature, provider, latency, whether the person kept the suggestion) without the text. Rows older than 30 days are pruned.
+
+**Keys are per account, TypeSafe first.** A TypeSafe key saved in Settings → Agent is used first. On a 401, 429, 529, 5xx or network error the same request goes to OpenRouter's Decisions API (`typesafe/jev-1.13`) with the account's existing OpenRouter key; TypeSafe is Jev's only provider there, so no other company sees the request; a 422 is the request's fault and does not fall back. A 401 marks the TypeSafe key as refused until it is replaced, so later calls go straight to OpenRouter. With neither key, or with the switch off, every feature returns nothing and the app works exactly as it did before. A call that fails is logged by the API and named in the Clarify form, and Settings → Agent has a Test button that makes one live call.
+
+**In agent chat, Jev only narrows and warns.** Before the model's first call on a new message, one triage call (1.5 s budget) names the area of the request, whether it is a question or a change, whether it needs the web, whether it is too unclear to act on, which occurrences of a repeating item it means, its language when the script alone cannot tell, and, for a new chat, an earlier chat about the same request. The area narrows the read tools offered; the others stay callable by name and the run offers everything again as soon as one is called. The rest become a notice the model is told it may ignore, a conversation language for Timely's own notices, and a "You already have a chat about this" pointer. At that pointer the new chat stops before the model runs and waits for the person (status "choose", listed under "Needs you"): "Continue there" moves the message into the earlier chat, runs it there and deletes the new chat; "Answer here" runs it where it is. After a proposal is prepared, one check asks whether each step was requested and whether something requested is missing; any such note is shown on the review and forces a review even for a change that would have applied directly. Sensitive chats are never sent.
+
+**Suggest, never act.** Jev output only pre-fills fields the person has not touched, adds hints, or picks a default the person can change before saving (for example the agent's estimate for new Work). Nothing is created, moved or deleted because Jev said so. Dates, numbers and counts are never read from Jev (it is weak at them); it picks a bucket in words and code maps the bucket to a value.
+
+## Considered Options
+
+- **Use the chat model for these questions**: rejected; a chat round trip is seconds and tokens for what is a one-word answer, and its output needs parsing.
+- **Let each feature call Jev itself**: rejected; key order, fallback, caching, rate limits and logging would be repeated and drift.
+- **Auto-apply high-confidence answers**: rejected for now; a wrong silent change costs more trust than a pre-filled field saves, and the feedback log is what would justify any later change.
+- **A server-wide Jev key in `.env`**: rejected; keys follow the per-account model of ADR 0009.

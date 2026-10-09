@@ -15,6 +15,7 @@ import type {
 import { useSheets, useSheet } from "@/app/utils/hooks/sheets";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { ImagePreview } from "./imageAttachments";
+import DatePicker from "@/app/_components/_ui/datePicker";
 import {
   receiptDestination,
   receiptTabId,
@@ -164,28 +165,37 @@ export default function ReceiptReview({
                   {["merchant", "date", "currency", "total"].includes(key) &&
                     " *"}
                 </span>
-                <input
-                  aria-label={label}
-                  className={fieldClass}
-                  value={draft[key] || ""}
-                  onChange={(e) =>
-                    field(
-                      key,
+                {key === "date" ? (
+                  <DatePicker
+                    value={draft.date || ""}
+                    onChange={(value) => field("date", value)}
+                    placeholder="Unknown / not printed"
+                    aria-label={label}
+                    className="bg-background py-2"
+                  />
+                ) : (
+                  <input
+                    aria-label={label}
+                    className={fieldClass}
+                    value={draft[key] || ""}
+                    onChange={(e) =>
+                      field(
+                        key,
+                        key === "currency"
+                          ? e.target.value.toUpperCase()
+                          : e.target.value,
+                      )
+                    }
+                    placeholder={
                       key === "currency"
-                        ? e.target.value.toUpperCase()
-                        : e.target.value,
-                    )
-                  }
-                  type={key === "date" ? "date" : "text"}
-                  placeholder={
-                    key === "currency"
-                      ? "JPY, USD…"
-                      : key === "total"
-                        ? "Required"
-                        : "Unknown / not printed"
-                  }
-                  maxLength={key === "merchant" ? 300 : 200}
-                />
+                        ? "JPY, USD…"
+                        : key === "total"
+                          ? "Required"
+                          : "Unknown / not printed"
+                    }
+                    maxLength={key === "merchant" ? 300 : 200}
+                  />
+                )}
               </label>
             ))}
           </div>

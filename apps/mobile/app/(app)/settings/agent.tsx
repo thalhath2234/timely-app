@@ -4,6 +4,7 @@ import {
   Linking,
   Pressable,
   ScrollView,
+  Switch,
   Text,
   View,
 } from "react-native";
@@ -19,14 +20,19 @@ import { Field, PrimaryButton } from "../../../components/ui/primitives";
 import {
   useAgentProvidersQuery,
   useConnectProvider,
+  useDecisionSettingsQuery,
   useDisconnectProvider,
   usePatchAgentProviders,
+  usePatchDecisionSettings,
   useProviderModelsQuery,
   useRemoveApiProviderKey,
   useRemoveOpenRouterKey,
+  useRemoveTypeSafeKey,
   useSetApiProviderKey,
   useSetOpenRouterKey,
+  useSetTypeSafeKey,
 } from "../../../lib/hooks";
+import type { DecisionSettings } from "../../../lib/api/decisions";
 import {
   PROVIDER_LABELS,
   type AgentProviders,
@@ -402,6 +408,149 @@ function OpenRouterCard({
   );
 }
 
+/** Smart suggestions for Inbox items. Uses the TypeSafe key first, then the
+ * OpenRouter key above; with neither, the Inbox shows no suggestions. */
+function SmartSuggestionsCard({
+  data,
+  confirm,
+}: {
+  data: DecisionSettings;
+  confirm: (req: ConfirmRequest) => void;
+}) {
+  const patch = usePatchDecisionSettings();
+  const setKey = useSetTypeSafeKey();
+  const removeKey = useRemoveTypeSafeKey();
+  const typesafe = data.typesafe;
+  const [editing, setEditing] = useState(!typesafe.keySet);
+  const [key, setKeyValue] = useState("");
+  const [keyError, setKeyError] = useState<string | null>(null);
+  // The server names a provider only while switched on; derive it otherwise
+  // so the line still says which key would be used.
+  const provider =
+    data.provider ??
+    (typesafe.keySet && !typesafe.rejected
+      ? "typesafe"
+      : data.openrouterKeySet
+        ? "openrouter"
+        : undefined);
+
+  return (
+    <View style={styles.card} testID="smart-suggestions">
+      <View style={styles.row}>
+        <Text style={[styles.title, { flex: 1 }]}>Smart suggestions</Text>
+        <Switch
+          accessibilityLabel="Smart suggestions"
+          value={data.enabled}
+          disabled={patch.isPending}
+          onValueChange={(enabled) => patch.mutate(enabled)}
+          trackColor={{ true: colors.primary }}
+        />
+      </View>
+      <Text style={styles.meta}>
+        Suggests fields when you clarify Inbox items, points you to an earlier
+        chat about the same thing and flags agent changes worth a check, using
+        TypeSafe’s Jev model.
+      </Text>
+      <Text style={styles.meta}>
+        {provider === "typesafe"
+          ? "Using your TypeSafe key"
+          : provider === "openrouter"
+            ? "Using your OpenRouter key"
+            : "Add a TypeSafe or OpenRouter key to turn this on"}
+      </Text>
+      {patch.error ? (
+        <Text style={styles.error}>
+          {errorMessage(patch.error, "Could not change this setting.")}
+        </Text>
+      ) : null}
+      <Text style={styles.label}>TypeSafe API key</Text>
+      {typesafe.rejected ? (
+        <Text style={styles.warning}>
+          TypeSafe refused this key. Replace it to use TypeSafe again.
+        </Text>
+      ) : null}
+      {!editing ? (
+        <View style={[styles.row, { flexWrap: "wrap" }]}>
+          {typesafe.keySet ? (
+            <Badge tone={typesafe.rejected ? "warn" : "ok"}>
+              Key saved {typesafe.keyHint}
+            </Badge>
+          ) : (
+            <Badge tone="muted">No key</Badge>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setEditing(true)}
+          >
+            <Text style={styles.link}>
+              {typesafe.keySet ? "Replace" : "Add key"}
+            </Text>
+          </Pressable>
+          {typesafe.keySet ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                confirm({
+                  title: "Remove your TypeSafe key?",
+                  message: data.openrouterKeySet
+                    ? "Suggestions use your OpenRouter key instead."
+                    : "Suggestions stop until you add a key again.",
+                  confirmLabel: "Remove",
+                  onConfirm: () => removeKey.mutate(),
+                })
+              }
+            >
+              <Text style={styles.danger}>Remove</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : (
+        <View style={{ gap: 8 }}>
+          <Field
+            value={key}
+            onChangeText={setKeyValue}
+            placeholder="TypeSafe API key"
+            secure
+          />
+          <Text style={styles.meta}>
+            Stored encrypted on the server and never shown again. Saving sends
+            one tiny test request.
+          </Text>
+          {keyError ? <Text style={styles.error}>{keyError}</Text> : null}
+          <PrimaryButton
+            label={setKey.isPending ? "Checking…" : "Save key"}
+            disabled={key.trim().length < 8 || setKey.isPending}
+            onPress={() => {
+              setKeyError(null);
+              setKey.mutate(key.trim(), {
+                onSuccess: () => {
+                  Keyboard.dismiss();
+                  setKeyValue("");
+                  setEditing(false);
+                },
+                onError: (err) =>
+                  setKeyError(errorMessage(err, "Could not save the key.")),
+              });
+            }}
+          />
+          {typesafe.keySet ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                Keyboard.dismiss();
+                setKeyError(null);
+                setEditing(false);
+              }}
+            >
+              <Text style={styles.link}>Cancel</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      )}
+    </View>
+  );
+}
+
 const CUSTOM_ENDPOINT = "custom";
 
 /** A direct API provider, rendered from the server's catalog. Until a key is
@@ -746,6 +895,7 @@ function CliCard({
 export default function AgentSettings() {
   const insets = useSafeAreaInsets();
   const providers = useAgentProvidersQuery();
+  const decisions = useDecisionSettingsQuery();
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const data = providers.data;
 
@@ -784,6 +934,12 @@ export default function AgentSettings() {
         {data ? (
           <>
             <OpenRouterCard data={data} confirm={setConfirm} />
+            {decisions.data ? (
+              <SmartSuggestionsCard
+                data={decisions.data}
+                confirm={setConfirm}
+              />
+            ) : null}
             <Text style={styles.label}>Direct API providers</Text>
             <Text style={styles.meta}>
               Use a provider’s own API key instead of OpenRouter. Saving a key
@@ -856,6 +1012,7 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   meta: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   error: { color: colors.destructive, fontSize: 13 },
+  warning: { color: colors.warning, fontSize: 13 },
   link: {
     color: colors.primary,
     fontSize: 15,

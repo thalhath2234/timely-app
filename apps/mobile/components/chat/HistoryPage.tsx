@@ -118,6 +118,7 @@ export default function HistoryPage({
               const active = chat.id === activeId;
               const attention = [
                 "approval",
+                "choose",
                 "failed",
                 "running",
                 "queued",

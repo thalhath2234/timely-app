@@ -25,6 +25,7 @@ import (
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/chat"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/embed"
@@ -39,6 +40,7 @@ import (
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
+	"timely-api/internal/features/suggest"
 	"timely-api/internal/features/task"
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/jobs"
@@ -116,12 +118,26 @@ func main() {
 	jobWorker := jobs.NewWorker(jobQueue)
 	notifyService.Register(jobWorker)
 	portabilityService.Register(jobWorker)
+	var decisions *decide.Service // set below, once the provider keys exist
 	jobWorker.SetSweep(func(ctx context.Context) error {
 		if err := notifyService.Sweep(ctx); err != nil {
 			return err
 		}
+		if err := decisions.Prune(); err != nil {
+			return err
+		}
 		return portabilityService.Sweep(ctx)
 	})
+	providerService := provider.New(db, indexer, jobQueue)
+	providerService.Register(jobWorker)
+	// Smart suggestions (Jev): TypeSafe key first, then the OpenRouter key;
+	// with neither, decide answers ErrOff and nothing changes.
+	jev := decide.NewClient(nil)
+	jev.Rejected = providerService.MarkTypeSafeRejected
+	decisions = decide.New(db, providerService.DecisionKeys, jev)
+	providerService.SetDecisions(decisions, jev)
+	suggestions := suggest.New(db, decisions, searchService)
+	workEstimate = suggestions.Estimate
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -136,14 +152,14 @@ func main() {
 		Notify:     notifyService,
 		Jobs:       jobQueue,
 		Portable:   portabilityService,
+		Estimate:   suggestions.Estimate,
 	})
 
-	providerService := provider.New(db, indexer, jobQueue)
-	providerService.Register(jobWorker)
 	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) }, chat.NewOpenRouter())
 	// Proposals are rehearsed in a rolled-back transaction; no live doc broadcasts.
 	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, providerService.EmbedCredentials) })
 	chatService.SetCompleters(providerService)
+	chatService.SetDecisions(decisions)
 
 	authHandler := auth.NewHandler(authService, userRepo)
 	port, bind := listenConfig()
@@ -174,6 +190,7 @@ func main() {
 		Schedule:  schedule.NewHandler(scheduleService),
 		ApiKey:    apikey.NewHandler(apiKeyService),
 		Search:    search.NewHandler(searchService),
+		Suggest:   suggestions,
 		Notify:    notify.NewHandler(notifyService, jobQueue),
 		Portable:  portability.NewHandler(portabilityService),
 		MCP:       agent.Handler(mcpServer, apiKeyService.Verifier()),
