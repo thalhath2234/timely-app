@@ -40,6 +40,7 @@ import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { forgetPomodoro } from "@/app/_store/pomodoroStore";
 import { useCalendarStore } from "@/app/_store/calendarStore";
+import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
@@ -108,15 +109,31 @@ export default function ReportDashboard() {
     [router, setCalendarView, setSelectedDate],
   );
 
+  const setCreateTaskDraft = useSidebarStore((state) => state.setCreateTaskDraft);
+  const setAddNewMode = useSidebarStore((state) => state.setAddNewMode);
+  const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
+
+  /** Inbox items open Clarify, as they do on the Inbox page. */
+  const clarify = useCallback(
+    (task: Task) => {
+      setCreateTaskDraft({ name: task.name, inboxId: task.id });
+      setAddNewMode("task");
+      setIsAddItemModalOpen(true);
+    },
+    [setAddNewMode, setCreateTaskDraft, setIsAddItemModalOpen],
+  );
+
   const openRow = useCallback(
     (row: CardRow) => {
+      const inboxItem = row.entity === "task" ? data.inbox?.find((task) => task.id === row.id) : undefined;
+      if (inboxItem) return clarify(inboxItem as Task);
       if (row.entity === "task") return openTask(row.id);
       if (row.entity === "project") return openProject(row.id);
       if (row.entity === "doc" || row.entity === "sheet") return router.push(mentionHref(row.entity, row.id));
       const item = data.events?.find((entry) => entry.id === row.id);
       if (item) openEvent(item.start);
     },
-    [data.events, openEvent, openProject, openTask, router],
+    [clarify, data.events, data.inbox, openEvent, openProject, openTask, router],
   );
 
   const openItem = useCallback(
