@@ -33,7 +33,8 @@ export type BuiltinCardType =
   | "streak"
   | "dayProgress"
   | "matrix"
-  | "countdown";
+  | "countdown"
+  | "highlights";
 
 export type DashboardCardType = BuiltinCardType | "custom";
 
@@ -240,6 +241,15 @@ export const BUILTIN_CARDS: BuiltinCardInfo[] = [
     minW: 2,
     minH: 2,
     settings: { label: "", date: "" },
+  },
+  {
+    type: "highlights",
+    title: "Highlights",
+    description: "What stands out this week, why work gets blocked or left unfinished, and tips your own data backs. Needs smart suggestions.",
+    w: 6,
+    h: 4,
+    minW: 4,
+    minH: 3,
   },
 ];
 
@@ -1010,7 +1020,8 @@ export function sourcesUsed(cards: DashboardCard[]): Set<CardSource | "today"> {
   const used = new Set<CardSource | "today">();
   for (const card of cards) {
     if (card.type === "custom" && card.query) used.add(card.query.source);
-    if (card.type === "matrix" || card.type === "streak") used.add("tasks");
+    if (card.type === "matrix" || card.type === "streak" || card.type === "highlights") used.add("tasks");
+    if (card.type === "highlights") used.add("inbox");
     if (card.type === "today") used.add("today");
   }
   return used;
@@ -1775,4 +1786,77 @@ export function formatMetric(value: number, unit: CardUnit): string {
   if (unit === "hours") return formatHours(value);
   if (Math.abs(value) >= 10_000) return `${Math.round(value / 100) / 10}K`;
   return Number.isInteger(value) ? value.toLocaleString("en-US") : (Math.round(value * 10) / 10).toLocaleString("en-US");
+}
+
+// ---- Highlights ----
+
+export interface HighlightFact {
+  id: string;
+  text: string;
+}
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * Facts the Highlights card sends to smart suggestions, worked out here so
+ * every number is counted in code: finished work this week against last,
+ * the completion streak, overdue and soon-due work, the busiest weekday and
+ * the Inbox. Smart suggestions only pick which ones to highlight.
+ */
+export function highlightFacts(data: DashboardData, ctx: EngineContext): HighlightFact[] {
+  const tasks = (data.tasks ?? []).filter((task) => task.kind !== "inbox" && task.kind !== "reminder");
+  const today = todayInZone(ctx.timeZone, ctx.now);
+  const facts: HighlightFact[] = [];
+  const counts = completionsByDay(tasks, ctx.timeZone);
+  const sum = (from: string, to: string) => {
+    let total = 0;
+    for (const [day, n] of counts) if (day >= from && day <= to) total += n;
+    return total;
+  };
+  const thisWeek = sum(addDaysToDate(today, -6), today);
+  const lastWeek = sum(addDaysToDate(today, -13), addDaysToDate(today, -7));
+  facts.push({
+    id: "done_week",
+    text:
+      lastWeek === thisWeek
+        ? `Finished ${thisWeek} task${thisWeek === 1 ? "" : "s"} in the last 7 days, the same as the 7 days before.`
+        : `Finished ${thisWeek} task${thisWeek === 1 ? "" : "s"} in the last 7 days, ${thisWeek > lastWeek ? "up" : "down"} from ${lastWeek} the 7 days before.`,
+  });
+  const streak = completionStreak(counts, today);
+  if (streak.current > 0 || streak.best > 0) {
+    facts.push({ id: "streak", text: `Current streak: ${streak.current} day${streak.current === 1 ? "" : "s"} in a row with something finished (best: ${streak.best}).` });
+  }
+  const open = tasks.filter((task) => !task.completedAt);
+  const overdue = open.filter((task) => isOverdue(task, today));
+  if (overdue.length) {
+    const oldest = Math.max(...overdue.map((task) => daysBetween(task.deadline!.slice(0, 10), today)));
+    facts.push({ id: "overdue", text: `${overdue.length} open task${overdue.length === 1 ? " is" : "s are"} past the deadline, the oldest by ${oldest} day${oldest === 1 ? "" : "s"}.` });
+  }
+  const horizon = addDaysToDate(today, 7);
+  const dueSoon = open.filter((task) => task.deadline && task.deadline.slice(0, 10) >= today && task.deadline.slice(0, 10) <= horizon);
+  if (dueSoon.length) {
+    facts.push({ id: "due_week", text: `${dueSoon.length} open task${dueSoon.length === 1 ? " is" : "s are"} due in the next 7 days.` });
+  }
+  const noDeadline = open.filter((task) => !task.deadline).length;
+  if (open.length) {
+    facts.push({ id: "open", text: `${open.length} open task${open.length === 1 ? "" : "s"} in all; ${noDeadline} without a deadline.` });
+  }
+  const byWeekday = new Array(7).fill(0);
+  let recent = 0;
+  for (const [day, n] of counts) {
+    if (day < addDaysToDate(today, -27) || day > today) continue;
+    const [y, m, d] = day.split("-").map(Number);
+    byWeekday[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] += n;
+    recent += n;
+  }
+  if (recent >= 5) {
+    const best = byWeekday.indexOf(Math.max(...byWeekday));
+    facts.push({ id: "busiest_day", text: `Over the last 4 weeks you finished the most on ${WEEKDAY_NAMES[best]}s (${byWeekday[best]} of ${recent} tasks).` });
+  }
+  const inbox = (data.inbox ?? []).filter((task) => !task.completedAt);
+  if (inbox.length) {
+    const waiting = inbox.filter((task) => task.createdAt && daysBetween(task.createdAt.slice(0, 10), today) >= 3).length;
+    facts.push({ id: "inbox", text: `${inbox.length} item${inbox.length === 1 ? "" : "s"} in the Inbox; ${waiting} waiting 3 days or more.` });
+  }
+  return facts;
 }

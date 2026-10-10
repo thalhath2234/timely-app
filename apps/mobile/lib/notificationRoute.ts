@@ -16,6 +16,8 @@ export function routeForNotification(data: Record<string, unknown>): string {
       ? dataString(data, "entityId")
       : null);
   if (chatId) return `/(app)/assistant?chatId=${encodeURIComponent(chatId)}`;
+  // A smart alert about waiting Inbox items opens the Inbox, not one item.
+  if (dataString(data, "category") === "suggestion" && dataString(data, "kind") === "inbox") return "/(app)/inbox";
   const taskId = dataString(data, "taskId");
   if (taskId) return `/(app)/tasks/${taskId}`;
 

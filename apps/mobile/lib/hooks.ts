@@ -51,6 +51,7 @@ import {
   getInboxSuggestions,
   getDocHints,
   getTodaySuggestions,
+  getHighlights,
   runNotificationTriage,
   type TriageStep,
   getProjectInsights,
@@ -124,6 +125,7 @@ export const keys = {
   projectInsights: (id: string, version: string) => ["project-insights", id, version] as const,
   docHints: (id: string, version: string) => ["doc-hints", id, version] as const,
   todaySuggestions: (timezone: string, version: string) => ["today-suggestions", timezone, version] as const,
+  highlights: (factsKey: string) => ["highlights", factsKey] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
   freeTime: ["schedule", "free-time"] as const,
@@ -567,6 +569,19 @@ export function useTodaySuggestionsQuery(timezone: string, version: string, enab
     queryKey: keys.todaySuggestions(timezone, version),
     queryFn: () => getTodaySuggestions(timezone),
     enabled: enabled && status.data?.available === true,
+    placeholderData: keepPreviousData,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+/** Dashboard Highlights for the facts the card worked out. */
+export function useHighlightsQuery(facts: { id: string; text: string }[], enabled = true) {
+  const factsKey = facts.map((fact) => fact.text).join("\n");
+  return useQuery({
+    queryKey: keys.highlights(factsKey),
+    queryFn: () => getHighlights(facts),
+    enabled,
     placeholderData: keepPreviousData,
     retry: false,
     staleTime: 10 * 60 * 1000,

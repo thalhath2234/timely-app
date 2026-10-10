@@ -51,6 +51,7 @@ import CardWorkshop, { DISPLAY_ICON, type WorkshopResult } from "./cardWorkshop"
 import CustomCardView, { useCardResult } from "./customCardView";
 import DashboardGrid from "./dashboardGrid";
 import PomodoroCard from "./pomodoroCard";
+import HighlightsCard from "./highlightsCard";
 import { BuiltinIcon } from "./cardIcons";
 import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "./builtinCards";
 import { useDashboardData, useDashboardLayout } from "./useDashboard";
@@ -368,6 +369,8 @@ export default function ReportDashboard() {
             onOpenTask={openTask}
           />
         );
+      case "highlights":
+        return <HighlightsCard data={data} now={now} timeZone={timeZone} loading={Boolean(loading.tasks || loading.inbox)} onOpenTask={openTask} />;
       case "countdown":
         return (
           <CountdownCard

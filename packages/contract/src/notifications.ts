@@ -8,6 +8,8 @@ export interface NotificationSettings {
   timezone: string;
   morningDigestAt: string;
   eveningDigestAt: string;
+  /** Smart alerts: a few alerts a day for suggestions worth acting on (needs smart suggestions). */
+  smartAlerts?: boolean;
 }
 
 /** Every `Category` the API writes (`models/notification.go`, chat service). */
@@ -18,6 +20,7 @@ export type NotificationCategory =
   | "overdue"
   | "missed"
   | "start"
+  | "suggestion"
   | "agent";
 
 export interface AppNotification {

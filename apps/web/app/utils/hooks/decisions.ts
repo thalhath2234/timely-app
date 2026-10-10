@@ -14,6 +14,7 @@ import {
   sendDecisionFeedback,
   setDecisionsEnabled,
   setDecisionPrefs,
+  getHighlights,
   getTodaySuggestions,
   runNotificationTriage,
   type DeepWorkTime,
@@ -160,6 +161,20 @@ export function useTodaySuggestions(timezone: string, version = "", enabled = tr
   return useQuery({
     queryKey: ["today-suggestions", timezone, version],
     queryFn: () => getTodaySuggestions(timezone),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
+}
+
+/** Dashboard Highlights for the facts the card worked out; asked again when
+ * the facts change, at most every ten minutes otherwise. */
+export function useHighlights(facts: { id: string; text: string }[], enabled = true) {
+  const key = facts.map((fact) => fact.text).join("\n");
+  return useQuery({
+    queryKey: ["highlights", key],
+    queryFn: () => getHighlights(facts),
     enabled,
     staleTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,

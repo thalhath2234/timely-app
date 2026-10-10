@@ -31,6 +31,8 @@ type Service struct {
 	http         *http.Client
 	overdueSwept map[string]time.Time
 	triage       Triager // nil until SetTriage
+	alerts       Alerter // nil until SetAlerts
+	briefing     Briefer // nil until SetBriefing
 	triageSlots  chan struct{}
 	triageWait   sync.WaitGroup
 }
@@ -55,6 +57,7 @@ func (s *Service) Register(worker *jobs.Worker) {
 	worker.Handle(models.JobOverdueTask, s.HandleOverdueTask)
 	worker.Handle(models.JobMissedBlock, s.HandleMissedBlock)
 	worker.Handle(models.JobStartSoon, s.HandleStartSoon)
+	worker.Handle(models.JobSmartAlerts, s.HandleSmartAlerts)
 	worker.Handle(models.JobSendPush, s.HandlePush)
 	worker.Handle(models.JobIndexEntity, s.HandleIndex)
 	worker.SetSweep(s.Sweep)
@@ -264,6 +267,9 @@ func (s *Service) Sweep(ctx context.Context) error {
 			return err
 		}
 		if err := s.sweepMissedAndStart(userID, now); err != nil {
+			return err
+		}
+		if err := s.sweepSmartAlerts(userID, now); err != nil {
 			return err
 		}
 	}
@@ -723,16 +729,20 @@ func (s *Service) HandleDigest(ctx context.Context, job *models.Job) error {
 	}
 	title, body, category := digestCopy(kind, today)
 	key := job.DedupeKey
-	ntf, err := s.repo.Upsert(&models.Notification{
+	row := &models.Notification{
 		UserID:    job.UserID,
 		Category:  category,
 		Title:     title,
 		Body:      body,
 		Data:      job.Payload,
 		DedupeKey: key,
-	})
+	}
+	ntf, err := s.repo.Upsert(row)
 	if err != nil {
 		return err
+	}
+	if kind == "morning" && ntf.ID == row.ID && s.briefLater(ntf, today, settings) {
+		return nil // sent once the briefing names the day's top items
 	}
 	return s.deliver(ctx, ntf, settings)
 }
@@ -881,6 +891,8 @@ func notificationPushMessage(ntf *models.Notification, token string) expoMessage
 			"taskId":         ntf.Data.String("taskId"),
 			"entityType":     ntf.EntityType,
 			"entityId":       ntf.EntityID,
+			"kind":           ntf.Data.String("kind"),
+			"projectId":      ntf.Data.String("projectId"),
 		},
 	}
 }

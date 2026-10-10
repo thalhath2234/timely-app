@@ -2,6 +2,7 @@ package notify
 
 import (
 	"errors"
+	"strings"
 	"time"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
@@ -153,6 +154,34 @@ func (r *repository) Upsert(row *models.Notification) (*models.Notification, err
 		return nil, err
 	}
 	return row, nil
+}
+
+// RecentlyAlerted is the Work smart alerts named since a time.
+func (r *repository) RecentlyAlerted(userID string, since time.Time) (map[string]bool, error) {
+	var ids []string
+	if err := r.db.Raw(`SELECT DISTINCT jsonb_array_elements_text(data->'taskIds') FROM notifications
+		WHERE user_id = ? AND category = ? AND created_at >= ? AND jsonb_typeof(data->'taskIds') = 'array'`,
+		userID, models.NotifySuggestion, since).Scan(&ids).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
+}
+
+// CountByDedupePrefix counts a person's notifications whose dedupe key
+// starts with prefix.
+func (r *repository) CountByDedupePrefix(userID, prefix string) (int64, error) {
+	var n int64
+	err := r.db.Model(&models.Notification{}).Where("user_id = ? AND dedupe_key LIKE ?", userID, strings.NewReplacer("%", `\%`, "_", `\_`).Replace(prefix)+"%").Count(&n).Error
+	return n, err
+}
+
+// SetBody replaces a notification's text.
+func (r *repository) SetBody(id, body string) error {
+	return r.db.Model(&models.Notification{}).Where("id = ?", id).Update("body", body).Error
 }
 
 // SetSuggestion adds the suggested next step to a notification's data and
