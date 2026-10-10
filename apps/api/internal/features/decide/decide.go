@@ -547,6 +547,19 @@ func (s *Service) Feedback(userID, logID string, accepted bool) error {
 	return err
 }
 
+// Dismissed records that the person set a suggestion aside without using
+// it, unless they already answered it: a kept answer stands, and a second
+// dismissal of the same decision changes nothing.
+func (s *Service) Dismissed(userID, logID string) error {
+	if s == nil || s.db == nil || logID == "" {
+		return nil
+	}
+	err := s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ? AND accepted IS NULL", logID, userID).
+		Updates(map[string]any{"accepted": false, "decided_at": time.Now().UTC()}).Error
+	s.forget(userID)
+	return err
+}
+
 // Prune drops log rows older than 30 days, at most once an hour (the job
 // sweep calls it every few seconds).
 func (s *Service) Prune() error {

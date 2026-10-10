@@ -39,6 +39,9 @@ type Service struct {
 	// Smart suggestions' status and feedback; nil until SetDecisions.
 	decisionsOn func(ctx context.Context, userID string) bool
 	feedback    func(userID, logID string, accepted bool) error
+	// dismissed records a smart alert set aside without its step; nil until
+	// SetDismissed.
+	dismissed func(userID, logID string) error
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -112,8 +115,36 @@ func (s *Service) MarkAllRead(userID string) error {
 	return s.repo.MarkAllRead(userID)
 }
 
+// ClearAll removes every notification. Smart alerts are hidden rather than
+// deleted, and each one cleared without its step counts as dismissed.
 func (s *Service) ClearAll(userID string) error {
+	rows, err := s.repo.DismissAlerts(userID, "")
+	if err != nil {
+		return err
+	}
+	s.alertsDismissed(userID, rows)
 	return s.repo.ClearAll(userID)
+}
+
+// Delete removes one notification; a smart alert is dismissed as in
+// ClearAll.
+func (s *Service) Delete(userID, id string) error {
+	n, err := s.repo.Get(userID, id)
+	if err != nil {
+		return err
+	}
+	if n.Category != models.NotifySuggestion {
+		return s.repo.Delete(userID, id)
+	}
+	rows, err := s.repo.DismissAlerts(userID, id)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return gorm.ErrRecordNotFound // already dismissed
+	}
+	s.alertsDismissed(userID, rows)
+	return nil
 }
 
 // PrioritizeOverdue is the server-side action for an overdue task.

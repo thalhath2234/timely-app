@@ -54,6 +54,12 @@ func TestProposalRejectsDataChangedSinceTheModelReadIt(t *testing.T) {
 	if _, ok := snapshotRead("get_doc", json.RawMessage(`{"docId":"doc_1","extra":true}`)); ok {
 		t.Fatal("reads with other arguments must not stand in for the snapshot")
 	}
+	if full, ok := snapshotRead("get_doc", json.RawMessage(`{"docId":"doc_1","full":true}`)); !ok || full != key {
+		t.Fatal("a full get_doc read is the same snapshot as a plain one")
+	}
+	if _, ok := snapshotRead("get_doc", json.RawMessage(`{"docId":"doc_1","focus":"budget"}`)); ok {
+		t.Fatal("a focused read may leave sections out")
+	}
 }
 
 func TestLocalizeTimesUsesOneZoneAndKeepsTheInstant(t *testing.T) {

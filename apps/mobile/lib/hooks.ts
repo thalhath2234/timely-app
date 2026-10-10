@@ -80,6 +80,8 @@ import {
   setTypeSafeKey,
   type DecisionSettings,
   getEstimate,
+  getCellFit,
+  type CellFitInput,
 } from "./api/decisions";
 import {
   getJobHealth,
@@ -89,6 +91,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   clearNotifications,
+  deleteNotification,
   retryJob,
   snoozeNotification,
   prioritizeOverdueTask,
@@ -1501,6 +1504,17 @@ export function useMarkAllNotificationsRead() {
   });
 }
 
+export function useDeleteNotification() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: deleteNotification,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.notifications });
+      client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
 export function useClearNotifications() {
   const client = useQueryClient();
   return useMutation({
@@ -1568,4 +1582,33 @@ export function useRetryJob() {
       client.invalidateQueries({ queryKey: keys.jobHealth });
     },
   });
+}
+
+/** One edited cell to check, with an id that is new for every edit. */
+export type CellFitEdit = { id: number; rowId: string; columnId: string; input: CellFitInput };
+
+/** A hint that the latest checked entry may not fit its column, asked once
+ * per edit a moment after it is saved. The last hint stays until a newer one
+ * replaces it; nothing is asked while Smart suggestions are off. */
+export function useCellFit(edit: CellFitEdit | null) {
+  const status = useDecisionsStatusQuery(!!edit);
+  const on = status.data?.available === true;
+  const [answer, setAnswer] = useState<{ id: number; rowId: string; columnId: string; value: string; hint: string; logId?: string }>();
+  useEffect(() => {
+    if (!on || !edit) return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      getCellFit(edit.input)
+        .then((next) => {
+          if (!stale && next.available && next.misfit && next.hint)
+            setAnswer({ id: edit.id, rowId: edit.rowId, columnId: edit.columnId, value: edit.input.value, hint: next.hint, logId: next.logId });
+        })
+        .catch(() => {});
+    }, 700);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [edit, on]);
+  return on ? answer : undefined;
 }

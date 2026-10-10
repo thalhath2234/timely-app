@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getEstimate,
+  getCellFit,
+  type CellFitInput,
   getCleanupSuggestions,
   getDocHints,
   getClarifySuggestions,
@@ -314,4 +316,32 @@ export function useSuggestedDuration(title: string, enabled: boolean) {
     };
   }, [title, on]);
   return on && answer?.title === title.trim() ? answer.minutes : undefined;
+}
+
+/** One edited cell to check, with an id that is new for every edit. */
+export type CellFitEdit = { id: number; rowId: string; columnId: string; input: CellFitInput };
+
+/** A hint that the latest checked entry may not fit its column, asked once
+ * per edit a moment after it is saved. The last hint stays until a newer one
+ * replaces it; nothing is asked while suggestions are off. */
+export function useCellFit(edit: CellFitEdit | null) {
+  const on = useSmartOn();
+  const [answer, setAnswer] = useState<{ id: number; rowId: string; columnId: string; value: string; hint: string; logId?: string }>();
+  useEffect(() => {
+    if (!on || !edit) return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      getCellFit(edit.input)
+        .then((next) => {
+          if (!stale && next.available && next.misfit && next.hint)
+            setAnswer({ id: edit.id, rowId: edit.rowId, columnId: edit.columnId, value: edit.input.value, hint: next.hint, logId: next.logId });
+        })
+        .catch(() => {});
+    }, 700);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [edit, on]);
+  return on ? answer : undefined;
 }

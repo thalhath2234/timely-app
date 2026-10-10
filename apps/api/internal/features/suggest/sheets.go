@@ -29,6 +29,7 @@ const (
 func (s *Service) sheetRoutes(g *echo.Group) {
 	g.GET("/suggestions/sheet-template", s.sheetTemplate)
 	g.POST("/suggestions/column-types", s.columnTypes)
+	g.POST("/suggestions/cell-fit", s.cellFit)
 }
 
 // TemplateSuggestion names the saved template a new sheet probably wants.

@@ -107,6 +107,22 @@ export const getColumnTypeSuggestions = (
   request<ColumnTypeSuggestions>("/suggestions/column-types", "POST", {
     columns,
   });
+/** Whether a new entry in a text or select column fits that column. */
+export type CellFit = {
+  available: boolean;
+  logId?: string;
+  misfit: boolean;
+  hint?: string;
+};
+export type CellFitInput = {
+  column: string;
+  type: string;
+  value: string;
+  values: string[];
+  options?: string[];
+};
+export const getCellFit = (input: CellFitInput) =>
+  request<CellFit>("/suggestions/cell-fit", "POST", input);
 export const getClarifySuggestions = (inboxId: string) =>
   request<ClarifySuggestions>(
     `/inbox/${encodeURIComponent(inboxId)}/suggestions?timezone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`,

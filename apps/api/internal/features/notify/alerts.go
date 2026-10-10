@@ -67,8 +67,9 @@ type Alert struct {
 }
 
 // Alerter returns today's smart alerts for a person; Work in skip was alerted
-// about in the last week and is left out. Smart suggestions supply it.
-type Alerter func(ctx context.Context, userID string, now time.Time, skip map[string]bool) []Alert
+// about in the last week and is left out, and so is every kind of alert in
+// muted (see mutedAlertKinds). Smart suggestions supply it.
+type Alerter func(ctx context.Context, userID string, now time.Time, skip, muted map[string]bool) []Alert
 
 // SetAlerts connects smart suggestions to the daily smart alerts.
 func (s *Service) SetAlerts(fn Alerter) { s.alerts = fn }
@@ -78,6 +79,11 @@ func (s *Service) SetAlerts(fn Alerter) { s.alerts = fn }
 func (s *Service) SetDecisions(available func(ctx context.Context, userID string) bool, feedback func(userID, logID string, accepted bool) error) {
 	s.decisionsOn, s.feedback = available, feedback
 }
+
+// SetDismissed records a smart alert the person dismissed or cleared
+// without taking its step, as a suggestion not kept. It should leave an
+// answered decision as it is, since one decision can back several alerts.
+func (s *Service) SetDismissed(fn func(userID, logID string) error) { s.dismissed = fn }
 
 // smartOn is false when smart suggestions are off for the account; with no
 // status wired, it is left to the Alerter and Briefer.
@@ -89,6 +95,13 @@ const (
 	maxAlertsPerDay = 3
 	alertQuietDays  = 7
 	alertBudget     = 20 * time.Second
+
+	// A kind of alert dismissed this many times in this many days, and never
+	// acted on, is left out until the count drops.
+	alertMuteDismissals = 3
+	alertMuteDays       = 14
+	// Dismissed alerts are kept this long to count.
+	dismissedKeepDays = 30
 )
 
 // sweepSmartAlerts queues one smart alerts job a day, from the morning
@@ -135,10 +148,18 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 	if err != nil {
 		return err
 	}
+	if err := s.repo.PruneDismissed(job.UserID, time.Now().AddDate(0, 0, -dismissedKeepDays)); err != nil {
+		return err
+	}
+	outcomes, err := s.repo.AlertOutcomes(job.UserID)
+	if err != nil {
+		return err
+	}
+	muted := mutedAlertKinds(outcomes, time.Now())
 	ctx, cancel := context.WithTimeout(ctx, alertBudget)
 	defer cancel()
 	now := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(job.UserID)))
-	alerts := s.alerts(ctx, job.UserID, now, skip)
+	alerts := s.alerts(ctx, job.UserID, now, skip, muted)
 	day := job.Payload.String("date")
 	// A retried job counts what it already sent today against the cap.
 	sent, err := s.repo.CountByDedupePrefix(job.UserID, "suggestion:"+job.UserID+":"+day+":")
@@ -266,12 +287,60 @@ func (s *Service) applyAlert(userID string, n *models.Notification, action strin
 	if _, err := s.repo.MarkRead(userID, n.ID); err != nil {
 		return "", err
 	}
+	if err := s.repo.MarkActed(n.ID, action); err != nil {
+		log.Printf("notify: mark smart alert acted: %v", err)
+	}
 	if logID := n.Data.String("logId"); logID != "" && s.feedback != nil {
 		if err := s.feedback(userID, logID, true); err != nil {
 			log.Printf("notify: smart alert feedback: %v", err)
 		}
 	}
 	return message, nil
+}
+
+// alertsDismissed records each newly dismissed smart alert the person never
+// took a step on as a suggestion not kept, once per decision: alerts sent
+// together share one decision, and a kept answer is left as it is.
+func (s *Service) alertsDismissed(userID string, rows []models.Notification) {
+	if s.dismissed == nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, n := range rows {
+		logID := n.Data.String("logId")
+		if logID == "" || seen[logID] || n.Data.String("acted") != "" {
+			continue
+		}
+		seen[logID] = true
+		if err := s.dismissed(userID, logID); err != nil {
+			log.Printf("notify: smart alert dismissed feedback: %v", err)
+		}
+	}
+}
+
+// mutedAlertKinds counts, in code, the kinds of smart alert (due, unblocked,
+// project, inbox, stale) the person dismissed at least three times in the
+// last 14 days without ever taking a step on one of that kind. The alerts
+// job leaves those kinds out; once fewer than three dismissals fall in the
+// window they come back.
+func mutedAlertKinds(rows []alertOutcome, now time.Time) map[string]bool {
+	since := now.AddDate(0, 0, -alertMuteDays)
+	dismissed := map[string]int{}
+	acted := map[string]bool{}
+	for _, r := range rows {
+		if r.Acted {
+			acted[r.Kind] = true
+		} else if r.DismissedAt != nil && !r.DismissedAt.Before(since) {
+			dismissed[r.Kind]++
+		}
+	}
+	out := map[string]bool{}
+	for kind, n := range dismissed {
+		if n >= alertMuteDismissals && !acted[kind] {
+			out[kind] = true
+		}
+	}
+	return out
 }
 
 func alertTaskIDs(n *models.Notification) []string {

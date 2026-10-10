@@ -145,11 +145,13 @@ func main() {
 		on, _ := decisions.Status(ctx, userID)
 		return on
 	}, decisions.Feedback)
+	notifyService.SetDismissed(decisions.Dismissed)
 	workEstimate = suggestions.Estimate
 	smartSearch := search.NewSmart(searchService, indexer, decisions)
 	smartSearch.SetViews(search.ViewsFromDB(db))
 	searchRerank = smartSearch.Rerank
 	taskPick = smartSearch.Pick
+	docDecisions = decisions
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -167,6 +169,7 @@ func main() {
 		Estimate:   suggestions.Estimate,
 		Rerank:     smartSearch.Rerank,
 		Pick:       smartSearch.Pick,
+		Decisions:  decisions,
 		DecisionsOn: func(ctx context.Context, userID string) bool {
 			on, _ := decisions.Status(ctx, userID)
 			return on

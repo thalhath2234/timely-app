@@ -55,6 +55,9 @@ type Deps struct {
 	// DecisionsOn reports whether an account has smart suggestions; the MCP
 	// instructions point at pick_tasks only then. nil never does.
 	DecisionsOn func(ctx context.Context, userID string) bool
+	// Decisions lets get_doc with a focus show only the sections of a long
+	// doc Jev marks relevant (docpassages.go); nil returns docs whole.
+	Decisions Decider
 }
 
 type Server struct {
@@ -237,7 +240,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "clear_task_blocks", Description: "Remove all blocks from a task."}, writes.reviewed(), s.clearTaskBlocks)
 
 	registerTool(s, server, &mcp.Tool{Name: "list_docs", Description: "List active documents by default. archived=true lists the archive; archived=false is the default."}, reads, s.listDocs)
-	registerTool(s, server, &mcp.Tool{Name: "get_doc", Description: "Get a document as markdown (GFM plus math, callouts, footnotes, frontmatter, [[wiki links]] and mermaid/geojson/stl blocks). Big stl/geojson/topojson blocks and very long code show as a [kept ...] placeholder line with a short summary; keep that line to keep the block."}, reads, s.getDoc)
+	registerTool(s, server, &mcp.Tool{Name: "get_doc", Description: "Get a document as markdown (GFM plus math, callouts, footnotes, frontmatter, [[wiki links]] and mermaid/geojson/stl blocks). Big stl/geojson/topojson blocks and very long code show as a [kept ...] placeholder line with a short summary; keep that line to keep the block. Pass focus (what you are looking for, in a few words from the request) to read a long doc: only its sections about that come back in full, the others as one [section kept out ...] line each. Writing such a line back keeps that section unchanged; call again with full=true to read the whole doc, and do that before rewriting or reorganizing all of it."}, reads, s.getDoc)
 	registerTool(s, server, &mcp.Tool{Name: "create_doc", Description: "Create a document from markdown. Supports GFM, $math$, > [!NOTE] callouts, [^1] footnotes, --- frontmatter, [[wiki links]], and mermaid/geojson/topojson/stl fences that render."}, writes, s.createDoc)
 	registerTool(s, server, &mcp.Tool{Name: "update_doc", Description: "Update a document (replace markdown, title, parent, archived, …)."}, writes.reviewedWhen(hasAny("markdown")), s.updateDoc)
 	registerTool(s, server, &mcp.Tool{Name: "append_to_doc", Description: "Append markdown to a document (same syntax as create_doc)."}, writes, s.appendToDoc)
@@ -369,6 +372,19 @@ func md(src string) (models.JSONMap, string) {
 // docMarkdown parses a doc's new Markdown, putting back the big blocks that
 // get_doc showed as [kept ...] placeholders.
 func (s *Server) docMarkdown(uid, src string) (models.JSONMap, string, error) {
+	// Sections a focused get_doc left out come back first; their big blocks
+	// are still [kept ...] lines, restored below.
+	src, err := restoreSections(src, func(docID string) (string, error) {
+		d, err := s.Docs.GetByID(uid, docID)
+		if err != nil {
+			return "", err
+		}
+		content, _ := shortenBlocks(d.ID, d.Content)
+		return richtext.ToMarkdown(content), nil
+	})
+	if err != nil {
+		return nil, "", err
+	}
 	rich, plain := md(src)
 	restored, err := restoreBlocks(rich, func(docID string) (models.JSONMap, error) {
 		d, err := s.Docs.GetByID(uid, docID)

@@ -103,6 +103,7 @@ function DocEditor({ docId }: { docId: string }) {
 
   const [findOpen, setFindOpen] = useState(false);
   const [pdfRequest, setPdfRequest] = useState<{ title: string } | null>(null);
+  const [propertyRequest, setPropertyRequest] = useState<{ key: string; value: string } | null>(null);
 
   function openAfterMore(next: Menu) {
     setNextMenu(next);
@@ -214,7 +215,11 @@ function DocEditor({ docId }: { docId: string }) {
         ) : null}
       </View>
       <RelatedList kind="doc" id={docId} variant="chips" />
-      <DocHintsCard doc={doc} version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))} />
+      <DocHintsCard
+        doc={doc}
+        version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
+        onSetProperty={(key, value) => setPropertyRequest({ key, value })}
+      />
 
       <RichTextEditor
         content={
@@ -225,6 +230,8 @@ function DocEditor({ docId }: { docId: string }) {
         onSelectionChange={setSelectedText}
         findOpen={findOpen}
         pdfRequest={pdfRequest}
+        propertyRequest={propertyRequest}
+        linkDocId={docId}
         onFindClose={() => setFindOpen(false)}
         onFocusChange={(focused) => {
           editorFocusedRef.current = focused;

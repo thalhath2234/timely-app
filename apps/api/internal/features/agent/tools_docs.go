@@ -50,11 +50,13 @@ func (s *Server) listDocs(ctx context.Context, req *mcp.CallToolRequest, in list
 	return reply(fmt.Sprintf("%d docs", len(docs)), map[string]any{"docs": docs})
 }
 
-type docIDIn struct {
+type getDocIn struct {
 	DocID string `json:"docId"`
+	Focus string `json:"focus,omitempty" jsonschema:"what you are looking for in the doc, in a few words; a long doc then shows only the sections about it"`
+	Full  bool   `json:"full,omitempty" jsonschema:"true returns the whole doc even with a focus"`
 }
 
-func (s *Server) getDoc(ctx context.Context, req *mcp.CallToolRequest, in docIDIn) (*mcp.CallToolResult, any, error) {
+func (s *Server) getDoc(ctx context.Context, req *mcp.CallToolRequest, in getDocIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
@@ -63,7 +65,17 @@ func (s *Server) getDoc(ctx context.Context, req *mcp.CallToolRequest, in docIDI
 	if err != nil {
 		return fail(err)
 	}
-	return reply(d.Title, docPayload(d))
+	payload := docPayload(d)
+	if !in.Full && in.Focus != "" {
+		markdown, _ := payload["markdown"].(string)
+		if trimmed, hidden, total, ok := focusPassages(ctx, s.Decisions, uid, d.ID, d.Title, in.Focus, markdown); ok {
+			payload["markdown"] = trimmed
+			// The search copy holds every section in full.
+			delete(payload, "plainText")
+			payload["sectionsKeptOut"] = fmt.Sprintf("%d of %d sections are not about %q and show as a [section kept out ...] line. Call get_doc with full=true to read them. Writing such a line back keeps that section unchanged; deleting it removes the section", hidden, total, clipRunes(in.Focus, 80))
+		}
+	}
+	return reply(d.Title, payload)
 }
 
 type createDocIn struct {

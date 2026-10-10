@@ -99,6 +99,19 @@ func (h *Handler) ClearAll(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
+// Delete removes one notification. A smart alert removed without its step
+// counts as dismissed.
+func (h *Handler) Delete(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	if err := h.service.Delete(uid, c.Param("id")); err != nil {
+		return notifyError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
 func requireJSONIfCookie(c *echo.Context) error {
 	header := c.Request().Header.Get("Authorization")
 	if len(header) >= 8 && header[:7] == "Bearer " {

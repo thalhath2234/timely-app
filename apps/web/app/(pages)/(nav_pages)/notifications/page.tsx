@@ -1,12 +1,13 @@
 "use client";
 
-import { Bell, Sparkles } from "lucide-react";
+import { Bell, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import {
   useClearNotifications,
+  useDeleteNotification,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotifications,
@@ -116,6 +117,7 @@ export default function NotificationsPage() {
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const clearAll = useClearNotifications();
+  const remove = useDeleteNotification();
   const snooze = useSnoozeNotification();
   const openTask = useEntityDetailStore((state) => state.openTask);
   const items = list.data ?? [];
@@ -201,15 +203,31 @@ export default function NotificationsPage() {
                         {item.category} · {new Date(item.createdAt).toLocaleString()}
                       </p>
                     </button>
-                    {unread ? (
+                    <div className="flex shrink-0 items-center gap-2">
+                      {unread ? (
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => void markRead.mutateAsync(item.id)}
+                        >
+                          Mark read
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
-                        onClick={() => void markRead.mutateAsync(item.id)}
+                        aria-label="Dismiss"
+                        title="Dismiss"
+                        disabled={remove.isPending}
+                        className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                        onClick={() =>
+                          void remove.mutateAsync(item.id).catch((error) => {
+                            useToastStore.getState().show(error instanceof Error ? error.message : "Could not dismiss that");
+                          })
+                        }
                       >
-                        Mark read
+                        <X className="size-3.5" />
                       </button>
-                    ) : null}
+                    </div>
                   </div>
                   {item.category === "reminder" ? (
                     <div className="mt-2 flex flex-wrap gap-2">

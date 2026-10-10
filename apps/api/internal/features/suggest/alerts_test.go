@@ -33,6 +33,17 @@ func TestCandidateListDropsCoveredWork(t *testing.T) {
 	}
 }
 
+// A kind the person keeps dismissing makes no candidates.
+func TestCandidateListLeavesMutedKindsOut(t *testing.T) {
+	l := candidateList{muted: map[string]bool{"stale": true}, covered: map[string]bool{}}
+	if l.add(alertCandidate{key: "stale:a", kind: "stale", items: []notify.AlertItem{{ID: "a"}}}) {
+		t.Fatal("muted kind kept")
+	}
+	if !l.add(alertCandidate{key: "due:a", kind: "due", items: []notify.AlertItem{{ID: "a"}}}) {
+		t.Fatal("a muted kind kept other kinds out")
+	}
+}
+
 func TestDueByLeavesNearDeadlinesOutOfStale(t *testing.T) {
 	day := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
 	last := day.AddDate(0, 0, dueSoonDays)

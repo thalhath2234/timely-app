@@ -20,6 +20,12 @@ export function markAllNotificationsRead() {
   return api<{ ok: boolean }>("/notifications/read-all", { method: "POST" });
 }
 
+/** Removes one notification; a smart alert removed without its step counts
+ * as dismissed on the server. */
+export function deleteNotification(id: string) {
+  return api<{ ok: boolean }>(`/notifications/${id}`, { method: "DELETE" });
+}
+
 export function clearNotifications() {
   return api<{ ok: boolean }>("/notifications/clear", { method: "POST", body: {} });
 }

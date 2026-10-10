@@ -150,7 +150,11 @@ func TestIntegrationTriageOffOrUnsureChangesNothing(t *testing.T) {
 		if err := s.plan(context.Background(), &c); err != nil {
 			t.Fatal(err)
 		}
-		if len(model.tools[0]) != 5 { // four read tools and propose_changes
+		offered := len(model.tools[0])
+		if has(model.tools[0], targetTool) {
+			offered-- // offered whenever Jev has keys, sure or not
+		}
+		if offered != 5 { // four read tools and propose_changes
 			t.Fatalf("%s: every tool must be offered: %v", name, model.tools[0])
 		}
 		for _, m := range model.seen[0] {

@@ -49,7 +49,7 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 		return nil
 	})
 	var skipped []map[string]bool
-	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip map[string]bool) []Alert {
+	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip, _ map[string]bool) []Alert {
 		skipped = append(skipped, skip)
 		return []Alert{
 			{Key: "project:pr_1", Kind: "project", ProjectID: "pr_1", Title: "Project “Kitchen” is due in 2 days", Body: "It is due in 2 days.", Action: AlertReview,
@@ -92,7 +92,7 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 	}
 
 	// A retried job never goes past three alerts for the day.
-	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool) []Alert {
+	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool, map[string]bool) []Alert {
 		return []Alert{{Key: "stale:new", Kind: "stale", Title: "New", Action: AlertReview, Items: []AlertItem{{ID: "tsk_new", Name: "New"}}}}
 	})
 	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil {
@@ -143,7 +143,7 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 	if err := db.Model(&models.Config{}).Where("user_id = ?", user).Update("notification_settings", models.NotificationSettings{Reminders: true, SmartAlerts: &off}).Error; err != nil {
 		t.Fatal(err)
 	}
-	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip map[string]bool) []Alert {
+	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip, _ map[string]bool) []Alert {
 		skipped = append(skipped, skip)
 		return nil
 	})

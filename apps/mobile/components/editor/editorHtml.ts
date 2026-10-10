@@ -1,5 +1,6 @@
 import type { DocContent } from "../../lib/types";
 import { EMBED_PATTERNS } from "@timely/contract/markdown";
+import { DOC_EDITOR_HELPERS_JS } from "../../lib/docEditorJev";
 
 const BLANK: DocContent = { type: "doc", content: [{ type: "paragraph" }] };
 
@@ -1571,6 +1572,8 @@ export function buildEditorHtml(
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(payload));
     }
 
+    ${DOC_EDITOR_HELPERS_JS}
+
     function inTable() {
       return editor.isActive("table") || editor.isActive("tableCell") || editor.isActive("tableHeader");
     }
@@ -1917,6 +1920,53 @@ export function buildEditorHtml(
         }
         if (name === "blockAction") {
           blockAction(payload && payload.action);
+          requestAnimationFrame(scrollCaret);
+          return;
+        }
+        // Sets one doc property from a suggestion without moving the caret
+        // or opening the keyboard.
+        if (name === "setProperty") {
+          const key = String((payload && payload.key) || "").trim();
+          if (!key) return;
+          const value = String((payload && payload.value) || "");
+          const { state } = editor;
+          const first = state.doc.firstChild;
+          const tr = state.tr;
+          if (first && first.type.name === "frontmatter") {
+            tr.replaceWith(1, 1 + first.content.size, state.schema.text(propertyText(first.textContent, key, value)));
+          } else {
+            tr.insert(0, state.schema.nodes.frontmatter.create(null, state.schema.text(propertyText("", key, value))));
+          }
+          editor.view.dispatch(tr);
+          return;
+        }
+        // "Link to an item": report the selected phrase, then swap it for
+        // the picked mention if the text is still the same.
+        if (name === "linkSelection") {
+          const { from, to, $from, $to } = editor.state.selection;
+          const text = editor.state.doc.textBetween(from, to, " ");
+          const ok = Boolean(text.trim()) && $from.sameParent($to) && $from.parent.inlineContent && !$from.parent.type.spec.code;
+          send({ type: "linkSelection", from, to, text, ok });
+          return;
+        }
+        if (name === "linkMention") {
+          const from = Number(payload && payload.from);
+          const to = Number(payload && payload.to);
+          const doc = editor.state.doc;
+          const size = doc.content.size;
+          if (!payload || !payload.attrs || !Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to > size || from >= to || doc.textBetween(from, to, " ") !== payload.text) {
+            send({ type: "linkStale" });
+            return;
+          }
+          const next = to < size ? doc.textBetween(to, Math.min(to + 1, size), " ") : "";
+          editor
+            .chain()
+            .focus()
+            .insertContentAt({ from, to }, [
+              { type: "mention", attrs: payload.attrs },
+              ...(mentionSpaceAfter(next) ? [{ type: "text", text: " " }] : []),
+            ])
+            .run();
           requestAnimationFrame(scrollCaret);
           return;
         }

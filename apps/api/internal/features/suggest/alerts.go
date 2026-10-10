@@ -73,12 +73,13 @@ var actionPhrasePlural = map[string]string{
 	notify.AlertReschedule: "find time for them",
 }
 
-// Alerts returns today's smart alerts, most worth it first.
-func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip map[string]bool) []notify.Alert {
+// Alerts returns today's smart alerts, most worth it first. Kinds in muted
+// are ones the person keeps dismissing, and are left out.
+func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip, muted map[string]bool) []notify.Alert {
 	if on, _ := s.decide.Status(ctx, userID); !on {
 		return nil
 	}
-	cands := s.alertCandidates(ctx, userID, now, skip)
+	cands := s.alertCandidates(ctx, userID, now, skip, muted)
 	if len(cands) == 0 {
 		return nil
 	}
@@ -217,11 +218,11 @@ func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip
 }
 
 // alertCandidates finds what could deserve an alert, in code. Work alerted
-// about in the last week (skip) is left out.
-func (s *Service) alertCandidates(ctx context.Context, userID string, now time.Time, skip map[string]bool) []alertCandidate {
+// about in the last week (skip) and muted kinds are left out.
+func (s *Service) alertCandidates(ctx context.Context, userID string, now time.Time, skip, muted map[string]bool) []alertCandidate {
 	// Each kind has its own quota, counted after Work alerted about this
 	// week is dropped, so that Work never keeps the next candidates out.
-	list := candidateList{skip: skip, covered: map[string]bool{}}
+	list := candidateList{skip: skip, muted: muted, covered: map[string]bool{}}
 	add := list.add
 	// Queries read a few more rows than a kind's quota, to make up for skips.
 	extra := min(len(skip), 10)
@@ -351,11 +352,12 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 type candidateList struct {
 	out     []alertCandidate
 	skip    map[string]bool
+	muted   map[string]bool // kinds the person keeps dismissing
 	covered map[string]bool
 }
 
 func (l *candidateList) add(c alertCandidate) bool {
-	if len(l.out) >= maxAlertCandidates || len(c.items) == 0 {
+	if len(l.out) >= maxAlertCandidates || len(c.items) == 0 || l.muted[c.kind] {
 		return false
 	}
 	// A project alert is about the project's own deadline, so it stays even

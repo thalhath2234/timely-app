@@ -11,10 +11,20 @@ import type { Doc } from "../../lib/types";
 type Row = { key: string; text: string; label?: string; run?: () => void };
 
 /** Smart suggestions for a doc on the phone: the project or page it may
- * belong under, lines that read like tasks, and whether it looks out of date.
- * Type, property and template hints stay on the desktop editor. Renders
- * nothing while suggestions are off. */
-export default function DocHintsCard({ doc, version }: { doc: Doc; version: string }) {
+ * belong under, its type and property values (set in the doc's Properties
+ * block, as on the web), lines that read like tasks, and whether it looks out
+ * of date. Template hints stay on the desktop editor. Renders nothing while
+ * suggestions are off. */
+export default function DocHintsCard({
+  doc,
+  version,
+  onSetProperty,
+}: {
+  doc: Doc;
+  version: string;
+  /** Sets one property in the open editor; type and property rows need it. */
+  onSetProperty?: (key: string, value: string) => void;
+}) {
   const { data } = useDocHintsQuery(doc.id, version, !doc.isTemplate && !doc.archivedAt);
   const updateDoc = useUpdateDoc();
   const createTask = useCreateTask();
@@ -47,6 +57,20 @@ export default function DocHintsCard({ doc, version }: { doc: Doc; version: stri
         showUndoToast(`Moved under ${parent.title}`, () => updateDoc.mutate({ id: doc.id, data: { parentId: null } }));
       },
     });
+  }
+  if (onSetProperty && data.docType) {
+    const docType = data.docType;
+    rows.push({ key: "type", text: `Reads like a ${docType}.`, label: "Set type", run: () => onSetProperty("type", docType) });
+  }
+  if (onSetProperty) {
+    for (const p of data.properties ?? []) {
+      rows.push({
+        key: `prop:${p.key}`,
+        text: `Set ${p.key} to “${p.value}”, as in your other docs?`,
+        label: "Set",
+        run: () => onSetProperty(p.key, p.value),
+      });
+    }
   }
   for (const line of data.work ?? []) {
     rows.push({

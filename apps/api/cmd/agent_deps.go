@@ -35,6 +35,10 @@ var searchRerank func(ctx context.Context, userID, query string, hits []search.H
 // description; nil leaves pick_tasks returning an unchecked shortlist.
 var taskPick func(ctx context.Context, userID, description string, hits []search.Hit) (matches, unsure []search.Hit, left int, ok bool)
 
+// docDecisions lets a focused get_doc show only the relevant sections of a
+// long doc; nil returns docs whole. Set in main once Jev is wired.
+var docDecisions agent.Decider
+
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
 // creds supplies each account's own embedding key, as for the REST indexer;
@@ -65,9 +69,10 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		// Notifications, snooze and mark-read run in the same transaction too.
 		Notify: notify.NewService(db, jobs.NewQueue(db), calendarService, taskService, scheduleService, indexer),
 		Docs:   doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer),
-		Search:   search.NewService(db, indexer),
-		Estimate: workEstimate,
-		Rerank:   searchRerank,
-		Pick:     taskPick,
+		Search:    search.NewService(db, indexer),
+		Estimate:  workEstimate,
+		Rerank:    searchRerank,
+		Pick:      taskPick,
+		Decisions: docDecisions,
 	})
 }

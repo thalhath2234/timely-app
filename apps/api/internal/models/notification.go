@@ -117,7 +117,10 @@ type Notification struct {
 	ReadAt       *time.Time `json:"readAt,omitempty"`
 	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
 	DeliveredAt  *time.Time `json:"deliveredAt,omitempty"`
-	CreatedAt    time.Time  `gorm:"type:timestamptz;not null" json:"createdAt"`
+	// DismissedAt hides a smart alert the person dismissed or cleared; the
+	// row stays so the alerts job can learn from it.
+	DismissedAt *time.Time `json:"dismissedAt,omitempty"`
+	CreatedAt   time.Time  `gorm:"type:timestamptz;not null" json:"createdAt"`
 }
 
 func (Notification) TableName() string { return "notifications" }

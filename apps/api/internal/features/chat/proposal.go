@@ -79,7 +79,15 @@ func snapshotRead(tool string, args json.RawMessage) (string, bool) {
 		return "", false
 	}
 	var input map[string]any
-	if json.Unmarshal(args, &input) != nil || len(input) != 1 {
+	if json.Unmarshal(args, &input) != nil {
+		return "", false
+	}
+	// get_doc with full=true returns the whole doc, the same as a plain read;
+	// a focused read may leave sections out, so it is not a snapshot.
+	if tool == "get_doc" && input["full"] == true && input["focus"] == nil {
+		delete(input, "full")
+	}
+	if len(input) != 1 {
 		return "", false
 	}
 	value, _ := input[field].(string)

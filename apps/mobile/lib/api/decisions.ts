@@ -82,6 +82,11 @@ export const getSheetTemplateSuggestion = (title: string) =>
   api<SheetTemplateSuggestion>(`/suggestions/sheet-template?title=${encodeURIComponent(title)}`);
 export const getColumnTypeSuggestions = (columns: { name: string; values: string[] }[]) =>
   api<ColumnTypeSuggestions>("/suggestions/column-types", { method: "POST", body: { columns } });
+/** Whether a new entry in a text or select column fits that column. */
+export type CellFit = { available: boolean; logId?: string; misfit: boolean; hint?: string };
+export type CellFitInput = { column: string; type: string; value: string; values: string[]; options?: string[] };
+export const getCellFit = (input: CellFitInput) =>
+  api<CellFit>("/suggestions/cell-fit", { method: "POST", body: input });
 /** What each line of a plain-text import is, "paragraph" when unsure. */
 export const getImportFormat = (lines: string[]) =>
   api<ImportFormat>("/suggestions/import-format", { method: "POST", body: { lines } });
@@ -178,8 +183,8 @@ export const mergeTaxonomy = (workspaceId: string, merge: CleanupMerge) => {
   });
 };
 
-/** Suggestions for one doc. The phone shows where it belongs, lines that read
- * like tasks and whether it looks out of date. */
+/** Suggestions for one doc. The phone shows where it belongs, its type and
+ * property values, lines that read like tasks and whether it looks out of date. */
 export type DocHints = {
   available: boolean;
   logId?: string;
@@ -192,6 +197,13 @@ export type DocHints = {
   outdated?: boolean;
 };
 export const getDocHints = (id: string) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`);
+
+export type MentionTarget = { kind: "task" | "project" | "doc" | "sheet"; id: string; title: string };
+/** What a selected phrase may refer to: Jev's match when sure, and up to six
+ * close items to pick from. Empty while suggestions are off. */
+export type MentionMatch = { available: boolean; logId?: string; match?: MentionTarget; options: MentionTarget[] };
+export const matchMention = (text: string, docId?: string) =>
+  api<MentionMatch>("/suggestions/mention", { method: "POST", body: { text, docId } });
 
 /** Today: open Work worth focusing on, the best Work for the next free gap,
  * and how the top open Work lines up with the person's goals. */
