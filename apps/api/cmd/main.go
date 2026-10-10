@@ -139,6 +139,8 @@ func main() {
 	suggestions := suggest.New(db, decisions, searchService)
 	suggestions.SetSchedule(scheduleService)
 	notifyService.SetTriage(suggestions.Triage)
+	notifyService.SetAlerts(suggestions.Alerts)
+	notifyService.SetBriefing(suggestions.Brief)
 	workEstimate = suggestions.Estimate
 	smartSearch := search.NewSmart(searchService, indexer, decisions)
 	searchRerank = smartSearch.Rerank

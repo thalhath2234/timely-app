@@ -20,6 +20,7 @@ const {
   defaultDashboard,
   defaultQuery,
   fitQuery,
+  highlightFacts,
   initialPomodoro,
   normalizeDashboard,
   pomodoroLength,
@@ -258,6 +259,39 @@ describe("built-in helpers", () => {
       matrix.quick.map((t) => t.id),
       ["b"],
     );
+  });
+
+  test("highlight facts count the week, deadlines and the Inbox", () => {
+    const facts = highlightFacts(
+      {
+        tasks: [
+          task("late", { deadline: "2026-10-01" }),
+          task("soon", { deadline: "2026-10-09" }),
+          task("someday"),
+          task("tue", { completedAt: "2026-10-06T12:00:00Z" }),
+          task("wed1", { completedAt: "2026-10-07T09:00:00Z" }),
+          task("wed2", { completedAt: "2026-10-07T15:00:00Z" }),
+          task("thu", { completedAt: "2026-10-08T08:00:00Z" }),
+          task("lastwed", { completedAt: "2026-09-30T12:00:00Z" }),
+          task("note", { kind: "inbox" }),
+        ],
+        inbox: [task("old", { kind: "inbox", createdAt: "2026-10-01T09:00:00Z" }), task("new", { kind: "inbox", createdAt: "2026-10-07T09:00:00Z" })],
+      },
+      ctx,
+    );
+    assert.deepEqual(
+      Object.fromEntries(facts.map((fact) => [fact.id, fact.text])),
+      {
+        done_week: "Finished 4 tasks in the last 7 days, up from 1 the 7 days before.",
+        streak: "Current streak: 3 days in a row with something finished (best: 3).",
+        overdue: "1 open task is past the deadline, the oldest by 7 days.",
+        due_week: "1 open task is due in the next 7 days.",
+        open: "3 open tasks in all; 1 without a deadline.",
+        busiest_day: "Over the last 4 weeks you finished the most on Wednesdays (3 of 5 tasks).",
+        inbox: "2 items in the Inbox; 1 waiting 3 days or more.",
+      },
+    );
+    assert.deepEqual(highlightFacts({}, ctx).map((fact) => fact.id), ["done_week"]);
   });
 
   test("time progress reads the working day", () => {

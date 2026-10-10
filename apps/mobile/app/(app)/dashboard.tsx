@@ -19,6 +19,7 @@ import {
   PieChart,
   Plus,
   RotateCcw,
+  Sparkles,
   Sun,
   Timer,
   Trash2,
@@ -45,6 +46,7 @@ import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import { SectionLabel } from "../../components/ui/primitives";
 import CustomCardView from "../../components/report/customCardView";
 import PomodoroCard from "../../components/report/pomodoroCard";
+import HighlightsCard from "../../components/report/highlightsCard";
 import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "../../components/report/builtinCards";
 import { useDashboardData, useDashboardLayout, useNow } from "../../lib/dashboard";
 import { forgetPomodoro } from "../../lib/pomodoroStore";
@@ -63,6 +65,7 @@ const BUILTIN_ICON: Record<BuiltinCardType, typeof Timer> = {
   dayProgress: Hourglass,
   matrix: Grid2x2,
   countdown: CalendarCheck,
+  highlights: Sparkles,
 };
 
 const DISPLAY_ICON: Record<CardDisplay, typeof Hash> = {
@@ -178,6 +181,8 @@ export default function DashboardScreen() {
         return (
           <MatrixCard tasks={tasks} timeZone={timeZone} urgentDays={typeof settings.urgentDays === "number" ? settings.urgentDays : 3} onOpenTask={openTask} />
         );
+      case "highlights":
+        return <HighlightsCard data={data} now={now} timeZone={timeZone} loading={loading} onOpenTask={openTask} />;
       case "countdown":
         return (
           <CountdownCard

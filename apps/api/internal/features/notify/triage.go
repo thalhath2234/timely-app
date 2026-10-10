@@ -96,6 +96,9 @@ func (s *Service) ApplyTriage(userID, notificationID, action string) (string, er
 	if err != nil {
 		return "", err
 	}
+	if n.Category == models.NotifySuggestion {
+		return s.applyAlert(userID, n, action)
+	}
 	if n.Category != models.NotifyOverdue && n.Category != models.NotifyMissed {
 		return "", errors.New("this notification has no next step")
 	}

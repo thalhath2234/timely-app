@@ -17,7 +17,7 @@ import { motion } from "motion/react";
 import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { useNotificationTriage } from "@/app/utils/hooks/decisions";
-import type { TriageStep } from "@/app/utils/api/decisions";
+import type { AlertStep, TriageStep } from "@/app/utils/api/decisions";
 import { useToastStore } from "@/app/_store/toastStore";
 
 type NotificationTarget =
@@ -48,6 +48,11 @@ function targetFor(item: AppNotification): NotificationTarget {
   if (fileId) return { kind: "route", href: fileHref(fileId) };
   if (dataString(item, "eventId")) return { kind: "route", href: "/calendar" };
   if (item.category === "digest") return { kind: "route", href: "/dashboard" };
+  if (item.category === "suggestion" && dataString(item, "kind") === "inbox") return { kind: "route", href: "/inbox" };
+  if (item.category === "suggestion") {
+    const first = alertItems(item)[0];
+    if (first) return { kind: "task", id: first.id };
+  }
   return { kind: "route", href: "/today" };
 }
 
@@ -65,6 +70,28 @@ const TRIAGE_STEPS: Record<string, { step: TriageStep; label: string }[]> = {
     { step: "lower", label: "Lower priority" },
   ],
 };
+
+/** A smart alert's button: what the suggested step is called. */
+const ALERT_STEP_LABEL: Record<AlertStep, string> = {
+  review: "Review",
+  clarify: "Clarify",
+  focus: "Add to Focus",
+  reschedule: "Find time",
+};
+
+function alertItems(item: AppNotification): { id: string; name: string }[] {
+  const raw = item.data?.items;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (entry): entry is { id: string; name: string } =>
+      Boolean(entry) && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string" && typeof (entry as { name?: unknown }).name === "string",
+  );
+}
+
+function alertStep(item: AppNotification): AlertStep | null {
+  const step = dataString(item, "action");
+  return step && step in ALERT_STEP_LABEL ? (step as AlertStep) : null;
+}
 
 function tomorrowNine() {
   const next = new Date();
@@ -199,6 +226,25 @@ export default function NotificationsPage() {
                       </button>
                     </div>
                   ) : null}
+                  {item.category === "suggestion" ? (
+                    <SmartAlert
+                      item={item}
+                      unread={unread}
+                      pending={triage.isPending}
+                      onOpenTask={openTask}
+                      onRoute={(href) => router.push(href)}
+                      onStep={(step) =>
+                        triage
+                          .mutateAsync({ id: item.id, action: step })
+                          .then((res) => {
+                            if (res.message) useToastStore.getState().show(res.message);
+                          })
+                          .catch((error) => {
+                          useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that");
+                        })
+                      }
+                    />
+                  ) : null}
                   {unread && TRIAGE_STEPS[item.category] ? (
                     <div className="mt-2 flex flex-wrap gap-2" data-testid="triage-steps">
                       {TRIAGE_STEPS[item.category].map(({ step, label }) => {
@@ -235,6 +281,67 @@ export default function NotificationsPage() {
           </motion.ul>
         )}
       </div>
+    </div>
+  );
+}
+
+/** A smart alert: the Work it names and its suggested step. Review and
+ * Clarify open the Work; Focus and Find time run on the server. */
+function SmartAlert({
+  item,
+  unread,
+  pending,
+  onOpenTask,
+  onRoute,
+  onStep,
+}: {
+  item: AppNotification;
+  unread: boolean;
+  pending: boolean;
+  onOpenTask: (id: string) => void;
+  onRoute: (href: string) => void;
+  onStep: (step: AlertStep) => Promise<void>;
+}) {
+  const items = alertItems(item);
+  const step = alertStep(item);
+  const inbox = dataString(item, "kind") === "inbox";
+  const projectId = dataString(item, "projectId");
+  const open = (id: string) => (inbox ? onRoute("/inbox") : onOpenTask(id));
+  return (
+    <div className="mt-2 space-y-2" data-testid="smart-alert">
+      {items.length > 1 ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {items.map((entry) => (
+            <li key={entry.id}>
+              <button
+                type="button"
+                onClick={() => open(entry.id)}
+                className="max-w-[16rem] truncate rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {entry.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {unread && step ? (
+        <button
+          type="button"
+          disabled={pending}
+          title="Suggested next step"
+          className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/15 disabled:opacity-50"
+          onClick={() => {
+            if (step === "review" || step === "clarify") {
+              if (projectId) onRoute(`/projects/${projectId}`);
+              else if (items[0]) open(items[0].id);
+            }
+            void onStep(step);
+          }}
+        >
+          <Sparkles className="size-3" />
+          {ALERT_STEP_LABEL[step]}
+        </button>
+      ) : null}
     </div>
   );
 }

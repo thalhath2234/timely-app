@@ -16,7 +16,7 @@ import {
   usePrioritizeOverdueTask,
   useNotificationTriage,
 } from "../../lib/hooks";
-import type { TriageStep } from "../../lib/api/decisions";
+import type { AlertStep, TriageStep } from "../../lib/api/decisions";
 import type { AppNotification } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { needsNetworkCopy } from "../../lib/queryCopy";
@@ -45,6 +45,28 @@ const TRIAGE_STEPS: Record<string, { step: TriageStep; label: string }[]> = {
     { step: "lower", label: "Lower priority" },
   ],
 };
+
+const ALERT_STEP_LABEL: Record<AlertStep, string> = {
+  review: "Review",
+  clarify: "Clarify",
+  focus: "Add to Focus",
+  reschedule: "Find time",
+};
+
+/** The tasks a smart alert is about, as the server listed them. */
+function alertItems(item: AppNotification): { id: string; name: string }[] {
+  const raw = item.data?.items;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (entry): entry is { id: string; name: string } =>
+      Boolean(entry) && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string" && typeof (entry as { name?: unknown }).name === "string",
+  );
+}
+
+function alertStep(item: AppNotification): AlertStep | null {
+  const step = item.data?.action;
+  return typeof step === "string" && step in ALERT_STEP_LABEL ? (step as AlertStep) : null;
+}
 
 function tomorrowNine() {
   const next = new Date();
@@ -148,6 +170,23 @@ export default function NotificationsScreen() {
                     </AnimatedPressable>
                   </View>
                 ) : null}
+                {item.category === "suggestion" ? (
+                  <SmartAlert
+                    item={item}
+                    pending={triage.isPending}
+                    onRoute={(target) => router.push(target as never)}
+                    onStep={(step) =>
+                      triage
+                        .mutateAsync({ id: item.id, action: step })
+                        .then((res) => {
+                          if (res.message) useToastStore.getState().show(res.message);
+                        })
+                        .catch((error) => {
+                          useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that");
+                        })
+                    }
+                  />
+                ) : null}
                 {item.category === "overdue" || (item.category === "missed" && !item.readAt) ? (
                   <View style={styles.actions} testID="triage-steps">
                 {item.category === "overdue" ? (
@@ -210,6 +249,60 @@ export default function NotificationsScreen() {
   );
 }
 
+/** A smart alert: the tasks it groups, and the one next step smart
+ * suggestions picked for it. */
+function SmartAlert({
+  item,
+  pending,
+  onRoute,
+  onStep,
+}: {
+  item: AppNotification;
+  pending: boolean;
+  onRoute: (href: string) => void;
+  onStep: (step: AlertStep) => Promise<void>;
+}) {
+  const items = alertItems(item);
+  const step = alertStep(item);
+  const inbox = item.data?.kind === "inbox";
+  const projectId = typeof item.data?.projectId === "string" ? item.data.projectId : null;
+  const open = (id: string) => onRoute(inbox ? "/(app)/inbox" : `/(app)/tasks/${id}`);
+  if (items.length < 2 && !(step && !item.readAt)) return null;
+  return (
+    <View style={{ gap: 8 }} testID="smart-alert">
+      {items.length > 1 ? (
+        <View style={styles.actions}>
+          {items.map((entry) => (
+            <AnimatedPressable key={entry.id} onPress={() => open(entry.id)} style={styles.pill} accessibilityRole="button">
+              <Text style={styles.pillText} numberOfLines={1}>
+                {entry.name}
+              </Text>
+            </AnimatedPressable>
+          ))}
+        </View>
+      ) : null}
+      {step && !item.readAt ? (
+        <View style={styles.actions}>
+          <AnimatedPressable
+            disabled={pending}
+            onPress={() => {
+              if (step === "review" || step === "clarify") {
+                if (projectId) onRoute(`/(app)/projects/${projectId}`);
+                else if (items[0]) open(items[0].id);
+              }
+              void onStep(step);
+            }}
+            style={[styles.chip, styles.suggested]}
+            accessibilityLabel={`Suggested next step: ${ALERT_STEP_LABEL[step]}`}
+          >
+            <Text style={[styles.chipText, styles.suggestedText]}>✦ {ALERT_STEP_LABEL[step]}</Text>
+          </AnimatedPressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = createThemedStyleSheet((colors) => ({
   body: { padding: 16, gap: 10, paddingBottom: 40 },
   toolbar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 16 },
@@ -239,4 +332,6 @@ const styles = createThemedStyleSheet((colors) => ({
   chipText: { color: colors.foreground, fontSize: 12 },
   suggested: { borderColor: colors.primary },
   suggestedText: { color: colors.primary, fontWeight: "600" },
+  pill: { maxWidth: 220, borderRadius: 999, backgroundColor: colors.muted, paddingHorizontal: 8, paddingVertical: 3 },
+  pillText: { color: colors.mutedForeground, fontSize: 12 },
 }));

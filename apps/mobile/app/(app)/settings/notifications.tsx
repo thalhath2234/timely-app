@@ -108,6 +108,11 @@ export default function NotificationSettingsScreen() {
                 active={draft.digestEvening}
                 onPress={() => setDraft({ ...draft, digestEvening: !draft.digestEvening })}
               />
+              <Chip
+                label="Smart alerts"
+                active={draft.smartAlerts !== false}
+                onPress={() => setDraft({ ...draft, smartAlerts: draft.smartAlerts === false })}
+              />
             </View>
             <Field value={draft.morningDigestAt} onChangeText={(morningDigestAt) => setDraft({ ...draft, morningDigestAt })} placeholder="Morning HH:mm" />
             <Field value={draft.eveningDigestAt} onChangeText={(eveningDigestAt) => setDraft({ ...draft, eveningDigestAt })} placeholder="Evening HH:mm" />

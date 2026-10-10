@@ -478,58 +478,9 @@ func (s *Service) StaleWork(ctx context.Context, userID string, now time.Time) (
 	if !on {
 		return out, nil
 	}
-	var tasks []models.Task
-	if err := s.db.WithContext(ctx).Select("id", "name", "description", "created_at", "updated_at").
-		Where("user_id = ? AND kind = ? AND completed_at IS NULL", userID, models.KindTask).
-		Where("NOT EXISTS (SELECT 1 FROM recurrence_rules r WHERE r.owner_id = tasks.id AND r.owner_type = 'task')").
-		Where("NOT EXISTS (SELECT 1 FROM scheduled_blocks b WHERE b.task_id = tasks.id AND b.end_at > ?)", now).
-		Find(&tasks).Error; err != nil {
+	stale, err := s.staleTasks(ctx, userID, now)
+	if err != nil || len(stale) == 0 {
 		return out, err
-	}
-	if len(tasks) == 0 {
-		return out, nil
-	}
-	ids := make([]string, len(tasks))
-	for i, t := range tasks {
-		ids[i] = t.ID
-	}
-	type last struct {
-		TaskID string
-		At     string
-	}
-	var activity []last
-	if err := s.db.WithContext(ctx).Table("task_activities").Select("task_id, MAX(created_at) AS at").
-		Where("task_id IN ?", ids).Group("task_id").Scan(&activity).Error; err != nil {
-		return out, err
-	}
-	lastAt := map[string]time.Time{}
-	for _, a := range activity {
-		lastAt[a.TaskID] = parseWhen(a.At)
-	}
-	type idle struct {
-		task models.Task
-		days int
-	}
-	var stale []idle
-	for _, t := range tasks {
-		latest := parseWhen(t.UpdatedAt)
-		if c := parseWhen(t.CreatedAt); c.After(latest) {
-			latest = c
-		}
-		if a := lastAt[t.ID]; a.After(latest) {
-			latest = a
-		}
-		if latest.IsZero() || now.Sub(latest) < staleAfter {
-			continue
-		}
-		stale = append(stale, idle{t, int(now.Sub(latest).Hours() / 24)})
-	}
-	sort.SliceStable(stale, func(i, j int) bool { return stale[i].days > stale[j].days })
-	if len(stale) > maxStale {
-		stale = stale[:maxStale]
-	}
-	if len(stale) == 0 {
-		return out, nil
 	}
 	list := []map[string]any{}
 	questions := map[string]decide.Question{}
@@ -563,6 +514,64 @@ func (s *Service) StaleWork(ctx context.Context, userID string, now time.Time) (
 		out.LogID = a.LogID
 	}
 	return out, nil
+}
+
+// idle is open Work with no activity for a while.
+type idle struct {
+	task models.Task
+	days int
+}
+
+// staleTasks is open Work with no edits, comments or upcoming Blocks for
+// three weeks, oldest first; the idle days are counted in code.
+func (s *Service) staleTasks(ctx context.Context, userID string, now time.Time) ([]idle, error) {
+	var tasks []models.Task
+	if err := s.db.WithContext(ctx).Select("id", "name", "description", "project_id", "created_at", "updated_at").
+		Where("user_id = ? AND kind = ? AND completed_at IS NULL", userID, models.KindTask).
+		Where("NOT EXISTS (SELECT 1 FROM recurrence_rules r WHERE r.owner_id = tasks.id AND r.owner_type = 'task')").
+		Where("NOT EXISTS (SELECT 1 FROM scheduled_blocks b WHERE b.task_id = tasks.id AND b.end_at > ?)", now).
+		Find(&tasks).Error; err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, len(tasks))
+	for i, t := range tasks {
+		ids[i] = t.ID
+	}
+	type last struct {
+		TaskID string
+		At     string
+	}
+	var activity []last
+	if err := s.db.WithContext(ctx).Table("task_activities").Select("task_id, MAX(created_at) AS at").
+		Where("task_id IN ?", ids).Group("task_id").Scan(&activity).Error; err != nil {
+		return nil, err
+	}
+	lastAt := map[string]time.Time{}
+	for _, a := range activity {
+		lastAt[a.TaskID] = parseWhen(a.At)
+	}
+	var stale []idle
+	for _, t := range tasks {
+		latest := parseWhen(t.UpdatedAt)
+		if c := parseWhen(t.CreatedAt); c.After(latest) {
+			latest = c
+		}
+		if a := lastAt[t.ID]; a.After(latest) {
+			latest = a
+		}
+		if latest.IsZero() || now.Sub(latest) < staleAfter {
+			continue
+		}
+		stale = append(stale, idle{t, int(now.Sub(latest).Hours() / 24)})
+	}
+	sort.SliceStable(stale, func(i, j int) bool { return stale[i].days > stale[j].days })
+	if len(stale) > maxStale {
+		stale = stale[:maxStale]
+	}
+	return stale, nil
 }
 
 // keepStale records that the person reviewed a stale task and kept it, which

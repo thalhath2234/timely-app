@@ -256,7 +256,22 @@ export type TodaySuggestions = {
 export const getTodaySuggestions = (timezone: string) =>
   request<TodaySuggestions>(`/suggestions/today?timezone=${encodeURIComponent(timezone)}`);
 
-export type TriageStep = "reschedule" | "extend" | "addtime" | "move" | "lower";
+/** Dashboard Highlights: facts worth a look, why Work is blocked or left
+ * unfinished, and tips the person's own data backs. */
+export type HighlightGroup = { key: string; label: string; count: number; tasks: { id: string; name: string }[] };
+export type Highlights = {
+  available: boolean;
+  logId?: string;
+  highlights: { id: string; text: string }[];
+  blockers: HighlightGroup[];
+  missed: HighlightGroup[];
+  tips: { key: string; text: string }[];
+};
+export const getHighlights = (facts: { id: string; text: string }[]) =>
+  request<Highlights>("/suggestions/highlights", "POST", { facts });
+
+export type AlertStep = "review" | "clarify" | "focus" | "reschedule";
+export type TriageStep = "reschedule" | "extend" | "addtime" | "move" | "lower" | AlertStep;
 /** Runs a missed or overdue notification's next step and marks it read. */
 export const runNotificationTriage = (notificationId: string, action: TriageStep) =>
   request<{ message: string }>(`/notifications/${encodeURIComponent(notificationId)}/triage`, "POST", { action });
