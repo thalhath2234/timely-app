@@ -11,7 +11,6 @@
  * left is `pomodoroTimeLeft(timer, Date.now())`.
  */
 import { AppState } from "react-native";
-import { File, Paths } from "expo-file-system";
 import { create } from "zustand";
 import type { QueryClient } from "@tanstack/react-query";
 import {
@@ -26,6 +25,7 @@ import {
 } from "@timely/contract/dashboard";
 import { todayInZone } from "@timely/contract/workStatus";
 import { startFocus, stopFocus } from "./api/tasks";
+import { documentTextFile } from "./textFile";
 import {
   cancelPomodoroNotification,
   getNotificationPermission,
@@ -60,12 +60,13 @@ type PomodoroStore = {
   tick: (now: number) => void;
 };
 
-const storeFile = new File(Paths.document, "timely-pomodoro.json");
+const storeFile = documentTextFile("timely-pomodoro.json");
 
 function load(): Record<string, PomodoroTimer> {
   try {
-    if (!storeFile.exists) return {};
-    const parsed = JSON.parse(storeFile.textSync()) as Record<string, PomodoroTimer>;
+    const text = storeFile.read();
+    if (!text) return {};
+    const parsed = JSON.parse(text) as Record<string, PomodoroTimer>;
     const timers: Record<string, PomodoroTimer> = {};
     for (const [cardId, timer] of Object.entries(parsed)) {
       timers[cardId] = {
