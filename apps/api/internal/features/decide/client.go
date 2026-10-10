@@ -163,8 +163,18 @@ func errorMessage(raw []byte) string {
 			msg = e.Message
 		}
 		if msg == "" && e.Detail != nil {
-			b, _ := json.Marshal(e.Detail)
-			msg = string(b)
+			// FastAPI-style errors nest the message in an object detail.
+			if d, ok := e.Detail.(map[string]any); ok {
+				msg, _ = d["message"].(string)
+			}
+			if msg == "" {
+				if d, ok := e.Detail.(string); ok {
+					msg = d
+				} else {
+					b, _ := json.Marshal(e.Detail)
+					msg = string(b)
+				}
+			}
 		}
 	}
 	if msg == "" {
