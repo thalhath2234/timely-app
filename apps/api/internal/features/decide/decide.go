@@ -27,6 +27,25 @@ import (
 // not answer in time. Callers treat it as "no suggestion".
 var ErrOff = errors.New("suggestions are off")
 
+// MaxStateBytes is the largest JSON state Ask sends (about 8,000 tokens,
+// well inside Jev's 32K limit). Callers with open-ended state trim to it.
+const MaxStateBytes = 32000
+
+type sensitiveKey struct{}
+
+// WithSensitive marks work done for a sensitive chat (a receipt photo).
+// Helpers that would send its searches or titles to Jev check IsSensitive
+// and skip the call; only callers that mark their state Private send.
+func WithSensitive(ctx context.Context) context.Context {
+	return context.WithValue(ctx, sensitiveKey{}, true)
+}
+
+// IsSensitive reports whether ctx belongs to a sensitive chat.
+func IsSensitive(ctx context.Context) bool {
+	v, _ := ctx.Value(sensitiveKey{}).(bool)
+	return v
+}
+
 // Thresholds. Confidence runs from 0 (spread evenly) to 1 (certain), as
 // TypeSafe defines it for choice and score; yes/no uses |2p-1|.
 const (
@@ -42,7 +61,7 @@ const (
 
 	maxOptions    = 255
 	maxLevels     = 10
-	maxStateBytes = 32000 // about 8,000 tokens, well inside Jev's 32K limit
+	maxStateBytes = MaxStateBytes
 	perUserCalls  = 4
 	cacheFor      = 10 * time.Minute
 )
@@ -228,6 +247,8 @@ func (s *Service) Ask(ctx context.Context, userID string, req Request) (Answers,
 	}
 	body, plan, err := s.build(req)
 	if err != nil {
+		// Nothing was sent, so the log is the only trace of the dropped check.
+		log.Printf("decide: %s not sent: %v", req.Feature, err)
 		return Answers{}, err
 	}
 	cacheKey := fmt.Sprintf("%x", sha256.Sum256(append([]byte(userID+"\x00"+req.Feature+"\x00"), stableKey(req)...)))

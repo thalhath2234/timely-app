@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FolderKanban } from "lucide-react-native";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useMutation } from "@tanstack/react-query";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import { Field, PrimaryButton, SectionLabel, Select } from "../../../components/ui/primitives";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
-import { useCreateProject, useProjectsQuery, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
+import { useInvalidateAll, useProjectsQuery, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
+import { ProjectStartChoices, createProjectWithStart, useProjectStart } from "../../../components/projects/ProjectStart";
+import type { CreateProjectPayload } from "../../../lib/api/projects";
 import { resolvedColor } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { Project, Task } from "../../../lib/types";
@@ -23,11 +26,21 @@ export default function ProjectsScreen() {
   const projectsQ = useProjectsQuery();
   const spaces = useWorkspacesQuery().data ?? [];
   const tasks = useTasksQuery().data ?? [];
-  const create = useCreateProject();
+  // Smart search's "Create project “X”" opens this screen with the title.
+  const params = useLocalSearchParams<{ title?: string }>();
   const projects = projectsQ.data ?? [];
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(params.title ?? "");
   const [workspaceId, setWorkspaceId] = useState("");
   const chosenWorkspace = workspaceId || spaces[0]?.id || "";
+  const start = useProjectStart(title, chosenWorkspace);
+  const invalidate = useInvalidateAll();
+  const create = useMutation({
+    mutationFn: (payload: CreateProjectPayload) => createProjectWithStart(payload, start.suggestion, start.choices),
+    onSuccess: () => invalidate(),
+  });
+  useEffect(() => {
+    if (params.title) setTitle(params.title);
+  }, [params.title]);
   const visibleProjects = projects.filter((project) => !chosenWorkspace || project.workspaceId === chosenWorkspace);
 
   return (
@@ -52,6 +65,7 @@ export default function ProjectsScreen() {
                   />
                 ) : null}
                 <Field value={title} onChangeText={setTitle} placeholder="Project title" autoCapitalize="words" />
+                <ProjectStartChoices suggestion={start.suggestion} choices={start.choices} onChange={start.setChoices} />
                 <PrimaryButton
                   label="Create project"
                   disabled={!title.trim() || !chosenWorkspace || create.isPending}
@@ -67,6 +81,9 @@ export default function ProjectsScreen() {
                     );
                   }}
                 />
+                {create.error ? (
+                  <Text style={styles.error}>{create.error instanceof Error ? create.error.message : "Could not create the project."}</Text>
+                ) : null}
               </>
             )}
             {visibleProjects.length === 0 ? (
@@ -125,6 +142,7 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   title: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 12 },
+  error: { color: colors.destructive, fontSize: 12 },
   bar: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden" },
   fill: { height: "100%", backgroundColor: colors.primary },
 }));

@@ -472,7 +472,7 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 		if goalOpts != nil {
 			questions["goal_"+key] = decide.Choice(fmt.Sprintf("Which of the person's goals does task %s clearly move forward, if any?", key), goalOpts...)
 		}
-		if gap != nil && len(gapCands) < maxGapTasks && fitsGap(t, gap.Minutes) {
+		if gap != nil && len(gapCands) < maxGapTasks && fitsGap(t, gap.Minutes) && !plannedAhead(t, now) {
 			gapCands = append(gapCands, i)
 		}
 	}
@@ -564,6 +564,17 @@ func fitsGap(t models.Task, minutes int) bool {
 	return left <= minutes || (!t.Contiguous && t.MinChunk() <= minutes)
 }
 
+// plannedAhead is true when the task already has a block that is not over:
+// its time is booked, so suggesting it for the gap would book it twice.
+func plannedAhead(t models.Task, now time.Time) bool {
+	for _, b := range t.Blocks {
+		if b.EndAt.After(now) {
+			return true
+		}
+	}
+	return false
+}
+
 // Triage actions for a missed block or overdue Work [35][36]. Code applies
 // them (notify.Triage); Jev only says which fits.
 const (
@@ -607,6 +618,14 @@ func (s *Service) Triage(ctx context.Context, userID string, t *models.Task, kin
 			decide.Option{Name: TriageExtend, Description: "Move the deadline a week later: finishing a bit later is fine"},
 			decide.Option{Name: TriageLower, Description: "Lower its priority: it matters less than it looked"})
 	case "missed":
+		if t.IsRecurring() {
+			// Adding time or moving would change every occurrence, so a
+			// repeating task only weighs a lower priority.
+			q = decide.Choice("A time block for this repeating task ended and the task is still open. Which next step fits best?",
+				decide.Option{Name: "keep", Description: "Leave it as it is: the next occurrence is soon enough"},
+				decide.Option{Name: TriageLower, Description: "Lower its priority: other work matters more right now"})
+			break
+		}
 		q = decide.Choice("A time block for this task ended and the task is still open. Which next step fits best?",
 			decide.Option{Name: TriageAddTime, Description: "Give it more time: the work is bigger than its estimate"},
 			decide.Option{Name: TriageMove, Description: "Move the rest to the next free time: the estimate is fine, the block was just missed"},
@@ -619,5 +638,8 @@ func (s *Service) Triage(ctx context.Context, userID string, t *models.Task, kin
 		return ""
 	}
 	pick, _ := a.Choice("next", decide.Prefill)
+	if pick == "keep" {
+		return ""
+	}
 	return pick
 }

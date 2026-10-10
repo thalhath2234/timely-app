@@ -19,8 +19,8 @@ import SegmentedControl from "../../../components/ui/SegmentedControl";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
-import { keys, useCreateDoc, useCreateSheet, useDeleteDoc, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
-import { fromMarkdown } from "../../../lib/markdown";
+import { keys, useCreateDoc, useCreateSheet, useDecisionsStatusQuery, useDeleteDoc, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
+import { parseImportedText } from "../../../lib/importMarkdown";
 import { importCsvGrid } from "../../../lib/sheetCsv";
 import { fileHref } from "../../../lib/fileRoutes";
 import { buildDocTree, countDocDescendants, type DocNode } from "../../../lib/docTree";
@@ -116,6 +116,7 @@ export default function FilesScreen() {
   const sheetsQ = useSheetsQuery();
   const templatesQ = useSheetTemplatesQuery();
   const createDoc = useCreateDoc();
+  const smartImport = useDecisionsStatusQuery().data?.available === true;
   const updateDoc = useUpdateDoc();
   const removeDoc = useDeleteDoc();
   const createSheet = useCreateSheet();
@@ -242,7 +243,7 @@ export default function FilesScreen() {
       const asset = picked.assets[0];
       const response = await fetch(asset.uri);
       const source = await response.text();
-      const parsed = fromMarkdown(source);
+      const parsed = await parseImportedText(source, smartImport);
       const title = (asset.name || "Imported note").replace(/\.(md|markdown|txt)$/i, "").trim() || "Imported note";
       const doc = await createDoc.mutateAsync({
         title,

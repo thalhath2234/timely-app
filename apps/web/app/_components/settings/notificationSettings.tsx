@@ -12,6 +12,7 @@ import {
 import TimezoneSelect from "@/app/_components/_ui/timezoneSelect";
 import type { NotificationSettings } from "@/app/_types/types";
 import { browserTimezone } from "@/app/utils/api/schedule";
+import { useDecisions } from "@/app/utils/hooks/decisions";
 
 export default function NotificationSettingsPanel() {
   const { data: settings, isLoading, isError } = useNotificationSettings();
@@ -33,6 +34,7 @@ export default function NotificationSettingsPanel() {
 
 function NotificationSettingsForm({ initial }: { initial: NotificationSettings }) {
   const update = useUpdateNotificationSettings();
+  const smart = useDecisions().data?.available === true;
   const [draft, setDraft] = useState<NotificationSettings>({
     ...initial,
     timezone: initial.timezone || browserTimezone(),
@@ -80,20 +82,22 @@ function NotificationSettingsForm({ initial }: { initial: NotificationSettings }
         <input type="checkbox" checked={draft.digestEvening} onChange={() => toggle("digestEvening")} />
         End-of-day recap
       </label>
-      <label className="flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="mt-0.5"
-          checked={draft.smartAlerts !== false}
-          onChange={() => setDraft((current) => ({ ...current, smartAlerts: current.smartAlerts === false }))}
-        />
-        <span>
-          Smart alerts
-          <span className="block text-xs text-muted-foreground">
-            Up to three a day, from the morning digest time, for work worth acting on: due soon with no time, ready to start, idle for weeks, or an Inbox that waits. Needs smart suggestions.
+      {smart ? (
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={draft.smartAlerts !== false}
+            onChange={() => setDraft((current) => ({ ...current, smartAlerts: current.smartAlerts === false }))}
+          />
+          <span>
+            Smart alerts
+            <span className="block text-xs text-muted-foreground">
+              Up to three a day, from the morning digest time, for work worth acting on: due soon with no time, ready to start, idle for weeks, or an Inbox that waits. Needs smart suggestions.
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      ) : null}
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm">
           Morning at

@@ -15,6 +15,7 @@ import {
   useSnoozeNotification,
   usePrioritizeOverdueTask,
   useNotificationTriage,
+  useDecisionsStatusQuery,
 } from "../../lib/hooks";
 import type { AlertStep, TriageStep } from "../../lib/api/decisions";
 import type { AppNotification } from "../../lib/types";
@@ -45,6 +46,15 @@ const TRIAGE_STEPS: Record<string, { step: TriageStep; label: string }[]> = {
     { step: "lower", label: "Lower priority" },
   ],
 };
+
+/** The other steps an unread notification offers. They come with smart
+ * suggestions, so without them there are none. A repeating task's missed
+ * block only offers Lower priority: adding time or moving would change every
+ * occurrence. */
+function triageSteps(item: AppNotification, smart: boolean) {
+  const steps = smart && !item.readAt ? (TRIAGE_STEPS[item.category] ?? []) : [];
+  return item.category === "missed" && item.data?.recurring === true ? steps.filter(({ step }) => step === "lower") : steps;
+}
 
 const ALERT_STEP_LABEL: Record<AlertStep, string> = {
   review: "Review",
@@ -84,6 +94,7 @@ export default function NotificationsScreen() {
   const snooze = useSnoozeNotification();
   const prioritize = usePrioritizeOverdueTask();
   const triage = useNotificationTriage();
+  const smart = useDecisionsStatusQuery().data?.available === true;
   const items = list.data ?? [];
   const networkCopy = needsNetworkCopy(list);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -140,6 +151,7 @@ export default function NotificationsScreen() {
         ) : (
           items.map((item) => {
             const href = routeFor(item);
+            const steps = triageSteps(item, smart);
             return (
               <View key={item.id} style={[styles.row, !item.readAt && styles.unread]}>
                 <AnimatedPressable
@@ -187,7 +199,7 @@ export default function NotificationsScreen() {
                     }
                   />
                 ) : null}
-                {item.category === "overdue" || (item.category === "missed" && !item.readAt) ? (
+                {item.category === "overdue" || steps.length > 0 ? (
                   <View style={styles.actions} testID="triage-steps">
                 {item.category === "overdue" ? (
                   <AnimatedPressable
@@ -207,29 +219,27 @@ export default function NotificationsScreen() {
                     </Text>
                   </AnimatedPressable>
                 ) : null}
-                {!item.readAt
-                  ? (TRIAGE_STEPS[item.category] ?? []).map(({ step, label }) => {
-                      const suggested = item.data?.suggest === step;
-                      return (
-                        <AnimatedPressable
-                          key={step}
-                          disabled={triage.isPending}
-                          onPress={() =>
-                            void triage
-                              .mutateAsync({ id: item.id, action: step })
-                              .then((res) => useToastStore.getState().show(res.message))
-                              .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
-                          }
-                          style={[styles.chip, suggested && styles.suggested]}
-                        >
-                          <Text style={[styles.chipText, suggested && styles.suggestedText]}>
-                            {suggested ? "✦ " : ""}
-                            {label}
-                          </Text>
-                        </AnimatedPressable>
-                      );
-                    })
-                  : null}
+                {steps.map(({ step, label }) => {
+                  const suggested = item.data?.suggest === step;
+                  return (
+                    <AnimatedPressable
+                      key={step}
+                      disabled={triage.isPending}
+                      onPress={() =>
+                        void triage
+                          .mutateAsync({ id: item.id, action: step })
+                          .then((res) => useToastStore.getState().show(res.message))
+                          .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
+                      }
+                      style={[styles.chip, suggested && styles.suggested]}
+                    >
+                      <Text style={[styles.chipText, suggested && styles.suggestedText]}>
+                        {suggested ? "✦ " : ""}
+                        {label}
+                      </Text>
+                    </AnimatedPressable>
+                  );
+                })}
                   </View>
                 ) : null}
               </View>

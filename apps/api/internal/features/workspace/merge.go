@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
@@ -28,7 +29,12 @@ type MergeResult struct {
 	Views    int `json:"views"`
 }
 
-var errMergeSelf = errors.New("choose two different items to merge")
+var (
+	errMergeSelf = errors.New("choose two different items to merge")
+	// Completing Work sets the status named Done or Completed, so merging that
+	// status away into another name would break the link.
+	errMergeDone = errors.New("keep the done status: merge the other status into it instead")
+)
 
 func (m *Merger) Routes(g *echo.Group) {
 	g.POST("/workspaces/:workspaceId/lable/:lableId/merge", m.mergeLabel)
@@ -54,7 +60,7 @@ func (m *Merger) handle(c *echo.Context, run func(userID string, req mergeReques
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "not found in this workspace")
-	case errors.Is(err, errMergeSelf):
+	case errors.Is(err, errMergeSelf), errors.Is(err, errMergeDone):
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	case err != nil:
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -155,6 +161,17 @@ func (m *Merger) MergeStatuses(userID, workspaceID, from, into string) (MergeRes
 	err := m.db.Transaction(func(tx *gorm.DB) error {
 		if err := owned(tx, userID, workspaceID, &models.Status{}, from, into); err != nil {
 			return err
+		}
+		var pair []models.Status
+		if err := tx.Where("id IN ?", []string{from, into}).Find(&pair).Error; err != nil {
+			return err
+		}
+		names := map[string]string{}
+		for _, st := range pair {
+			names[st.ID] = st.Name
+		}
+		if completionName(names[from]) && !completionName(names[into]) {
+			return errMergeDone
 		}
 		now := utils.GetCurrentTime()
 		res := tx.Model(&models.Task{}).Where("status_id = ? AND user_id = ?", from, userID).
@@ -326,4 +343,14 @@ func replaceID(ids *[]string, from, into string) bool {
 	}
 	*ids = out
 	return true
+}
+
+// completionName matches the status names completing Work sets (see
+// task.isCompletedStatusName).
+func completionName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "completed", "complete", "done":
+		return true
+	}
+	return false
 }

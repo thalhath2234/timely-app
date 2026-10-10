@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/decide"
+	"timely-api/internal/models"
 
 	"gorm.io/gorm"
 )
@@ -159,6 +161,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		step.Before = nil
 		step.Error = ""
 	}
+	s.estimateWork(ctx, uid, p.Steps)
 	snapshots, err := s.snapshots(ctx, s.db, catalog, uid, p.Steps)
 	if err != nil {
 		return p, nil, err
@@ -172,6 +175,61 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		return p, nil, err
 	}
 	return p, snapshots, nil
+}
+
+// SetEstimates lets proposals estimate new Work in one batch (smart
+// suggestions); a 0 means no estimate for that item.
+func (s *Service) SetEstimates(fn func(ctx context.Context, userID string, names, descriptions []string) []int) {
+	s.estimates = fn
+}
+
+// estimateWork writes a length into every create_task step for Work that has
+// none, before the rehearsal: create_task would otherwise ask for its own
+// estimate one step at a time inside the rehearsal's transaction, and again
+// on apply. With the minutes in the arguments the review shows the length
+// that is applied. A failed estimate writes the usual 30 minutes.
+func (s *Service) estimateWork(ctx context.Context, uid string, steps []Step) {
+	if s.estimates == nil || decide.IsSensitive(ctx) || !s.jevOn(ctx, uid) {
+		return
+	}
+	var at []int
+	var names, descriptions []string
+	for i, step := range steps {
+		if step.Tool != "create_task" {
+			continue
+		}
+		var in map[string]any
+		if json.Unmarshal(step.Arguments, &in) != nil || in["duration"] != nil {
+			continue
+		}
+		kind, _ := in["kind"].(string)
+		if k, err := models.NormalizeKind(kind); err != nil || k != models.KindTask {
+			continue
+		}
+		name, _ := in["name"].(string)
+		if strings.TrimSpace(name) == "" || strings.HasPrefix(name, "$") {
+			continue
+		}
+		description, _ := in["description"].(string)
+		at = append(at, i)
+		names = append(names, name)
+		descriptions = append(descriptions, description)
+	}
+	if len(at) == 0 {
+		return
+	}
+	minutes := s.estimates(ctx, uid, names, descriptions)
+	for j, i := range at {
+		var in map[string]any
+		if json.Unmarshal(steps[i].Arguments, &in) != nil {
+			continue
+		}
+		in["duration"] = 30
+		if j < len(minutes) && minutes[j] > 0 {
+			in["duration"] = minutes[j]
+		}
+		steps[i].Arguments = raw(in)
+	}
 }
 
 var errRehearsal = errors.New("rehearsal rolled back")

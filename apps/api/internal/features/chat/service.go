@@ -27,6 +27,7 @@ type Service struct {
 	provider   Completer
 	completers Completers
 	decisions  Decider
+	estimates  func(ctx context.Context, userID string, names, descriptions []string) []int
 	wg         sync.WaitGroup
 }
 

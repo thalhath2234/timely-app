@@ -54,7 +54,7 @@ export default function TodaySuggestionsCard({
   const focus = (data.focus ?? []).filter((pick) => !hidden.has(`focus:${pick.taskId}`));
   const gap = data.gap?.task && !hidden.has(`gap:${data.gap.task.id}`) ? data.gap : undefined;
   const goals = data.goals ?? [];
-  if (!focus.length && !gap && !goals.length) return null;
+  if (!focus.length && !gap && !goals.length && !data.error) return null;
 
   const dismiss = (key: string) => (
     <AnimatedPressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => hide(key)} style={styles.dismiss} hitSlop={8}>
@@ -68,6 +68,7 @@ export default function TodaySuggestionsCard({
         <Sparkles size={16} color={colors.primary} />
         <SectionLabel>Suggestions</SectionLabel>
       </View>
+      {data.error ? <Text style={styles.meta}>{data.error}</Text> : null}
       {focus.length ? <Text style={styles.label}>Worth focusing on today</Text> : null}
       {focus.map((pick) => {
         const tags = [

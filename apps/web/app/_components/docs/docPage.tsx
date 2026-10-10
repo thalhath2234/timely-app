@@ -16,6 +16,7 @@ import { insertPageMention } from "@/app/_components/editor/mention";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
+import type { RelatedItem } from "@/app/utils/api/search";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   docKey,
@@ -195,6 +196,26 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
       void flush().then(() => queryClient.invalidateQueries({ queryKey: ["doc-hints", doc.id] }));
     },
     [schedule, flush, queryClient, doc.id],
+  );
+
+  // Appends an @mention of a related doc, so it lists this one as a backlink.
+  const linkRelated = useCallback(
+    (item: RelatedItem) => {
+      const current = editorRef.current;
+      if (!current || current.isDestroyed) return false;
+      let present = false;
+      current.state.doc.descendants((node) => {
+        if (node.type.name === "mention" && node.attrs.id === item.id) present = true;
+        return !present;
+      });
+      if (!present) {
+        const mention = { type: "mention", attrs: { id: item.id, label: item.title || "Untitled", entityType: "doc" } };
+        current.chain().insertContentAt(current.state.doc.content.size, { type: "paragraph", content: [mention] }).run();
+        void flush().then(() => queryClient.invalidateQueries({ queryKey: [...docKey(item.id), "backlinks"] }));
+      }
+      return true;
+    },
+    [flush, queryClient],
   );
 
   const handleCreateSubpage = useCallback(
@@ -483,7 +504,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               <span className="rounded-full bg-primary/12 px-2 py-0.5 font-medium text-primary">Template</span>
             )}
             <Backlinks docId={doc.id} />
-            <RelatedItems kind="doc" id={doc.id} />
+            <RelatedItems kind="doc" id={doc.id} onLink={linkRelated} />
           </div>
 
           {/* Rechecks once an empty doc gets a title or text, then as it grows by about fifty words. */}

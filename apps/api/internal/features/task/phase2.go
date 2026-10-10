@@ -39,6 +39,9 @@ type duplicateOpts struct {
 	namePrefix string
 	projectID  *string
 	stageID    *string
+	// fresh starts the copy over: no dates, unchecked checklist and the
+	// workspace's default status, for a new project started from an old one.
+	fresh bool
 }
 
 func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (*models.Task, error) {
@@ -67,6 +70,18 @@ func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (
 		Contiguous:            src.Contiguous,
 		EarliestStartAt:       src.EarliestStartAt,
 		PreferredWindows:      src.PreferredWindows,
+	}
+	if opts.fresh {
+		clone.Deadline = nil
+		clone.StartDate = nil
+		clone.EarliestStartAt = nil
+		clone.Checklist = src.Checklist.CloneUnchecked()
+		clone.StatusID = nil
+		if clone.WorkspaceID != nil {
+			if statusID := s.defaultStatusID(*clone.WorkspaceID); statusID != "" {
+				clone.StatusID = &statusID
+			}
+		}
 	}
 	if clone.Kind == models.KindInbox {
 		clone.Duration = 0
@@ -103,7 +118,9 @@ func firstNonEmpty(preferred, fallback *string) *string {
 	return fallback
 }
 
-func (s *taskService) CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string) error {
+// CopyProjectTasks copies a project's tasks into another project. fresh resets
+// each copy's dates, checklist and status (see duplicateOpts.fresh).
+func (s *taskService) CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string, fresh bool) error {
 	tasks, err := s.taskRepo.GetAllTaskByUser(userID)
 	if err != nil {
 		return err
@@ -127,6 +144,7 @@ func (s *taskService) CopyProjectTasks(userID, fromProjectID, toProjectID string
 		if _, err := s.duplicateTree(userID, t.ID, duplicateOpts{
 			projectID: &toProjectID,
 			stageID:   stage,
+			fresh:     fresh,
 		}); err != nil {
 			return err
 		}

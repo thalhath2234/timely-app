@@ -15,7 +15,7 @@ import AnimatedPressable from "./AnimatedPressable";
 import { emptyCustomFieldDrafts, filledCustomFieldValues } from "../../lib/customFields";
 import { isRichContentEmpty } from "../../lib/richText";
 import type { DocContent } from "../../lib/types";
-import { useCreateDoc, useCreateEvent, useCreateSheet, useCreateTask, useAddBlock, useProjectsQuery, useWorkspacesQuery } from "../../lib/hooks";
+import { useCreateDoc, useCreateEvent, useCreateSheet, useCreateTask, useAddBlock, useEstimateQuery, useProjectsQuery, useWorkspacesQuery } from "../../lib/hooks";
 import { buildRecurrenceInput, type RecurrenceDraft } from "../../lib/recurrence";
 import { fileHref } from "../../lib/fileRoutes";
 import { formatDuration, formatShortDate, formatTime, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../lib/format";
@@ -136,6 +136,8 @@ export default function QuickAddSheet({
     | "eventColor"
     | null
   >(null);
+  const estimate = useEstimateQuery(title, picking === "duration");
+  const suggested = estimate.data?.minutes;
   const [phase, setPhase] = useState<"menu" | "form">("menu");
   const [selectedKind, setSelectedKind] = useState<Kind | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -824,6 +826,18 @@ export default function QuickAddSheet({
         ))}
       </BottomSheet>
       <BottomSheet open={picking === "duration"} onClose={() => setPicking(null)} title="Duration">
+        {suggested ? (
+          <SheetOption
+            leading={<Sparkles size={16} color={colors.primary} />}
+            selected={false}
+            onSelect={() => {
+              setDuration(suggested);
+              setPicking(null);
+            }}
+          >
+            {`Suggested: ${formatDuration(suggested) ?? `${suggested}m`}`}
+          </SheetOption>
+        ) : null}
         {DURATION_PRESETS.filter((minutes) => minutes > 0).map((minutes) => (
           <SheetOption
             key={minutes}

@@ -3,9 +3,10 @@
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plus, Wrench, X } from "lucide-react";
-import { BUILTIN_CARDS, CARD_TEMPLATES, type BuiltinCardType, type CardTemplate } from "@timely/contract/dashboard";
+import { CARD_TEMPLATES, catalogCards, type BuiltinCardType, type CardTemplate } from "@timely/contract/dashboard";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
+import { useDecisions } from "@/app/utils/hooks/decisions";
 import { BuiltinIcon } from "./cardIcons";
 import { DISPLAY_ICON } from "./cardWorkshop";
 
@@ -27,6 +28,7 @@ export default function AddCardDialog({
 }) {
   const titleId = useId();
   const [tab, setTab] = useState<Tab>("tools");
+  const smart = useDecisions().data?.available === true;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -103,7 +105,7 @@ export default function AddCardDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-y-auto p-5 sm:grid-cols-2">
             {tab === "tools"
-              ? BUILTIN_CARDS.map((card) => (
+              ? catalogCards(smart).map((card) => (
                   <GalleryItem
                     key={card.type}
                     icon={<BuiltinIcon type={card.type} className="size-4" />}

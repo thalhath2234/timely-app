@@ -35,6 +35,10 @@ type Service struct {
 	briefing     Briefer // nil until SetBriefing
 	triageSlots  chan struct{}
 	triageWait   sync.WaitGroup
+
+	// Smart suggestions' status and feedback; nil until SetDecisions.
+	decisionsOn func(ctx context.Context, userID string) bool
+	feedback    func(userID, logID string, accepted bool) error
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -269,7 +273,7 @@ func (s *Service) Sweep(ctx context.Context) error {
 		if err := s.sweepMissedAndStart(userID, now); err != nil {
 			return err
 		}
-		if err := s.sweepSmartAlerts(userID, now); err != nil {
+		if err := s.sweepSmartAlerts(ctx, userID, now); err != nil {
 			return err
 		}
 	}
@@ -451,6 +455,10 @@ func (s *Service) HandleMissedBlock(ctx context.Context, job *models.Job) error 
 	data := models.JobPayload{}
 	for k, v := range job.Payload {
 		data[k] = v
+	}
+	// Apps hide the steps that would change every occurrence of a series.
+	if item.IsRecurring() {
+		data["recurring"] = true
 	}
 	row := &models.Notification{
 		UserID: job.UserID, Category: models.NotifyMissed,
@@ -741,7 +749,7 @@ func (s *Service) HandleDigest(ctx context.Context, job *models.Job) error {
 	if err != nil {
 		return err
 	}
-	if kind == "morning" && ntf.ID == row.ID && s.briefLater(ntf, today, settings) {
+	if kind == "morning" && ntf.ID == row.ID && s.briefLater(ctx, ntf, today, settings) {
 		return nil // sent once the briefing names the day's top items
 	}
 	return s.deliver(ctx, ntf, settings)
@@ -893,6 +901,8 @@ func notificationPushMessage(ntf *models.Notification, token string) expoMessage
 			"entityId":       ntf.EntityID,
 			"kind":           ntf.Data.String("kind"),
 			"projectId":      ntf.Data.String("projectId"),
+			// A smart alert about several tasks opens the first one.
+			"taskIds": ntf.Data["taskIds"],
 		},
 	}
 }

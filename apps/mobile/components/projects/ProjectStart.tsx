@@ -1,24 +1,26 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { Copy, FileText, Sparkles, Table2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Pressable, Text, View } from "react-native";
+import { CheckSquare, Copy, FileText, Sparkles, Square, Table2 } from "lucide-react-native";
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
-import type { Project } from "@/app/_types/types";
-import { getProjectStart, sendDecisionFeedback, type ProjectStart } from "@/app/utils/api/decisions";
-import { useDecisions } from "@/app/utils/hooks/decisions";
-import { createProject, duplicateProject, type CreateProjectPayload } from "@/app/utils/api/projects";
-import { createDoc, getDoc } from "@/app/utils/api/docs";
-import { createSheet } from "@/app/utils/api/sheets";
+import { SectionLabel } from "../ui/primitives";
+import { useDecisionsStatusQuery } from "../../lib/hooks";
+import { getProjectStart, sendDecisionFeedback, type ProjectStart } from "../../lib/api/decisions";
+import { createProject, duplicateProject, type CreateProjectPayload } from "../../lib/api/projects";
+import { createDoc, getDoc } from "../../lib/api/docs";
+import { createSheet } from "../../lib/api/sheets";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
+import type { Project } from "../../lib/types";
 
 export type StartChoices = { copy: boolean; doc: boolean; sheet: boolean };
 const none: StartChoices = { copy: false, doc: false, sheet: false };
 
 /** What a new project's title suggests starting from (smart suggestions):
  * a copy of an earlier project, a doc template and a sheet template. Each is
- * offered unticked; the person ticks what they want. */
-export function useProjectStart(title: string, workspaceId: string, open: boolean) {
-  const smartOn = useDecisions().data?.available === true;
-  const active = open && smartOn;
+ * offered unticked; the person ticks what they want. Quiet while suggestions
+ * are off. */
+export function useProjectStart(title: string, workspaceId: string) {
+  const status = useDecisionsStatusQuery();
+  const active = status.data?.available === true;
   const [fetched, setFetched] = useState<{ suggestion: ProjectStart; workspaceId: string }>();
   const [choices, setChoices] = useState<StartChoices>(none);
   useEffect(() => {
@@ -55,31 +57,38 @@ export function ProjectStartChoices({
   onChange: (next: StartChoices) => void;
 }) {
   if (!suggestion || !(suggestion.copyProjectId || suggestion.docTemplateId || suggestion.sheetTemplateId)) return null;
-  const row = (key: keyof StartChoices, icon: React.ReactNode, text: React.ReactNode) => (
-    <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm text-muted-foreground hover:bg-accent/40">
-      <input
-        type="checkbox"
-        checked={choices[key]}
-        onChange={(event) => onChange({ ...choices, [key]: event.target.checked })}
-        className="size-3.5 accent-primary"
-      />
-      {icon}
-      <span className="min-w-0 flex-1">{text}</span>
-    </label>
-  );
-  const strong = (text?: string) => <strong className="font-medium text-foreground">{text}</strong>;
+  const row = (key: keyof StartChoices, icon: ReactNode, text: string) => {
+    const Box = choices[key] ? CheckSquare : Square;
+    return (
+      <Pressable
+        key={key}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: choices[key] }}
+        onPress={() => onChange({ ...choices, [key]: !choices[key] })}
+        style={styles.row}
+      >
+        <Box size={18} color={choices[key] ? colors.primary : colors.mutedForeground} />
+        {icon}
+        <Text style={styles.text}>{text}</Text>
+      </Pressable>
+    );
+  };
   return (
-    <section className="mt-3 rounded-lg border border-border bg-muted/20 p-2" data-testid="project-start" aria-label="Start from">
-      <h3 className="mb-1 flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        <Sparkles className="size-3.5" /> Start from
-      </h3>
-      {suggestion.copyProjectId &&
-        row("copy", <Copy className="size-3.5 shrink-0" />, <>Copy the stages and tasks of {strong(suggestion.copyTitle)}</>)}
-      {suggestion.docTemplateId &&
-        row("doc", <FileText className="size-3.5 shrink-0" />, <>Add a doc from the {strong(suggestion.docTitle)} template</>)}
-      {suggestion.sheetTemplateId &&
-        row("sheet", <Table2 className="size-3.5 shrink-0" />, <>Add a sheet from the {strong(suggestion.sheetTitle)} template</>)}
-    </section>
+    <View style={styles.card} testID="project-start">
+      <View style={styles.header}>
+        <Sparkles size={14} color={colors.primary} />
+        <SectionLabel>Start from</SectionLabel>
+      </View>
+      {suggestion.copyProjectId
+        ? row("copy", <Copy size={14} color={colors.mutedForeground} />, `Copy the stages and tasks of “${suggestion.copyTitle ?? ""}”`)
+        : null}
+      {suggestion.docTemplateId
+        ? row("doc", <FileText size={14} color={colors.mutedForeground} />, `Add a doc from the “${suggestion.docTitle ?? ""}” template`)
+        : null}
+      {suggestion.sheetTemplateId
+        ? row("sheet", <Table2 size={14} color={colors.mutedForeground} />, `Add a sheet from the “${suggestion.sheetTitle ?? ""}” template`)
+        : null}
+    </View>
   );
 }
 
@@ -90,12 +99,10 @@ export async function createProjectWithStart(
   suggestion: ProjectStart | undefined,
   choices: StartChoices,
 ): Promise<Project> {
-  let project: Project;
-  if (choices.copy && suggestion?.copyProjectId) {
-    project = await duplicateProject(suggestion.copyProjectId, payload);
-  } else {
-    project = await createProject(payload);
-  }
+  const project =
+    choices.copy && suggestion?.copyProjectId
+      ? await duplicateProject(suggestion.copyProjectId, payload)
+      : await createProject(payload);
   if (choices.doc && suggestion?.docTemplateId) {
     const template = await getDoc(suggestion.docTemplateId);
     const { content, plainText } = contentFromTemplate(
@@ -113,3 +120,10 @@ export async function createProjectWithStart(
   }
   return project;
 }
+
+const styles = createThemedStyleSheet((colors) => ({
+  card: { gap: 6, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
+  header: { flexDirection: "row", alignItems: "center", gap: 6 },
+  row: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 36 },
+  text: { flex: 1, color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
+}));

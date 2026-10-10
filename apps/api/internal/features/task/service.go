@@ -92,7 +92,7 @@ type TaskService interface {
 	BulkUpdate(userID string, ids []string, update TaskUpdate) ([]models.Task, error)
 	GetForUser(userID, taskID string) (*models.Task, error)
 	Duplicate(userID, taskID string) (*models.Task, error)
-	CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string) error
+	CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string, fresh bool) error
 	AddChecklistItem(userID, taskID, title string) (*models.Task, error)
 	UpdateChecklistItem(userID, taskID, itemID string, title *string, completed *bool) (*models.Task, error)
 	DeleteChecklistItem(userID, taskID, itemID string) (*models.Task, error)

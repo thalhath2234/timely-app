@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/placement"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
@@ -112,6 +113,10 @@ func (s *Service) work(ctx context.Context) {
 			continue
 		}
 		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		if c.Sensitive {
+			// Tools then keep its searches and titles away from Jev.
+			runCtx = decide.WithSensitive(runCtx)
+		}
 		if providerErr == nil && s.completers != nil {
 			var completer Completer
 			completer, providerErr = s.completers.Completer(runCtx, c.UserID, c.Provider, c.Model)

@@ -1200,7 +1200,7 @@ function DecisionsCard() {
           </p>
         )}
       </div>
-      {data.enabled && <DecisionPrefs data={data} />}
+      {data.available && <DecisionPrefs data={data} />}
       {data.enabled && <UseCaseField />}
       {data.enabled && <LearnedDefaults />}
     </section>

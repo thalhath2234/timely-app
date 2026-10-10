@@ -16,7 +16,7 @@ import type { AppNotification } from "@/app/_types/types";
 import { motion } from "motion/react";
 import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 import { fileHref } from "@/app/utils/fileRoutes";
-import { useNotificationTriage } from "@/app/utils/hooks/decisions";
+import { useDecisions, useNotificationTriage } from "@/app/utils/hooks/decisions";
 import type { AlertStep, TriageStep } from "@/app/utils/api/decisions";
 import { useToastStore } from "@/app/_store/toastStore";
 
@@ -71,6 +71,14 @@ const TRIAGE_STEPS: Record<string, { step: TriageStep; label: string }[]> = {
   ],
 };
 
+/** The steps a notification offers. They come with smart suggestions, so
+ * without them there are none. A repeating task's missed block only offers
+ * Lower priority: adding time or moving would change every occurrence. */
+function triageSteps(item: AppNotification, smart: boolean) {
+  const steps = smart ? (TRIAGE_STEPS[item.category] ?? []) : [];
+  return item.category === "missed" && item.data?.recurring === true ? steps.filter(({ step }) => step === "lower") : steps;
+}
+
 /** A smart alert's button: what the suggested step is called. */
 const ALERT_STEP_LABEL: Record<AlertStep, string> = {
   review: "Review",
@@ -104,6 +112,7 @@ export default function NotificationsPage() {
   const router = useRouter();
   const list = useNotifications();
   const triage = useNotificationTriage();
+  const smart = useDecisions().data?.available === true;
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const clearAll = useClearNotifications();
@@ -166,6 +175,7 @@ export default function NotificationsPage() {
             {items.map((item) => {
               const target = targetFor(item);
               const unread = !item.readAt;
+              const steps = unread ? triageSteps(item, smart) : [];
               return (
                 <motion.li
                   key={item.id}
@@ -245,9 +255,9 @@ export default function NotificationsPage() {
                       }
                     />
                   ) : null}
-                  {unread && TRIAGE_STEPS[item.category] ? (
+                  {steps.length > 0 ? (
                     <div className="mt-2 flex flex-wrap gap-2" data-testid="triage-steps">
-                      {TRIAGE_STEPS[item.category].map(({ step, label }) => {
+                      {steps.map(({ step, label }) => {
                         const suggested = dataString(item, "suggest") === step;
                         return (
                           <button

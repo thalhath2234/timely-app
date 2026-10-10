@@ -26,10 +26,10 @@ import {
   Zap,
 } from "lucide-react-native";
 import {
-  BUILTIN_CARDS,
   CARD_TEMPLATES,
   DASHBOARD_MAX_CARDS,
   cardTitle,
+  catalogCards,
   computeCard,
   defaultDashboard,
   newCardId,
@@ -50,7 +50,7 @@ import HighlightsCard from "../../components/report/highlightsCard";
 import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "../../components/report/builtinCards";
 import { useDashboardData, useDashboardLayout, useNow } from "../../lib/dashboard";
 import { forgetPomodoro } from "../../lib/pomodoroStore";
-import { useConfigQuery, useInvalidateAll } from "../../lib/hooks";
+import { useConfigQuery, useDecisionsStatusQuery, useInvalidateAll } from "../../lib/hooks";
 import { fileHref } from "../../lib/fileRoutes";
 import { showUndoToast, useToastStore } from "../../lib/toast";
 import type { CalendarItem } from "../../lib/types";
@@ -97,6 +97,7 @@ export default function DashboardScreen() {
   const now = useNow(30_000);
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
+  const smart = useDecisionsStatusQuery().data?.available === true;
   const [confirmReset, setConfirmReset] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const tasks = useMemo(() => data.tasks ?? [], [data.tasks]);
@@ -293,7 +294,7 @@ export default function DashboardScreen() {
 
       <BottomSheet open={adding} onClose={() => setAdding(false)} title="Add a card">
         <SectionLabel>Productivity tools</SectionLabel>
-        {BUILTIN_CARDS.map((info) => {
+        {catalogCards(smart).map((info) => {
           const Icon = BUILTIN_ICON[info.type];
           return (
             <AnimatedPressable

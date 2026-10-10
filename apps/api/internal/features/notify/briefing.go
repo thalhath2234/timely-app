@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"timely-api/internal/features/calendar"
+	"timely-api/internal/jobs"
 	"timely-api/internal/models"
 )
 
@@ -32,18 +33,34 @@ const (
 	maxBriefNamed     = 3
 	briefingBudget    = 10 * time.Second
 	briefingNameRunes = 60
+	// briefingFallback is when a queued push sends the briefing as it is,
+	// should the background send never finish (a restart, a failed push):
+	// past the model's budget and the push's own timeout.
+	briefingFallback = briefingBudget + 20*time.Second
 )
 
 // briefLater names the day's top items in a new morning briefing, then
 // sends it. It runs in the background so the jobs behind the digest never
-// wait on the model, and is false when there is nothing to ask (the caller
-// sends the briefing as it is).
-func (s *Service) briefLater(ntf *models.Notification, today *calendar.TodayResponse, settings models.NotificationSettings) bool {
-	if s.briefing == nil || today == nil {
+// wait on the model, and is false when there is nothing to ask or smart
+// suggestions are off (the caller sends the briefing as it is).
+func (s *Service) briefLater(ctx context.Context, ntf *models.Notification, today *calendar.TodayResponse, settings models.NotificationSettings) bool {
+	if s.briefing == nil || today == nil || !s.smartOn(ctx, ntf.UserID) {
 		return false
 	}
 	items := briefItems(today)
 	if len(items) == 0 {
+		return false
+	}
+	// A queued push is the fallback; HandlePush skips it once the briefing
+	// is delivered. In quiet hours it waits for their end, and the send
+	// below then joins it (same dedupe key).
+	now := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(ntf.UserID)))
+	runAt := now.Add(briefingFallback)
+	if settings.InQuietHours(now) {
+		runAt = settings.QuietEnd(now)
+	}
+	if _, err := s.queue.Enqueue(jobs.Enqueue{UserID: ntf.UserID, Kind: models.JobSendPush, DedupeKey: "push:" + ntf.ID,
+		RunAt: runAt, Payload: models.JobPayload{"notificationId": ntf.ID}}); err != nil {
 		return false
 	}
 	s.triageWait.Add(1)
@@ -105,7 +122,7 @@ func briefItems(today *calendar.TodayResponse) []BriefItem {
 		note := "past its deadline"
 		if t.Deadline != nil {
 			if d, err := time.ParseInLocation("2006-01-02", models.NormalizeDate(*t.Deadline), loc); err == nil && !day.IsZero() {
-				note = fmt.Sprintf("past its deadline by %s", plural(int(day.Sub(d).Hours()/24), "day"))
+				note = fmt.Sprintf("past its deadline by %s", plural(DaysBetween(d, day), "day"))
 			}
 		}
 		add("task:"+t.ID, t.Name, note+", priority "+priorityWord(t.PriorityLevel), t.Description)
@@ -133,7 +150,7 @@ func briefItems(today *calendar.TodayResponse) []BriefItem {
 		if err != nil {
 			continue
 		}
-		switch days := int(d.Sub(day).Hours() / 24); {
+		switch days := DaysBetween(day, d); {
 		case days == 0:
 			add("task:"+t.ID, t.Name, "due today and not on the calendar", t.Description)
 		case days == 1:
@@ -143,6 +160,15 @@ func briefItems(today *calendar.TodayResponse) []BriefItem {
 		}
 	}
 	return out
+}
+
+// DaysBetween counts the calendar days from from's date to to's date, both
+// read in to's timezone, so midnight and DST changes never shift the count.
+func DaysBetween(from, to time.Time) int {
+	from = from.In(to.Location())
+	a := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
+	b := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
+	return int(b.Sub(a).Hours() / 24)
 }
 
 func priorityWord(p *string) string {

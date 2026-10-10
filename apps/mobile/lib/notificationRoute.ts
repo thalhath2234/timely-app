@@ -42,6 +42,13 @@ export function routeForNotification(data: Record<string, unknown>): string {
     if (id) return route(id);
   }
 
+  // A smart alert about several tasks opens the first one, as on the web.
+  if (dataString(data, "category") === "suggestion") {
+    const ids = data.taskIds;
+    const first = Array.isArray(ids) ? ids.find((id): id is string => typeof id === "string" && id !== "") : undefined;
+    if (first) return `/(app)/tasks/${first}`;
+  }
+
   const category = dataString(data, "category") ?? dataString(data, "kind");
   if (category === "digest" || category === "pomodoro") return "/(app)/dashboard";
   return "/(app)/today";

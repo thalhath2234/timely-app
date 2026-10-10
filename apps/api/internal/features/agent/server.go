@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"sync"
 	"time"
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/calendar"
@@ -51,6 +52,9 @@ type Deps struct {
 	// Pick lets smart suggestions check a bulk edit's shortlist; nil or
 	// ok=false returns the shortlist unchecked.
 	Pick func(ctx context.Context, userID, description string, hits []search.Hit) (matches, unsure []search.Hit, left int, ok bool)
+	// DecisionsOn reports whether an account has smart suggestions; the MCP
+	// instructions point at pick_tasks only then. nil never does.
+	DecisionsOn func(ctx context.Context, userID string) bool
 }
 
 type Server struct {
@@ -62,7 +66,43 @@ type Server struct {
 // SheetFormulaHelp is shared by external MCP and the in-app tool catalog.
 const SheetFormulaHelp = "Formulas start with = and use same-tab A1 coordinates (data starts at row 1, headers excluded). Supported ranges: N2:N21 (bounded), N:N (whole column), 2:2 (whole row), N2:N (row 2 onward), B2:2 (column B onward). Whole/open ranges include future rows or columns. Use SUM to add ranges: =B5+SUM(N2:N), not =B5+N2:N. SUM, AVERAGE, MIN, MAX, PRODUCT, COUNT and COUNTA accept ranges. Date helpers: TODAY(), DATE(y,m,d), YEAR, MONTH, DAY, WEEKDAY(date[,type]) (1=Sun..7=Sat; type 2 = 1=Mon..7=Sun), DAYS(end,start), TEXT(value,format) with date tokens dddd/ddd (weekday name), mmmm/mmm (month name), yyyy, mm, dd. =TEXT(A1,\"dddd\") gives the weekday of a date cell. Keep the formula cell outside its own range to avoid #CYCLE!. Cross-tab references are unsupported. Formulas are stored verbatim and evaluated by the web/desktop/mobile clients; tool responses contain raw formulas, not calculated results. Existing positional references are not automatically rewritten after structural edits."
 
+// pickHint is added to the instructions only for accounts with smart
+// suggestions on, where pick_tasks checks each candidate.
+const pickHint = `To pick the targets of a bulk edit described in words ("everything about the website launch"), call pick_tasks and review its matches and unsure tasks before bulk_update_tasks.
+`
+
+// smartTwins maps a server from New to its copy whose instructions carry
+// pickHint, and the check that decides per account which one answers.
+var smartTwins sync.Map // *mcp.Server -> smartTwin
+
+type smartTwin struct {
+	server *mcp.Server
+	on     func(ctx context.Context, userID string) bool
+}
+
 func New(deps Deps) *mcp.Server {
+	plain := newServer(deps, "")
+	if deps.DecisionsOn != nil {
+		smartTwins.Store(plain, smartTwin{server: newServer(deps, pickHint), on: deps.DecisionsOn})
+	}
+	return plain
+}
+
+// forRequest picks the server for an authenticated request: the one that
+// suggests pick_tasks when the account has smart suggestions on.
+func forRequest(plain *mcp.Server, r *http.Request) *mcp.Server {
+	twin, ok := smartTwins.Load(plain)
+	if !ok {
+		return plain
+	}
+	info := mcpauth.TokenInfoFromContext(r.Context())
+	if t := twin.(smartTwin); info != nil && info.UserID != "" && t.on(r.Context(), info.UserID) {
+		return t.server
+	}
+	return plain
+}
+
+func newServer(deps Deps, extra string) *mcp.Server {
 	s := &Server{Deps: deps}
 	server := mcp.NewServer(&mcp.Implementation{Name: "timely", Version: "1.0.0"}, &mcp.ServerOptions{
 		Instructions: `Timely personal productivity MCP. Call get_context first.
@@ -79,8 +119,7 @@ Checklist items are lightweight completion text on a task and are not scheduled.
 Today: get_today, set_today_focus, start_focus/stop_focus (actualMinutes is focused time, separate from duration).
 Duplicate with duplicate_task / duplicate_project (checklist copied; no blocks/completion).
 Auto-schedule v2: preview shows add/move/remove/pin, skip messages, capacity, and deadline risk. Recurring work occurrences in the horizon are placed without creating extra task rows. Frozen hours, locked tasks, and manual pins stay put. undo_schedule reverts the last apply. Scores from what_next and the engine are ordering hints, not certainty.
-To pick the targets of a bulk edit described in words ("everything about the website launch"), call pick_tasks and review its matches and unsure tasks before bulk_update_tasks.
-bulk_update_tasks applies one patch to many tasks: complete/reopen, status, priority, project, stage, deadline, and labelIds (replaces the full set; [] clears). It never schedules; place tasks one at a time with schedule_task.
+` + extra + `bulk_update_tasks applies one patch to many tasks: complete/reopen, status, priority, project, stage, deadline, and labelIds (replaces the full set; [] clears). It never schedules; place tasks one at a time with schedule_task.
 Archive docs/sheets with archive_doc / archive_sheet (archived=false unarchives). list_docs/list_sheets archived=true lists the archive. Prefer archive over delete.
 Sheet columns are text, number, date, boolean, currency, percent, formula, or select (dropdown with options); update_sheet_cells coerces literal values to the column type and appends unknown select values to the options. A sheet is a workbook of tabs; the first tab is the primary grid and is renamed with rename_sheet_tab (tabId empty). ` + SheetFormulaHelp + `
 Saved views can filter by project, priority, labels, stage, completed, overdue, scheduled, recurring, and showReminders. renderMode is list, kanban, or gantt.
@@ -91,8 +130,8 @@ Destructive deletes of a workspace, project, or document require confirm=true. D
 }
 
 func Handler(mcpServer *mcp.Server, verifier mcpauth.TokenVerifier) http.Handler {
-	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
-		return mcpServer
+	stream := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		return forRequest(mcpServer, r)
 	}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	return mcpauth.RequireBearerToken(verifier, &mcpauth.RequireBearerTokenOptions{
 		AllowMissingExpiration: true,

@@ -70,7 +70,7 @@ export default function SearchTab() {
 
   function create(kind: SmartCategory, title?: string) {
     Keyboard.dismiss();
-    if (kind === "project") router.push(destinations.project);
+    if (kind === "project") router.push(title ? { pathname: "/(app)/projects", params: { title } } : destinations.project);
     else requestQuickAdd(title ? { kind, title } : { kind });
   }
 

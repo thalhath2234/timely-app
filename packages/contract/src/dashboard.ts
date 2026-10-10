@@ -162,6 +162,8 @@ export interface BuiltinCardInfo {
   minW: number;
   minH: number;
   settings?: Record<string, unknown>;
+  /** Offered only while smart suggestions are available. */
+  smart?: boolean;
 }
 
 export const BUILTIN_CARDS: BuiltinCardInfo[] = [
@@ -250,8 +252,14 @@ export const BUILTIN_CARDS: BuiltinCardInfo[] = [
     h: 4,
     minW: 4,
     minH: 3,
+    smart: true,
   },
 ];
+
+/** The cards the add-card catalogue offers; smart cards only while smart suggestions are available. */
+export function catalogCards(smartAvailable: boolean): BuiltinCardInfo[] {
+  return smartAvailable ? BUILTIN_CARDS : BUILTIN_CARDS.filter((card) => !card.smart);
+}
 
 export function builtinInfo(type: DashboardCardType): BuiltinCardInfo | undefined {
   return BUILTIN_CARDS.find((card) => card.type === type);

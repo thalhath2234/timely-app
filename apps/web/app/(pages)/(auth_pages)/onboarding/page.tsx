@@ -5,7 +5,7 @@ import { completeOnboarding, createWorkspace } from "@/app/utils/api/worksapce";
 import { Config } from "@/app/_types/types";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useConfig } from "@/app/utils/hooks/workspaces";
@@ -48,6 +48,9 @@ export default function Onboarding() {
   const [step, setStep] = useState<1 | 2>(1);
   const [uses, setUses] = useState<string[]>([]);
   const [unpicked, setUnpicked] = useState<Set<string>>(new Set());
+  // Starter workspaces: each picked use offers a workspace name; the first
+  // can name this workspace and the others can be created alongside it.
+  const [alsoCreate, setAlsoCreate] = useState<Set<string>>(new Set());
   const { data: personal } = useQuery({
     queryKey: ["personal-prefs"],
     queryFn: getPersonalPrefs,
@@ -62,6 +65,13 @@ export default function Onboarding() {
   const useOptions = personal?.uses ?? [];
   const starter = uses.length > 0 ? (presets?.labels ?? []) : [];
   const chosenLabels = starter.filter((l) => !unpicked.has(l.name));
+  const starterWorkspaces = [
+    ...new Set(
+      useOptions
+        .filter((u) => uses.includes(u.key) && u.workspace)
+        .map((u) => u.workspace as string),
+    ),
+  ];
   const toggleUse = (key: string) =>
     setUses((prev) =>
       prev.includes(key) ? prev.filter((u) => u !== key) : [...prev, key],
@@ -86,11 +96,27 @@ export default function Onboarding() {
   const {
     register,
     handleSubmit,
+    setValue,
+    control,
     formState: { errors, isValid },
   } = useForm<WorkspaceForm>({
     resolver: zodResolver(workspaceSchema),
     mode: "onChange",
   });
+  const workspaceName = (useWatch({ control, name: "name" }) ?? "").trim();
+  const extraWorkspaces = starterWorkspaces.filter(
+    (n) =>
+      alsoCreate.has(n) && n.toLowerCase() !== workspaceName.toLowerCase(),
+  );
+  const nameWorkspace = (name: string) =>
+    setValue("name", name, { shouldValidate: true, shouldDirty: true });
+  const toggleAlso = (name: string) =>
+    setAlsoCreate((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
 
   const { mutate, isPending } = useMutation({
     mutationFn: async (data: { name: string }) => {
@@ -104,6 +130,8 @@ export default function Onboarding() {
       if (useCase) await savePersonalUseCase(useCase).catch(() => {});
       if (workspace?.id && chosenLabels.length > 0)
         await applyStarterLabels(workspace.id, chosenLabels).catch(() => {});
+      for (const name of extraWorkspaces)
+        await createWorkspace({ name }).catch(() => {});
 
       if (!isOnboardingDone) {
         await completeOnboarding();
@@ -267,7 +295,11 @@ export default function Onboarding() {
                 <button
                   type="button"
                   disabled={uses.length === 0}
-                  onClick={() => setStep(2)}
+                  onClick={() => {
+                    if (!workspaceName && starterWorkspaces[0])
+                      nameWorkspace(starterWorkspaces[0]);
+                    setStep(2);
+                  }}
                   className="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-[#c0c1ff] text-sm font-semibold text-[#1000a9] shadow-sm transition hover:bg-[#a8a6ff] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Continue
@@ -317,6 +349,70 @@ export default function Onboarding() {
                   )}
                 </div>
 
+                {starterWorkspaces.length > 0 ? (
+                  <div data-testid="starter-workspaces">
+                    <p className="mb-2 text-[0.6875rem] font-medium tracking-[0.08em] text-[#c7c4d7] uppercase">
+                      Suggested names
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {starterWorkspaces.map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          aria-pressed={workspaceName === n}
+                          onClick={() => nameWorkspace(n)}
+                          className={
+                            "rounded-full border px-2.5 py-1 text-xs transition " +
+                            (workspaceName === n
+                              ? "border-[#c0c1ff] bg-[#c0c1ff]/15 text-[#e2e2eb]"
+                              : "border-white/10 text-[#c7c4d7] hover:border-white/25")
+                          }
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                    {starterWorkspaces.some(
+                      (n) => n.toLowerCase() !== workspaceName.toLowerCase(),
+                    ) ? (
+                      <>
+                        <p className="mt-4 mb-2 text-[0.6875rem] font-medium tracking-[0.08em] text-[#c7c4d7] uppercase">
+                          Also create
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {starterWorkspaces
+                            .filter(
+                              (n) =>
+                                n.toLowerCase() !== workspaceName.toLowerCase(),
+                            )
+                            .map((n) => {
+                              const on = alsoCreate.has(n);
+                              return (
+                                <button
+                                  key={n}
+                                  type="button"
+                                  aria-pressed={on}
+                                  onClick={() => toggleAlso(n)}
+                                  className={
+                                    "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition " +
+                                    (on
+                                      ? "border-[#c0c1ff] bg-[#c0c1ff]/15 text-[#e2e2eb]"
+                                      : "border-dashed border-white/10 text-[#908fa0] hover:border-white/25")
+                                  }
+                                >
+                                  {on ? (
+                                    <Check className="size-3 text-[#c0c1ff]" />
+                                  ) : null}
+                                  {n} workspace
+                                </button>
+                              );
+                            })}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <button
                   type="submit"
                   disabled={!isValid || isPending}
@@ -334,10 +430,18 @@ export default function Onboarding() {
                     </>
                   )}
                 </button>
-                {chosenLabels.length > 0 ? (
+                {chosenLabels.length > 0 || extraWorkspaces.length > 0 ? (
                   <p className="text-center text-xs text-[#908fa0]">
-                    Adds {chosenLabels.length} starter label
-                    {chosenLabels.length === 1 ? "" : "s"}
+                    {[
+                      chosenLabels.length > 0
+                        ? `Adds ${chosenLabels.length} starter label${chosenLabels.length === 1 ? "" : "s"}`
+                        : "",
+                      extraWorkspaces.length > 0
+                        ? `${chosenLabels.length > 0 ? "and" : "Adds"} ${extraWorkspaces.length} more workspace${extraWorkspaces.length === 1 ? "" : "s"}`
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                   </p>
                 ) : null}
                 <button

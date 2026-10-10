@@ -16,12 +16,15 @@ type AutoScheduleApply struct {
 	From, To     time.Time
 	// FreezeUntil keeps Engine blocks that start before it (zero means none).
 	FreezeUntil time.Time
-	// ReplaceManualIDs are tasks whose Manual blocks the person agreed to replace.
+	// ReplaceManualIDs are tasks whose Manual blocks the person agreed to
+	// replace. Only unlocked ones that end after From go: past blocks are
+	// history and locked ones stay.
 	ReplaceManualIDs []string
 	// Next are the new Engine blocks.
 	Next []models.ScheduledBlock
-	// Revision builds the Undo record from the Engine blocks being replaced. It
-	// is saved in the same transaction as the Block writes.
+	// Revision builds the Undo record from the blocks being replaced (Engine
+	// blocks, then any Manual ones). It is saved in the same transaction as
+	// the Block writes.
 	Revision func(replaced []models.ScheduledBlock) (*models.ScheduleRevision, error)
 }
 
@@ -30,7 +33,8 @@ type AutoScheduleUndo struct {
 	RevisionID string
 	TaskIDs    []string
 	From, To   time.Time
-	// Restore are the Engine blocks the revision replaced.
+	// Restore are the blocks the revision replaced, Manual ones included;
+	// they come back with their own source and lock.
 	Restore []models.ScheduledBlock
 }
 
@@ -57,11 +61,14 @@ func (s *Service) ApplyAutoSchedule(userID string, in AutoScheduleApply) error {
 		if err := store.DeleteEngineBlocksInRange(tx, in.CandidateIDs, in.From, in.To, in.FreezeUntil); err != nil {
 			return err
 		}
-		for _, id := range in.ReplaceManualIDs {
-			if err := store.DeleteForTask(id, models.BlockSourceManual); err != nil {
-				return err
-			}
+		manual, err := store.replaceableManualBlocks(userID, in.ReplaceManualIDs, in.From)
+		if err != nil {
+			return err
 		}
+		if err := store.deleteBlocks(tx, manual); err != nil {
+			return err
+		}
+		replaced = append(replaced, manual...)
 		if err := store.InsertMany(tx, in.Next); err != nil {
 			return err
 		}
@@ -73,8 +80,9 @@ func (s *Service) ApplyAutoSchedule(userID string, in AutoScheduleApply) error {
 	})
 }
 
-// UndoAutoSchedule removes the Engine blocks an Apply wrote, restores the ones
-// it replaced, and deletes the revision, in one transaction.
+// UndoAutoSchedule removes the Engine blocks an Apply wrote, restores the
+// blocks it replaced (Manual ones included), and deletes the revision, in one
+// transaction.
 func (s *Service) UndoAutoSchedule(userID string, in AutoScheduleUndo) error {
 	if err := s.ready(); err != nil {
 		return err
@@ -117,4 +125,40 @@ func (s *blockStore) engineBlocksInRange(userID string, taskIDs []string, from, 
 		out = []models.ScheduledBlock{}
 	}
 	return out, err
+}
+
+// replaceableManualBlocks are the tasks' Manual blocks a replace removes:
+// unlocked and ending after from.
+func (s *blockStore) replaceableManualBlocks(userID string, taskIDs []string, from time.Time) ([]models.ScheduledBlock, error) {
+	if len(taskIDs) == 0 {
+		return nil, nil
+	}
+	var out []models.ScheduledBlock
+	err := s.db.Where("user_id = ? AND task_id IN ? AND source = ? AND locked = ? AND end_at > ?",
+		userID, taskIDs, models.BlockSourceManual, false, from).
+		Order("start_at ASC").
+		Find(&out).Error
+	return out, err
+}
+
+// deleteBlocks removes the given blocks and refreshes their tasks' scheduled_on.
+func (s *blockStore) deleteBlocks(tx *gorm.DB, blocks []models.ScheduledBlock) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(blocks))
+	touched := map[string]bool{}
+	for _, b := range blocks {
+		ids = append(ids, b.ID)
+		touched[b.TaskID] = true
+	}
+	if err := tx.Where("id IN ?", ids).Delete(&models.ScheduledBlock{}).Error; err != nil {
+		return err
+	}
+	for id := range touched {
+		if err := syncScheduledOn(tx, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }

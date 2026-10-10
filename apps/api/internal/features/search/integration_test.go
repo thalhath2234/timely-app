@@ -249,3 +249,36 @@ func TestIntegrationExistingDropsGoneItems(t *testing.T) {
 		t.Fatalf("other account's items must be dropped: %v", got)
 	}
 }
+
+func TestIntegrationRelatableDropsInboxAndOwnTasks(t *testing.T) {
+	db := integrationDB(t)
+	user := uuid.NewString()
+	seed(t, db, user)
+	if err := db.Exec(`INSERT INTO tasks (id, name, user_id, workspace_id, kind, updated_at) VALUES (?, 'Call the bank', ?, NULL, ?, now())`,
+		"t-inbox", user, models.KindInbox).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`UPDATE tasks SET project_id = ? WHERE id = ?`, "p-title", "t-prefix").Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(db, nil)
+	hits := []embed.Hit{
+		{Kind: "task", EntityID: "t-exact"},
+		{Kind: "task", EntityID: "t-inbox"},
+		{Kind: "task", EntityID: "t-prefix"},
+		{Kind: "doc", EntityID: "d-body"},
+	}
+	ids := func(hits []embed.Hit) string {
+		out := []string{}
+		for _, h := range hits {
+			out = append(out, h.EntityID)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := ids(svc.Relatable(user, "project", "p-title", hits)); got != "t-exact,d-body" {
+		t.Fatalf("project related = %s, want no inbox item and none of its own tasks", got)
+	}
+	if got := ids(svc.Relatable(user, "doc", "d-other", hits)); got != "t-exact,t-prefix,d-body" {
+		t.Fatalf("doc related = %s, want no inbox item", got)
+	}
+}

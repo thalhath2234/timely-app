@@ -21,6 +21,31 @@ const (
 	AlertReschedule = "reschedule" // find time for it with Auto-schedule
 )
 
+// alertSteps are the steps that fit each kind of alert [88]. Inbox items
+// are not Work yet, so they are only clarified or reviewed.
+var alertSteps = map[string][]string{
+	"inbox":     {AlertClarify, AlertReview},
+	"project":   {AlertReview, AlertFocus, AlertReschedule},
+	"due":       {AlertReschedule, AlertFocus, AlertReview},
+	"unblocked": {AlertFocus, AlertReschedule, AlertReview},
+	"stale":     {AlertReview, AlertClarify, AlertFocus, AlertReschedule},
+}
+
+// AlertStepFits reports whether step suits an alert of this kind. An alert
+// with no known kind takes any step.
+func AlertStepFits(kind, step string) bool {
+	steps, ok := alertSteps[kind]
+	if !ok {
+		return step == AlertReview || step == AlertClarify || step == AlertFocus || step == AlertReschedule
+	}
+	for _, s := range steps {
+		if s == step {
+			return true
+		}
+	}
+	return false
+}
+
 // AlertItem is one piece of Work a smart alert is about.
 type AlertItem struct {
 	ID   string `json:"id"`
@@ -38,6 +63,7 @@ type Alert struct {
 	Body      string
 	Action    string
 	Items     []AlertItem
+	LogID     string // the decision behind it, for kept feedback
 }
 
 // Alerter returns today's smart alerts for a person; Work in skip was alerted
@@ -47,6 +73,18 @@ type Alerter func(ctx context.Context, userID string, now time.Time, skip map[st
 // SetAlerts connects smart suggestions to the daily smart alerts.
 func (s *Service) SetAlerts(fn Alerter) { s.alerts = fn }
 
+// SetDecisions tells smart alerts and the briefing whether smart suggestions
+// are available for an account, and records whether the person kept one.
+func (s *Service) SetDecisions(available func(ctx context.Context, userID string) bool, feedback func(userID, logID string, accepted bool) error) {
+	s.decisionsOn, s.feedback = available, feedback
+}
+
+// smartOn is false when smart suggestions are off for the account; with no
+// status wired, it is left to the Alerter and Briefer.
+func (s *Service) smartOn(ctx context.Context, userID string) bool {
+	return s.decisionsOn == nil || s.decisionsOn(ctx, userID)
+}
+
 const (
 	maxAlertsPerDay = 3
 	alertQuietDays  = 7
@@ -55,7 +93,7 @@ const (
 
 // sweepSmartAlerts queues one smart alerts job a day, from the morning
 // digest time on, while the setting is on.
-func (s *Service) sweepSmartAlerts(userID string, now time.Time) error {
+func (s *Service) sweepSmartAlerts(ctx context.Context, userID string, now time.Time) error {
 	if s.alerts == nil {
 		return nil
 	}
@@ -72,7 +110,7 @@ func (s *Service) sweepSmartAlerts(userID string, now time.Time) error {
 	}
 	day := local.Format("2006-01-02")
 	key := "smart_alerts:" + userID + ":" + day
-	if s.queue.HasJob(key) {
+	if s.queue.HasJob(key) || !s.smartOn(ctx, userID) {
 		return nil
 	}
 	_, err = s.queue.Enqueue(jobs.Enqueue{UserID: userID, Kind: models.JobSmartAlerts, DedupeKey: key, Payload: models.JobPayload{"date": day}})
@@ -119,6 +157,9 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 		if a.ProjectID != "" {
 			data["projectId"] = a.ProjectID
 		}
+		if a.LogID != "" {
+			data["logId"] = a.LogID
+		}
 		ntf := &models.Notification{UserID: job.UserID, Category: models.NotifySuggestion, Title: a.Title, Body: a.Body, Data: data,
 			DedupeKey: strPtr("suggestion:" + job.UserID + ":" + day + ":" + a.Key)}
 		if len(a.Items) == 1 {
@@ -139,8 +180,12 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 }
 
 // applyAlert runs a smart alert's Focus or Reschedule step; Review and
-// Clarify open the Work in the app and only mark the alert read.
+// Clarify open the Work in the app and only mark the alert read. A step
+// taken counts as a kept suggestion.
 func (s *Service) applyAlert(userID string, n *models.Notification, action string) (string, error) {
+	if !AlertStepFits(n.Data.String("kind"), action) {
+		return "", errors.New("this step does not fit this alert")
+	}
 	ids := alertTaskIDs(n)
 	if len(ids) == 0 {
 		return "", errors.New("this alert has no work left")
@@ -177,7 +222,7 @@ func (s *Service) applyAlert(userID string, n *models.Notification, action strin
 		// is given, even one it finds no new time for, so only the tasks the
 		// dry run places are applied.
 		req := schedule.PlanRequest{TaskIDs: open, Timezone: s.notificationTimezone(userID)}
-		preview, err := s.schedule.Preview(userID, req)
+		preview, err := s.schedule.DryRun(userID, req)
 		if err != nil {
 			return "", err
 		}
@@ -218,6 +263,11 @@ func (s *Service) applyAlert(userID string, n *models.Notification, action strin
 	}
 	if _, err := s.repo.MarkRead(userID, n.ID); err != nil {
 		return "", err
+	}
+	if logID := n.Data.String("logId"); logID != "" && s.feedback != nil {
+		if err := s.feedback(userID, logID, true); err != nil {
+			log.Printf("notify: smart alert feedback: %v", err)
+		}
 	}
 	return message, nil
 }

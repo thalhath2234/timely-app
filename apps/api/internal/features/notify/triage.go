@@ -60,6 +60,9 @@ func (s *Service) suggestLater(notificationID, userID string, item *models.Task,
 		s.triageSlots <- struct{}{}
 		defer func() { <-s.triageSlots }()
 		step := s.triage(context.Background(), userID, item, kind, overdueDays)
+		if !triageFits(category, step, item) {
+			return
+		}
 		if body, ok := triageBody[category][step]; ok {
 			if err := s.repo.SetSuggestion(notificationID, step, body); err != nil {
 				log.Printf("notify: save suggested step: %v", err)
@@ -68,13 +71,29 @@ func (s *Service) suggestLater(notificationID, userID string, item *models.Task,
 	}()
 }
 
+// triageFits reports whether step can run on the notification's task. A
+// repeating task's missed block only offers a lower priority: adding time or
+// moving it would change every occurrence, not the one that was missed.
+func triageFits(category, step string, item *models.Task) bool {
+	if category == models.NotifyMissed && item != nil && item.IsRecurring() {
+		return step == triageLower
+	}
+	return true
+}
+
+// errRepeats and errLocked are the steps triage refuses rather than half-do.
+var (
+	errRepeats = errors.New("it repeats, so this would change every occurrence; move this one from the calendar")
+	errLocked  = errors.New("it has time you locked; move it from the calendar")
+)
+
 func daysPast(deadline string, today task.Today) int {
 	d, err := time.ParseInLocation("2006-01-02", models.NormalizeDate(deadline), today.Location())
 	if err != nil {
 		return 0
 	}
 	t, _ := time.ParseInLocation("2006-01-02", today.Date(), today.Location())
-	return int(t.Sub(d).Hours() / 24)
+	return DaysBetween(d, t)
 }
 
 // lowerPriority is one step down; Low stays Low.
@@ -116,15 +135,27 @@ func (s *Service) ApplyTriage(userID, notificationID, action string) (string, er
 	if item.IsCompleted() {
 		return "", errors.New("this task is already done")
 	}
-	// The person asked to move this task, so its hand-placed blocks (the
-	// missed one included) are replaced too; other tasks are not touched.
-	// A dry run comes first: Apply drops those blocks even when the engine
-	// finds no new time, so nothing changes unless the task gets placed.
+	if !triageFits(n.Category, action, item) {
+		return "", errRepeats
+	}
+	// An old chip may run after the person already moved the deadline.
+	if n.Category == models.NotifyOverdue &&
+		(item.Deadline == nil || !overdueTaskCurrent(item, *item.Deadline, s.notificationToday(userID))) {
+		return "", errors.New("it's no longer past its deadline")
+	}
+	// The person asked to move this task, so its hand-placed blocks still
+	// ahead are replaced too (the missed one is history and stays); other
+	// tasks are not touched. A dry run comes first: Apply drops those blocks
+	// even when the engine finds no new time, so nothing changes unless the
+	// task gets placed. It skips the Preview hook, so no model call waits.
 	replan := func() error {
 		req := schedule.PlanRequest{TaskIDs: []string{item.ID}, Timezone: s.notificationTimezone(userID), IncludeManual: true}
-		plan, err := s.schedule.Preview(userID, req)
+		plan, err := s.schedule.DryRun(userID, req)
 		if err != nil {
 			return err
+		}
+		if pinned(plan, item.ID) {
+			return errLocked
 		}
 		if !placed(plan, item.ID) {
 			return errNoTime
@@ -157,6 +188,10 @@ func (s *Service) ApplyTriage(userID, notificationID, action string) (string, er
 	case triageExtend:
 		day := s.notificationToday(userID).Now().AddDate(0, 0, 7)
 		date := day.Format("2006-01-02")
+		// Never earlier than the deadline it has now.
+		if item.Deadline != nil && models.NormalizeDate(*item.Deadline) >= date {
+			return "", errors.New("its deadline is already a week or more away")
+		}
 		if _, err := s.tasks.Update(userID, item.ID, task.TaskUpdate{Deadline: &date}); err != nil {
 			return "", err
 		}
@@ -177,7 +212,7 @@ func (s *Service) ApplyTriage(userID, notificationID, action string) (string, er
 			return "", err
 		}
 		if err := replan(); err != nil {
-			if errors.Is(err, errNoTime) {
+			if errors.Is(err, errNoTime) || errors.Is(err, errLocked) {
 				previous := item.Duration
 				_, _ = s.tasks.Update(userID, item.ID, task.TaskUpdate{Duration: &previous})
 			}
@@ -201,6 +236,17 @@ var errNoTime = errors.New("no free time for it in the planning window, so nothi
 func placed(plan *schedule.PlanResponse, taskID string) bool {
 	for _, p := range plan.Proposals {
 		if p.TaskID == taskID && len(p.Blocks) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// pinned is true when the plan left the task alone because it is pinned or
+// has locked time ahead.
+func pinned(plan *schedule.PlanResponse, taskID string) bool {
+	for _, s := range plan.Skipped {
+		if s.TaskID == taskID && s.Reason == schedule.ReasonLocked {
 			return true
 		}
 	}

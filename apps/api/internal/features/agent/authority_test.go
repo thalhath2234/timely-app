@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -222,5 +225,52 @@ func TestChatCannotDeleteWholeObjectsOrChangeSettings(t *testing.T) {
 		if !ok || authority.Access != Write || authority.Approval != Reviewed {
 			t.Errorf("%s must be a reviewed chat write", name)
 		}
+	}
+}
+
+// The instructions point at pick_tasks only for accounts with smart
+// suggestions on; without a key the model is told what it always was.
+func TestPickHintOnlyWithDecisions(t *testing.T) {
+	ctx := context.Background()
+	instructions := func(s *mcp.Server) string {
+		t.Helper()
+		server, clientSide := mcp.NewInMemoryTransports()
+		session, err := s.Connect(ctx, server, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+		client, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientSide, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+		return client.InitializeResult().Instructions
+	}
+	plain := New(Deps{DecisionsOn: func(_ context.Context, uid string) bool { return uid == "usr_on" }})
+	if strings.Contains(instructions(plain), "pick_tasks") {
+		t.Fatal("plain instructions mention pick_tasks")
+	}
+	pick := func(uid string) *mcp.Server {
+		var got *mcp.Server
+		verify := func(context.Context, string, *http.Request) (*mcpauth.TokenInfo, error) {
+			return &mcpauth.TokenInfo{UserID: uid}, nil
+		}
+		h := mcpauth.RequireBearerToken(verify, &mcpauth.RequireBearerTokenOptions{AllowMissingExpiration: true})(
+			http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = forRequest(plain, r) }))
+		r := httptest.NewRequest("POST", "/mcp", nil)
+		r.Header.Set("Authorization", "Bearer token")
+		h.ServeHTTP(httptest.NewRecorder(), r)
+		return got
+	}
+	if s := pick("usr_off"); s != plain {
+		t.Fatal("an account without suggestions got the smart server")
+	}
+	smart := pick("usr_on")
+	if smart == plain || !strings.Contains(instructions(smart), "call pick_tasks") {
+		t.Fatal("an account with suggestions is not told about pick_tasks")
+	}
+	if s := New(Deps{}); forRequest(s, httptest.NewRequest("POST", "/mcp", nil)) != s {
+		t.Fatal("without DecisionsOn the one server answers")
 	}
 }

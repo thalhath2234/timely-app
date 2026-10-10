@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
@@ -164,7 +165,10 @@ func (s *Server) createTask(ctx context.Context, req *mcp.CallToolRequest, in cr
 	if err != nil {
 		return fail(err)
 	}
-	if in.Duration == nil && s.Estimate != nil && (in.Kind == "" || strings.EqualFold(in.Kind, models.KindTask)) {
+	// In-app chat proposals arrive with the estimate already in duration
+	// (chat estimates them in one batch before rehearsing); a sensitive chat
+	// sends no titles to Jev.
+	if in.Duration == nil && s.Estimate != nil && !decide.IsSensitive(ctx) && (in.Kind == "" || strings.EqualFold(in.Kind, models.KindTask)) {
 		if minutes, ok := s.Estimate(ctx, uid, in.Name, in.Description); ok {
 			in.Duration = &minutes
 		}

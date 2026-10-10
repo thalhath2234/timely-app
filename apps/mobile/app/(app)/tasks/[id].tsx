@@ -303,6 +303,11 @@ export default function TaskDetailScreen() {
               setCustomFieldValues(next);
               persist({ customFieldValues: next });
             }}
+            onPreferredWindow={(window) => {
+              setPreferStart(window.start);
+              setPreferEnd(window.end);
+              persist({ preferredWindows: [window] });
+            }}
           />
         ) : null}
         <DescriptionCard

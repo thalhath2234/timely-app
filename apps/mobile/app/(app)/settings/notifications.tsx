@@ -11,6 +11,7 @@ import {
   requestNotificationPermission,
 } from "../../../lib/notifications";
 import {
+  useDecisionsStatusQuery,
   useFailedJobsQuery,
   useJobHealthQuery,
   useNotificationSettingsQuery,
@@ -30,6 +31,7 @@ export default function NotificationSettingsScreen() {
   const jobs = useFailedJobsQuery();
   const health = useJobHealthQuery();
   const retry = useRetryJob();
+  const smart = useDecisionsStatusQuery().data?.available === true;
   const [draft, setDraft] = useState<NotificationSettings | null>(null);
   const [message, setMessage] = useState("");
 
@@ -108,11 +110,13 @@ export default function NotificationSettingsScreen() {
                 active={draft.digestEvening}
                 onPress={() => setDraft({ ...draft, digestEvening: !draft.digestEvening })}
               />
-              <Chip
-                label="Smart alerts"
-                active={draft.smartAlerts !== false}
-                onPress={() => setDraft({ ...draft, smartAlerts: draft.smartAlerts === false })}
-              />
+              {smart ? (
+                <Chip
+                  label="Smart alerts"
+                  active={draft.smartAlerts !== false}
+                  onPress={() => setDraft({ ...draft, smartAlerts: draft.smartAlerts === false })}
+                />
+              ) : null}
             </View>
             <Field value={draft.morningDigestAt} onChangeText={(morningDigestAt) => setDraft({ ...draft, morningDigestAt })} placeholder="Morning HH:mm" />
             <Field value={draft.eveningDigestAt} onChangeText={(eveningDigestAt) => setDraft({ ...draft, eveningDigestAt })} placeholder="Evening HH:mm" />

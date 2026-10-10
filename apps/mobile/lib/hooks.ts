@@ -60,6 +60,9 @@ import {
   getTaskHints,
   keepStaleTask,
   patchDecisionSettings,
+  patchDeepWorkTime,
+  type DeepWorkTime,
+  testDecisions,
   removeTypeSafeKey,
   sendDecisionFeedback,
   getScreenTip,
@@ -68,11 +71,15 @@ import {
   getLearned,
   resetLearned,
   getStarterLabels,
+  getCleanupSuggestions,
+  mergeTaxonomy,
+  type CleanupMerge,
   getPersonalPrefs,
   savePersonalUseCase,
   type TipScreen,
   setTypeSafeKey,
   type DecisionSettings,
+  getEstimate,
 } from "./api/decisions";
 import {
   getJobHealth,
@@ -123,6 +130,7 @@ export const keys = {
   search: (q: string) => ["search", q] as const,
   smartSearch: (q: string) => ["smart-search", q] as const,
   related: (kind: string, id: string) => ["related", kind, id] as const,
+  estimate: (title: string) => ["estimate", title] as const,
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
   agentProviders: ["agent-providers"] as const,
@@ -140,6 +148,7 @@ export const keys = {
   chatPrompts: (projectId: string) => ["chat-prompts", projectId] as const,
   learned: ["decisions-learned"] as const,
   starterLabels: (workspaceId: string) => ["starter-labels", workspaceId] as const,
+  cleanup: (workspaceId: string) => ["cleanup-suggestions", workspaceId] as const,
   personalPrefs: ["personal-prefs"] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
@@ -418,6 +427,19 @@ export function useSmartSearchQuery(debouncedQuery: string, enabled = true) {
   return { ...result, query };
 }
 
+/** A suggested length for new Work with this title; quiet while Smart suggestions are off. */
+export function useEstimateQuery(title: string, enabled = true) {
+  const name = title.trim();
+  const status = useDecisionsStatusQuery(enabled && name.length >= 3);
+  return useQuery({
+    queryKey: keys.estimate(name),
+    queryFn: () => getEstimate(name),
+    enabled: enabled && name.length >= 3 && status.data?.available === true,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+}
+
 /** Items related to one task, project, doc or sheet; quiet while Smart suggestions are off. */
 export function useRelatedQuery(kind: RelatedKind, id: string | undefined, enabled = true) {
   const status = useDecisionsStatusQuery(enabled && !!id);
@@ -500,6 +522,9 @@ export const usePatchDecisionSettings = () =>
   useDecisionSettingsMutation((enabled: boolean) => patchDecisionSettings(enabled));
 export const useSetTypeSafeKey = () => useDecisionSettingsMutation((key: string) => setTypeSafeKey(key));
 export const useRemoveTypeSafeKey = () => useDecisionSettingsMutation<void>(() => removeTypeSafeKey());
+export const useSetDeepWorkTime = () => useDecisionSettingsMutation((time: DeepWorkTime) => patchDeepWorkTime(time));
+/** One live call with the saved keys; the settings card shows the result. */
+export const useTestDecisions = () => useMutation({ mutationFn: testDecisions });
 
 /** Whether smart suggestions can run. Fails quietly: an older server without
  * the endpoint just means no suggestions. */
@@ -669,6 +694,34 @@ export function useStarterLabelsQuery(workspaceId: string) {
     enabled: !!workspaceId && status.data?.available === true,
     retry: false,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+/** Labels, statuses or options that look like the same thing; quiet while
+ * Smart suggestions are off. */
+export function useCleanupSuggestionsQuery(workspaceId: string) {
+  const status = useDecisionsStatusQuery(!!workspaceId);
+  return useQuery({
+    queryKey: keys.cleanup(workspaceId),
+    queryFn: () => getCleanupSuggestions(workspaceId),
+    enabled: !!workspaceId && status.data?.available === true,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Merges, then refreshes everything that shows labels, statuses or fields. */
+export function useMergeTaxonomy(workspaceId: string) {
+  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (merge: CleanupMerge) => mergeTaxonomy(workspaceId, merge),
+    onSuccess: () => {
+      void invalidate();
+      // Saved views live in config.
+      void client.invalidateQueries({ queryKey: keys.config });
+      void client.invalidateQueries({ queryKey: ["cleanup-suggestions"] });
+    },
   });
 }
 
@@ -1380,7 +1433,7 @@ export function useSetTodayFocus() {
 
 export function useDuplicateProject() {
   const invalidate = useInvalidateAll();
-  return useMutation({ mutationFn: duplicateProject, onSuccess: invalidate });
+  return useMutation({ mutationFn: (id: string) => duplicateProject(id), onSuccess: invalidate });
 }
 
 export function useProjectActivityQuery(id?: string) {

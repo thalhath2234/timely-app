@@ -1,3 +1,4 @@
+import type { ImportFormat } from "@timely/contract/importFormat";
 import { apiFetch } from "./client";
 
 /** Smart suggestions (Jev): which key is in use and whether it is on. */
@@ -38,6 +39,9 @@ export type ClarifySuggestions = {
   labelIds?: string[];
   duration?: number;
   dateRole?: "deadline" | "start" | "reminder";
+  /** The date (YYYY-MM-DD) and time (HH:MM) code read from the words. */
+  date?: string;
+  time?: string;
   severalActions?: boolean;
   notReady?: boolean;
   missing?: "duration" | "place" | "date" | "scope";
@@ -105,7 +109,7 @@ export const getColumnTypeSuggestions = (
   });
 export const getClarifySuggestions = (inboxId: string) =>
   request<ClarifySuggestions>(
-    `/inbox/${encodeURIComponent(inboxId)}/suggestions`,
+    `/inbox/${encodeURIComponent(inboxId)}/suggestions?timezone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`,
   );
 
 /** What a task's own words suggest (Phase 5). Every field is optional. */
@@ -233,10 +237,9 @@ export type MentionMatch = { available: boolean; logId?: string; match?: Mention
 export const matchMention = (text: string, docId?: string) =>
   request<MentionMatch>("/suggestions/mention", "POST", { text, docId });
 
-export type ImportLineKind = "heading" | "bullet" | "numbered" | "quote" | "paragraph";
+export type { ImportLineKind } from "@timely/contract/importFormat";
 /** What each line of a plain-text import is, "paragraph" when unsure. */
-export const getImportFormat = (lines: string[]) =>
-  request<{ available: boolean; kinds: ImportLineKind[] }>("/suggestions/import-format", "POST", { lines });
+export const getImportFormat = (lines: string[]) => request<ImportFormat>("/suggestions/import-format", "POST", { lines });
 
 /** Today: focus picks, the best Work for the next free gap, and how the top
  * open Work lines up with the person's goals. */
@@ -277,7 +280,7 @@ export const runNotificationTriage = (notificationId: string, action: TriageStep
   request<{ message: string }>(`/notifications/${encodeURIComponent(notificationId)}/triage`, "POST", { action });
 
 // Personalisation (Phase 9).
-export type StarterUse = { key: string; label: string };
+export type StarterUse = { key: string; label: string; workspace?: string };
 export type StarterLabel = { name: string; color: string };
 export type PersonalPrefs = { useCase: string; dismissedTips: string[] };
 
@@ -311,3 +314,7 @@ export const getChatPrompts = (projectId: string | undefined, timezone: string) 
 export type LearnedFeature = { feature: string; kept: number; decided: number; raise: number };
 export const getLearned = () => request<{ features: LearnedFeature[] }>("/agent/decisions/learned");
 export const resetLearned = (feature: string) => request<void>("/agent/decisions/learned/reset", "POST", { feature });
+
+/** The work length smart suggestions would offer for a new title; offered, never set. */
+export const getEstimate = (name: string, description = "") =>
+  request<{ available: boolean; minutes?: number }>("/suggestions/estimate", "POST", { name, description });

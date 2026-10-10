@@ -177,6 +177,10 @@ func (l liveOnly) Existing(_ string, hits []embed.Hit) []embed.Hit {
 	return out
 }
 
+func (l liveOnly) Relatable(userID, _, _ string, hits []embed.Hit) []embed.Hit {
+	return l.Existing(userID, hits)
+}
+
 func TestRelatedSkipsDeletedItems(t *testing.T) {
 	var calls atomic.Int32
 	// Jev would confirm both; the doc was deleted but its vectors remain.
@@ -246,6 +250,23 @@ func TestPickSplitsMatchesUnsureAndMisses(t *testing.T) {
 	matches, unsure, _, ok = s.Pick(context.Background(), "u1", "website launch", hits)
 	if ok || len(matches) != 0 || len(unsure) != 4 {
 		t.Fatalf("off: matches %v unsure %v ok %v", matches, unsure, ok)
+	}
+}
+
+// A sensitive chat (a receipt photo) never sends its searches or titles.
+func TestSensitiveChatsSkipRerankAndPick(t *testing.T) {
+	var calls atomic.Int32
+	s := NewSmart(nil, nil, jevService(t, true, map[string]any{"match1": yes(0.02), "pick1": yes(0.97)}, &calls))
+	ctx := decide.WithSensitive(context.Background())
+	hits := []Hit{{ID: "a", Title: "Pharmacy receipt"}}
+	if kept, _, ok := s.Rerank(ctx, "u1", "pharmacy", hits); ok || len(kept) != 1 {
+		t.Fatalf("rerank ran: kept %v ok %v", kept, ok)
+	}
+	if _, unsure, _, ok := s.Pick(ctx, "u1", "pharmacy", hits); ok || len(unsure) != 1 {
+		t.Fatalf("pick ran: unsure %v ok %v", unsure, ok)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("%d calls reached Jev", calls.Load())
 	}
 }
 
