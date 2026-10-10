@@ -110,7 +110,7 @@ var tipCatalog = []screenTip{
 			return fmt.Sprintf("%s waited more than a week. Drop the ones that no longer matter.", isAre(f.InboxOld, "item has", "items have"))
 		}},
 	{key: "inbox_capture", screen: "inbox", webOnly: true, when: func(tipFacts) bool { return true },
-		text: fixed("Press Ctrl+Shift+J (⌘+Shift+J on a Mac) anywhere to capture a thought without leaving the page.")},
+		text: fixed("Press C to jump to the capture box. On other pages, C or N adds an item without leaving the page.")},
 }
 
 func isAre(n int, one, many string) string {

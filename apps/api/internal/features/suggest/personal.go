@@ -37,10 +37,12 @@ type PersonalPrefs struct {
 	DismissedTips []string `json:"dismissedTips"`
 }
 
-// StarterUse is one answer to "what do you use Timely for?".
+// StarterUse is one answer to "what do you use Timely for?", with the
+// workspace name onboarding offers for it.
 type StarterUse struct {
-	Key   string `json:"key"`
-	Label string `json:"label"`
+	Key       string `json:"key"`
+	Label     string `json:"label"`
+	Workspace string `json:"workspace"`
 }
 
 // StarterLabel is a label the catalog can offer.
@@ -51,8 +53,9 @@ type StarterLabel struct {
 }
 
 var starterUses = []StarterUse{
-	{"work", "Work and projects"}, {"personal", "Personal life"}, {"study", "Study"}, {"business", "Running a business"},
-	{"team", "Leading a team"}, {"creative", "Creative work"}, {"health", "Health and fitness"}, {"home", "Home and family"},
+	{"work", "Work and projects", "Work"}, {"personal", "Personal life", "Personal"}, {"study", "Study", "Study"},
+	{"business", "Running a business", "Business"}, {"team", "Leading a team", "Team"}, {"creative", "Creative work", "Creative"},
+	{"health", "Health and fitness", "Health"}, {"home", "Home and family", "Home"},
 }
 
 func lbl(name, color string, uses ...string) StarterLabel {
@@ -100,6 +103,7 @@ func (s *Service) personalRoutes(g *echo.Group) {
 	g.GET("/suggestions/tip", s.tip)
 	g.POST("/suggestions/tips/dismiss", s.dismissTip)
 	g.POST("/suggestions/prompts", s.prompts)
+	g.POST("/suggestions/estimate", s.estimateForm)
 }
 
 // personal reads the person's prefs; a missing row is empty prefs.
