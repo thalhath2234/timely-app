@@ -453,7 +453,7 @@ export default function HomeScreen() {
 
             <Text style={[styles.sectionHeading, styles.endOfDayHeading]}>End of day</Text>
             {data.unfinished.length === 0 ? (
-              <Text style={styles.meta}>All of today’s focus is done.</Text>
+              <Text style={styles.meta}>{focusCount === 0 ? "Nothing in today’s focus yet." : "All of today’s focus is done."}</Text>
             ) : (
               <>
                 <Text style={styles.meta}>

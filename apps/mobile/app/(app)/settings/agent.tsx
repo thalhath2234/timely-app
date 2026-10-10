@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   Keyboard,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -462,6 +463,8 @@ function SmartSuggestionsCard({
           onValueChange={(enabled) => patch.mutate(enabled)}
           trackColor={{ true: colors.primary }}
           thumbColor={colors.background}
+          // react-native-web colours the "on" thumb with its own prop.
+          {...(Platform.OS === "web" ? ({ activeThumbColor: colors.background } as object) : {})}
         />
       </View>
       <Text style={styles.meta}>

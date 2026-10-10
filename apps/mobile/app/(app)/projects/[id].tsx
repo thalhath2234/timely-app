@@ -217,6 +217,8 @@ export default function ProjectDetailScreen() {
           <Text style={styles.label}>Priority</Text>
           <Text style={styles.value}>{project.priorityLevel || "None"}</Text>
         </Pressable>
+        {/* Under the brief and its fields, where web's Overview shows it. */}
+        <ProjectInsightsCard project={project} />
         <SectionLabel>Schedule</SectionLabel>
         <Pressable onPress={() => setPicker("start")} style={styles.card}>
           <Text style={styles.label}>Start</Text>
@@ -345,7 +347,6 @@ export default function ProjectDetailScreen() {
             void duplicate.mutateAsync(project.id).then((copy) => router.push(`/(app)/projects/${copy.id}`))
           }
         />
-        <ProjectInsightsCard project={project} />
         <RelatedList kind="project" id={project.id} />
         <SectionLabel>Activity</SectionLabel>
         <Text style={styles.meta}>Edits to the project’s own title, dates and description are not recorded yet.</Text>

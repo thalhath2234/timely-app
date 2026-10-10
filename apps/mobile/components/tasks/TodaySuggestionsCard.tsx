@@ -67,7 +67,7 @@ export default function TodaySuggestionsCard({
     <View style={styles.card} testID="today-suggestions">
       <View style={styles.header}>
         <Sparkles size={16} color={colors.primary} />
-        <SectionLabel>Suggestions</SectionLabel>
+        <SectionLabel compact>Suggestions</SectionLabel>
       </View>
       {data.error ? <Text style={styles.meta}>{data.error}</Text> : null}
       {focus.length ? <Text style={styles.label}>Worth focusing on today</Text> : null}
@@ -114,7 +114,9 @@ export default function TodaySuggestionsCard({
             <Text style={styles.meta}>
               Free {clock(gap.start)}–{clock(gap.end)} ({formatDuration(gap.minutes)})
             </Text>
-            <Text style={styles.title} numberOfLines={2}>{gap.task.name} fits here</Text>
+            <Text style={styles.title} numberOfLines={2}>
+              {gap.task.name} fits here{gap.task.effortKind ? ` · ${EFFORT[gap.task.effortKind]}` : ""}
+            </Text>
           </View>
           <AnimatedPressable
             accessibilityRole="button"

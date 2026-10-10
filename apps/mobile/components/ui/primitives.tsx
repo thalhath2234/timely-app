@@ -185,10 +185,12 @@ export function Select({
   );
 }
 
-export function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
-  if (!action) return <Text style={styles.section}>{children}</Text>;
+/** A section heading. `compact` drops the outer margins, for a heading
+ * inside a card's own header row. */
+export function SectionLabel({ children, action, compact }: { children: ReactNode; action?: ReactNode; compact?: boolean }) {
+  if (!action) return <Text style={[styles.section, compact && styles.sectionCompact]}>{children}</Text>;
   return (
-    <View style={styles.sectionRow}>
+    <View style={[styles.sectionRow, compact && styles.sectionCompact]}>
       <Text style={styles.sectionInRow}>{children}</Text>
       {action}
     </View>
@@ -321,6 +323,7 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "space-between",
     gap: 8,
   },
+  sectionCompact: { marginTop: 0, marginBottom: 0, marginLeft: 0 },
   sectionInRow: {
     flex: 1,
     color: colors.foreground,

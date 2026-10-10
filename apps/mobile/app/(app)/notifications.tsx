@@ -34,10 +34,12 @@ function routeFor(item: AppNotification) {
   });
 }
 
-/** Other next steps for overdue or missed Work; smart suggestions may mark one
- * as suggested. "Reschedule urgently" keeps its own chip. */
+/** Next steps for overdue or missed Work; smart suggestions may mark one as
+ * suggested. Without them an unread overdue item keeps the plain
+ * "Reschedule urgently" chip, as before. */
 const TRIAGE_STEPS: Record<string, { step: TriageStep; label: string }[]> = {
   overdue: [
+    { step: "reschedule", label: "Reschedule urgently" },
     { step: "extend", label: "Deadline +1 week" },
     { step: "lower", label: "Lower priority" },
   ],
@@ -133,9 +135,6 @@ export default function NotificationsScreen() {
         {clearAll.isError ? (
           <Text style={styles.meta}>Couldn't clear notifications. Try again.</Text>
         ) : null}
-        {prioritize.isError ? (
-          <Text style={styles.meta}>Couldn't reschedule the task. Try again.</Text>
-        ) : null}
         {networkCopy && items.length === 0 ? (
           <EmptyState
             icon={Bell}
@@ -204,6 +203,7 @@ export default function NotificationsScreen() {
                 {item.category === "suggestion" ? (
                   <SmartAlert
                     item={item}
+                    smart={smart}
                     pending={triage.isPending}
                     onRoute={(target) => router.push(target as never)}
                     onStep={(step) =>
@@ -218,9 +218,9 @@ export default function NotificationsScreen() {
                     }
                   />
                 ) : null}
-                {item.category === "overdue" || steps.length > 0 ? (
+                {(item.category === "overdue" && !smart && !item.readAt) || steps.length > 0 ? (
                   <View style={styles.actions} testID="triage-steps">
-                {item.category === "overdue" ? (
+                {item.category === "overdue" && !smart && !item.readAt ? (
                   <AnimatedPressable
                     onPress={() => {
                       const taskId = item.entityId ?? item.data?.taskId;
@@ -228,14 +228,14 @@ export default function NotificationsScreen() {
                       void prioritize.mutateAsync(taskId).then((plan) => {
                         const placed = plan.proposals?.some((proposal) => proposal.taskId === (item.entityId ?? item.data?.taskId));
                         useToastStore.getState().show(placed ? "Rescheduled with urgent priority" : "Set to urgent; task wasn't moved");
-                      }).catch(() => undefined);
+                      }).catch((error) => {
+                        useToastStore.getState().show(error instanceof Error ? error.message : "Couldn't reschedule the task");
+                      });
                     }}
                     disabled={prioritize.isPending}
-                    style={[styles.chip, item.data?.suggest === "reschedule" && styles.suggested]}
+                    style={styles.chip}
                   >
-                    <Text style={[styles.chipText, item.data?.suggest === "reschedule" && styles.suggestedText]}>
-                      {item.data?.suggest === "reschedule" ? "✦ " : ""}Reschedule urgently
-                    </Text>
+                    <Text style={styles.chipText}>Reschedule urgently</Text>
                   </AnimatedPressable>
                 ) : null}
                 {steps.map(({ step, label }) => {
@@ -282,17 +282,20 @@ export default function NotificationsScreen() {
  * suggestions picked for it. */
 function SmartAlert({
   item,
+  smart,
   pending,
   onRoute,
   onStep,
 }: {
   item: AppNotification;
+  /** Steps need smart suggestions, as the triage chips do. */
+  smart: boolean;
   pending: boolean;
   onRoute: (href: string) => void;
   onStep: (step: AlertStep) => Promise<void>;
 }) {
   const items = alertItems(item);
-  const step = alertStep(item);
+  const step = smart ? alertStep(item) : null;
   const inbox = item.data?.kind === "inbox";
   const projectId = typeof item.data?.projectId === "string" ? item.data.projectId : null;
   const open = (id: string) => onRoute(inbox ? "/(app)/inbox" : `/(app)/tasks/${id}`);
