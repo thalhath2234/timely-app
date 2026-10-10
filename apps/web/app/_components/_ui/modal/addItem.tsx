@@ -830,7 +830,10 @@ function AddItemModalInner() {
       // The kind itself switched during render, above (or the person's own
       // Reminder already set these).
       if (untouched("duration")) setValueTask("duration", 0, { shouldValidate: true });
-      if (!taskScheduledOn) setTaskClock(toTimeInputValue(nextRoundHour()));
+      // A reminder time read from the words is set below instead; the default
+      // here would mark the field as edited and block it.
+      const readTime = suggestions.dateRole === "reminder" && Boolean(suggestions.date);
+      if (!taskScheduledOn && !readTime) setTaskClock(toTimeInputValue(nextRoundHour()));
     } else if (suggestions.duration && suggestions.kind !== "reminder" && untouched("duration")) {
       setValueTask("duration", suggestions.duration, { shouldValidate: true });
       filled = true;
