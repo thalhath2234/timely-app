@@ -84,6 +84,18 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 		t.Fatalf("count %d, skip %v", count, skipped[1])
 	}
 
+	// A retried job never goes past three alerts for the day.
+	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool) []Alert {
+		return []Alert{{Key: "stale:new", Kind: "stale", Title: "New", Action: AlertReview, Items: []AlertItem{{ID: "tsk_new", Name: "New"}}}}
+	})
+	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	db.Model(&models.Notification{}).Where("user_id = ? AND category = ?", user, models.NotifySuggestion).Count(&count)
+	if count != 3 {
+		t.Fatalf("retry sent past the cap: %d", count)
+	}
+
 	message, err := svc.ApplyTriage(user, focus.ID, AlertFocus)
 	if err != nil || message != "Added to today's Focus" {
 		t.Fatalf("focus: %q %v", message, err)
@@ -109,6 +121,10 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 	if err := db.Model(&models.Config{}).Where("user_id = ?", user).Update("notification_settings", models.NotificationSettings{Reminders: true, SmartAlerts: &off}).Error; err != nil {
 		t.Fatal(err)
 	}
+	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip map[string]bool) []Alert {
+		skipped = append(skipped, skip)
+		return nil
+	})
 	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil || len(skipped) != 2 {
 		t.Fatalf("asked while off: %d %v", len(skipped), err)
 	}

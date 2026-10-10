@@ -206,16 +206,22 @@ func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip
 // about in the last week (skip) is left out.
 func (s *Service) alertCandidates(ctx context.Context, userID string, now time.Time, skip map[string]bool) []alertCandidate {
 	var out []alertCandidate
-	add := func(c alertCandidate) {
+	// Each kind has its own quota, counted after Work alerted about this
+	// week is dropped, so that Work never keeps the next candidates out.
+	add := func(c alertCandidate) bool {
 		for _, it := range c.items {
 			if skip[it.ID] {
-				return
+				return false
 			}
 		}
 		if len(out) < maxAlertCandidates && len(c.items) > 0 {
 			out = append(out, c)
+			return true
 		}
+		return false
 	}
+	// Queries read a few more rows than a kind's quota, to make up for skips.
+	extra := min(len(skip), 10)
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	projects := s.projectTitles(ctx, userID)
 
@@ -225,16 +231,23 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 		Where("user_id = ? AND kind = ? AND completed_at IS NULL AND deadline IS NOT NULL AND deadline >= ? AND deadline <= ?",
 			userID, models.KindTask, day.Format("2006-01-02"), day.AddDate(0, 0, dueSoonDays).Format("2006-01-02")).
 		Where("NOT EXISTS (SELECT 1 FROM scheduled_blocks b WHERE b.task_id = tasks.id AND b.end_at > ?)", now).
-		Order("deadline").Limit(4).Find(&due)
+		Order("deadline").Limit(4 + extra).Find(&due)
+	dueLeft := 4
 	for _, t := range due {
+		if dueLeft == 0 {
+			break
+		}
 		d, err := time.ParseInLocation("2006-01-02", models.NormalizeDate(*t.Deadline), now.Location())
 		if err != nil {
 			continue
 		}
 		when := dueWords(int(d.Sub(day).Hours() / 24))
-		add(alertCandidate{key: "due:" + t.ID, kind: "due", title: fmt.Sprintf("“%s” is due %s", clip(t.Name, 80), when),
+		if !add(alertCandidate{key: "due:" + t.ID, kind: "due", title: fmt.Sprintf("“%s” is due %s", clip(t.Name, 80), when),
 			facts: fmt.Sprintf("It is due %s and has no time on your calendar.", when), detail: clip(t.Description, 300),
-			action: notify.AlertReschedule, items: []notify.AlertItem{{ID: t.ID, Name: t.Name}}, project: projects[deref(t.ProjectID)], inProject: deref(t.ProjectID)})
+			action: notify.AlertReschedule, items: []notify.AlertItem{{ID: t.ID, Name: t.Name}}, project: projects[deref(t.ProjectID)], inProject: deref(t.ProjectID)}) {
+			continue
+		}
+		dueLeft--
 	}
 
 	// Work a recently finished task was blocking.
@@ -246,11 +259,14 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 	s.db.WithContext(ctx).Raw(`SELECT t.id, t.name, t.description, b.name AS blocker, t.project_id, b.completed_at AS done_at
 		FROM tasks t JOIN tasks b ON b.id = t.blocked_by_id
 		WHERE t.user_id = ? AND t.kind = ? AND t.completed_at IS NULL AND b.completed_at >= ?
-		ORDER BY b.completed_at DESC LIMIT 3`, userID, models.KindTask, now.AddDate(0, 0, -unblockedDays)).Scan(&unblocked)
+		ORDER BY b.completed_at DESC LIMIT ?`, userID, models.KindTask, now.AddDate(0, 0, -unblockedDays), 3+extra).Scan(&unblocked)
+	unblockedLeft := 3
 	for _, t := range unblocked {
-		add(alertCandidate{key: "unblocked:" + t.ID, kind: "unblocked", title: fmt.Sprintf("“%s” is ready to start", clip(t.Name, 80)),
+		if unblockedLeft > 0 && add(alertCandidate{key: "unblocked:" + t.ID, kind: "unblocked", title: fmt.Sprintf("“%s” is ready to start", clip(t.Name, 80)),
 			facts:  fmt.Sprintf("It was waiting on “%s”, which was finished %s.", clip(t.Blocker, 80), agoWords(now, t.DoneAt)),
-			detail: clip(t.Description, 300), action: notify.AlertFocus, items: []notify.AlertItem{{ID: t.ID, Name: t.Name}}, project: projects[deref(t.ProjectID)], inProject: deref(t.ProjectID)})
+			detail: clip(t.Description, 300), action: notify.AlertFocus, items: []notify.AlertItem{{ID: t.ID, Name: t.Name}}, project: projects[deref(t.ProjectID)], inProject: deref(t.ProjectID)}) {
+			unblockedLeft--
+		}
 	}
 
 	// Projects due within a week that still have open Work.
@@ -263,9 +279,13 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 		FROM projects p JOIN workspaces w ON w.id = p.workspace_id
 		JOIN tasks t ON t.project_id = p.id AND t.completed_at IS NULL AND t.kind = ?
 		WHERE w.user_id = ? AND p.deadline IS NOT NULL AND p.deadline >= ? AND p.deadline <= ?
-		GROUP BY p.id, p.title, p.deadline ORDER BY p.deadline LIMIT 2`, models.KindTask, userID,
+		GROUP BY p.id, p.title, p.deadline ORDER BY p.deadline LIMIT 4`, models.KindTask, userID,
 		day.Format("2006-01-02"), day.AddDate(0, 0, projectDueDays).Format("2006-01-02")).Scan(&due7)
+	projectsLeft := 2
 	for _, p := range due7 {
+		if projectsLeft == 0 {
+			break
+		}
 		d, err := time.ParseInLocation("2006-01-02", models.NormalizeDate(p.Deadline), now.Location())
 		if err != nil {
 			continue
@@ -278,8 +298,10 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 			items = append(items, notify.AlertItem{ID: t.ID, Name: t.Name})
 		}
 		when := dueWords(int(d.Sub(day).Hours() / 24))
-		add(alertCandidate{key: "project:" + p.ID, kind: "project", title: fmt.Sprintf("Project “%s” is due %s", clip(p.Title, 80), when),
-			facts: fmt.Sprintf("It is due %s with %s still open.", when, countWords(p.Open, "task")), action: notify.AlertReview, items: items, project: p.Title, projectID: p.ID, inProject: p.ID})
+		if add(alertCandidate{key: "project:" + p.ID, kind: "project", title: fmt.Sprintf("Project “%s” is due %s", clip(p.Title, 80), when),
+			facts: fmt.Sprintf("It is due %s with %s still open.", when, countWords(p.Open, "task")), action: notify.AlertReview, items: items, project: p.Title, projectID: p.ID, inProject: p.ID}) {
+			projectsLeft--
+		}
 	}
 
 	// An Inbox that has waited for days.
@@ -300,13 +322,16 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 
 	// Work with no activity for weeks.
 	if stale, err := s.staleTasks(ctx, userID, now); err == nil {
-		for i, st := range stale {
-			if i == 3 {
+		staleLeft := 3
+		for _, st := range stale {
+			if staleLeft == 0 {
 				break
 			}
-			add(alertCandidate{key: "stale:" + st.task.ID, kind: "stale", title: fmt.Sprintf("“%s” has been idle for %d days", clip(st.task.Name, 80), st.days),
+			if add(alertCandidate{key: "stale:" + st.task.ID, kind: "stale", title: fmt.Sprintf("“%s” has been idle for %d days", clip(st.task.Name, 80), st.days),
 				facts:  fmt.Sprintf("Nothing has happened on it for %d days and it has no time planned.", st.days),
-				detail: clip(st.task.Description, 300), action: notify.AlertReview, items: []notify.AlertItem{{ID: st.task.ID, Name: st.task.Name}}, project: projects[deref(st.task.ProjectID)], inProject: deref(st.task.ProjectID)})
+				detail: clip(st.task.Description, 300), action: notify.AlertReview, items: []notify.AlertItem{{ID: st.task.ID, Name: st.task.Name}}, project: projects[deref(st.task.ProjectID)], inProject: deref(st.task.ProjectID)}) {
+				staleLeft--
+			}
 		}
 	}
 	return out

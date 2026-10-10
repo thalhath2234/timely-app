@@ -49,11 +49,17 @@ func (s *Service) briefLater(ntf *models.Notification, today *calendar.TodayResp
 	s.triageWait.Add(1)
 	go func() {
 		defer s.triageWait.Done()
-		s.triageSlots <- struct{}{}
-		defer func() { <-s.triageSlots }()
+		// The budget covers the wait for a slot too, so a backlog of triage
+		// calls never holds the briefing back; it then goes out as it is.
 		ctx, cancel := context.WithTimeout(context.Background(), briefingBudget)
 		defer cancel()
-		picks := s.briefing(ctx, ntf.UserID, items)
+		var picks []int
+		select {
+		case s.triageSlots <- struct{}{}:
+			picks = s.briefing(ctx, ntf.UserID, items)
+			<-s.triageSlots
+		case <-ctx.Done():
+		}
 		names := make([]string, 0, maxBriefNamed)
 		for _, i := range picks {
 			if i >= 0 && i < len(items) && len(names) < maxBriefNamed {

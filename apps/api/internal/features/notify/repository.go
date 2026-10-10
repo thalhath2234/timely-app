@@ -2,6 +2,7 @@ package notify
 
 import (
 	"errors"
+	"strings"
 	"time"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
@@ -168,6 +169,14 @@ func (r *repository) RecentlyAlerted(userID string, since time.Time) (map[string
 		out[id] = true
 	}
 	return out, nil
+}
+
+// CountByDedupePrefix counts a person's notifications whose dedupe key
+// starts with prefix.
+func (r *repository) CountByDedupePrefix(userID, prefix string) (int64, error) {
+	var n int64
+	err := r.db.Model(&models.Notification{}).Where("user_id = ? AND dedupe_key LIKE ?", userID, strings.NewReplacer("%", `\%`, "_", `\_`).Replace(prefix)+"%").Count(&n).Error
+	return n, err
 }
 
 // SetBody replaces a notification's text.

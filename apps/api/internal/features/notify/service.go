@@ -891,6 +891,8 @@ func notificationPushMessage(ntf *models.Notification, token string) expoMessage
 			"taskId":         ntf.Data.String("taskId"),
 			"entityType":     ntf.EntityType,
 			"entityId":       ntf.EntityID,
+			"kind":           ntf.Data.String("kind"),
+			"projectId":      ntf.Data.String("projectId"),
 		},
 	}
 }

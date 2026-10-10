@@ -99,10 +99,15 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 	defer cancel()
 	now := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(job.UserID)))
 	alerts := s.alerts(ctx, job.UserID, now, skip)
-	if len(alerts) > maxAlertsPerDay {
-		alerts = alerts[:maxAlertsPerDay]
-	}
 	day := job.Payload.String("date")
+	// A retried job counts what it already sent today against the cap.
+	sent, err := s.repo.CountByDedupePrefix(job.UserID, "suggestion:"+job.UserID+":"+day+":")
+	if err != nil {
+		return err
+	}
+	if left := maxAlertsPerDay - int(sent); left < len(alerts) {
+		alerts = alerts[:max(left, 0)]
+	}
 	for _, a := range alerts {
 		ids := make([]any, 0, len(a.Items))
 		items := make([]any, 0, len(a.Items))
@@ -168,27 +173,42 @@ func (s *Service) applyAlert(userID string, n *models.Notification, action strin
 			message = "Added to today's Focus"
 		}
 	case AlertReschedule:
-		plan, err := s.schedule.Apply(userID, schedule.PlanRequest{TaskIDs: open, Timezone: s.notificationTimezone(userID)})
+		// A dry run first: Apply replaces the engine blocks of every task it
+		// is given, even one it finds no new time for, so only the tasks the
+		// dry run places are applied.
+		req := schedule.PlanRequest{TaskIDs: open, Timezone: s.notificationTimezone(userID)}
+		preview, err := s.schedule.Preview(userID, req)
 		if err != nil {
 			return "", err
 		}
-		placed := 0
+		var fits []string
 		for _, id := range open {
-			for _, p := range plan.Proposals {
-				if p.TaskID == id && len(p.Blocks) > 0 {
-					placed++
-					break
-				}
+			if placed(preview, id) {
+				fits = append(fits, id)
 			}
 		}
-		if placed == 0 {
+		if len(fits) == 0 {
 			return "", errNoTime
 		}
-		message = fmt.Sprintf("Found time for %d of %d", placed, len(open))
-		if placed == len(open) {
+		req.TaskIDs = fits
+		plan, err := s.schedule.Apply(userID, req)
+		if err != nil {
+			return "", err
+		}
+		done := 0
+		for _, id := range fits {
+			if placed(plan, id) {
+				done++
+			}
+		}
+		if done == 0 {
+			return "", errNoTime
+		}
+		message = fmt.Sprintf("Found time for %d of %d", done, len(open))
+		if done == len(open) {
 			message = "Found time for it"
-			if placed > 1 {
-				message = fmt.Sprintf("Found time for all %d", placed)
+			if done > 1 {
+				message = fmt.Sprintf("Found time for all %d", done)
 			}
 		}
 	case AlertReview, AlertClarify:
