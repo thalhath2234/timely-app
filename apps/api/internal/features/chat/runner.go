@@ -409,8 +409,8 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 					specs = allSpecs // triage guessed wrong: offer everything from now on
 				}
 				result, err = catalog[name].Call(ctx, c.UserID, args)
-				if key, ok := snapshotRead(name, args); ok && err == nil {
-					reads[key] = hash(result)
+				if err == nil {
+					recordRead(ctx, catalog, c.UserID, name, args, result, reads)
 				}
 			} else if isWriteTool(name) {
 				err = fmt.Errorf("%s changes data, so it is never called directly. Call propose_changes alone with steps [{\"tool\": %q, \"summary\": \"...\", \"arguments\": {...}}]; Timely checks it and applies it or asks the person to review it. This action is available: do not tell the person otherwise", name, name)

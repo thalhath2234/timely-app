@@ -13,7 +13,8 @@ export function mentionChoices(result: MentionMatch | null | undefined): { targe
  * Helpers the doc editor's WebView runs, kept here as source so a Node test
  * can run the same code. They mirror the web editor:
  * - propertyText: the properties block text with one key set, replacing the
- *   key's line when it is there (setDocProperty in web frontmatter.tsx).
+ *   top-level key's line (and its nested value) when it is there
+ *   (setDocProperty in web frontmatter.tsx).
  * - mentionSpaceAfter: whether a linked mention needs a space after it, given
  *   the character that follows (mentionLink.tsx).
  * Plain JS only: it is pasted into the editor page as is.
@@ -23,9 +24,19 @@ function propertyText(current, key, value) {
   const line = key + ": " + value;
   if (!current || !current.trim()) return line;
   const lines = current.split("\n");
-  const at = lines.findIndex((l) => l.split(":")[0].trim().toLowerCase() === key.toLowerCase());
-  if (at >= 0) lines[at] = line;
-  else lines.push(line);
+  // Only an unindented top-level key matches, never a nested key or a list line.
+  const at = lines.findIndex((l) => {
+    const m = /^(?!-\s)(?!#)([^\s:][^:]*):(?:\s|$)/.exec(l);
+    return !!m && m[1].trimEnd().toLowerCase() === key.toLowerCase();
+  });
+  if (at < 0) {
+    lines.push(line);
+    return lines.join("\n");
+  }
+  // The key's old nested value (indented or list lines under it) goes too.
+  let end = at + 1;
+  while (end < lines.length && /^(\s+\S|-(\s|$))/.test(lines[end])) end++;
+  lines.splice(at, end - at, line);
   return lines.join("\n");
 }
 function mentionSpaceAfter(next) {

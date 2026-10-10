@@ -72,7 +72,7 @@ func (s *Server) getDoc(ctx context.Context, req *mcp.CallToolRequest, in getDoc
 			payload["markdown"] = trimmed
 			// The search copy holds every section in full.
 			delete(payload, "plainText")
-			payload["sectionsKeptOut"] = fmt.Sprintf("%d of %d sections are not about %q and show as a [section kept out ...] line. Call get_doc with full=true to read them. Writing such a line back keeps that section unchanged; deleting it removes the section", hidden, total, clipRunes(in.Focus, 80))
+			payload["sectionsKeptOut"] = fmt.Sprintf("%d of %d sections are not about %q and show as a [section kept out ...] line. Call get_doc with full=true to read them. Writing such a line back exactly as shown, alone on its line, keeps that section unchanged; deleting it removes the section", hidden, total, clipRunes(in.Focus, 80))
 		}
 	}
 	return reply(d.Title, payload)
@@ -171,12 +171,18 @@ func (s *Server) appendToDoc(ctx context.Context, req *mcp.CallToolRequest, in a
 	if err != nil {
 		return fail(err)
 	}
+	// Only the appended text can hold placeholders the model wrote; the
+	// doc's own text is kept as it is.
+	appended, err := s.docSections(uid, in.Markdown)
+	if err != nil {
+		return fail(err)
+	}
 	combined := richtext.ToMarkdown(current.Content)
-	if combined != "" && in.Markdown != "" {
+	if combined != "" && appended != "" {
 		combined += "\n\n"
 	}
-	combined += in.Markdown
-	rich, plain, err := s.docMarkdown(uid, combined)
+	combined += appended
+	rich, plain, err := s.docBlocks(uid, combined)
 	if err != nil {
 		return fail(err)
 	}

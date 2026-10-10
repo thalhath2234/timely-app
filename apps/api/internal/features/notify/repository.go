@@ -147,9 +147,10 @@ func (r *repository) DismissAlerts(userID, id string) ([]models.Notification, er
 	return rows, err
 }
 
-// MarkActed notes on a smart alert that the person took one of its steps.
+// MarkActed notes on a smart alert that the person took one of its steps,
+// and when.
 func (r *repository) MarkActed(id, step string) error {
-	return r.db.Exec(`UPDATE notifications SET data = data || jsonb_build_object('acted', ?::text) WHERE id = ?`, step, id).Error
+	return r.db.Exec(`UPDATE notifications SET data = data || jsonb_build_object('acted', ?::text, 'actedAt', ?::text) WHERE id = ?`, step, time.Now().UTC().Format(time.RFC3339), id).Error
 }
 
 // alertOutcome is what became of one smart alert: dismissed, acted on, or
@@ -157,14 +158,18 @@ func (r *repository) MarkActed(id, step string) error {
 type alertOutcome struct {
 	Kind        string
 	DismissedAt *time.Time
-	Acted       bool
+	// ActedAt is when a step was taken; alerts acted on before actedAt was
+	// recorded fall back to when they were read, then created.
+	ActedAt *time.Time
 }
 
 // AlertOutcomes lists the person's smart alerts that were dismissed or
 // acted on.
 func (r *repository) AlertOutcomes(userID string) ([]alertOutcome, error) {
 	var rows []alertOutcome
-	err := r.db.Raw(`SELECT data->>'kind' AS kind, dismissed_at, (data->>'acted') IS NOT NULL AS acted FROM notifications
+	err := r.db.Raw(`SELECT data->>'kind' AS kind, dismissed_at,
+			CASE WHEN data->>'acted' IS NOT NULL THEN COALESCE(NULLIF(data->>'actedAt', '')::timestamptz, read_at, created_at) END AS acted_at
+		FROM notifications
 		WHERE user_id = ? AND category = ? AND COALESCE(data->>'kind', '') <> '' AND (dismissed_at IS NOT NULL OR data->>'acted' IS NOT NULL)`,
 		userID, models.NotifySuggestion).Scan(&rows).Error
 	return rows, err

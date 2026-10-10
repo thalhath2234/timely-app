@@ -96,13 +96,30 @@ const (
 	alertQuietDays  = 7
 	alertBudget     = 20 * time.Second
 
-	// A kind of alert dismissed this many times in this many days, and never
-	// acted on, is left out until the count drops.
+	// A kind of alert dismissed on this many days out of this many, and not
+	// acted on in them, is left out until the count drops.
 	alertMuteDismissals = 3
 	alertMuteDays       = 14
 	// Dismissed alerts are kept this long to count.
 	dismissedKeepDays = 30
 )
+
+// sweepDismissed deletes an account's smart alerts dismissed more than
+// dismissedKeepDays ago, at most once a day, whether or not smart alerts are
+// on: they are hidden and only kept to count (see mutedAlertKinds).
+func (s *Service) sweepDismissed(userID string, now time.Time) error {
+	if s.dismissedPruned == nil {
+		s.dismissedPruned = map[string]time.Time{}
+	}
+	if now.Sub(s.dismissedPruned[userID]) < 24*time.Hour {
+		return nil
+	}
+	if err := s.repo.PruneDismissed(userID, now.AddDate(0, 0, -dismissedKeepDays)); err != nil {
+		return err
+	}
+	s.dismissedPruned[userID] = now
+	return nil
+}
 
 // sweepSmartAlerts queues one smart alerts job a day, from the morning
 // digest time on, while the setting is on.
@@ -148,17 +165,14 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 	if err != nil {
 		return err
 	}
-	if err := s.repo.PruneDismissed(job.UserID, time.Now().AddDate(0, 0, -dismissedKeepDays)); err != nil {
-		return err
-	}
 	outcomes, err := s.repo.AlertOutcomes(job.UserID)
 	if err != nil {
 		return err
 	}
-	muted := mutedAlertKinds(outcomes, time.Now())
+	now := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(job.UserID)))
+	muted := mutedAlertKinds(outcomes, now)
 	ctx, cancel := context.WithTimeout(ctx, alertBudget)
 	defer cancel()
-	now := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(job.UserID)))
 	alerts := s.alerts(ctx, job.UserID, now, skip, muted)
 	day := job.Payload.String("date")
 	// A retried job counts what it already sent today against the cap.
@@ -319,24 +333,34 @@ func (s *Service) alertsDismissed(userID string, rows []models.Notification) {
 }
 
 // mutedAlertKinds counts, in code, the kinds of smart alert (due, unblocked,
-// project, inbox, stale) the person dismissed at least three times in the
-// last 14 days without ever taking a step on one of that kind. The alerts
-// job leaves those kinds out; once fewer than three dismissals fall in the
-// window they come back.
+// project, inbox, stale) the person dismissed on at least three days of the
+// last 14 without taking a step on one of that kind in those 14 days. Days
+// are counted in now's zone, so one Clear all of several alerts of a kind
+// counts once. The alerts job leaves those kinds out; once fewer than three
+// days fall in the window they come back.
 func mutedAlertKinds(rows []alertOutcome, now time.Time) map[string]bool {
 	since := now.AddDate(0, 0, -alertMuteDays)
-	dismissed := map[string]int{}
+	days := map[string]map[string]bool{}
 	acted := map[string]bool{}
 	for _, r := range rows {
-		if r.Acted {
-			acted[r.Kind] = true
-		} else if r.DismissedAt != nil && !r.DismissedAt.Before(since) {
-			dismissed[r.Kind]++
+		if r.ActedAt != nil {
+			// An alert whose step was taken is never a dismissal.
+			if !r.ActedAt.Before(since) {
+				acted[r.Kind] = true
+			}
+			continue
 		}
+		if r.DismissedAt == nil || r.DismissedAt.Before(since) {
+			continue
+		}
+		if days[r.Kind] == nil {
+			days[r.Kind] = map[string]bool{}
+		}
+		days[r.Kind][r.DismissedAt.In(now.Location()).Format("2006-01-02")] = true
 	}
 	out := map[string]bool{}
-	for kind, n := range dismissed {
-		if n >= alertMuteDismissals && !acted[kind] {
+	for kind, d := range days {
+		if len(d) >= alertMuteDismissals && !acted[kind] {
 			out[kind] = true
 		}
 	}

@@ -7,8 +7,8 @@ import (
 	"timely-api/internal/models"
 )
 
-// A kind of alert is muted after three dismissals in 14 days, unless the
-// person ever took a step on one of that kind.
+// A kind of alert is muted after dismissals on three days of the last 14,
+// unless the person took a step on one of that kind in those 14 days.
 func TestMutedAlertKinds(t *testing.T) {
 	now := time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)
 	at := func(days int) *time.Time { v := now.AddDate(0, 0, -days); return &v }
@@ -17,7 +17,7 @@ func TestMutedAlertKinds(t *testing.T) {
 		{Kind: "stale", DismissedAt: at(1)}, {Kind: "stale", DismissedAt: at(5)}, {Kind: "stale", DismissedAt: at(13)},
 		// due: three recent dismissals, but one due alert was acted on.
 		{Kind: "due", DismissedAt: at(1)}, {Kind: "due", DismissedAt: at(2)}, {Kind: "due", DismissedAt: at(3)},
-		{Kind: "due", DismissedAt: at(4), Acted: true},
+		{Kind: "due", DismissedAt: at(4), ActedAt: at(4)},
 		// inbox: one of three dismissals is older than 14 days.
 		{Kind: "inbox", DismissedAt: at(1)}, {Kind: "inbox", DismissedAt: at(2)}, {Kind: "inbox", DismissedAt: at(15)},
 		// project: two dismissals only.
@@ -29,6 +29,28 @@ func TestMutedAlertKinds(t *testing.T) {
 	}
 	if len(mutedAlertKinds(nil, now)) != 0 {
 		t.Fatal("nothing dismissed, something muted")
+	}
+
+	// One Clear all of three alerts of a kind is one day, not three.
+	cleared := []alertOutcome{{Kind: "stale", DismissedAt: at(1)}, {Kind: "stale", DismissedAt: at(1)}, {Kind: "stale", DismissedAt: at(1)}, {Kind: "stale", DismissedAt: at(2)}}
+	if muted := mutedAlertKinds(cleared, now); len(muted) != 0 {
+		t.Fatalf("one clear counted per alert: %v", muted)
+	}
+	// Days are the person's: 23:30 and 00:30 UTC are one day in Tokyo.
+	tokyo := time.FixedZone("JST", 9*3600)
+	late, early := time.Date(2026, 10, 8, 14, 30, 0, 0, time.UTC), time.Date(2026, 10, 8, 15, 30, 0, 0, time.UTC)
+	night := []alertOutcome{{Kind: "stale", DismissedAt: &late}, {Kind: "stale", DismissedAt: &early}, {Kind: "stale", DismissedAt: at(3)}}
+	if muted := mutedAlertKinds(night, now.In(tokyo)); !muted["stale"] {
+		t.Fatal("dismissals on two days of the person's zone not counted as two")
+	}
+	if muted := mutedAlertKinds(night, now.In(time.FixedZone("UTC-1", -3600))); muted["stale"] {
+		t.Fatal("dismissals on one day of the person's zone counted as two")
+	}
+
+	// A step taken more than 14 days ago no longer keeps the kind on.
+	acted := append([]alertOutcome{{Kind: "due", ActedAt: at(20)}}, rows[3:6]...)
+	if muted := mutedAlertKinds(acted, now); !muted["due"] {
+		t.Fatalf("an old step kept the kind on: %v", muted)
 	}
 }
 

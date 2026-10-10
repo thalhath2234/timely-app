@@ -274,3 +274,81 @@ func TestGetDocFocusAndWriteBack(t *testing.T) {
 		t.Fatalf("placeholders were not restored:\n%s", saved)
 	}
 }
+
+func TestRestoreSectionsRefusesAReformattedPlaceholder(t *testing.T) {
+	src := longDoc()
+	sections := splitSections(src)
+	placeholder := sectionPlaceholder("doc_1", sections[2])
+	load := func(string) (string, error) { return src, nil }
+
+	// The exact line, also with a trailing space or a CRLF ending, is restored.
+	for _, line := range []string{placeholder, placeholder + " ", placeholder + "\r"} {
+		restored, err := restoreSections("Intro\n\n"+line+"\n\nEnd", load)
+		if err != nil || !strings.Contains(restored, "Budget rule 39") || strings.Contains(restored, "section kept out") {
+			t.Fatalf("exact placeholder %q not restored: %v", line, err)
+		}
+	}
+	reformatted := []string{
+		"- " + placeholder,
+		"`" + placeholder + "`",
+		"    " + placeholder,
+		"  " + placeholder,
+		"> " + placeholder,
+		"See " + placeholder,
+		placeholder + " and more",
+		"1. " + placeholder,
+		"```\n" + placeholder + "\n```",
+	}
+	for _, line := range reformatted {
+		_, err := restoreSections("Intro\n\n"+line+"\n\nEnd", load)
+		if err == nil || !strings.Contains(err.Error(), "exactly as get_doc returned it") || !strings.Contains(err.Error(), "full=true") {
+			t.Fatalf("reformatted placeholder %q was accepted: %v", line, err)
+		}
+	}
+	// Prose about the feature with no doc id is plain text.
+	if out, err := restoreSections("A [section kept out ...] line stands for a section.", load); err != nil || !strings.Contains(out, "section kept out") {
+		t.Fatalf("prose rejected: %v", err)
+	}
+}
+
+func TestRestoreSectionsThroughTheCatalog(t *testing.T) {
+	src := longDoc()
+	placeholder := sectionPlaceholder("doc_1", splitSections(src)[3])
+	asked := 0
+	catalog := Catalog{"get_doc": {Call: func(_ context.Context, uid string, args json.RawMessage) (any, error) {
+		asked++
+		var in map[string]any
+		_ = json.Unmarshal(args, &in)
+		if uid != "usr_1" || len(in) != 1 || in["docId"] != "doc_1" {
+			return nil, fmt.Errorf("unexpected read %s", args)
+		}
+		return map[string]any{"markdown": src}, nil
+	}}}
+	out, err := RestoreSections(context.Background(), catalog, "usr_1", "# New\n\n"+placeholder+"\n\n"+placeholder)
+	if err != nil || asked != 1 || strings.Count(out, "Hiring rule 59") != 2 || strings.Contains(out, "section kept out") {
+		t.Fatalf("asked=%d err=%v\n%s", asked, err, out)
+	}
+	if out, err := RestoreSections(context.Background(), Catalog{}, "usr_1", "no placeholders"); err != nil || out != "no placeholders" {
+		t.Fatalf("plain markdown changed: %q %v", out, err)
+	}
+}
+
+func TestAppendToDocRestoresOnlyTheAppendedText(t *testing.T) {
+	src := longDoc()
+	placeholder := sectionPlaceholder("doc_1", splitSections(src)[2])
+	content, plain := richtext.FromMarkdown(src)
+	docs := &passageDocs{d: &models.Document{ID: "doc_1", Title: "Handbook", Content: content, PlainText: plain}}
+	s := &Server{Deps: Deps{Docs: docs}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &mcpauth.TokenInfo{UserID: "usr_1"}}}
+	if _, _, err := s.appendToDoc(context.Background(), req, appendDocIn{DocID: "doc_1", Markdown: "## Copy\n\n" + placeholder}); err != nil {
+		t.Fatal(err)
+	}
+	if saved := richtext.ToMarkdown(docs.updated); strings.Count(saved, "Budget rule 39") != 2 || strings.Contains(saved, "section kept out") {
+		t.Fatalf("appended placeholder not restored:\n%s", saved)
+	}
+	docs.updated = nil
+	bad := "- " + placeholder
+	if _, _, err := s.appendToDoc(context.Background(), req, appendDocIn{DocID: "doc_1", Markdown: bad}); err == nil || docs.updated != nil {
+		t.Fatal("a reformatted placeholder was appended as text")
+	}
+}

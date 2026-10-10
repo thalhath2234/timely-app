@@ -42,6 +42,9 @@ type Service struct {
 	// dismissed records a smart alert set aside without its step; nil until
 	// SetDismissed.
 	dismissed func(userID, logID string) error
+	// dismissedPruned is when each account's old dismissed alerts were last
+	// deleted; sweepDismissed fills it.
+	dismissedPruned map[string]time.Time
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -302,6 +305,9 @@ func (s *Service) Sweep(ctx context.Context) error {
 			return err
 		}
 		if err := s.sweepMissedAndStart(userID, now); err != nil {
+			return err
+		}
+		if err := s.sweepDismissed(userID, now); err != nil {
 			return err
 		}
 		if err := s.sweepSmartAlerts(ctx, userID, now); err != nil {
@@ -819,6 +825,10 @@ func (s *Service) HandlePush(ctx context.Context, job *models.Job) error {
 	}
 	if ntf.DeliveredAt != nil {
 		return nil
+	}
+	// A smart alert dismissed before its deferred push ran stays quiet.
+	if ntf.DismissedAt != nil {
+		return s.repo.MarkDelivered(ntf.ID)
 	}
 	if ntf.Category == models.NotifyOverdue {
 		if ntf.ReadAt != nil || ntf.EntityID == nil {

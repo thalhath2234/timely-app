@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -175,8 +177,10 @@ func TestIntegrationSmartAlertDismissals(t *testing.T) {
 		t.Fatalf("cleared alerts dropped from the quiet week: %v", skip)
 	}
 
-	// One more stale dismissal this week makes three: stale is muted, due
-	// (acted on once) is not. A dismissal from 31 days ago is pruned.
+	// Today's two stale dismissals (one delete, one clear) count as one day;
+	// two more days this fortnight make three, so stale is muted. Due (acted
+	// on today) is not. A dismissal from 31 days ago is pruned by the sweep,
+	// whatever the smart alerts setting.
 	old := func(id string, days int) {
 		at := time.Now().UTC().AddDate(0, 0, -days)
 		if err := db.Create(&models.Notification{ID: id, UserID: user, Category: models.NotifySuggestion, Title: "Old", Data: models.JobPayload{"kind": "stale"},
@@ -189,11 +193,93 @@ func TestIntegrationSmartAlertDismissals(t *testing.T) {
 	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
-	if len(muted) != 2 || len(muted[0]) != 0 || !muted[1]["stale"] || muted[1]["due"] {
+	if len(muted) != 2 || len(muted[0]) != 0 || muted[1]["stale"] || muted[1]["due"] {
+		t.Fatalf("one clear counted as several days: %v", muted)
+	}
+	old("ntf_stale_week2", 5)
+	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	if len(muted) != 3 || !muted[2]["stale"] || muted[2]["due"] {
 		t.Fatalf("muted %v", muted)
+	}
+	// The step on the due alert is dated, so it only counts for 14 days.
+	var acted models.Notification
+	if err := db.First(&acted, "id = ?", c.ID).Error; err != nil || acted.Data.String("actedAt") == "" {
+		t.Fatalf("acted alert has no actedAt: %v %v", acted.Data, err)
+	}
+	outcomes, err := svc.repo.AlertOutcomes(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actedRows := 0
+	for _, o := range outcomes {
+		if o.ActedAt != nil {
+			actedRows++
+			if time.Since(*o.ActedAt) > time.Hour {
+				t.Fatalf("acted at %v", o.ActedAt)
+			}
+		}
+	}
+	if actedRows != 1 {
+		t.Fatalf("%d acted outcomes, want 1", actedRows)
+	}
+
+	// The sweep prunes with smart suggestions off too.
+	svc.SetDecisions(func(context.Context, string) bool { return false }, dec.Feedback)
+	if err := svc.sweepDismissed(user, time.Now()); err != nil {
+		t.Fatal(err)
 	}
 	db.Model(&models.Notification{}).Where("id = ?", "ntf_stale_month").Count(&count)
 	if count != 0 {
 		t.Fatal("a month-old dismissal was kept")
 	}
+	db.Model(&models.Notification{}).Where("id = ?", "ntf_stale_week").Count(&count)
+	if count != 1 {
+		t.Fatal("a recent dismissal was pruned")
+	}
 }
+
+// A smart alert dismissed before its deferred push job runs is marked
+// delivered and never pushed.
+func TestIntegrationDismissedAlertIsNotPushed(t *testing.T) {
+	svc, db := zoneService(t, models.NotificationSettings{Reminders: true})
+	user := zoneTestUser
+	pushes := 0
+	svc.http = &http.Client{Transport: roundTrip(func(*http.Request) (*http.Response, error) {
+		pushes++
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`)), Header: http.Header{}}, nil
+	})}
+	now := time.Now().UTC()
+	if err := db.Create(&models.PushDevice{ID: "dev_dismiss", UserID: user, Token: "ExponentPushToken[test]", CreatedAt: now, UpdatedAt: now, LastSeenAt: now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []models.Notification{
+		{ID: "ntf_dismissed", UserID: user, Category: models.NotifySuggestion, Title: "Stale", Data: models.JobPayload{"kind": "stale"}, CreatedAt: now, DismissedAt: &now},
+		{ID: "ntf_open", UserID: user, Category: models.NotifySuggestion, Title: "Stale", Data: models.JobPayload{"kind": "stale"}, CreatedAt: now},
+	} {
+		if err := db.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"ntf_dismissed", "ntf_open"} {
+		job := &models.Job{UserID: user, Kind: models.JobSendPush, Payload: models.JobPayload{"notificationId": id}}
+		if err := svc.HandlePush(context.Background(), job); err != nil {
+			t.Fatal(err)
+		}
+		var row models.Notification
+		if err := db.First(&row, "id = ?", id).Error; err != nil || row.DeliveredAt == nil {
+			t.Fatalf("%s not marked delivered: %v", id, err)
+		}
+		if id == "ntf_dismissed" && pushes != 0 {
+			t.Fatal("a dismissed alert was pushed")
+		}
+	}
+	if pushes != 1 {
+		t.Fatalf("pushes %d, want only the open alert", pushes)
+	}
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

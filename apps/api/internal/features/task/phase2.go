@@ -2,7 +2,6 @@ package task
 
 import (
 	"errors"
-	"math"
 	"strings"
 	"time"
 	"timely-api/internal/models"
@@ -135,8 +134,9 @@ func firstNonEmpty(preferred, fallback *string) *string {
 // restartSeries starts a repeating task's series again on the first day on
 // or after from (a date in the rule's zone) that its rule falls on, at the
 // same clock time. The rule stays the same: weekly on Mondays is still weekly
-// on Mondays, now from the first Monday on or after from. An UNTIL moves by
-// as many days as the start, so the series keeps its length.
+// on Mondays, now from the first Monday on or after from. An UNTIL moves to
+// the restarted series' N-th occurrence, where N is how many the old series
+// had, so the series keeps its number of occurrences.
 func restartSeries(rule *models.RecurrenceRule, from string) (models.RecurrenceInput, error) {
 	loc := rule.Location()
 	old := rule.Dtstart.In(loc)
@@ -175,18 +175,22 @@ func restartSeries(rule *models.RecurrenceRule, from string) (models.RecurrenceI
 		start = *next
 	}
 	text := rule.RRule
-	if parsed.Until != nil {
-		shift := int(math.Round(dateOnly(start).Sub(dateOnly(old)).Hours() / 24))
-		until := parsed.Until.In(loc).AddDate(0, 0, shift).UTC()
-		parsed.Until = &until
-		text = parsed.String()
+	if parsed.Until != nil && parsed.Count == 0 {
+		// The new series keeps as many occurrences as the old one had: UNTIL
+		// becomes the restarted series' N-th occurrence. Moving it by days
+		// would be wrong for months and years of different lengths.
+		n := len(parsed.Between(old, old, parsed.Until.Add(time.Second)))
+		if n > 0 {
+			series := *parsed
+			series.Until, series.Count = nil, n
+			if found := series.Between(start, start, start.AddDate(1000, 0, 0)); len(found) > 0 {
+				until := found[len(found)-1].UTC()
+				parsed.Until = &until
+				text = parsed.String()
+			}
+		}
 	}
 	return models.RecurrenceInput{RRule: text, Dtstart: start.Format(time.RFC3339), Timezone: rule.Timezone}, nil
-}
-
-// dateOnly is t's calendar date at midnight UTC, for counting whole days.
-func dateOnly(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // CopyProjectTasks copies a project's tasks into another project. fresh resets

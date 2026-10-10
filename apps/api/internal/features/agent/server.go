@@ -369,12 +369,20 @@ func md(src string) (models.JSONMap, string) {
 	return richtext.FromMarkdown(src)
 }
 
-// docMarkdown parses a doc's new Markdown, putting back the big blocks that
-// get_doc showed as [kept ...] placeholders.
+// docMarkdown parses a doc's new Markdown, putting back the sections a
+// focused get_doc left out and the big blocks it showed as [kept ...] lines.
 func (s *Server) docMarkdown(uid, src string) (models.JSONMap, string, error) {
-	// Sections a focused get_doc left out come back first; their big blocks
-	// are still [kept ...] lines, restored below.
-	src, err := restoreSections(src, func(docID string) (string, error) {
+	src, err := s.docSections(uid, src)
+	if err != nil {
+		return nil, "", err
+	}
+	return s.docBlocks(uid, src)
+}
+
+// docSections puts back the sections a focused get_doc left out; their big
+// blocks are still [kept ...] lines, which docBlocks restores.
+func (s *Server) docSections(uid, src string) (string, error) {
+	return restoreSections(src, func(docID string) (string, error) {
 		d, err := s.Docs.GetByID(uid, docID)
 		if err != nil {
 			return "", err
@@ -382,9 +390,11 @@ func (s *Server) docMarkdown(uid, src string) (models.JSONMap, string, error) {
 		content, _ := shortenBlocks(d.ID, d.Content)
 		return richtext.ToMarkdown(content), nil
 	})
-	if err != nil {
-		return nil, "", err
-	}
+}
+
+// docBlocks parses Markdown, putting back the big blocks get_doc showed as
+// [kept ...] placeholders.
+func (s *Server) docBlocks(uid, src string) (models.JSONMap, string, error) {
 	rich, plain := md(src)
 	restored, err := restoreBlocks(rich, func(docID string) (models.JSONMap, error) {
 		d, err := s.Docs.GetByID(uid, docID)

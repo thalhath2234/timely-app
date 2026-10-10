@@ -18,6 +18,23 @@ describe("propertyText", () => {
   test("adds a missing key at the end", () => {
     assert.equal(propertyText("title: Plan", "type", "spec"), "title: Plan\ntype: spec");
   });
+
+  test("never replaces a nested key or a list line", () => {
+    const nested = "title: Plan\nreview:\n  status: open\ntags:\n  - status: x\n- status: y";
+    assert.equal(propertyText(nested, "status", "draft"), nested + "\nstatus: draft");
+    assert.equal(propertyText("# status: note\ntitle: Plan", "status", "draft"), "# status: note\ntitle: Plan\nstatus: draft");
+  });
+
+  test("replaces a top-level key with its nested value", () => {
+    assert.equal(propertyText("status:\n  - idea\n  - open\nowner: Sam", "status", "draft"), "status: draft\nowner: Sam");
+    assert.equal(propertyText("status:\n- idea\nowner: Sam", "status", "draft"), "status: draft\nowner: Sam");
+    assert.equal(propertyText("title: Plan\nstatus: idea\n\nowner: Sam", "status", "draft"), "title: Plan\nstatus: draft\n\nowner: Sam");
+  });
+
+  test("does not match a key that only starts the same", () => {
+    assert.equal(propertyText("statuses: a", "status", "draft"), "statuses: a\nstatus: draft");
+    assert.equal(propertyText("status:draft-ish", "status", "draft"), "status:draft-ish\nstatus: draft");
+  });
 });
 
 describe("mentionSpaceAfter", () => {

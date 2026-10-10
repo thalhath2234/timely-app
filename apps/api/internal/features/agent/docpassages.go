@@ -36,7 +36,10 @@ type Decider interface {
 var (
 	headingRe = regexp.MustCompile(`^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$`)
 	fenceRe   = regexp.MustCompile("^ {0,3}(`{3,}|~{3,})")
-	sectionRe = regexp.MustCompile(`^\[section kept out ([A-Za-z0-9_-]+)#([0-9a-f]{12}):[^\n]*\]$`)
+	sectionRe = regexp.MustCompile(`^\[section kept out ([A-Za-z0-9_-]+)#([0-9a-f]{12})(?::[^\]\n]*)?\]$`)
+	// sectionRefRe finds a placeholder anywhere in a line, to catch one the
+	// model reformatted (a list marker, backticks, an indent, text around it).
+	sectionRefRe = regexp.MustCompile(`\[section kept out [A-Za-z0-9_-]+#`)
 )
 
 // docSection is a run of markdown lines starting at a heading (or the text
@@ -271,7 +274,10 @@ func focusPassages(ctx context.Context, d Decider, userID, docID, title, focus, 
 
 // restoreSections swaps every [section kept out ...] line of src for the
 // section it names, read from the doc's markdown as get_doc renders it (big
-// blocks still as [kept ...] lines, which the doc tools restore next).
+// blocks still as [kept ...] lines, which the doc tools restore next). A
+// placeholder must stand alone on its line, outside code, exactly as get_doc
+// wrote it; any other line naming one fails the write, since saving it as
+// text would lose the section it stands for.
 func restoreSections(src string, load func(docID string) (string, error)) (string, error) {
 	if !strings.Contains(src, "[section kept out ") {
 		return src, nil
@@ -281,19 +287,23 @@ func restoreSections(src string, load func(docID string) (string, error)) (strin
 	byDoc := map[string]map[string]string{}
 	changed := false
 	for i, line := range lines {
+		inCode := fence != ""
 		if m := fenceRe.FindStringSubmatch(line); m != nil {
 			if fence == "" {
 				fence = m[1]
 			} else if m[1][0] == fence[0] && len(m[1]) >= len(fence) && strings.TrimSpace(line) == m[1] {
 				fence = ""
 			}
+			inCode = true
+		}
+		if !strings.Contains(line, "[section kept out ") {
 			continue
 		}
-		if fence != "" {
-			continue
-		}
-		m := sectionRe.FindStringSubmatch(strings.TrimSpace(line))
-		if m == nil {
+		m := sectionRe.FindStringSubmatch(strings.TrimRight(line, " \t\r"))
+		if m == nil || inCode {
+			if sectionRefRe.MatchString(line) {
+				return "", fmt.Errorf("Line %d has a [section kept out ...] placeholder that was changed or has text around it: %q. Keep each placeholder line exactly as get_doc returned it, alone on its own line with no list marker, indent, quote or backticks, or call get_doc with full=true and write the section out in full", i+1, clipRunes(strings.TrimSpace(line), 160))
+			}
 			continue
 		}
 		docID, hash := m[1], m[2]
@@ -317,6 +327,35 @@ func restoreSections(src string, load func(docID string) (string, error)) (strin
 		return src, nil
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// RestoreSections puts back the sections a focused get_doc left out of a
+// doc's new markdown, reading each doc with the catalog's plain get_doc (which
+// never asks Jev). Chat proposals use it so the person reviews the markdown
+// that will be written; big blocks stay [kept ...] lines.
+func RestoreSections(ctx context.Context, catalog Catalog, uid, src string) (string, error) {
+	return restoreSections(src, func(docID string) (string, error) {
+		get := catalog["get_doc"].Call
+		if get == nil {
+			return "", fmt.Errorf("get_doc is not available")
+		}
+		args, _ := json.Marshal(map[string]string{"docId": docID})
+		result, err := get(ctx, uid, args)
+		if err != nil {
+			return "", err
+		}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			return "", err
+		}
+		var payload struct {
+			Markdown string `json:"markdown"`
+		}
+		if err := json.Unmarshal(encoded, &payload); err != nil {
+			return "", err
+		}
+		return payload.Markdown, nil
+	})
 }
 
 // sectionsByHash indexes a doc's sections at every heading depth, so a

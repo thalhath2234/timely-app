@@ -174,19 +174,32 @@ export const Frontmatter = TiptapNode.create({
   },
 });
 
+/** The properties block text with the line for key set. Only an unindented
+ * top-level key matches, never a nested key or a list line; the key's old
+ * nested value (indented or list lines under it) is replaced too. The phone
+ * editor runs the same logic (propertyText in mobile lib/docEditorJev.ts). */
+export function propertyLines(text: string, key: string, line: string): string {
+  const lines = text.split("\n");
+  const at = lines.findIndex((l) => {
+    const m = /^(?!-\s)(?!#)([^\s:][^:]*):(?:\s|$)/.exec(l);
+    return !!m && m[1].trimEnd().toLowerCase() === key.toLowerCase();
+  });
+  if (at < 0) return [...lines, line].join("\n");
+  let end = at + 1;
+  while (end < lines.length && /^(\s+\S|-(\s|$))/.test(lines[end])) end++;
+  lines.splice(at, end - at, line);
+  return lines.join("\n");
+}
+
 /** Sets one property in the doc's properties block, creating the block when
- * missing and replacing the key's line when it is already there. */
+ * missing and replacing the key's top-level line when it is already there. */
 export function setDocProperty(editor: Editor, key: string, value: string) {
   const { state } = editor;
   const line = `${key}: ${value}`;
   const first = state.doc.firstChild;
   const tr = state.tr;
   if (first?.type.name === "frontmatter" && first.textContent.trim()) {
-    const lines = first.textContent.split("\n");
-    const at = lines.findIndex((l) => l.split(":")[0].trim().toLowerCase() === key.toLowerCase());
-    if (at >= 0) lines[at] = line;
-    else lines.push(line);
-    tr.replaceWith(1, 1 + first.content.size, state.schema.text(lines.join("\n")));
+    tr.replaceWith(1, 1 + first.content.size, state.schema.text(propertyLines(first.textContent, key, line)));
   } else if (first?.type.name === "frontmatter") {
     tr.replaceWith(0, first.nodeSize, state.schema.nodes.frontmatter.create(null, state.schema.text(line)));
   } else {
