@@ -30,6 +30,7 @@ import (
 	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/instance"
 	"timely-api/internal/features/linkpreview"
 	"timely-api/internal/features/notify"
@@ -170,6 +171,7 @@ func main() {
 		Rerank:     smartSearch.Rerank,
 		Pick:       smartSearch.Pick,
 		Decisions:  decisions,
+		Focus:      focus.NewStore(db),
 		DecisionsOn: func(ctx context.Context, userID string) bool {
 			on, _ := decisions.Status(ctx, userID)
 			return on
@@ -213,6 +215,7 @@ func main() {
 		ApiKey:    apikey.NewHandler(apiKeyService),
 		Search:    searchHandler(searchService, smartSearch),
 		Suggest:   suggestions,
+		Focus:     focus.New(db, decisions),
 		Merge:     workspace.NewMerger(db),
 		Notify:    notify.NewHandler(notifyService, jobQueue),
 		Portable:  portability.NewHandler(portabilityService),

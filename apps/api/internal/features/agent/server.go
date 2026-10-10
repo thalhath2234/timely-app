@@ -11,6 +11,7 @@ import (
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
@@ -58,6 +59,9 @@ type Deps struct {
 	// Decisions lets get_doc with a focus show only the sections of a long
 	// doc Jev marks relevant (docpassages.go); nil returns docs whole.
 	Decisions Decider
+	// Focus holds the person's habits and goals (tools_focus.go); nil makes
+	// those tools answer that they are not available.
+	Focus *focus.Store
 }
 
 type Server struct {
@@ -68,6 +72,9 @@ type Server struct {
 
 // SheetFormulaHelp is shared by external MCP and the in-app tool catalog.
 const SheetFormulaHelp = "Formulas start with = and use same-tab A1 coordinates (data starts at row 1, headers excluded). Supported ranges: N2:N21 (bounded), N:N (whole column), 2:2 (whole row), N2:N (row 2 onward), B2:2 (column B onward). Whole/open ranges include future rows or columns. Use SUM to add ranges: =B5+SUM(N2:N), not =B5+N2:N. SUM, AVERAGE, MIN, MAX, PRODUCT, COUNT and COUNTA accept ranges. Date helpers: TODAY(), DATE(y,m,d), YEAR, MONTH, DAY, WEEKDAY(date[,type]) (1=Sun..7=Sat; type 2 = 1=Mon..7=Sun), DAYS(end,start), TEXT(value,format) with date tokens dddd/ddd (weekday name), mmmm/mmm (month name), yyyy, mm, dd. =TEXT(A1,\"dddd\") gives the weekday of a date cell. Keep the formula cell outside its own range to avoid #CYCLE!. Cross-tab references are unsupported. Formulas are stored verbatim and evaluated by the web/desktop/mobile clients; tool responses contain raw formulas, not calculated results. Existing positional references are not automatically rewritten after structural edits."
+
+// viewToolHelp tells the model how to build a saved view from plain words.
+const viewToolHelp = `Create a saved task view from the person's words; it becomes the active view. Filters take names or ids: selectedWorkspaceIds (workspace names), selectedStatusIds (status names), selectedProjectIds (project titles), selectedLabelIds (label names), selectedStageIds (stage names), selectedPriorityLevels (Low, Medium, High, Urgent). Flags: onlyOverdue, onlyScheduled (time on the calendar), onlyRecurring, onlyDated (a deadline or planned time), showCompleted=false hides finished work, showReminders lists reminders. groupFields: workspace, project, stage, status, priority or a custom field name (up to 3). sortBy: name, deadline, startDate, scheduledOn, createdAt, priority, status, project. renderMode: list, kanban (board) or gantt (timeline). dataMode project lists projects. Examples: "overdue work in Home, grouped by priority" -> {"name":"Overdue in Home","selectedWorkspaceIds":["Home"],"onlyOverdue":true,"showCompleted":false,"groupFields":["priority"]}; "a board of my urgent bugs" -> {"name":"Urgent bugs","renderMode":"kanban","selectedPriorityLevels":["Urgent"],"selectedLabelIds":["Bug"],"groupFields":["status"]}; "what is due soon, by project" -> {"name":"Due soon","onlyDated":true,"showCompleted":false,"sortBy":"deadline","groupFields":["project"]}; "Website launch tasks in Review" -> {"name":"Launch review","selectedProjectIds":["Website launch"],"selectedStageIds":["Review"]}. In chat from the phone app it saves a phone view, which is a list or a board only (a timeline becomes a list; the result's changed field says so); otherwise a web and desktop view. An unknown name fails with the closest names: retry with one of them or ask.`
 
 // pickHint is added to the instructions only for accounts with smart
 // suggestions on, where pick_tasks checks each candidate.
@@ -125,7 +132,7 @@ Auto-schedule v2: preview shows add/move/remove/pin, skip messages, capacity, an
 ` + extra + `bulk_update_tasks applies one patch to many tasks: complete/reopen, status, priority, project, stage, deadline, and labelIds (replaces the full set; [] clears). It never schedules; place tasks one at a time with schedule_task.
 Archive docs/sheets with archive_doc / archive_sheet (archived=false unarchives). list_docs/list_sheets archived=true lists the archive. Prefer archive over delete.
 Sheet columns are text, number, date, boolean, currency, percent, formula, or select (dropdown with options); update_sheet_cells coerces literal values to the column type and appends unknown select values to the options. A sheet is a workbook of tabs; the first tab is the primary grid and is renamed with rename_sheet_tab (tabId empty). ` + SheetFormulaHelp + `
-Saved views can filter by project, priority, labels, stage, completed, overdue, scheduled, recurring, and showReminders. renderMode is list, kanban, or gantt.
+Saved views can filter by project, priority, labels, stage, completed, overdue, scheduled, recurring, and showReminders, and take names or ids. renderMode is list, kanban, or gantt.
 Destructive deletes of a workspace, project, or document require confirm=true. Deleting a doc does not cascade to subpages; the tool reports descendantCount.`,
 	})
 	s.register(server)
@@ -271,11 +278,11 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_template", Description: "Delete a sheet template."}, mcpOnly.reviewed(), s.deleteSheetTemplate)
 	registerTool(s, server, &mcp.Tool{Name: "materialize_sheet_template_tab", Description: "Clone a template tab (or the whole template when tabId is empty) with new ids. Does not create a sheet."}, mcpOnly, s.materializeSheetTemplateTab)
 
-	registerTool(s, server, &mcp.Tool{Name: "list_task_views", Description: "Saved task list/kanban/gantt views, including Phase 1 filters (project, priority, labels, stage, overdue, scheduled, recurring, reminders)."}, mcpOnly, s.listTaskViews)
-	registerTool(s, server, &mcp.Tool{Name: "create_task_view", Description: "Create a saved view. Filters: selectedProjectIds, selectedPriorityLevels, selectedLabelIds, selectedStageIds, showCompleted, onlyOverdue, onlyScheduled, onlyRecurring, onlyDated (deadline or scheduled block), showReminders. renderMode: list, kanban, gantt."}, mcpOnly, s.createTaskView)
-	registerTool(s, server, &mcp.Tool{Name: "update_task_view", Description: "Update a saved view, including filters and renderMode."}, mcpOnly, s.updateTaskView)
-	registerTool(s, server, &mcp.Tool{Name: "delete_task_view", Description: "Delete a saved view."}, mcpOnly.reviewed(), s.deleteTaskView)
-	registerTool(s, server, &mcp.Tool{Name: "set_active_task_view", Description: "Select the active saved view."}, mcpOnly, s.setActiveTaskView)
+	registerTool(s, server, &mcp.Tool{Name: "list_task_views", Description: "Saved task views (list, kanban board or gantt timeline) with their filters and which one is active. In chat from the phone app these are the phone's own views (list and board only); otherwise the web and desktop views. viewsOn in the result says which."}, reads, s.listTaskViews)
+	registerTool(s, server, &mcp.Tool{Name: "create_task_view", Description: viewToolHelp}, writes, s.createTaskView)
+	registerTool(s, server, &mcp.Tool{Name: "update_task_view", Description: "Change a saved view: viewId is its id or name; omitted fields stay as they are. Filters take names or ids, as in create_task_view (\"show only High and Urgent\" sets selectedPriorityLevels; \"stop hiding finished work\" sets showCompleted=true). Acts on the phone's views in chat from the phone app, else the web and desktop views."}, writes, s.updateTaskView)
+	registerTool(s, server, &mcp.Tool{Name: "delete_task_view", Description: "Delete a saved view by id or name."}, mcpOnly.reviewed(), s.deleteTaskView)
+	registerTool(s, server, &mcp.Tool{Name: "set_active_task_view", Description: "Make a saved view (id or name) the one the Tasks screen shows. Acts on the phone's views in chat from the phone app, else the web and desktop views."}, writes, s.setActiveTaskView)
 	registerTool(s, server, &mcp.Tool{Name: "set_project_task_view", Description: "Save or clear the task view stored for one project (config.projectTaskViews). clear=true removes it."}, mcpOnly, s.setProjectTaskView)
 
 	registerTool(s, server, &mcp.Tool{Name: "get_profile", Description: "Current user profile."}, mcpOnly, s.getProfile)
@@ -306,6 +313,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "download_backup", Description: "Decrypt and return one server backup."}, mcpOnly, s.downloadBackup)
 	registerTool(s, server, &mcp.Tool{Name: "delete_backup", Description: "Delete one encrypted server backup. Requires confirm=true."}, mcpOnly.reviewed(), s.deleteBackup)
 	registerTool(s, server, &mcp.Tool{Name: "restore_account", Description: "Replace this account's data with a timely-backup JSON object. Requires confirm=true. Same guard as POST /restore."}, mcpOnly, s.restoreAccount)
+	s.registerFocus(server)
 }
 
 func userID(req *mcp.CallToolRequest) (string, error) {

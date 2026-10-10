@@ -282,3 +282,30 @@ func TestIntegrationRelatableDropsInboxAndOwnTasks(t *testing.T) {
 		t.Fatalf("doc related = %s, want no inbox item", got)
 	}
 }
+
+// ViewsFromDB reads the phone's saved views for client=phone, the web's
+// otherwise, and names their projects in the descriptions.
+func TestIntegrationViewsFromDBFollowsTheClient(t *testing.T) {
+	db := integrationDB(t)
+	if err := db.AutoMigrate(&models.Config{}, &models.Status{}, &models.Lable{}); err != nil {
+		t.Fatal(err)
+	}
+	userID := "u-" + uuid.NewString()
+	seed(t, db, userID)
+	web := models.TaskViewConfig{ID: "view_rent", Name: "Rent", SelectedProjectIds: []string{"p-title"}}
+	phone := models.TaskViewConfig{ID: "native_view_late", Name: "Late", OnlyOverdue: true}
+	if err := db.Create(&models.Config{ID: "cfg-" + userID, UserID: userID, TaskViews: models.TaskViews{web}, MobileTaskViews: models.TaskViews{phone}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	views := ViewsFromDB(db)
+	got := views(context.Background(), userID, ClientPhone)
+	if len(got) != 1 || got[0].ID != "native_view_late" || got[0].Description != "lists work items; only overdue ones" {
+		t.Fatalf("phone = %+v", got)
+	}
+	for _, client := range []string{ClientWeb, ""} {
+		got = views(context.Background(), userID, client)
+		if len(got) != 1 || got[0].ID != "view_rent" || got[0].Description != "lists work items; in Apartment: rent and bills" {
+			t.Fatalf("%q = %+v", client, got)
+		}
+	}
+}

@@ -296,7 +296,7 @@ func (m *Merger) MergeOptions(userID, workspaceID, fieldID, from, into string) (
 // the ones it changed.
 func rewriteViews(tx *gorm.DB, userID string, fix func(*models.TaskViewConfig) bool) (int, error) {
 	var config models.Config
-	err := tx.Select("id", "task_views", "project_task_views").Where("user_id = ?", userID).First(&config).Error
+	err := tx.Select("id", "task_views", "project_task_views", "mobile_task_views").Where("user_id = ?", userID).First(&config).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, nil
 	}
@@ -306,6 +306,13 @@ func rewriteViews(tx *gorm.DB, userID string, fix func(*models.TaskViewConfig) b
 	n := 0
 	for i := range config.TaskViews {
 		if fix(&config.TaskViews[i]) {
+			n++
+		}
+	}
+	mobileChanged := false
+	for i := range config.MobileTaskViews {
+		if fix(&config.MobileTaskViews[i]) {
+			mobileChanged = true
 			n++
 		}
 	}
@@ -323,6 +330,9 @@ func rewriteViews(tx *gorm.DB, userID string, fix func(*models.TaskViewConfig) b
 	cols := map[string]any{"task_views": config.TaskViews}
 	if projectChanged {
 		cols["project_task_views"] = config.ProjectTaskViews
+	}
+	if mobileChanged {
+		cols["mobile_task_views"] = config.MobileTaskViews
 	}
 	return n, models.WriteJSONB(tx, "configs", cols, "user_id = ?", userID)
 }

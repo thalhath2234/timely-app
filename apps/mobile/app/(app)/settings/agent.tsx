@@ -676,12 +676,27 @@ function UseCaseField() {
   );
 }
 
+/** A feature's name, or its key in words when it has none yet. */
+function learnedName(feature: string) {
+  const words = feature.replace(/_/g, " ");
+  return LEARNED_NAMES[feature] ?? words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** Names for the features that learn from what the person keeps. */
 const LEARNED_NAMES: Record<string, string> = {
   clarify: "Clarify form",
   doc_mention: "Link selection to an item",
   project_template: "Start from a template",
   sheet_template: "Sheet templates",
+  doc_template: "Doc templates",
+  chat_target: "Which item a chat change means",
+  chat_context: "Attached items in chat",
+  doc_passages: "Long doc reads",
+  sheet_cell_fit: "Sheet entry checks",
+  goal_progress: "Work toward goals",
+  estimate: "Suggested length",
+  import_format: "Plain-text import",
+  search_related: "Related lists",
   search: "Search",
   screen_tip: "Screen tips",
   chat_prompts: "Chat example prompts",
@@ -714,7 +729,7 @@ function LearnedDefaults() {
       {rows.map((row) => (
         <View key={row.feature} style={[styles.row, { justifyContent: "space-between" }]}>
           <Text style={[styles.meta, { flex: 1 }]}>
-            {LEARNED_NAMES[row.feature] ?? row.feature} · kept {row.kept} of {row.decided}
+            {learnedName(row.feature)} · kept {row.kept} of {row.decided}
             {row.raise > 0 ? " · asks for more certainty" : ""}
           </Text>
           {row.raise > 0 ? (

@@ -1,4 +1,5 @@
-import { ScrollView, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { ScrollView, Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import Animated from "react-native-reanimated";
 import { Plus } from "lucide-react-native";
 import type { TaskViewConfig } from "../../lib/types";
@@ -20,11 +21,33 @@ export default function TaskFilterBar({
 }) {
   const activeChipId = views.some((view) => view.id === activeViewId) ? activeViewId : views[0]?.id;
   const { onItemLayout, pillStyle } = useSlidingPill(activeChipId);
+  const scroller = useRef<ScrollView>(null);
+  const layouts = useRef(new Map<string, { x: number; width: number }>());
+  const { width: screenWidth } = useWindowDimensions();
+  // Keep the active view in sight, e.g. one opened from search or chat at the
+  // end of a long list.
+  const reveal = (id: string | undefined, animated = true) => {
+    const box = id ? layouts.current.get(id) : undefined;
+    if (!box) return;
+    scroller.current?.scrollTo({ x: Math.max(0, box.x + box.width / 2 - screenWidth / 2), animated });
+  };
+  useEffect(() => {
+    reveal(activeChipId);
+  }, [activeChipId]);
+  const onSlotLayout = (id: string, event: LayoutChangeEvent) => {
+    onItemLayout(id, event);
+    const { x, width } = event.nativeEvent.layout;
+    layouts.current.set(id, { x, width });
+    if (id === activeChipId) requestAnimationFrame(() => reveal(id, false));
+  };
 
   return (
     <View style={styles.wrap}>
       <ScrollView
+        ref={scroller}
         horizontal
+        // The chips can lay out before the strip is wide enough to scroll.
+        onContentSizeChange={() => reveal(activeChipId, false)}
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
         contentContainerStyle={styles.scroller}
@@ -37,7 +60,7 @@ export default function TaskFilterBar({
                 key={view.id}
                 collapsable={false}
                 style={styles.chipSlot}
-                onLayout={(event) => onItemLayout(view.id, event)}
+                onLayout={(event) => onSlotLayout(view.id, event)}
               >
                 <Chip bare fill label={view.name} active={view.id === activeChipId} onPress={() => onView(view.id)} />
               </View>

@@ -58,7 +58,8 @@ func (h *Handler) Smart(c *echo.Context) error {
 	if h.smart == nil {
 		return c.JSON(http.StatusOK, SmartResult{})
 	}
-	out, err := h.smart.Search(c.Request().Context(), userID, c.QueryParam("q"), splitKinds(c.QueryParam("kinds")))
+	// client=phone offers the phone's own saved views; anything else the web's.
+	out, err := h.smart.SearchFor(c.Request().Context(), userID, c.QueryParam("q"), splitKinds(c.QueryParam("kinds")), c.QueryParam("client"))
 	if err != nil {
 		return searchError(err)
 	}

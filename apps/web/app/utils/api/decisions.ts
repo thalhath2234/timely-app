@@ -8,8 +8,6 @@ export type DecisionsView = {
   provider?: "typesafe" | "openrouter";
   typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
   openrouterKeySet: boolean;
-  /** Up to five goals in the person's own words; suggestions weigh Work against them. */
-  goals: string[];
   deepWorkTime: DeepWorkTime;
 };
 
@@ -74,7 +72,7 @@ async function request<T>(
 export const getDecisions = () => request<DecisionsView>("/agent/decisions");
 export const setDecisionsEnabled = (enabled: boolean) =>
   request<DecisionsView>("/agent/decisions", "PATCH", { enabled });
-export const setDecisionPrefs = (prefs: { goals?: string[]; deepWorkTime?: DeepWorkTime }) =>
+export const setDecisionPrefs = (prefs: { deepWorkTime?: DeepWorkTime }) =>
   request<DecisionsView>("/agent/decisions", "PATCH", prefs);
 /** Checks the key with one tiny call to TypeSafe, then saves it. */
 export const setTypeSafeKey = (key: string) =>

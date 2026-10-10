@@ -109,6 +109,9 @@ type sendInput struct {
 	// Device IANA timezone. The agent uses it when no timezone is saved in
 	// Working hours; invalid values are ignored.
 	Timezone string `json:"timezone"`
+	// Client is the app that sent the message: "phone" or "web" (anything
+	// else is the web). The agent's saved-view tools act on that app's views.
+	Client string `json:"client"`
 	// Provider and Model pick the model for a new conversation; empty follows
 	// the account default.
 	Provider string `json:"provider"`
@@ -174,7 +177,7 @@ func (s *Service) create(c *echo.Context) error {
 	}
 	firstMessage := message("user", in.Content)
 	firstMessage.RequestID = in.RequestID
-	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
 	noteLanguage(&row, in.Content)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
@@ -282,6 +285,7 @@ func (s *Service) send(c *echo.Context) error {
 		if zone := validTimezone(in.Timezone); zone != "" {
 			row.Timezone = zone
 		}
+		row.Client = agent.NormalizeClient(in.Client)
 		noteLanguage(row, in.Content)
 		row.ForceReview = row.Status == "approval" || row.Sensitive
 		archivePlan(row)

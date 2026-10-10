@@ -27,25 +27,41 @@ type ViewPick struct {
 	Name string `json:"name"`
 }
 
-// ViewSource lists a person's saved views.
-type ViewSource func(ctx context.Context, userID string) []SavedView
+// Clients whose saved views a search offers: the phone app keeps its own
+// views (config.mobileTaskViews); anything else is the web and desktop app.
+const (
+	ClientPhone = "phone"
+	ClientWeb   = "web"
+)
+
+// ViewSource lists a person's saved views for one client.
+type ViewSource func(ctx context.Context, userID, client string) []SavedView
 
 // SetViews connects the person's saved views.
 func (s *Smart) SetViews(fn ViewSource) { s.views = fn }
 
 const maxViewChoices = 20
 
-// ViewsFromDB reads the saved task views from the person's config and
-// names their statuses, projects and labels.
+// ViewsFromDB reads the client's saved task views from the person's config
+// (the phone's own views for client "phone") and names their statuses,
+// projects and labels.
 func ViewsFromDB(db *gorm.DB) ViewSource {
-	return func(ctx context.Context, userID string) []SavedView {
+	return func(ctx context.Context, userID, client string) []SavedView {
+		column := "task_views"
+		if client == ClientPhone {
+			column = "mobile_task_views"
+		}
 		var cfg models.Config
-		if err := db.WithContext(ctx).Select("task_views").Where("user_id = ?", userID).First(&cfg).Error; err != nil {
+		if err := db.WithContext(ctx).Select(column).Where("user_id = ?", userID).First(&cfg).Error; err != nil {
 			return nil
+		}
+		saved := cfg.TaskViews
+		if client == ClientPhone {
+			saved = cfg.MobileTaskViews
 		}
 		var views []models.TaskViewConfig
 		var statusIDs, projectIDs, labelIDs []string
-		for _, v := range cfg.TaskViews {
+		for _, v := range saved {
 			if len(views) == maxViewChoices {
 				break
 			}

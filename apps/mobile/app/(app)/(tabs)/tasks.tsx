@@ -1,6 +1,6 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Platform, RefreshControl, ScrollView, SectionList, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ListTodo, SlidersHorizontal } from "lucide-react-native";
@@ -152,8 +152,9 @@ function sortTasks(a: Task, b: Task, view?: TaskViewConfig) {
 
 export default function TasksScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ projectId?: string }>();
+  const params = useLocalSearchParams<{ projectId?: string; view?: string }>();
   const routeProjectId = typeof params.projectId === "string" ? params.projectId : undefined;
+  const viewParam = typeof params.view === "string" && params.view ? params.view : undefined;
   const tasksQ = useTasksQuery();
   const spacesQ = useWorkspacesQuery();
   const nativeViews = useNativeTaskViews();
@@ -168,6 +169,26 @@ export default function TasksScreen() {
   const views = nativeViews.views;
   const activeView = nativeViews.activeView;
   const activeViewId = nativeViews.activeViewId;
+  // Search and the assistant open a saved view by id (?view=…). A view the
+  // assistant just made may not be here yet, so the views are fetched once
+  // more before the param is dropped.
+  const { ready: viewsReady, syncing: viewsSyncing, setActiveId: setNativeActiveId, refresh: refreshViews } = nativeViews;
+  const refreshedFor = useRef("");
+  useEffect(() => {
+    if (!viewParam || !viewsReady) return;
+    if (views.some((view) => view.id === viewParam)) {
+      setNativeActiveId(viewParam);
+      router.setParams({ view: undefined });
+      return;
+    }
+    if (viewsSyncing) return;
+    if (refreshedFor.current !== viewParam) {
+      refreshedFor.current = viewParam;
+      void refreshViews();
+      return;
+    }
+    router.setParams({ view: undefined });
+  }, [viewParam, viewsReady, viewsSyncing, views, setNativeActiveId, refreshViews, router]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [confirmDeleteView, setConfirmDeleteView] = useState(false);

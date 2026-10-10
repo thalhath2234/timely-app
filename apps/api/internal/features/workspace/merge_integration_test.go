@@ -23,12 +23,15 @@ func TestIntegrationMergeLabelsStatusesAndOptions(t *testing.T) {
 	must(t, f.db.Create(&one).Error)
 	view := models.TaskViewConfig{ID: "v1", Name: "Bugs", SelectedLabelIds: []string{f.label, bugs.ID}, SelectedStatusIds: []string{f.status},
 		GroupValueOrders: map[string][]string{"status": {f.status}}}
-	must(t, f.db.Create(&models.Config{ID: "cfg_1", UserID: f.owner, TaskViews: models.TaskViews{view}, ProjectTaskViews: models.ProjectTaskViews{}}).Error)
+	phoneView := models.TaskViewConfig{ID: "native_view_bugs", Name: "Bugs", SelectedLabelIds: []string{f.label}}
+	must(t, f.db.Create(&models.Config{ID: "cfg_1", UserID: f.owner, TaskViews: models.TaskViews{view}, ProjectTaskViews: models.ProjectTaskViews{},
+		MobileTaskViews: models.TaskViews{phoneView}}).Error)
 
-	// Labels: every task keeps one copy of the kept label; views follow.
+	// Labels: every task keeps one copy of the kept label; views follow,
+	// the phone's views too.
 	out, err := m.MergeLabels(f.owner, f.ws, f.label, bugs.ID)
 	must(t, err)
-	if out.Tasks != 2 || out.Views != 1 {
+	if out.Tasks != 2 || out.Views != 2 {
 		t.Fatalf("%+v", out)
 	}
 	var tasks []models.Task
@@ -45,6 +48,9 @@ func TestIntegrationMergeLabelsStatusesAndOptions(t *testing.T) {
 	must(t, f.db.Where("user_id = ?", f.owner).First(&cfg).Error)
 	if !slices.Equal(cfg.TaskViews[0].SelectedLabelIds, []string{bugs.ID}) {
 		t.Fatalf("view labels %v", cfg.TaskViews[0].SelectedLabelIds)
+	}
+	if !slices.Equal(cfg.MobileTaskViews[0].SelectedLabelIds, []string{bugs.ID}) {
+		t.Fatalf("phone view labels %v", cfg.MobileTaskViews[0].SelectedLabelIds)
 	}
 
 	// Statuses: tasks and projects move; the default passes to the kept one.

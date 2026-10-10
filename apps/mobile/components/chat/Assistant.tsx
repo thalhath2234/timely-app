@@ -169,6 +169,9 @@ export default function Assistant() {
         "search",
         "task-activity",
         "project-activity",
+        "habits",
+        "goals",
+        "goal-progress",
       ])
         void queryClient.invalidateQueries({ queryKey: [key] });
       lastRevision.current = chat.revision;

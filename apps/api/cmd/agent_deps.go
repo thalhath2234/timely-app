@@ -10,6 +10,7 @@ import (
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/placement"
 	"timely-api/internal/features/project"
@@ -74,5 +75,6 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		Rerank:    searchRerank,
 		Pick:      taskPick,
 		Decisions: docDecisions,
+		Focus:     focus.NewStore(db),
 	})
 }

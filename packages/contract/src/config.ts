@@ -89,6 +89,12 @@ export interface Config {
   notificationSettings: NotificationSettings;
   /** The Dashboard layout; null until the account customises it. */
   reportDashboard?: DashboardLayout | null;
+  /**
+   * The phone app's own saved views (list and board only), apart from
+   * `taskViews`. Empty until the phone uploads its device views once.
+   */
+  mobileTaskViews?: TaskViewConfig[];
+  mobileActiveTaskViewId?: string;
   customFields?: CustomField[];
   createdAt: string;
   updatedAt: string;
@@ -108,4 +114,7 @@ export interface ConfigUpdateInput {
   appearance?: Appearance;
   /** Replaces the whole Dashboard layout (`dashboard.ts`). */
   reportDashboard?: DashboardLayout;
+  /** Replaces the phone's saved views; an empty list is ignored. */
+  mobileTaskViews?: TaskViewConfig[];
+  mobileActiveTaskViewId?: string;
 }

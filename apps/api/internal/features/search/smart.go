@@ -67,6 +67,12 @@ var kindLabels = map[string]string{
 // Search runs the hybrid search and asks Jev about the top results, the kind
 // wanted and whether the query is really a command.
 func (s *Smart) Search(ctx context.Context, userID, query string, kinds []string) (SmartResult, error) {
+	return s.SearchFor(ctx, userID, query, kinds, ClientWeb)
+}
+
+// SearchFor is Search for one app: client "phone" offers the phone's own
+// saved views, anything else the web and desktop views.
+func (s *Smart) SearchFor(ctx context.Context, userID, query string, kinds []string, client string) (SmartResult, error) {
 	query = strings.TrimSpace(query)
 	hits, err := s.search.SemanticSearch(ctx, userID, query, 20, kinds)
 	if err != nil {
@@ -99,7 +105,7 @@ func (s *Smart) Search(ctx context.Context, userID, query string, kinds []string
 	}
 	var views []SavedView
 	if s.views != nil && len(strings.Fields(query)) >= 2 {
-		views = s.views(ctx, userID)
+		views = s.views(ctx, userID, client)
 	}
 	if len(views) > 0 {
 		opts := []decide.Option{{Name: "none", Description: "None: the search looks for a particular item, or no saved view shows what it asks for"}}

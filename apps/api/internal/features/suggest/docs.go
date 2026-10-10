@@ -53,6 +53,7 @@ func (s *Service) docRoutes(g *echo.Group) {
 	g.GET("/suggestions/doc/:id", s.docHints)
 	g.POST("/suggestions/mention", s.mention)
 	g.POST("/suggestions/import-format", s.importFormat)
+	g.GET("/suggestions/doc-template", s.docTemplate)
 }
 
 type DocRef struct {

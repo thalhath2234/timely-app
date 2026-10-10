@@ -47,6 +47,8 @@ export type SmartSearch = {
   category?: SmartCategory;
   /** Set when the query reads like a command ("make a budget sheet"). */
   create?: { kind: SmartCategory; title: string };
+  /** The phone's saved view the query asks for ("what's overdue"). */
+  view?: { id: string; name: string };
   logId?: string;
 };
 
@@ -58,12 +60,14 @@ export type SmartSearch = {
 export async function smartSearch(query: string): Promise<SmartSearch> {
   const trimmed = query.trim();
   if (!trimmed) return { hits: null, hidden: [] };
-  const params = new URLSearchParams({ q: trimmed });
+  // client=phone: a saved view pick comes from the phone's own views.
+  const params = new URLSearchParams({ q: trimmed, client: "phone" });
   const data = await api<{
     hits?: SearchHit[] | null;
     hidden?: SearchHit[] | null;
     category?: SmartCategory;
     create?: { kind: SmartCategory; title: string } | null;
+    view?: { id: string; name: string } | null;
     logId?: string;
   }>(`/search/smart?${params.toString()}`);
   // One seen-set across both lists so a hidden item never repeats a kept one.
@@ -75,6 +79,7 @@ export async function smartSearch(query: string): Promise<SmartSearch> {
     hidden,
     category: data?.category || undefined,
     create: data?.create?.kind && data.create.title?.trim() ? { kind: data.create.kind, title: data.create.title.trim() } : undefined,
+    view: data?.view?.id && data.view.name?.trim() ? { id: data.view.id, name: data.view.name.trim() } : undefined,
     logId: data?.logId,
   };
 }

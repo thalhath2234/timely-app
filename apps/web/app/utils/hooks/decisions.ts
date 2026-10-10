@@ -62,7 +62,7 @@ function useDecisionsMutation<TVars>(
     onSuccess: (data) => queryClient.setQueryData(decisionsKey, data),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: decisionsKey, exact: true });
-      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions", "doc-hints", "today-suggestions"])
+      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions", "doc-hints", "today-suggestions", "goal-progress"])
         queryClient.invalidateQueries({ queryKey: [key] });
     },
   });
@@ -71,7 +71,7 @@ function useDecisionsMutation<TVars>(
 export const useSetDecisionsEnabled = () =>
   useDecisionsMutation((enabled: boolean) => setDecisionsEnabled(enabled));
 export const useSetDecisionPrefs = () =>
-  useDecisionsMutation((prefs: { goals?: string[]; deepWorkTime?: DeepWorkTime }) => setDecisionPrefs(prefs));
+  useDecisionsMutation((prefs: { deepWorkTime?: DeepWorkTime }) => setDecisionPrefs(prefs));
 export const useSetTypeSafeKey = () =>
   useDecisionsMutation((key: string) => setTypeSafeKey(key));
 export const useRemoveTypeSafeKey = () =>

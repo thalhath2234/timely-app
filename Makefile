@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-sheet-formulas test-work-status test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-mobile-doc-jev test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-markdown-parity test-sheet-formulas test-work-status test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-mobile-doc-jev test-mobile-file-templates test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -304,6 +304,14 @@ test-mobile-picker-seed: ## Test when a date-time picker adopts a value that arr
 .PHONY: test-mobile-doc-jev
 test-mobile-doc-jev: ## Test the mobile doc editor's property and "Link to an item" helpers
 	@node --experimental-strip-types --test scripts/mobile-doc-jev.test.mjs
+
+.PHONY: test-mobile-file-templates
+test-mobile-file-templates: ## Test the mobile new doc and sheet template picker and the new-row cell-fit check
+	@node --experimental-strip-types --test scripts/mobile-file-templates.test.mjs
+
+.PHONY: test-mobile-task-views
+test-mobile-task-views: ## Test how the phone's saved views merge with the server's copy (rebase, first sync, 20-view cap)
+	@node --experimental-strip-types --test scripts/mobile-task-views.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing

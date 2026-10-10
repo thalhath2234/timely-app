@@ -75,6 +75,7 @@ import {
   syncSelectOptions,
 } from "../../lib/sheet";
 import { growGridTo, isPastGrid } from "../../lib/sheetGrow";
+import { cellFitEdit } from "../../lib/sheetCellFit";
 import { useCellFit, useDecisionFeedback, type CellFitEdit } from "../../lib/hooks";
 import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRow } from "../../lib/types";
 
@@ -149,31 +150,6 @@ const FORMULA_GROUPS: { title: string; items: FormulaInsert[] }[] = [
     ],
   },
 ];
-
-let cellFitSeq = 0;
-
-/** The edited cell to check against its column, or null when a typed column,
- * a formula or an unchanged entry leaves nothing to ask. */
-function cellFitEdit(column: SheetColumn, rows: SheetRow[], rowIndex: number, value: string): CellFitEdit | null {
-  const row = rows[rowIndex];
-  if (!row || (column.type !== "text" && column.type !== "select")) return null;
-  const entry = value.trim();
-  if (!entry || isFormulaValue(entry) || entry === String(row.cells?.[column.id] ?? "").trim()) return null;
-  const values = new Set<string>();
-  for (const other of rows) {
-    if (other.id === row.id) continue;
-    const v = String(other.cells?.[column.id] ?? "").trim();
-    if (v && !isFormulaValue(v)) values.add(v);
-    if (values.size >= 50) break;
-  }
-  cellFitSeq += 1;
-  return {
-    id: cellFitSeq,
-    rowId: row.id,
-    columnId: column.id,
-    input: { column: column.name, type: column.type, value: entry, values: [...values], options: column.options },
-  };
-}
 
 export type SheetGridProps = {
   columns: SheetColumn[];
@@ -480,13 +456,16 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     return value == null ? "" : String(value);
   };
 
-  function setCellValue(address: Address, value: string) {
+  /** Writes one cell, growing the grid when it is past the end. Returns the
+   * grid as it was just before the value went in (grown to reach the cell),
+   * or null when nothing was written. */
+  function setCellValue(address: Address, value: string): { columns: SheetColumn[]; rows: SheetRow[] } | null {
     const grid = { columns, rows };
     // Leaving a blank cell past the end blank is not an edit.
-    if (isPastGrid(grid, address) && value.trim() === "") return;
+    if (isPastGrid(grid, address) && value.trim() === "") return null;
     const grown = growGridTo(grid, address, makeColumn, emptySheetRow);
     const column = grown.columns[address.col];
-    if (!column) return;
+    if (!column) return null;
     commit({
       columns: grown.columns !== columns ? grown.columns : undefined,
       rows: grown.rows.map((row, index) =>
@@ -501,6 +480,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
           : row,
       ),
     });
+    return grown;
   }
 
   /** Empties every cell in the current selection, not just the active one. */
@@ -673,14 +653,17 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     editingRef.current = null;
     if (cellInputRef.current?.isFocused()) cellInputRef.current.blur();
     const column = columns[address.col];
-    const fit = column ? cellFitEdit(column, rows, address.row, normalizeTypedCell(column.type, value)) : null;
-    if (fit) setFitEdit(fit);
     // Retyping a cell that had a hint counts as the hint being useful.
     if (cellFit?.logId && cellFit.id !== dismissedFit && column?.id === cellFit.columnId && rows[address.row]?.id === cellFit.rowId && value.trim() !== cellFit.value) {
       fitFeedback.mutate({ logId: cellFit.logId, accepted: true });
       setDismissedFit(cellFit.id);
     }
-    setCellValue(address, value);
+    // Checked against the grid the value went into, so an entry in a row
+    // added past the end (typed in the formula bar) is checked like any other.
+    const written = setCellValue(address, value);
+    const writtenColumn = written?.columns[address.col];
+    const fit = written && writtenColumn ? cellFitEdit(writtenColumn, written.rows, address.row, normalizeTypedCell(writtenColumn.type, value)) : null;
+    if (fit) setFitEdit(fit);
     setEditing(null);
     setEditSource(null);
     setDraft("");

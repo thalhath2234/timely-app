@@ -274,7 +274,7 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 		spec := targetSpec()
 		specs, allSpecs = append(specs, spec), append(allSpecs, spec)
 	}
-	system := instruction + timeContext(time.Now(), loc, source)
+	system := instruction + timeContext(time.Now(), loc, source) + clientNote(c.Client)
 	if targets {
 		system += targetHint
 	}

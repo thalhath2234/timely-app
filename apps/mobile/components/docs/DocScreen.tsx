@@ -85,6 +85,8 @@ function DocEditor({ docId }: { docId: string }) {
   const [editorSync, setEditorSync] = useState(0);
   const lastSavedAtRef = useRef<string | null>(doc?.updatedAt ?? null);
   const editorFocusedRef = useRef(false);
+  // Whether the page holds nothing at all, for the template suggestion.
+  const contentEmptyRef = useRef(doc ? isRichContentEmpty(resolveDocContent(doc.content, doc.plainText)) : true);
 
   const seedContent = useMemo(
     () => (doc ? resolveDocContent(doc.content, doc.plainText) : { type: "doc", content: [] }),
@@ -131,7 +133,9 @@ function DocEditor({ docId }: { docId: string }) {
     setIcon(doc.icon ?? "");
     setFavorite(Boolean(doc.isFavorite));
     setWordCount(countWords(doc.plainText));
-    setRemoteContent(resolveDocContent(doc.content, doc.plainText));
+    const next = resolveDocContent(doc.content, doc.plainText);
+    contentEmptyRef.current = isRichContentEmpty(next);
+    setRemoteContent(next);
     setEditorSync((value) => value + 1);
   }, [remoteEpoch, doc?.title, doc?.icon, doc?.isFavorite, doc?.plainText, doc?.content]);
 
@@ -218,7 +222,17 @@ function DocEditor({ docId }: { docId: string }) {
       <DocHintsCard
         doc={doc}
         version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
+        nearEmpty={wordCount < 8}
+        isEmpty={() => contentEmptyRef.current}
         onSetProperty={(key, value) => setPropertyRequest({ key, value })}
+        onApplyContent={(content, plainText) => {
+          contentEmptyRef.current = isRichContentEmpty(content);
+          setAssistantText(plainText);
+          setWordCount(countWords(plainText));
+          setRemoteContent(content);
+          setEditorSync((value) => value + 1);
+          schedule({ content, plainText });
+        }}
       />
 
       <RichTextEditor
@@ -237,6 +251,7 @@ function DocEditor({ docId }: { docId: string }) {
           editorFocusedRef.current = focused;
         }}
         onChange={({ content, plainText }) => {
+          contentEmptyRef.current = isRichContentEmpty(content);
           setAssistantText(plainText);
           setWordCount(countWords(plainText));
           schedule({ content, plainText });
@@ -295,6 +310,7 @@ function DocEditor({ docId }: { docId: string }) {
                 const source = await (await fetch(picked.assets[0].uri)).text();
                 const parsed = await parseImportedText(source, smartImport);
                 setWordCount(countWords(parsed.plainText));
+                contentEmptyRef.current = isRichContentEmpty(parsed.content);
                 setRemoteContent(parsed.content);
                 setEditorSync((value) => value + 1);
                 schedule({ content: parsed.content, plainText: parsed.plainText });

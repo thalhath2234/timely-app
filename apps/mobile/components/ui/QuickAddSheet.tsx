@@ -15,8 +15,9 @@ import AnimatedPressable from "./AnimatedPressable";
 import { emptyCustomFieldDrafts, filledCustomFieldValues } from "../../lib/customFields";
 import { isRichContentEmpty } from "../../lib/richText";
 import type { DocContent } from "../../lib/types";
-import { useCreateDoc, useCreateEvent, useCreateSheet, useCreateTask, useAddBlock, useEstimateQuery, useProjectsQuery, useWorkspacesQuery } from "../../lib/hooks";
+import { useCreateEvent, useCreateTask, useAddBlock, useEstimateQuery, useProjectsQuery, useWorkspacesQuery } from "../../lib/hooks";
 import { buildRecurrenceInput, type RecurrenceDraft } from "../../lib/recurrence";
+import { TemplateField, useCreateFromTemplate, useNewFileTemplates } from "../files/NewFileTemplates";
 import { fileHref } from "../../lib/fileRoutes";
 import { formatDuration, formatShortDate, formatTime, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../lib/format";
 import type { CustomFieldValueInput } from "../../lib/types";
@@ -84,8 +85,7 @@ export default function QuickAddSheet({
   const projects = useProjectsQuery();
   const createTask = useCreateTask();
   const createEvent = useCreateEvent();
-  const createDoc = useCreateDoc();
-  const createSheet = useCreateSheet();
+  const fromTemplate = useCreateFromTemplate();
   const addBlock = useAddBlock();
   const reduceMotion = useReducedMotion();
 
@@ -116,6 +116,8 @@ export default function QuickAddSheet({
   const [eventWorkspaceId, setEventWorkspaceId] = useState("");
   const [eventColor, setEventColor] = useState("");
   const [eventProjectId, setEventProjectId] = useState("");
+  // A new doc or sheet starts blank ("") or from this template.
+  const [templateId, setTemplateId] = useState("");
   const [picking, setPicking] = useState<
     | "due"
     | "startDate"
@@ -153,7 +155,8 @@ export default function QuickAddSheet({
     (project) => !eventWorkspaceId || project.workspaceId === eventWorkspaceId,
   );
   const stages = [...(selectedProject?.stages ?? [])].sort((a, b) => a.order - b.order);
-  const pending = createTask.isPending || createEvent.isPending || createDoc.isPending || createSheet.isPending;
+  const pending = createTask.isPending || createEvent.isPending || fromTemplate.pending;
+  const fileTemplates = useNewFileTemplates(kind === "sheet" ? "sheet" : "doc", title, open && (kind === "doc" || kind === "sheet"));
 
   const isReminder = kind === "reminder";
   const taskTimeOnly = Boolean(taskRecurrence);
@@ -239,6 +242,7 @@ export default function QuickAddSheet({
     if (value === "reminder") turnIntoReminder();
     else if (value === "task" && isReminder) addDuration();
     else setKind(value);
+    setTemplateId("");
     setSelectedKind(value);
     startTransition(() => setPhase("form"));
   }
@@ -272,6 +276,7 @@ export default function QuickAddSheet({
     setEventWorkspaceId("");
     setEventColor("");
     setEventProjectId("");
+    setTemplateId("");
     setKind("task");
     if (selectedWorkspace) {
       const defaultStatus = selectedWorkspace.status?.find((status) => status.isDefault) ?? selectedWorkspace.status?.[0];
@@ -347,17 +352,10 @@ export default function QuickAddSheet({
       finish("/(app)/(tabs)/calendar");
       return;
     }
-    if (kind === "doc") {
-      const doc = await createDoc.mutateAsync({ title: name, workspaceId: activeWorkspaceId });
-      reset();
-      onClose();
-      router.push(fileHref(doc.id));
-      return;
-    }
-    const sheet = await createSheet.mutateAsync({ title: name, workspaceId: activeWorkspaceId });
+    const fileId = await fromTemplate.create(fileTemplates, { title: name, templateId: templateId || undefined, workspaceId: activeWorkspaceId });
     reset();
     onClose();
-    router.push(fileHref(sheet.id));
+    router.push(fileHref(fileId));
   }
 
   function finish(href: string) {
@@ -504,6 +502,7 @@ export default function QuickAddSheet({
               value={selectedWorkspace?.name ?? "Select workspace"}
               onPress={() => setPicking("workspace")}
             />
+            <TemplateField templates={fileTemplates} value={templateId} onChange={setTemplateId} />
           </PropertyGroup>
         ) : null}
 

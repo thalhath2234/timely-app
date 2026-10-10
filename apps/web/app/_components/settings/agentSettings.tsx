@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Check,
   CircleAlert,
@@ -1252,12 +1253,27 @@ function UseCaseField() {
   );
 }
 
+/** A feature's name, or its key in words when it has none yet. */
+function learnedName(feature: string) {
+  const words = feature.replace(/_/g, " ");
+  return LEARNED_NAMES[feature] ?? words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** Names for the features that learn from what the person keeps. */
 const LEARNED_NAMES: Record<string, string> = {
   clarify: "Clarify form",
   doc_mention: "Link selection to an item",
   project_template: "Start from a template",
   sheet_template: "Sheet templates",
+  doc_template: "Doc templates",
+  chat_target: "Which item a chat change means",
+  chat_context: "Attached items in chat",
+  doc_passages: "Long doc reads",
+  sheet_cell_fit: "Sheet entry checks",
+  goal_progress: "Work toward goals",
+  estimate: "Suggested length",
+  import_format: "Plain-text import",
+  search_related: "Related lists",
   search: "Search",
   screen_tip: "Screen tips",
   chat_prompts: "Chat example prompts",
@@ -1293,7 +1309,7 @@ function LearnedDefaults() {
         {rows.map((row) => (
           <li key={row.feature} className="flex items-center justify-between gap-3 text-xs">
             <span>
-              <span className="font-medium text-foreground">{LEARNED_NAMES[row.feature] ?? row.feature}</span>
+              <span className="font-medium text-foreground">{learnedName(row.feature)}</span>
               <span className="text-muted-foreground"> · kept {row.kept} of {row.decided}</span>
               {row.raise > 0 ? <span className="text-amber-600 dark:text-amber-400"> · now asks for more certainty</span> : null}
             </span>
@@ -1314,58 +1330,13 @@ function LearnedDefaults() {
   );
 }
 
-const MAX_GOALS = 5;
-
-/** What suggestions weigh on Today and in task hints: the person's goals and
- * their best time of day for deep work. */
+/** What suggestions weigh on Today and in task hints: the person's best time
+ * of day for deep work. Goals are kept on Today, in Habits and goals. */
 function DecisionPrefs({ data }: { data: DecisionsView }) {
   const save = useSetDecisionPrefs();
-  const saved = (data.goals ?? []).join("\n");
-  const [goals, setGoals] = useState(saved);
-  const [error, setError] = useState<string | null>(null);
-  const lines = goals.split("\n").map((line) => line.trim()).filter(Boolean);
-  const dirty = lines.join("\n") !== saved;
-
-  const onSave = async (event: FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    if (lines.length > MAX_GOALS) {
-      setError(`Add up to ${MAX_GOALS} goals.`);
-      return;
-    }
-    try {
-      const next = await save.mutateAsync({ goals: lines });
-      setGoals(next.goals.join("\n"));
-    } catch (err) {
-      setError(errorMessage(err, "Could not save your goals."));
-    }
-  };
 
   return (
     <div className="flex flex-col gap-3 border-t border-border pt-4" data-testid="decision-prefs">
-      <form onSubmit={onSave} className="flex flex-col gap-1.5">
-        <label htmlFor="decision-goals" className="text-xs text-muted-foreground">
-          Your goals, one per line (up to {MAX_GOALS})
-        </label>
-        <textarea
-          id="decision-goals"
-          rows={3}
-          value={goals}
-          onChange={(event) => setGoals(event.target.value)}
-          placeholder={"Launch the online shop\nRun a half marathon"}
-          className={cn(inputClass, "resize-y")}
-          disabled={save.isPending}
-        />
-        <div className="flex items-center gap-2">
-          <button type="submit" disabled={!dirty || save.isPending} className={secondaryButton}>
-            Save goals
-          </button>
-          <span className="text-[11px] text-muted-foreground">
-            Today shows which of your open work moves each goal forward.
-          </span>
-        </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
-      </form>
       <div className="flex flex-col gap-1.5">
         <span className="text-xs text-muted-foreground">Best time for deep work</span>
         <div className="max-w-xs">
@@ -1384,6 +1355,13 @@ function DecisionPrefs({ data }: { data: DecisionsView }) {
         </div>
         <span className="text-[11px] text-muted-foreground">
           Deep focus tasks get a hint to plan them at this time of day.
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          Your goals now live on{" "}
+          <Link href="/today" className="text-primary hover:underline">
+            Today
+          </Link>
+          , next to your habits.
         </span>
       </div>
     </div>

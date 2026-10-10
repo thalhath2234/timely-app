@@ -12,7 +12,6 @@ export type DecisionSettings = {
   provider?: DecisionProvider;
   typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
   openrouterKeySet: boolean;
-  goals?: string[];
   deepWorkTime?: "" | "morning" | "afternoon" | "evening";
 };
 
@@ -80,6 +79,11 @@ export type ColumnTypeSuggestions = {
 };
 export const getSheetTemplateSuggestion = (title: string) =>
   api<SheetTemplateSuggestion>(`/suggestions/sheet-template?title=${encodeURIComponent(title)}`);
+/** The doc template a new doc's title calls for: one of the person's own
+ * template docs (its id) or a built-in ("builtin:meeting" and so on). */
+export type DocTemplateSuggestion = { available: boolean; logId?: string; templateId?: string; title?: string };
+export const getDocTemplateSuggestion = (title: string) =>
+  api<DocTemplateSuggestion>(`/suggestions/doc-template?title=${encodeURIComponent(title)}`);
 export const getColumnTypeSuggestions = (columns: { name: string; values: string[] }[]) =>
   api<ColumnTypeSuggestions>("/suggestions/column-types", { method: "POST", body: { columns } });
 /** Whether a new entry in a text or select column fits that column. */
