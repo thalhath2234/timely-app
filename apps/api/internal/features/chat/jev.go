@@ -88,6 +88,7 @@ type triage struct {
 	web      bool   // needs public information from the web
 	unclear  bool   // too ambiguous to act on without asking first
 	scope    string // one, future or all occurrences of a repeating item
+	meeting  string // prepare, add or remind, for a message about a meeting
 	language string
 	similar  *ChatRef
 }
@@ -172,6 +173,11 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 			decide.Option{Name: "one", Description: "Only one occurrence."},
 			decide.Option{Name: "future", Description: "This occurrence and the ones after it."},
 			decide.Option{Name: "all", Description: "Every occurrence, past ones included."}),
+		"meeting": decide.Choice("If the message is about a meeting, appointment or other event, what does the person want done about it?",
+			decide.Option{Name: "none", Description: "It is not about an event, or it does not say."},
+			decide.Option{Name: "prepare", Description: "Block time before it to prepare."},
+			decide.Option{Name: "add", Description: "Put the event itself on the calendar."},
+			decide.Option{Name: "remind", Description: "Be reminded shortly before it."}),
 	}
 	// Scripts other than Latin are recognised without Jev (detectLanguage).
 	if detectLanguage(latest) == "latin" {
@@ -211,6 +217,9 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 	}
 	if scope, ok := a.Choice("scope", decide.Route); ok && scope != "none" {
 		t.scope = scope
+	}
+	if meeting, ok := a.Choice("meeting", decide.Route); ok && meeting != "none" {
+		t.meeting = meeting
 	}
 	if lang, ok := a.Choice("language", decide.Route); ok {
 		t.language = supportedLanguage(lang)
@@ -277,6 +286,14 @@ func (t triage) hint(webSearch bool) string {
 		parts = append(parts, "if it changes a repeating item, the person most likely means this and future occurrences")
 	case "all":
 		parts = append(parts, "if it changes a repeating item, the person most likely means the whole series")
+	}
+	switch t.meeting {
+	case "prepare":
+		parts = append(parts, "about an event, the person most likely wants time blocked before it to prepare (a task with a time block), not the event added again")
+	case "add":
+		parts = append(parts, "about an event, the person most likely wants the event itself added to the calendar")
+	case "remind":
+		parts = append(parts, "about an event, the person most likely wants a reminder shortly before it, not a time block")
 	}
 	if len(parts) == 0 {
 		return ""

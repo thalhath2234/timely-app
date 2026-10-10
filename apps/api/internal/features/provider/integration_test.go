@@ -78,6 +78,15 @@ func integrationDB(t *testing.T) *gorm.DB {
 	if err = db.Exec(strings.Split(string(decisions), "-- +goose Down")[0]).Error; err != nil {
 		t.Fatal(err)
 	}
+	// Only the settings half of the Today migration: there is no tasks table here.
+	today, err := os.ReadFile("../../../migrations/20261009223135_jev_today_traits.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs := "ALTER TABLE agent_provider_settings" + strings.Split(strings.Split(string(today), "ALTER TABLE agent_provider_settings")[1], ";")[0]
+	if err = db.Exec(prefs).Error; err != nil {
+		t.Fatal(err)
+	}
 	for _, uid := range []string{"user-a", "user-b"} {
 		if err = db.Exec("INSERT INTO users (id, name, email, password) VALUES (?, ?, ?, ?)", uid, uid, uid+"@example.com", "x").Error; err != nil {
 			t.Fatal(err)

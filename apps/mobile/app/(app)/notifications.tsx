@@ -14,7 +14,9 @@ import {
   useNotificationsQuery,
   useSnoozeNotification,
   usePrioritizeOverdueTask,
+  useNotificationTriage,
 } from "../../lib/hooks";
+import type { TriageStep } from "../../lib/api/decisions";
 import type { AppNotification } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { needsNetworkCopy } from "../../lib/queryCopy";
@@ -29,6 +31,20 @@ function routeFor(item: AppNotification) {
     entityId: item.entityId ?? item.data?.entityId,
   });
 }
+
+/** Other next steps for overdue or missed Work; smart suggestions may mark one
+ * as suggested. "Reschedule urgently" keeps its own chip. */
+const TRIAGE_STEPS: Record<string, { step: TriageStep; label: string }[]> = {
+  overdue: [
+    { step: "extend", label: "Deadline +1 week" },
+    { step: "lower", label: "Lower priority" },
+  ],
+  missed: [
+    { step: "addtime", label: "Add time" },
+    { step: "move", label: "Move to next free time" },
+    { step: "lower", label: "Lower priority" },
+  ],
+};
 
 function tomorrowNine() {
   const next = new Date();
@@ -45,6 +61,7 @@ export default function NotificationsScreen() {
   const clearAll = useClearNotifications();
   const snooze = useSnoozeNotification();
   const prioritize = usePrioritizeOverdueTask();
+  const triage = useNotificationTriage();
   const items = list.data ?? [];
   const networkCopy = needsNetworkCopy(list);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -131,6 +148,8 @@ export default function NotificationsScreen() {
                     </AnimatedPressable>
                   </View>
                 ) : null}
+                {item.category === "overdue" || (item.category === "missed" && !item.readAt) ? (
+                  <View style={styles.actions} testID="triage-steps">
                 {item.category === "overdue" ? (
                   <AnimatedPressable
                     onPress={() => {
@@ -142,10 +161,37 @@ export default function NotificationsScreen() {
                       }).catch(() => undefined);
                     }}
                     disabled={prioritize.isPending}
-                    style={styles.chip}
+                    style={[styles.chip, item.data?.suggest === "reschedule" && styles.suggested]}
                   >
-                    <Text style={styles.chipText}>Reschedule urgently</Text>
+                    <Text style={[styles.chipText, item.data?.suggest === "reschedule" && styles.suggestedText]}>
+                      {item.data?.suggest === "reschedule" ? "✦ " : ""}Reschedule urgently
+                    </Text>
                   </AnimatedPressable>
+                ) : null}
+                {!item.readAt
+                  ? (TRIAGE_STEPS[item.category] ?? []).map(({ step, label }) => {
+                      const suggested = item.data?.suggest === step;
+                      return (
+                        <AnimatedPressable
+                          key={step}
+                          disabled={triage.isPending}
+                          onPress={() =>
+                            void triage
+                              .mutateAsync({ id: item.id, action: step })
+                              .then((res) => useToastStore.getState().show(res.message))
+                              .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
+                          }
+                          style={[styles.chip, suggested && styles.suggested]}
+                        >
+                          <Text style={[styles.chipText, suggested && styles.suggestedText]}>
+                            {suggested ? "✦ " : ""}
+                            {label}
+                          </Text>
+                        </AnimatedPressable>
+                      );
+                    })
+                  : null}
+                  </View>
                 ) : null}
               </View>
             );
@@ -191,4 +237,6 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingVertical: 6,
   },
   chipText: { color: colors.foreground, fontSize: 12 },
+  suggested: { borderColor: colors.primary },
+  suggestedText: { color: colors.primary, fontWeight: "600" },
 }));

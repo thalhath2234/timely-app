@@ -51,6 +51,7 @@ import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
 import type { CalendarItem, Task } from "@/app/_types/types";
 import { entityTitleKey } from "@/app/utils/titleMorph";
+import TodaySuggestions from "@/app/_components/today/todaySuggestions";
 
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
@@ -934,6 +935,12 @@ export default function TodayDashboard() {
                   </button>
                 </div>
               </section>
+
+              <TodaySuggestions
+                date={data.date}
+                slotsLeft={remainingSlots}
+                version={`${data.todayFocus.map((task) => task.id).join(",")}|${scheduled.map((item) => item.id).join(",")}`}
+              />
 
               <section className="space-y-3">
                 <SectionHeading

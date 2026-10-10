@@ -7,7 +7,13 @@ export type DecisionsView = {
   provider?: "typesafe" | "openrouter";
   typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
   openrouterKeySet: boolean;
+  /** Up to five goals in the person's own words; suggestions weigh Work against them. */
+  goals: string[];
+  deepWorkTime: DeepWorkTime;
 };
+
+export type DeepWorkTime = "" | "morning" | "afternoon" | "evening";
+export type EffortKind = "deep" | "admin" | "creative" | "routine";
 
 /** One live call with the keys suggestions use, in the same order. */
 export type DecisionsTest = {
@@ -64,6 +70,8 @@ async function request<T>(
 export const getDecisions = () => request<DecisionsView>("/agent/decisions");
 export const setDecisionsEnabled = (enabled: boolean) =>
   request<DecisionsView>("/agent/decisions", "PATCH", { enabled });
+export const setDecisionPrefs = (prefs: { goals?: string[]; deepWorkTime?: DeepWorkTime }) =>
+  request<DecisionsView>("/agent/decisions", "PATCH", prefs);
 /** Checks the key with one tiny call to TypeSafe, then saves it. */
 export const setTypeSafeKey = (key: string) =>
   request<DecisionsView>("/agent/decisions/key", "POST", { key });
@@ -112,6 +120,12 @@ export type TaskHints = {
   checklistGap?: boolean;
   notDone?: boolean;
   openChecklist?: number;
+  effortKind?: EffortKind;
+  /** A long task that reads like it needs one unbroken stretch. */
+  oneSitting?: boolean;
+  /** Deep-focus work with no preferred window, for the person's best time of day. */
+  preferredTime?: Exclude<DeepWorkTime, "">;
+  preferredWindow?: { start: string; end: string };
 };
 export const getTaskHints = (taskId: string) =>
   request<TaskHints>(`/suggestions/task/${encodeURIComponent(taskId)}`);
@@ -223,3 +237,26 @@ export type ImportLineKind = "heading" | "bullet" | "numbered" | "quote" | "para
 /** What each line of a plain-text import is, "paragraph" when unsure. */
 export const getImportFormat = (lines: string[]) =>
   request<{ available: boolean; kinds: ImportLineKind[] }>("/suggestions/import-format", "POST", { lines });
+
+/** Today: focus picks, the best Work for the next free gap, and how the top
+ * open Work lines up with the person's goals. */
+export type TodaySuggestions = {
+  available: boolean;
+  logId?: string;
+  error?: string;
+  focus?: { taskId: string; name: string; reasons: string[]; goal?: string; effortKind?: EffortKind }[];
+  gap?: {
+    start: string;
+    end: string;
+    minutes: number;
+    task?: { id: string; name: string; minutes: number; effortKind?: EffortKind };
+  };
+  goals?: { goal: string; count: number }[];
+};
+export const getTodaySuggestions = (timezone: string) =>
+  request<TodaySuggestions>(`/suggestions/today?timezone=${encodeURIComponent(timezone)}`);
+
+export type TriageStep = "reschedule" | "extend" | "addtime" | "move" | "lower";
+/** Runs a missed or overdue notification's next step and marks it read. */
+export const runNotificationTriage = (notificationId: string, action: TriageStep) =>
+  request<{ message: string }>(`/notifications/${encodeURIComponent(notificationId)}/triage`, "POST", { action });

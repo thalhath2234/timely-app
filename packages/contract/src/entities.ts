@@ -176,6 +176,12 @@ export interface Task {
   earliestStartAt?: string | null;
   preferredWindows?: PreferredWindow[];
   scheduleLocked?: boolean;
+  /** Read by smart suggestions from the task's words: deep, admin, creative or routine. */
+  effortKind?: "deep" | "admin" | "creative" | "routine";
+  /** 0 (can wait) to 4 (critical), read by smart suggestions. */
+  urgency?: number;
+  /** Tasks with the same key share a topic or tool; Auto-schedule keeps them together. */
+  groupKey?: string;
   checklistDone?: number;
   checklistTotal?: number;
   progressDone?: number;

@@ -137,6 +137,8 @@ func main() {
 	decisions = decide.New(db, providerService.DecisionKeys, jev)
 	providerService.SetDecisions(decisions, jev)
 	suggestions := suggest.New(db, decisions, searchService)
+	suggestions.SetSchedule(scheduleService)
+	notifyService.SetTriage(suggestions.Triage)
 	workEstimate = suggestions.Estimate
 	smartSearch := search.NewSmart(searchService, indexer, decisions)
 	searchRerank = smartSearch.Rerank

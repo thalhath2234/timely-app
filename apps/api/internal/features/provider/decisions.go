@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -58,7 +60,18 @@ type decisionsView struct {
 		Rejected bool   `json:"rejected"`
 	} `json:"typesafe"`
 	OpenRouterKeySet bool `json:"openrouterKeySet"`
+	// Goals and DeepWorkTime are kept while suggestions are off.
+	Goals        []string `json:"goals"`
+	DeepWorkTime string   `json:"deepWorkTime"`
 }
+
+const (
+	maxGoals   = 5
+	maxGoalLen = 120
+)
+
+// DeepWorkTimes are the times of day the person may prefer for deep work.
+var DeepWorkTimes = []string{"", "morning", "afternoon", "evening"}
 
 func (s *Service) decisionsView(ctx context.Context, userID string) (decisionsView, error) {
 	var out decisionsView
@@ -75,6 +88,11 @@ func (s *Service) decisionsView(ctx context.Context, userID string) (decisionsVi
 	out.TypeSafe.KeyHint = api.KeyHint
 	out.TypeSafe.Rejected = out.TypeSafe.KeySet && row.TypeSafeRejected
 	out.OpenRouterKeySet = row.OpenRouterKey != ""
+	out.Goals = row.DecisionGoals
+	if out.Goals == nil {
+		out.Goals = []string{}
+	}
+	out.DeepWorkTime = row.DeepWorkTime
 	if out.Enabled {
 		switch {
 		case out.TypeSafe.KeySet && !row.TypeSafeRejected:
@@ -96,13 +114,42 @@ func (s *Service) decisionsOverview(c *echo.Context) error {
 
 func (s *Service) configureDecisions(c *echo.Context) error {
 	var in struct {
-		Enabled *bool `json:"enabled"`
+		Enabled      *bool     `json:"enabled"`
+		Goals        *[]string `json:"goals"`
+		DeepWorkTime *string   `json:"deepWorkTime"`
 	}
-	if err := c.Bind(&in); err != nil || in.Enabled == nil {
+	if err := c.Bind(&in); err != nil || (in.Enabled == nil && in.Goals == nil && in.DeepWorkTime == nil) {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
+	var goals []string
+	if in.Goals != nil {
+		for _, g := range *in.Goals {
+			g = strings.Join(strings.Fields(g), " ")
+			if g == "" {
+				continue
+			}
+			if len([]rune(g)) > maxGoalLen {
+				return echo.NewHTTPError(400, fmt.Sprintf("Keep each goal under %d characters", maxGoalLen))
+			}
+			goals = append(goals, g)
+		}
+		if len(goals) > maxGoals {
+			return echo.NewHTTPError(400, fmt.Sprintf("Add up to %d goals", maxGoals))
+		}
+	}
+	if in.DeepWorkTime != nil && !slices.Contains(DeepWorkTimes, *in.DeepWorkTime) {
+		return echo.NewHTTPError(400, "Invalid time of day")
+	}
 	if _, err := s.update(user(c), func(row *Settings) error {
-		row.DecisionsOff = !*in.Enabled
+		if in.Enabled != nil {
+			row.DecisionsOff = !*in.Enabled
+		}
+		if in.Goals != nil {
+			row.DecisionGoals = goals
+		}
+		if in.DeepWorkTime != nil {
+			row.DeepWorkTime = *in.DeepWorkTime
+		}
 		return nil
 	}); err != nil {
 		return err

@@ -60,7 +60,23 @@ type TaskHints struct {
 	NotDone bool `json:"notDone,omitempty"`
 	// OpenChecklist counts unchecked items on a completed task (code, not Jev).
 	OpenChecklist int `json:"openChecklist,omitempty"`
+
+	// EffortKind is the stored kind of effort [31], read again when the
+	// task's words changed.
+	EffortKind string `json:"effortKind,omitempty"`
+	// OneSitting: a long task that is not marked "one sitting" reads like it
+	// needs one unbroken stretch [33].
+	OneSitting bool `json:"oneSitting,omitempty"`
+	// PreferredTime: deep-focus work with no preferred window, for a person
+	// who set a best time for deep work [32]. PreferredWindow is the window
+	// to save.
+	PreferredTime   string                  `json:"preferredTime,omitempty"`
+	PreferredWindow *models.PreferredWindow `json:"preferredWindow,omitempty"`
 }
+
+// splitMinutes is the estimate from which a task is asked whether it can be
+// split across sessions.
+const splitMinutes = 90
 
 func (s *Service) taskHints(c *echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), workBudget)
@@ -225,6 +241,15 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 		questions["blocker"] = decide.Choice("Does the description or a comment say this task cannot continue until one of the other tasks is finished? If so, which one?", opts...).Twice()
 	}
 
+	staleTraits := !done && task.TraitsHash != traitsHash(task)
+	if staleTraits {
+		traitQuestions(questions, "task", "this task")
+	}
+	if !done && task.Duration >= splitMinutes && !task.Contiguous {
+		questions["stretch"] = decide.YesNo("Does this work need one unbroken stretch of time, rather than being split across several shorter sessions?",
+			"Yes, it needs one sitting (for example an exam, a trip, a long call or a performance).", "No, it can be done over several sessions.")
+	}
+
 	if !done {
 		// Outcome [16].
 		questions["outcome"] = decide.YesNo("Is it clear from the title and description what result counts as this task being done?",
@@ -315,6 +340,22 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 	}
 	if yes, ok := a.Yes("left", decide.Route); ok && yes {
 		out.NotDone = true
+	}
+	if staleTraits {
+		s.readTraits(ctx, a, "task", &task)
+	}
+	if !done {
+		out.EffortKind = task.EffortKind
+	}
+	if yes, ok := a.Yes("stretch", decide.Route); ok && yes {
+		out.OneSitting = true
+	}
+	if out.EffortKind == "deep" && len(task.PreferredWindows) == 0 {
+		if when := s.prefs(ctx, userID).DeepWorkTime; when != "" {
+			if w, ok := s.deepWindow(userID, when); ok {
+				out.PreferredTime, out.PreferredWindow = when, &w
+			}
+		}
 	}
 	return out, nil
 }
