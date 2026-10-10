@@ -3,12 +3,14 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/decide"
@@ -148,7 +150,11 @@ func TestIntegrationTriageOffOrUnsureChangesNothing(t *testing.T) {
 		if err := s.plan(context.Background(), &c); err != nil {
 			t.Fatal(err)
 		}
-		if len(model.tools[0]) != 5 { // four read tools and propose_changes
+		offered := len(model.tools[0])
+		if has(model.tools[0], targetTool) {
+			offered-- // offered whenever Jev has keys, sure or not
+		}
+		if offered != 5 { // four read tools and propose_changes
 			t.Fatalf("%s: every tool must be offered: %v", name, model.tools[0])
 		}
 		for _, m := range model.seen[0] {
@@ -222,12 +228,17 @@ func TestIntegrationSimilarChatWaitsForAChoice(t *testing.T) {
 		}
 	}
 
-	// Continue there: the message moves to the earlier chat and this one goes.
+	// Continue there: the message moves to the earlier chat and this one goes,
+	// with the web search switch and model it was written with.
 	earlier, c = newChat()
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Updates(map[string]any{"web_search": true, "chosen_provider": "openrouter", "chosen_model": "test/model"})
 	code, moved := post("/chats/"+c.ID+"/similar", `{"action":"move"}`)
 	if code != 200 || moved.ID != earlier.ID || moved.Status != "queued" ||
 		moved.Messages[len(moved.Messages)-1].Content != "Help me plan the Lisbon trip" {
 		t.Fatalf("move: %d %+v", code, moved)
+	}
+	if !moved.WebSearch || moved.ChosenProvider != "openrouter" || moved.ChosenModel != "test/model" {
+		t.Fatalf("move dropped the chat's settings: web %v model %s/%s", moved.WebSearch, moved.ChosenProvider, moved.ChosenModel)
 	}
 	var count int64
 	db.Model(&Conversation{}).Where("id = ?", c.ID).Count(&count)
@@ -358,5 +369,44 @@ func TestTriageHintMeetingIntent(t *testing.T) {
 	}
 	if hint := (triage{}).hint(true); hint != "" {
 		t.Errorf("no triage, no hint: %q", hint)
+	}
+}
+
+// A large proposal in CJK text passes Jev's state limit; the review trims
+// it, doc checks first, instead of dropping the whole check.
+func TestReviewStateFitsLargeProposals(t *testing.T) {
+	cjk := func(n int) string { return strings.Repeat("漢", n) }
+	listed := make([]map[string]string, 30)
+	questions := map[string]decide.Question{}
+	for i := range listed {
+		listed[i] = map[string]string{"number": fmt.Sprint(i + 1), "change": cjk(300)}
+		questions[fmt.Sprintf("asked%d", i+1)] = decide.YesNo("asked?", "yes", "no")
+		if i < 3 {
+			listed[i]["docText"], listed[i]["docNow"] = cjk(2500), cjk(2500)
+			questions[fmt.Sprintf("draft%d", i+1)] = decide.YesNo("draft?", "yes", "no")
+			questions[fmt.Sprintf("contra%d", i+1)] = decide.YesNo("contra?", "yes", "no")
+		}
+	}
+	state := map[string]any{"request": cjk(4000), "previousMessage": cjk(1000), "changes": listed}
+	fitReview(state, listed, questions, decide.MaxStateBytes)
+	b, _ := json.Marshal(state)
+	if len(b) > decide.MaxStateBytes {
+		t.Fatalf("state is still %d bytes", len(b))
+	}
+	if _, ok := questions["draft3"]; ok {
+		t.Fatal("doc checks should go before the steps are cut")
+	}
+	if _, ok := questions["asked30"]; !ok {
+		t.Fatal("every step is still checked")
+	}
+	if !utf8.ValidString(string(b)) {
+		t.Fatal("text was cut inside a character")
+	}
+
+	small := map[string]any{"request": "Rename the doc", "changes": []map[string]string{{"number": "1", "docText": "Hi"}}}
+	q := map[string]decide.Question{"draft1": decide.YesNo("draft?", "yes", "no")}
+	fitReview(small, small["changes"].([]map[string]string), q, decide.MaxStateBytes)
+	if _, ok := q["draft1"]; !ok {
+		t.Fatal("a small review lost its doc check")
 	}
 }

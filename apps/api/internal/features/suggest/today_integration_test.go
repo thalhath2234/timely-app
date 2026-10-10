@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/models"
 )
@@ -30,10 +31,19 @@ func (f *fixedSchedule) FreeTime(string, time.Time, time.Time, string) ([]schedu
 	return f.free, nil
 }
 
-func prefsTable(t *testing.T, w world, goals, deep string) {
+// prefsTable saves the person's goals (the goals table, as on Today) and
+// their best time for deep work (agent_provider_settings).
+func prefsTable(t *testing.T, w world, goals []string, deep string) {
 	t.Helper()
-	must(t, w.db.Exec(`CREATE TABLE IF NOT EXISTS agent_provider_settings (user_id text PRIMARY KEY, decision_goals jsonb NOT NULL DEFAULT '[]', deep_work_time text NOT NULL DEFAULT '')`).Error)
-	must(t, w.db.Exec(`INSERT INTO agent_provider_settings (user_id, decision_goals, deep_work_time) VALUES (?, ?::jsonb, ?)`, w.user, goals, deep).Error)
+	must(t, w.db.AutoMigrate(focus.Models...))
+	must(t, w.db.Exec(`CREATE TABLE IF NOT EXISTS agent_provider_settings (user_id text PRIMARY KEY, deep_work_time text NOT NULL DEFAULT '')`).Error)
+	must(t, w.db.Exec(`INSERT INTO agent_provider_settings (user_id, deep_work_time) VALUES (?, ?)`, w.user, deep).Error)
+	store := focus.NewStore(w.db)
+	for _, g := range goals {
+		if _, err := store.AddGoal(context.Background(), w.user, g); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func score(level float64) map[string]any {
@@ -42,7 +52,7 @@ func score(level float64) map[string]any {
 
 func TestIntegrationTodayFocusGapGoalsAndTraits(t *testing.T) {
 	w := newWorld(t)
-	prefsTable(t, w, `["Launch the shop","Get fit"]`, "morning")
+	prefsTable(t, w, []string{"Launch the shop", "Get fit"}, "morning")
 	now := time.Now()
 	tax := w.task(t, "File the tax return", func(task *models.Task) {
 		task.Deadline = ptr(now.AddDate(0, 0, -2).Format("2006-01-02"))
@@ -97,6 +107,12 @@ func TestIntegrationTodayFocusGapGoalsAndTraits(t *testing.T) {
 	if len(out.Goals) != 2 || out.Goals[0].Count != 1 || out.Goals[1].Count != 0 {
 		t.Fatalf("goals %+v", out.Goals)
 	}
+	// The goal tags are remembered for goal progress on Today.
+	var tag focus.GoalTaskTag
+	must(t, w.db.Where("user_id = ? AND task_id = ?", w.user, product.ID).Take(&tag).Error)
+	if goal, err := focus.NewStore(w.db).FindGoal(context.Background(), w.user, "Launch the shop"); err != nil || tag.GoalID != goal.ID {
+		t.Fatalf("remembered tag %+v (goal %+v, %v)", tag, goal, err)
+	}
 	if out.Gap == nil || !out.Gap.Start.Equal(gapStart) || out.Gap.Minutes != 45 || out.Gap.Task == nil || out.Gap.Task.ID != landlord.ID || out.Gap.Task.Minutes != 15 {
 		t.Fatalf("gap %+v", out.Gap)
 	}
@@ -146,7 +162,7 @@ func TestIntegrationTodayFocusGapGoalsAndTraits(t *testing.T) {
 
 func TestIntegrationTaskHintsSplitAndDeepTime(t *testing.T) {
 	w := newWorld(t)
-	prefsTable(t, w, `[]`, "morning")
+	prefsTable(t, w, nil, "morning")
 	long := w.task(t, "Write the thesis chapter", func(task *models.Task) { task.Duration = 180; task.Description = "Draft the methods section" })
 	short := w.task(t, "Pay the gas bill", func(task *models.Task) { task.Duration = 15 })
 	jev := &jevStub{answers: map[string]any{"effort_task": choice("deep"), "urgency_task": score(2), "stretch": yesNo(0.95), "outcome": yesNo(0.9)}}

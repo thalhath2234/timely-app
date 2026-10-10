@@ -42,6 +42,7 @@ import {
   Plus,
   Sheet as SheetIcon,
   Radical,
+  Sparkles,
   SquareSigma,
   Superscript,
   Tags,
@@ -54,7 +55,9 @@ import {
   Type,
 } from "lucide-react-native";
 import type { DocContent, MentionEntityType } from "../../lib/types";
-import { useMentionItems, useSearchQuery } from "../../lib/hooks";
+import { useDecisionFeedback, useDecisionsStatusQuery, useMentionItems, useSearchQuery } from "../../lib/hooks";
+import { matchMention, type MentionMatch, type MentionTarget } from "../../lib/api/decisions";
+import { mentionChoices } from "../../lib/docEditorJev";
 import { colors, createThemedStyleSheet, editorThemeVars, getThemeMode, resolvedAccentHex } from "../../lib/theme";
 import BottomSheet from "../ui/BottomSheet";
 import { Field, PrimaryButton } from "../ui/primitives";
@@ -228,6 +231,8 @@ export default function RichTextEditor({
   findOpen = false,
   onFindClose,
   pdfRequest,
+  linkDocId,
+  propertyRequest,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
@@ -245,6 +250,11 @@ export default function RichTextEditor({
   onFindClose?: () => void;
   /** Set to a new object to export the doc as a PDF and share it. */
   pdfRequest?: { title: string } | null;
+  /** Turns on "Link to an item" for selected text (smart suggestions only);
+   * the doc's id keeps the doc itself out of the matches. */
+  linkDocId?: string;
+  /** Set to a new object to set one doc property (from a suggestion). */
+  propertyRequest?: { key: string; value: string } | null;
 }) {
   const [findResult, setFindResult] = useState({ current: -1, count: 0 });
   const [blockMenu, setBlockMenu] = useState<BlockInfo | null>(null);
@@ -275,6 +285,10 @@ export default function RichTextEditor({
   const [focused, setFocused] = useState(false);
   const mentionItems = useMentionItems();
   const remoteMentions = useSearchQuery(picker?.kind === "mention" ? picker.query : "");
+  const linkOn = useDecisionsStatusQuery(Boolean(linkDocId)).data?.available === true && Boolean(linkDocId);
+  const feedback = useDecisionFeedback();
+  const [hasSelection, setHasSelection] = useState(false);
+  const [linkPick, setLinkPick] = useState<{ from: number; to: number; text: string; result: MentionMatch | null } | null>(null);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -310,6 +324,11 @@ export default function RichTextEditor({
     pdfTitleRef.current = pdfRequest.title;
     run("exportHtml", { title: pdfRequest.title });
   }, [pdfRequest, ready, run]);
+
+  useEffect(() => {
+    if (!ready || !propertyRequest) return;
+    run("setProperty", propertyRequest);
+  }, [propertyRequest, ready, run]);
 
   useEffect(() => {
     if (!ready) return;
@@ -351,7 +370,17 @@ export default function RichTextEditor({
         count?: number;
         html?: string;
         block?: BlockInfo | null;
+        text?: string;
+        ok?: boolean;
       };
+      if (msg.type === "linkSelection") {
+        if (!msg.ok || typeof msg.from !== "number" || typeof msg.to !== "number") {
+          useToastStore.getState().show("Select a phrase within one line to link it to an item");
+        } else {
+          void findLinkTargets({ from: msg.from, to: msg.to, text: msg.text ?? "" });
+        }
+      }
+      if (msg.type === "linkStale") useToastStore.getState().show("The text changed. Select the phrase again.");
       if (msg.type === "exportHtml" && msg.html) {
         const name = `${(pdfTitleRef.current || "Untitled").replace(/[\\/:*?"<>|]+/g, " ").trim() || "Untitled"}.pdf`;
         void sharePdfFromHtml(name, msg.html).catch((error) =>
@@ -389,6 +418,7 @@ export default function RichTextEditor({
       }
       if (msg.type === "selection") {
         onSelectionChange?.(msg.selectedText || "");
+        setHasSelection(Boolean(msg.selectedText?.trim()));
         setInTable(Boolean(msg.inTable));
         if (msg.active) setActive(msg.active);
       }
@@ -516,6 +546,32 @@ export default function RichTextEditor({
     run("linkBlock", { node: { type: "bookmark", attrs: { url: href, title: preview.title, description: preview.description } } });
   }
 
+  /** Asks which item the selected phrase means; the sheet shows while it loads. */
+  async function findLinkTargets(range: { from: number; to: number; text: string }) {
+    setLinkPick({ ...range, result: null });
+    let result: MentionMatch;
+    try {
+      result = await matchMention(range.text.trim(), linkDocId);
+    } catch {
+      result = { available: true, options: [] };
+    }
+    // A later selection replaces this one; its answer wins.
+    setLinkPick((current) => (current && current.from === range.from && current.to === range.to && current.text === range.text ? { ...current, result } : current));
+  }
+
+  function pickLinkTarget(target: MentionTarget) {
+    if (!linkPick) return;
+    run("linkMention", {
+      from: linkPick.from,
+      to: linkPick.to,
+      text: linkPick.text,
+      attrs: { id: target.id, label: target.title, entityType: target.kind, appearance: "mention" },
+    });
+    const result = linkPick.result;
+    if (result?.logId) feedback.mutate({ logId: result.logId, accepted: result.match?.id === target.id });
+    setLinkPick(null);
+  }
+
   function applyFormat(cmd: string) {
     if (cmd === "blockMenu") {
       run("blockInfo");
@@ -562,6 +618,17 @@ export default function RichTextEditor({
         </ScrollView>
       ) : null}
       <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.barWrap}>
+        {linkOn && hasSelection ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Link selection to an item"
+            onPress={() => run("linkSelection")}
+            style={styles.linkTool}
+          >
+            <AtSign size={16} color={colors.primary} />
+            <Text style={styles.linkToolText}>Link to an item</Text>
+          </Pressable>
+        ) : null}
         {FORMAT_TOOLS.map((btn) => {
           const on =
             btn.cmd === "linkPrompt"
@@ -730,6 +797,34 @@ export default function RichTextEditor({
         ) : null}
       </BottomSheet>
 
+      <BottomSheet open={linkPick !== null} onClose={() => setLinkPick(null)} title="Link to">
+        {linkPick && !linkPick.result ? (
+          <Text style={styles.empty}>Finding a match…</Text>
+        ) : (
+          (() => {
+            const rows = mentionChoices(linkPick?.result);
+            if (!rows.length) return <Text style={styles.empty}>Nothing in your work matches that phrase.</Text>;
+            const hasBest = rows[0].best;
+            return rows.map(({ target, best }, index) => {
+              const Icon = MENTION_ICONS[target.kind] ?? FileText;
+              return (
+                <View key={`${target.kind}:${target.id}`}>
+                  {best ? <Text style={styles.pickerTitle}>Best match</Text> : null}
+                  {!best && index === (hasBest ? 1 : 0) ? <Text style={styles.pickerTitle}>{hasBest ? "Or" : "Closest items"}</Text> : null}
+                  <Pressable accessibilityRole="button" onPress={() => pickLinkTarget(target)} style={styles.pickerRow}>
+                    {best ? <Sparkles size={16} color={colors.primary} /> : <Icon size={16} color={colors.mutedForeground} />}
+                    <View style={styles.pickerCopy}>
+                      <Text style={styles.itemTitle} numberOfLines={1}>{target.title || "Untitled"}</Text>
+                    </View>
+                    <Text style={styles.kind}>{MENTION_LABELS[target.kind]}</Text>
+                  </Pressable>
+                </View>
+              );
+            });
+          })()
+        )}
+      </BottomSheet>
+
       <BlockSheet
         block={blockMenu}
         run={run}
@@ -773,6 +868,8 @@ const styles = createThemedStyleSheet((colors) => ({
   webWrap: { flex: 1, minHeight: 160 },
   compactWeb: { minHeight: 140, maxHeight: 180 },
   toolOn: { backgroundColor: colors.accent },
+  linkTool: { height: 40, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.accent },
+  linkToolText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   overlay: { ...StyleSheet.absoluteFill, justifyContent: "center", alignItems: "center", backgroundColor: colors.card },
   web: { flex: 1, backgroundColor: colors.background },
   dock: {

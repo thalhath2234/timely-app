@@ -14,7 +14,8 @@ export function chatRequest<T = Chat>(
       new Error("Reconnect before sending messages or applying changes."),
     );
   // New messages carry the device zone; the agent uses it when no timezone
-  // is saved in Working hours.
+  // is saved in Working hours. client=phone makes its saved-view tools act on
+  // the phone's own views.
   const sendsMessage =
     method === "POST" && (path === "" || path.endsWith("/messages"));
   if (
@@ -23,7 +24,7 @@ export function chatRequest<T = Chat>(
     typeof body === "object" &&
     !(body instanceof FormData)
   )
-    body = { ...body, timezone: deviceTimezone() };
+    body = { ...body, timezone: deviceTimezone(), client: "phone" };
   return api<T>(`/chats${path}`, { method, body, queueIfOffline: false });
 }
 export async function uploadChatImage(image: PendingImage): Promise<ChatImage> {

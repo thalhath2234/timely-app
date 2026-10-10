@@ -5,11 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"sync"
 	"time"
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/portability"
 	"timely-api/internal/features/project"
@@ -51,6 +53,15 @@ type Deps struct {
 	// Pick lets smart suggestions check a bulk edit's shortlist; nil or
 	// ok=false returns the shortlist unchecked.
 	Pick func(ctx context.Context, userID, description string, hits []search.Hit) (matches, unsure []search.Hit, left int, ok bool)
+	// DecisionsOn reports whether an account has smart suggestions; the MCP
+	// instructions point at pick_tasks only then. nil never does.
+	DecisionsOn func(ctx context.Context, userID string) bool
+	// Decisions lets get_doc with a focus show only the sections of a long
+	// doc Jev marks relevant (docpassages.go); nil returns docs whole.
+	Decisions Decider
+	// Focus holds the person's habits and goals (tools_focus.go); nil makes
+	// those tools answer that they are not available.
+	Focus *focus.Store
 }
 
 type Server struct {
@@ -62,7 +73,46 @@ type Server struct {
 // SheetFormulaHelp is shared by external MCP and the in-app tool catalog.
 const SheetFormulaHelp = "Formulas start with = and use same-tab A1 coordinates (data starts at row 1, headers excluded). Supported ranges: N2:N21 (bounded), N:N (whole column), 2:2 (whole row), N2:N (row 2 onward), B2:2 (column B onward). Whole/open ranges include future rows or columns. Use SUM to add ranges: =B5+SUM(N2:N), not =B5+N2:N. SUM, AVERAGE, MIN, MAX, PRODUCT, COUNT and COUNTA accept ranges. Date helpers: TODAY(), DATE(y,m,d), YEAR, MONTH, DAY, WEEKDAY(date[,type]) (1=Sun..7=Sat; type 2 = 1=Mon..7=Sun), DAYS(end,start), TEXT(value,format) with date tokens dddd/ddd (weekday name), mmmm/mmm (month name), yyyy, mm, dd. =TEXT(A1,\"dddd\") gives the weekday of a date cell. Keep the formula cell outside its own range to avoid #CYCLE!. Cross-tab references are unsupported. Formulas are stored verbatim and evaluated by the web/desktop/mobile clients; tool responses contain raw formulas, not calculated results. Existing positional references are not automatically rewritten after structural edits."
 
+// viewToolHelp tells the model how to build a saved view from plain words.
+const viewToolHelp = `Create a saved task view from the person's words; it becomes the active view. Filters take names or ids: selectedWorkspaceIds (workspace names), selectedStatusIds (status names), selectedProjectIds (project titles), selectedLabelIds (label names), selectedStageIds (stage names), selectedPriorityLevels (Low, Medium, High, Urgent). Flags: onlyOverdue, onlyScheduled (time on the calendar), onlyRecurring, onlyDated (a deadline or planned time), showCompleted=false hides finished work, showReminders lists reminders. groupFields: workspace, project, stage, status, priority or a custom field name (up to 3). sortBy: name, deadline, startDate, scheduledOn, createdAt, priority, status, project. renderMode: list, kanban (board) or gantt (timeline). dataMode project lists projects. Examples: "overdue work in Home, grouped by priority" -> {"name":"Overdue in Home","selectedWorkspaceIds":["Home"],"onlyOverdue":true,"showCompleted":false,"groupFields":["priority"]}; "a board of my urgent bugs" -> {"name":"Urgent bugs","renderMode":"kanban","selectedPriorityLevels":["Urgent"],"selectedLabelIds":["Bug"],"groupFields":["status"]}; "what is due soon, by project" -> {"name":"Due soon","onlyDated":true,"showCompleted":false,"sortBy":"deadline","groupFields":["project"]}; "Website launch tasks in Review" -> {"name":"Launch review","selectedProjectIds":["Website launch"],"selectedStageIds":["Review"]}. In chat from the phone app it saves a phone view, which is a list or a board only (a timeline becomes a list; the result's changed field says so); otherwise a web and desktop view. An unknown name fails with the closest names: retry with one of them or ask.`
+
+// pickHint is added to the instructions only for accounts with smart
+// suggestions on, where pick_tasks checks each candidate.
+const pickHint = `To pick the targets of a bulk edit described in words ("everything about the website launch"), call pick_tasks and review its matches and unsure tasks before bulk_update_tasks.
+`
+
+// smartTwins maps a server from New to its copy whose instructions carry
+// pickHint, and the check that decides per account which one answers.
+var smartTwins sync.Map // *mcp.Server -> smartTwin
+
+type smartTwin struct {
+	server *mcp.Server
+	on     func(ctx context.Context, userID string) bool
+}
+
 func New(deps Deps) *mcp.Server {
+	plain := newServer(deps, "")
+	if deps.DecisionsOn != nil {
+		smartTwins.Store(plain, smartTwin{server: newServer(deps, pickHint), on: deps.DecisionsOn})
+	}
+	return plain
+}
+
+// forRequest picks the server for an authenticated request: the one that
+// suggests pick_tasks when the account has smart suggestions on.
+func forRequest(plain *mcp.Server, r *http.Request) *mcp.Server {
+	twin, ok := smartTwins.Load(plain)
+	if !ok {
+		return plain
+	}
+	info := mcpauth.TokenInfoFromContext(r.Context())
+	if t := twin.(smartTwin); info != nil && info.UserID != "" && t.on(r.Context(), info.UserID) {
+		return t.server
+	}
+	return plain
+}
+
+func newServer(deps Deps, extra string) *mcp.Server {
 	s := &Server{Deps: deps}
 	server := mcp.NewServer(&mcp.Implementation{Name: "timely", Version: "1.0.0"}, &mcp.ServerOptions{
 		Instructions: `Timely personal productivity MCP. Call get_context first.
@@ -79,11 +129,10 @@ Checklist items are lightweight completion text on a task and are not scheduled.
 Today: get_today, set_today_focus, start_focus/stop_focus (actualMinutes is focused time, separate from duration).
 Duplicate with duplicate_task / duplicate_project (checklist copied; no blocks/completion).
 Auto-schedule v2: preview shows add/move/remove/pin, skip messages, capacity, and deadline risk. Recurring work occurrences in the horizon are placed without creating extra task rows. Frozen hours, locked tasks, and manual pins stay put. undo_schedule reverts the last apply. Scores from what_next and the engine are ordering hints, not certainty.
-To pick the targets of a bulk edit described in words ("everything about the website launch"), call pick_tasks and review its matches and unsure tasks before bulk_update_tasks.
-bulk_update_tasks applies one patch to many tasks: complete/reopen, status, priority, project, stage, deadline, and labelIds (replaces the full set; [] clears). It never schedules; place tasks one at a time with schedule_task.
+` + extra + `bulk_update_tasks applies one patch to many tasks: complete/reopen, status, priority, project, stage, deadline, and labelIds (replaces the full set; [] clears). It never schedules; place tasks one at a time with schedule_task.
 Archive docs/sheets with archive_doc / archive_sheet (archived=false unarchives). list_docs/list_sheets archived=true lists the archive. Prefer archive over delete.
 Sheet columns are text, number, date, boolean, currency, percent, formula, or select (dropdown with options); update_sheet_cells coerces literal values to the column type and appends unknown select values to the options. A sheet is a workbook of tabs; the first tab is the primary grid and is renamed with rename_sheet_tab (tabId empty). ` + SheetFormulaHelp + `
-Saved views can filter by project, priority, labels, stage, completed, overdue, scheduled, recurring, and showReminders. renderMode is list, kanban, or gantt.
+Saved views can filter by project, priority, labels, stage, completed, overdue, scheduled, recurring, and showReminders, and take names or ids. renderMode is list, kanban, or gantt.
 Destructive deletes of a workspace, project, or document require confirm=true. Deleting a doc does not cascade to subpages; the tool reports descendantCount.`,
 	})
 	s.register(server)
@@ -91,8 +140,8 @@ Destructive deletes of a workspace, project, or document require confirm=true. D
 }
 
 func Handler(mcpServer *mcp.Server, verifier mcpauth.TokenVerifier) http.Handler {
-	stream := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
-		return mcpServer
+	stream := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		return forRequest(mcpServer, r)
 	}, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	return mcpauth.RequireBearerToken(verifier, &mcpauth.RequireBearerTokenOptions{
 		AllowMissingExpiration: true,
@@ -198,7 +247,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "clear_task_blocks", Description: "Remove all blocks from a task."}, writes.reviewed(), s.clearTaskBlocks)
 
 	registerTool(s, server, &mcp.Tool{Name: "list_docs", Description: "List active documents by default. archived=true lists the archive; archived=false is the default."}, reads, s.listDocs)
-	registerTool(s, server, &mcp.Tool{Name: "get_doc", Description: "Get a document as markdown (GFM plus math, callouts, footnotes, frontmatter, [[wiki links]] and mermaid/geojson/stl blocks). Big stl/geojson/topojson blocks and very long code show as a [kept ...] placeholder line with a short summary; keep that line to keep the block."}, reads, s.getDoc)
+	registerTool(s, server, &mcp.Tool{Name: "get_doc", Description: "Get a document as markdown (GFM plus math, callouts, footnotes, frontmatter, [[wiki links]] and mermaid/geojson/stl blocks). Big stl/geojson/topojson blocks and very long code show as a [kept ...] placeholder line with a short summary; keep that line to keep the block. Pass focus (what you are looking for, in a few words from the request) to read a long doc: only its sections about that come back in full, the others as one [section kept out ...] line each. Writing such a line back keeps that section unchanged; call again with full=true to read the whole doc, and do that before rewriting or reorganizing all of it."}, reads, s.getDoc)
 	registerTool(s, server, &mcp.Tool{Name: "create_doc", Description: "Create a document from markdown. Supports GFM, $math$, > [!NOTE] callouts, [^1] footnotes, --- frontmatter, [[wiki links]], and mermaid/geojson/topojson/stl fences that render."}, writes, s.createDoc)
 	registerTool(s, server, &mcp.Tool{Name: "update_doc", Description: "Update a document (replace markdown, title, parent, archived, …)."}, writes.reviewedWhen(hasAny("markdown")), s.updateDoc)
 	registerTool(s, server, &mcp.Tool{Name: "append_to_doc", Description: "Append markdown to a document (same syntax as create_doc)."}, writes, s.appendToDoc)
@@ -229,11 +278,11 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_template", Description: "Delete a sheet template."}, mcpOnly.reviewed(), s.deleteSheetTemplate)
 	registerTool(s, server, &mcp.Tool{Name: "materialize_sheet_template_tab", Description: "Clone a template tab (or the whole template when tabId is empty) with new ids. Does not create a sheet."}, mcpOnly, s.materializeSheetTemplateTab)
 
-	registerTool(s, server, &mcp.Tool{Name: "list_task_views", Description: "Saved task list/kanban/gantt views, including Phase 1 filters (project, priority, labels, stage, overdue, scheduled, recurring, reminders)."}, mcpOnly, s.listTaskViews)
-	registerTool(s, server, &mcp.Tool{Name: "create_task_view", Description: "Create a saved view. Filters: selectedProjectIds, selectedPriorityLevels, selectedLabelIds, selectedStageIds, showCompleted, onlyOverdue, onlyScheduled, onlyRecurring, onlyDated (deadline or scheduled block), showReminders. renderMode: list, kanban, gantt."}, mcpOnly, s.createTaskView)
-	registerTool(s, server, &mcp.Tool{Name: "update_task_view", Description: "Update a saved view, including filters and renderMode."}, mcpOnly, s.updateTaskView)
-	registerTool(s, server, &mcp.Tool{Name: "delete_task_view", Description: "Delete a saved view."}, mcpOnly.reviewed(), s.deleteTaskView)
-	registerTool(s, server, &mcp.Tool{Name: "set_active_task_view", Description: "Select the active saved view."}, mcpOnly, s.setActiveTaskView)
+	registerTool(s, server, &mcp.Tool{Name: "list_task_views", Description: "Saved task views (list, kanban board or gantt timeline) with their filters and which one is active. In chat from the phone app these are the phone's own views (list and board only); otherwise the web and desktop views. viewsOn in the result says which."}, reads, s.listTaskViews)
+	registerTool(s, server, &mcp.Tool{Name: "create_task_view", Description: viewToolHelp}, writes, s.createTaskView)
+	registerTool(s, server, &mcp.Tool{Name: "update_task_view", Description: "Change a saved view: viewId is its id or name; omitted fields stay as they are. Filters take names or ids, as in create_task_view (\"show only High and Urgent\" sets selectedPriorityLevels; \"stop hiding finished work\" sets showCompleted=true). Acts on the phone's views in chat from the phone app, else the web and desktop views."}, writes, s.updateTaskView)
+	registerTool(s, server, &mcp.Tool{Name: "delete_task_view", Description: "Delete a saved view by id or name."}, mcpOnly.reviewed(), s.deleteTaskView)
+	registerTool(s, server, &mcp.Tool{Name: "set_active_task_view", Description: "Make a saved view (id or name) the one the Tasks screen shows. Acts on the phone's views in chat from the phone app, else the web and desktop views."}, writes, s.setActiveTaskView)
 	registerTool(s, server, &mcp.Tool{Name: "set_project_task_view", Description: "Save or clear the task view stored for one project (config.projectTaskViews). clear=true removes it."}, mcpOnly, s.setProjectTaskView)
 
 	registerTool(s, server, &mcp.Tool{Name: "get_profile", Description: "Current user profile."}, mcpOnly, s.getProfile)
@@ -264,6 +313,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "download_backup", Description: "Decrypt and return one server backup."}, mcpOnly, s.downloadBackup)
 	registerTool(s, server, &mcp.Tool{Name: "delete_backup", Description: "Delete one encrypted server backup. Requires confirm=true."}, mcpOnly.reviewed(), s.deleteBackup)
 	registerTool(s, server, &mcp.Tool{Name: "restore_account", Description: "Replace this account's data with a timely-backup JSON object. Requires confirm=true. Same guard as POST /restore."}, mcpOnly, s.restoreAccount)
+	s.registerFocus(server)
 }
 
 func userID(req *mcp.CallToolRequest) (string, error) {
@@ -327,9 +377,32 @@ func md(src string) (models.JSONMap, string) {
 	return richtext.FromMarkdown(src)
 }
 
-// docMarkdown parses a doc's new Markdown, putting back the big blocks that
-// get_doc showed as [kept ...] placeholders.
+// docMarkdown parses a doc's new Markdown, putting back the sections a
+// focused get_doc left out and the big blocks it showed as [kept ...] lines.
 func (s *Server) docMarkdown(uid, src string) (models.JSONMap, string, error) {
+	src, err := s.docSections(uid, src)
+	if err != nil {
+		return nil, "", err
+	}
+	return s.docBlocks(uid, src)
+}
+
+// docSections puts back the sections a focused get_doc left out; their big
+// blocks are still [kept ...] lines, which docBlocks restores.
+func (s *Server) docSections(uid, src string) (string, error) {
+	return restoreSections(src, func(docID string) (string, error) {
+		d, err := s.Docs.GetByID(uid, docID)
+		if err != nil {
+			return "", err
+		}
+		content, _ := shortenBlocks(d.ID, d.Content)
+		return richtext.ToMarkdown(content), nil
+	})
+}
+
+// docBlocks parses Markdown, putting back the big blocks get_doc showed as
+// [kept ...] placeholders.
+func (s *Server) docBlocks(uid, src string) (models.JSONMap, string, error) {
 	rich, plain := md(src)
 	restored, err := restoreBlocks(rich, func(docID string) (models.JSONMap, error) {
 		d, err := s.Docs.GetByID(uid, docID)

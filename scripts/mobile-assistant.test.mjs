@@ -25,6 +25,20 @@ test("agent notification targets its chat and retains existing reminder routing"
     "/(app)/tasks/task-a",
   );
 });
+test("a smart alert about several tasks opens the first, a project or Inbox alert its own screen", () => {
+  assert.equal(
+    routeForNotification({ category: "suggestion", kind: "stale", taskIds: ["task-a", "task-b"], entityId: null }),
+    "/(app)/tasks/task-a",
+  );
+  assert.equal(
+    routeForNotification({ category: "suggestion", kind: "project", projectId: "pr-a", taskIds: ["task-a"] }),
+    "/(app)/projects/pr-a",
+  );
+  assert.equal(
+    routeForNotification({ category: "suggestion", kind: "inbox", taskIds: ["task-a"] }),
+    "/(app)/inbox",
+  );
+});
 test("adding a new screen preserves original context and deduplicates references", () => {
   const original = routeContext(
     "/docs/doc-a",

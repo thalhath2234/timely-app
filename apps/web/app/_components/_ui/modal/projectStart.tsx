@@ -5,6 +5,7 @@ import { Copy, FileText, Sparkles, Table2 } from "lucide-react";
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
 import type { Project } from "@/app/_types/types";
 import { getProjectStart, sendDecisionFeedback, type ProjectStart } from "@/app/utils/api/decisions";
+import { useDecisions } from "@/app/utils/hooks/decisions";
 import { createProject, duplicateProject, type CreateProjectPayload } from "@/app/utils/api/projects";
 import { createDoc, getDoc } from "@/app/utils/api/docs";
 import { createSheet } from "@/app/utils/api/sheets";
@@ -15,7 +16,9 @@ const none: StartChoices = { copy: false, doc: false, sheet: false };
 /** What a new project's title suggests starting from (smart suggestions):
  * a copy of an earlier project, a doc template and a sheet template. Each is
  * offered unticked; the person ticks what they want. */
-export function useProjectStart(title: string, workspaceId: string, active: boolean) {
+export function useProjectStart(title: string, workspaceId: string, open: boolean) {
+  const smartOn = useDecisions().data?.available === true;
+  const active = open && smartOn;
   const [fetched, setFetched] = useState<{ suggestion: ProjectStart; workspaceId: string }>();
   const [choices, setChoices] = useState<StartChoices>(none);
   useEffect(() => {

@@ -52,7 +52,7 @@ type workspaceOwner interface {
 }
 
 type TaskCopier interface {
-	CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string) error
+	CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string, fresh bool) error
 }
 
 type projectService struct {
@@ -130,7 +130,8 @@ func (s *projectService) Duplicate(userID, projectID string) (*models.Project, e
 
 // DuplicateAs copies a project's stages and tasks. A nil `as` copies the
 // project's own fields too; otherwise the copy takes the fields from `as`
-// (a new project started from an earlier one) in the source's workspace.
+// (a new project started from an earlier one) in the source's workspace, and
+// its tasks start over: no dates, unchecked checklists, the default status.
 func (s *projectService) DuplicateAs(userID, projectID string, as *models.Project, values []*models.CustomFieldValue) (*models.Project, error) {
 	src, err := s.repo.GetProjectByIdForUser(userID, projectID)
 	if err != nil {
@@ -173,7 +174,7 @@ func (s *projectService) DuplicateAs(userID, projectID string, as *models.Projec
 		stageMap[stage.ID] = copied.ID
 	}
 	if s.tasks != nil {
-		if err := s.tasks.CopyProjectTasks(userID, src.ID, created.ID, stageMap); err != nil {
+		if err := s.tasks.CopyProjectTasks(userID, src.ID, created.ID, stageMap, as != nil); err != nil {
 			return nil, err
 		}
 	}

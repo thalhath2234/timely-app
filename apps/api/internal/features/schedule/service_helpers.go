@@ -230,6 +230,29 @@ func hasPinnedBlock(t *models.Task, freezeUntil time.Time) bool {
 	return hasManualBlock(t)
 }
 
+// hasLockedBlockAfter is true when the task has a locked block that is not
+// over by from: time the person pinned, which no replace may move.
+func hasLockedBlockAfter(t *models.Task, from time.Time) bool {
+	for _, block := range t.Blocks {
+		if block.Locked && block.EndAt.After(from) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasReplaceableManual is true when the task has a hand-placed block that a
+// replace removes: unlocked and not over by from. It matches Placement's
+// delete in ApplyAutoSchedule.
+func hasReplaceableManual(t *models.Task, from time.Time) bool {
+	for _, block := range t.Blocks {
+		if block.Source == models.BlockSourceManual && !block.Locked && block.EndAt.After(from) {
+			return true
+		}
+	}
+	return false
+}
+
 func frozenOnly(t *models.Task, freezeUntil time.Time) bool {
 	if freezeUntil.IsZero() || len(t.Blocks) == 0 {
 		return false

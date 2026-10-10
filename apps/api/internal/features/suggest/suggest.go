@@ -19,6 +19,7 @@ import (
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
+	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 )
 
@@ -117,6 +118,53 @@ func (s *Service) estimateMinutes(ctx context.Context, userID, name, description
 	return effortMinutes[level], true
 }
 
+// estimateBatch is how many items one EstimateMany call asks about; ten
+// clipped titles and descriptions stay well inside Jev's state limit.
+const estimateBatch = 10
+
+// EstimateMany estimates several new pieces of Work at once, for a chat
+// proposal that creates them: batches of ten run side by side within one
+// estimate budget, so the wait is about one call. A 0 means Jev was off or
+// unsure about that item.
+func (s *Service) EstimateMany(ctx context.Context, userID string, names, descriptions []string) []int {
+	out := make([]int, len(names))
+	ctx, cancel := context.WithTimeout(ctx, estimateBudget)
+	defer cancel()
+	var wg sync.WaitGroup
+	for start := 0; start < len(names); start += estimateBatch {
+		end := min(start+estimateBatch, len(names))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			items := make([]map[string]string, 0, end-start)
+			questions := map[string]decide.Question{}
+			for i := start; i < end; i++ {
+				n := i - start + 1
+				item := map[string]string{"number": fmt.Sprint(n), "title": clip(names[i], 200)}
+				if i < len(descriptions) {
+					if d := strings.TrimSpace(descriptions[i]); d != "" {
+						item["description"] = clip(d, 400)
+					}
+				}
+				items = append(items, item)
+				questions[fmt.Sprintf("effort%d", n)] = decide.Score(
+					fmt.Sprintf("How much focused effort does finishing item number %d take?", n), effortLevels...)
+			}
+			a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "estimate", State: map[string]any{"items": items}, Questions: questions})
+			if err != nil {
+				return
+			}
+			for i := start; i < end; i++ {
+				if level, ok := a.Level(fmt.Sprintf("effort%d", i-start+1), decide.Prefill); ok {
+					out[i] = effortMinutes[level]
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
 // failure turns a failed Ask into a short line for the form, or "" when
 // suggestions were simply off.
 func failure(ctx context.Context, err error) string {
@@ -160,7 +208,11 @@ type ClarifySuggestions struct {
 
 	// DateRole says what a date or time in the title is for, so the form can
 	// point at the right field; Timely never reads the date itself here.
-	DateRole       string      `json:"dateRole,omitempty"` // deadline, start, reminder
+	DateRole string `json:"dateRole,omitempty"` // deadline, start, reminder
+	// Date and Time are what code read from the words (YYYY-MM-DD, HH:MM),
+	// sent only with a DateRole so the form can fill that one field.
+	Date           string      `json:"date,omitempty"`
+	Time           string      `json:"time,omitempty"`
 	SeveralActions bool        `json:"severalActions,omitempty"`
 	NotReady       bool        `json:"notReady,omitempty"`
 	Missing        string      `json:"missing,omitempty"` // duration, place, date, scope
@@ -182,7 +234,28 @@ func (s *Service) clarify(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	if out.DateRole != "" {
+		out.Date, out.Time = s.clarifyDate(ctx, user(c), c.Param("id"), c.QueryParam("timezone"))
+	}
 	return c.JSON(200, out)
+}
+
+// clarifyDate reads the date in an Inbox item's words in the person's own
+// day (their saved hours' zone, else the client's).
+func (s *Service) clarifyDate(ctx context.Context, userID, inboxID, timezone string) (string, string) {
+	var item models.Task
+	if err := s.db.WithContext(ctx).Select("name").Where("id = ? AND user_id = ?", inboxID, userID).First(&item).Error; err != nil {
+		return "", ""
+	}
+	hours, err := schedule.NewRepository(s.db.WithContext(ctx)).GetWorkingHours(userID)
+	if err != nil {
+		hours = models.WorkingHours{}
+	}
+	date, clock, ok := titleDate(item.Name, task.TodayFor(hours, timezone, time.Now()).Now())
+	if !ok {
+		return "", ""
+	}
+	return date, clock
 }
 
 type namedProject struct {
@@ -308,9 +381,7 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 	if level, ok := a.Level("priority", decide.Prefill); ok {
 		out.Priority = []string{models.PriorityLow, models.PriorityMedium, models.PriorityHigh, models.PriorityUrgent}[level]
 	}
-	if len(workspaces) == 1 {
-		out.WorkspaceID = workspaces[0].ID
-	} else if name, ok := a.Choice("workspace", decide.Prefill); ok {
+	if name, ok := a.Choice("workspace", decide.Prefill); ok {
 		out.WorkspaceID = wsByName[name]
 	}
 	// A project named in the title is a plain fact, so it wins over Jev,
@@ -339,9 +410,15 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 			out.Duplicates = append(out.Duplicates, d)
 		}
 	}
-	if out.WorkspaceID != "" {
+	labelSpace := out.WorkspaceID
+	if len(workspaces) == 1 {
+		// With one workspace there is nothing to suggest: the form already
+		// shows it, and naming it would count as a kept suggestion every time.
+		labelSpace, out.WorkspaceID = workspaces[0].ID, ""
+	}
+	if labelSpace != "" {
 		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > labelsMinLeft {
-			out.LabelIDs = s.labels(ctx, userID, out.WorkspaceID, state)
+			out.LabelIDs = s.labels(ctx, userID, labelSpace, item.Name+" "+item.Description, state)
 		}
 	}
 	return out, nil
@@ -497,12 +574,15 @@ var fillerWords = map[string]bool{
 }
 
 // labels asks one yes/no per label of the chosen workspace. Jev has no
-// multi-select, so this is a second, small call.
-func (s *Service) labels(ctx context.Context, userID, workspaceID string, state map[string]any) []string {
+// multi-select, so this is a second, small call. A workspace with more than
+// maxLabels labels is asked about a shortlist (see shortlistLabels).
+func (s *Service) labels(ctx context.Context, userID, workspaceID, text string, state map[string]any) []string {
 	var labels []models.Lable
-	if s.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("name").Limit(maxLabels+1).Find(&labels).Error != nil ||
-		len(labels) == 0 || len(labels) > maxLabels {
+	if s.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("name").Find(&labels).Error != nil || len(labels) == 0 {
 		return nil
+	}
+	if len(labels) > maxLabels {
+		labels = shortlistLabels(labels, text, s.labelUses(ctx, userID))
 	}
 	questions := map[string]decide.Question{}
 	for i, l := range labels {
@@ -520,6 +600,53 @@ func (s *Service) labels(ctx context.Context, userID, workspaceID string, state 
 		}
 	}
 	return out
+}
+
+// labelUses counts the person's tasks per label id.
+func (s *Service) labelUses(ctx context.Context, userID string) map[string]int {
+	var rows []struct {
+		ID string
+		N  int
+	}
+	s.db.WithContext(ctx).Raw(`SELECT e->>'id' AS id, count(*) AS n FROM tasks, jsonb_array_elements(tasks.label_ids) e
+		WHERE tasks.user_id = ? AND jsonb_typeof(tasks.label_ids) = 'array' GROUP BY 1`, userID).Scan(&rows)
+	out := make(map[string]int, len(rows))
+	for _, r := range rows {
+		out[r.ID] = r.N
+	}
+	return out
+}
+
+// shortlistLabels keeps the maxLabels labels most likely to fit: those
+// sharing words with the item's text first, then the most used, then by
+// name. The result keeps name order.
+func shortlistLabels(labels []models.Lable, text string, uses map[string]int) []models.Lable {
+	words := map[string]bool{}
+	for _, w := range splitWords(text) {
+		words[strings.TrimSuffix(w, "s")] = true
+	}
+	shared := func(l models.Lable) int {
+		n := 0
+		for _, w := range splitWords(l.Name) {
+			if words[strings.TrimSuffix(w, "s")] {
+				n++
+			}
+		}
+		return n
+	}
+	ranked := append([]models.Lable(nil), labels...)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		si, sj := shared(ranked[i]), shared(ranked[j])
+		if si != sj {
+			return si > sj
+		}
+		return uses[ranked[i].ID] > uses[ranked[j].ID]
+	})
+	if len(ranked) > maxLabels {
+		ranked = ranked[:maxLabels]
+	}
+	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Name < ranked[j].Name })
+	return ranked
 }
 
 // uniqueName returns name, or name with a number when it is already taken.

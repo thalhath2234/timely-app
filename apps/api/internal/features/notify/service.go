@@ -35,6 +35,16 @@ type Service struct {
 	briefing     Briefer // nil until SetBriefing
 	triageSlots  chan struct{}
 	triageWait   sync.WaitGroup
+
+	// Smart suggestions' status and feedback; nil until SetDecisions.
+	decisionsOn func(ctx context.Context, userID string) bool
+	feedback    func(userID, logID string, accepted bool) error
+	// dismissed records a smart alert set aside without its step; nil until
+	// SetDismissed.
+	dismissed func(userID, logID string) error
+	// dismissedPruned is when each account's old dismissed alerts were last
+	// deleted; sweepDismissed fills it.
+	dismissedPruned map[string]time.Time
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -108,8 +118,36 @@ func (s *Service) MarkAllRead(userID string) error {
 	return s.repo.MarkAllRead(userID)
 }
 
+// ClearAll removes every notification. Smart alerts are hidden rather than
+// deleted, and each one cleared without its step counts as dismissed.
 func (s *Service) ClearAll(userID string) error {
+	rows, err := s.repo.DismissAlerts(userID, "")
+	if err != nil {
+		return err
+	}
+	s.alertsDismissed(userID, rows)
 	return s.repo.ClearAll(userID)
+}
+
+// Delete removes one notification; a smart alert is dismissed as in
+// ClearAll.
+func (s *Service) Delete(userID, id string) error {
+	n, err := s.repo.Get(userID, id)
+	if err != nil {
+		return err
+	}
+	if n.Category != models.NotifySuggestion {
+		return s.repo.Delete(userID, id)
+	}
+	rows, err := s.repo.DismissAlerts(userID, id)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return gorm.ErrRecordNotFound // already dismissed
+	}
+	s.alertsDismissed(userID, rows)
+	return nil
 }
 
 // PrioritizeOverdue is the server-side action for an overdue task.
@@ -269,7 +307,10 @@ func (s *Service) Sweep(ctx context.Context) error {
 		if err := s.sweepMissedAndStart(userID, now); err != nil {
 			return err
 		}
-		if err := s.sweepSmartAlerts(userID, now); err != nil {
+		if err := s.sweepDismissed(userID, now); err != nil {
+			return err
+		}
+		if err := s.sweepSmartAlerts(ctx, userID, now); err != nil {
 			return err
 		}
 	}
@@ -451,6 +492,10 @@ func (s *Service) HandleMissedBlock(ctx context.Context, job *models.Job) error 
 	data := models.JobPayload{}
 	for k, v := range job.Payload {
 		data[k] = v
+	}
+	// Apps hide the steps that would change every occurrence of a series.
+	if item.IsRecurring() {
+		data["recurring"] = true
 	}
 	row := &models.Notification{
 		UserID: job.UserID, Category: models.NotifyMissed,
@@ -741,7 +786,7 @@ func (s *Service) HandleDigest(ctx context.Context, job *models.Job) error {
 	if err != nil {
 		return err
 	}
-	if kind == "morning" && ntf.ID == row.ID && s.briefLater(ntf, today, settings) {
+	if kind == "morning" && ntf.ID == row.ID && s.briefLater(ctx, ntf, today, settings) {
 		return nil // sent once the briefing names the day's top items
 	}
 	return s.deliver(ctx, ntf, settings)
@@ -780,6 +825,10 @@ func (s *Service) HandlePush(ctx context.Context, job *models.Job) error {
 	}
 	if ntf.DeliveredAt != nil {
 		return nil
+	}
+	// A smart alert dismissed before its deferred push ran stays quiet.
+	if ntf.DismissedAt != nil {
+		return s.repo.MarkDelivered(ntf.ID)
 	}
 	if ntf.Category == models.NotifyOverdue {
 		if ntf.ReadAt != nil || ntf.EntityID == nil {
@@ -893,6 +942,8 @@ func notificationPushMessage(ntf *models.Notification, token string) expoMessage
 			"entityId":       ntf.EntityID,
 			"kind":           ntf.Data.String("kind"),
 			"projectId":      ntf.Data.String("projectId"),
+			// A smart alert about several tasks opens the first one.
+			"taskIds": ntf.Data["taskIds"],
 		},
 	}
 }

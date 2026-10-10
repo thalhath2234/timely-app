@@ -33,10 +33,12 @@ import {
   useRemoveOpenRouterKey,
   useRemoveTypeSafeKey,
   useSetApiProviderKey,
+  useSetDeepWorkTime,
   useSetOpenRouterKey,
   useSetTypeSafeKey,
+  useTestDecisions,
 } from "../../../lib/hooks";
-import type { DecisionSettings } from "../../../lib/api/decisions";
+import type { DecisionSettings, DeepWorkTime } from "../../../lib/api/decisions";
 import {
   PROVIDER_LABELS,
   type AgentProviders,
@@ -424,6 +426,7 @@ function SmartSuggestionsCard({
   const patch = usePatchDecisionSettings();
   const setKey = useSetTypeSafeKey();
   const removeKey = useRemoveTypeSafeKey();
+  const test = useTestDecisions();
   const typesafe = data.typesafe;
   const [editing, setEditing] = useState(!typesafe.keySet);
   const [key, setKeyValue] = useState("");
@@ -470,6 +473,34 @@ function SmartSuggestionsCard({
             ? "Using your OpenRouter key"
             : "Add a TypeSafe or OpenRouter key to turn this on"}
       </Text>
+      {data.available ? (
+        <View style={[styles.row, { flexWrap: "wrap" }]} testID="decisions-test">
+          <Pressable
+            accessibilityRole="button"
+            disabled={test.isPending}
+            onPress={() => test.mutate()}
+            style={styles.row}
+          >
+            {test.isPending ? <LogoSpinner size={14} color={colors.mutedForeground} /> : null}
+            <Text style={styles.link}>Test</Text>
+          </Pressable>
+          {test.data ? (
+            <Text
+              style={[test.data.ok ? styles.meta : styles.error, { flex: 1 }]}
+              testID="decisions-test-result"
+            >
+              {test.data.ok
+                ? `Working: ${test.data.provider === "typesafe" ? "TypeSafe" : "OpenRouter"} answered in ${test.data.latencyMs} ms.`
+                : test.data.error}
+            </Text>
+          ) : null}
+          {test.error ? (
+            <Text style={[styles.error, { flex: 1 }]}>
+              {errorMessage(test.error, "Could not run the test.")}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
       {patch.error ? (
         <Text style={styles.error}>
           {errorMessage(patch.error, "Could not change this setting.")}
@@ -559,8 +590,61 @@ function SmartSuggestionsCard({
           ) : null}
         </View>
       )}
+      {data.enabled ? <DeepWorkTimeField value={data.deepWorkTime ?? ""} /> : null}
       {data.enabled ? <UseCaseField /> : null}
       {data.enabled ? <LearnedDefaults /> : null}
+    </View>
+  );
+}
+
+const DEEP_WORK_TIMES: { value: DeepWorkTime; label: string }[] = [
+  { value: "", label: "No preference" },
+  { value: "morning", label: "Mornings" },
+  { value: "afternoon", label: "Afternoons" },
+  { value: "evening", label: "Evenings" },
+];
+
+/** The person's best time of day for deep work; task hints suggest planning
+ * deep focus work then. */
+function DeepWorkTimeField({ value }: { value: DeepWorkTime }) {
+  const save = useSetDeepWorkTime();
+  const [open, setOpen] = useState(false);
+  const current = DEEP_WORK_TIMES.find((option) => option.value === value) ?? DEEP_WORK_TIMES[0];
+  return (
+    <View style={{ gap: 6 }} testID="deep-work-time">
+      <Text style={styles.label}>Best time for deep work</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Best time for deep work: ${current.label}`}
+        onPress={() => setOpen(true)}
+        disabled={save.isPending}
+        style={styles.picker}
+      >
+        <Text style={[styles.pickerValue, { flex: 1 }]} numberOfLines={1}>
+          {current.label}
+        </Text>
+        {save.isPending ? (
+          <LogoSpinner size={16} color={colors.mutedForeground} />
+        ) : (
+          <ChevronDown size={16} color={colors.mutedForeground} />
+        )}
+      </Pressable>
+      <Text style={styles.meta}>Deep focus tasks get a hint to plan them at this time of day.</Text>
+      {save.error ? <Text style={styles.error}>{errorMessage(save.error, "Could not save.")}</Text> : null}
+      <BottomSheet open={open} onClose={() => setOpen(false)} title="Best time for deep work">
+        {DEEP_WORK_TIMES.map((option) => (
+          <SheetOption
+            key={option.value || "none"}
+            selected={option.value === current.value}
+            onSelect={() => {
+              setOpen(false);
+              if (option.value !== current.value) save.mutate(option.value);
+            }}
+          >
+            {option.label}
+          </SheetOption>
+        ))}
+      </BottomSheet>
     </View>
   );
 }
@@ -592,12 +676,27 @@ function UseCaseField() {
   );
 }
 
+/** A feature's name, or its key in words when it has none yet. */
+function learnedName(feature: string) {
+  const words = feature.replace(/_/g, " ");
+  return LEARNED_NAMES[feature] ?? words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** Names for the features that learn from what the person keeps. */
 const LEARNED_NAMES: Record<string, string> = {
   clarify: "Clarify form",
   doc_mention: "Link selection to an item",
   project_template: "Start from a template",
   sheet_template: "Sheet templates",
+  doc_template: "Doc templates",
+  chat_target: "Which item a chat change means",
+  chat_context: "Attached items in chat",
+  doc_passages: "Long doc reads",
+  sheet_cell_fit: "Sheet entry checks",
+  goal_progress: "Work toward goals",
+  estimate: "Suggested length",
+  import_format: "Plain-text import",
+  search_related: "Related lists",
   search: "Search",
   screen_tip: "Screen tips",
   chat_prompts: "Chat example prompts",
@@ -630,7 +729,7 @@ function LearnedDefaults() {
       {rows.map((row) => (
         <View key={row.feature} style={[styles.row, { justifyContent: "space-between" }]}>
           <Text style={[styles.meta, { flex: 1 }]}>
-            {LEARNED_NAMES[row.feature] ?? row.feature} · kept {row.kept} of {row.decided}
+            {learnedName(row.feature)} · kept {row.kept} of {row.decided}
             {row.raise > 0 ? " · asks for more certainty" : ""}
           </Text>
           {row.raise > 0 ? (

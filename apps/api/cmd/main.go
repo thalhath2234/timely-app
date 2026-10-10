@@ -30,6 +30,7 @@ import (
 	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/instance"
 	"timely-api/internal/features/linkpreview"
 	"timely-api/internal/features/notify"
@@ -141,11 +142,17 @@ func main() {
 	notifyService.SetTriage(suggestions.Triage)
 	notifyService.SetAlerts(suggestions.Alerts)
 	notifyService.SetBriefing(suggestions.Brief)
+	notifyService.SetDecisions(func(ctx context.Context, userID string) bool {
+		on, _ := decisions.Status(ctx, userID)
+		return on
+	}, decisions.Feedback)
+	notifyService.SetDismissed(decisions.Dismissed)
 	workEstimate = suggestions.Estimate
 	smartSearch := search.NewSmart(searchService, indexer, decisions)
 	smartSearch.SetViews(search.ViewsFromDB(db))
 	searchRerank = smartSearch.Rerank
 	taskPick = smartSearch.Pick
+	docDecisions = decisions
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -163,6 +170,12 @@ func main() {
 		Estimate:   suggestions.Estimate,
 		Rerank:     smartSearch.Rerank,
 		Pick:       smartSearch.Pick,
+		Decisions:  decisions,
+		Focus:      focus.NewStore(db),
+		DecisionsOn: func(ctx context.Context, userID string) bool {
+			on, _ := decisions.Status(ctx, userID)
+			return on
+		},
 	})
 
 	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) }, chat.NewOpenRouter())
@@ -170,6 +183,7 @@ func main() {
 	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, providerService.EmbedCredentials) })
 	chatService.SetCompleters(providerService)
 	chatService.SetDecisions(decisions)
+	chatService.SetEstimates(suggestions.EstimateMany)
 
 	authHandler := auth.NewHandler(authService, userRepo)
 	port, bind := listenConfig()
@@ -201,6 +215,7 @@ func main() {
 		ApiKey:    apikey.NewHandler(apiKeyService),
 		Search:    searchHandler(searchService, smartSearch),
 		Suggest:   suggestions,
+		Focus:     focus.New(db, decisions),
 		Merge:     workspace.NewMerger(db),
 		Notify:    notify.NewHandler(notifyService, jobQueue),
 		Portable:  portability.NewHandler(portabilityService),

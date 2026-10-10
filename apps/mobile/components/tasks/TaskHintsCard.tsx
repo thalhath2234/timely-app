@@ -10,9 +10,13 @@ import type { CustomField, CustomFieldValueInput, Task, Workspace } from "../../
 
 type Row = { key: string; text: string; label?: string; apply?: () => void };
 
+const TIME_OF_DAY: Record<string, string> = { morning: "mornings", afternoon: "afternoons", evening: "evenings" };
+
 /** What a task's own words suggest: a status, stage, field values or a
- * blocker to apply one by one, and notes on a vague outcome or a checklist
- * gap. Renders nothing while suggestions are off, loading or unsure. */
+ * blocker to apply one by one, one sitting for long work that cannot be
+ * split, the person's best time for deep work, and notes on a vague outcome
+ * or a checklist gap. Renders nothing while suggestions are off, loading or
+ * unsure. */
 export default function TaskHintsCard({
   task,
   workspace,
@@ -20,6 +24,7 @@ export default function TaskHintsCard({
   fieldValues,
   onApply,
   onField,
+  onPreferredWindow,
 }: {
   task: Task;
   workspace?: Workspace;
@@ -27,6 +32,7 @@ export default function TaskHintsCard({
   fieldValues: CustomFieldValueInput[];
   onApply: (data: UpdateTaskPayload) => void;
   onField: (field: CustomField, next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">) => void;
+  onPreferredWindow: (window: { start: string; end: string }) => void;
 }) {
   const version = `${(task.description ?? "").length}:${task.completedAt ?? ""}:${task.blockedById ?? ""}:${task.stageId ?? ""}`;
   const { data } = useTaskHintsQuery(task.id, version, task.kind === "task");
@@ -71,6 +77,24 @@ export default function TaskHintsCard({
   if (data.blockedBy && !task.blockedById) {
     const blocker = data.blockedBy;
     rows.push({ key: "blocker", text: `Seems to wait on “${blocker.name}”.`, label: "Set as blocker", apply: () => onApply({ blockedById: blocker.id }) });
+  }
+  if (data.oneSitting && !task.contiguous) {
+    rows.push({
+      key: "sitting",
+      text: "Reads like it needs one unbroken stretch rather than several sessions.",
+      label: "Keep in one sitting",
+      apply: () => onApply({ contiguous: true }),
+    });
+  }
+  if (data.preferredTime && data.preferredWindow && !(task.preferredWindows ?? []).length) {
+    const window = data.preferredWindow;
+    const time = TIME_OF_DAY[data.preferredTime];
+    rows.push({
+      key: "deep-time",
+      text: `Deep focus work. Plan it in your ${time} (${window.start}–${window.end}, within your working hours)?`,
+      label: `Prefer ${time}`,
+      apply: () => onPreferredWindow(window),
+    });
   }
   if (data.vagueOutcome) rows.push({ key: "outcome", text: "It is not clear what counts as done. A “done when” line would help." });
   if (data.checklistGap) rows.push({ key: "gap", text: "The description asks for something the checklist does not cover." });

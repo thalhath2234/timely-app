@@ -168,9 +168,10 @@ func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emp
 		"workingHours":      hours,
 		"workspaces":        workspaces,
 		"projects":          sums,
-		"activeViewId":      config.ActiveTaskViewId,
-		"taskViews":         config.TaskViews,
 	}
+	// Chat from the phone sees the phone's own saved views.
+	views := viewsOf(ctx, config)
+	out["activeViewId"], out["taskViews"], out["viewsOn"] = *views.active, *views.views, views.on()
 	return reply(fmt.Sprintf("%s — %d workspaces, %d projects, zone %s", user.Email, len(workspaces), len(projects), zoneLabel(hours.Timezone)), out)
 }
 

@@ -76,6 +76,12 @@ const invalidated = [
   "today",
   "inbox",
   "notifications",
+  // Saved views the assistant made or changed.
+  "config",
+  // Habits and goals the assistant checked off or changed.
+  "habits",
+  "goals",
+  "goal-progress",
 ];
 
 export default function Conversation({

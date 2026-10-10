@@ -155,6 +155,12 @@ export function useTaskViewsState() {
           activeTaskViewId: resolvedActiveTaskViewId,
         },
         {
+          // The saved list is the server's now, so later changes (a view the
+          // assistant makes) show; edits made meanwhile keep their draft.
+          onSuccess: (saved) => {
+            queryClient.setQueryData(["config"], saved);
+            setDraft((current) => (current === draft ? null : current));
+          },
           onError: async (error) => {
             if (error instanceof ApiError && error.status === 409) {
               setSyncError("Config conflict: reloading latest config...");

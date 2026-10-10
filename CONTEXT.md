@@ -123,6 +123,20 @@ _Avoid_: missed, skipped, late
 An occurrence of Work whose calendar time has ended while the Work remains incomplete. Missed is not Overdue unless its deadline has also passed.
 _Avoid_: overdue (deadline only), skipped
 
+### Habits and goals
+
+**Habit**:
+Something the person wants to do every day, checked off on Today (web, desktop and the phone's Home tab). Up to 20 per account, stored on the server so every surface matches.
+_Avoid_: routine, recurring task (a habit is never Work and is never scheduled)
+
+**Streak**:
+The run of consecutive days a Habit was checked off, counted on the server from the person's own date. A Habit not yet checked today keeps yesterday's Streak.
+_Avoid_: score, combo
+
+**Goal**:
+One of up to five outcomes the person names in their own words on Today. Goals work without Smart suggestions; with them, each Goal shows the open Work that moves it forward, and Today's suggestions name the Goal a pick serves.
+_Avoid_: target, objective, OKR
+
 ### Desktop host and devices
 
 **Desktop host**:

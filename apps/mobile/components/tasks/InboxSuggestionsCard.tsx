@@ -4,7 +4,7 @@ import { Sparkles } from "lucide-react-native";
 import TaskSectionHeader from "./TaskSectionHeader";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { useDecisionFeedback, useDecisionsStatusQuery, useInboxSuggestionsQuery } from "../../lib/hooks";
-import { formatDuration, PRIORITY_META } from "../../lib/format";
+import { formatDateAndTime, formatDuration, formatShortDate, formatTime, isSameDay, PRIORITY_META } from "../../lib/format";
 import { normalizePriority } from "../../lib/priority";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import type { InboxSuggestions } from "../../lib/api/decisions";
@@ -23,6 +23,21 @@ const DATE_ROLE: Record<NonNullable<InboxSuggestions["dateRole"]>, string> = {
   start: "The date looks like a start date",
   reminder: "The date looks like a reminder time",
 };
+
+/** The next whole hour, the time the screen's Reminder choice starts at. */
+function nextHour() {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  d.setHours(d.getHours() + 1);
+  return d.toISOString();
+}
+
+/** A local date and HH:MM as an ISO time. */
+function localAt(date: string, time: string) {
+  const [y, m, d] = date.split("-").map(Number);
+  const [h, min] = time.split(":").map(Number);
+  return new Date(y, m - 1, d, h, min).toISOString();
+}
 
 function aboutMinutes(minutes: number) {
   if (minutes < 60) return `about ${minutes} minutes`;
@@ -48,16 +63,18 @@ function planSuggestions(
   projects: Project[],
   fallbackWorkspaceId: string,
 ): Plan {
-  const space = spaces.find((w) => w.id === s.workspaceId);
-  const project = projects.find((p) => p.id === s.projectId && (!space || p.workspaceId === space.id));
+  // Only the model's own kind changes the item: a place or a length alone
+  // does not make it Work, and they only fit once it has a kind, the same as
+  // the screen's pickers.
+  const kind = s.kind;
+  const reminder = kind === "reminder";
+  const space = kind ? spaces.find((w) => w.id === s.workspaceId) : undefined;
+  const project = kind ? projects.find((p) => p.id === s.projectId && (!space || p.workspaceId === space.id)) : undefined;
   const place = space ?? spaces.find((w) => w.id === project?.workspaceId);
   const duration = s.duration && s.duration > 0 ? s.duration : undefined;
-  // A place or a length only fits work, the same as the screen's pickers.
-  const kind = s.kind ?? (place || duration ? "task" : undefined);
-  const reminder = kind === "reminder";
   const workspaceId = place?.id || task.workspaceId || fallbackWorkspaceId || spaces[0]?.id;
   const labelSpace = spaces.find((w) => w.id === workspaceId);
-  const labels = (s.labelIds ?? [])
+  const labels = (kind ? s.labelIds ?? [] : [])
     .map((id) => labelSpace?.lables?.find((label) => label.id === id))
     .filter((label): label is NonNullable<typeof label> => Boolean(label));
   const priority = normalizePriority(s.priority);
@@ -65,16 +82,34 @@ function planSuggestions(
   const lines: string[] = [];
   const update: UpdateTaskPayload = {};
   if (reminder) {
-    lines.push("Reminder");
-    // A reminder needs a time; this matches the screen's Reminder choice.
+    // A reminder needs a time; this matches the screen's Reminder choice,
+    // and the card says when it will ping.
+    // A date read from the words wins when Jev says it is the reminder time.
+    // A read time that has already passed today pings at the next hour.
+    const readAt = s.dateRole === "reminder" && s.date ? localAt(s.date, s.time || "09:00") : "";
+    const pingAt = readAt
+      ? new Date(readAt) < new Date() ? nextHour() : readAt
+      : task.scheduledOn || nextHour();
+    const when = isSameDay(new Date(pingAt), new Date()) ? formatTime(pingAt) : formatDateAndTime(pingAt);
+    lines.push(`Reminder · pings at ${when}`);
     update.kind = "reminder";
     update.duration = 0;
-    update.scheduledOn = task.scheduledOn || new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    update.scheduledOn = pingAt;
   } else if (kind === "task") {
     lines.push(duration ? `Work · ${aboutMinutes(duration)}` : "Work");
     update.kind = "task";
     update.duration = duration ?? (Math.max(30, task.duration || 0) || 30);
     update.workspaceId = workspaceId;
+    if (s.date && (s.dateRole === "deadline" || s.dateRole === "start")) {
+      const label = formatShortDate(localAt(s.date, "12:00"));
+      if (s.dateRole === "deadline") {
+        lines.push(`Deadline: ${label}`);
+        update.deadline = s.date;
+      } else {
+        lines.push(`Starts: ${label}`);
+        update.startDate = s.date;
+      }
+    }
   }
   if (place) {
     lines.push(project && !reminder ? `${place.name} › ${project.title}` : place.name);
@@ -99,14 +134,17 @@ function planSuggestions(
   if (s.severalActions) hints.push("This may be more than one task");
   if (s.notReady) hints.push("This may need more thought before it becomes work");
   if (s.missing && MISSING[s.missing]) hints.push(MISSING[s.missing]);
-  if (s.dateRole && DATE_ROLE[s.dateRole]) hints.push(DATE_ROLE[s.dateRole]);
+  // Shown only when the date was not read and filled above.
+  const dateUsed = Boolean(s.date) && (reminder ? s.dateRole === "reminder" : kind === "task" && s.dateRole !== "reminder");
+  if (s.dateRole && DATE_ROLE[s.dateRole] && !dateUsed) hints.push(DATE_ROLE[s.dateRole]);
   const similar = (s.duplicates ?? []).filter((item) => item.id && item.id !== task.id);
 
   return { lines, hints, similar, update: Object.keys(update).length > 0 ? update : null };
 }
 
-/** Suggested fields for an Inbox item. Renders nothing while loading, on an
- * error, or when suggestions are off, so the screen behaves as without it. */
+/** Suggested fields for an Inbox item. Renders nothing while loading or when
+ * suggestions are off, so the screen behaves as without it; a failed call
+ * shows its reason. */
 export default function InboxSuggestionsCard({
   task,
   spaces,
@@ -133,7 +171,16 @@ export default function InboxSuggestionsCard({
     [data, task, spaces, projects, fallbackWorkspaceId],
   );
 
-  if (!isInbox || closed || !plan) return null;
+  if (!isInbox || closed) return null;
+  // A failed call names its reason, as the web Clarify form does.
+  if (data?.error && (!plan || (plan.lines.length === 0 && plan.hints.length === 0 && plan.similar.length === 0)))
+    return (
+      <View style={styles.card} testID="inbox-suggestions-error">
+        <TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title="Suggestions" />
+        <Text style={styles.hint}>{data.error}</Text>
+      </View>
+    );
+  if (!plan) return null;
   if (plan.lines.length === 0 && plan.hints.length === 0 && plan.similar.length === 0) return null;
 
   const answer = (accepted: boolean) => {

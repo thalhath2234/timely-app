@@ -60,6 +60,9 @@ import {
   getTaskHints,
   keepStaleTask,
   patchDecisionSettings,
+  patchDeepWorkTime,
+  type DeepWorkTime,
+  testDecisions,
   removeTypeSafeKey,
   sendDecisionFeedback,
   getScreenTip,
@@ -68,11 +71,17 @@ import {
   getLearned,
   resetLearned,
   getStarterLabels,
+  getCleanupSuggestions,
+  mergeTaxonomy,
+  type CleanupMerge,
   getPersonalPrefs,
   savePersonalUseCase,
   type TipScreen,
   setTypeSafeKey,
   type DecisionSettings,
+  getEstimate,
+  getCellFit,
+  type CellFitInput,
 } from "./api/decisions";
 import {
   getJobHealth,
@@ -82,6 +91,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   clearNotifications,
+  deleteNotification,
   retryJob,
   snoozeNotification,
   prioritizeOverdueTask,
@@ -123,6 +133,7 @@ export const keys = {
   search: (q: string) => ["search", q] as const,
   smartSearch: (q: string) => ["smart-search", q] as const,
   related: (kind: string, id: string) => ["related", kind, id] as const,
+  estimate: (title: string) => ["estimate", title] as const,
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
   agentProviders: ["agent-providers"] as const,
@@ -140,6 +151,7 @@ export const keys = {
   chatPrompts: (projectId: string) => ["chat-prompts", projectId] as const,
   learned: ["decisions-learned"] as const,
   starterLabels: (workspaceId: string) => ["starter-labels", workspaceId] as const,
+  cleanup: (workspaceId: string) => ["cleanup-suggestions", workspaceId] as const,
   personalPrefs: ["personal-prefs"] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
@@ -418,6 +430,19 @@ export function useSmartSearchQuery(debouncedQuery: string, enabled = true) {
   return { ...result, query };
 }
 
+/** A suggested length for new Work with this title; quiet while Smart suggestions are off. */
+export function useEstimateQuery(title: string, enabled = true) {
+  const name = title.trim();
+  const status = useDecisionsStatusQuery(enabled && name.length >= 3);
+  return useQuery({
+    queryKey: keys.estimate(name),
+    queryFn: () => getEstimate(name),
+    enabled: enabled && name.length >= 3 && status.data?.available === true,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+}
+
 /** Items related to one task, project, doc or sheet; quiet while Smart suggestions are off. */
 export function useRelatedQuery(kind: RelatedKind, id: string | undefined, enabled = true) {
   const status = useDecisionsStatusQuery(enabled && !!id);
@@ -500,6 +525,9 @@ export const usePatchDecisionSettings = () =>
   useDecisionSettingsMutation((enabled: boolean) => patchDecisionSettings(enabled));
 export const useSetTypeSafeKey = () => useDecisionSettingsMutation((key: string) => setTypeSafeKey(key));
 export const useRemoveTypeSafeKey = () => useDecisionSettingsMutation<void>(() => removeTypeSafeKey());
+export const useSetDeepWorkTime = () => useDecisionSettingsMutation((time: DeepWorkTime) => patchDeepWorkTime(time));
+/** One live call with the saved keys; the settings card shows the result. */
+export const useTestDecisions = () => useMutation({ mutationFn: testDecisions });
 
 /** Whether smart suggestions can run. Fails quietly: an older server without
  * the endpoint just means no suggestions. */
@@ -669,6 +697,34 @@ export function useStarterLabelsQuery(workspaceId: string) {
     enabled: !!workspaceId && status.data?.available === true,
     retry: false,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+/** Labels, statuses or options that look like the same thing; quiet while
+ * Smart suggestions are off. */
+export function useCleanupSuggestionsQuery(workspaceId: string) {
+  const status = useDecisionsStatusQuery(!!workspaceId);
+  return useQuery({
+    queryKey: keys.cleanup(workspaceId),
+    queryFn: () => getCleanupSuggestions(workspaceId),
+    enabled: !!workspaceId && status.data?.available === true,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Merges, then refreshes everything that shows labels, statuses or fields. */
+export function useMergeTaxonomy(workspaceId: string) {
+  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (merge: CleanupMerge) => mergeTaxonomy(workspaceId, merge),
+    onSuccess: () => {
+      void invalidate();
+      // Saved views live in config.
+      void client.invalidateQueries({ queryKey: keys.config });
+      void client.invalidateQueries({ queryKey: ["cleanup-suggestions"] });
+    },
   });
 }
 
@@ -1380,7 +1436,7 @@ export function useSetTodayFocus() {
 
 export function useDuplicateProject() {
   const invalidate = useInvalidateAll();
-  return useMutation({ mutationFn: duplicateProject, onSuccess: invalidate });
+  return useMutation({ mutationFn: (id: string) => duplicateProject(id), onSuccess: invalidate });
 }
 
 export function useProjectActivityQuery(id?: string) {
@@ -1441,6 +1497,17 @@ export function useMarkAllNotificationsRead() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: markAllNotificationsRead,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.notifications });
+      client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
+export function useDeleteNotification() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: deleteNotification,
     onSuccess: () => {
       client.invalidateQueries({ queryKey: keys.notifications });
       client.invalidateQueries({ queryKey: keys.unreadNotifications });
@@ -1515,4 +1582,33 @@ export function useRetryJob() {
       client.invalidateQueries({ queryKey: keys.jobHealth });
     },
   });
+}
+
+/** One edited cell to check, with an id that is new for every edit. */
+export type CellFitEdit = { id: number; rowId: string; columnId: string; input: CellFitInput };
+
+/** A hint that the latest checked entry may not fit its column, asked once
+ * per edit a moment after it is saved. The last hint stays until a newer one
+ * replaces it; nothing is asked while Smart suggestions are off. */
+export function useCellFit(edit: CellFitEdit | null) {
+  const status = useDecisionsStatusQuery(!!edit);
+  const on = status.data?.available === true;
+  const [answer, setAnswer] = useState<{ id: number; rowId: string; columnId: string; value: string; hint: string; logId?: string }>();
+  useEffect(() => {
+    if (!on || !edit) return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      getCellFit(edit.input)
+        .then((next) => {
+          if (!stale && next.available && next.misfit && next.hint)
+            setAnswer({ id: edit.id, rowId: edit.rowId, columnId: edit.columnId, value: edit.input.value, hint: next.hint, logId: next.logId });
+        })
+        .catch(() => {});
+    }, 700);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [edit, on]);
+  return on ? answer : undefined;
 }

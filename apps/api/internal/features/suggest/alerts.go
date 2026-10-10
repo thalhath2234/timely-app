@@ -48,6 +48,17 @@ var alertActions = []decide.Option{
 	{Name: notify.AlertReschedule, Description: "Reschedule: find time for it on the calendar"},
 }
 
+// stepsFor is the steps offered for one kind of candidate.
+func stepsFor(kind string) []decide.Option {
+	var out []decide.Option
+	for _, o := range alertActions {
+		if notify.AlertStepFits(kind, o.Name) {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
 var actionPhrase = map[string]string{
 	notify.AlertReview:     "take a look and decide what to do with it",
 	notify.AlertClarify:    "make the next step clear",
@@ -62,12 +73,13 @@ var actionPhrasePlural = map[string]string{
 	notify.AlertReschedule: "find time for them",
 }
 
-// Alerts returns today's smart alerts, most worth it first.
-func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip map[string]bool) []notify.Alert {
+// Alerts returns today's smart alerts, most worth it first. Kinds in muted
+// are ones the person keeps dismissing, and are left out.
+func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip, muted map[string]bool) []notify.Alert {
 	if on, _ := s.decide.Status(ctx, userID); !on {
 		return nil
 	}
-	cands := s.alertCandidates(ctx, userID, now, skip)
+	cands := s.alertCandidates(ctx, userID, now, skip, muted)
 	if len(cands) == 0 {
 		return nil
 	}
@@ -86,7 +98,7 @@ func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip
 		questions["alert_"+key] = decide.YesNo(fmt.Sprintf("Is candidate %s worth interrupting the person with an alert today, rather than waiting until they next look at their list?", key),
 			"Yes: it is time-sensitive, easy to forget or blocks other work, and acting today matters",
 			"No: it can wait until the person looks at their list")
-		questions["action_"+key] = decide.Choice(fmt.Sprintf("What is the best next step for candidate %s?", key), alertActions...)
+		questions["action_"+key] = decide.Choice(fmt.Sprintf("What is the best next step for candidate %s?", key), stepsFor(c.kind)...)
 		if len(cands) > 1 {
 			opts := []decide.Option{{Name: "none", Description: "None of the other candidates"}}
 			for j, other := range cands {
@@ -139,7 +151,10 @@ func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip
 		if !ok || pick == "none" {
 			continue
 		}
-		if _, err := fmt.Sscanf(pick, "c%d", &j); err == nil && j >= 1 && j <= len(cands) && in[j-1] && j-1 != p.i {
+		// An Inbox alert stays on its own: its items are not Work yet, so a
+		// Work alert's Focus or Find time step must never reach them.
+		if _, err := fmt.Sscanf(pick, "c%d", &j); err == nil && j >= 1 && j <= len(cands) && in[j-1] && j-1 != p.i &&
+			cands[p.i].kind != "inbox" && cands[j-1].kind != "inbox" {
 			parent[find(j-1)] = find(p.i)
 		}
 	}
@@ -168,10 +183,10 @@ func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip
 		members := groups[r]
 		lead := cands[members[0]]
 		action := lead.action
-		if v, ok := a.Choice(fmt.Sprintf("action_c%d", members[0]+1), decide.Flag); ok {
+		if v, ok := a.Choice(fmt.Sprintf("action_c%d", members[0]+1), decide.Flag); ok && notify.AlertStepFits(lead.kind, v) {
 			action = v
 		}
-		alert := notify.Alert{Key: lead.key, Kind: lead.kind, ProjectID: lead.projectID, Title: lead.title, Action: action}
+		alert := notify.Alert{Key: lead.key, Kind: lead.kind, ProjectID: lead.projectID, Title: lead.title, Action: action, LogID: a.LogID}
 		seen := map[string]bool{}
 		var others []string
 		for n, m := range members {
@@ -203,23 +218,12 @@ func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip
 }
 
 // alertCandidates finds what could deserve an alert, in code. Work alerted
-// about in the last week (skip) is left out.
-func (s *Service) alertCandidates(ctx context.Context, userID string, now time.Time, skip map[string]bool) []alertCandidate {
-	var out []alertCandidate
+// about in the last week (skip) and muted kinds are left out.
+func (s *Service) alertCandidates(ctx context.Context, userID string, now time.Time, skip, muted map[string]bool) []alertCandidate {
 	// Each kind has its own quota, counted after Work alerted about this
 	// week is dropped, so that Work never keeps the next candidates out.
-	add := func(c alertCandidate) bool {
-		for _, it := range c.items {
-			if skip[it.ID] {
-				return false
-			}
-		}
-		if len(out) < maxAlertCandidates && len(c.items) > 0 {
-			out = append(out, c)
-			return true
-		}
-		return false
-	}
+	list := candidateList{skip: skip, muted: muted, covered: map[string]bool{}}
+	add := list.add
 	// Queries read a few more rows than a kind's quota, to make up for skips.
 	extra := min(len(skip), 10)
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -241,7 +245,7 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 		if err != nil {
 			continue
 		}
-		when := dueWords(int(d.Sub(day).Hours() / 24))
+		when := dueWords(notify.DaysBetween(day, d))
 		if !add(alertCandidate{key: "due:" + t.ID, kind: "due", title: fmt.Sprintf("“%s” is due %s", clip(t.Name, 80), when),
 			facts: fmt.Sprintf("It is due %s and has no time on your calendar.", when), detail: clip(t.Description, 300),
 			action: notify.AlertReschedule, items: []notify.AlertItem{{ID: t.ID, Name: t.Name}}, project: projects[deref(t.ProjectID)], inProject: deref(t.ProjectID)}) {
@@ -297,7 +301,7 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 		for _, t := range open {
 			items = append(items, notify.AlertItem{ID: t.ID, Name: t.Name})
 		}
-		when := dueWords(int(d.Sub(day).Hours() / 24))
+		when := dueWords(notify.DaysBetween(day, d))
 		if add(alertCandidate{key: "project:" + p.ID, kind: "project", title: fmt.Sprintf("Project “%s” is due %s", clip(p.Title, 80), when),
 			facts: fmt.Sprintf("It is due %s with %s still open.", when, countWords(p.Open, "task")), action: notify.AlertReview, items: items, project: p.Title, projectID: p.ID, inProject: p.ID}) {
 			projectsLeft--
@@ -327,6 +331,10 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 			if staleLeft == 0 {
 				break
 			}
+			// Work due soon is a due alert, not a stale one.
+			if dueBy(st.task.Deadline, day.AddDate(0, 0, dueSoonDays), now.Location()) {
+				continue
+			}
 			if add(alertCandidate{key: "stale:" + st.task.ID, kind: "stale", title: fmt.Sprintf("“%s” has been idle for %d days", clip(st.task.Name, 80), st.days),
 				facts:  fmt.Sprintf("Nothing has happened on it for %d days and it has no time planned.", st.days),
 				detail: clip(st.task.Description, 300), action: notify.AlertReview, items: []notify.AlertItem{{ID: st.task.ID, Name: st.task.Name}}, project: projects[deref(st.task.ProjectID)], inProject: deref(st.task.ProjectID)}) {
@@ -334,7 +342,52 @@ func (s *Service) alertCandidates(ctx context.Context, userID string, now time.T
 			}
 		}
 	}
-	return out
+	return list.out
+}
+
+// candidateList collects the candidates of one run. A candidate whose Work
+// is all alerted about this week, or (projects aside) already in an earlier
+// candidate (a task due tomorrow that is also idle or just unblocked), is
+// left out, so the same Work never gets two alerts on one day.
+type candidateList struct {
+	out     []alertCandidate
+	skip    map[string]bool
+	muted   map[string]bool // kinds the person keeps dismissing
+	covered map[string]bool
+}
+
+func (l *candidateList) add(c alertCandidate) bool {
+	if len(l.out) >= maxAlertCandidates || len(c.items) == 0 || l.muted[c.kind] {
+		return false
+	}
+	// A project alert is about the project's own deadline, so it stays even
+	// when its Work is in other candidates; code joins same-project ones.
+	fresh := c.kind == "project"
+	for _, it := range c.items {
+		if l.skip[it.ID] {
+			return false
+		}
+		if !l.covered[it.ID] {
+			fresh = true
+		}
+	}
+	if !fresh {
+		return false
+	}
+	for _, it := range c.items {
+		l.covered[it.ID] = true
+	}
+	l.out = append(l.out, c)
+	return true
+}
+
+// dueBy is true when the deadline falls on or before the last day.
+func dueBy(deadline *string, last time.Time, loc *time.Location) bool {
+	if deadline == nil || *deadline == "" {
+		return false
+	}
+	d, err := time.ParseInLocation("2006-01-02", models.NormalizeDate(*deadline), loc)
+	return err == nil && notify.DaysBetween(d, last) >= 0
 }
 
 // projectTitles maps the person's project ids to titles.
@@ -401,7 +454,7 @@ func dueWords(days int) string {
 }
 
 func agoWords(now, at time.Time) string {
-	days := int(now.Sub(at).Hours() / 24)
+	days := notify.DaysBetween(at, now)
 	switch {
 	case days <= 0:
 		return "today"

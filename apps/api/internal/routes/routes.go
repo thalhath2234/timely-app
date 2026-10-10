@@ -10,6 +10,7 @@ import (
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/instance"
 	"timely-api/internal/features/linkpreview"
 	"timely-api/internal/features/notify"
@@ -45,6 +46,7 @@ type Handlers struct {
 	ApiKey    *apikey.Handler
 	Search    *search.Handler
 	Suggest   *suggest.Service
+	Focus     *focus.Service // habits and goals on Today
 	Merge     *workspace.Merger
 	Notify    *notify.Handler
 	Portable  *portability.Handler
@@ -90,6 +92,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	}
 	if h.Suggest != nil {
 		h.Suggest.Routes(protected)
+	}
+	if h.Focus != nil {
+		h.Focus.Routes(protected)
 	}
 	if h.Instance != nil {
 		protected.GET("/instance", h.Instance.Instance)
@@ -312,6 +317,7 @@ func setupNotifyRoutes(g *echo.Group, h *notify.Handler) {
 	g.POST("/notifications/read-all", h.MarkAllRead)
 	g.POST("/notifications/clear", h.ClearAll)
 	g.POST("/notifications/:id/read", h.MarkRead)
+	g.DELETE("/notifications/:id", h.Delete)
 	g.POST("/notifications/:id/snooze", h.Snooze)
 	g.POST("/notifications/:id/reschedule", h.Reschedule)
 	g.POST("/notifications/:id/triage", h.Triage)

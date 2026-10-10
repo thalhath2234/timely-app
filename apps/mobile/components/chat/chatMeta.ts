@@ -11,6 +11,7 @@ import {
   FolderKanban,
   History,
   Layers,
+  ListFilter,
   ListChecks,
   LoaderCircle,
   MapPin,
@@ -164,6 +165,7 @@ export function readableTimestamp(value: string): string | null {
 export function stepIcon(tool: string): LucideIcon {
   if (isRemoval(tool)) return Trash2;
   if (tool.includes("notification") || tool === "snooze_reminder") return Bell;
+  if (tool.includes("task_view")) return ListFilter;
   if (tool === "set_today_focus") return Sun;
   if (tool.includes("focus")) return Timer;
   if (tool === "undo_schedule") return Undo2;
@@ -221,6 +223,17 @@ export type StepTarget = { href: string; title?: string; noun: string };
  */
 export function stepTarget(step: ChatStep): StepTarget | null {
   const result = step.result ?? {};
+  // A saved view opens Tasks with it active, on the app whose views it is
+  // (viewsOn); a web and desktop view has nothing to open here.
+  const view = result.view as Record<string, unknown> | undefined;
+  if (view && typeof view === "object" && typeof view.id === "string" && result.viewsOn) {
+    if (result.viewsOn !== "phone") return null;
+    return {
+      href: `/tasks?view=${encodeURIComponent(view.id)}`,
+      title: typeof view.name === "string" ? view.name : undefined,
+      noun: "view",
+    };
+  }
   const sources: Record<string, unknown>[] = [];
   for (const key of nestedKeys) {
     const item = result[key];

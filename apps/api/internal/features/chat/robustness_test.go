@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +55,99 @@ func TestProposalRejectsDataChangedSinceTheModelReadIt(t *testing.T) {
 	}
 	if _, ok := snapshotRead("get_doc", json.RawMessage(`{"docId":"doc_1","extra":true}`)); ok {
 		t.Fatal("reads with other arguments must not stand in for the snapshot")
+	}
+	if full, ok := snapshotRead("get_doc", json.RawMessage(`{"docId":"doc_1","full":true}`)); !ok || full != key {
+		t.Fatal("a full get_doc read is the same snapshot as a plain one")
+	}
+	if _, ok := snapshotRead("get_doc", json.RawMessage(`{"docId":"doc_1","focus":"budget"}`)); ok {
+		t.Fatal("a focused read may leave sections out")
+	}
+}
+
+func TestProposalRejectsADocEditedAfterAFocusedRead(t *testing.T) {
+	current := "# Handbook\n\n## Travel\n\nFlights\n\n## Budget\n\nOld budget"
+	plainReads := 0
+	catalog := agent.Catalog{
+		"get_doc": {Call: func(_ context.Context, _ string, args json.RawMessage) (any, error) {
+			var in map[string]any
+			_ = json.Unmarshal(args, &in)
+			if in["focus"] != nil {
+				// A focused read shows only part of the doc.
+				return map[string]string{"markdown": "## Travel\n\nFlights\n\n[section kept out doc_1#000000000000: Budget, 3 lines]"}, nil
+			}
+			plainReads++
+			return map[string]string{"markdown": current}, nil
+		}},
+		"update_doc": {Call: func(context.Context, string, json.RawMessage) (any, error) { return nil, nil }},
+	}
+	reads := map[string]string{}
+	focused := json.RawMessage(`{"docId":"doc_1","focus":"flights"}`)
+	result, _ := catalog["get_doc"].Call(context.Background(), "user", focused)
+	recordRead(context.Background(), catalog, "user", "get_doc", focused, result, reads)
+	if plainReads != 1 || len(reads) != 1 {
+		t.Fatalf("a focused read must record the plain doc: %d reads, %v", plainReads, reads)
+	}
+	args := raw(map[string]any{"summary": "Edit travel", "direct": false, "steps": []any{map[string]any{"tool": "update_doc", "summary": "Edit travel", "arguments": map[string]any{"docId": "doc_1", "markdown": "## Travel\n\nTrains"}}}})
+	if _, _, err := (&Service{}).prepareProposal(context.Background(), catalog, "user", args, reads); err != nil {
+		t.Fatalf("unchanged doc rejected: %v", err)
+	}
+	// Someone edits the doc after the focused read.
+	current = strings.Replace(current, "Old budget", "New budget", 1)
+	if _, _, err := (&Service{}).prepareProposal(context.Background(), catalog, "user", args, reads); err == nil || !strings.Contains(err.Error(), "changed after you read it") {
+		t.Fatalf("a focused read let the proposal overwrite a newer edit: %v", err)
+	}
+	// full=true with a focus is recorded the same way; other reads are not.
+	for _, call := range []struct {
+		tool, args string
+		want       bool
+	}{
+		{"get_doc", `{"docId":"doc_1","focus":"budget","full":true}`, true},
+		{"get_doc", `{"docId":"doc_1","focus":"budget","extra":1}`, false},
+		{"get_doc", `{"focus":"budget"}`, false},
+		{"get_task", `{"taskId":"t","focus":"x"}`, false},
+	} {
+		if _, ok := focusedDocRead(call.tool, json.RawMessage(call.args)); ok != call.want {
+			t.Fatalf("focusedDocRead(%s %s) = %v", call.tool, call.args, ok)
+		}
+	}
+}
+
+func TestProposalShowsKeptOutSectionsInFull(t *testing.T) {
+	doc := "# Handbook\n\nIntro\n\n## Travel\n\nFlights\n\n## Budget\n\nThe budget is 500.\n"
+	budget := "## Budget\n\nThe budget is 500.\n"
+	sum := sha256.Sum256([]byte(budget))
+	placeholder := fmt.Sprintf("[section kept out doc_1#%s: Budget, 3 lines; call get_doc with full=true to read it]", hex.EncodeToString(sum[:])[:12])
+	catalog := agent.Catalog{
+		"get_doc": {Call: func(context.Context, string, json.RawMessage) (any, error) {
+			return map[string]any{"markdown": doc}, nil
+		}},
+		"update_doc":    {Call: func(context.Context, string, json.RawMessage) (any, error) { return nil, nil }},
+		"append_to_doc": {Call: func(context.Context, string, json.RawMessage) (any, error) { return nil, nil }},
+		"create_doc":    {Call: func(context.Context, string, json.RawMessage) (any, error) { return nil, nil }},
+	}
+	for _, tool := range []string{"update_doc", "append_to_doc", "create_doc"} {
+		arguments := map[string]any{"markdown": "## Travel\n\nTrains\n\n" + placeholder}
+		if tool == "create_doc" {
+			arguments["title"] = "Copy"
+		} else {
+			arguments["docId"] = "doc_1"
+		}
+		args := raw(map[string]any{"summary": "Edit", "direct": false, "steps": []any{map[string]any{"tool": tool, "summary": "Edit", "arguments": arguments}}})
+		p, _, err := (&Service{}).prepareProposal(context.Background(), catalog, "user", args, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tool, err)
+		}
+		var in map[string]any
+		_ = json.Unmarshal(p.Steps[0].Arguments, &in)
+		markdown, _ := in["markdown"].(string)
+		if strings.Contains(markdown, "section kept out") || !strings.Contains(markdown, "The budget is 500.") || !strings.Contains(markdown, "Trains") {
+			t.Fatalf("%s: review shows a placeholder:\n%s", tool, markdown)
+		}
+	}
+	// A reformatted placeholder sends the model back instead of saving a stub.
+	args := raw(map[string]any{"summary": "Edit", "direct": false, "steps": []any{map[string]any{"tool": "update_doc", "summary": "Edit", "arguments": map[string]any{"docId": "doc_1", "markdown": "- " + placeholder}}}})
+	if _, _, err := (&Service{}).prepareProposal(context.Background(), catalog, "user", args, nil); err == nil || !strings.Contains(err.Error(), "exactly as get_doc returned it") {
+		t.Fatalf("reformatted placeholder accepted: %v", err)
 	}
 }
 

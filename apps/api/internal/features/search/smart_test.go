@@ -177,6 +177,10 @@ func (l liveOnly) Existing(_ string, hits []embed.Hit) []embed.Hit {
 	return out
 }
 
+func (l liveOnly) Relatable(userID, _, _ string, hits []embed.Hit) []embed.Hit {
+	return l.Existing(userID, hits)
+}
+
 func TestRelatedSkipsDeletedItems(t *testing.T) {
 	var calls atomic.Int32
 	// Jev would confirm both; the doc was deleted but its vectors remain.
@@ -249,9 +253,26 @@ func TestPickSplitsMatchesUnsureAndMisses(t *testing.T) {
 	}
 }
 
+// A sensitive chat (a receipt photo) never sends its searches or titles.
+func TestSensitiveChatsSkipRerankAndPick(t *testing.T) {
+	var calls atomic.Int32
+	s := NewSmart(nil, nil, jevService(t, true, map[string]any{"match1": yes(0.02), "pick1": yes(0.97)}, &calls))
+	ctx := decide.WithSensitive(context.Background())
+	hits := []Hit{{ID: "a", Title: "Pharmacy receipt"}}
+	if kept, _, ok := s.Rerank(ctx, "u1", "pharmacy", hits); ok || len(kept) != 1 {
+		t.Fatalf("rerank ran: kept %v ok %v", kept, ok)
+	}
+	if _, unsure, _, ok := s.Pick(ctx, "u1", "pharmacy", hits); ok || len(unsure) != 1 {
+		t.Fatalf("pick ran: unsure %v ok %v", unsure, ok)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("%d calls reached Jev", calls.Load())
+	}
+}
+
 func TestSmartSearchPicksASavedView(t *testing.T) {
 	var calls atomic.Int32
-	views := func(context.Context, string) []SavedView {
+	views := func(context.Context, string, string) []SavedView {
 		return []SavedView{
 			{ID: "v_all", Name: "Everything", Description: "lists work items"},
 			{ID: "v_late", Name: "Needs attention", Description: "lists work items; only overdue ones"},
@@ -290,5 +311,30 @@ func TestDescribeView(t *testing.T) {
 	want := "lists work items; only overdue ones; hides finished ones; priority High or Urgent; status Doing; in Shop launch; labelled Waiting; sorted by deadline"
 	if got != want {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// client=phone offers the phone's own saved views, anything else the web's.
+func TestSmartSearchOffersTheClientViews(t *testing.T) {
+	asked := map[string]bool{}
+	views := func(_ context.Context, _ string, client string) []SavedView {
+		asked[client] = true
+		if client == ClientPhone {
+			return []SavedView{{ID: "native_view_late", Name: "Late on phone", Description: "lists work items; only overdue ones"}}
+		}
+		return []SavedView{{ID: "view_late", Name: "Late", Description: "lists work items; only overdue ones"}}
+	}
+	var calls atomic.Int32
+	s := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{"view": pick("view1")}, &calls))
+	s.SetViews(views)
+	got, err := s.SearchFor(context.Background(), "u1", "my overdue stuff", nil, ClientPhone)
+	if err != nil || got.View == nil || got.View.ID != "native_view_late" {
+		t.Fatalf("phone view = %+v, %v", got.View, err)
+	}
+	if got, err = s.Search(context.Background(), "u1", "my late stuff", nil); err != nil || got.View == nil || got.View.ID != "view_late" {
+		t.Fatalf("web view = %+v, %v", got.View, err)
+	}
+	if !asked[ClientPhone] || !asked[ClientWeb] {
+		t.Fatalf("asked %v", asked)
 	}
 }

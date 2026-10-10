@@ -1,6 +1,6 @@
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { Bell } from "lucide-react-native";
+import { Bell, X } from "lucide-react-native";
 import { useState } from "react";
 import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
@@ -9,12 +9,14 @@ import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import {
   useClearNotifications,
+  useDeleteNotification,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotificationsQuery,
   useSnoozeNotification,
   usePrioritizeOverdueTask,
   useNotificationTriage,
+  useDecisionsStatusQuery,
 } from "../../lib/hooks";
 import type { AlertStep, TriageStep } from "../../lib/api/decisions";
 import type { AppNotification } from "../../lib/types";
@@ -45,6 +47,15 @@ const TRIAGE_STEPS: Record<string, { step: TriageStep; label: string }[]> = {
     { step: "lower", label: "Lower priority" },
   ],
 };
+
+/** The other steps an unread notification offers. They come with smart
+ * suggestions, so without them there are none. A repeating task's missed
+ * block only offers Lower priority: adding time or moving would change every
+ * occurrence. */
+function triageSteps(item: AppNotification, smart: boolean) {
+  const steps = smart && !item.readAt ? (TRIAGE_STEPS[item.category] ?? []) : [];
+  return item.category === "missed" && item.data?.recurring === true ? steps.filter(({ step }) => step === "lower") : steps;
+}
 
 const ALERT_STEP_LABEL: Record<AlertStep, string> = {
   review: "Review",
@@ -81,9 +92,11 @@ export default function NotificationsScreen() {
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const clearAll = useClearNotifications();
+  const remove = useDeleteNotification();
   const snooze = useSnoozeNotification();
   const prioritize = usePrioritizeOverdueTask();
   const triage = useNotificationTriage();
+  const smart = useDecisionsStatusQuery().data?.available === true;
   const items = list.data ?? [];
   const networkCopy = needsNetworkCopy(list);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -140,20 +153,38 @@ export default function NotificationsScreen() {
         ) : (
           items.map((item) => {
             const href = routeFor(item);
+            const steps = triageSteps(item, smart);
             return (
               <View key={item.id} style={[styles.row, !item.readAt && styles.unread]}>
-                <AnimatedPressable
-                  onPress={() => {
-                    if (!item.readAt) void markRead.mutateAsync(item.id);
-                    router.push(href as never);
-                  }}
-                >
-                  <Text style={styles.title}>{item.title}</Text>
-                  {item.body ? <Text style={styles.meta}>{item.body}</Text> : null}
-                  <Text style={styles.stamp}>
-                    {item.category} · {new Date(item.createdAt).toLocaleString()}
-                  </Text>
-                </AnimatedPressable>
+                <View style={styles.head}>
+                  <AnimatedPressable
+                    style={styles.headText}
+                    onPress={() => {
+                      if (!item.readAt) void markRead.mutateAsync(item.id);
+                      router.push(href as never);
+                    }}
+                  >
+                    <Text style={styles.title}>{item.title}</Text>
+                    {item.body ? <Text style={styles.meta}>{item.body}</Text> : null}
+                    <Text style={styles.stamp}>
+                      {item.category} · {new Date(item.createdAt).toLocaleString()}
+                    </Text>
+                  </AnimatedPressable>
+                  <AnimatedPressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Dismiss"
+                    hitSlop={8}
+                    disabled={remove.isPending}
+                    style={styles.dismiss}
+                    onPress={() =>
+                      void remove.mutateAsync(item.id).catch((error) => {
+                        useToastStore.getState().show(error instanceof Error ? error.message : "Could not dismiss that");
+                      })
+                    }
+                  >
+                    <X size={16} color={colors.mutedForeground} />
+                  </AnimatedPressable>
+                </View>
                 {item.category === "reminder" ? (
                   <View style={styles.actions}>
                     <AnimatedPressable onPress={() => void snooze.mutateAsync({ id: item.id, minutes: 15 })} style={styles.chip}>
@@ -187,7 +218,7 @@ export default function NotificationsScreen() {
                     }
                   />
                 ) : null}
-                {item.category === "overdue" || (item.category === "missed" && !item.readAt) ? (
+                {item.category === "overdue" || steps.length > 0 ? (
                   <View style={styles.actions} testID="triage-steps">
                 {item.category === "overdue" ? (
                   <AnimatedPressable
@@ -207,29 +238,27 @@ export default function NotificationsScreen() {
                     </Text>
                   </AnimatedPressable>
                 ) : null}
-                {!item.readAt
-                  ? (TRIAGE_STEPS[item.category] ?? []).map(({ step, label }) => {
-                      const suggested = item.data?.suggest === step;
-                      return (
-                        <AnimatedPressable
-                          key={step}
-                          disabled={triage.isPending}
-                          onPress={() =>
-                            void triage
-                              .mutateAsync({ id: item.id, action: step })
-                              .then((res) => useToastStore.getState().show(res.message))
-                              .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
-                          }
-                          style={[styles.chip, suggested && styles.suggested]}
-                        >
-                          <Text style={[styles.chipText, suggested && styles.suggestedText]}>
-                            {suggested ? "✦ " : ""}
-                            {label}
-                          </Text>
-                        </AnimatedPressable>
-                      );
-                    })
-                  : null}
+                {steps.map(({ step, label }) => {
+                  const suggested = item.data?.suggest === step;
+                  return (
+                    <AnimatedPressable
+                      key={step}
+                      disabled={triage.isPending}
+                      onPress={() =>
+                        void triage
+                          .mutateAsync({ id: item.id, action: step })
+                          .then((res) => useToastStore.getState().show(res.message))
+                          .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
+                      }
+                      style={[styles.chip, suggested && styles.suggested]}
+                    >
+                      <Text style={[styles.chipText, suggested && styles.suggestedText]}>
+                        {suggested ? "✦ " : ""}
+                        {label}
+                      </Text>
+                    </AnimatedPressable>
+                  );
+                })}
                   </View>
                 ) : null}
               </View>
@@ -318,6 +347,9 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
   },
   unread: { borderColor: colors.primary },
+  head: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  headText: { flex: 1 },
+  dismiss: { padding: 2 },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 13, marginTop: 4 },
   stamp: { color: colors.mutedForeground, fontSize: 11, marginTop: 6, textTransform: "uppercase" },

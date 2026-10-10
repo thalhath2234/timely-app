@@ -41,13 +41,20 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 		}
 	}
 
+	var kept []string
+	svc.SetDecisions(nil, func(_, logID string, accepted bool) error {
+		if accepted {
+			kept = append(kept, logID)
+		}
+		return nil
+	})
 	var skipped []map[string]bool
-	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip map[string]bool) []Alert {
+	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip, _ map[string]bool) []Alert {
 		skipped = append(skipped, skip)
 		return []Alert{
 			{Key: "project:pr_1", Kind: "project", ProjectID: "pr_1", Title: "Project “Kitchen” is due in 2 days", Body: "It is due in 2 days.", Action: AlertReview,
 				Items: []AlertItem{{ID: "tsk_a", Name: "Work tsk_a"}, {ID: "tsk_b", Name: "Work tsk_b"}}},
-			{Key: "unblocked:tsk_c", Kind: "unblocked", Title: "“Work tsk_c” is ready to start", Action: AlertFocus, Items: []AlertItem{{ID: "tsk_c", Name: "Work tsk_c"}}},
+			{Key: "unblocked:tsk_c", Kind: "unblocked", Title: "“Work tsk_c” is ready to start", Action: AlertFocus, Items: []AlertItem{{ID: "tsk_c", Name: "Work tsk_c"}}, LogID: "dec_alerts"},
 			{Key: "stale:tsk_d", Kind: "stale", Title: "Idle", Action: AlertReview, Items: []AlertItem{{ID: "tsk_d", Name: "Work tsk_d"}}},
 			{Key: "inbox", Kind: "inbox", Title: "Inbox", Action: AlertClarify, Items: []AlertItem{{ID: "tsk_x", Name: "x"}}},
 		}
@@ -70,7 +77,7 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 	if project.EntityID != nil || project.Data.String("projectId") != "pr_1" || project.Data.String("action") != AlertReview || project.DeliveredAt == nil {
 		t.Fatalf("project alert %+v", project)
 	}
-	if focus.EntityID == nil || *focus.EntityID != "tsk_c" || focus.Data.String("kind") != "unblocked" {
+	if focus.EntityID == nil || *focus.EntityID != "tsk_c" || focus.Data.String("kind") != "unblocked" || focus.Data.String("logId") != "dec_alerts" {
 		t.Fatalf("focus alert %+v", focus)
 	}
 
@@ -85,7 +92,7 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 	}
 
 	// A retried job never goes past three alerts for the day.
-	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool) []Alert {
+	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool, map[string]bool) []Alert {
 		return []Alert{{Key: "stale:new", Kind: "stale", Title: "New", Action: AlertReview, Items: []AlertItem{{ID: "tsk_new", Name: "New"}}}}
 	})
 	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil {
@@ -96,9 +103,16 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 		t.Fatalf("retry sent past the cap: %d", count)
 	}
 
+	// A step that does not fit the alert's kind never runs.
+	if _, err := svc.ApplyTriage(user, project.ID, AlertClarify); err == nil {
+		t.Fatal("clarify ran on a project alert")
+	}
 	message, err := svc.ApplyTriage(user, focus.ID, AlertFocus)
 	if err != nil || message != "Added to today's Focus" {
 		t.Fatalf("focus: %q %v", message, err)
+	}
+	if len(kept) != 1 || kept[0] != "dec_alerts" {
+		t.Fatalf("feedback %v", kept)
 	}
 	var item models.Task
 	db.First(&item, "id = ?", "tsk_c")
@@ -116,12 +130,20 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 		t.Fatal("an overdue step ran on a smart alert")
 	}
 
+	// With smart suggestions off the day's job asks for no alerts.
+	svc.SetDecisions(func(context.Context, string) bool { return false }, nil)
+	asked := len(skipped)
+	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil || len(skipped) != asked {
+		t.Fatalf("asked with suggestions off: %d %v", len(skipped)-asked, err)
+	}
+	svc.SetDecisions(func(context.Context, string) bool { return true }, nil)
+
 	// Turned off: no alerts are asked for.
 	off := false
 	if err := db.Model(&models.Config{}).Where("user_id = ?", user).Update("notification_settings", models.NotificationSettings{Reminders: true, SmartAlerts: &off}).Error; err != nil {
 		t.Fatal(err)
 	}
-	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip map[string]bool) []Alert {
+	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip, _ map[string]bool) []Alert {
 		skipped = append(skipped, skip)
 		return nil
 	})
@@ -170,6 +192,10 @@ func TestIntegrationMorningBriefingNamesTopItems(t *testing.T) {
 	if !strings.HasPrefix(ntf.Body, "Top today: Board meeting at 10:00 and Pay rent. On the calendar: 2.") || ntf.DeliveredAt == nil {
 		t.Fatalf("briefing %q delivered %v", ntf.Body, ntf.DeliveredAt)
 	}
+	// A fallback push is queued in case the background send never finishes.
+	if !svc.queue.HasJob("push:" + ntf.ID) {
+		t.Fatal("no fallback push for the briefing")
+	}
 
 	// With nothing picked the briefing still goes out as before.
 	svc.SetBriefing(func(context.Context, string, []BriefItem) []int { return nil })
@@ -182,5 +208,19 @@ func TestIntegrationMorningBriefingNamesTopItems(t *testing.T) {
 	db.Where("dedupe_key = ?", *job.DedupeKey).First(&plain)
 	if !strings.HasPrefix(plain.Body, "On the calendar: 2.") || plain.DeliveredAt == nil {
 		t.Fatalf("plain %q delivered %v", plain.Body, plain.DeliveredAt)
+	}
+
+	// With smart suggestions off the briefing is sent inline, never asked.
+	asked := false
+	svc.SetBriefing(func(context.Context, string, []BriefItem) []int { asked = true; return nil })
+	svc.SetDecisions(func(context.Context, string) bool { return false }, nil)
+	job.DedupeKey = ptrTo("digest:morning:off")
+	if err := svc.HandleDigest(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	var off models.Notification
+	db.Where("dedupe_key = ?", *job.DedupeKey).First(&off)
+	if asked || off.DeliveredAt == nil || svc.queue.HasJob("push:"+off.ID) {
+		t.Fatalf("off: asked %v delivered %v", asked, off.DeliveredAt)
 	}
 }

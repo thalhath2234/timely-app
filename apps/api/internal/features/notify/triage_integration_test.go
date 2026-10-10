@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -77,6 +78,17 @@ func TestIntegrationOverdueTriageSuggestsAndApplies(t *testing.T) {
 		t.Fatal("the notification stayed unread")
 	}
 
+	// The deadline is a week out now, so an old chip changes nothing.
+	for _, step := range []string{"extend", "lower", "reschedule"} {
+		if _, err := svc.ApplyTriage(user, ntf.ID, step); err == nil {
+			t.Fatalf("%s ran on work no longer past its deadline", step)
+		}
+	}
+	db.First(&after, "id = ?", item.ID)
+	if *after.PriorityLevel != models.PriorityHigh {
+		t.Fatalf("priority changed to %s", *after.PriorityLevel)
+	}
+	db.Model(&models.Task{}).Where("id = ?", item.ID).Update("deadline", deadline)
 	if _, err := svc.ApplyTriage(user, ntf.ID, "lower"); err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +159,86 @@ func TestIntegrationMissedMoveWithoutRoomKeepsBlocks(t *testing.T) {
 	db.First(ntf, "id = ?", ntf.ID)
 	if count != 1 || after.Duration != 1200 || ntf.ReadAt != nil {
 		t.Fatalf("block kept %d, duration %d, read %v", count, after.Duration, ntf.ReadAt)
+	}
+}
+
+// Moving missed work keeps the missed block as history and places the rest;
+// time the person locked, or a repeating series, is left for the calendar.
+func TestIntegrationMissedMoveKeepsHistoryAndRefusesLockedAndSeries(t *testing.T) {
+	_, db := zoneService(t, models.NotificationSettings{Reminders: true})
+	tasks := task.NewTaskRepository(db)
+	sched := schedule.NewRepository(db)
+	place := placement.New(db, sched.GetWorkingHours)
+	indexer := embed.New(db)
+	taskService := task.NewTaskService(tasks, project.NewProjectRepository(db), workspace.NewWorkspaceRepository(db), recurrence.NewStore(db), place, indexer)
+	svc := NewService(db, jobs.NewQueue(db), nil, taskService, schedule.NewService(sched, tasks, event.NewEventRepository(db), place), indexer)
+
+	user := zoneTestUser
+	ws := models.Workspace{ID: "ws_history", Name: "Home", UserID: &user}
+	if err := db.Create(&ws).Error; err != nil {
+		t.Fatal(err)
+	}
+	missed := func(id string, blocks ...models.ScheduledBlock) *models.Notification {
+		t.Helper()
+		item := models.Task{ID: id, Name: id, Kind: models.KindTask, Duration: 30, UserID: &user, WorkspaceID: &ws.ID}
+		if err := db.Create(&item).Error; err != nil {
+			t.Fatal(err)
+		}
+		for i := range blocks {
+			blocks[i].ID, blocks[i].TaskID, blocks[i].UserID, blocks[i].Source = "blk_"+id+string(rune('a'+i)), id, user, models.BlockSourceManual
+			if err := db.Create(&blocks[i]).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		ntf, err := svc.repo.Upsert(&models.Notification{UserID: user, Category: models.NotifyMissed, Title: id, Body: "missed",
+			EntityType: ptrTo("task"), EntityID: &item.ID, Data: models.JobPayload{"taskId": item.ID}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ntf
+	}
+	end := time.Now().Add(-time.Hour).UTC()
+	past := models.ScheduledBlock{StartAt: end.Add(-time.Hour), EndAt: end}
+
+	ntf := missed("tsk_history", past)
+	if _, err := svc.ApplyTriage(user, ntf.ID, "move"); err != nil {
+		t.Fatal(err)
+	}
+	var manual, engine int64
+	db.Model(&models.ScheduledBlock{}).Where("task_id = ? AND source = ?", "tsk_history", models.BlockSourceManual).Count(&manual)
+	db.Model(&models.ScheduledBlock{}).Where("task_id = ? AND source = ?", "tsk_history", models.BlockSourceEngine).Count(&engine)
+	if manual != 1 || engine == 0 {
+		t.Fatalf("manual %d engine %d, want the missed block kept and new time placed", manual, engine)
+	}
+
+	ahead := time.Now().Add(48 * time.Hour).UTC()
+	ntf = missed("tsk_pinned", past, models.ScheduledBlock{StartAt: ahead, EndAt: ahead.Add(time.Hour), Locked: true})
+	for _, step := range []string{"move", "addtime"} {
+		if _, err := svc.ApplyTriage(user, ntf.ID, step); !errors.Is(err, errLocked) {
+			t.Fatalf("%s on locked time: %v", step, err)
+		}
+	}
+	var after models.Task
+	db.First(&after, "id = ?", "tsk_pinned")
+	if after.Duration != 30 {
+		t.Fatalf("duration %d after a refused Add time", after.Duration)
+	}
+
+	ntf = missed("tsk_series")
+	if err := db.Create(&models.RecurrenceRule{ID: "rr_series", OwnerType: "task", OwnerID: "tsk_series", UserID: user, RRule: "FREQ=DAILY", Dtstart: end.Add(-48 * time.Hour)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{"move", "addtime", "reschedule"} {
+		if _, err := svc.ApplyTriage(user, ntf.ID, step); !errors.Is(err, errRepeats) {
+			t.Fatalf("%s on a series: %v", step, err)
+		}
+	}
+	db.First(&after, "id = ?", "tsk_series")
+	if after.Duration != 30 {
+		t.Fatalf("series duration %d", after.Duration)
+	}
+	if _, err := svc.ApplyTriage(user, ntf.ID, "lower"); err != nil {
+		t.Fatal(err)
 	}
 }
 

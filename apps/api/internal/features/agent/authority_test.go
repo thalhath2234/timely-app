@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -22,7 +25,7 @@ var expectedAuthority = []struct {
 	auto_schedule_preview get_agenda get_calendar get_capacity get_context get_doc get_event get_free_time
 	get_notification_settings get_project get_schedule_settings get_sheet get_sheet_template get_task get_today
 	get_working_hours get_workspace list_docs list_events list_inbox list_notifications list_projects pick_tasks
-	list_sheet_templates list_sheets list_tasks list_workspaces search semantic_search undo_schedule_preview
+	list_sheet_templates list_sheets list_task_views list_tasks list_workspaces search semantic_search undo_schedule_preview
 	unread_notification_count what_next`},
 	// Applied directly when the plan is one clear step.
 	{Write, Applies, `
@@ -30,10 +33,10 @@ var expectedAuthority = []struct {
 	clarify_inbox_item complete_project complete_task create_custom_field create_doc create_event create_label
 	create_project create_sheet_template create_stage create_status create_task create_workspace move_block
 	move_task_to_stage move_task_to_status pause_focus pin_block pin_task rename_sheet_tab rename_workspace
-	reopen_project reopen_task reorder_stages schedule_task set_task_custom_field set_task_dependency
+	reopen_project reopen_task reorder_stages schedule_task set_active_task_view set_task_custom_field set_task_dependency
 	set_task_labels set_today_focus snooze_reminder start_focus stop_focus toggle_checklist_item
 	update_checklist_item update_custom_field update_label update_project update_sheet_template update_stage
-	update_status`},
+	update_status create_task_view update_task_view`},
 	// Always need an Agent proposal: removing a component of an entity (not the entity), recurring series, bulk edits, calendar-wide changes.
 	{Write, Reviewed, `
 	add_sheet_rows auto_schedule_apply bulk_update_tasks clear_task_blocks clear_task_recurrence delete_block
@@ -45,17 +48,21 @@ var expectedAuthority = []struct {
 	update_sheet_column update_task`},
 	// External MCP clients only; chat never sees them.
 	{MCPOnly, Applies, `
-	archive_doc archive_sheet clear_notifications create_backup create_task_view download_backup
+	archive_doc archive_sheet clear_notifications create_backup download_backup
 	duplicate_project duplicate_sheet duplicate_task export_account export_calendar export_doc export_tasks_csv
 	get_backup_settings get_config get_job_health get_profile list_backups list_jobs list_project_activity
-	list_task_activity list_task_views materialize_sheet_template_tab reindex_search replace_checklist
-	reschedule_urgent restore_account retry_job set_active_task_view set_project_task_view update_account_config
-	update_backup_settings update_profile update_schedule_settings update_task_view`},
+	list_task_activity materialize_sheet_template_tab reindex_search replace_checklist
+	reschedule_urgent restore_account retry_job set_project_task_view update_account_config
+	update_backup_settings update_profile update_schedule_settings`},
 	// External MCP only, and would be reviewed if chat ever gained them: whole-object deletion and settings (ADR 0007).
 	{MCPOnly, Reviewed, `
 	delete_backup delete_custom_field delete_doc delete_event delete_label delete_project delete_sheet
 	delete_sheet_template delete_stage delete_status delete_task delete_task_view delete_workspace
 	update_notification_settings update_working_hours`},
+	// Habits and goals on Today (tools_focus.go): reading and checking off apply directly; removing a goal is reviewed.
+	{Read, Applies, `list_goals list_habits`},
+	{Write, Applies, `add_habit check_habit`},
+	{Write, ReviewedWhen, `set_goal`},
 }
 
 func TestEveryToolDeclaresAuthority(t *testing.T) {
@@ -169,6 +176,9 @@ func TestArgumentRules(t *testing.T) {
 		{"delete_task", nil, true},
 		{"delete_sheet_rows", nil, true},
 		{"create_task", nil, false},
+		{"set_goal", map[string]any{"action": "add", "title": "Get fit"}, false},
+		{"set_goal", map[string]any{"action": "rename", "goal": "Get fit", "title": "Run a 10k"}, false},
+		{"set_goal", map[string]any{"action": "remove", "goal": "Get fit"}, true},
 	}
 	for _, tt := range tests {
 		authority, ok := AuthorityOf(tt.tool)
@@ -222,5 +232,52 @@ func TestChatCannotDeleteWholeObjectsOrChangeSettings(t *testing.T) {
 		if !ok || authority.Access != Write || authority.Approval != Reviewed {
 			t.Errorf("%s must be a reviewed chat write", name)
 		}
+	}
+}
+
+// The instructions point at pick_tasks only for accounts with smart
+// suggestions on; without a key the model is told what it always was.
+func TestPickHintOnlyWithDecisions(t *testing.T) {
+	ctx := context.Background()
+	instructions := func(s *mcp.Server) string {
+		t.Helper()
+		server, clientSide := mcp.NewInMemoryTransports()
+		session, err := s.Connect(ctx, server, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.Close()
+		client, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientSide, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+		return client.InitializeResult().Instructions
+	}
+	plain := New(Deps{DecisionsOn: func(_ context.Context, uid string) bool { return uid == "usr_on" }})
+	if strings.Contains(instructions(plain), "pick_tasks") {
+		t.Fatal("plain instructions mention pick_tasks")
+	}
+	pick := func(uid string) *mcp.Server {
+		var got *mcp.Server
+		verify := func(context.Context, string, *http.Request) (*mcpauth.TokenInfo, error) {
+			return &mcpauth.TokenInfo{UserID: uid}, nil
+		}
+		h := mcpauth.RequireBearerToken(verify, &mcpauth.RequireBearerTokenOptions{AllowMissingExpiration: true})(
+			http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = forRequest(plain, r) }))
+		r := httptest.NewRequest("POST", "/mcp", nil)
+		r.Header.Set("Authorization", "Bearer token")
+		h.ServeHTTP(httptest.NewRecorder(), r)
+		return got
+	}
+	if s := pick("usr_off"); s != plain {
+		t.Fatal("an account without suggestions got the smart server")
+	}
+	smart := pick("usr_on")
+	if smart == plain || !strings.Contains(instructions(smart), "call pick_tasks") {
+		t.Fatal("an account with suggestions is not told about pick_tasks")
+	}
+	if s := New(Deps{}); forRequest(s, httptest.NewRequest("POST", "/mcp", nil)) != s {
+		t.Fatal("without DecisionsOn the one server answers")
 	}
 }

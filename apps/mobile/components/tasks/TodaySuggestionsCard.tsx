@@ -22,8 +22,10 @@ function gapStart(iso: string) {
   return new Date(Math.max(new Date(iso).getTime(), Math.ceil(Date.now() / step) * step));
 }
 
-/** Smart suggestions on Today (phone): Work worth focusing on today and the
- * best task for the next free gap. Renders nothing while suggestions are off. */
+/** Smart suggestions on Today (phone): Work worth focusing on today, tagged
+ * with the goal it moves forward, and the best task for the next free gap.
+ * Goal counts live in the Habits and goals card. Renders nothing while
+ * suggestions are off. */
 export default function TodaySuggestionsCard({
   date,
   version,
@@ -53,8 +55,7 @@ export default function TodaySuggestionsCard({
   const toast = (message: string) => useToastStore.getState().show(message);
   const focus = (data.focus ?? []).filter((pick) => !hidden.has(`focus:${pick.taskId}`));
   const gap = data.gap?.task && !hidden.has(`gap:${data.gap.task.id}`) ? data.gap : undefined;
-  const goals = data.goals ?? [];
-  if (!focus.length && !gap && !goals.length) return null;
+  if (!focus.length && !gap && !data.error) return null;
 
   const dismiss = (key: string) => (
     <AnimatedPressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => hide(key)} style={styles.dismiss} hitSlop={8}>
@@ -68,6 +69,7 @@ export default function TodaySuggestionsCard({
         <Sparkles size={16} color={colors.primary} />
         <SectionLabel>Suggestions</SectionLabel>
       </View>
+      {data.error ? <Text style={styles.meta}>{data.error}</Text> : null}
       {focus.length ? <Text style={styles.label}>Worth focusing on today</Text> : null}
       {focus.map((pick) => {
         const tags = [
@@ -139,11 +141,6 @@ export default function TodaySuggestionsCard({
           </AnimatedPressable>
           {dismiss(`gap:${gap.task.id}`)}
         </View>
-      ) : null}
-      {goals.length ? (
-        <Text style={styles.meta}>
-          Your goals: {goals.map((g) => `${g.goal} (${g.count ? `${g.count} task${g.count === 1 ? "" : "s"}` : "nothing yet"})`).join(", ")}
-        </Text>
       ) : null}
     </View>
   );

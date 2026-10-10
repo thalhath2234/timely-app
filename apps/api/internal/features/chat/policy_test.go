@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/decide"
 )
 
 func TestApprovalBoundaries(t *testing.T) {
@@ -147,5 +148,46 @@ func TestProposalRejectsDeprecatedSheetDescription(t *testing.T) {
 	}
 	if err := schema.Validate(map[string]any{"title": "Expenses", "description": "Unsupported"}); err == nil {
 		t.Fatal("deprecated description reached execution")
+	}
+}
+
+// New Work without a length is estimated once, before the rehearsal, and the
+// minutes go into the step so review and apply show the same length.
+func TestProposalEstimatesNewWorkInOneBatch(t *testing.T) {
+	jev, _ := fakeJev(t, nil)
+	s := &Service{decisions: jev}
+	var batches [][]string
+	s.SetEstimates(func(_ context.Context, _ string, names, _ []string) []int {
+		batches = append(batches, names)
+		return []int{60, 0}
+	})
+	steps := func() []Step {
+		return []Step{
+			{Tool: "create_task", Arguments: raw(map[string]any{"name": "Write report"})},
+			{Tool: "create_task", Arguments: raw(map[string]any{"name": "Call bank", "kind": "task"})},
+			{Tool: "create_task", Arguments: raw(map[string]any{"name": "Plan week", "duration": 45})},
+			{Tool: "create_task", Arguments: raw(map[string]any{"name": "Water plants", "kind": "reminder"})},
+			{Tool: "update_task", Arguments: raw(map[string]any{"taskId": "tsk_1", "name": "Renamed"})},
+		}
+	}
+	duration := func(step Step) any {
+		var in map[string]any
+		_ = json.Unmarshal(step.Arguments, &in)
+		return in["duration"]
+	}
+	got := steps()
+	s.estimateWork(context.Background(), "user", got)
+	if len(batches) != 1 || strings.Join(batches[0], "|") != "Write report|Call bank" {
+		t.Fatalf("estimated %v", batches)
+	}
+	for i, want := range []any{60.0, 30.0, 45.0, nil, nil} {
+		if d := duration(got[i]); d != want {
+			t.Errorf("step %d duration = %v, want %v", i+1, d, want)
+		}
+	}
+	batches = nil
+	s.estimateWork(decide.WithSensitive(context.Background()), "user", steps())
+	if len(batches) != 0 {
+		t.Fatal("a sensitive chat sent titles to estimate")
 	}
 }

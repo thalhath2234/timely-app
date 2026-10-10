@@ -249,3 +249,63 @@ func TestIntegrationExistingDropsGoneItems(t *testing.T) {
 		t.Fatalf("other account's items must be dropped: %v", got)
 	}
 }
+
+func TestIntegrationRelatableDropsInboxAndOwnTasks(t *testing.T) {
+	db := integrationDB(t)
+	user := uuid.NewString()
+	seed(t, db, user)
+	if err := db.Exec(`INSERT INTO tasks (id, name, user_id, workspace_id, kind, updated_at) VALUES (?, 'Call the bank', ?, NULL, ?, now())`,
+		"t-inbox", user, models.KindInbox).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`UPDATE tasks SET project_id = ? WHERE id = ?`, "p-title", "t-prefix").Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(db, nil)
+	hits := []embed.Hit{
+		{Kind: "task", EntityID: "t-exact"},
+		{Kind: "task", EntityID: "t-inbox"},
+		{Kind: "task", EntityID: "t-prefix"},
+		{Kind: "doc", EntityID: "d-body"},
+	}
+	ids := func(hits []embed.Hit) string {
+		out := []string{}
+		for _, h := range hits {
+			out = append(out, h.EntityID)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := ids(svc.Relatable(user, "project", "p-title", hits)); got != "t-exact,d-body" {
+		t.Fatalf("project related = %s, want no inbox item and none of its own tasks", got)
+	}
+	if got := ids(svc.Relatable(user, "doc", "d-other", hits)); got != "t-exact,t-prefix,d-body" {
+		t.Fatalf("doc related = %s, want no inbox item", got)
+	}
+}
+
+// ViewsFromDB reads the phone's saved views for client=phone, the web's
+// otherwise, and names their projects in the descriptions.
+func TestIntegrationViewsFromDBFollowsTheClient(t *testing.T) {
+	db := integrationDB(t)
+	if err := db.AutoMigrate(&models.Config{}, &models.Status{}, &models.Lable{}); err != nil {
+		t.Fatal(err)
+	}
+	userID := "u-" + uuid.NewString()
+	seed(t, db, userID)
+	web := models.TaskViewConfig{ID: "view_rent", Name: "Rent", SelectedProjectIds: []string{"p-title"}}
+	phone := models.TaskViewConfig{ID: "native_view_late", Name: "Late", OnlyOverdue: true}
+	if err := db.Create(&models.Config{ID: "cfg-" + userID, UserID: userID, TaskViews: models.TaskViews{web}, MobileTaskViews: models.TaskViews{phone}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	views := ViewsFromDB(db)
+	got := views(context.Background(), userID, ClientPhone)
+	if len(got) != 1 || got[0].ID != "native_view_late" || got[0].Description != "lists work items; only overdue ones" {
+		t.Fatalf("phone = %+v", got)
+	}
+	for _, client := range []string{ClientWeb, ""} {
+		got = views(context.Background(), userID, client)
+		if len(got) != 1 || got[0].ID != "view_rent" || got[0].Description != "lists work items; in Apartment: rent and bills" {
+			t.Fatalf("%q = %+v", client, got)
+		}
+	}
+}

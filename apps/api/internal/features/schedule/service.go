@@ -22,7 +22,8 @@ const (
 
 // PlanRequest scopes a preview / apply run. Empty TaskIDs means every
 // schedulable task. IncludeManual lets the engine replace blocks the user
-// placed by hand, which it never does on its own.
+// placed by hand that are not over yet, which it never does on its own; past
+// blocks stay as history, and a task with locked time ahead stays pinned.
 type PlanRequest struct {
 	TaskIDs       []string
 	From          *string
@@ -114,6 +115,9 @@ type Service interface {
 	GetSettings(userID string) (models.ScheduleSettings, error)
 	UpdateSettings(userID string, settings models.ScheduleSettings) (models.ScheduleSettings, error)
 	Preview(userID string, req PlanRequest) (*PlanResponse, error)
+	// DryRun is Preview for code that checks a plan before applying it: it
+	// skips the beforePreview hook, so it adds no model calls or waits.
+	DryRun(userID string, req PlanRequest) (*PlanResponse, error)
 	Apply(userID string, req PlanRequest) (*PlanResponse, error)
 	Undo(userID string) (*PlanResponse, error)
 	PreviewUndo(userID string) (*UndoPreview, error)
@@ -168,7 +172,7 @@ func (s *service) UpdateWorkingHours(userID string, hours models.WorkingHours) (
 
 // beforePreview runs ahead of a Preview the person or agent asks for: smart
 // suggestions use it to read and store the traits (urgency, groups) of Work
-// they have not read yet. Apply, Undo and Capacity never call it, so Apply
+// they have not read yet. Apply, Undo, Capacity and DryRun never call it, so Apply
 // places exactly what the last Preview ranked and an undo rehearsed inside a
 // chat transaction makes no outside writes.
 var beforePreview func(userID string)
@@ -180,6 +184,10 @@ func (s *service) Preview(userID string, req PlanRequest) (*PlanResponse, error)
 	if beforePreview != nil && userID != "" {
 		beforePreview(userID)
 	}
+	return s.preview(userID, req)
+}
+
+func (s *service) DryRun(userID string, req PlanRequest) (*PlanResponse, error) {
 	return s.preview(userID, req)
 }
 
@@ -376,7 +384,13 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 			skipped = append(skipped, skip(t.ID, t.Name, ReasonManual))
 			continue
 		}
-		if hasManualBlock(t) && req.IncludeManual {
+		// Replacing hand-placed time still keeps locked time ahead: the
+		// task stays pinned. Past blocks are history and stay too.
+		if req.IncludeManual && hasLockedBlockAfter(t, from) {
+			skipped = append(skipped, skip(t.ID, t.Name, ReasonLocked))
+			continue
+		}
+		if req.IncludeManual && hasReplaceableManual(t, from) {
 			replaceManual = append(replaceManual, t.ID)
 		}
 		if frozenOnly(t, freezeUntil) {

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -66,11 +67,11 @@ type ChatRef struct {
 var (
 	essentialTools = []string{"get_context", "search", "semantic_search", "get_task", "get_project", "get_workspace", "list_workspaces", "list_projects"}
 	areaTools      = map[string][]string{
-		"tasks":         {"list_tasks", "pick_tasks", "list_inbox", "get_today", "what_next", "get_agenda", "get_calendar", "get_free_time"},
+		"tasks":         {"list_tasks", "pick_tasks", "list_inbox", "get_today", "what_next", "get_agenda", "get_calendar", "get_free_time", "list_habits", "list_goals", "list_task_views"},
 		"calendar":      {"get_calendar", "list_events", "get_event", "get_free_time", "get_capacity", "get_agenda", "get_today", "get_working_hours", "get_schedule_settings", "auto_schedule_preview", "undo_schedule_preview", "list_tasks"},
 		"docs":          {"list_docs", "get_doc"},
 		"sheets":        {"list_sheets", "get_sheet", "list_sheet_templates", "get_sheet_template"},
-		"projects":      {"list_tasks", "pick_tasks", "list_docs", "list_sheets"},
+		"projects":      {"list_tasks", "pick_tasks", "list_docs", "list_sheets", "list_task_views"},
 		"notifications": {"list_notifications", "unread_notification_count", "get_notification_settings", "list_tasks"},
 	}
 	latinLanguages = []decide.Option{
@@ -372,6 +373,7 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 	if earlier != "" {
 		state["previousMessage"] = earlier
 	}
+	fitReview(state, listed, questions, decide.MaxStateBytes)
 	a, err := s.decisions.Ask(ctx, c.UserID, decide.Request{Feature: "chat_review", State: state, Questions: questions})
 	if err != nil {
 		return nil
@@ -396,6 +398,54 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 		notes = append(notes, tr(c.Language, txtNoteMissing))
 	}
 	return notes
+}
+
+// fitReview trims a review's state until it fits Jev's limit, which a large
+// proposal can pass (30 steps, doc drafts, and CJK text at three bytes a
+// character): over the limit the whole check would be dropped. Doc draft
+// checks go first, from the last step back, then long texts are cut on
+// character boundaries, the steps' texts before the request's.
+func fitReview(state map[string]any, listed []map[string]string, questions map[string]decide.Question, limit int) {
+	fits := func() bool {
+		b, err := json.Marshal(state)
+		return err == nil && len(b) <= limit
+	}
+	if fits() {
+		return
+	}
+	for i := len(listed) - 1; i >= 0; i-- {
+		if _, ok := listed[i]["docText"]; !ok {
+			continue
+		}
+		delete(listed[i], "docText")
+		delete(listed[i], "docNow")
+		delete(questions, fmt.Sprintf("draft%d", i+1))
+		delete(questions, fmt.Sprintf("contra%d", i+1))
+		if fits() {
+			return
+		}
+	}
+	for _, n := range []int{150, 80, 40} {
+		for _, step := range listed {
+			for k, v := range step {
+				if k != "number" {
+					step[k] = clip(v, n)
+				}
+			}
+		}
+		if fits() {
+			return
+		}
+	}
+	for _, n := range []int{2000, 1000, 500} {
+		state["request"] = clip(state["request"].(string), n)
+		if earlier, ok := state["previousMessage"].(string); ok {
+			state["previousMessage"] = clip(earlier, n/4)
+		}
+		if fits() {
+			return
+		}
+	}
 }
 
 // continuing reports whether the run is a later batch of the person's latest
@@ -484,6 +534,12 @@ func (s *Service) similar(c *echo.Context) error {
 		}
 		if row.Timezone != "" {
 			target.Timezone = row.Timezone
+		}
+		// The request was written with this chat's web search switch and
+		// model; it runs with them there too.
+		target.WebSearch = row.WebSearch
+		if row.ChosenProvider != "" {
+			target.ChosenProvider, target.ChosenModel = row.ChosenProvider, row.ChosenModel
 		}
 		target.Status, target.Phase = "queued", "plan"
 		target.Error, target.Unread = "", false

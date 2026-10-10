@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { availableTemplates, contentFromTemplate, dailyNoteTemplate, dateKey, templateVars, type DocTemplate } from "@timely/contract/templates";
+import { contentFromTemplate, dailyNoteTemplate, dateKey, templateVars } from "@timely/contract/templates";
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
@@ -19,8 +19,8 @@ import SegmentedControl from "../../../components/ui/SegmentedControl";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
-import { keys, useCreateDoc, useCreateSheet, useDeleteDoc, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
-import { fromMarkdown } from "../../../lib/markdown";
+import { keys, useCreateDoc, useCreateSheet, useDecisionsStatusQuery, useDeleteDoc, useDocsQuery, useSheetsQuery, useSheetTemplatesQuery, useUpdateDoc, useWorkspacesQuery } from "../../../lib/hooks";
+import { parseImportedText } from "../../../lib/importMarkdown";
 import { importCsvGrid } from "../../../lib/sheetCsv";
 import { fileHref } from "../../../lib/fileRoutes";
 import { buildDocTree, countDocDescendants, type DocNode } from "../../../lib/docTree";
@@ -30,6 +30,7 @@ import { easeOut, expandEntering, expandExiting, listLayout, overlayDuration } f
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
 import { openDailyDoc } from "../../../lib/api/docs";
+import { NewFileSheet, type FileKind } from "../../../components/files/NewFileTemplates";
 import type { Doc, Sheet } from "../../../lib/types";
 
 function DocsExpandButton({
@@ -69,7 +70,7 @@ function DocsExpandButton({
 }
 
 type Filter = "all" | "docs" | "sheets";
-type PendingAction = "templates" | "markdown" | "csv" | null;
+type PendingAction = FileKind | "markdown" | "csv" | null;
 
 function FileGlyph({ icon, kind }: { icon?: string | null; kind: "doc" | "sheet" }) {
   // An item's own emoji wins; otherwise the type icon says what it is.
@@ -107,7 +108,7 @@ export default function FilesScreen() {
   const [menuDoc, setMenuDoc] = useState<Doc | null>(null);
   const [deleteDocItem, setDeleteDocItem] = useState<Doc | null>(null);
   const [pendingDeleteDoc, setPendingDeleteDoc] = useState<Doc | null>(null);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [newKind, setNewKind] = useState<FileKind | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const pendingAction = useRef<PendingAction>(null);
@@ -116,6 +117,7 @@ export default function FilesScreen() {
   const sheetsQ = useSheetsQuery();
   const templatesQ = useSheetTemplatesQuery();
   const createDoc = useCreateDoc();
+  const smartImport = useDecisionsStatusQuery().data?.available === true;
   const updateDoc = useUpdateDoc();
   const removeDoc = useDeleteDoc();
   const createSheet = useCreateSheet();
@@ -189,36 +191,6 @@ export default function FilesScreen() {
     openFile(page.id);
   }
 
-  async function newDoc() {
-    try {
-      const doc = await createDoc.mutateAsync({ title: "Untitled", workspaceId: spaces[0]?.id });
-      openFile(doc.id);
-    } catch (error) {
-      Alert.alert("Could not create the doc", error instanceof Error ? error.message : "Try again.");
-    }
-  }
-
-  async function newSheet() {
-    try {
-      const sheet = await createSheet.mutateAsync({ title: "Untitled", workspaceId: spaces[0]?.id });
-      openFile(sheet.id);
-    } catch (error) {
-      Alert.alert("Could not create the sheet", error instanceof Error ? error.message : "Try again.");
-    }
-  }
-
-  async function createFromTemplate(template: DocTemplate) {
-    setTemplatesOpen(false);
-    try {
-      const title = template.id.startsWith("builtin:") ? template.title : `${template.title} copy`;
-      const { content, plainText } = contentFromTemplate(template, templateVars(new Date(), title));
-      const doc = await createDoc.mutateAsync({ title, icon: template.icon, content, plainText, workspaceId: spaces[0]?.id });
-      openFile(doc.id);
-    } catch (error) {
-      Alert.alert("Could not create the doc", error instanceof Error ? error.message : "Try again.");
-    }
-  }
-
   async function openToday() {
     try {
       const now = new Date();
@@ -242,7 +214,7 @@ export default function FilesScreen() {
       const asset = picked.assets[0];
       const response = await fetch(asset.uri);
       const source = await response.text();
-      const parsed = fromMarkdown(source);
+      const parsed = await parseImportedText(source, smartImport);
       const title = (asset.name || "Imported note").replace(/\.(md|markdown|txt)$/i, "").trim() || "Imported note";
       const doc = await createDoc.mutateAsync({
         title,
@@ -278,14 +250,14 @@ export default function FilesScreen() {
   function runPendingAction() {
     const action = pendingAction.current;
     pendingAction.current = null;
-    if (action === "templates") setTemplatesOpen(true);
+    if (action === "doc" || action === "sheet") setNewKind(action);
     else if (action === "markdown") void importMarkdown();
     else if (action === "csv") void importCsv();
   }
 
   function onNew() {
-    if (filter === "docs") setTemplatesOpen(true);
-    else if (filter === "sheets") void newSheet();
+    if (filter === "docs") setNewKind("doc");
+    else if (filter === "sheets") setNewKind("sheet");
     else setNewOpen(true);
   }
 
@@ -508,10 +480,10 @@ export default function FilesScreen() {
               </HeaderIconButton>
             ) : null}
             <HeaderIconButton
-              label={filter === "docs" ? "New doc from a template" : filter === "sheets" ? "New sheet" : "New file"}
+              label={filter === "docs" ? "New doc" : filter === "sheets" ? "New sheet" : "New file"}
               onPress={onNew}
             >
-              {filter === "docs" ? <LayoutTemplate size={20} color={colors.foreground} /> : <FilePlus size={20} color={colors.foreground} />}
+              <FilePlus size={20} color={colors.foreground} />
             </HeaderIconButton>
             <HeaderIconButton
               label={filter === "docs" ? "Import Markdown" : filter === "sheets" ? "Import CSV" : "Import a file"}
@@ -555,8 +527,8 @@ export default function FilesScreen() {
       <BottomSheet open={newOpen} onClose={() => setNewOpen(false)} onClosed={runPendingAction} title="New file">
         <SheetOption
           onSelect={() => {
+            pendingAction.current = "doc";
             setNewOpen(false);
-            void newDoc();
           }}
           leading={<FileText size={18} color={colors.mutedForeground} />}
         >
@@ -564,21 +536,12 @@ export default function FilesScreen() {
         </SheetOption>
         <SheetOption
           onSelect={() => {
+            pendingAction.current = "sheet";
             setNewOpen(false);
-            void newSheet();
           }}
           leading={<SheetIcon size={18} color={colors.mutedForeground} />}
         >
           New sheet
-        </SheetOption>
-        <SheetOption
-          onSelect={() => {
-            pendingAction.current = "templates";
-            setNewOpen(false);
-          }}
-          leading={<LayoutTemplate size={18} color={colors.mutedForeground} />}
-        >
-          Doc from a template
         </SheetOption>
       </BottomSheet>
       <BottomSheet open={importOpen} onClose={() => setImportOpen(false)} onClosed={runPendingAction} title="Import">
@@ -676,27 +639,7 @@ export default function FilesScreen() {
           <Text style={styles.destructive}>Delete page</Text>
         </SheetOption>
       </BottomSheet>
-      <BottomSheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} title="New doc">
-        <SheetOption
-          onSelect={() => {
-            setTemplatesOpen(false);
-            void newDoc();
-          }}
-          leading={<FileText size={18} color={colors.mutedForeground} />}
-        >
-          Blank page
-        </SheetOption>
-        {availableTemplates(docsQ.data ?? []).map((template) => (
-          <SheetOption
-            key={template.id}
-            onSelect={() => void createFromTemplate(template)}
-            leading={<Text style={styles.templateIcon}>{template.icon}</Text>}
-          >
-            {template.title}
-          </SheetOption>
-        ))}
-        <Text style={styles.templateHint}>Turn any page into a template from its menu. Text like {"{{date}}"} is filled in.</Text>
-      </BottomSheet>
+      <NewFileSheet kind={newKind ?? "doc"} open={newKind !== null} onClose={() => setNewKind(null)} workspaceId={spaces[0]?.id} />
       <ConfirmSheet
         open={deleteDocItem !== null}
         onClose={() => setDeleteDocItem(null)}
@@ -717,8 +660,6 @@ const styles = createThemedStyleSheet((colors) => ({
   headerControls: { paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
   listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120, gap: 10 },
   templateError: { color: colors.destructive, fontSize: 13 },
-  templateIcon: { fontSize: 18, width: 22, textAlign: "center" },
-  templateHint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, paddingHorizontal: 16, paddingTop: 8 },
   destructive: { color: colors.destructive, fontSize: 15, fontWeight: "600" },
   section: { color: colors.foreground, fontSize: 19, fontWeight: "800", marginTop: 12, marginBottom: 2, letterSpacing: -0.3 },
   card: {

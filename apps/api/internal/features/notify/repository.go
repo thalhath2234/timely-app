@@ -54,7 +54,7 @@ func (r *repository) List(userID string, unreadOnly bool, limit int) ([]models.N
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	query := r.db.Where("user_id = ?", userID).Order("created_at desc").Limit(limit)
+	query := r.db.Where("user_id = ? AND dismissed_at IS NULL", userID).Order("created_at desc").Limit(limit)
 	if unreadOnly {
 		query = query.Where("read_at IS NULL")
 	}
@@ -70,7 +70,7 @@ func (r *repository) List(userID string, unreadOnly bool, limit int) ([]models.N
 
 func (r *repository) UnreadCount(userID string) (int64, error) {
 	var n int64
-	err := r.db.Model(&models.Notification{}).Where("user_id = ? AND read_at IS NULL", userID).Count(&n).Error
+	err := r.db.Model(&models.Notification{}).Where("user_id = ? AND read_at IS NULL AND dismissed_at IS NULL", userID).Count(&n).Error
 	return n, err
 }
 
@@ -115,8 +115,69 @@ func (r *repository) MarkOverdueRead(userID, taskID string) error {
 		Update("read_at", time.Now().UTC()).Error
 }
 
+// ClearAll deletes a person's notifications except smart alerts, which
+// DismissAlerts hides instead.
 func (r *repository) ClearAll(userID string) error {
-	return r.db.Where("user_id = ?", userID).Delete(&models.Notification{}).Error
+	return r.db.Where("user_id = ? AND category <> ?", userID, models.NotifySuggestion).Delete(&models.Notification{}).Error
+}
+
+// Delete removes one notification.
+func (r *repository) Delete(userID, id string) error {
+	res := r.db.Where("id = ? AND user_id = ?", id, userID).Delete(&models.Notification{})
+	if res.Error == nil && res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return res.Error
+}
+
+// DismissAlerts hides a person's smart alerts (only the one with this id
+// when id is set) and returns the rows it hid now, so an alert hidden twice
+// is counted once. The rows stay for the alerts job to learn from.
+func (r *repository) DismissAlerts(userID, id string) ([]models.Notification, error) {
+	now := time.Now().UTC()
+	query := `UPDATE notifications SET dismissed_at = ?, read_at = COALESCE(read_at, ?)
+		WHERE user_id = ? AND category = ? AND dismissed_at IS NULL`
+	args := []any{now, now, userID, models.NotifySuggestion}
+	if id != "" {
+		query += " AND id = ?"
+		args = append(args, id)
+	}
+	var rows []models.Notification
+	err := r.db.Raw(query+" RETURNING *", args...).Scan(&rows).Error
+	return rows, err
+}
+
+// MarkActed notes on a smart alert that the person took one of its steps,
+// and when.
+func (r *repository) MarkActed(id, step string) error {
+	return r.db.Exec(`UPDATE notifications SET data = data || jsonb_build_object('acted', ?::text, 'actedAt', ?::text) WHERE id = ?`, step, time.Now().UTC().Format(time.RFC3339), id).Error
+}
+
+// alertOutcome is what became of one smart alert: dismissed, acted on, or
+// both (a step taken, then cleared).
+type alertOutcome struct {
+	Kind        string
+	DismissedAt *time.Time
+	// ActedAt is when a step was taken; alerts acted on before actedAt was
+	// recorded fall back to when they were read, then created.
+	ActedAt *time.Time
+}
+
+// AlertOutcomes lists the person's smart alerts that were dismissed or
+// acted on.
+func (r *repository) AlertOutcomes(userID string) ([]alertOutcome, error) {
+	var rows []alertOutcome
+	err := r.db.Raw(`SELECT data->>'kind' AS kind, dismissed_at,
+			CASE WHEN data->>'acted' IS NOT NULL THEN COALESCE(NULLIF(data->>'actedAt', '')::timestamptz, read_at, created_at) END AS acted_at
+		FROM notifications
+		WHERE user_id = ? AND category = ? AND COALESCE(data->>'kind', '') <> '' AND (dismissed_at IS NOT NULL OR data->>'acted' IS NOT NULL)`,
+		userID, models.NotifySuggestion).Scan(&rows).Error
+	return rows, err
+}
+
+// PruneDismissed deletes smart alerts dismissed before a time.
+func (r *repository) PruneDismissed(userID string, before time.Time) error {
+	return r.db.Where("user_id = ? AND dismissed_at < ?", userID, before).Delete(&models.Notification{}).Error
 }
 
 func (r *repository) SetSnoozed(userID, id string, until time.Time) error {

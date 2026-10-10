@@ -113,14 +113,14 @@ func TestIntegrationDecisionSettings(t *testing.T) {
 		t.Fatalf("remove key: %d %v", code, body)
 	}
 
-	// Goals and the deep-work time are saved trimmed, and checked.
-	code, body = call(t, s, "user-a", http.MethodPatch, "/agent/decisions", map[string]any{"goals": []string{"  Launch  the shop ", "", "Get fit"}, "deepWorkTime": "morning"})
-	if code != 200 || mustJSON(body["goals"]) != `["Launch the shop","Get fit"]` || body["deepWorkTime"] != "morning" || body["enabled"] != true {
+	// The deep-work time is saved and checked; goals are no longer part of
+	// these settings (they live on Today) and are neither returned nor saved.
+	code, body = call(t, s, "user-a", http.MethodPatch, "/agent/decisions", map[string]any{"goals": []string{"Launch the shop"}, "deepWorkTime": "morning"})
+	if _, hasGoals := body["goals"]; code != 200 || hasGoals || body["deepWorkTime"] != "morning" || body["enabled"] != true {
 		t.Fatalf("prefs: %d %v", code, body)
 	}
 	for _, bad := range []map[string]any{
-		{"goals": []string{"a", "b", "c", "d", "e", "f"}},
-		{"goals": []string{strings.Repeat("x", 121)}},
+		{"goals": []string{"Get fit"}},
 		{"deepWorkTime": "night"},
 		{},
 	} {
@@ -128,7 +128,7 @@ func TestIntegrationDecisionSettings(t *testing.T) {
 			t.Fatalf("%v: %d", bad, code)
 		}
 	}
-	if _, body := call(t, s, "user-b", http.MethodGet, "/agent/decisions", nil); mustJSON(body["goals"]) != `[]` || body["deepWorkTime"] != "" {
+	if _, body := call(t, s, "user-b", http.MethodGet, "/agent/decisions", nil); body["deepWorkTime"] != "" {
 		t.Fatalf("another account's prefs: %v", body)
 	}
 }

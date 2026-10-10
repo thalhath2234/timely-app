@@ -52,6 +52,7 @@ import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu
 import type { CalendarItem, Task } from "@/app/_types/types";
 import { entityTitleKey } from "@/app/utils/titleMorph";
 import TodaySuggestions from "@/app/_components/today/todaySuggestions";
+import HabitsGoals from "@/app/_components/today/habitsGoals";
 import ScreenTip from "@/app/_components/_ui/screenTip";
 
 const MAX_TODAY_FOCUS = 7;
@@ -873,6 +874,8 @@ export default function TodayDashboard() {
             )
           ) : (
             <>
+              <HabitsGoals today={data.date} version={String(today.dataUpdatedAt)} />
+
               <section className="space-y-3">
                 <SectionHeading
                   icon={<Star className="size-3.5 fill-primary text-primary" />}

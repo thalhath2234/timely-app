@@ -81,12 +81,16 @@ export type Chat = {
   updatedAt: string;
   createdAt: string;
 };
-/** New messages carry the browser zone; the agent uses it when no timezone is saved in Working hours. */
+/**
+ * New messages carry the browser zone; the agent uses it when no timezone is
+ * saved in Working hours. client=web (web, desktop and the quick prompt) makes
+ * its saved-view tools act on the web and desktop views.
+ */
 function withTimezone(path: string, method: string, body: unknown) {
   const sendsMessage =
     method === "POST" && (path === "" || path.endsWith("/messages"));
   return sendsMessage && body && typeof body === "object"
-    ? { ...body, timezone: browserTimezone() }
+    ? { ...body, timezone: browserTimezone(), client: "web" }
     : body;
 }
 

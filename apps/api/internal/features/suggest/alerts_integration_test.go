@@ -43,7 +43,7 @@ func TestIntegrationAlertsGroupAndPickSteps(t *testing.T) {
 		"group_c3": choice("none"), "group_c1": choice("none"), "group_c4": choice("none"),
 	}}
 	s := New(w.db, jev.service(t), nil)
-	out := s.Alerts(context.Background(), w.user, now, nil)
+	out := s.Alerts(context.Background(), w.user, now, nil, nil)
 	if len(out) != 2 {
 		t.Fatalf("%+v", out)
 	}
@@ -70,7 +70,7 @@ func TestIntegrationAlertsGroupAndPickSteps(t *testing.T) {
 	}
 
 	// Work alerted about this week is left out.
-	s.Alerts(context.Background(), w.user, now, map[string]bool{inbox[0].ID: true, invoice.ID: true})
+	s.Alerts(context.Background(), w.user, now, map[string]bool{inbox[0].ID: true, invoice.ID: true}, nil)
 	asked := jev.asked(1)
 	// Only the unblocked plumber is left: one candidate, so no group question.
 	if _, ok := asked["alert_c1"]; !ok || len(asked) != 2 {

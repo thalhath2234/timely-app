@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckSquare, ChevronDown, FileText, Folder, Sparkles, Table2 } from "lucide-react";
+import { Check, CheckSquare, ChevronDown, FileText, Folder, Link2, Sparkles, Table2 } from "lucide-react";
 import { useRelated } from "@/app/utils/hooks/search";
 import type { RelatedItem } from "@/app/utils/api/search";
 import { openTasksEntity } from "@/app/utils/entityDetail";
@@ -13,11 +13,23 @@ const icons = { task: CheckSquare, project: Folder, doc: FileText, sheet: Table2
 /** "Related": items smart suggestions confirm are about the same thing as
  * this one. A count next to the backlinks that opens the list, or with
  * `section` a titled list for detail panels; nothing at all while smart
- * suggestions are off or find nothing. */
-export default function RelatedItems({ kind, id, section = false }: { kind: RelatedItem["kind"]; id: string; section?: boolean }) {
+ * suggestions are off or find nothing. With `onLink`, related docs get an
+ * "Add link" action that links them from this item. */
+export default function RelatedItems({
+  kind,
+  id,
+  section = false,
+  onLink,
+}: {
+  kind: RelatedItem["kind"];
+  id: string;
+  section?: boolean;
+  onLink?: (item: RelatedItem) => boolean;
+}) {
   const router = useRouter();
   const { data } = useRelated(kind, id);
   const [open, setOpen] = useState(false);
+  const [linked, setLinked] = useState<Set<string>>(new Set());
   if (!data || data.length === 0) return null;
 
   function openItem(item: RelatedItem) {
@@ -31,14 +43,30 @@ export default function RelatedItems({ kind, id, section = false }: { kind: Rela
       {data.map((item) => {
         const Icon = icons[item.kind] ?? FileText;
         return (
-          <li key={`${item.kind}:${item.id}`}>
-            <button type="button" onClick={() => openItem(item)} className="block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent">
+          <li key={`${item.kind}:${item.id}`} className="flex items-center gap-1">
+            <button type="button" onClick={() => openItem(item)} className="block min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent">
               <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                 <Icon className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate">{item.title || "Untitled"}</span>
               </span>
               {item.snippet && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.snippet}</span>}
             </button>
+            {onLink && item.kind === "doc" &&
+              (linked.has(item.id) ? (
+                <span className="inline-flex shrink-0 items-center gap-1 px-2 text-xs text-muted-foreground">
+                  <Check className="size-3.5" /> Linked
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onLink(item)) setLinked((prev) => new Set(prev).add(item.id));
+                  }}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Link2 className="size-3.5" /> Add link
+                </button>
+              ))}
           </li>
         );
       })}

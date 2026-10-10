@@ -75,6 +75,8 @@ import {
   syncSelectOptions,
 } from "../../lib/sheet";
 import { growGridTo, isPastGrid } from "../../lib/sheetGrow";
+import { cellFitEdit } from "../../lib/sheetCellFit";
+import { useCellFit, useDecisionFeedback, type CellFitEdit } from "../../lib/hooks";
 import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRow } from "../../lib/types";
 
 const MIN_WIDTH = 82;
@@ -188,6 +190,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("format");
   const [formulaRanges, setFormulaRanges] = useState<CellRange[]>([]);
   const [gridLocked, setGridLocked] = useState(false);
+  const [fitEdit, setFitEdit] = useState<CellFitEdit | null>(null);
+  const [dismissedFit, setDismissedFit] = useState(0);
+  const cellFit = useCellFit(fitEdit);
+  const fitFeedback = useDecisionFeedback();
 
   const selected = activeCellInRange(range, merges);
   const bounds = normalizedRange(range);
@@ -450,13 +456,16 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     return value == null ? "" : String(value);
   };
 
-  function setCellValue(address: Address, value: string) {
+  /** Writes one cell, growing the grid when it is past the end. Returns the
+   * grid as it was just before the value went in (grown to reach the cell),
+   * or null when nothing was written. */
+  function setCellValue(address: Address, value: string): { columns: SheetColumn[]; rows: SheetRow[] } | null {
     const grid = { columns, rows };
     // Leaving a blank cell past the end blank is not an edit.
-    if (isPastGrid(grid, address) && value.trim() === "") return;
+    if (isPastGrid(grid, address) && value.trim() === "") return null;
     const grown = growGridTo(grid, address, makeColumn, emptySheetRow);
     const column = grown.columns[address.col];
-    if (!column) return;
+    if (!column) return null;
     commit({
       columns: grown.columns !== columns ? grown.columns : undefined,
       rows: grown.rows.map((row, index) =>
@@ -471,6 +480,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
           : row,
       ),
     });
+    return grown;
   }
 
   /** Empties every cell in the current selection, not just the active one. */
@@ -642,7 +652,18 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     // disappears, so the caret appeared in the title after tapping a cell.
     editingRef.current = null;
     if (cellInputRef.current?.isFocused()) cellInputRef.current.blur();
-    setCellValue(address, value);
+    const column = columns[address.col];
+    // Retyping a cell that had a hint counts as the hint being useful.
+    if (cellFit?.logId && cellFit.id !== dismissedFit && column?.id === cellFit.columnId && rows[address.row]?.id === cellFit.rowId && value.trim() !== cellFit.value) {
+      fitFeedback.mutate({ logId: cellFit.logId, accepted: true });
+      setDismissedFit(cellFit.id);
+    }
+    // Checked against the grid the value went into, so an entry in a row
+    // added past the end (typed in the formula bar) is checked like any other.
+    const written = setCellValue(address, value);
+    const writtenColumn = written?.columns[address.col];
+    const fit = written && writtenColumn ? cellFitEdit(writtenColumn, written.rows, address.row, normalizeTypedCell(writtenColumn.type, value)) : null;
+    if (fit) setFitEdit(fit);
     setEditing(null);
     setEditSource(null);
     setDraft("");
@@ -1139,6 +1160,18 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   const canMerge = bounds.minCol !== bounds.maxCol || bounds.minRow !== bounds.maxRow;
   const formulaEditActive = Boolean(editing && isFormulaValue(draft));
 
+  const fitRow = cellFit ? rows.findIndex((row) => row.id === cellFit.rowId) : -1;
+  const fitCol = cellFit ? columns.findIndex((column) => column.id === cellFit.columnId) : -1;
+  // The hint shows while the cell still holds the entry it is about.
+  const fitHint =
+    cellFit &&
+    cellFit.id !== dismissedFit &&
+    fitRow >= 0 &&
+    fitCol >= 0 &&
+    String(rows[fitRow].cells?.[cellFit.columnId] ?? "").trim() === cellFit.value
+      ? { ...cellFit, address: `${columnIndexToLetter(fitCol)}${fitRow + 1}` }
+      : null;
+
   const displayCols = columns.length + ghostColCount;
   const ghostRowIndexes = Array.from({ length: ghostRowCount }, (_, i) => rows.length + i);
 
@@ -1207,6 +1240,27 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
                 {visibleRowIndexes.length}/{rows.length}
               </Text>
             ) : null}
+          </View>
+        ) : null}
+        {fitHint ? (
+          <View style={styles.fitRow} accessibilityRole="alert">
+            <Pressable accessibilityLabel={`Go to cell ${fitHint.address}`} onPress={() => setSelection({ col: fitCol, row: fitRow })}>
+              <Text style={styles.fitAddr}>{fitHint.address}</Text>
+            </Pressable>
+            <Text style={styles.fitText} numberOfLines={2}>
+              {fitHint.hint}
+            </Text>
+            <Pressable
+              accessibilityLabel="Dismiss hint"
+              hitSlop={8}
+              onPress={() => {
+                if (fitHint.logId) fitFeedback.mutate({ logId: fitHint.logId, accepted: false });
+                setDismissedFit(fitHint.id);
+              }}
+              style={styles.fitClose}
+            >
+              <Text style={styles.fitCloseText}>×</Text>
+            </Pressable>
           </View>
         ) : null}
       </View>
@@ -2077,6 +2131,19 @@ const styles = createThemedStyleSheet((colors) => ({
     fontSize: 13,
   },
   filterCount: { color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },
+  fitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: colors.warning,
+  },
+  fitAddr: { color: colors.warning, fontSize: 12, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  fitText: { flex: 1, color: colors.warning, fontSize: 12 },
+  fitClose: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
+  fitCloseText: { color: colors.mutedForeground, fontSize: 18 },
   tableTool: {
     flex: 1,
     minWidth: 58,

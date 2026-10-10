@@ -3,13 +3,14 @@ import { contextChip } from "../../../lib/chat/context";
 import { useRef, useState } from "react";
 import { Keyboard, ScrollView, Text, TextInput, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
-import { ArrowUpRight, LayoutGrid, Plus, Search as SearchIcon, Sparkles, X } from "lucide-react-native";
+import { ArrowUpRight, LayoutGrid, ListFilter, Plus, Search as SearchIcon, Sparkles, X } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { useSearchQuery, useSmartSearchQuery } from "../../../lib/hooks";
 import type { SearchHit, SmartCategory } from "../../../lib/api/search";
+import { sendDecisionFeedback } from "../../../lib/api/decisions";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import { FILES_TAB } from "../../../lib/fileRoutes";
 import { hrefFor } from "../../../lib/searchRoutes";
@@ -60,6 +61,9 @@ export default function SearchTab() {
   const hiddenShown = hidden.length > 0 && showHidden === trimmed;
   const smartCategory = category === "all" && smartData?.category ? categories.find((tab) => tab.id === smartData.category) : undefined;
   const smartCreate = smartData?.create;
+  // A search that reads as "show me what needs attention" can open one of the
+  // phone's saved views (picked by Smart suggestions).
+  const viewPick = category === "all" || category === "task" ? smartData?.view : undefined;
   const pending = !!trimmed && (!current || results.isFetching);
   const failed = !!trimmed && current && results.isError;
 
@@ -68,9 +72,14 @@ export default function SearchTab() {
     router.push(href);
   }
 
+  function openView(view: { id: string; name: string }) {
+    if (smartData?.logId) void sendDecisionFeedback(smartData.logId, true).catch(() => {});
+    navigate({ pathname: "/(app)/(tabs)/tasks", params: { view: view.id } });
+  }
+
   function create(kind: SmartCategory, title?: string) {
     Keyboard.dismiss();
-    if (kind === "project") router.push(destinations.project);
+    if (kind === "project") router.push(title ? { pathname: "/(app)/projects", params: { title } } : destinations.project);
     else requestQuickAdd(title ? { kind, title } : { kind });
   }
 
@@ -180,6 +189,17 @@ export default function SearchTab() {
             <Text style={styles.suggestText}>Looking for {smartCategory.label}?</Text>
           </AnimatedPressable>
         ) : null}
+        {!pending && !failed && viewPick ? (
+          <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Open your saved view ${viewPick.name}`}
+            onPress={() => openView(viewPick)} style={styles.viewRow}>
+            <View style={styles.viewIcon}><ListFilter size={16} color={colors.primary} /></View>
+            <View style={styles.resultContent}>
+              <Text numberOfLines={1} style={styles.viewTitle}>Open view “{viewPick.name}”</Text>
+              <Text numberOfLines={1} style={styles.viewHint}>Your saved view for this</Text>
+            </View>
+            <ArrowUpRight size={16} color={colors.mutedForeground} />
+          </AnimatedPressable>
+        ) : null}
         <View accessibilityLiveRegion="polite">
           {pending ? <Text style={styles.status}>Searching your workspace…</Text> : failed ? (
             <View style={styles.error}>
@@ -240,6 +260,10 @@ const styles = createThemedStyleSheet((colors) => ({
   hiddenRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 },
   hiddenText: { color: colors.mutedForeground, fontSize: 12 },
   hiddenShow: { minHeight: 44, justifyContent: "center", paddingHorizontal: 4 },
+  viewRow: { borderRadius: 14, backgroundColor: colors.accent, paddingHorizontal: 12, paddingVertical: 10, minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 },
+  viewIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
+  viewTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
+  viewHint: { color: colors.mutedForeground, fontSize: 12, marginTop: 1 },
   suggestChip: { alignSelf: "flex-start", minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: 18, backgroundColor: colors.accent },
   suggestText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   retry: { minHeight: 48, alignSelf: "flex-start", justifyContent: "center", paddingHorizontal: 16, borderRadius: 12, backgroundColor: colors.accent },

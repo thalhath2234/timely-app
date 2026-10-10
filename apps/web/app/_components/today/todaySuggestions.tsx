@@ -25,10 +25,10 @@ function gapStart(iso: string) {
   return new Date(Math.max(new Date(iso).getTime(), Math.ceil(Date.now() / step) * step));
 }
 
-/** Smart suggestions on Today: open Work worth focusing on today, the best
- * Work for the next free gap, and how the top open Work lines up with the
- * person's goals. Code ranks the Work and finds the gap; nothing shows while
- * suggestions are off, and every row can be dismissed. */
+/** Smart suggestions on Today: open Work worth focusing on today, tagged with
+ * the goal it moves forward, and the best Work for the next free gap. Code
+ * ranks the Work and finds the gap; nothing shows while suggestions are off,
+ * and every row can be dismissed. Goal counts live in Habits and goals. */
 export default function TodaySuggestions({
   date,
   version,
@@ -59,8 +59,7 @@ export default function TodaySuggestions({
 
   const focus = (data.focus ?? []).filter((pick) => !hidden.has(`focus:${pick.taskId}`));
   const gap = data.gap?.task && !hidden.has(`gap:${data.gap.task.id}`) ? data.gap : undefined;
-  const goals = data.goals ?? [];
-  if (!focus.length && !gap && !goals.length && !data.error) return null;
+  if (!focus.length && !gap && !data.error) return null;
 
   const dismiss = (key: string) => (
     <button
@@ -165,17 +164,6 @@ export default function TodaySuggestions({
             </button>
             {dismiss(`gap:${gap.task.id}`)}
           </div>
-        ) : null}
-        {goals.length ? (
-          <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <Target className="size-3.5" />
-            <span>Your goals in your top open work:</span>
-            {goals.map((goal) => (
-              <span key={goal.goal} className={chip}>
-                {goal.goal} · {goal.count ? `${goal.count} task${goal.count === 1 ? "" : "s"}` : "nothing yet"}
-              </span>
-            ))}
-          </p>
         ) : null}
       </div>
     </section>

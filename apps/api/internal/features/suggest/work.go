@@ -526,7 +526,7 @@ type idle struct {
 // three weeks, oldest first; the idle days are counted in code.
 func (s *Service) staleTasks(ctx context.Context, userID string, now time.Time) ([]idle, error) {
 	var tasks []models.Task
-	if err := s.db.WithContext(ctx).Select("id", "name", "description", "project_id", "created_at", "updated_at").
+	if err := s.db.WithContext(ctx).Select("id", "name", "description", "project_id", "deadline", "created_at", "updated_at").
 		Where("user_id = ? AND kind = ? AND completed_at IS NULL", userID, models.KindTask).
 		Where("NOT EXISTS (SELECT 1 FROM recurrence_rules r WHERE r.owner_id = tasks.id AND r.owner_type = 'task')").
 		Where("NOT EXISTS (SELECT 1 FROM scheduled_blocks b WHERE b.task_id = tasks.id AND b.end_at > ?)", now).

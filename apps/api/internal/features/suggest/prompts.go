@@ -3,6 +3,7 @@ package suggest
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -143,7 +144,8 @@ func (s *Service) promptProject(ctx context.Context, userID, projectID string, n
 		COUNT(*) FILTER (WHERE completed_at IS NULL) AS open,
 		COUNT(*) FILTER (WHERE completed_at >= ?) AS done,
 		COUNT(*) FILTER (WHERE completed_at IS NULL AND deadline IS NOT NULL AND deadline < ?) AS overdue,
-		COUNT(*) FILTER (WHERE completed_at IS NULL AND blocked_by_id IS NOT NULL) AS blocked
+		COUNT(*) FILTER (WHERE completed_at IS NULL AND blocked_by_id IS NOT NULL AND EXISTS (
+			SELECT 1 FROM tasks b WHERE b.id = tasks.blocked_by_id AND b.completed_at IS NULL)) AS blocked
 		FROM tasks WHERE project_id = ? AND user_id = ? AND kind = ?`, now.AddDate(0, 0, -14), day, p.ID, userID, models.KindTask).Scan(&counts)
 	p.Open, p.Done, p.Overdue, p.Blocked = counts.Open, counts.Done, counts.Overdue, counts.Blocked
 	var big models.Task
@@ -157,7 +159,8 @@ func (s *Service) promptProject(ctx context.Context, userID, projectID string, n
 		p.NextDue = next.Name
 		if d, err := time.ParseInLocation("2006-01-02", models.NormalizeDate(*next.Deadline), now.Location()); err == nil {
 			start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-			p.NextDueInDays = int(d.Sub(start).Hours() / 24)
+			// Rounded: a day across a clock change is 23 or 25 hours.
+			p.NextDueInDays = int(math.Round(d.Sub(start).Hours() / 24))
 		}
 		var n int64
 		db.Table("scheduled_blocks").Where("task_id = ? AND end_at > ?", next.ID, now).Count(&n)

@@ -70,14 +70,18 @@ const PROMPT_ICONS: Record<string, LucideIcon> = {
 
 export function Welcome({
   disabled,
+  projectId,
   onPick,
 }: {
   disabled: boolean;
+  /** The project on the screen the assistant was opened from, if any. */
+  projectId?: string;
   onPick: (text: string) => void;
 }) {
-  // With smart suggestions on, the examples fit the project the person
-  // worked on most recently; otherwise the fixed ones show.
-  const fitted = useChatPromptsQuery();
+  // With smart suggestions on, the examples fit the project on screen, or
+  // else the one the person worked on most recently; otherwise the fixed
+  // ones show.
+  const fitted = useChatPromptsQuery(projectId);
   const feedback = useDecisionFeedback();
   const prompts = fitted.data?.prompts ?? [];
   const project = prompts.length ? fitted.data?.project : undefined;

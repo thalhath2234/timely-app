@@ -33,6 +33,10 @@ type Service interface {
 	Reindex(ctx context.Context, userID string) (int, error)
 	// Existing keeps the vector hits whose item still exists for the account.
 	Existing(userID string, hits []embed.Hit) []embed.Hit
+	// Relatable keeps the hits that may show in the Related list of the
+	// given item: existing ones, minus unclarified Inbox items and, for a
+	// project, its own tasks.
+	Relatable(userID, kind, id string, hits []embed.Hit) []embed.Hit
 }
 
 type service struct {
@@ -209,6 +213,41 @@ func (s *service) Existing(userID string, hits []embed.Hit) []embed.Hit {
 	out := hits[:0:0]
 	for _, hit := range hits {
 		if live[hit.Kind+"/"+hit.EntityID] {
+			out = append(out, hit)
+		}
+	}
+	return out
+}
+
+func (s *service) Relatable(userID, kind, id string, hits []embed.Hit) []embed.Hit {
+	hits = s.Existing(userID, hits)
+	var tasks []string
+	for _, hit := range hits {
+		if hit.Kind == embed.KindTask {
+			tasks = append(tasks, hit.EntityID)
+		}
+	}
+	if len(tasks) == 0 {
+		return hits
+	}
+	q := s.db.Model(&models.Task{}).Where("user_id = ? AND id IN ?", userID, tasks)
+	if kind == embed.KindProject {
+		q = q.Where("kind = ? OR project_id = ?", models.KindInbox, id)
+	} else {
+		q = q.Where("kind = ?", models.KindInbox)
+	}
+	var drop []string
+	if err := q.Pluck("id", &drop).Error; err != nil {
+		log.Printf("search: checking related tasks failed: %v", err)
+		return hits
+	}
+	skip := map[string]bool{}
+	for _, taskID := range drop {
+		skip[taskID] = true
+	}
+	out := hits[:0:0]
+	for _, hit := range hits {
+		if hit.Kind != embed.KindTask || !skip[hit.EntityID] {
 			out = append(out, hit)
 		}
 	}

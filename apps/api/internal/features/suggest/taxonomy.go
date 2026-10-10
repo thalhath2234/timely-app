@@ -16,8 +16,8 @@ import (
 
 // Cleanup suggestions [26]: labels, statuses or custom-field options in one
 // workspace that mean the same thing. Code picks the pairs worth asking about
-// and which side to keep (the one more Work uses); Jev only says whether the
-// two names mean the same.
+// and which side to keep (see keepSide); Jev only says whether the two names
+// mean the same.
 
 const (
 	cleanupBudget = 6 * time.Second
@@ -34,6 +34,9 @@ type CleanupItem struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Uses int    `json:"uses"`
+	// A status that finishes Work or that new Work starts in must survive a
+	// merge; see keepSide.
+	completes, isDefault bool
 }
 
 // Cleanup is one suggested merge: From goes into Into.
@@ -141,9 +144,9 @@ func (s *Service) CleanupSuggestions(ctx context.Context, userID, workspaceID st
 		if merged[p.a.ID] || merged[p.b.ID] {
 			continue
 		}
-		into, from := p.a, p.b
-		if from.Uses > into.Uses {
-			into, from = from, into
+		into, from, ok := keepSide(p.a, p.b)
+		if !ok {
+			continue
 		}
 		g := groups[p.group]
 		out.Merges = append(out.Merges, Cleanup{Kind: g.kind, FieldID: g.fieldID, FieldName: g.fieldName, From: from, Into: into})
@@ -193,7 +196,8 @@ func (s *Service) taxonomy(ctx context.Context, userID, workspaceID string) []ta
 			UNION ALL SELECT status_id AS id, count(*) AS n FROM projects WHERE workspace_id = ? AND status_id IS NOT NULL GROUP BY 1`, userID, workspaceID)
 		g := taxonomyGroup{kind: "status", noun: "status"}
 		for _, st := range statuses {
-			g.items = append(g.items, CleanupItem{ID: st.ID, Name: st.Name, Uses: uses[st.ID]})
+			g.items = append(g.items, CleanupItem{ID: st.ID, Name: st.Name, Uses: uses[st.ID],
+				completes: isCompletedStatusName(st.Name), isDefault: st.IsDefault})
 		}
 		groups = append(groups, g)
 	}
@@ -214,6 +218,41 @@ func (s *Service) taxonomy(ctx context.Context, userID, workspaceID string) []ta
 		groups = append(groups, g)
 	}
 	return groups
+}
+
+// keepSide picks which of two items a merge keeps: a completion status (so the
+// workspace never loses its Done), then the default status, then the one more
+// Work uses. A completion status paired with the default one is never merged,
+// since either way the workspace would lose one of them.
+func keepSide(a, b CleanupItem) (into, from CleanupItem, ok bool) {
+	if (a.completes && b.isDefault && !b.completes) || (b.completes && a.isDefault && !a.completes) {
+		return a, b, false
+	}
+	into, from = a, b
+	switch {
+	case from.completes != into.completes:
+		if from.completes {
+			into, from = from, into
+		}
+	case from.isDefault != into.isDefault:
+		if from.isDefault {
+			into, from = from, into
+		}
+	case from.Uses > into.Uses:
+		into, from = from, into
+	}
+	return into, from, true
+}
+
+// isCompletedStatusName matches the names the task service treats as the
+// workspace's completion status.
+func isCompletedStatusName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "completed", "complete", "done":
+		return true
+	default:
+		return false
+	}
 }
 
 // similarNames is the cheap first pass: a shared word, one name inside the

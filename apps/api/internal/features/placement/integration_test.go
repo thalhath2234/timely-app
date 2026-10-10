@@ -523,6 +523,56 @@ func TestIntegrationAutoScheduleApplyScope(t *testing.T) {
 	}
 }
 
+// Replacing a task's Manual blocks removes only unlocked ones that end after
+// From: past blocks are history and locked ones stay. The removed ones go in
+// the revision, and Undo brings them back as Manual.
+func TestIntegrationReplaceManualKeepsPastAndLockedAndUndoes(t *testing.T) {
+	f := newFixture(t)
+	task := f.task(models.KindTask, 30)
+	blocks := []models.ScheduledBlock{
+		{StartAt: at(8, 0), EndAt: at(8, 30)},                 // past: history
+		{StartAt: at(12, 0), EndAt: at(12, 30)},               // ahead: replaced
+		{StartAt: at(14, 0), EndAt: at(14, 30), Locked: true}, // locked: stays
+	}
+	for i := range blocks {
+		blocks[i].ID, blocks[i].TaskID, blocks[i].UserID, blocks[i].Source = utils.NewBlockID(), task.ID, testUser, models.BlockSourceManual
+		if err := f.db.Create(&blocks[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var replaced []models.ScheduledBlock
+	rev := revision()
+	err := f.svc.ApplyAutoSchedule(testUser, AutoScheduleApply{
+		CandidateIDs: []string{task.ID},
+		From:         at(10, 0), To: at(23, 59),
+		ReplaceManualIDs: []string{task.ID},
+		Next:             []models.ScheduledBlock{{TaskID: task.ID, UserID: testUser, StartAt: at(15, 0), EndAt: at(15, 30), Source: models.BlockSourceEngine}},
+		Revision: func(r []models.ScheduledBlock) (*models.ScheduleRevision, error) {
+			replaced = r
+			return rev, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []span{{at(8, 0), at(8, 30)}, {at(14, 0), at(14, 30)}, {at(15, 0), at(15, 30)}}
+	if got := f.spans("task_id = ?", task.ID); !sameSpans(got, want) {
+		t.Fatalf("after apply %+v, want %+v", got, want)
+	}
+	if len(replaced) != 1 || replaced[0].ID != blocks[1].ID {
+		t.Fatalf("revision saw %+v, want the replaced Manual block", replaced)
+	}
+	if err := f.svc.UndoAutoSchedule(testUser, AutoScheduleUndo{
+		RevisionID: rev.ID, TaskIDs: []string{task.ID}, From: at(10, 0), To: at(23, 59), Restore: replaced,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := f.blocks(task.ID)
+	if len(got) != 3 || !got[1].StartAt.Equal(at(12, 0)) || got[1].Source != models.BlockSourceManual || got[1].Locked || !got[2].Locked {
+		t.Fatalf("after undo %+v", got)
+	}
+}
+
 // A failing revision rolls the Block writes back with it.
 func TestIntegrationAutoScheduleApplyIsAtomic(t *testing.T) {
 	f := newFixture(t)

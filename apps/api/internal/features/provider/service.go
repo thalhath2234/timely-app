@@ -62,12 +62,12 @@ type Settings struct {
 	// key exists; TypeSafeRejected is set when TypeSafe refuses the saved key.
 	DecisionsOff     bool `gorm:"column:decisions_off" json:"-"`
 	TypeSafeRejected bool `gorm:"column:typesafe_rejected" json:"-"`
-	// What suggestions may weigh: the person's goals in their own words and
-	// the time of day they prefer for deep work.
-	DecisionGoals []string  `gorm:"column:decision_goals;serializer:json;type:jsonb" json:"-"`
-	DeepWorkTime  string    `gorm:"column:deep_work_time" json:"-"`
-	CreatedAt     time.Time `gorm:"column:created_at" json:"-"`
-	UpdatedAt     time.Time `gorm:"column:updated_at" json:"-"`
+	// The time of day the person prefers for deep work, which suggestions
+	// weigh. Goals moved to their own table (features/focus); the old
+	// decision_goals column is no longer read or written.
+	DeepWorkTime string    `gorm:"column:deep_work_time" json:"-"`
+	CreatedAt    time.Time `gorm:"column:created_at" json:"-"`
+	UpdatedAt    time.Time `gorm:"column:updated_at" json:"-"`
 }
 
 func (Settings) TableName() string { return "agent_provider_settings" }
@@ -149,9 +149,6 @@ func (s *Service) save(db *gorm.DB, row *Settings) error {
 		row.CreatedAt = now
 	}
 	row.UpdatedAt = now
-	if row.DecisionGoals == nil {
-		row.DecisionGoals = []string{} // the column is NOT NULL
-	}
 	return db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}}, UpdateAll: true}).Create(row).Error
 }
 

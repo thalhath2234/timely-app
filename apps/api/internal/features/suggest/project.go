@@ -100,8 +100,13 @@ func (s *Service) ownProject(ctx context.Context, userID, projectID string) (mod
 	return p, err
 }
 
-// ProjectInsights reads one project. Facts come back even with Jev off.
+// ProjectInsights reads one project. With Jev off it returns an empty answer
+// before reading any tasks; clients show nothing then.
 func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string, now time.Time) (ProjectInsights, error) {
+	on, _ := s.decide.Status(ctx, userID)
+	if !on {
+		return ProjectInsights{}, nil
+	}
 	project, err := s.ownProject(ctx, userID, projectID)
 	if err != nil {
 		return ProjectInsights{}, err
@@ -112,12 +117,11 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string,
 		Order("created_at").Find(&tasks).Error; err != nil {
 		return ProjectInsights{}, err
 	}
-	on, _ := s.decide.Status(ctx, userID)
 	out := ProjectInsights{Available: on, Facts: s.projectFacts(ctx, project, tasks, now)}
 	brief := strings.TrimSpace(project.Description)
 	out.NoBrief = brief == ""
 	out.NoNextAction = out.Facts.Open == 0 && project.CompletedAt == nil
-	if !on || project.CompletedAt != nil {
+	if project.CompletedAt != nil {
 		return out, nil
 	}
 

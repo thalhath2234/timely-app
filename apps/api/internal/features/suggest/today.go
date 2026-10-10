@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/decide"
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
@@ -31,7 +31,6 @@ const (
 	maxGapTasks    = 8
 	maxFocusPicks  = 3
 	minGapMinutes  = 20
-	maxGoals       = 5
 )
 
 // SetSchedule connects Auto-schedule: Today reads its rank and free time, and
@@ -244,28 +243,27 @@ func (s *Service) fillTopTraits(ctx context.Context, userID, timezone string) {
 	s.FillTraits(ctx, userID, tasks)
 }
 
-// Prefs is what the person told suggestions to weigh (Settings > Smart
-// suggestions).
+// Prefs is what the person told suggestions to weigh: their goals (on Today,
+// up to five) and their best time for deep work (Settings > Agent).
 type Prefs struct {
 	Goals        []string
 	DeepWorkTime string // "", morning, afternoon or evening
+	goals        []focus.Goal
 }
 
 func (s *Service) prefs(ctx context.Context, userID string) Prefs {
-	var row struct {
-		DecisionGoals string
-		DeepWorkTime  string
-	}
 	var out Prefs
-	if s.db.WithContext(ctx).Table("agent_provider_settings").Select("decision_goals::text AS decision_goals, deep_work_time").
-		Where("user_id = ?", userID).Take(&row).Error != nil {
-		return out
+	if goals, err := focus.NewStore(s.db).Goals(ctx, userID); err == nil {
+		out.goals = goals
+		for _, g := range goals {
+			out.Goals = append(out.Goals, g.Title)
+		}
 	}
-	_ = json.Unmarshal([]byte(row.DecisionGoals), &out.Goals)
-	if len(out.Goals) > maxGoals {
-		out.Goals = out.Goals[:maxGoals]
+	var row struct{ DeepWorkTime string }
+	if s.db.WithContext(ctx).Table("agent_provider_settings").Select("deep_work_time").
+		Where("user_id = ?", userID).Take(&row).Error == nil {
+		out.DeepWorkTime = row.DeepWorkTime
 	}
-	out.DeepWorkTime = row.DeepWorkTime
 	return out
 }
 
@@ -443,12 +441,12 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 
 	list := make([]map[string]any, 0, len(cands))
 	questions := map[string]decide.Question{}
-	var goalOpts []decide.Option
-	if len(prefs.Goals) > 0 {
-		goalOpts = []decide.Option{{Name: "none", Description: "None of the person's goals"}}
-		for i, g := range prefs.Goals {
-			goalOpts = append(goalOpts, decide.Option{Name: fmt.Sprintf("g%d", i+1), Description: clip(g, 120)})
-		}
+	// The same question goal progress asks (focus.GoalQuestion), so its
+	// answers are remembered for the Focus block on Today.
+	goalOpts := focus.GoalOptions(prefs.Goals)
+	var projects map[string]string
+	if goalOpts != nil {
+		projects = focus.ProjectTitles(ctx, s.db, userID, cands)
 	}
 	var gapCands []int
 	for i, t := range cands {
@@ -466,13 +464,16 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 		if t.EffortKind != "" {
 			item["effort"] = t.EffortKind
 		}
+		if p := projects[t.ID]; p != "" {
+			item["project"] = clip(p, 120)
+		}
 		list = append(list, item)
 		questions["focus_"+key] = decide.Score(fmt.Sprintf("How much does working on task %s today matter, given its deadline, how urgent its words make it and the person's goals?", key),
 			"Not for today", "It could wait", "Good to do today", "It should be done today")
 		if goalOpts != nil {
-			questions["goal_"+key] = decide.Choice(fmt.Sprintf("Which of the person's goals does task %s clearly move forward, if any?", key), goalOpts...)
+			questions["goal_"+key] = focus.GoalQuestion("task "+key, goalOpts)
 		}
-		if gap != nil && len(gapCands) < maxGapTasks && fitsGap(t, gap.Minutes) {
+		if gap != nil && len(gapCands) < maxGapTasks && fitsGap(t, gap.Minutes) && !plannedAhead(t, now) {
 			gapCands = append(gapCands, i)
 		}
 	}
@@ -509,13 +510,15 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 	var picks []scored
 	counts := make([]int, len(prefs.Goals))
 	goals := map[string]string{}
+	tags := map[string]int{}
 	for i, t := range cands {
 		key := fmt.Sprintf("t%d", i+1)
-		if g, ok := a.Choice("goal_"+key, decide.Prefill); ok && g != "none" {
-			var n int
-			if _, err := fmt.Sscanf(g, "g%d", &n); err == nil && n >= 1 && n <= len(prefs.Goals) {
-				goals[t.ID] = prefs.Goals[n-1]
-				counts[n-1]++
+		if goalOpts != nil {
+			n := focus.ReadGoal(a, "goal_"+key, len(prefs.Goals))
+			tags[t.ID] = n
+			if n >= 0 {
+				goals[t.ID] = prefs.Goals[n]
+				counts[n]++
 			}
 		}
 		// Score confidence runs low; the level only orders Work code already
@@ -524,6 +527,7 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 			picks = append(picks, scored{i, level})
 		}
 	}
+	focus.NewStore(s.db).Remember(ctx, userID, prefs.goals, cands, tags)
 	sort.SliceStable(picks, func(x, y int) bool { return picks[x].level > picks[y].level })
 	for _, p := range picks {
 		if len(out.Focus) == maxFocusPicks {
@@ -562,6 +566,17 @@ func fitsGap(t models.Task, minutes int) bool {
 		return false
 	}
 	return left <= minutes || (!t.Contiguous && t.MinChunk() <= minutes)
+}
+
+// plannedAhead is true when the task already has a block that is not over:
+// its time is booked, so suggesting it for the gap would book it twice.
+func plannedAhead(t models.Task, now time.Time) bool {
+	for _, b := range t.Blocks {
+		if b.EndAt.After(now) {
+			return true
+		}
+	}
+	return false
 }
 
 // Triage actions for a missed block or overdue Work [35][36]. Code applies
@@ -607,6 +622,14 @@ func (s *Service) Triage(ctx context.Context, userID string, t *models.Task, kin
 			decide.Option{Name: TriageExtend, Description: "Move the deadline a week later: finishing a bit later is fine"},
 			decide.Option{Name: TriageLower, Description: "Lower its priority: it matters less than it looked"})
 	case "missed":
+		if t.IsRecurring() {
+			// Adding time or moving would change every occurrence, so a
+			// repeating task only weighs a lower priority.
+			q = decide.Choice("A time block for this repeating task ended and the task is still open. Which next step fits best?",
+				decide.Option{Name: "keep", Description: "Leave it as it is: the next occurrence is soon enough"},
+				decide.Option{Name: TriageLower, Description: "Lower its priority: other work matters more right now"})
+			break
+		}
 		q = decide.Choice("A time block for this task ended and the task is still open. Which next step fits best?",
 			decide.Option{Name: TriageAddTime, Description: "Give it more time: the work is bigger than its estimate"},
 			decide.Option{Name: TriageMove, Description: "Move the rest to the next free time: the estimate is fine, the block was just missed"},
@@ -619,5 +642,8 @@ func (s *Service) Triage(ctx context.Context, userID string, t *models.Task, kin
 		return ""
 	}
 	pick, _ := a.Choice("next", decide.Prefill)
+	if pick == "keep" {
+		return ""
+	}
 	return pick
 }

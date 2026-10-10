@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 	"timely-api/internal/models"
+	"timely-api/internal/recurrence"
 	"timely-api/internal/utils"
 )
 
@@ -39,6 +40,12 @@ type duplicateOpts struct {
 	namePrefix string
 	projectID  *string
 	stageID    *string
+	// fresh starts the copy over: no dates, unchecked checklist and the
+	// workspace's default status, for a new project started from an old one.
+	// A repeating task's series starts again on seriesFrom (a date; today
+	// when empty) with the same rule.
+	fresh      bool
+	seriesFrom string
 }
 
 func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (*models.Task, error) {
@@ -68,6 +75,18 @@ func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (
 		EarliestStartAt:       src.EarliestStartAt,
 		PreferredWindows:      src.PreferredWindows,
 	}
+	if opts.fresh {
+		clone.Deadline = nil
+		clone.StartDate = nil
+		clone.EarliestStartAt = nil
+		clone.Checklist = src.Checklist.CloneUnchecked()
+		clone.StatusID = nil
+		if clone.WorkspaceID != nil {
+			if statusID := s.defaultStatusID(*clone.WorkspaceID); statusID != "" {
+				clone.StatusID = &statusID
+			}
+		}
+	}
 	if clone.Kind == models.KindInbox {
 		clone.Duration = 0
 		clone.StatusID = nil
@@ -88,6 +107,15 @@ func (s *taskService) duplicateTree(userID, taskID string, opts duplicateOpts) (
 			Dtstart:  src.Recurrence.Dtstart.UTC().Format(time.RFC3339),
 			Timezone: src.Recurrence.Timezone,
 		}
+		if opts.fresh {
+			from := opts.seriesFrom
+			if from == "" {
+				from = time.Now().In(src.Recurrence.Location()).Format("2006-01-02")
+			}
+			if restarted, err := restartSeries(src.Recurrence, from); err == nil {
+				rec = restarted
+			}
+		}
 		if err := s.applyRecurrence(userID, created, &rec); err != nil {
 			return nil, err
 		}
@@ -103,10 +131,81 @@ func firstNonEmpty(preferred, fallback *string) *string {
 	return fallback
 }
 
-func (s *taskService) CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string) error {
+// restartSeries starts a repeating task's series again on the first day on
+// or after from (a date in the rule's zone) that its rule falls on, at the
+// same clock time. The rule stays the same: weekly on Mondays is still weekly
+// on Mondays, now from the first Monday on or after from. An UNTIL moves to
+// the restarted series' N-th occurrence, where N is how many the old series
+// had, so the series keeps its number of occurrences.
+func restartSeries(rule *models.RecurrenceRule, from string) (models.RecurrenceInput, error) {
+	loc := rule.Location()
+	old := rule.Dtstart.In(loc)
+	day, err := time.ParseInLocation("2006-01-02", models.NormalizeDate(from), loc)
+	if err != nil {
+		return models.RecurrenceInput{}, err
+	}
+	parsed, err := recurrence.Parse(rule.RRule)
+	if err != nil {
+		return models.RecurrenceInput{}, err
+	}
+	// The pattern alone, with the parts the old start implied written out,
+	// finds the first matching day; the interval then counts from there.
+	pattern := *parsed
+	pattern.Interval, pattern.Count, pattern.Until = 1, 0, nil
+	switch pattern.Freq {
+	case recurrence.Weekly:
+		if len(pattern.ByDay) == 0 {
+			pattern.ByDay = []recurrence.ByDay{{Weekday: old.Weekday()}}
+		}
+	case recurrence.Monthly:
+		if len(pattern.ByDay) == 0 && len(pattern.ByMonthDay) == 0 {
+			pattern.ByMonthDay = []int{old.Day()}
+		}
+	case recurrence.Yearly:
+		if len(pattern.ByMonth) == 0 {
+			pattern.ByMonth = []int{int(old.Month())}
+		}
+		if len(pattern.ByDay) == 0 && len(pattern.ByMonthDay) == 0 {
+			pattern.ByMonthDay = []int{old.Day()}
+		}
+	}
+	anchor := time.Date(day.Year(), day.Month(), day.Day(), old.Hour(), old.Minute(), old.Second(), 0, loc)
+	start := anchor
+	if next := pattern.Next(anchor, anchor); next != nil {
+		start = *next
+	}
+	text := rule.RRule
+	if parsed.Until != nil && parsed.Count == 0 {
+		// The new series keeps as many occurrences as the old one had: UNTIL
+		// becomes the restarted series' N-th occurrence. Moving it by days
+		// would be wrong for months and years of different lengths.
+		n := len(parsed.Between(old, old, parsed.Until.Add(time.Second)))
+		if n > 0 {
+			series := *parsed
+			series.Until, series.Count = nil, n
+			if found := series.Between(start, start, start.AddDate(1000, 0, 0)); len(found) > 0 {
+				until := found[len(found)-1].UTC()
+				parsed.Until = &until
+				text = parsed.String()
+			}
+		}
+	}
+	return models.RecurrenceInput{RRule: text, Dtstart: start.Format(time.RFC3339), Timezone: rule.Timezone}, nil
+}
+
+// CopyProjectTasks copies a project's tasks into another project. fresh resets
+// each copy's dates, checklist and status (see duplicateOpts.fresh) and starts
+// a repeating task's series on the new project's start, or today.
+func (s *taskService) CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string, fresh bool) error {
 	tasks, err := s.taskRepo.GetAllTaskByUser(userID)
 	if err != nil {
 		return err
+	}
+	seriesFrom := ""
+	if fresh && s.projectRepo != nil {
+		if target, err := s.projectRepo.GetProjectByIdForUser(userID, toProjectID); err == nil && target.StartDate != nil {
+			seriesFrom = models.NormalizeDate(*target.StartDate)
+		}
 	}
 	for i := range tasks {
 		t := tasks[i]
@@ -125,8 +224,10 @@ func (s *taskService) CopyProjectTasks(userID, fromProjectID, toProjectID string
 			}
 		}
 		if _, err := s.duplicateTree(userID, t.ID, duplicateOpts{
-			projectID: &toProjectID,
-			stageID:   stage,
+			projectID:  &toProjectID,
+			stageID:    stage,
+			fresh:      fresh,
+			seriesFrom: seriesFrom,
 		}); err != nil {
 			return err
 		}
