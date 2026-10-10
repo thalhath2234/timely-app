@@ -51,7 +51,9 @@ func TestIntegrationCopyProjectTasksFreshRestartsSeries(t *testing.T) {
 		t.Fatalf("dated series starts %v, want Monday 9 November 09:00", got.Dtstart)
 	}
 
-	got := copyInto(undated.ID, true).Dtstart
+	// The series is in UTC; the driver may hand the start back in the
+	// machine's own zone, so read the clock in UTC.
+	got := copyInto(undated.ID, true).Dtstart.UTC()
 	today := time.Now().UTC()
 	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
 	if got.Weekday() != time.Monday || got.Hour() != 9 || got.Before(today) || !got.Before(today.AddDate(0, 0, 7)) {

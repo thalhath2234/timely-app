@@ -1,5 +1,5 @@
 import type { User } from "../types";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../secureStore";
 
 const USER_KEY = "timely.session.user";
 const TOKEN_KEY = "timely.session.token";

@@ -1,5 +1,6 @@
 "use client";
 
+import { docTypePhrase } from "@timely/contract/documents";
 import { useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { Plus, Sparkles, X } from "lucide-react";
@@ -156,7 +157,7 @@ export default function DocHints({
         {docType && (
           <li className="flex items-center gap-2 rounded-md px-1 py-1">
             <span className="min-w-0 flex-1">
-              Reads like a <strong className={strong}>{docType}</strong>.
+              Reads like <strong className={strong}>{docTypePhrase(docType)}</strong>.
             </span>
             <button
               type="button"

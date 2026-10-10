@@ -16,12 +16,15 @@ const HEALTH: Record<NonNullable<ProjectInsights["health"]>, string> = {
   blocked: "Blocked",
 };
 
+const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+
 function factLine(f: ProjectInsights["facts"]) {
   const parts = [`${f.open} open`, `${f.doneRecent} done in two weeks`];
   if (f.overdue) parts.push(`${f.overdue} overdue`);
   if (f.blocked) parts.push(`${f.blocked} waiting`);
   if (f.idleDays >= 7) parts.push(`idle ${f.idleDays} days`);
-  if (f.daysLeft !== undefined) parts.push(f.daysLeft < 0 ? `${-f.daysLeft} days past the deadline` : `${f.daysLeft} days left`);
+  if (f.daysLeft !== undefined)
+    parts.push(f.daysLeft < 0 ? `${days(-f.daysLeft)} past the deadline` : f.daysLeft === 0 ? "due today" : `${days(f.daysLeft)} left`);
   return parts.join(" · ");
 }
 
@@ -65,8 +68,10 @@ export default function ProjectInsightsCard({ project }: { project: Project }) {
         ? {
             label: "Move",
             run: () => {
-              saveTask.mutate({ id: m.taskId, data: { projectId: m.moveTo, stageId: null } });
-              showUndoToast(`Moved to ${m.moveToTitle}`, () => saveTask.mutate({ id: m.taskId, data: { projectId: project.id, stageId: m.stageId ?? null } }));
+              saveTask.mutate({ id: m.taskId, data: { projectId: m.moveTo, stageId: null } }, { onSuccess: () => void refetch() });
+              showUndoToast(`Moved to ${m.moveToTitle}`, () =>
+                saveTask.mutate({ id: m.taskId, data: { projectId: project.id, stageId: m.stageId ?? null } }, { onSuccess: () => void refetch() }),
+              );
             },
           }
         : {}),
@@ -82,7 +87,7 @@ export default function ProjectInsightsCard({ project }: { project: Project }) {
     <View style={styles.card} testID="project-insights">
       <View style={styles.header}>
         <Sparkles size={16} color={colors.primary} />
-        <SectionLabel>Insights</SectionLabel>
+        <SectionLabel compact>Insights</SectionLabel>
         {data.health ? <Text style={[styles.health, styles[data.health]]}>{HEALTH[data.health]}</Text> : null}
       </View>
       <Text style={styles.facts}>{factLine(data.facts)}</Text>

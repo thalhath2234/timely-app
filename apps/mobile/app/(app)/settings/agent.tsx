@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   Keyboard,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -284,6 +285,11 @@ function OpenRouterCard({
       description="Hosted models with your own API key. Images and receipts use OpenRouter’s zero-data-retention route."
     >
       <Text style={styles.label}>API key</Text>
+      {removeKey.error ? (
+        <Text style={styles.error}>
+          {errorMessage(removeKey.error, "Could not remove the key.")}
+        </Text>
+      ) : null}
       {!editing ? (
         <View style={[styles.row, { flexWrap: "wrap" }]}>
           {data.openrouter.keySet ? (
@@ -305,7 +311,7 @@ function OpenRouterCard({
               onPress={() =>
                 confirm({
                   title: "Remove your OpenRouter key?",
-                  message: "OpenRouter chats and semantic search stop until you add one again.",
+                  message: "OpenRouter chats and semantic search stop until you add one again, and so do smart suggestions unless you have a TypeSafe key.",
                   confirmLabel: "Remove",
                   onConfirm: () => removeKey.mutate(),
                 })
@@ -414,7 +420,9 @@ function OpenRouterCard({
   );
 }
 
-/** Smart suggestions for Inbox items. Uses the TypeSafe key first, then the
+const TYPESAFE_KEY_URL = "https://typesafe.ai";
+
+/** Smart suggestions across the app. Uses the TypeSafe key first, then the
  * OpenRouter key above; with neither, the Inbox shows no suggestions. */
 function SmartSuggestionsCard({
   data,
@@ -428,51 +436,44 @@ function SmartSuggestionsCard({
   const removeKey = useRemoveTypeSafeKey();
   const test = useTestDecisions();
   const typesafe = data.typesafe;
-  const [editing, setEditing] = useState(!typesafe.keySet);
+  const [editingKey, setEditing] = useState(false);
   const [key, setKeyValue] = useState("");
   const [keyError, setKeyError] = useState<string | null>(null);
-  // The server names a provider only while switched on; derive it otherwise
-  // so the line still says which key would be used.
-  const provider =
-    data.provider ??
-    (typesafe.keySet && !typesafe.rejected
-      ? "typesafe"
-      : data.openrouterKeySet
-        ? "openrouter"
-        : undefined);
+  // The key form opens by itself only when there is no key at all, as on web.
+  const editing = editingKey || (!typesafe.keySet && !data.openrouterKeySet);
+  let source: string;
+  if (!data.enabled) source = "Off. Timely works as it does without them.";
+  else if (data.provider === "typesafe") source = "Using your TypeSafe key.";
+  else if (data.provider === "openrouter")
+    source = typesafe.rejected
+      ? "TypeSafe refused your key, so your OpenRouter key is used for now."
+      : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
+  else source = "Add a TypeSafe or OpenRouter key to turn these on.";
 
   return (
     <View style={styles.card} testID="smart-suggestions">
       <View style={styles.row}>
-        <Text style={[styles.title, { flex: 1 }]}>Smart suggestions</Text>
+        <Text style={styles.title}>Smart suggestions</Text>
+        <Badge tone={data.available ? "ok" : "muted"}>{data.available ? "On" : "Off"}</Badge>
+        <View style={{ flex: 1 }} />
         <Switch
           accessibilityLabel="Smart suggestions"
           value={data.enabled}
           disabled={patch.isPending}
           onValueChange={(enabled) => patch.mutate(enabled)}
           trackColor={{ true: colors.primary }}
+          thumbColor={colors.background}
+          // react-native-web colours the "on" thumb with its own prop.
+          {...(Platform.OS === "web" ? ({ activeThumbColor: colors.background } as object) : {})}
         />
       </View>
       <Text style={styles.meta}>
-        Suggests fields when you clarify Inbox items, points you to an earlier
-        chat about the same thing and flags agent changes worth a check. For
-        receipts it picks a category and sheet you already use and notes
-        likely repeats, and it types the columns of an imported CSV from a
-        few of its values. On tasks and projects it suggests a status, stage,
-        fields or blocker from the description, lists work idle for three
-        weeks and reads how a project is going. In docs it suggests where a
-        doc belongs and lines that could be tasks, and notes a doc that looks
-        out of date. Receipt photos and receipt
-        amounts are never sent.
-        Uses TypeSafe’s Jev model.
+        Suggests fields, lengths, places and next steps across the Inbox,
+        Today, tasks, projects, docs, sheets, receipts, search and chat.
+        Nothing changes until you save or apply. Receipt photos and amounts
+        are never sent. Runs on Jev, TypeSafe’s fast decision model.
       </Text>
-      <Text style={styles.meta}>
-        {provider === "typesafe"
-          ? "Using your TypeSafe key"
-          : provider === "openrouter"
-            ? "Using your OpenRouter key"
-            : "Add a TypeSafe or OpenRouter key to turn this on"}
-      </Text>
+      <Text style={styles.sourceLine} testID="decisions-source">{source}</Text>
       {data.available ? (
         <View style={[styles.row, { flexWrap: "wrap" }]} testID="decisions-test">
           <Pressable
@@ -510,6 +511,11 @@ function SmartSuggestionsCard({
       {typesafe.rejected ? (
         <Text style={styles.warning}>
           TypeSafe refused this key. Replace it to use TypeSafe again.
+        </Text>
+      ) : null}
+      {removeKey.error ? (
+        <Text style={styles.error}>
+          {errorMessage(removeKey.error, "Could not remove the key.")}
         </Text>
       ) : null}
       {!editing ? (
@@ -576,23 +582,32 @@ function SmartSuggestionsCard({
               });
             }}
           />
-          {typesafe.keySet ? (
+          <View style={[styles.row, { flexWrap: "wrap" }]}>
             <Pressable
               accessibilityRole="button"
-              onPress={() => {
-                Keyboard.dismiss();
-                setKeyError(null);
-                setEditing(false);
-              }}
+              onPress={() => void Linking.openURL(TYPESAFE_KEY_URL)}
             >
-              <Text style={styles.link}>Cancel</Text>
+              <Text style={styles.link}>Get a key</Text>
             </Pressable>
-          ) : null}
+            {typesafe.keySet || data.openrouterKeySet ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setKeyError(null);
+                  setKeyValue("");
+                  setEditing(false);
+                }}
+              >
+                <Text style={styles.link}>Cancel</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       )}
-      {data.enabled ? <DeepWorkTimeField value={data.deepWorkTime ?? ""} /> : null}
-      {data.enabled ? <UseCaseField /> : null}
-      {data.enabled ? <LearnedDefaults /> : null}
+      {data.available ? <DeepWorkTimeField value={data.deepWorkTime ?? ""} /> : null}
+      {data.available ? <UseCaseField /> : null}
+      {data.available ? <LearnedDefaults /> : null}
     </View>
   );
 }
@@ -803,6 +818,11 @@ function ApiProviderCard({
       ready={view.ready}
       description={view.description}
     >
+      {removeKey.error ? (
+        <Text style={styles.error}>
+          {errorMessage(removeKey.error, "Could not remove the key.")}
+        </Text>
+      ) : null}
       {!editing ? (
         <View style={[styles.row, { flexWrap: "wrap" }]}>
           {view.keySet ? (
@@ -1203,6 +1223,7 @@ const styles = createThemedStyleSheet((colors) => ({
     letterSpacing: 0.4,
   },
   meta: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
+  sourceLine: { color: colors.foreground, fontSize: 13, lineHeight: 18 },
   error: { color: colors.destructive, fontSize: 13 },
   warning: { color: colors.warning, fontSize: 13 },
   link: {
