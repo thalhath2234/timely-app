@@ -86,7 +86,10 @@ type jevStub struct {
 	requests []jevRequest
 }
 
-func (j *jevStub) service(t *testing.T) *decide.Service {
+func (j *jevStub) service(t *testing.T) *decide.Service { return j.serviceDB(t, nil) }
+
+// serviceDB also keeps a decision log in db, so learned defaults apply.
+func (j *jevStub) serviceDB(t *testing.T, db *gorm.DB) *decide.Service {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		var req jevRequest
@@ -105,7 +108,7 @@ func (j *jevStub) service(t *testing.T) *decide.Service {
 	t.Cleanup(srv.Close)
 	client := decide.NewClient(nil)
 	client.TypeSafeURL = srv.URL
-	return decide.New(nil, func(context.Context, string) (decide.Keys, error) {
+	return decide.New(db, func(context.Context, string) (decide.Keys, error) {
 		return decide.Keys{Enabled: true, TypeSafe: "ts-test-key-123"}, nil
 	}, client)
 }

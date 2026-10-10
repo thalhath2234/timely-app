@@ -143,6 +143,7 @@ func main() {
 	notifyService.SetBriefing(suggestions.Brief)
 	workEstimate = suggestions.Estimate
 	smartSearch := search.NewSmart(searchService, indexer, decisions)
+	smartSearch.SetViews(search.ViewsFromDB(db))
 	searchRerank = smartSearch.Rerank
 	taskPick = smartSearch.Pick
 	mcpServer := agent.New(agent.Deps{

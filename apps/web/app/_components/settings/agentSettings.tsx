@@ -31,6 +31,10 @@ import {
 } from "@/app/utils/hooks/agentProviders";
 import {
   useDecisions,
+  useLearned,
+  usePersonalPrefs,
+  useResetLearned,
+  useSaveUseCase,
   useRemoveTypeSafeKey,
   useSetDecisionPrefs,
   useSetDecisionsEnabled,
@@ -1197,7 +1201,116 @@ function DecisionsCard() {
         )}
       </div>
       {data.enabled && <DecisionPrefs data={data} />}
+      {data.enabled && <UseCaseField />}
+      {data.enabled && <LearnedDefaults />}
     </section>
+  );
+}
+
+/** What the person uses Timely for, in their own words. Starter labels in
+ * workspace settings are picked from it. */
+function UseCaseField() {
+  const prefs = usePersonalPrefs();
+  const save = useSaveUseCase();
+  const saved = prefs.data?.prefs.useCase ?? "";
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? saved;
+  const dirty = value.trim() !== saved;
+  const onSave = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      await save.mutateAsync(value.trim());
+      setDraft(null);
+    } catch {
+      // The error shows below.
+    }
+  };
+  return (
+    <form onSubmit={onSave} className="flex flex-col gap-1.5 border-t border-border pt-4" data-testid="use-case">
+      <label htmlFor="use-case" className="text-xs text-muted-foreground">
+        What you use Timely for
+      </label>
+      <input
+        id="use-case"
+        value={value}
+        maxLength={300}
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder="Running a bakery and studying for a design course"
+        className={inputClass}
+        disabled={save.isPending || prefs.isLoading}
+      />
+      <div className="flex items-center gap-2">
+        <button type="submit" disabled={!dirty || save.isPending} className={secondaryButton}>
+          Save
+        </button>
+        <span className="text-[11px] text-muted-foreground">
+          Workspace settings suggest starter labels that fit it.
+        </span>
+      </div>
+      {save.error && <p className="text-xs text-destructive">{errorMessage(save.error, "Could not save.")}</p>}
+    </form>
+  );
+}
+
+/** Names for the features that learn from what the person keeps. */
+const LEARNED_NAMES: Record<string, string> = {
+  clarify: "Clarify form",
+  doc_mention: "Link selection to an item",
+  project_template: "Start from a template",
+  sheet_template: "Sheet templates",
+  search: "Search",
+  screen_tip: "Screen tips",
+  chat_prompts: "Chat example prompts",
+  starter_labels: "Starter labels",
+  today: "Today suggestions",
+  task_hints: "Task hints",
+  stale_work: "Stale work",
+  project_insights: "Project insights",
+  project_move: "Move to project",
+  taxonomy_cleanup: "Merge suggestions",
+  doc_hints: "Doc suggestions",
+  receipt: "Receipts",
+  smart_alerts: "Smart alerts",
+  dashboard_highlights: "Dashboard highlights",
+};
+
+/** How often the person kept each feature's suggestions. A feature whose
+ * suggestions were mostly changed now waits until it is surer. */
+function LearnedDefaults() {
+  const learned = useLearned();
+  const reset = useResetLearned();
+  const rows = learned.data?.features ?? [];
+  if (!rows.length) return null;
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-4" data-testid="decisions-learned">
+      <div>
+        <p className="text-sm font-medium">What suggestions learned</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          When you change most of a feature&apos;s suggestions, it suggests only when it is surer. Counts cover the last 20 answers in 30 days.
+        </p>
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {rows.map((row) => (
+          <li key={row.feature} className="flex items-center justify-between gap-3 text-xs">
+            <span>
+              <span className="font-medium text-foreground">{LEARNED_NAMES[row.feature] ?? row.feature}</span>
+              <span className="text-muted-foreground"> · kept {row.kept} of {row.decided}</span>
+              {row.raise > 0 ? <span className="text-amber-600 dark:text-amber-400"> · now asks for more certainty</span> : null}
+            </span>
+            {row.raise > 0 ? (
+              <button
+                type="button"
+                disabled={reset.isPending}
+                onClick={() => reset.mutate(row.feature)}
+                className="shrink-0 rounded-md px-2 py-0.5 text-primary hover:bg-primary/10 disabled:opacity-50"
+              >
+                Reset
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

@@ -27,6 +27,7 @@ import {
   updateWorkingHours,
 } from "./api/schedule";
 import { useScheduleActivity } from "./scheduleActivity";
+import { deviceTimezone } from "./format";
 import { createEvent, deleteEvent, editEventOccurrence, getEvent, splitEventSeries, updateEvent } from "./api/events";
 import { relatedItems, searchItems, smartSearch, type RelatedKind } from "./api/search";
 import { listApiKeys, createApiKey, revokeApiKey } from "./api/apiKeys";
@@ -61,6 +62,15 @@ import {
   patchDecisionSettings,
   removeTypeSafeKey,
   sendDecisionFeedback,
+  getScreenTip,
+  dismissScreenTip,
+  getChatPrompts,
+  getLearned,
+  resetLearned,
+  getStarterLabels,
+  getPersonalPrefs,
+  savePersonalUseCase,
+  type TipScreen,
   setTypeSafeKey,
   type DecisionSettings,
 } from "./api/decisions";
@@ -126,6 +136,11 @@ export const keys = {
   docHints: (id: string, version: string) => ["doc-hints", id, version] as const,
   todaySuggestions: (timezone: string, version: string) => ["today-suggestions", timezone, version] as const,
   highlights: (factsKey: string) => ["highlights", factsKey] as const,
+  screenTip: (screen: string) => ["screen-tip", screen] as const,
+  chatPrompts: (projectId: string) => ["chat-prompts", projectId] as const,
+  learned: ["decisions-learned"] as const,
+  starterLabels: (workspaceId: string) => ["starter-labels", workspaceId] as const,
+  personalPrefs: ["personal-prefs"] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
   freeTime: ["schedule", "free-time"] as const,
@@ -597,6 +612,77 @@ export function useNotificationTriage() {
       void invalidate().catch(() => undefined);
       void client.invalidateQueries({ queryKey: keys.notifications });
       void client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
+/** The one tip smart suggestions pick for a screen, if any. */
+export function useScreenTipQuery(screen: TipScreen) {
+  const status = useDecisionsStatusQuery();
+  return useQuery({
+    queryKey: keys.screenTip(screen),
+    queryFn: () => getScreenTip(screen, deviceTimezone()),
+    enabled: status.data?.available === true,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useDismissTip() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, logId }: { key: string; logId?: string }) => dismissScreenTip(key, logId),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["screen-tip"] }),
+  });
+}
+
+/** Example prompts for the empty chat, fitted to a project. */
+export function useChatPromptsQuery(projectId?: string) {
+  const status = useDecisionsStatusQuery();
+  return useQuery({
+    queryKey: keys.chatPrompts(projectId ?? ""),
+    queryFn: () => getChatPrompts(projectId, deviceTimezone()),
+    enabled: status.data?.available === true,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useLearnedQuery(enabled = true) {
+  return useQuery({ queryKey: keys.learned, queryFn: getLearned, enabled });
+}
+
+export function useResetLearned() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (feature: string) => resetLearned(feature),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.learned }),
+  });
+}
+
+/** Starter labels smart suggestions think a workspace is missing. */
+export function useStarterLabelsQuery(workspaceId: string) {
+  const status = useDecisionsStatusQuery(!!workspaceId);
+  return useQuery({
+    queryKey: keys.starterLabels(workspaceId),
+    queryFn: () => getStarterLabels(workspaceId),
+    enabled: !!workspaceId && status.data?.available === true,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function usePersonalPrefsQuery(enabled = true) {
+  return useQuery({ queryKey: keys.personalPrefs, queryFn: getPersonalPrefs, enabled, retry: false });
+}
+
+export function useSaveUseCase() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (useCase: string) => savePersonalUseCase(useCase),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.personalPrefs });
+      client.invalidateQueries({ queryKey: ["starter-labels"] });
     },
   });
 }

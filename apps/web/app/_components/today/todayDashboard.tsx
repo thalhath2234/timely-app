@@ -52,6 +52,7 @@ import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu
 import type { CalendarItem, Task } from "@/app/_types/types";
 import { entityTitleKey } from "@/app/utils/titleMorph";
 import TodaySuggestions from "@/app/_components/today/todaySuggestions";
+import ScreenTip from "@/app/_components/_ui/screenTip";
 
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
@@ -935,6 +936,8 @@ export default function TodayDashboard() {
                   </button>
                 </div>
               </section>
+
+              <ScreenTip screen="today" />
 
               <TodaySuggestions
                 date={data.date}

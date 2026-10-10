@@ -15,6 +15,15 @@ import {
   setDecisionsEnabled,
   setDecisionPrefs,
   getHighlights,
+  getScreenTip,
+  dismissScreenTip,
+  getChatPrompts,
+  getLearned,
+  resetLearned,
+  getStarterLabels,
+  getPersonalPrefs,
+  savePersonalUseCase,
+  type TipScreen,
   getTodaySuggestions,
   runNotificationTriage,
   type DeepWorkTime,
@@ -190,6 +199,76 @@ export function useNotificationTriage() {
     onSettled: () => {
       for (const key of ["notifications", "tasks", "today", "calendar", "today-suggestions"])
         queryClient.invalidateQueries({ queryKey: [key] });
+    },
+  });
+}
+
+const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** The one tip smart suggestions pick for a screen, if any. */
+export function useScreenTip(screen: TipScreen) {
+  return useQuery({
+    queryKey: ["screen-tip", screen],
+    queryFn: () => getScreenTip(screen, browserZone()),
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+}
+
+export function useDismissTip() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { key: string; logId?: string }) => dismissScreenTip(vars.key, vars.logId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["screen-tip"] }),
+  });
+}
+
+/** Example prompts for the empty chat, fitted to a project. */
+export function useChatPrompts(projectId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["chat-prompts", projectId ?? ""],
+    queryFn: () => getChatPrompts(projectId, browserZone()),
+    enabled,
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+}
+
+export function useLearned(enabled = true) {
+  return useQuery({ queryKey: ["decisions-learned"], queryFn: getLearned, enabled });
+}
+
+export function useResetLearned() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (feature: string) => resetLearned(feature),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["decisions-learned"] }),
+  });
+}
+
+/** Starter labels smart suggestions think a workspace is missing. */
+export function useStarterLabels(workspaceId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["starter-labels", workspaceId ?? ""],
+    queryFn: () => getStarterLabels(workspaceId!),
+    enabled: enabled && Boolean(workspaceId),
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+}
+
+/** What the person told Timely they use it for. */
+export function usePersonalPrefs(enabled = true) {
+  return useQuery({ queryKey: ["personal-prefs"], queryFn: getPersonalPrefs, enabled });
+}
+
+export function useSaveUseCase() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (useCase: string) => savePersonalUseCase(useCase),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["personal-prefs"] });
+      queryClient.invalidateQueries({ queryKey: ["starter-labels"] });
     },
   });
 }

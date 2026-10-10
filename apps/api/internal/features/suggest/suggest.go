@@ -65,6 +65,7 @@ func (s *Service) Routes(g *echo.Group) {
 	s.docRoutes(g)
 	s.todayRoutes(g)
 	s.highlightRoutes(g)
+	s.personalRoutes(g)
 }
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }

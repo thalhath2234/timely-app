@@ -6,6 +6,7 @@ import ColorPicker from "@/app/_components/_ui/colorPicker";
 import CustomFieldEditor from "@/app/_components/settings/customFieldEditor";
 import CleanupSuggestions from "@/app/_components/settings/cleanupSuggestions";
 import NamedColorEditor from "@/app/_components/settings/namedColorEditor";
+import StarterLabels from "@/app/_components/settings/starterLabels";
 import { Workspace } from "@/app/_types/types";
 import { cn } from "@/app/utils/cn";
 import {
@@ -229,6 +230,7 @@ function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
           />
         )}
 
+        {tab === "labels" && <StarterLabels workspaceId={workspace.id} />}
         {tab === "labels" && <CleanupSuggestions workspaceId={workspace.id} kind="label" />}
         {tab === "labels" && (
           <NamedColorEditor

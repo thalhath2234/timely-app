@@ -14,6 +14,7 @@ import CustomFieldBuilder, {
   type OptionDraft,
 } from "../../../../components/ui/CustomFieldBuilder";
 import { Field, PrimaryButton, SectionLabel } from "../../../../components/ui/primitives";
+import StarterLabels from "../../../../components/settings/StarterLabels";
 import ConfirmSheet, { type ConfirmRequest } from "../../../../components/ui/ConfirmSheet";
 import { keys, useInvalidateAll, useProjectsQuery, useWorkspacesQuery } from "../../../../lib/hooks";
 import {
@@ -207,6 +208,7 @@ export default function WorkspaceEditor() {
         />
 
         <SectionLabel>Labels</SectionLabel>
+        <StarterLabels workspaceId={workspace.id} />
         {(workspace.lables ?? []).map((l) => (
           <View key={l.id} style={styles.card}>
             {editingLabelId === l.id ? (
