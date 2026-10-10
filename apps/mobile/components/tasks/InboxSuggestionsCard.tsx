@@ -85,10 +85,11 @@ function planSuggestions(
     // A reminder needs a time; this matches the screen's Reminder choice,
     // and the card says when it will ping.
     // A date read from the words wins when Jev says it is the reminder time.
-    const pingAt =
-      s.dateRole === "reminder" && s.date
-        ? localAt(s.date, s.time || "09:00")
-        : task.scheduledOn || nextHour();
+    // A read time that has already passed today pings at the next hour.
+    const readAt = s.dateRole === "reminder" && s.date ? localAt(s.date, s.time || "09:00") : "";
+    const pingAt = readAt
+      ? new Date(readAt) < new Date() ? nextHour() : readAt
+      : task.scheduledOn || nextHour();
     const when = isSameDay(new Date(pingAt), new Date()) ? formatTime(pingAt) : formatDateAndTime(pingAt);
     lines.push(`Reminder · pings at ${when}`);
     update.kind = "reminder";

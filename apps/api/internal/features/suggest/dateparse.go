@@ -30,11 +30,14 @@ var (
 	monthNames = `(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)`
 	reISO      = regexp.MustCompile(`\b(\d{4})-(\d{2})-(\d{2})\b`)
 	reDayMonth = regexp.MustCompile(`\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?` + monthNames + `\b`)
+	// "these 2 may help" is not May 2: "may" followed by another word is the verb.
+	reMayVerb  = regexp.MustCompile(`^\s+[a-z]`)
 	reMonthDay = regexp.MustCompile(`\b` + monthNames + `\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b`)
 	reInDays   = regexp.MustCompile(`\bin\s+(\d{1,2}|a|one|two|three)\s+(day|days|week|weeks)\b`)
 	// Short forms that are also words ("sat", "wed", "sun", "mon") are left out.
 	reWeekday   = regexp.MustCompile(`\b(next\s+|this\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|tues?|thu(?:rs)?|fri)(?:[^\w-]|$)`)
-	reClock     = regexp.MustCompile(`\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)`)
+	reClock     = regexp.MustCompile(`\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)(?:[^\w]|$)`)
+	reNoon      = regexp.MustCompile(`\b(noon|midday)\b`) // not "afternoon"
 	reClock24   = regexp.MustCompile(`\bat\s+(\d{1,2}):(\d{2})\b`)
 	smallNumber = map[string]int{"a": 1, "one": 1, "two": 2, "three": 3}
 )
@@ -55,7 +58,7 @@ func titleDate(text string, now time.Time) (date, clock string, ok bool) {
 			return "", "", false
 		}
 		day = t
-	case reDayMonth.MatchString(s):
+	case reDayMonth.MatchString(s) && !mayVerb(s):
 		m := reDayMonth.FindStringSubmatch(s)
 		day, found = monthDay(today, m[2], m[1])
 	case reMonthDay.MatchString(s):
@@ -67,6 +70,16 @@ func titleDate(text string, now time.Time) (date, clock string, ok bool) {
 		day = today.AddDate(0, 0, 1)
 	case regexp.MustCompile(`\b(today|tonight|this evening|this afternoon|this morning)\b`).MatchString(s):
 		day = today
+		if clock := titleClock(s); clock == "" {
+			// A part of the day stands in for a time, so a reminder for
+			// "tonight" does not fall back to a morning that has passed.
+			switch {
+			case regexp.MustCompile(`\b(tonight|this evening)\b`).MatchString(s):
+				return day.Format("2006-01-02"), "19:00", true
+			case strings.Contains(s, "this afternoon"):
+				return day.Format("2006-01-02"), "15:00", true
+			}
+		}
 	case reInDays.MatchString(s):
 		m := reInDays.FindStringSubmatch(s)
 		n, err := strconv.Atoi(m[1])
@@ -107,6 +120,12 @@ func titleDate(text string, now time.Time) (date, clock string, ok bool) {
 	return day.Format("2006-01-02"), titleClock(s), true
 }
 
+// mayVerb is true when the day-month match ends in "may" used as a verb.
+func mayVerb(s string) bool {
+	loc := reDayMonth.FindStringSubmatchIndex(s)
+	return loc != nil && s[loc[4]:loc[5]] == "may" && reMayVerb.MatchString(s[loc[1]:])
+}
+
 // monthDay is the next date with that month and day, this year or next.
 func monthDay(today time.Time, month, dayText string) (time.Time, bool) {
 	mon, ok := months[strings.TrimSuffix(month, ".")]
@@ -129,7 +148,7 @@ func monthDay(today time.Time, month, dayText string) (time.Time, bool) {
 
 // titleClock reads "3pm", "at 3:30 pm", "at 15:00" or "noon" as HH:MM.
 func titleClock(s string) string {
-	if strings.Contains(s, "noon") || strings.Contains(s, "midday") {
+	if reNoon.MatchString(s) {
 		return "12:00"
 	}
 	if m := reClock.FindStringSubmatch(s); m != nil {

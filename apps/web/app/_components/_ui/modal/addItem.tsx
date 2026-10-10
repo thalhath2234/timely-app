@@ -321,6 +321,7 @@ function AddItemModalInner() {
     control: taskControl,
     setValue: setValueTask,
     getFieldState: getTaskFieldState,
+    getValues: getTaskValue,
     formState: { errors: taskErrors, isValid: isTaskValid },
   } = useForm<AddTaskForm>({
     resolver: zodResolver(addTaskSchema),
@@ -863,12 +864,19 @@ function AddItemModalInner() {
         setValueTask("deadline", suggestions.date, { shouldValidate: true });
         dateFilled = true;
       } else if (suggestions.dateRole === "start" && !taskIsReminder && !getTaskFieldState("startDate").isDirty) {
+        // Only the date: a time here would place a block on the calendar.
         setValueTask("startDate", suggestions.date, { shouldValidate: true });
-        if (suggestions.time)
-          setValueTask("scheduledOn", toDatetimeLocalValue(applyClockToDate(day, suggestions.time)), { shouldValidate: true });
         dateFilled = true;
-      } else if (suggestions.dateRole === "reminder" && taskKind === "reminder" && !getTaskFieldState("scheduledOn").isDirty) {
-        setValueTask("scheduledOn", toDatetimeLocalValue(applyClockToDate(day, suggestions.time || "09:00")), { shouldValidate: true });
+      } else if (
+        suggestions.dateRole === "reminder" &&
+        taskKind === "reminder" &&
+        // Still empty, or only the next-hour default from picking Reminder.
+        (!getTaskFieldState("scheduledOn").isDirty ||
+          getTaskValue("scheduledOn") === toDatetimeLocalValue(nextRoundHour()))
+      ) {
+        // A read time that has already passed today pings at the next hour.
+        const at = applyClockToDate(day, suggestions.time || "09:00");
+        setValueTask("scheduledOn", toDatetimeLocalValue(at < new Date() ? nextRoundHour() : at), { shouldValidate: true });
         dateFilled = true;
       }
       if (dateFilled) filled = true;

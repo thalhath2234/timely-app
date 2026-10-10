@@ -130,18 +130,13 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 		t.Fatal("an overdue step ran on a smart alert")
 	}
 
-	// With smart suggestions off the sweep queues no job.
+	// With smart suggestions off the day's job asks for no alerts.
 	svc.SetDecisions(func(context.Context, string) bool { return false }, nil)
-	settings, _ := svc.repo.GetSettings(user)
-	loc := settings.Location(svc.repo.WorkingHoursTimezone(user))
-	late := time.Now().In(loc)
-	late = time.Date(late.Year(), late.Month(), late.Day(), 23, 59, 0, 0, loc)
-	if err := svc.sweepSmartAlerts(context.Background(), user, late); err != nil {
-		t.Fatal(err)
+	asked := len(skipped)
+	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil || len(skipped) != asked {
+		t.Fatalf("asked with suggestions off: %d %v", len(skipped)-asked, err)
 	}
-	if svc.queue.HasJob("smart_alerts:" + user + ":" + late.Format("2006-01-02")) {
-		t.Fatal("queued smart alerts with suggestions off")
-	}
+	svc.SetDecisions(func(context.Context, string) bool { return true }, nil)
 
 	// Turned off: no alerts are asked for.
 	off := false

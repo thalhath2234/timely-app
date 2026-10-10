@@ -40,3 +40,22 @@ func TestTitleDateReadsPlainPhrases(t *testing.T) {
 		}
 	}
 }
+
+func TestTitleDateFalseMatchesAndDayParts(t *testing.T) {
+	now := time.Date(2026, 10, 10, 15, 0, 0, 0, time.UTC) // a Saturday afternoon
+	for _, tc := range []struct{ text, date, clock string }{
+		{"Call mom tonight", "2026-10-10", "19:00"},
+		{"Finish the slides this afternoon", "2026-10-10", "15:00"},
+		{"Call mom tonight at 9pm", "2026-10-10", "21:00"},
+		{"Lunch with the 2 amigos tomorrow", "2026-10-11", ""},
+		{"Dentist on 3 may", "2027-05-03", ""},
+	} {
+		date, clock, ok := titleDate(tc.text, now)
+		if !ok || date != tc.date || clock != tc.clock {
+			t.Errorf("%q: got %q %q %v, want %q %q", tc.text, date, clock, ok, tc.date, tc.clock)
+		}
+	}
+	if date, _, ok := titleDate("these 2 may help with the plan", now); ok {
+		t.Errorf("read a date from a verb: %q", date)
+	}
+}

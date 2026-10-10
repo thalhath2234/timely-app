@@ -110,7 +110,9 @@ func (s *Service) sweepSmartAlerts(ctx context.Context, userID string, now time.
 	}
 	day := local.Format("2006-01-02")
 	key := "smart_alerts:" + userID + ":" + day
-	if s.queue.HasJob(key) || !s.smartOn(ctx, userID) {
+	// The key check happens in the job, so an account with no key costs one
+	// queued job a day rather than a key lookup on every sweep.
+	if s.queue.HasJob(key) {
 		return nil
 	}
 	_, err = s.queue.Enqueue(jobs.Enqueue{UserID: userID, Kind: models.JobSmartAlerts, DedupeKey: key, Payload: models.JobPayload{"date": day}})
@@ -126,7 +128,7 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 	if err != nil {
 		return err
 	}
-	if !settings.SmartAlertsOn() {
+	if !settings.SmartAlertsOn() || !s.smartOn(ctx, job.UserID) {
 		return nil
 	}
 	skip, err := s.repo.RecentlyAlerted(job.UserID, time.Now().AddDate(0, 0, -alertQuietDays))
