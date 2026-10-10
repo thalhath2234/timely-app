@@ -22,6 +22,10 @@ import {
   useConnectProvider,
   useDecisionSettingsQuery,
   useDisconnectProvider,
+  useLearnedQuery,
+  usePersonalPrefsQuery,
+  useResetLearned,
+  useSaveUseCase,
   usePatchAgentProviders,
   usePatchDecisionSettings,
   useProviderModelsQuery,
@@ -555,6 +559,87 @@ function SmartSuggestionsCard({
           ) : null}
         </View>
       )}
+      {data.enabled ? <UseCaseField /> : null}
+      {data.enabled ? <LearnedDefaults /> : null}
+    </View>
+  );
+}
+
+/** What the person uses Timely for, in their own words. Workspace settings
+ * suggest starter labels that fit it. */
+function UseCaseField() {
+  const prefs = usePersonalPrefsQuery();
+  const save = useSaveUseCase();
+  const saved = prefs.data?.prefs.useCase ?? "";
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? saved;
+  return (
+    <View style={{ gap: 8 }} testID="use-case">
+      <Text style={styles.label}>What you use Timely for</Text>
+      <Field value={value} onChangeText={setDraft} placeholder="Running a bakery and studying design" />
+      {value.trim() !== saved ? (
+        <PrimaryButton
+          label={save.isPending ? "Saving…" : "Save"}
+          disabled={save.isPending}
+          onPress={() => {
+            Keyboard.dismiss();
+            save.mutate(value.trim(), { onSuccess: () => setDraft(null) });
+          }}
+        />
+      ) : null}
+      {save.error ? <Text style={styles.error}>{errorMessage(save.error, "Could not save.")}</Text> : null}
+    </View>
+  );
+}
+
+/** Names for the features that learn from what the person keeps. */
+const LEARNED_NAMES: Record<string, string> = {
+  clarify: "Clarify form",
+  doc_mention: "Link selection to an item",
+  project_template: "Start from a template",
+  sheet_template: "Sheet templates",
+  search: "Search",
+  screen_tip: "Screen tips",
+  chat_prompts: "Chat example prompts",
+  starter_labels: "Starter labels",
+  today: "Today suggestions",
+  task_hints: "Task hints",
+  stale_work: "Stale work",
+  project_insights: "Project insights",
+  project_move: "Move to project",
+  taxonomy_cleanup: "Merge suggestions",
+  doc_hints: "Doc suggestions",
+  receipt: "Receipts",
+  smart_alerts: "Smart alerts",
+  dashboard_highlights: "Dashboard highlights",
+};
+
+/** How often the person kept each feature's suggestions. A feature whose
+ * suggestions were mostly changed now waits until it is surer. */
+function LearnedDefaults() {
+  const learned = useLearnedQuery();
+  const reset = useResetLearned();
+  const rows = learned.data?.features ?? [];
+  if (!rows.length) return null;
+  return (
+    <View style={{ gap: 6 }} testID="decisions-learned">
+      <Text style={styles.label}>What suggestions learned</Text>
+      <Text style={styles.meta}>
+        When you change most of a feature’s suggestions, it suggests only when it is surer.
+      </Text>
+      {rows.map((row) => (
+        <View key={row.feature} style={[styles.row, { justifyContent: "space-between" }]}>
+          <Text style={[styles.meta, { flex: 1 }]}>
+            {LEARNED_NAMES[row.feature] ?? row.feature} · kept {row.kept} of {row.decided}
+            {row.raise > 0 ? " · asks for more certainty" : ""}
+          </Text>
+          {row.raise > 0 ? (
+            <Pressable accessibilityRole="button" disabled={reset.isPending} onPress={() => reset.mutate(row.feature)}>
+              <Text style={styles.link}>Reset</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ))}
     </View>
   );
 }

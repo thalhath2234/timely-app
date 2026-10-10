@@ -62,6 +62,8 @@ export type SmartSearch = {
   hidden?: SearchHit[];
   category?: "doc" | "sheet" | "task" | "project" | "event";
   create?: { kind: "doc" | "sheet" | "task" | "project" | "event"; title: string };
+  /** A saved view the search seems to ask for ("what needs attention"). */
+  view?: { id: string; name: string };
   logId?: string;
 };
 

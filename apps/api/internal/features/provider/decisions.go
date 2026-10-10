@@ -258,3 +258,27 @@ func (s *Service) decisionFeedback(c *echo.Context) error {
 	}
 	return c.NoContent(204)
 }
+
+// decisionsLearned lists how often the person kept each feature's
+// suggestions and which ones now ask for more certainty [96].
+func (s *Service) decisionsLearned(c *echo.Context) error {
+	out, err := s.decisions.LearnedFor(user(c))
+	if err != nil {
+		return err
+	}
+	return c.JSON(200, map[string]any{"features": out})
+}
+
+// resetLearned forgets the person's answers for one feature.
+func (s *Service) resetLearned(c *echo.Context) error {
+	var in struct {
+		Feature string `json:"feature"`
+	}
+	if err := c.Bind(&in); err != nil || in.Feature == "" || len(in.Feature) > 60 {
+		return echo.NewHTTPError(400, "Invalid request")
+	}
+	if err := s.decisions.ResetLearned(user(c), in.Feature); err != nil {
+		return err
+	}
+	return c.NoContent(204)
+}

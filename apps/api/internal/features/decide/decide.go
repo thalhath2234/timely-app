@@ -111,12 +111,24 @@ type Answers struct {
 	Provider string
 	LogID    string
 	answers  map[string]Answer
+	// raise is added to every reader's minimum confidence: learned from
+	// how often the person kept this feature's suggestions (see learned.go).
+	raise float64
+}
+
+// need is the confidence a reader asks for once the person's history is
+// counted. A reader asking for any confidence (0) is left alone.
+func (a Answers) need(min float64) float64 {
+	if min <= 0 || a.raise <= 0 {
+		return min
+	}
+	return math.Min(min+a.raise, maxNeed)
 }
 
 // Choice returns the chosen option when confidence reaches min.
 func (a Answers) Choice(id string, min float64) (string, bool) {
 	x, ok := a.answers[id]
-	if !ok || x.Kind != typeChoice || x.Confidence < min {
+	if !ok || x.Kind != typeChoice || x.Confidence < a.need(min) {
 		return "", false
 	}
 	return x.Choice, true
@@ -125,7 +137,7 @@ func (a Answers) Choice(id string, min float64) (string, bool) {
 // Level returns the score level index when confidence reaches min.
 func (a Answers) Level(id string, min float64) (int, bool) {
 	x, ok := a.answers[id]
-	if !ok || x.Kind != typeScore || x.Confidence < min {
+	if !ok || x.Kind != typeScore || x.Confidence < a.need(min) {
 		return 0, false
 	}
 	return x.Level, true
@@ -134,7 +146,7 @@ func (a Answers) Level(id string, min float64) (int, bool) {
 // Yes returns the yes/no answer when confidence reaches min.
 func (a Answers) Yes(id string, min float64) (bool, bool) {
 	x, ok := a.answers[id]
-	if !ok || x.Kind != typeNoul || x.Confidence < min {
+	if !ok || x.Kind != typeNoul || x.Confidence < a.need(min) {
 		return false, false
 	}
 	return x.Yes >= 0.5, true
@@ -166,6 +178,10 @@ type Service struct {
 	slots map[string]chan struct{}
 	cache map[string]cached
 	rand  func(int) []int
+	// learned holds each account's raise per feature for a while.
+	learned map[string]learnedRaise
+	// learnGen counts forget calls (see learned.go).
+	learnGen uint64
 
 	pruned time.Time
 }
@@ -181,7 +197,7 @@ func New(db *gorm.DB, keys KeySource, client Caller) *Service {
 	if client == nil {
 		client = NewClient(nil)
 	}
-	return &Service{db: db, keys: keys, client: client, slots: map[string]chan struct{}{}, cache: map[string]cached{}, rand: rand.Perm}
+	return &Service{db: db, keys: keys, client: client, slots: map[string]chan struct{}{}, cache: map[string]cached{}, rand: rand.Perm, learned: map[string]learnedRaise{}}
 }
 
 // Status reports whether suggestions are available for an account and which
@@ -216,6 +232,7 @@ func (s *Service) Ask(ctx context.Context, userID string, req Request) (Answers,
 	}
 	cacheKey := fmt.Sprintf("%x", sha256.Sum256(append([]byte(userID+"\x00"+req.Feature+"\x00"), stableKey(req)...)))
 	if a, ok := s.cached(cacheKey); ok {
+		a.raise = s.raiseFor(userID, req.Feature)
 		return a, nil
 	}
 	release, ok := s.acquire(ctx, userID)
@@ -239,6 +256,7 @@ func (s *Service) Ask(ctx context.Context, userID string, req Request) (Answers,
 	}
 	answers.LogID = logID
 	s.store(cacheKey, answers)
+	answers.raise = s.raiseFor(userID, req.Feature)
 	return answers, nil
 }
 
@@ -502,8 +520,10 @@ func (s *Service) Feedback(userID, logID string, accepted bool) error {
 		return nil
 	}
 	now := time.Now().UTC()
-	return s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ?", logID, userID).
+	err := s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ?", logID, userID).
 		Updates(map[string]any{"accepted": accepted, "decided_at": now}).Error
+	s.forget(userID)
+	return err
 }
 
 // Prune drops log rows older than 30 days, at most once an hour (the job

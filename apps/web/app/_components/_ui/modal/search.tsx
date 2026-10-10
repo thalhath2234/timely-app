@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, ArrowUpRight, CalendarDays, CheckSquare, Command, FileText, Folder, LayoutGrid, Plus, Search, Sparkles, Table2, X, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, CalendarDays, CheckSquare, Command, FileText, Folder, LayoutGrid, ListFilter, Plus, Search, Sparkles, Table2, X, type LucideIcon } from "lucide-react";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useSearch, useSmartSearch } from "@/app/utils/hooks/search";
 import type { SearchHit } from "@/app/utils/api/search";
+import { sendDecisionFeedback } from "@/app/utils/api/decisions";
 import { cn } from "@/app/utils/cn";
 import { openTasksEntity } from "@/app/utils/entityDetail";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
@@ -146,7 +147,18 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
     id: `suggest-${suggestion.kind}`, title: `Create ${nouns[suggestion.kind]} “${suggestion.title}”`, description: "Looks like you want to make something new",
     kind: suggestion.kind, icon: Plus, command: true, section: "suggested", run: () => create(suggestion.kind, suggestion.title),
   }] : [];
-  const items = [...suggested, ...results, ...commands];
+  // A search that reads as "show me what needs attention" can open a saved view.
+  const viewPick = smartData?.view;
+  const viewItems: PaletteItem[] = viewPick && (category === "all" || category === "task") ? [{
+    id: `view-${viewPick.id}`, title: `Open view “${viewPick.name}”`, description: "Your saved view for this", kind: "view", icon: ListFilter, section: "suggested",
+    run: () => {
+      onClose();
+      if (onDemoSelect) return onDemoSelect(`Open view “${viewPick.name}”`);
+      if (smartData?.logId) void sendDecisionFeedback(smartData.logId, true).catch(() => {});
+      router.push(`/tasks?view=${encodeURIComponent(viewPick.id)}`);
+    },
+  }] : [];
+  const items = [...viewItems, ...suggested, ...results, ...commands];
   const pinned = selection.id ? items.findIndex((item) => item.id === selection.id) : -1;
   const active = pinned >= 0 ? pinned : Math.min(selection.index, Math.max(0, items.length - 1));
   const select = (index: number) => setSelection({ index, id: items[index]?.id });

@@ -12,6 +12,7 @@ import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import type { Task } from "@/app/_types/types";
 import { AnimatePresence, motion } from "motion/react";
 import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
+import ScreenTip from "@/app/_components/_ui/screenTip";
 
 export default function InboxPage() {
   const inbox = useInboxTasks();
@@ -52,6 +53,7 @@ export default function InboxPage() {
         <p className="mt-1.5 text-sm text-muted-foreground">
           Capture a title now. Assign a workspace to make it work, or turn it into a reminder when you review.
         </p>
+        <ScreenTip screen="inbox" className="mt-3" />
         <form onSubmit={onCapture} className="mt-4 flex gap-2">
           <input
             ref={captureRef}

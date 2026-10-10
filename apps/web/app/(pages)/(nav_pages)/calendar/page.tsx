@@ -43,6 +43,7 @@ import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
 import { AnimatePresence, motion } from "motion/react";
 import { fadeTransition, springSoft } from "@/app/_components/_ui/motion";
+import ScreenTip from "@/app/_components/_ui/screenTip";
 
 function CalendarContent() {
   const searchParams = useSearchParams();
@@ -324,6 +325,8 @@ function CalendarContent() {
           </div>
         </div>
       </div>
+
+      <ScreenTip screen="calendar" />
 
       {(legend.length > 0 || events.length === 0) && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">

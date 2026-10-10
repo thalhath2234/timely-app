@@ -42,6 +42,7 @@ import { addDays, dayKey, formatDuration, formatMonthYear, formatTime, isSameDay
 import { taskDeadlineDate } from "../../../lib/taskDates";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import ScreenTip from "../../../components/ui/ScreenTip";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
 
 type CalView = "day" | "week" | "agenda" | "month";
@@ -278,6 +279,7 @@ export default function CalendarScreen() {
           <EmptyState icon={Sparkles} title="Couldn't load calendar" description={networkCopy} />
         ) : (
           <>
+            <ScreenTip screen="calendar" style={{ marginHorizontal: 16, marginTop: 8 }} />
             {waiting.length > 0 ? (
               <View style={styles.waiting}>
                 <AnimatedPressable onPress={() => setWaitingOpen((open) => !open)} style={styles.waitingHead}>

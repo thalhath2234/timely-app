@@ -11,6 +11,7 @@ import (
 	"testing"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
+	"timely-api/internal/models"
 )
 
 // fixedHits is a search Service that always returns the same hits.
@@ -245,5 +246,49 @@ func TestPickSplitsMatchesUnsureAndMisses(t *testing.T) {
 	matches, unsure, _, ok = s.Pick(context.Background(), "u1", "website launch", hits)
 	if ok || len(matches) != 0 || len(unsure) != 4 {
 		t.Fatalf("off: matches %v unsure %v ok %v", matches, unsure, ok)
+	}
+}
+
+func TestSmartSearchPicksASavedView(t *testing.T) {
+	var calls atomic.Int32
+	views := func(context.Context, string) []SavedView {
+		return []SavedView{
+			{ID: "v_all", Name: "Everything", Description: "lists work items"},
+			{ID: "v_late", Name: "Needs attention", Description: "lists work items; only overdue ones"},
+		}
+	}
+	s := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{"view": pick("view2")}, &calls))
+	s.SetViews(views)
+	got, err := s.Search(context.Background(), "u1", "what needs attention", nil)
+	if err != nil || got.View == nil || got.View.ID != "v_late" || got.View.Name != "Needs attention" {
+		t.Fatalf("view = %+v, %v", got.View, err)
+	}
+
+	// One word reads as looking for an item: views are not offered.
+	var asked atomic.Int32
+	one := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{"view": pick("view1")}, &asked))
+	one.SetViews(views)
+	got, err = one.Search(context.Background(), "u1", "invoice", nil)
+	if err != nil || got.View != nil {
+		t.Fatalf("one word: %+v, %v", got.View, err)
+	}
+
+	// "none" and an unsure pick both leave the view out.
+	unsure := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{
+		"view": map[string]any{"type": "choice", "choice": "view1", "confidence": 0.6},
+	}, &calls))
+	unsure.SetViews(views)
+	if got, _ = unsure.Search(context.Background(), "u1", "show my stuff", nil); got.View != nil {
+		t.Fatalf("unsure: %+v", got.View)
+	}
+}
+
+func TestDescribeView(t *testing.T) {
+	hide := false
+	v := models.TaskViewConfig{OnlyOverdue: true, ShowCompleted: &hide, SelectedPriorityLevels: []string{"High", "Urgent"}, SortBy: models.SortByDeadline}
+	got := describeView(v, []string{"Doing"}, []string{"Shop launch"}, []string{"Waiting"})
+	want := "lists work items; only overdue ones; hides finished ones; priority High or Urgent; status Doing; in Shop launch; labelled Waiting; sorted by deadline"
+	if got != want {
+		t.Fatalf("got %q", got)
 	}
 }

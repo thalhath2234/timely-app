@@ -163,3 +163,43 @@ export type TriageStep = "reschedule" | "extend" | "addtime" | "move" | "lower" 
 /** Runs a missed or overdue notification's next step and marks it read. */
 export const runNotificationTriage = (id: string, action: TriageStep) =>
   api<{ message: string }>(`/notifications/${encodeURIComponent(id)}/triage`, { method: "POST", body: { action } });
+
+/** Onboarding and personalisation: what the person uses Timely for, starter
+ * labels, the one tip for a screen, and example prompts for the chat. */
+export type StarterUse = { key: string; label: string };
+export type StarterLabel = { name: string; color: string };
+export type PersonalPrefs = { useCase: string; dismissedTips: string[] };
+export const getPersonalPrefs = () => api<{ prefs: PersonalPrefs; uses: StarterUse[] }>("/suggestions/prefs");
+export const savePersonalUseCase = (useCase: string) =>
+  api<{ prefs: PersonalPrefs }>("/suggestions/prefs", { method: "PATCH", body: { useCase } });
+/** The catalog's labels for the picked uses; code only, so it works before any key is saved. */
+export const getStarterPresets = (uses: string[]) =>
+  api<{ labels: StarterLabel[]; uses: StarterUse[] }>(`/suggestions/starter/presets?uses=${encodeURIComponent(uses.join(","))}`);
+export const getStarterLabels = (workspaceId: string) =>
+  api<{ available: boolean; logId?: string; labels: StarterLabel[] }>(`/suggestions/starter?workspaceId=${encodeURIComponent(workspaceId)}`);
+export const applyStarterLabels = (workspaceId: string, labels: StarterLabel[]) =>
+  api<{ created: { id: string; name: string; color: string }[]; skipped: string[] }>("/suggestions/starter/apply", {
+    method: "POST",
+    body: { workspaceId, labels },
+  });
+
+export type TipScreen = "today" | "tasks" | "calendar" | "inbox";
+export type TipAction = "inbox" | "calendar" | "settings_schedule" | "settings_workspaces";
+export type ScreenTip = { key: string; text: string; action?: TipAction };
+export const getScreenTip = (screen: TipScreen, timezone: string) =>
+  api<{ available: boolean; logId?: string; tip: ScreenTip | null }>(
+    `/suggestions/tip?screen=${screen}&platform=mobile&timezone=${encodeURIComponent(timezone)}`,
+  );
+export const dismissScreenTip = (key: string, logId?: string) =>
+  api<void>("/suggestions/tips/dismiss", { method: "POST", body: { key, logId } });
+
+export type ChatPrompt = { key: string; title: string; text: string };
+export const getChatPrompts = (projectId: string | undefined, timezone: string) =>
+  api<{ available: boolean; logId?: string; project?: string; prompts: ChatPrompt[] }>("/suggestions/prompts", {
+    method: "POST",
+    body: { projectId: projectId ?? "", timezone },
+  });
+
+export type LearnedFeature = { feature: string; kept: number; decided: number; raise: number };
+export const getLearned = () => api<{ features: LearnedFeature[] }>("/agent/decisions/learned");
+export const resetLearned = (feature: string) => api<void>("/agent/decisions/learned/reset", { method: "POST", body: { feature } });

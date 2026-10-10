@@ -36,6 +36,7 @@ type Smart struct {
 	search    Service
 	indexer   embed.Indexer
 	decisions Decider
+	views     ViewSource // nil until SetViews
 }
 
 func NewSmart(search Service, indexer embed.Indexer, decisions Decider) *Smart {
@@ -51,11 +52,12 @@ type Create struct {
 // SmartResult is what the search screens apply on top of the plain results.
 // Hits is nil when Jev did not answer: keep the plain order.
 type SmartResult struct {
-	Hits     []Hit   `json:"hits"`
-	Hidden   []Hit   `json:"hidden,omitempty"`
-	Category string  `json:"category,omitempty"`
-	Create   *Create `json:"create,omitempty"`
-	LogID    string  `json:"logId,omitempty"`
+	Hits     []Hit     `json:"hits"`
+	Hidden   []Hit     `json:"hidden,omitempty"`
+	Category string    `json:"category,omitempty"`
+	Create   *Create   `json:"create,omitempty"`
+	View     *ViewPick `json:"view,omitempty"`
+	LogID    string    `json:"logId,omitempty"`
 }
 
 var kindLabels = map[string]string{
@@ -95,6 +97,21 @@ func (s *Smart) Search(ctx context.Context, userID, query string, kinds []string
 			decide.Option{Name: "any", Description: "Could be any kind; unclear"},
 		).Twice()
 	}
+	var views []SavedView
+	if s.views != nil && len(strings.Fields(query)) >= 2 {
+		views = s.views(ctx, userID)
+	}
+	if len(views) > 0 {
+		opts := []decide.Option{{Name: "none", Description: "None: the search looks for a particular item, or no saved view shows what it asks for"}}
+		list := make([]map[string]string, 0, len(views))
+		for i, v := range views {
+			key := fmt.Sprintf("view%d", i+1)
+			opts = append(opts, decide.Option{Name: key, Description: clip(v.Name, 80) + ": " + clip(v.Description, 200)})
+			list = append(list, map[string]string{"view": key, "name": clip(v.Name, 80), "shows": clip(v.Description, 200)})
+		}
+		state["savedViews"] = list
+		questions["view"] = decide.Choice("If the search asks to see a list of work (like \"what needs attention\" or \"my overdue tasks\") rather than one item, which of the person's saved views shows that list?", opts...).Twice()
+	}
 	answers, err := s.decisions.Ask(ctx, userID, decide.Request{Feature: "search", State: state, Questions: questions})
 	if err != nil {
 		return SmartResult{}, nil
@@ -104,6 +121,12 @@ func (s *Smart) Search(ctx context.Context, userID, query string, kinds []string
 	out.Hits, out.Hidden = applyRerank(hits, answers)
 	if kind, ok := answers.Choice("category", decide.Prefill); ok && kind != "any" {
 		out.Category = kind
+	}
+	if pick, ok := answers.Choice("view", decide.Route); ok && pick != "none" {
+		var n int
+		if _, err := fmt.Sscanf(pick, "view%d", &n); err == nil && n >= 1 && n <= len(views) {
+			out.View = &ViewPick{ID: views[n-1].ID, Name: views[n-1].Name}
+		}
 	}
 	if kind, ok := answers.Choice("intent", decide.Route); ok && kind != "find" {
 		if title := createTitle(query, kind); title != "" {

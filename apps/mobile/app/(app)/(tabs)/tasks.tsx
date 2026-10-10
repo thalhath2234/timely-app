@@ -10,6 +10,7 @@ import EmptyState from "../../../components/ui/EmptyState";
 import TaskCard from "../../../components/tasks/TaskCard";
 import TaskFilterBar from "../../../components/tasks/TaskFilterBar";
 import StaleWorkCard from "../../../components/tasks/StaleWorkCard";
+import ScreenTip from "../../../components/ui/ScreenTip";
 import MobileKanban, { kanbanColumns } from "../../../components/tasks/MobileKanban";
 import TaskFiltersSheet from "../../../components/tasks/TaskFiltersSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
@@ -540,7 +541,14 @@ export default function TasksScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderTask}
           renderSectionHeader={renderSectionHeader}
-          ListHeaderComponent={routeProjectId ? null : <StaleWorkCard />}
+          ListHeaderComponent={
+            routeProjectId ? null : (
+              <>
+                <ScreenTip screen="tasks" style={{ marginTop: 8 }} />
+                <StaleWorkCard />
+              </>
+            )
+          }
           stickySectionHeadersEnabled={false}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
           refreshControl={refreshControl}

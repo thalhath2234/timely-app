@@ -10,6 +10,7 @@ import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import { useCaptureInbox, useDeleteTask, useInboxQuery } from "../../lib/hooks";
 import { needsNetworkCopy } from "../../lib/queryCopy";
+import ScreenTip from "../../components/ui/ScreenTip";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 export default function InboxScreen() {
@@ -35,6 +36,7 @@ export default function InboxScreen() {
           />
         }
       >
+        <ScreenTip screen="inbox" />
         <Field value={title} onChangeText={setTitle} placeholder="Capture a title…" autoCapitalize="sentences" />
         <PrimaryButton
           label={capture.isPending ? "Saving…" : "Capture"}
