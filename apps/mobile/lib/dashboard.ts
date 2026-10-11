@@ -171,7 +171,7 @@ export function useDashboardData(cards: DashboardCard[]) {
     used.has("events") && events.isError && "calendar events",
   ].filter((entry): entry is string => Boolean(entry));
 
-  return { data, today, failures, loading: tasks.isLoading, timeZone };
+  return { data, today, failures, loading: tasks.isLoading, eventsLoading: used.has("events") && events.isLoading, timeZone };
 }
 
 /** A clock for cards that read the time. */

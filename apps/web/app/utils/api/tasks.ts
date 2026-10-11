@@ -1,4 +1,4 @@
-import type { Task, TaskActivity } from "@/app/_types/types";
+import type { FocusSession, Task, TaskActivity } from "@/app/_types/types";
 import type {
   CreateTaskPayload,
   SplitTaskSeriesPayload,
@@ -302,4 +302,15 @@ export async function setTodayFocus(taskId: string, date: string | null): Promis
     body: JSON.stringify({ date }),
   });
   return unwrapTask(response, "Failed to update today focus");
+}
+
+/** Focus sessions that ended in [from, to), oldest first (range max 400 days). */
+export async function getFocusSessions(from: Date, to: Date): Promise<FocusSession[]> {
+  const params = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
+  const response = await apiFetch(`/tasks/focus-sessions?${params.toString()}`, {});
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to load focus sessions"));
+  }
+  const data = (await response.json()) as { sessions?: FocusSession[] | null };
+  return data.sessions ?? [];
 }

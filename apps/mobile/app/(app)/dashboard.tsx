@@ -2,22 +2,31 @@ import { useCallback, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import {
+  AlarmClock,
   ArrowDown,
   ArrowUp,
   BarChart3,
+  BookOpen,
   CalendarCheck,
+  CalendarClock,
   Check,
+  ClipboardList,
+  Clock3,
   Flame,
   Gauge,
   Grid2x2,
   Hash,
+  Goal,
   Hourglass,
+  Inbox,
   LineChart as LineIcon,
   List,
+  ListChecks,
   NotebookPen,
   Pencil,
   PieChart,
   Plus,
+  Repeat,
   RotateCcw,
   Sparkles,
   Sun,
@@ -38,6 +47,7 @@ import {
   type CardRow,
   type DashboardCard,
 } from "@timely/contract/dashboard";
+import { dateInZone } from "@timely/contract/workStatus";
 import Screen from "../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../components/ui/MobileHeader";
 import BottomSheet from "../../components/ui/BottomSheet";
@@ -48,8 +58,21 @@ import CustomCardView from "../../components/report/customCardView";
 import PomodoroCard from "../../components/report/pomodoroCard";
 import HighlightsCard from "../../components/report/highlightsCard";
 import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "../../components/report/builtinCards";
+import {
+  ClockCard,
+  FocusTimeCard,
+  GoalCard,
+  HabitsCard,
+  InboxZeroCard,
+  JournalCard,
+  NextUpCard,
+  TopThreeCard,
+  WeeklyReviewCard,
+} from "../../components/report/productivityCards";
+import type { SettingsUpdate } from "../../components/report/cardParts";
 import { useDashboardData, useDashboardLayout, useNow } from "../../lib/dashboard";
 import { forgetPomodoro } from "../../lib/pomodoroStore";
+import { cancelPomodoroNotification } from "../../lib/notifications";
 import { useConfigQuery, useDecisionsStatusQuery, useInvalidateAll } from "../../lib/hooks";
 import { fileHref } from "../../lib/fileRoutes";
 import { showUndoToast, useToastStore } from "../../lib/toast";
@@ -65,8 +88,23 @@ const BUILTIN_ICON: Record<BuiltinCardType, typeof Timer> = {
   dayProgress: Hourglass,
   matrix: Grid2x2,
   countdown: CalendarCheck,
+  topThree: ListChecks,
+  focusTime: Clock3,
+  nextUp: CalendarClock,
+  habits: Repeat,
+  goal: Goal,
+  weeklyReview: ClipboardList,
+  inboxZero: Inbox,
+  clock: AlarmClock,
+  journal: BookOpen,
   highlights: Sparkles,
 };
+
+/** Stops what a card keeps running outside the screen: a pomodoro, or a timer's alert. */
+function stopCard(card: DashboardCard) {
+  if (card.type === "pomodoro") forgetPomodoro(card.id);
+  if (card.type === "clock") void cancelPomodoroNotification(`clock-${card.id}`);
+}
 
 const DISPLAY_ICON: Record<CardDisplay, typeof Hash> = {
   number: Hash,
@@ -91,7 +129,7 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { layout, isLoading, isError, retry, update, updateCard } = useDashboardLayout();
   const cards = useMemo(() => layout?.cards ?? [], [layout]);
-  const { data, today, failures, loading, timeZone } = useDashboardData(cards);
+  const { data, today, failures, loading, eventsLoading, timeZone } = useDashboardData(cards);
   const config = useConfigQuery();
   const invalidateAll = useInvalidateAll();
   const now = useNow(30_000);
@@ -101,6 +139,7 @@ export default function DashboardScreen() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const tasks = useMemo(() => data.tasks ?? [], [data.tasks]);
+  const day = dateInZone(now, timeZone);
 
   const openTask = useCallback((id: string) => router.push(`/(app)/tasks/${id}`), [router]);
 
@@ -154,12 +193,16 @@ export default function DashboardScreen() {
       }),
     );
     // A removed pomodoro stops; undo brings the card back with a fresh timer.
-    if (card.type === "pomodoro") forgetPomodoro(card.id);
+    stopCard(card);
   };
 
   const renderBody = (card: DashboardCard) => {
     const settings = card.settings ?? {};
-    const setSettings = (next: Record<string, unknown>) => updateCard(card.id, (current) => ({ ...current, settings: { ...current.settings, ...next } }));
+    const setSettings: SettingsUpdate = (next) =>
+      updateCard(card.id, (current) => {
+        const base = current.settings ?? {};
+        return { ...current, settings: { ...base, ...(typeof next === "function" ? next(base) : next) } };
+      });
     switch (card.type) {
       case "custom": {
         if (!card.query) return null;
@@ -193,6 +236,34 @@ export default function DashboardScreen() {
             onChange={setSettings}
           />
         );
+      case "topThree":
+        return <TopThreeCard settings={settings} tasks={tasks} loading={loading} today={day} onSettings={setSettings} onOpenTask={openTask} />;
+      case "focusTime":
+        return <FocusTimeCard tasks={tasks} today={day} now={now} timeZone={timeZone} onOpenTask={openTask} />;
+      case "nextUp":
+        return (
+          <NextUpCard
+            events={data.events ?? []}
+            loading={eventsLoading}
+            now={now}
+            today={day}
+            workingHours={config.data?.workingHours}
+            timeZone={timeZone}
+            onOpenItem={openItem}
+          />
+        );
+      case "habits":
+        return <HabitsCard settings={settings} today={day} onSettings={setSettings} />;
+      case "goal":
+        return <GoalCard settings={settings} tasks={tasks} today={day} now={now} timeZone={timeZone} onSettings={setSettings} />;
+      case "weeklyReview":
+        return <WeeklyReviewCard settings={settings} tasks={tasks} today={day} timeZone={timeZone} onSettings={setSettings} onOpenTask={openTask} />;
+      case "inboxZero":
+        return <InboxZeroCard inbox={data.inbox ?? []} today={day} onOpenTask={openTask} />;
+      case "clock":
+        return <ClockCard cardId={card.id} title={cardTitle(card)} settings={settings} onSettings={setSettings} />;
+      case "journal":
+        return <JournalCard settings={settings} today={day} onSettings={setSettings} />;
     }
   };
 
@@ -339,7 +410,7 @@ export default function DashboardScreen() {
         message="Your cards are replaced with the default set, on every device. Notes and countdowns on removed cards are lost."
         confirmLabel="Reset"
         onConfirm={() => {
-          for (const card of cards) if (card.type === "pomodoro") forgetPomodoro(card.id);
+          for (const card of cards) stopCard(card);
           update(() => defaultDashboard());
           setConfirmReset(false);
           setEditing(false);
