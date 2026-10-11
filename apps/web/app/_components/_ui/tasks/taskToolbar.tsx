@@ -18,6 +18,7 @@ import type {
   Workspace,
 } from "@/app/_types/types";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { useModKey } from "@/app/utils/hooks/useModKey";
 import { mergeStatusesByName, statusNameKey } from "@/app/utils/status";
 
 export type TaskListScope = "global" | "project";
@@ -819,6 +820,7 @@ export function TaskListStatusBar({
   synced?: boolean;
   noun?: string;
 }) {
+  const modKey = useModKey();
   return (
     <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/20 px-6 py-2 text-[11px] text-muted-foreground">
       <div className="flex flex-wrap items-center gap-3">
@@ -835,7 +837,7 @@ export function TaskListStatusBar({
       <div className="hidden items-center gap-3 sm:flex">
         <span className="inline-flex items-center gap-1.5">
           <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px] text-foreground">
-            ⌘K
+            {modKey}+K
           </kbd>
           Quick search
         </span>

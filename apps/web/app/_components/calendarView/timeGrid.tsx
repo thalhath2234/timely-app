@@ -514,7 +514,9 @@ export default function TimeGrid({
                       );
                     }
 
-                    const height = Math.max(1, (event.endHour - event.startHour) * HOUR_HEIGHT - 2);
+                    // A 15-minute block is 12px at HOUR_HEIGHT 56, too short for
+                    // its title; 16px keeps one line of 10px text readable.
+                    const height = Math.max(16, (event.endHour - event.startHour) * HOUR_HEIGHT - 2);
                     const draggable = Boolean(onMoveBlock) && isDraggableCalendarBlock(event);
                     const isSource = preview?.event.id === event.id;
                     const left = `calc(${(lane * 100) / lanes}% + 2px)`;

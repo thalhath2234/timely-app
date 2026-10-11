@@ -21,6 +21,7 @@ import { isUnscheduled } from "@timely/contract/workStatus";
 import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
 import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
+import { normalizePriority } from "@/app/utils/priority";
 
 export type ScheduleSlot = {
   at: Date;
@@ -340,7 +341,7 @@ function ScheduleDialogPanel({
                               </span>
                               <span className="block truncate text-xs text-muted-foreground">
                                 {task.project?.title ?? task.workspace?.name ?? "No project"}
-                                {task.priorityLevel ? ` · ${task.priorityLevel}` : ""}
+                                {normalizePriority(task.priorityLevel) ? ` · ${normalizePriority(task.priorityLevel)}` : ""}
                               </span>
                             </span>
                             <span className="shrink-0 text-xs tabular-nums text-muted-foreground">

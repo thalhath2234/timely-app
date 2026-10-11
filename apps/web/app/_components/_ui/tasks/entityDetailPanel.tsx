@@ -95,8 +95,8 @@ import {
   entityTitleKey,
 } from "@/app/utils/titleMorph";
 import { buttonClass } from "@/app/_components/_ui/button";
+import { PRIORITY_OPTIONS, normalizePriority } from "@/app/utils/priority";
 
-const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Urgent"];
 const DURATION_PRESETS = [
   { minutes: 15, label: "15m" },
   { minutes: 30, label: "30m" },
@@ -1040,17 +1040,11 @@ function DetailBody({
           <PropertyRow icon={Flag} label="Priority">
             <Select
               size="sm"
-              value={view.priorityLevel ?? ""}
+              value={normalizePriority(view.priorityLevel)}
               onChange={(priorityLevel) => schedule({ priorityLevel })}
               placeholder="No priority"
               variant="bare"
-              options={[
-                { value: "", label: "No priority" },
-                ...PRIORITY_OPTIONS.map((option) => ({
-                  value: option,
-                  label: option,
-                })),
-              ]}
+              options={[{ value: "", label: "No priority" }, ...PRIORITY_OPTIONS]}
             />
           </PropertyRow>
 
@@ -1284,11 +1278,7 @@ function TaskActivityFeed({ taskId }: { taskId: string }) {
           {addComment.isError ? (
             <span className="text-destructive">Could not post comment</span>
           ) : (
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-border bg-muted px-1">Ctrl</kbd>
-              <span>+</span>
-              <kbd className="rounded border border-border bg-muted px-1">Enter</kbd>
-            </span>
+            <span />
           )}
           <button
             type="button"
@@ -1393,7 +1383,6 @@ function PanelShell({
         icon={kind === "project" ? FolderKanban : ListTodo}
         label={kind}
         size="xl"
-        closeWithKbd
         onClose={onClose}
         headerLeft={
           <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">

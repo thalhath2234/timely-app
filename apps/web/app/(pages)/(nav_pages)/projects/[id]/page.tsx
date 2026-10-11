@@ -16,7 +16,7 @@ import StageCatalog from "@/app/_components/projects/stageCatalog";
 import ProjectInsights from "@/app/_components/projects/projectInsights";
 import ProjectTaskList from "@/app/_components/_ui/tasks/projectTaskList";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
-import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { PRIORITY_OPTIONS, normalizePriority } from "@/app/utils/priority";
 import { formatShortDate, projectStats, tasksForProject } from "@/app/utils/projectStats";
 import {
   useDeleteProject,
@@ -257,7 +257,7 @@ function ProjectHub({ project }: { project: Project }) {
               <label className="block text-xs text-muted-foreground">Priority</label>
               <Select
                 size="sm"
-                value={project.priorityLevel ?? ""}
+                value={normalizePriority(project.priorityLevel)}
                 onChange={(priorityLevel) => schedule({ priorityLevel })}
                 options={[{ value: "", label: "No priority" }, ...PRIORITY_OPTIONS]}
               />

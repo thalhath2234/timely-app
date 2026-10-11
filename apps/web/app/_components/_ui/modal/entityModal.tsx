@@ -17,7 +17,6 @@ export function EntityModalShell({
   headerRight,
   footer,
   size = "md",
-  closeWithKbd = false,
   onClose,
   children,
 }: {
@@ -27,7 +26,6 @@ export function EntityModalShell({
   headerRight?: ReactNode;
   footer?: ReactNode;
   size?: "md" | "xl";
-  closeWithKbd?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -82,11 +80,6 @@ export function EntityModalShell({
               className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <X className="size-3.5" />
-              {closeWithKbd ? (
-                <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
-                  ESC
-                </kbd>
-              ) : null}
             </button>
           </header>
 

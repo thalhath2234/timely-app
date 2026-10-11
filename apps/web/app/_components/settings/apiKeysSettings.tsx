@@ -12,6 +12,7 @@ import { useDesktopInstance } from "@/app/utils/hooks/desktop";
 import { API_BASE } from "@/app/utils/api/client";
 import { mcpUrls } from "@/app/utils/mcpUrl";
 import { controlClass } from "@/app/_components/_ui/field";
+import Button from "@/app/_components/_ui/button";
 
 const noopSubscribe = () => () => {};
 
@@ -145,14 +146,9 @@ export default function ApiKeysSettings() {
             className={controlClass("md", "w-full")}
           />
         </label>
-        <button
-          type="submit"
-          disabled={createKey.isPending}
-          className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-foreground px-3 text-sm font-medium text-background hover:opacity-90 disabled:opacity-60"
-        >
-          <Plus className="size-4" />
+        <Button type="submit" loading={createKey.isPending} leading={<Plus />}>
           Create key
-        </button>
+        </Button>
       </form>
 
       {error && <p className="text-sm text-destructive">{error}</p>}

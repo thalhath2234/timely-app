@@ -37,6 +37,7 @@ import {
 import { cn } from "@/app/utils/cn";
 import { chipStyle, fillStyle, taskEntityColor } from "@/app/utils/entityColor";
 import { useToday } from "@/app/utils/hooks/calendar";
+import { useModKey } from "@/app/utils/hooks/useModKey";
 import {
   useInboxTasks,
   useSetTodayFocus,
@@ -113,8 +114,9 @@ function dueLabel(task: Task, day: string) {
     ? task.deadline.slice(0, 10)
     : localDateStamp(new Date(task.deadline));
   if (!stamp) return null;
-  if (stamp < day) return `Overdue ${stamp}`;
-  if (stamp > day) return `Due ${stamp}`;
+  const shortDay = dateFromDateInput(stamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (stamp < day) return `Overdue ${shortDay}`;
+  if (stamp > day) return `Due ${shortDay}`;
   const timed = parseDate(task.deadline);
   if (timed && !/^\d{4}-\d{2}-\d{2}$/.test(task.deadline) && (timed.getHours() !== 0 || timed.getMinutes() !== 0)) {
     return `Due today ${formatTime(timed)}`;
@@ -492,7 +494,6 @@ function AgendaTimeline({
             const width = Math.max(right - left, 1.5);
             // A short block would only show "T…"; its title is in the tooltip
             // and the list below.
-            const labelled = minutesOfDay(end) - minutesOfDay(start) >= 30;
             return (
               <button
                 key={item.id}
@@ -506,10 +507,12 @@ function AgendaTimeline({
                   height: laneHeight,
                   left: `${left}%`,
                   width: `${width}%`,
+                  // A 15-minute block is a few pixels wide; keep enough room to read the first word.
+                  minWidth: 72,
                   ...fillStyle(itemAccent(item)),
                 }}
               >
-                {labelled ? <span className="block truncate leading-8">{item.title}</span> : null}
+                <span className="block truncate leading-8">{item.title}</span>
               </button>
             );
           }),
@@ -610,6 +613,7 @@ function AgendaRow({
 }
 
 export default function TodayDashboard() {
+  const modKey = useModKey();
   const today = useToday();
   const inbox = useInboxTasks();
   const startFocus = useStartFocus();
@@ -1137,7 +1141,7 @@ export default function TodayDashboard() {
           </div>
           <div className="pointer-events-auto hidden items-center gap-2 rounded-full border border-border bg-background/90 px-3.5 py-1.5 text-[11px] text-muted-foreground md:flex">
             <span>Quick search</span>
-            <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd>
+            <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">{modKey}+K</kbd>
           </div>
         </div>
       ) : null}
