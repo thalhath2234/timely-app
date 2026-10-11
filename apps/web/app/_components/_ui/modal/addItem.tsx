@@ -364,12 +364,21 @@ function AddItemModalInner() {
   const taskScheduledOn = useWatch({ control: taskControl, name: "scheduledOn" }) ?? "";
   // A quick-add draft that asks for a Reminder switches the kind as soon as the
   // task form is shown; the effect below consumes the rest of the draft.
+  // This component mounts only while the modal is open, so the draft is often
+  // already there on the first render: start from "nothing seen" so that
+  // render still switches the kind.
   const draftKindForTaskForm =
     isAddItemModalOpen && addNewMode === "task" ? createTaskDraft?.kind : undefined;
-  const [seenDraftKind, setSeenDraftKind] = useState(draftKindForTaskForm);
+  const [seenDraftKind, setSeenDraftKind] = useState<typeof draftKindForTaskForm>(undefined);
+  // The person picked Work or Reminder themselves (in the form, or with the
+  // Inbox's "Make it a task" / "Remind me"); a suggested kind never overrides that.
+  const [kindTouched, setKindTouched] = useState(false);
   if (seenDraftKind !== draftKindForTaskForm) {
     setSeenDraftKind(draftKindForTaskForm);
-    if (draftKindForTaskForm === "reminder") setTaskKind("reminder");
+    if (draftKindForTaskForm) {
+      setTaskKind(draftKindForTaskForm);
+      setKindTouched(true);
+    }
   }
   const taskIsReminder = taskKind === "reminder";
   const taskName = useWatch({ control: taskControl, name: "name" }) ?? "";
@@ -739,9 +748,19 @@ function AddItemModalInner() {
       }
       let nextDraft = createTaskDraft;
       let draftUsed = false;
-      if (nextDraft?.kind === "reminder") {
-        // taskKind itself follows the draft during render (see above).
-        setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
+      if (nextDraft?.kind) {
+        // taskKind itself follows the draft during render (see above); a
+        // Reminder gets what picking it in the form gives: no length, and the
+        // next hour until a time is set.
+        if (nextDraft.kind === "reminder") {
+          setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
+          if (!getTaskValue("scheduledOn")) {
+            setValueTask("scheduledOn", toDatetimeLocalValue(nextRoundHour()), {
+              shouldValidate: true,
+              shouldDirty: true,
+            });
+          }
+        }
         nextDraft = { ...nextDraft, kind: undefined };
         draftUsed = true;
       }
@@ -760,6 +779,7 @@ function AddItemModalInner() {
     typedWorkspaces,
     selectedTaskWorkspaceId,
     setValueTask,
+    getTaskValue,
     setCreateTaskDraft,
     createTaskDraft,
   ]);
@@ -795,9 +815,6 @@ function AddItemModalInner() {
   const suggestionsQuery = useClarifySuggestions(clarifyInboxId, decisionsOn);
   const suggestions = suggestionsQuery.data?.available ? suggestionsQuery.data : undefined;
   const decisionFeedback = useDecisionFeedback();
-  // The person picked Work or Reminder themselves; a suggested kind never
-  // overrides that.
-  const [kindTouched, setKindTouched] = useState(false);
   // The suggestions (by logId) that filled at least one field, so the note
   // above the form only says so when something was filled.
   const [filledFor, setFilledFor] = useState<string>();
@@ -808,7 +825,11 @@ function AddItemModalInner() {
   const [suggestedKindFor, setSuggestedKindFor] = useState<string>();
   if (suggestions?.kind === "reminder" && suggestions.logId && suggestedKindFor !== suggestions.logId) {
     setSuggestedKindFor(suggestions.logId);
-    const workTouched = kindTouched || WORK_FIELDS.some((name) => getTaskFieldState(name).isDirty);
+    // A draft that names the kind counts as chosen even in the render that
+    // reads it, before the kindTouched update above has landed (the answer is
+    // often cached already, from the Inbox card).
+    const workTouched =
+      kindTouched || Boolean(draftKindForTaskForm) || WORK_FIELDS.some((name) => getTaskFieldState(name).isDirty);
     if (taskKind === "task" && !workTouched) {
       setTaskKind("reminder");
       setFilledFor(suggestions.logId);
