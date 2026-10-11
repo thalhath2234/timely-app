@@ -166,7 +166,7 @@ export function Field({
         setContentHeight((prev) => (Math.abs(next - prev) <= 2 ? prev : next));
       } : undefined}
       selectionColor={colors.primary}
-      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, bare && focused && styles.inputBareFocused, autoGrow && { height: Math.max(38, contentHeight + 2) }]}
+      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, bare && focused && styles.inputBareFocused, autoGrow && { height: Math.max(bare ? 30 : 38, contentHeight + 2) }]}
     />
   );
   if (!label && !hint) return input;
@@ -414,7 +414,7 @@ const styles = createThemedStyleSheet((colors) => ({
   inputFocused: { borderColor: colors.primary },
   sheetSearch: { marginBottom: 8 },
   inputBare: { minHeight: 30, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0 },
-  inputBareArea: { minHeight: 38, paddingTop: 0 },
+  inputBareArea: { minHeight: 30, paddingTop: 0 },
   inputBareFocused: { borderBottomWidth: 2, borderColor: colors.primary },
   area: { minHeight: 112, textAlignVertical: "top", paddingTop: 12 },
   chip: {

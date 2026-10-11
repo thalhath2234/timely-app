@@ -23,7 +23,7 @@ import { formatDuration, formatShortDate, formatTime, PRIORITY_META, PRIORITY_OR
 import type { CustomFieldValueInput } from "../../lib/types";
 import type { QuickAddPreset } from "../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
-import { ENTITY_COLORS } from "../../lib/entityColor";
+import { ENTITY_COLORS, colorName } from "../../lib/entityColor";
 import { expandEntering, listLayout, pageDuration } from "../../lib/motion";
 
 function runWhenIdle(callback: () => void, timeout: number) {
@@ -713,7 +713,7 @@ export default function QuickAddSheet({
               <PropertyRow
                 icon={<Palette size={16} color={eventColor || colors.mutedForeground} />}
                 label="Color"
-                value={eventColor ? "Custom" : "Auto"}
+                value={colorName(eventColor)}
                 swatch={eventColor || undefined}
                 onPress={() => setPicking("eventColor")}
               />
@@ -923,7 +923,7 @@ export default function QuickAddSheet({
               setPicking(null);
             }}
           >
-            {color}
+            {colorName(color)}
           </SheetOption>
         ))}
       </BottomSheet>

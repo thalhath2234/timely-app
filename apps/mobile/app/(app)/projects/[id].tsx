@@ -28,10 +28,10 @@ import {
   useUpdateStage,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { PRIORITIES } from "../../../lib/priority";
+import { PRIORITIES, normalizePriority } from "../../../lib/priority";
 import { showUndoToast } from "../../../lib/toast";
 import { formatShortDate, timeAgo, toDateInputValue } from "../../../lib/format";
-import { ENTITY_COLORS, resolvedColor } from "../../../lib/entityColor";
+import { ENTITY_COLORS, colorName, resolvedColor } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { useDraftText } from "../../../lib/draftText";
 import { useAutosave } from "../../../lib/autosave";
@@ -195,7 +195,7 @@ export default function ProjectDetailScreen() {
           <Text style={styles.label}>Color</Text>
           <View style={styles.colorRow}>
             <View style={[styles.swatch, { backgroundColor: accent }]} />
-            <Text style={styles.value}>{project.color?.trim() || "Auto"}</Text>
+            <Text style={styles.value}>{colorName(project.color)}</Text>
           </View>
         </Pressable>
         <DescriptionCard
@@ -206,16 +206,18 @@ export default function ProjectDetailScreen() {
           onChange={({ content, plainText }) => {
             setNoteRich(content);
             setNote(plainText);
+            scheduleSave({ description: plainText, descriptionRich: content });
           }}
-          onSave={() => persist({ description: note, descriptionRich: noteRich })}
         />
         <Pressable onPress={() => setPicker("status")} style={styles.card}>
           <Text style={styles.label}>Status</Text>
-          <Text style={styles.value}>{project.status?.name || "None"}</Text>
+          <Text style={styles.value}>
+            {project.status?.name || workspace?.status?.find((status) => status.id === project.statusId)?.name || "None"}
+          </Text>
         </Pressable>
         <Pressable onPress={() => setPicker("priority")} style={styles.card}>
           <Text style={styles.label}>Priority</Text>
-          <Text style={styles.value}>{project.priorityLevel || "None"}</Text>
+          <Text style={styles.value}>{normalizePriority(project.priorityLevel) || "None"}</Text>
         </Pressable>
         {/* Under the brief and its fields, where web's Overview shows it. */}
         <ProjectInsightsCard project={project} />
@@ -393,7 +395,7 @@ export default function ProjectDetailScreen() {
             }}
             leading={<View style={[styles.swatch, { backgroundColor: color }]} />}
           >
-            {color}
+            {colorName(color)}
           </SheetOption>
         ))}
       </BottomSheet>
@@ -422,7 +424,7 @@ export default function ProjectDetailScreen() {
       </BottomSheet>
       <BottomSheet open={picker === "priority"} onClose={() => setPicker(null)} title="Priority">
         <SheetOption
-          selected={!project.priorityLevel}
+          selected={!normalizePriority(project.priorityLevel)}
           onSelect={() => {
             persist({ priorityLevel: "" });
             setPicker(null);
@@ -433,7 +435,7 @@ export default function ProjectDetailScreen() {
         {PRIORITIES.map((priority) => (
           <SheetOption
             key={priority}
-            selected={project.priorityLevel === priority}
+            selected={normalizePriority(project.priorityLevel) === priority}
             onSelect={() => {
               persist({ priorityLevel: priority });
               setPicker(null);

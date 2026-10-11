@@ -14,6 +14,28 @@ export const ENTITY_COLORS = [
   "#E5484D",
 ] as const;
 
+const COLOR_NAMES: Record<string, string> = {
+  "#30A66D": "Green",
+  "#6E56CF": "Violet",
+  "#FFB224": "Amber",
+  "#0090FF": "Blue",
+  "#E93D82": "Pink",
+  "#00A2C7": "Cyan",
+  "#F76808": "Orange",
+  "#AB4ABA": "Plum",
+  "#3E63DD": "Indigo",
+  "#12A594": "Teal",
+  "#99D52A": "Lime",
+  "#E5484D": "Red",
+};
+
+/** A colour's name for people ("Blue"), not its hex code; colours picked
+ * outside the palette (on the desktop) read "Custom". */
+export function colorName(hex?: string | null): string {
+  if (!hex?.trim()) return "Auto";
+  return COLOR_NAMES[hex.trim().toUpperCase()] ?? "Custom";
+}
+
 export const UNSTAGED_COLOR = "#889096";
 
 export function colorForIndex(index: number): string {

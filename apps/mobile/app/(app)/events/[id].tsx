@@ -23,7 +23,7 @@ import {
 } from "../../../lib/hooks";
 import { addDays, formatShortDate, formatTime, startOfDay } from "../../../lib/format";
 import { buildRecurrenceInput, rruleToDraft, type RecurrenceDraft } from "../../../lib/recurrence";
-import { ENTITY_COLORS } from "../../../lib/entityColor";
+import { ENTITY_COLORS, colorName } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function EventDetailScreen() {
@@ -158,7 +158,7 @@ export default function EventDetailScreen() {
           {ENTITY_COLORS.map((swatch) => (
             <Pressable
               key={swatch}
-              accessibilityLabel={`Color ${swatch}`}
+              accessibilityLabel={`Color ${colorName(swatch)}`}
               onPress={() => setColor(swatch)}
               style={[styles.swatch, { backgroundColor: swatch }, color === swatch && styles.swatchOn]}
             />

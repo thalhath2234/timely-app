@@ -1114,6 +1114,8 @@ function DecisionsCard() {
             </h3>
             {data.available ? (
               <Badge tone="ok">On</Badge>
+            ) : data.enabled ? (
+              <Badge tone="warn">Needs a key</Badge>
             ) : (
               <Badge tone="muted">Off</Badge>
             )}

@@ -13,7 +13,7 @@ import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { chipStyle, laneStyle, resolvedColor, UNSTAGED_COLOR } from "@/app/utils/entityColor";
 import { isCompletedStatus } from "@/app/utils/status";
-import { priorityColor } from "@/app/utils/priority";
+import { normalizePriority, priorityColor } from "@/app/utils/priority";
 import { sortedStages, stageCode } from "@/app/utils/stages";
 import { entityTitleKey } from "@/app/utils/titleMorph";
 
@@ -252,9 +252,9 @@ export default function StageBoard({
                           {task.name}
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-1">
-                          {task.priorityLevel ? (
+                          {normalizePriority(task.priorityLevel) ? (
                             <ColorChip color={priorityColor(task.priorityLevel)} dot={false}>
-                              {task.priorityLevel}
+                              {normalizePriority(task.priorityLevel)}
                             </ColorChip>
                           ) : null}
                           {(task.labels ?? []).map((label) => (

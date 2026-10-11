@@ -12,6 +12,7 @@ import DeleteAccountSection from "@/app/_components/settings/deleteAccount";
 import { controlClass } from "@/app/_components/_ui/field";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
 import { PageBadge } from "@/app/_components/_ui/pageHeader";
+import { settingsColumns } from "./layout";
 
 export default function AccountSettings() {
   const { data: user, isLoading } = useMe();
@@ -29,15 +30,17 @@ export default function AccountSettings() {
   }
 
   return (
-    <>
+    <div className={settingsColumns}>
       <AccountSettingsForm
         key={`${user.id}:${user.email}:${user.name ?? ""}`}
         initialName={user.name ?? ""}
         initialEmail={user.email}
       />
-      <DeviceSessions />
-      <DeleteAccountSection email={user.email} />
-    </>
+      <div>
+        <DeviceSessions />
+        <DeleteAccountSection email={user.email} />
+      </div>
+    </div>
   );
 }
 
@@ -177,7 +180,7 @@ function DeviceSessions() {
   const otherActive = (sessions.data ?? []).filter((item) => !item.current).length;
 
   return (
-    <section className="mt-8 flex max-w-lg flex-col gap-3">
+    <section className="flex max-w-lg flex-col gap-3">
       <div>
         <h2 className="text-base font-semibold text-foreground">Devices</h2>
         <p className="mt-1 text-xs text-muted-foreground">

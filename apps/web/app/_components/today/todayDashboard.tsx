@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
   Bell,
   CalendarClock,
   Check,
@@ -113,8 +112,9 @@ function dueLabel(task: Task, day: string) {
     ? task.deadline.slice(0, 10)
     : localDateStamp(new Date(task.deadline));
   if (!stamp) return null;
-  if (stamp < day) return `Overdue ${stamp}`;
-  if (stamp > day) return `Due ${stamp}`;
+  const shortDay = dateFromDateInput(stamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (stamp < day) return `Overdue ${shortDay}`;
+  if (stamp > day) return `Due ${shortDay}`;
   const timed = parseDate(task.deadline);
   if (timed && !/^\d{4}-\d{2}-\d{2}$/.test(task.deadline) && (timed.getHours() !== 0 || timed.getMinutes() !== 0)) {
     return `Due today ${formatTime(timed)}`;
@@ -492,7 +492,6 @@ function AgendaTimeline({
             const width = Math.max(right - left, 1.5);
             // A short block would only show "T…"; its title is in the tooltip
             // and the list below.
-            const labelled = minutesOfDay(end) - minutesOfDay(start) >= 30;
             return (
               <button
                 key={item.id}
@@ -506,10 +505,12 @@ function AgendaTimeline({
                   height: laneHeight,
                   left: `${left}%`,
                   width: `${width}%`,
+                  // A 15-minute block is a few pixels wide; keep enough room to read the first word.
+                  minWidth: 72,
                   ...fillStyle(itemAccent(item)),
                 }}
               >
-                {labelled ? <span className="block truncate leading-8">{item.title}</span> : null}
+                <span className="block truncate leading-8">{item.title}</span>
               </button>
             );
           }),
@@ -842,7 +843,7 @@ export default function TodayDashboard() {
           }
         />
 
-        <div className={cn("mt-6 space-y-7 px-6", inboxCount > 0 ? "pb-28" : "pb-8")}>
+        <div className="mt-6 space-y-7 px-6 pb-8">
           {today.isError && data ? (
             <LoadErrorBanner
               what="today"
@@ -1120,27 +1121,6 @@ export default function TodayDashboard() {
         </div>
       </div>
 
-      {inboxCount > 0 ? (
-        <div className="pointer-events-none absolute inset-x-6 bottom-6 flex items-center justify-between gap-3 sm:inset-x-8">
-          <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border bg-card px-4 py-2.5 shadow-lg">
-            <span className="relative flex size-2.5">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-warning opacity-75" />
-              <span className="relative inline-flex size-2.5 rounded-full bg-warning" />
-            </span>
-            <span className="text-xs">
-              <span className="font-semibold">{inboxCount} inbox item{inboxCount === 1 ? "" : "s"}</span> waiting to be triaged
-            </span>
-            <Link href="/inbox" className="inline-flex items-center gap-1 pl-1 text-xs font-medium text-primary hover:underline">
-              Review inbox
-              <ArrowRight className="size-3" />
-            </Link>
-          </div>
-          <div className="pointer-events-auto hidden items-center gap-2 rounded-full border border-border bg-background/90 px-3.5 py-1.5 text-[11px] text-muted-foreground md:flex">
-            <span>Quick search</span>
-            <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd>
-          </div>
-        </div>
-      ) : null}
 
       {pickerOpen ? (
         <div

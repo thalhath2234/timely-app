@@ -25,6 +25,8 @@ export function buildEditorHtml(
   },
   /** The server address; uploaded images are stored as "/files/<id>". */
   apiBase = "",
+  /** Compact: a short description box inside a card, not a full page. */
+  options: { compact?: boolean } = {},
 ) {
   const initial = content && typeof content.type === "string" ? content : BLANK;
   const t = theme ?? {
@@ -48,6 +50,7 @@ export function buildEditorHtml(
     html, body { margin: 0; padding: 0; background: ${t.background}; }
     body { min-height: 100%; }
     #editor { min-height: 70vh; padding: 4px 2px 120px; box-sizing: border-box; }
+    ${options.compact ? "#editor { min-height: 100%; padding: 2px 0 16px; } .tiptap > :last-child { margin-bottom: 0; }" : ""}
     .tiptap { outline: none; color: ${t.foreground}; font-size: 16px; line-height: 1.55; font-family: ui-sans-serif, system-ui, sans-serif; }
     .tiptap p { margin: 0 0 0.75em; }
     .tiptap h1 { font-size: 26px; line-height: 1.25; font-weight: 700; margin: 0.8em 0 0.4em; }

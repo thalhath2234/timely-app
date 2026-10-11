@@ -14,6 +14,7 @@ import type { NotificationSettings } from "@/app/_types/types";
 import { browserTimezone } from "@/app/utils/api/schedule";
 import { useDecisions } from "@/app/utils/hooks/decisions";
 import { buttonClass } from "@/app/_components/_ui/button";
+import { settingsColumns } from "./layout";
 
 export default function NotificationSettingsPanel() {
   const { data: settings, isLoading, isError } = useNotificationSettings();
@@ -26,7 +27,7 @@ export default function NotificationSettingsPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-12">
+    <div className={settingsColumns}>
       <NotificationSettingsForm key={JSON.stringify(settings)} initial={settings} />
       <FailedJobsPanel />
     </div>

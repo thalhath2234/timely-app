@@ -514,7 +514,9 @@ export default function TimeGrid({
                       );
                     }
 
-                    const height = Math.max(1, (event.endHour - event.startHour) * HOUR_HEIGHT - 2);
+                    // A 15-minute block is 12px at HOUR_HEIGHT 56, too short for
+                    // its title; 16px keeps one line of 10px text readable.
+                    const height = Math.max(16, (event.endHour - event.startHour) * HOUR_HEIGHT - 2);
                     const draggable = Boolean(onMoveBlock) && isDraggableCalendarBlock(event);
                     const isSource = preview?.event.id === event.id;
                     const left = `calc(${(lane * 100) / lanes}% + 2px)`;
@@ -542,13 +544,13 @@ export default function TimeGrid({
                         }}
                         className={cn(
                           "group absolute z-[2] flex flex-col overflow-hidden rounded-md border bg-card px-2 py-1 text-left text-foreground hover:z-[3] hover:shadow-md hover:brightness-110",
-                          height < 20 && "rounded-sm px-1 py-0",
+                          height < 20 && "justify-center rounded-sm px-1 py-0",
                           draggable && "cursor-grab touch-none",
                           isSource && "opacity-40",
                           (preview || isSource) && "pointer-events-none",
                         )}
                       >
-                        <span className={cn("truncate text-xs font-medium leading-tight", height < 20 && "text-[10px] leading-none", event.completedAt && "text-muted-foreground line-through")}>
+                        <span className={cn("shrink-0 truncate font-medium", height < 20 ? "text-[10px] leading-[14px]" : "text-xs leading-tight", event.completedAt && "text-muted-foreground line-through")}>
                           {event.deadlinePassed ? <DeadlinePassedDot /> : null}
                           {event.title}
                         </span>

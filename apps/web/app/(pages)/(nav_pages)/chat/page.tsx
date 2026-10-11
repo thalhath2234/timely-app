@@ -38,6 +38,7 @@ import { useToastStore } from "@/app/_store/toastStore";
 import { useChats, useDeleteChat, useRenameChat } from "@/app/utils/hooks/chat";
 import type { ChatSummary } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
+import { useModKey } from "@/app/utils/hooks/useModKey";
 
 const tone = {
   primary: "text-primary",
@@ -189,6 +190,7 @@ function HistoryRow({
 }
 
 function ChatPage() {
+  const modKey = useModKey();
   const router = useRouter();
   const params = useSearchParams();
   const id = params.get("id");
@@ -359,7 +361,7 @@ function ChatPage() {
         <div className="border-t border-border px-4 py-3 text-[11px] leading-5 text-muted-foreground">
           Chat from any screen with{" "}
           <kbd className="rounded border border-border bg-card px-1 font-sans font-medium text-foreground">
-            Ctrl / ⌘ + Shift + J
+            {modKey}+Shift+J
           </kbd>
         </div>
       </aside>

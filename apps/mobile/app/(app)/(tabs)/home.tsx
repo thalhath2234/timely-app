@@ -35,6 +35,7 @@ import { showUndoToast } from "../../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { taskEntityColor } from "../../../lib/entityColor";
+import { normalizePriority } from "../../../lib/priority";
 import TimelyLogo from "../../../components/ui/TimelyLogo";
 import TodaySuggestionsCard from "../../../components/tasks/TodaySuggestionsCard";
 import HabitsGoalsCard from "../../../components/tasks/HabitsGoalsCard";
@@ -324,7 +325,7 @@ export default function HomeScreen() {
                 <TaskRow
                   key={task.id}
                   title={task.name}
-                  meta={task.priorityLevel ?? undefined}
+                  meta={normalizePriority(task.priorityLevel) || undefined}
                   onPress={() => openTask(task.id)}
                   accent={taskEntityColor(task)}
                   active={focusSession?.id === task.id}

@@ -264,7 +264,18 @@ export default function RichTextEditor({
   const pdfTitleRef = useRef("");
   const webRef = useRef<WebView>(null);
   const themeKey = `${getThemeMode()}:${resolvedAccentHex()}`;
-  const html = useMemo(() => buildEditorHtml(content, placeholder, editorThemeVars(), getApiUrlSync()), [themeKey]);
+  // A compact editor sits inside a card, so its page takes the card colour.
+  const html = useMemo(
+    () =>
+      buildEditorHtml(
+        content,
+        placeholder,
+        compact ? { ...editorThemeVars(), background: colors.card } : editorThemeVars(),
+        getApiUrlSync(),
+        { compact },
+      ),
+    [themeKey],
+  );
   const focusedRef = useRef(false);
   const appliedRef = useRef(JSON.stringify(content));
   const contentRef = useRef(content);
@@ -621,7 +632,7 @@ export default function RichTextEditor({
   const dock = (
     <View
       onLayout={(event) => setBarHeight(event.nativeEvent.layout.height)}
-      style={[styles.dock, { paddingBottom: floatBar ? 0 : safeBottom }]}
+      style={[styles.dock, compact && !floatBar && styles.dockCompact, { paddingBottom: floatBar ? 0 : safeBottom }]}
     >
       {inTable ? (
         <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.tableBar}>
@@ -673,9 +684,9 @@ export default function RichTextEditor({
   useKeyboardAccessory(floatBar, keyboardHeight, () => dock);
 
   return (
-    <View style={[styles.wrap, compact && styles.compact, compact && floatBar && styles.compactFloating]}>
+    <View style={compact ? undefined : styles.wrap}>
       {findOpen && ready ? <FindBar run={run} result={findResult} onClose={() => onFindClose?.()} /> : null}
-      <View style={[styles.webWrap, compact && styles.compactWeb]}>
+      <View style={compact ? styles.compactWeb : styles.webWrap}>
         <WebView
           key={themeKey}
           ref={webRef}
@@ -691,7 +702,7 @@ export default function RichTextEditor({
           // which is often plain http on a home network.
           mixedContentMode="compatibility"
           nestedScrollEnabled
-          style={styles.web}
+          style={[styles.web, compact && styles.webCompact]}
           onMessage={onMessage}
           onError={() => setFailed(true)}
           onHttpError={() => setFailed(true)}
@@ -881,15 +892,17 @@ export default function RichTextEditor({
 
 const styles = createThemedStyleSheet((colors) => ({
   wrap: { flex: 1, minHeight: 280 },
-  compact: { flex: 0, minHeight: 220, maxHeight: 280, borderRadius: 16, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  compactFloating: { minHeight: 140, maxHeight: 180 },
   webWrap: { flex: 1, minHeight: 160 },
-  compactWeb: { minHeight: 140, maxHeight: 180 },
+  // Compact sits inside a card (DescriptionCard) at a fixed height.
+  compactWeb: { height: 168 },
   toolOn: { backgroundColor: colors.accent },
   linkTool: { height: 40, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.accent },
   linkToolText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   overlay: { ...StyleSheet.absoluteFill, justifyContent: "center", alignItems: "center", backgroundColor: colors.card },
   web: { flex: 1, backgroundColor: colors.background },
+  webCompact: { backgroundColor: colors.card },
+  // Edge to edge across the card, as its footer.
+  dockCompact: { marginHorizontal: -16 },
   dock: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
