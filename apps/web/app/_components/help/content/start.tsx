@@ -83,7 +83,8 @@ export const start: HelpSection = {
                   a <Link href="/help/notes/dashboard">Dashboard</Link> of cards you arrange.
                 </li>
                 <li>
-                  <strong>Assistant:</strong> an <Link href="/help/assistant/chat">assistant chat</Link>,{" "}
+                  <strong>Assistant:</strong> an <Link href="/help/assistant/chat">assistant</Link> that runs on{" "}
+                  <Link href="/help/assistant/subscriptions">your own Claude or ChatGPT subscription</Link>,{" "}
                   <Link href="/help/assistant/smart-suggestions">smart suggestions</Link>, and an{" "}
                   <Link href="/help/assistant/mcp">MCP server</Link> for your own agents.
                 </li>

@@ -12,7 +12,7 @@ export const notes: HelpSection = {
     {
       slug: "docs",
       title: "Docs",
-      summary: "Nested pages with a block editor that speaks Markdown, diagrams and maths.",
+      summary: "Nested pages with a block editor that speaks Markdown, diagrams and maths, and an assistant that writes them.",
       keywords: ["doc", "document", "note", "page", "markdown", "mermaid", "katex", "math", "editor", "import", "export", "daily note"],
       lead: (
         <p>
@@ -79,6 +79,25 @@ export const notes: HelpSection = {
           ),
         },
         {
+          id: "assistant",
+          title: "With the assistant",
+          body: (
+            <>
+              <p>
+                Ask in <Link href="/help/assistant/chat">chat</Link> to write a doc, add a section to one, or rewrite
+                it: &ldquo;Write a launch brief for the website project with goals, risks and a checklist.&rdquo; With
+                a doc open, the assistant sees it and any text you have selected. Adding to a doc applies straight
+                away; replacing its text waits for your review.
+              </p>
+              <p>
+                With <Link href="/help/assistant/smart-suggestions">smart suggestions</Link> on, a card at the top of
+                a doc can offer a template for a new page, the project it seems to belong to, or a page to move it
+                under. Each one is a click to accept, with Undo.
+              </p>
+            </>
+          ),
+        },
+        {
           id: "organize-docs",
           title: "Tabs, history and archive",
           body: (
@@ -98,7 +117,7 @@ export const notes: HelpSection = {
     {
       slug: "sheets",
       title: "Sheets",
-      summary: "Light spreadsheets with typed columns, formulas, tabs and templates.",
+      summary: "Light spreadsheets with typed columns, formulas, tabs and templates, built or filled by the assistant.",
       keywords: ["sheet", "spreadsheet", "table", "formula", "budget", "csv", "template", "column"],
       lead: (
         <p>
@@ -147,6 +166,24 @@ export const notes: HelpSection = {
                 <code>WEEKDAY</code>, <code>DAYS</code> and <code>TEXT</code>. Formulas can&apos;t refer to other tabs
                 yet.
               </p>
+            </>
+          ),
+        },
+        {
+          id: "assistant",
+          title: "With the assistant",
+          body: (
+            <>
+              <p>
+                Ask in <Link href="/help/assistant/chat">chat</Link> for a sheet and describe it: &ldquo;Make a launch
+                budget with item, category, cost and paid columns, and a total.&rdquo; The assistant can also add
+                columns, rows and tabs to an open sheet or fill in cells. A new sheet that already has data, and
+                anything that removes or replaces what is there, waits for your review.
+              </p>
+              <Callout kind="tip">
+                Attach a photo of a receipt in chat and the assistant adds it to your expense sheet after you check
+                the details. See <Link href="/help/assistant/chat#receipts">Receipts to your expense sheet</Link>.
+              </Callout>
             </>
           ),
         },

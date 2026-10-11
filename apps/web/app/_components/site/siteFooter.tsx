@@ -7,8 +7,10 @@ const COLUMNS = [
   {
     title: "Product",
     links: [
-      { href: "/#features", label: "Features" },
+      { href: "/#ai", label: "AI and agents" },
       { href: "/#how-it-works", label: "How it works" },
+      { href: "/#docs-and-sheets", label: "Docs and sheets" },
+      { href: "/#features", label: "Features" },
       { href: "/#download", label: "Download" },
       { href: "/demo/command-palette", label: "Try the search demo" },
     ],

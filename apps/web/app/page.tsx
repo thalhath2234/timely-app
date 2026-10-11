@@ -3,12 +3,11 @@ import Link from "next/link";
 import { ArrowRight, Download, KeyRound, LifeBuoy, ShieldCheck, Sparkles, Star } from "lucide-react";
 import packageJson from "@/package.json";
 import Downloads from "@/app/_components/landing/downloads";
+import AiShowcase from "@/app/_components/landing/aiShowcase";
+import DocsSheetsShowcase from "@/app/_components/landing/docsSheetsShowcase";
 import {
-  AssistantGraphic,
   DashboardGraphic,
-  DocsSheetsGraphic,
   HabitsGraphic,
-  McpGraphic,
   ScheduleGraphic,
   SearchGraphic,
 } from "@/app/_components/landing/featureGraphics";
@@ -25,7 +24,7 @@ import "@/app/_components/site/site.css";
 
 const TITLE = "Timely: from loose thoughts to a planned week";
 const DESCRIPTION =
-  "Capture a thought, clarify it, and Timely places it on your calendar around everything else. Tasks, docs, sheets and an assistant in a private planner that runs on your own computer. Open source, for Windows, Linux and Android.";
+  "A private planner with an AI assistant that runs on the Claude or ChatGPT subscription you already have. Capture a thought and Timely plans it into your week, with smart suggestions, docs, sheets and an MCP server for your own agents. Open source, for Windows, Linux and Android.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -35,6 +34,10 @@ export const metadata: Metadata = {
 };
 
 const PROOF = [
+  "Your Claude subscription",
+  "Your ChatGPT subscription",
+  "Smart suggestions",
+  "AI agents over MCP",
   "Auto-schedule",
   "Inbox and Clarify",
   "Week calendar",
@@ -44,9 +47,7 @@ const PROOF = [
   "Sheets with formulas",
   "Habits and goals",
   "Pomodoro",
-  "Assistant chat",
-  "Smart suggestions",
-  "MCP for agents",
+  "Receipts to sheets",
   "Encrypted backups",
   "Phone pairing",
 ];
@@ -128,8 +129,8 @@ export default function Home() {
                 </Reveal>
                 <Reveal delay={0.16}>
                   <p className="s-soft mx-auto mt-6 max-w-xl text-lg leading-relaxed">
-                    Capture a thought, decide what it is, and Timely places it on your calendar around everything
-                    else. A private planner that runs on your own computer.
+                    Capture a thought and Timely plans it into your week, with an AI assistant that runs on the
+                    Claude or ChatGPT subscription you already pay for. Private, on your own computer.
                   </p>
                 </Reveal>
                 <Reveal delay={0.24}>
@@ -189,8 +190,27 @@ export default function Home() {
             </div>
           </section>
 
+          {/* AI */}
+          <section className="relative overflow-x-clip">
+            <div aria-hidden className="s-orb top-[20%] left-[-12%] size-[420px] bg-[#6f6ff0] opacity-25" />
+            <div aria-hidden className="s-orb top-[45%] right-[-14%] size-[420px] bg-[#c26bf0] opacity-20" style={{ animationDelay: "-9s" }} />
+            <div className="relative mx-auto max-w-6xl px-4 py-24 sm:px-8 lg:py-32">
+              <SectionHeading
+                id="ai"
+                eyebrow="AI, your way"
+                title={
+                  <>
+                    Bring the AI you <span className="s-gradient-text">already pay for.</span>
+                  </>
+                }
+                body="Sign in with your Claude or ChatGPT subscription, or pick any model with your own key. The assistant plans, smart suggestions fill in the details, and your own agents plug straight in."
+              />
+              <AiShowcase />
+            </div>
+          </section>
+
           {/* How it works */}
-          <section className="mx-auto max-w-6xl px-4 py-24 sm:px-8 lg:py-32">
+          <section className="mx-auto max-w-6xl px-4 pb-24 sm:px-8 lg:pb-32">
             <SectionHeading
               id="how-it-works"
               eyebrow="How it works"
@@ -200,13 +220,24 @@ export default function Home() {
             <LoopStory />
           </section>
 
+          {/* Docs and sheets */}
+          <section className="mx-auto max-w-6xl px-4 pb-24 sm:px-8 lg:pb-32">
+            <SectionHeading
+              id="docs-and-sheets"
+              eyebrow="Docs and sheets"
+              title="Notes and numbers, right next to the work."
+              body="Every project can hold its own docs and sheets. Search finds them, the assistant writes and fills them, and nothing lives in a separate app."
+            />
+            <DocsSheetsShowcase />
+          </section>
+
           {/* Features */}
           <section className="relative mx-auto max-w-6xl px-4 pb-24 sm:px-8 lg:pb-32">
             <SectionHeading
               id="features"
               eyebrow="Everything in one place"
-              title="Plan, write and track without switching apps."
-              body="Tasks, a calendar, docs, sheets and an assistant share one search and one set of projects."
+              title="Plan, focus and track without switching apps."
+              body="Tasks, a calendar, a dashboard and habits share one search and one set of projects."
             />
             <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               <FeatureCard
@@ -220,27 +251,11 @@ export default function Home() {
               />
               <FeatureCard
                 delay={0.06}
-                eyebrow="Assistant"
-                title="Ask for a plan, approve the changes."
-                body="Chat with an assistant that can create projects, tasks, events, docs and sheets. Larger changes wait for your approval."
-                graphic={<AssistantGraphic />}
-                href="/help/assistant/chat"
-              />
-              <FeatureCard
                 eyebrow="Search"
                 title="Find anything, run any command."
                 body="Press Ctrl/Cmd+K to search tasks, projects, docs, sheets and events, or create something new from the same box."
                 graphic={<SearchGraphic />}
                 href="/help/notes/search"
-              />
-              <FeatureCard
-                delay={0.06}
-                className="lg:col-span-2"
-                eyebrow="Docs and sheets"
-                title="Notes and numbers next to the work."
-                body="Nested docs with Markdown import and export, checklists, tables, Mermaid and maths. Sheets with formulas, column types and templates."
-                graphic={<DocsSheetsGraphic />}
-                href="/help/notes/docs"
               />
               <FeatureCard
                 eyebrow="Dashboard"
@@ -251,20 +266,13 @@ export default function Home() {
               />
               <FeatureCard
                 delay={0.06}
+                className="lg:col-span-2"
                 eyebrow="Habits and goals"
                 title="Small streaks, kept in view."
                 body="Tick habits on Today or on your phone's Home screen and watch the streak grow next to your goals."
                 graphic={<HabitsGraphic />}
                 graphicClassName="flex items-center"
                 href="/help/plan/today"
-              />
-              <FeatureCard
-                delay={0.12}
-                eyebrow="For agents"
-                title="Plug in your own agent."
-                body="An MCP server with more than 150 tools lets an outside agent read and change your planner with a personal API key."
-                graphic={<McpGraphic />}
-                href="/help/assistant/mcp"
               />
             </div>
           </section>
@@ -291,7 +299,7 @@ export default function Home() {
                   {
                     icon: KeyRound,
                     title: "Bring your own keys",
-                    body: "The assistant uses the provider you pick, with your own API key, stored encrypted. Without a key, everything else still works.",
+                    body: "The assistant runs on your own Claude or ChatGPT sign-in, or your own API key, stored encrypted. Without one, everything else still works.",
                   },
                   {
                     icon: Download,

@@ -273,8 +273,9 @@ function PanelHeader({ phase }: { phase: number }) {
     return (
       <p className="flex items-center gap-[1cqw] text-[1.6cqw] font-semibold text-white/80">
         Clarify
-        <span className="rounded-full bg-white/[0.07] px-[1cqw] py-[0.2cqw] text-[1.3cqw] font-medium text-white/50">
-          5 ready to plan
+        <span className="flex items-center gap-[0.5cqw] rounded-full bg-[#f0abfc]/10 px-[1cqw] py-[0.2cqw] text-[1.3cqw] font-medium text-[#f0abfc]">
+          <Sparkles className="size-[1.4cqw]" />
+          Smart suggestions
         </span>
       </p>
     );

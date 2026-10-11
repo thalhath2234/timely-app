@@ -11,8 +11,9 @@ import { REPO_URL } from "./links";
 import { GitHubMark } from "./marks";
 
 const NAV = [
-  { href: "/#features", label: "Features" },
+  { href: "/#ai", label: "AI" },
   { href: "/#how-it-works", label: "How it works" },
+  { href: "/#docs-and-sheets", label: "Docs and sheets" },
   { href: "/#download", label: "Download" },
   { href: "/help", label: "Help" },
 ] as const;

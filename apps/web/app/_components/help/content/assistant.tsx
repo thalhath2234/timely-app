@@ -1,14 +1,145 @@
 import { Sparkles } from "lucide-react";
 import Link from "next/link";
 import type { HelpSection } from "../types";
-import { Callout, Path, Shot, Steps } from "../ui";
+import { CLAUDE_CODE_URL, CODEX_URL } from "@/app/_components/site/links";
+import { Callout, Code, Path, Shot, Steps } from "../ui";
 
 export const assistant: HelpSection = {
   id: "assistant",
   title: "Assistant and AI",
-  description: "Chat with the assistant, turn on smart suggestions, and connect your own agents.",
+  description: "Run the assistant on your own Claude or ChatGPT subscription, turn on smart suggestions, and connect your own agents.",
   icon: Sparkles,
   articles: [
+    {
+      slug: "subscriptions",
+      title: "Use your Claude or ChatGPT subscription",
+      summary: "Run the assistant on the Claude or ChatGPT plan you already pay for, or on any model with your own key.",
+      keywords: [
+        "subscription",
+        "claude code",
+        "claude pro",
+        "claude max",
+        "codex",
+        "chatgpt",
+        "chatgpt plus",
+        "opencode go",
+        "ollama",
+        "local model",
+        "provider",
+        "api key",
+        "openrouter",
+      ],
+      lead: (
+        <p>
+          Timely doesn&apos;t sell AI. The assistant runs on a provider you choose: the Claude or ChatGPT subscription
+          you already have, a subscription such as OpenCode Go, models on your own computer, or an API key. You pick a
+          default in <Path>Settings &gt; Agent</Path> and can switch the model in any chat.
+        </p>
+      ),
+      sections: [
+        {
+          id: "options",
+          title: "Your options",
+          body: (
+            <ul>
+              <li>
+                <strong>Claude Code</strong> uses the Claude Code app and its sign-in on your computer, so chats count
+                against your Claude Pro or Max plan instead of a separate API bill.
+              </li>
+              <li>
+                <strong>Codex</strong> does the same with the Codex app and your ChatGPT plan.
+              </li>
+              <li>
+                <strong>OpenCode Go</strong> uses the models included in an OpenCode Go subscription, with its key.
+              </li>
+              <li>
+                <strong>Ollama</strong> runs models on your own computer (or Ollama Cloud with a key).
+              </li>
+              <li>
+                <strong>OpenRouter</strong> gives you hundreds of models with one key, and also powers search by
+                meaning and smart suggestions.
+              </li>
+              <li>
+                A direct key for Anthropic, OpenAI, Google Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, NVIDIA or
+                OpenCode Zen. These are under <strong>More API keys</strong>.
+              </li>
+            </ul>
+          ),
+        },
+        {
+          id: "claude-code",
+          title: "Connect Claude Code (Claude subscription)",
+          body: (
+            <>
+              <Steps>
+                <p>
+                  Install <a href={CLAUDE_CODE_URL}>Claude Code</a> on the computer that runs Timely. With the desktop
+                  app, that is your own computer.
+                </p>
+                <div>
+                  <p>Sign in once from a terminal with your Claude account:</p>
+                  <Code>claude auth login</Code>
+                </div>
+                <p>
+                  In Timely, open <Path>Settings &gt; Agent</Path>. The Claude Code card shows <strong>Found</strong>{" "}
+                  and <strong>Signed in</strong> with your plan. If it doesn&apos;t, choose <strong>Re-scan</strong>.
+                </p>
+                <p>
+                  Choose <strong>Connect</strong>. Timely makes one tiny test call; then choose{" "}
+                  <strong>Use as default</strong>.
+                </p>
+              </Steps>
+              <Callout kind="note">
+                Timely runs Claude Code with every one of its own built-in tools turned off, so it can only use
+                Timely&apos;s tools. Pick Fable, Opus, Sonnet or Haiku per chat; each follows the newest release.
+              </Callout>
+            </>
+          ),
+        },
+        {
+          id: "codex",
+          title: "Connect Codex (ChatGPT subscription)",
+          body: (
+            <>
+              <p>
+                Install <a href={CODEX_URL}>Codex</a> on the same computer, sign in with your ChatGPT account, then
+                choose <strong>Connect</strong> on the Codex card in <Path>Settings &gt; Agent</Path>.
+              </p>
+              <Code>codex login</Code>
+              <p>Timely runs Codex in a read-only sandbox with its shell turned off.</p>
+            </>
+          ),
+        },
+        {
+          id: "keys",
+          title: "Use an API key instead",
+          body: (
+            <>
+              <p>
+                Paste a key into the provider&apos;s card and Timely checks it with a test call. Keys are stored
+                encrypted and only a short hint is ever shown again. Then pick the provider&apos;s chat model and
+                choose <strong>Use as default</strong>.
+              </p>
+              <Shot
+                src="settings-agent"
+                alt="Settings, Agent tab: the OpenRouter card with an API key field, chat model and embedding model, and the Smart suggestions section."
+              />
+            </>
+          ),
+        },
+        {
+          id: "privacy",
+          title: "Where your words go",
+          body: (
+            <Callout kind="warning">
+              Text, pictures, receipts and web searches go to the provider you selected, under your own subscription or
+              key. If that provider is unavailable, the chat stops with a message: Timely never switches to another
+              provider behind your back, and a request keeps the provider it started with.
+            </Callout>
+          ),
+        },
+      ],
+    },
     {
       slug: "chat",
       title: "Assistant chat and quick prompt",
@@ -24,34 +155,13 @@ export const assistant: HelpSection = {
       sections: [
         {
           id: "set-up",
-          title: "Choose a provider",
+          title: "Choose what it runs on",
           body: (
-            <>
-              <p>
-                Open <Path>Settings &gt; Agent</Path> and set up one provider:
-              </p>
-              <ul>
-                <li>
-                  <strong>OpenRouter</strong>, one key for many models. It also powers search by meaning.
-                </li>
-                <li>
-                  A direct API key for Anthropic, OpenAI, Google Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, NVIDIA,
-                  OpenCode, or a local or cloud Ollama. These are under <strong>More API keys</strong>.
-                </li>
-                <li>
-                  <strong>Claude Code</strong> or <strong>Codex</strong>, if they are installed and signed in on the
-                  computer that runs Timely.
-                </li>
-              </ul>
-              <p>
-                Keys are checked with a test call and stored encrypted; Timely only ever shows a hint of them. Pick a
-                default provider and model, and change the model per chat at any time.
-              </p>
-              <Shot
-                src="settings-agent"
-                alt="Settings, Agent tab: the OpenRouter card with an API key field, chat model and embedding model, and the Smart suggestions section."
-              />
-            </>
+            <p>
+              Connect your Claude or ChatGPT subscription, or add a key, in <Path>Settings &gt; Agent</Path>. See{" "}
+              <Link href="/help/assistant/subscriptions">Use your Claude or ChatGPT subscription</Link>. Pick a
+              default, and change the model in any chat from the menu next to the send button.
+            </p>
           ),
         },
         {
@@ -73,12 +183,72 @@ export const assistant: HelpSection = {
                   calendar view. These show as chips you can remove.
                 </li>
                 <li>
-                  Small changes apply straight away and show as cards you can open. Larger ones wait as{" "}
-                  <strong>Needs your review</strong> until you approve them.
+                  A request keeps running if you leave the chat; follow it in the <strong>Activity island</strong> in
+                  the sidebar, or stop it there. Changes made before you stop are kept.
                 </li>
                 <li>Past chats are grouped by day and searchable. Applied changes stay when you delete a chat.</li>
               </ul>
             </>
+          ),
+        },
+        {
+          id: "what-it-can-do",
+          title: "What it can do",
+          body: (
+            <ul>
+              <li>
+                <strong>Plan:</strong> break a goal into a project with stages and tasks, set lengths and deadlines,
+                and place the Work on your calendar with Auto-schedule.
+              </li>
+              <li>
+                <strong>Organize:</strong> create, move and update tasks, checklists, labels, repeats and dependencies;
+                set your Today focus; capture to the Inbox; add habits and goals.
+              </li>
+              <li>
+                <strong>Calendar:</strong> add, move and delete events, and find free time.
+              </li>
+              <li>
+                <strong>Write:</strong> create docs, append to them or rewrite them, and build sheets with columns,
+                rows and tabs. See <Link href="/help/notes/docs#assistant">Docs</Link> and{" "}
+                <Link href="/help/notes/sheets#assistant">Sheets</Link>.
+              </li>
+              <li>
+                <strong>Answer:</strong> what to do next, what is overdue, how busy a week is, or what a doc says.
+                Turn on web search when it needs to look something up.
+              </li>
+              <li>
+                <strong>Settings:</strong> working hours, notifications, saved views, exports and backups.
+              </li>
+            </ul>
+          ),
+        },
+        {
+          id: "review",
+          title: "Review before anything changes",
+          body: (
+            <>
+              <p>
+                A single small change, like adding one task, is applied straight away and shows as a card you can
+                open. Anything bigger waits as a proposal marked <strong>Needs your review</strong>: plans with several
+                steps, bulk edits, changes to a repeating series, replacing a doc&apos;s text, and filling or clearing a
+                sheet.
+              </p>
+              <p>
+                The proposal lists every change. <strong>Apply changes</strong> writes them, a reply in the chat asks
+                for a different version first, and <strong>Discard</strong> writes nothing.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: "receipts",
+          title: "Receipts to your expense sheet",
+          body: (
+            <p>
+              Attach a photo of a receipt (up to five photos of one receipt) and the assistant reads the shop, date,
+              currency and total. Check the details, choose the expense sheet, and confirm; nothing is saved to the
+              sheet before that. Receipt photos are removed after you confirm, or after 24 hours.
+            </p>
           ),
         },
         {

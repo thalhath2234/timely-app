@@ -13,6 +13,7 @@ export const metadata: Metadata = {
 };
 
 const POPULAR = [
+  { label: "Use your Claude or ChatGPT plan", href: "/help/assistant/subscriptions" },
   { label: "Install on Windows", href: "/help/install/windows" },
   { label: "Auto-schedule", href: "/help/plan/auto-schedule" },
   { label: "Pair your phone", href: "/help/install/android#pair" },
