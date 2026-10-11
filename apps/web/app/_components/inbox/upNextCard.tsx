@@ -1,12 +1,13 @@
 "use client";
 
 import { motion } from "motion/react";
-import { BellRing, CheckSquare, Clock, SkipForward, Sparkles, Trash2 } from "lucide-react";
+import { ArrowUpRight, BellRing, CheckSquare, Clock, SkipForward, Sparkles, Trash2 } from "lucide-react";
 import { inboxSuggestionSummary, type InboxAge } from "@timely/contract/inbox";
 import Button from "@/app/_components/_ui/button";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { useClarifySuggestions, useDecisions } from "@/app/utils/hooks/decisions";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { cn } from "@/app/utils/cn";
 import type { Task } from "@/app/_types/types";
 import { springSoft } from "@/app/_components/_ui/motion";
@@ -39,7 +40,10 @@ export default function UpNextCard({
   const suggestions = useClarifySuggestions(task.id, decisionsOn);
   const workspaces = useWorkspaces().data ?? [];
   const s = suggestions.data?.available ? suggestions.data : undefined;
-  const summary = s ? inboxSuggestionSummary(s, workspaces.find((w) => w.id === s.workspaceId)?.name) : undefined;
+  const summary = s
+    ? inboxSuggestionSummary(s, workspaces.find((w) => w.id === s.workspaceId)?.name, task.id)
+    : undefined;
+  const duplicates = summary?.duplicates ?? [];
   const remindFirst = s?.kind === "reminder";
 
   return (
@@ -72,7 +76,7 @@ export default function UpNextCard({
           <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">{task.description}</p>
         ) : null}
       </div>
-      {decisionsOn && (suggestions.isLoading || summary?.line || summary?.note) ? (
+      {decisionsOn && (suggestions.isLoading || summary?.line || summary?.note || duplicates.length > 0) ? (
         <div
           className="flex items-start gap-2.5 rounded-xl border border-primary/20 bg-primary/[0.05] px-3.5 py-2.5 text-sm"
           data-testid="inbox-up-next-suggestion"
@@ -85,13 +89,34 @@ export default function UpNextCard({
           ) : (
             <>
               <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-              <div className="min-w-0">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
                 {summary?.line ? (
                   <p className="text-accent-foreground">
                     <span className="font-medium">Suggested:</span> {summary.line}. The form opens filled in.
                   </p>
                 ) : null}
                 {summary?.note ? <p className="text-muted-foreground">{summary.note}</p> : null}
+                {duplicates.length > 0 ? (
+                  <div className="flex flex-col gap-1.5" data-testid="inbox-up-next-duplicates">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-muted-foreground">Might already exist:</span>
+                      {duplicates.map((dup) => (
+                        <button
+                          key={dup.id}
+                          type="button"
+                          onClick={() => useEntityDetailStore.getState().openTask(dup.id)}
+                          aria-label={`Open “${dup.name}”`}
+                          title="Open it to compare. Closing it brings you back here."
+                          className="inline-flex h-7 max-w-64 items-center gap-1 rounded-lg border border-border bg-background px-2 font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <span className="truncate">{dup.name}</span>
+                          <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Same thing? Delete this capture.</p>
+                  </div>
+                ) : null}
               </div>
             </>
           )}

@@ -112,7 +112,28 @@ describe("inboxSuggestionSummary", () => {
     assert.deepEqual(inboxSuggestionSummary({ severalActions: true, duration: 30 }), {
       line: "",
       note: "It may be more than one task.",
+      duplicates: [],
     });
     assert.equal(inboxSuggestionSummary({ kind: "task", duration: 90 }).line, "A 1 h 30 min task");
+  });
+
+  test("lists possible duplicates to open, never the capture itself", () => {
+    const summary = inboxSuggestionSummary(
+      {
+        duplicates: [
+          { id: "self", name: "renew my number card" },
+          { id: "t1", name: "Renew My number card" },
+          { id: "t2", name: "Renew passport" },
+          { id: "t3", name: "Renew licence" },
+        ],
+      },
+      undefined,
+      "self",
+    );
+    assert.equal(summary.note, "");
+    assert.deepEqual(
+      summary.duplicates.map((item) => item.id),
+      ["t1", "t2"],
+    );
   });
 });
