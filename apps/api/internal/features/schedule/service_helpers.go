@@ -124,7 +124,7 @@ func (s *service) Undo(userID string) (*PlanResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.Preview(userID, PlanRequest{})
+	return s.preview(userID, PlanRequest{})
 }
 
 // UndoBlock is one engine block an undo removes or restores.
@@ -173,7 +173,7 @@ func (s *service) PreviewUndo(userID string) (*UndoPreview, error) {
 }
 
 func (s *service) Capacity(userID string, from, to time.Time, timezone string) ([]DayCapacity, error) {
-	plan, err := s.Preview(userID, PlanRequest{
+	plan, err := s.preview(userID, PlanRequest{
 		From:     strPtrTime(from),
 		To:       strPtrTime(to),
 		Timezone: timezone,
@@ -207,6 +207,8 @@ func (s *service) makeCandidate(t *models.Task, loc *time.Location, todayStamp s
 		BlockedByID:      derefString(t.BlockedByID),
 		TodayFocus:       models.NormalizeDate(derefString(t.TodayFocusOn)) == todayStamp,
 		ActualMinutes:    t.ActualMinutes,
+		Urgency:          t.Urgency,
+		GroupKey:         t.GroupKey,
 	}
 	if t.EarliestStartAt != nil && *t.EarliestStartAt != "" {
 		if parsed, err := recurrence.ParseTimeIn(*t.EarliestStartAt, loc); err == nil {
@@ -226,6 +228,29 @@ func hasPinnedBlock(t *models.Task, freezeUntil time.Time) bool {
 		}
 	}
 	return hasManualBlock(t)
+}
+
+// hasLockedBlockAfter is true when the task has a locked block that is not
+// over by from: time the person pinned, which no replace may move.
+func hasLockedBlockAfter(t *models.Task, from time.Time) bool {
+	for _, block := range t.Blocks {
+		if block.Locked && block.EndAt.After(from) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasReplaceableManual is true when the task has a hand-placed block that a
+// replace removes: unlocked and not over by from. It matches Placement's
+// delete in ApplyAutoSchedule.
+func hasReplaceableManual(t *models.Task, from time.Time) bool {
+	for _, block := range t.Blocks {
+		if block.Source == models.BlockSourceManual && !block.Locked && block.EndAt.After(from) {
+			return true
+		}
+	}
+	return false
 }
 
 func frozenOnly(t *models.Task, freezeUntil time.Time) bool {

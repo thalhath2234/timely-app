@@ -112,6 +112,25 @@ func TestIntegrationDecisionSettings(t *testing.T) {
 	if code, body := call(t, s, "user-a", http.MethodDelete, "/agent/decisions/key", nil); code != 200 || body["typesafe"].(map[string]any)["keySet"] != false {
 		t.Fatalf("remove key: %d %v", code, body)
 	}
+
+	// The deep-work time is saved and checked; goals are no longer part of
+	// these settings (they live on Today) and are neither returned nor saved.
+	code, body = call(t, s, "user-a", http.MethodPatch, "/agent/decisions", map[string]any{"goals": []string{"Launch the shop"}, "deepWorkTime": "morning"})
+	if _, hasGoals := body["goals"]; code != 200 || hasGoals || body["deepWorkTime"] != "morning" || body["enabled"] != true {
+		t.Fatalf("prefs: %d %v", code, body)
+	}
+	for _, bad := range []map[string]any{
+		{"goals": []string{"Get fit"}},
+		{"deepWorkTime": "night"},
+		{},
+	} {
+		if code, _ := call(t, s, "user-a", http.MethodPatch, "/agent/decisions", bad); code != 400 {
+			t.Fatalf("%v: %d", bad, code)
+		}
+	}
+	if _, body := call(t, s, "user-b", http.MethodGet, "/agent/decisions", nil); body["deepWorkTime"] != "" {
+		t.Fatalf("another account's prefs: %v", body)
+	}
 }
 
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }

@@ -14,6 +14,8 @@ import CustomFieldBuilder, {
   type OptionDraft,
 } from "../../../../components/ui/CustomFieldBuilder";
 import { Field, PrimaryButton, SectionLabel } from "../../../../components/ui/primitives";
+import StarterLabels from "../../../../components/settings/StarterLabels";
+import CleanupSuggestions from "../../../../components/settings/CleanupSuggestions";
 import ConfirmSheet, { type ConfirmRequest } from "../../../../components/ui/ConfirmSheet";
 import { keys, useInvalidateAll, useProjectsQuery, useWorkspacesQuery } from "../../../../lib/hooks";
 import {
@@ -147,6 +149,7 @@ export default function WorkspaceEditor() {
         />
 
         <SectionLabel>Statuses</SectionLabel>
+        <CleanupSuggestions workspaceId={workspace.id} kind="status" confirm={setConfirm} />
         {(workspace.status ?? []).map((s) => (
           <View key={s.id} style={styles.card}>
             {editingStatusId === s.id ? (
@@ -207,6 +210,8 @@ export default function WorkspaceEditor() {
         />
 
         <SectionLabel>Labels</SectionLabel>
+        <StarterLabels workspaceId={workspace.id} />
+        <CleanupSuggestions workspaceId={workspace.id} kind="label" confirm={setConfirm} />
         {(workspace.lables ?? []).map((l) => (
           <View key={l.id} style={styles.card}>
             {editingLabelId === l.id ? (
@@ -268,6 +273,7 @@ export default function WorkspaceEditor() {
         />
 
         <SectionLabel>Custom fields</SectionLabel>
+        <CleanupSuggestions workspaceId={workspace.id} kind="option" confirm={setConfirm} />
         {(workspace.customFields ?? []).map((field) => {
           const editing = editingFieldId === field.id;
           const typeLabel = FIELD_TYPES.find((item) => item.value === field.type)?.label ?? field.type;

@@ -60,10 +60,14 @@ type Settings struct {
 	Reindex              ReindexState `gorm:"column:reindex;serializer:json;type:jsonb" json:"-"`
 	// Smart suggestions (Jev): on by default once a TypeSafe or OpenRouter
 	// key exists; TypeSafeRejected is set when TypeSafe refuses the saved key.
-	DecisionsOff     bool      `gorm:"column:decisions_off" json:"-"`
-	TypeSafeRejected bool      `gorm:"column:typesafe_rejected" json:"-"`
-	CreatedAt        time.Time `gorm:"column:created_at" json:"-"`
-	UpdatedAt        time.Time `gorm:"column:updated_at" json:"-"`
+	DecisionsOff     bool `gorm:"column:decisions_off" json:"-"`
+	TypeSafeRejected bool `gorm:"column:typesafe_rejected" json:"-"`
+	// The time of day the person prefers for deep work, which suggestions
+	// weigh. Goals moved to their own table (features/focus); the old
+	// decision_goals column is no longer read or written.
+	DeepWorkTime string    `gorm:"column:deep_work_time" json:"-"`
+	CreatedAt    time.Time `gorm:"column:created_at" json:"-"`
+	UpdatedAt    time.Time `gorm:"column:updated_at" json:"-"`
 }
 
 func (Settings) TableName() string { return "agent_provider_settings" }

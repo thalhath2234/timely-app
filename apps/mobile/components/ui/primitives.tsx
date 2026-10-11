@@ -76,7 +76,12 @@ export function Field({
       keyboardType={keyboardType}
       multiline={multiline}
       scrollEnabled={autoGrow ? false : undefined}
-      onContentSizeChange={autoGrow ? (event) => setContentHeight(Math.ceil(event.nativeEvent.contentSize.height)) : undefined}
+      onContentSizeChange={autoGrow ? (event) => {
+        // The web build reports the box's own height, which includes the 2px
+        // added below; small changes are ignored so it doesn't grow forever.
+        const next = Math.ceil(event.nativeEvent.contentSize.height);
+        setContentHeight((prev) => (Math.abs(next - prev) <= 2 ? prev : next));
+      } : undefined}
       selectionColor={colors.primary}
       style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, bare && focused && styles.inputBareFocused, autoGrow && { height: Math.max(38, contentHeight + 2) }]}
     />
@@ -180,10 +185,12 @@ export function Select({
   );
 }
 
-export function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
-  if (!action) return <Text style={styles.section}>{children}</Text>;
+/** A section heading. `compact` drops the outer margins, for a heading
+ * inside a card's own header row. */
+export function SectionLabel({ children, action, compact }: { children: ReactNode; action?: ReactNode; compact?: boolean }) {
+  if (!action) return <Text style={[styles.section, compact && styles.sectionCompact]}>{children}</Text>;
   return (
-    <View style={styles.sectionRow}>
+    <View style={[styles.sectionRow, compact && styles.sectionCompact]}>
       <Text style={styles.sectionInRow}>{children}</Text>
       {action}
     </View>
@@ -316,6 +323,7 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "space-between",
     gap: 8,
   },
+  sectionCompact: { marginTop: 0, marginBottom: 0, marginLeft: 0 },
   sectionInRow: {
     flex: 1,
     color: colors.foreground,

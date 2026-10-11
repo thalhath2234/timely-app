@@ -11,10 +11,11 @@ import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import EmptyState from "../ui/EmptyState";
 import RichTextEditor from "../editor/RichTextEditor";
-import { useCreateDoc, useDeleteDoc, useDocBacklinksQuery, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../lib/hooks";
+import { useCreateDoc, useDecisionsStatusQuery, useDeleteDoc, useDocBacklinksQuery, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../lib/autosave";
 import { showUndoToast } from "../../lib/toast";
-import { fromMarkdown, resolveDocContent } from "../../lib/markdown";
+import { resolveDocContent } from "../../lib/markdown";
+import { parseImportedText } from "../../lib/importMarkdown";
 import { isRichContentEmpty } from "../../lib/richText";
 import type { UpdateDocPayload } from "../../lib/api/docs";
 import type { DocContent } from "../../lib/types";
@@ -23,6 +24,8 @@ import { shareExport } from "../../lib/api/portability";
 import { getDocVersion, getDocVersions, restoreDocVersion, type DocVersion } from "../../lib/api/docs";
 import { DOC_VERSION_REASONS } from "@timely/contract/documents";
 import RichDoc from "./RichDoc";
+import RelatedList from "../search/RelatedList";
+import DocHintsCard from "./DocHintsCard";
 import { PrimaryButton } from "../ui/primitives";
 import { FILES_TAB, fileHref } from "../../lib/fileRoutes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -71,6 +74,7 @@ function DocEditor({ docId }: { docId: string }) {
   const createDoc = useCreateDoc();
   const remove = useDeleteDoc();
   const backlinks = useDocBacklinksQuery(docId).data ?? [];
+  const smartImport = useDecisionsStatusQuery().data?.available === true;
   const queryClient = useQueryClient();
   const [versions, setVersions] = useState<DocVersion[] | null>(null);
   const [version, setVersion] = useState<DocVersion | null>(null);
@@ -81,6 +85,8 @@ function DocEditor({ docId }: { docId: string }) {
   const [editorSync, setEditorSync] = useState(0);
   const lastSavedAtRef = useRef<string | null>(doc?.updatedAt ?? null);
   const editorFocusedRef = useRef(false);
+  // Whether the page holds nothing at all, for the template suggestion.
+  const contentEmptyRef = useRef(doc ? isRichContentEmpty(resolveDocContent(doc.content, doc.plainText)) : true);
 
   const seedContent = useMemo(
     () => (doc ? resolveDocContent(doc.content, doc.plainText) : { type: "doc", content: [] }),
@@ -99,6 +105,8 @@ function DocEditor({ docId }: { docId: string }) {
 
   const [findOpen, setFindOpen] = useState(false);
   const [pdfRequest, setPdfRequest] = useState<{ title: string } | null>(null);
+  const [propertyRequest, setPropertyRequest] = useState<{ key: string; value: string } | null>(null);
+  const [mentionRequest, setMentionRequest] = useState<{ id: string; label: string; entityType: string } | null>(null);
 
   function openAfterMore(next: Menu) {
     setNextMenu(next);
@@ -126,7 +134,9 @@ function DocEditor({ docId }: { docId: string }) {
     setIcon(doc.icon ?? "");
     setFavorite(Boolean(doc.isFavorite));
     setWordCount(countWords(doc.plainText));
-    setRemoteContent(resolveDocContent(doc.content, doc.plainText));
+    const next = resolveDocContent(doc.content, doc.plainText);
+    contentEmptyRef.current = isRichContentEmpty(next);
+    setRemoteContent(next);
     setEditorSync((value) => value + 1);
   }, [remoteEpoch, doc?.title, doc?.icon, doc?.isFavorite, doc?.plainText, doc?.content]);
 
@@ -209,6 +219,27 @@ function DocEditor({ docId }: { docId: string }) {
           </Pressable>
         ) : null}
       </View>
+      <RelatedList
+        kind="doc"
+        id={docId}
+        variant="chips"
+        onLink={(item) => setMentionRequest({ id: item.id, label: item.title || "Untitled", entityType: "doc" })}
+      />
+      <DocHintsCard
+        doc={doc}
+        version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
+        nearEmpty={wordCount < 8}
+        isEmpty={() => contentEmptyRef.current}
+        onSetProperty={(key, value) => setPropertyRequest({ key, value })}
+        onApplyContent={(content, plainText) => {
+          contentEmptyRef.current = isRichContentEmpty(content);
+          setAssistantText(plainText);
+          setWordCount(countWords(plainText));
+          setRemoteContent(content);
+          setEditorSync((value) => value + 1);
+          schedule({ content, plainText });
+        }}
+      />
 
       <RichTextEditor
         content={
@@ -219,11 +250,15 @@ function DocEditor({ docId }: { docId: string }) {
         onSelectionChange={setSelectedText}
         findOpen={findOpen}
         pdfRequest={pdfRequest}
+        propertyRequest={propertyRequest}
+        mentionRequest={mentionRequest}
+        linkDocId={docId}
         onFindClose={() => setFindOpen(false)}
         onFocusChange={(focused) => {
           editorFocusedRef.current = focused;
         }}
         onChange={({ content, plainText }) => {
+          contentEmptyRef.current = isRichContentEmpty(content);
           setAssistantText(plainText);
           setWordCount(countWords(plainText));
           schedule({ content, plainText });
@@ -280,8 +315,9 @@ function DocEditor({ docId }: { docId: string }) {
                 });
                 if (picked.canceled || !picked.assets?.[0]) return;
                 const source = await (await fetch(picked.assets[0].uri)).text();
-                const parsed = fromMarkdown(source);
+                const parsed = await parseImportedText(source, smartImport);
                 setWordCount(countWords(parsed.plainText));
+                contentEmptyRef.current = isRichContentEmpty(parsed.content);
                 setRemoteContent(parsed.content);
                 setEditorSync((value) => value + 1);
                 schedule({ content: parsed.content, plainText: parsed.plainText });

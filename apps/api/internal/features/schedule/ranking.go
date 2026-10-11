@@ -19,6 +19,10 @@ type ScoreInput struct {
 	TodayFocus    bool
 	ActualMinutes int
 	Duration      int
+	// Urgency is the 0-4 level smart suggestions read from the task's words
+	// and stored on it (nil: unknown). It nudges the rank by at most 12, less
+	// than any priority step, so code-known facts still lead.
+	Urgency *int
 }
 
 type Rank struct {
@@ -52,7 +56,9 @@ func ScoreTask(in ScoreInput) Rank {
 				boost = 0
 			}
 			score += boost
-			if boost > 0 {
+			if boost > 0 && slack == 1 {
+				reasons = append(reasons, "due tomorrow")
+			} else if boost > 0 {
 				reasons = append(reasons, fmt.Sprintf("due in %d days", slack))
 			}
 		}
@@ -79,6 +85,15 @@ func ScoreTask(in ScoreInput) Rank {
 	if in.ActualMinutes > 0 && in.Duration > 0 {
 		score += 8
 		reasons = append(reasons, "already started")
+	}
+	if in.Urgency != nil && *in.Urgency >= 0 && *in.Urgency <= 4 {
+		score += (*in.Urgency - 2) * 6
+		switch {
+		case *in.Urgency >= 3:
+			reasons = append(reasons, "sounds urgent")
+		case *in.Urgency == 0:
+			reasons = append(reasons, "sounds like it can wait")
+		}
 	}
 	if len(reasons) == 0 {
 		reasons = append(reasons, "open work")
@@ -121,6 +136,7 @@ func RankList(tasks []models.Task, today task.Today) []RankedTask {
 			TodayFocus:    models.NormalizeDate(derefRank(t.TodayFocusOn)) == date,
 			ActualMinutes: t.ActualMinutes,
 			Duration:      t.Duration,
+			Urgency:       t.Urgency,
 		})
 		list = append(list, RankedTask{Task: t, Score: rank.Score, Reasons: rank.Reasons})
 	}

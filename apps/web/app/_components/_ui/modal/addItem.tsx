@@ -22,19 +22,27 @@ import {
   Plus,
   Repeat,
   Sheet as SheetIcon,
+  Sparkles,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { useCreateDoc } from "@/app/utils/hooks/docs";
 import { useCreateSheet, useSheetTemplates } from "@/app/utils/hooks/sheets";
-import { createProject } from "@/app/utils/api/projects";
+import { getSheetTemplateSuggestion } from "@/app/utils/api/decisions";
+import {
+  createProjectWithStart,
+  ProjectStartChoices,
+  useProjectStart,
+} from "@/app/_components/_ui/modal/projectStart";
 import { useCreateTask, useClarifyInbox } from "@/app/utils/hooks/tasks";
 import {
   useClarifySuggestions,
   useDecisionFeedback,
+  useDecisions,
+  useSuggestedDuration,
 } from "@/app/utils/hooks/decisions";
-import ClarifyHints from "@/app/_components/_ui/modal/clarifyHints";
+import ClarifyHints, { clarifyKept } from "@/app/_components/_ui/modal/clarifyHints";
 import { useCreateEvent } from "@/app/utils/hooks/calendar";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
 import TaskTypeToggle from "@/app/_components/_ui/tasks/taskTypeToggle";
@@ -176,6 +184,21 @@ const addTaskSchema = z
 
 type AddTaskForm = z.input<typeof addTaskSchema>;
 
+// Fields only Work uses; once the person edits one, a late Reminder
+// suggestion no longer switches the kind.
+const WORK_FIELDS = [
+  "duration",
+  "workspaceId",
+  "projectId",
+  "statusId",
+  "stageId",
+  "priorityLevel",
+  "startDate",
+  "deadline",
+  "labelIds",
+  "customFieldValues",
+] as const;
+
 const addPageSchema = z.object({
   title: z
     .string()
@@ -243,6 +266,10 @@ function AddItemModalInner() {
     null,
   );
   const [sheetTemplateId, setSheetTemplateId] = useState("");
+  // Smart suggestions pre-pick a saved template for the sheet's title until
+  // the person picks one themselves.
+  const [suggestedTemplateId, setSuggestedTemplateId] = useState("");
+  const [templateTouched, setTemplateTouched] = useState(false);
   // Which smart suggestions the Clarify form already filled, so each fills
   // once. See the suggestion effects below.
   const filledRef = useRef<{
@@ -294,6 +321,7 @@ function AddItemModalInner() {
     control: taskControl,
     setValue: setValueTask,
     getFieldState: getTaskFieldState,
+    getValues: getTaskValue,
     formState: { errors: taskErrors, isValid: isTaskValid },
   } = useForm<AddTaskForm>({
     resolver: zodResolver(addTaskSchema),
@@ -344,9 +372,17 @@ function AddItemModalInner() {
     if (draftKindForTaskForm === "reminder") setTaskKind("reminder");
   }
   const taskIsReminder = taskKind === "reminder";
+  const taskName = useWatch({ control: taskControl, name: "name" }) ?? "";
+  const taskDuration = useWatch({ control: taskControl, name: "duration" });
+  // Clarify already pre-fills its own estimate; new Work only offers one.
+  const suggestedDuration = useSuggestedDuration(
+    taskName,
+    isAddItemModalOpen && addNewMode === "task" && !createTaskDraft?.inboxId && !taskIsReminder,
+  );
   const taskTimeOnly = Boolean(taskRecurrence);
   const taskLabelIds = useWatch({ control: taskControl, name: "labelIds" }) ?? [];
   const selectedPageWorkspaceId = useWatch({ control: pageControl, name: "workspaceId" });
+  const pageTitle = useWatch({ control: pageControl, name: "title" });
 
   const typedWorkspaces = useMemo(
     () => (workspaces ?? []) as Workspace[],
@@ -414,12 +450,21 @@ function AddItemModalInner() {
     createWorkspaceMutation.mutate(data);
   };
 
+  const projectTitle = useWatch({ control: projectControl, name: "title" }) ?? "";
+  const projectStart = useProjectStart(
+    projectTitle,
+    selectedWorkspaceId ?? "",
+    isAddItemModalOpen && addNewMode === "project",
+  );
   const createProjectMutation = useMutation({
-    mutationFn: createProject,
+    mutationFn: (payload: Parameters<typeof createProjectWithStart>[0]) =>
+      createProjectWithStart(payload, projectStart.suggestion, projectStart.choices),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["projects"],
-      });
+      await Promise.all(
+        [["projects"], ["tasks"], ["docs"], ["sheets"]].map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }),
+        ),
+      );
 
       closeModal();
     },
@@ -474,7 +519,8 @@ function AddItemModalInner() {
     }
   };
 
-  // Kept means every field the suggestions named still has that value.
+  // Kept means most of the fields the suggestions named still have that
+  // value (see clarifyKept), so tweaking only the length still counts.
   const reportSuggestionFeedback = (data: AddTaskForm) => {
     if (!suggestions?.logId) return;
     const sorted = (ids: string[] | undefined) => [...(ids ?? [])].sort().join(",");
@@ -488,7 +534,7 @@ function AddItemModalInner() {
     if (suggestions.labelIds?.length)
       checks.push(sorted(data.labelIds) === sorted(suggestions.labelIds));
     if (checks.length === 0) return;
-    decisionFeedback.mutate({ logId: suggestions.logId, accepted: checks.every(Boolean) });
+    decisionFeedback.mutate({ logId: suggestions.logId, accepted: clarifyKept(checks) });
   };
 
   const onTaskSubmit = (data: AddTaskForm) => {
@@ -606,7 +652,11 @@ function AddItemModalInner() {
     setEventWorkspaceId("");
     setEventRecurrence(null);
     setSheetTemplateId("");
+    setSuggestedTemplateId("");
+    setTemplateTouched(false);
     setSuggestedKindFor(undefined);
+    setKindTouched(false);
+    setFilledFor(undefined);
     setCreateTaskDraft(null);
     setIsAddItemModalOpen(false);
   };
@@ -741,15 +791,28 @@ function AddItemModalInner() {
   // Off or unsure returns nothing and the form stays as it is today.
   const clarifyInboxId =
     isAddItemModalOpen && addNewMode === "task" ? createTaskDraft?.inboxId : undefined;
-  const suggestionsQuery = useClarifySuggestions(clarifyInboxId);
+  const decisionsOn = useDecisions().data?.available === true;
+  const suggestionsQuery = useClarifySuggestions(clarifyInboxId, decisionsOn);
   const suggestions = suggestionsQuery.data?.available ? suggestionsQuery.data : undefined;
   const decisionFeedback = useDecisionFeedback();
+  // The person picked Work or Reminder themselves; a suggested kind never
+  // overrides that.
+  const [kindTouched, setKindTouched] = useState(false);
+  // The suggestions (by logId) that filled at least one field, so the note
+  // above the form only says so when something was filled.
+  const [filledFor, setFilledFor] = useState<string>();
+  // The log id whose date (read by code from the item's words) filled a field.
   // A suggested Reminder switches the kind during render, like a quick-add
-  // draft does above; step one then sets its length and time.
+  // draft does above; step one then sets its length and time. A late answer
+  // leaves the kind alone once the person chose it or edited a Work field.
   const [suggestedKindFor, setSuggestedKindFor] = useState<string>();
   if (suggestions?.kind === "reminder" && suggestions.logId && suggestedKindFor !== suggestions.logId) {
     setSuggestedKindFor(suggestions.logId);
-    if (taskKind === "task") setTaskKind("reminder");
+    const workTouched = kindTouched || WORK_FIELDS.some((name) => getTaskFieldState(name).isDirty);
+    if (taskKind === "task" && !workTouched) {
+      setTaskKind("reminder");
+      setFilledFor(suggestions.logId);
+    }
   }
 
   // Forget what was filled once the form closes, so reopening fills again.
@@ -763,15 +826,23 @@ function AddItemModalInner() {
     if (typedWorkspaces.length === 0 || !selectedTaskWorkspaceId) return;
     const untouched = (name: "duration" | "priorityLevel" | "workspaceId") =>
       !getTaskFieldState(name).isDirty;
-    if (suggestions.kind === "reminder" && taskKind === "reminder") {
-      // The kind itself switched during render, above.
-      setValueTask("duration", 0, { shouldValidate: true });
-      if (!taskScheduledOn) setTaskClock(toTimeInputValue(nextRoundHour()));
-    } else if (suggestions.duration && untouched("duration")) {
+    let filled = false;
+    if (suggestions.kind === "reminder" && taskKind === "reminder" && !kindTouched) {
+      // The kind itself switched during render, above (or the person's own
+      // Reminder already set these).
+      if (untouched("duration")) setValueTask("duration", 0, { shouldValidate: true });
+      // A reminder time read from the words is set below instead; the default
+      // here would mark the field as edited and block it.
+      const readTime = suggestions.dateRole === "reminder" && Boolean(suggestions.date);
+      if (!taskScheduledOn && !readTime) setTaskClock(toTimeInputValue(nextRoundHour()));
+    } else if (suggestions.duration && suggestions.kind !== "reminder" && untouched("duration")) {
       setValueTask("duration", suggestions.duration, { shouldValidate: true });
+      filled = true;
     }
     if (suggestions.priority && untouched("priorityLevel")) {
       setValueTask("priorityLevel", suggestions.priority, { shouldValidate: true });
+      // The default Medium suggested again changes nothing on screen.
+      if (suggestions.priority !== taskPriorityLevel) filled = true;
     }
     let workspaceTarget = selectedTaskWorkspaceId;
     if (
@@ -783,11 +854,38 @@ function AddItemModalInner() {
     ) {
       setValueTask("workspaceId", suggestions.workspaceId, { shouldValidate: true });
       workspaceTarget = suggestions.workspaceId;
+      filled = true;
+    }
+    // Code read the date from the words; Jev only said which field it is for.
+    if (suggestions.date && suggestions.dateRole) {
+      const day = dateFromDateInput(suggestions.date);
+      let dateFilled = false;
+      if (suggestions.dateRole === "deadline" && !taskIsReminder && !getTaskFieldState("deadline").isDirty) {
+        setValueTask("deadline", suggestions.date, { shouldValidate: true });
+        dateFilled = true;
+      } else if (suggestions.dateRole === "start" && !taskIsReminder && !getTaskFieldState("startDate").isDirty) {
+        // Only the date: a time here would place a block on the calendar.
+        setValueTask("startDate", suggestions.date, { shouldValidate: true });
+        dateFilled = true;
+      } else if (
+        suggestions.dateRole === "reminder" &&
+        taskKind === "reminder" &&
+        // Still empty, or only the next-hour default from picking Reminder.
+        (!getTaskFieldState("scheduledOn").isDirty ||
+          getTaskValue("scheduledOn") === toDatetimeLocalValue(nextRoundHour()))
+      ) {
+        // A read time that has already passed today pings at the next hour.
+        const at = applyClockToDate(day, suggestions.time || "09:00");
+        setValueTask("scheduledOn", toDatetimeLocalValue(at < new Date() ? nextRoundHour() : at), { shouldValidate: true });
+        dateFilled = true;
+      }
+      if (dateFilled) filled = true;
     }
     filledRef.current = { logId: suggestions.logId, workspaceTarget };
+    if (filled) setFilledFor(suggestions.logId);
     // setTaskClock is recreated each render; the logId guard runs this once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestions, typedWorkspaces, selectedTaskWorkspaceId, taskKind, getTaskFieldState, setValueTask, createTaskDraft?.workspaceId]);
+  }, [suggestions, typedWorkspaces, selectedTaskWorkspaceId, taskKind, kindTouched, getTaskFieldState, setValueTask, createTaskDraft?.workspaceId]);
 
   // Step two runs after the workspace reset above, so project and labels are
   // not wiped by the workspace change step one made.
@@ -795,20 +893,61 @@ function AddItemModalInner() {
     const filled = filledRef.current;
     if (!suggestions || filled.logId !== suggestions.logId || filled.secondDone) return;
     if (selectedTaskWorkspaceId !== filled.workspaceTarget) return;
+    let filledHere = false;
     if (
       suggestions.projectId &&
       !getTaskFieldState("projectId").isDirty &&
       availableTaskProjects.some((p) => p.id === suggestions.projectId)
     ) {
       setValueTask("projectId", suggestions.projectId, { shouldValidate: true });
+      filledHere = true;
     }
     const known = new Set((selectedTaskWorkspace?.lables ?? []).map((l) => l.id));
     const labelIds = (suggestions.labelIds ?? []).filter((id) => known.has(id));
     if (labelIds.length > 0 && !getTaskFieldState("labelIds").isDirty) {
       setValueTask("labelIds", labelIds, { shouldValidate: true });
+      filledHere = true;
     }
     filledRef.current = { ...filled, secondDone: true };
+    if (filledHere) setFilledFor(suggestions.logId);
   }, [suggestions, selectedTaskWorkspaceId, selectedTaskWorkspace, availableTaskProjects, getTaskFieldState, setValueTask]);
+
+  // A title suggested elsewhere (smart search's "Create sheet “Budget”")
+  // pre-fills the doc, sheet or project form once.
+  useEffect(() => {
+    const name = createTaskDraft?.name;
+    if (!isAddItemModalOpen || !name) return;
+    if (addNewMode === "doc" || addNewMode === "sheet") {
+      setValuePage("title", name, { shouldValidate: true });
+    } else if (addNewMode === "project") {
+      setValue("title", name, { shouldValidate: true });
+    } else return;
+    setCreateTaskDraft({ ...createTaskDraft, name: undefined });
+  }, [isAddItemModalOpen, addNewMode, createTaskDraft, setValuePage, setValue, setCreateTaskDraft]);
+
+  // Pick the saved template the sheet's title calls for, while the person
+  // has not chosen one.
+  const templates = useDecisions().data?.available ? templatesQuery.data : undefined;
+  useEffect(() => {
+    const title = (pageTitle ?? "").trim();
+    if (!isAddItemModalOpen || addNewMode !== "sheet" || !templates?.length || templateTouched || title.length < 2)
+      return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      getSheetTemplateSuggestion(title)
+        .then((suggestion) => {
+          if (stale || !suggestion.available) return;
+          const id = templates.some((t) => t.id === suggestion.templateId) ? suggestion.templateId! : "";
+          setSheetTemplateId(id);
+          setSuggestedTemplateId(id);
+        })
+        .catch(() => {});
+    }, 600);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [isAddItemModalOpen, addNewMode, pageTitle, templates, templateTouched]);
 
   // Sync Doc / Sheet Workspace
   useEffect(() => {
@@ -997,6 +1136,12 @@ function AddItemModalInner() {
                 />
               </div>
             </div>
+
+            <ProjectStartChoices
+              suggestion={projectStart.suggestion}
+              choices={projectStart.choices}
+              onChange={projectStart.setChoices}
+            />
           </ModalMain>
 
           <ModalSidebar>
@@ -1182,6 +1327,16 @@ function AddItemModalInner() {
               <ClarifyHints
                 loading={suggestionsQuery.isFetching && !suggestionsQuery.data}
                 suggestions={suggestions}
+                filled={Boolean(suggestions?.logId) && filledFor === suggestions?.logId}
+                dateFilled={
+                  Boolean(suggestions?.date) &&
+                  filledFor === suggestions?.logId &&
+                  (suggestions?.dateRole === "deadline"
+                    ? taskDeadline === suggestions.date
+                    : suggestions?.dateRole === "start"
+                      ? taskStartDate === suggestions.date
+                      : taskScheduledOn.startsWith(suggestions?.date ?? "-"))
+                }
                 error={suggestionsQuery.data?.error}
                 onOpenDuplicate={(id) => {
                   closeModal();
@@ -1217,6 +1372,7 @@ function AddItemModalInner() {
                 <TaskTypeToggle
                   value={taskIsReminder ? "reminder" : "task"}
                   onChange={(next) => {
+                    setKindTouched(true);
                     if (next === "reminder") {
                       makeTaskReminder();
                       return;
@@ -1356,6 +1512,23 @@ function AddItemModalInner() {
                     <span className="shrink-0 text-xs text-muted-foreground">
                       min
                     </span>
+                    {suggestedDuration &&
+                    suggestedDuration !== Number(taskDuration) ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setValueTask("duration", suggestedDuration, {
+                            shouldValidate: true,
+                            shouldDirty: true,
+                          })
+                        }
+                        className="ml-2 flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition hover:border-primary/50 hover:text-foreground"
+                        title="Use the suggested length"
+                      >
+                        <Sparkles className="size-3" />
+                        Suggested {formatDuration(suggestedDuration)}
+                      </button>
+                    ) : null}
               </PropertyRow>
               ) : null}
 
@@ -1718,7 +1891,10 @@ function AddItemModalInner() {
                 <Select
                   size="sm"
                   value={sheetTemplateId}
-                  onChange={setSheetTemplateId}
+                  onChange={(id) => {
+                    setTemplateTouched(true);
+                    setSheetTemplateId(id);
+                  }}
                   placeholder="Blank sheet"
                   className="border-0 bg-transparent px-0 shadow-none"
                   options={[
@@ -1730,6 +1906,15 @@ function AddItemModalInner() {
                   ]}
                 />
               </PropertyRow>
+            )}
+            {addNewMode === "sheet" && !!suggestedTemplateId && sheetTemplateId === suggestedTemplateId && (
+              <p
+                className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground"
+                data-testid="sheet-template-suggested"
+              >
+                <Sparkles className="size-3 shrink-0" />
+                Suggested for this title
+              </p>
             )}
 
             {pageErrors.workspaceId && (

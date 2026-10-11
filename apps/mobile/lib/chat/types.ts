@@ -109,6 +109,10 @@ export type ImageReview = {
   receipt?: ReceiptDraft;
   duplicates?: ReceiptDuplicate[];
   destination?: ReceiptDestination;
+  /** Smart-suggestion notes on the draft; unlike issues they never block Apply. */
+  hints?: string[];
+  /** Where smart suggestions would record the receipt; the person's pick wins. */
+  suggestedDestination?: ReceiptDestination;
 };
 
 export type PendingImage = {

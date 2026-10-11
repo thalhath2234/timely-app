@@ -121,6 +121,7 @@ import {
   type FormulaRefSpan,
 } from "@timely/contract/sheetFormulaInput";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
+import { useCellFit, useDecisionFeedback, type CellFitEdit } from "@/app/utils/hooks/decisions";
 import {
   openContextMenu,
   tidyEntries,
@@ -216,6 +217,31 @@ function formatAt(
   return row?.formats?.[columnId];
 }
 
+let cellFitSeq = 0;
+
+/** The edited cell to check against its column, or null when a typed column,
+ * a formula or an unchanged entry leaves nothing to ask. */
+function cellFitEdit(column: SheetColumn, rows: SheetRow[], rowIndex: number, value: string): CellFitEdit | null {
+  const row = rows[rowIndex];
+  if (!row || (column.type !== "text" && column.type !== "select")) return null;
+  const entry = value.trim();
+  if (!entry || isFormulaValue(entry) || entry === (row.cells?.[column.id] ?? "").trim()) return null;
+  const values = new Set<string>();
+  for (const other of rows) {
+    if (other.id === row.id) continue;
+    const v = (other.cells?.[column.id] ?? "").trim();
+    if (v && !isFormulaValue(v)) values.add(v);
+    if (values.size >= 50) break;
+  }
+  cellFitSeq += 1;
+  return {
+    id: cellFitSeq,
+    rowId: row.id,
+    columnId: column.id,
+    input: { column: column.name, type: column.type, value: entry, values: [...values], options: column.options },
+  };
+}
+
 function parseTsv(text: string): string[][] {
   const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const body = normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized;
@@ -285,6 +311,10 @@ export default function SheetGrid({
     editingRef.current = editing;
   }, [draft, editing]);
   const showContextMenu = useContextMenu();
+  const [fitEdit, setFitEdit] = useState<CellFitEdit | null>(null);
+  const [dismissedFit, setDismissedFit] = useState(0);
+  const cellFit = useCellFit(fitEdit);
+  const fitFeedback = useDecisionFeedback();
 
   const evaluator = useMemo(
     () => createSheetEvaluator(columns, rows),
@@ -760,6 +790,14 @@ export default function SheetGrid({
     const raw = draftRef.current;
     const value = isFormulaValue(raw) ? closeOpenParens(raw.trim()) : raw;
     editingRef.current = null;
+    const column = columns[address.col];
+    const fit = column ? cellFitEdit(column, rows, address.row, normalizeTypedCell(column.type, value)) : null;
+    if (fit) setFitEdit(fit);
+    // Retyping a cell that had a hint counts as the hint being useful.
+    if (cellFit?.logId && cellFit.id !== dismissedFit && column?.id === cellFit.columnId && rows[address.row]?.id === cellFit.rowId && value.trim() !== cellFit.value) {
+      fitFeedback.mutate({ logId: cellFit.logId, accepted: true });
+      setDismissedFit(cellFit.id);
+    }
     setCellValue(address, value);
     setEditing(null);
     setDraft("");
@@ -1079,6 +1117,18 @@ export default function SheetGrid({
   const gridTemplateColumns = `${ROW_HEADER_WIDTH}px ${columns
     .map((column) => `${column.width}px`)
     .join(" ")} 40px`;
+
+  const fitRow = cellFit ? rows.findIndex((row) => row.id === cellFit.rowId) : -1;
+  const fitCol = cellFit ? columns.findIndex((column) => column.id === cellFit.columnId) : -1;
+  // The hint shows while the cell still holds the entry it is about.
+  const fitHint =
+    cellFit &&
+    cellFit.id !== dismissedFit &&
+    fitRow >= 0 &&
+    fitCol >= 0 &&
+    (rows[fitRow].cells?.[cellFit.columnId] ?? "").trim() === cellFit.value
+      ? { ...cellFit, address: `${columnIndexToLetter(fitCol)}${fitRow + 1}` }
+      : null;
 
   const selectedRaw = rawAt(selected);
   const selectedAddress = selectionAddressLabel(range, merges);
@@ -2678,6 +2728,35 @@ export default function SheetGrid({
           </div>
         </div>
       </div>
+
+      {fitHint && (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2 border-t border-amber-500/30 bg-amber-500/5 px-3 py-1 text-[11px] text-amber-700 dark:text-amber-300"
+        >
+          <button
+            type="button"
+            title="Go to cell"
+            onClick={() => setSelection({ col: fitCol, row: fitRow })}
+            className="font-mono font-semibold hover:underline"
+          >
+            {fitHint.address}
+          </button>
+          <span className="min-w-0 flex-1 truncate">{fitHint.hint}</span>
+          <button
+            type="button"
+            title="Dismiss"
+            aria-label="Dismiss hint"
+            onClick={() => {
+              if (fitHint.logId) fitFeedback.mutate({ logId: fitHint.logId, accepted: false });
+              setDismissedFit(fitHint.id);
+            }}
+            className="rounded px-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-[#191B22] px-3 text-[11px]">
         <div className="flex min-w-0 items-end gap-1 pt-1">

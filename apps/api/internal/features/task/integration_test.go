@@ -429,7 +429,7 @@ func TestIntegrationCloneProjectSkipsReminders(t *testing.T) {
 		}
 	}
 	stageMap := map[string]string{f.stage: targetStage.ID}
-	if err := f.svc.CopyProjectTasks(kindTestUser, f.project, target.ID, stageMap); err != nil {
+	if err := f.svc.CopyProjectTasks(kindTestUser, f.project, target.ID, stageMap, false); err != nil {
 		t.Fatalf("copy project tasks: %v", err)
 	}
 
@@ -439,6 +439,50 @@ func TestIntegrationCloneProjectSkipsReminders(t *testing.T) {
 	}
 	if len(copies) != 1 || copies[0].Kind != models.KindTask || deref(copies[0].ProjectID) != target.ID {
 		t.Fatalf("clone = %+v, want only the Work, in the new project", copies)
+	}
+}
+
+// A project started from an earlier one copies its tasks fresh: no old dates,
+// an unchecked checklist and the workspace's default status.
+func TestIntegrationCopyProjectTasksFreshStartsOver(t *testing.T) {
+	f := newKindFixture(t)
+	done := models.Status{ID: "sts_kind_done", Name: "Done", WorkspaceID: f.workspace}
+	target := models.Project{ID: "prj_kind_fresh", Title: "Fresh", WorkspaceID: f.id(f.workspace)}
+	targetStage := models.Stage{ID: "stg_kind_fresh", Name: "Stage", ProjectID: &target.ID}
+	for _, row := range []any{&done, &target, &targetStage} {
+		if err := f.db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	task := f.board(models.KindTask, 30, nil)
+	task.StatusID = f.id(done.ID)
+	task.StartDate, task.Deadline = f.id("2025-01-01"), f.id("2025-02-01")
+	task.EarliestStartAt = f.id("2025-01-01T09:00:00Z")
+	checked := "2025-01-02T00:00:00Z"
+	task.Checklist = models.Checklist{{ID: "chk_a", Title: "Pack", CompletedAt: &checked}}
+	src, err := f.svc.Create(task, nil, nil)
+	if err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+	if err := f.svc.CopyProjectTasks(kindTestUser, f.project, target.ID, map[string]string{f.stage: targetStage.ID}, true); err != nil {
+		t.Fatalf("copy project tasks: %v", err)
+	}
+	var copies []models.Task
+	if err := f.db.Where("project_id = ?", target.ID).Find(&copies).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(copies) != 1 || copies[0].ID == src.ID {
+		t.Fatalf("copies = %+v", copies)
+	}
+	c := copies[0]
+	if c.Deadline != nil || c.StartDate != nil || c.EarliestStartAt != nil {
+		t.Fatalf("dates = %v %v %v, want none", c.Deadline, c.StartDate, c.EarliestStartAt)
+	}
+	if c.StatusID == nil || *c.StatusID != f.status {
+		t.Fatalf("status = %v, want the default %s", c.StatusID, f.status)
+	}
+	if doneCount, total := c.Checklist.Progress(); total != 1 || doneCount != 0 {
+		t.Fatalf("checklist %d/%d, want 0/1", doneCount, total)
 	}
 }
 

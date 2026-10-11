@@ -33,7 +33,7 @@ import {
   uploadChatImage,
 } from "../../lib/api/chat";
 import { isOffline, subscribeOffline } from "../../lib/networkState";
-import { mergeContext } from "../../lib/chat/context";
+import { contextProjectId, mergeContext } from "../../lib/chat/context";
 import { removeLocalImage, retainImage } from "../../lib/chat/storage";
 import type { Chat, ChatStep, PendingImage } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -169,6 +169,9 @@ export default function Assistant() {
         "search",
         "task-activity",
         "project-activity",
+        "habits",
+        "goals",
+        "goal-progress",
       ])
         void queryClient.invalidateQueries({ queryKey: [key] });
       lastRevision.current = chat.revision;
@@ -852,7 +855,11 @@ export default function Assistant() {
                     </StatusCard>
                   ) : null}
                   {!id ? (
-                    <Welcome disabled={otherDraft} onPick={editText} />
+                    <Welcome
+                      disabled={otherDraft}
+                      projectId={contextProjectId(context)}
+                      onPick={editText}
+                    />
                   ) : null}
                   {chat ? (
                     <Thread

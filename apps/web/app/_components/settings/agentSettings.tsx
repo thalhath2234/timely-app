@@ -1,8 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Check,
+  ChevronDown,
   CircleAlert,
   ExternalLink,
   Eye,
@@ -31,12 +33,19 @@ import {
 } from "@/app/utils/hooks/agentProviders";
 import {
   useDecisions,
+  useLearned,
+  usePersonalPrefs,
+  useResetLearned,
+  useSaveUseCase,
   useRemoveTypeSafeKey,
+  useSetDecisionPrefs,
   useSetDecisionsEnabled,
   useSetTypeSafeKey,
   useTestDecisions,
 } from "@/app/utils/hooks/decisions";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
+import type { DecisionsView, DeepWorkTime } from "@/app/utils/api/decisions";
+import Select from "@/app/_components/_ui/select";
 import {
   PROVIDER_LABELS,
   type AgentProviders,
@@ -57,6 +66,8 @@ const primaryButton =
   "inline-flex h-9 items-center gap-1.5 rounded-lg bg-foreground px-3 text-sm font-medium text-background hover:opacity-90 disabled:opacity-60";
 const secondaryButton =
   "inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium text-foreground hover:bg-muted/60 disabled:opacity-60";
+const compactButton =
+  "inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground hover:bg-muted/60 disabled:opacity-60";
 
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
@@ -497,9 +508,81 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
 
 const CUSTOM_ENDPOINT = "custom";
 
-/** A direct API provider (Anthropic, OpenAI, Gemini, DeepSeek, …). Rendered
- * from the server's catalog; until a key is saved it stays one compact row. */
-function ApiProviderCard({
+/** The direct API providers (Anthropic, OpenAI, Gemini, DeepSeek, …) folded
+ * into one dropdown, so OpenRouter and Smart suggestions stay the two keys
+ * people see first. */
+function MoreApiKeys({ data }: { data: AgentProviders }) {
+  const [open, setOpen] = useState(false);
+  const providers = data.apiProviders;
+  const connected = providers.filter((view) => view.connected);
+  const defaultView = providers.find((view) => view.id === data.defaultProvider);
+  const summary = defaultView
+    ? `${defaultView.label} runs new chats`
+    : connected.length > 0
+      ? connected.map((view) => view.label).join(", ")
+      : providers.length > 3
+        ? `${providers
+            .slice(0, 3)
+            .map((view) => view.label)
+            .join(", ")} and ${providers.length - 3} more`
+        : providers.map((view) => view.label).join(", ");
+
+  if (providers.length === 0) return null;
+  return (
+    <section
+      data-testid="more-api-keys"
+      className={cn(
+        "rounded-xl border",
+        defaultView ? "border-primary/40 bg-primary/[0.03]" : "border-border",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-muted/40"
+      >
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <KeyRound className="size-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-foreground">
+            More API keys
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {summary}
+          </span>
+        </span>
+        {connected.length > 0 && (
+          <Badge tone="ok">{connected.length} connected</Badge>
+        )}
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-border">
+          <p className="px-4 pt-2.5 text-[11px] text-muted-foreground">
+            Use a provider&apos;s own API key instead of OpenRouter. Saving a key
+            checks it; choosing a model or making it the default sends one tiny
+            test request.
+          </p>
+          <div className="divide-y divide-border/70 px-2 pb-1.5 pt-1">
+            {providers.map((view) => (
+              <ApiProviderRow key={view.id} data={data} view={view} />
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** One direct API provider inside More API keys: a single line until opened. */
+function ApiProviderRow({
   data,
   view,
 }: {
@@ -510,8 +593,7 @@ function ApiProviderCard({
   const setKey = useSetApiProviderKey();
   const removeKey = useRemoveApiProviderKey();
   const models = useProviderModels(view.id, undefined, view.connected);
-  const [opened, setOpen] = useState(false);
-  const open = opened || view.connected;
+  const [open, setOpen] = useState(false);
   const [editingKey, setEditingKey] = useState(!view.connected);
   const [key, setKeyValue] = useState("");
   const matched = view.endpoints.find(
@@ -522,6 +604,9 @@ function ApiProviderCard({
   );
   const [customUrl, setCustomUrl] = useState(matched ? "" : view.baseUrl);
   const [keyError, setKeyError] = useState<string | null>(null);
+  const isDefault = data.defaultProvider === view.id;
+  const makingDefault =
+    patch.isPending && patch.variables?.defaultProvider === view.id;
   const showEndpoints = view.endpoints.length > 1 || view.customUrl;
   const baseUrl =
     endpoint === CUSTOM_ENDPOINT
@@ -546,194 +631,226 @@ function ApiProviderCard({
     }
   };
 
-  if (!open) {
-    return (
-      <div
-        data-provider={view.id}
-        className="flex items-center justify-between gap-3 rounded-xl border border-border px-4 py-3"
-      >
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-foreground">{view.label}</h3>
-          <p className="truncate text-xs text-muted-foreground">
-            {view.description}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className={cn(secondaryButton, "shrink-0")}
-        >
-          <KeyRound className="size-3.5" />
-          {view.keyOptional ? "Set up" : "Add key"}
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <ProviderCard
-      id={view.id}
-      title={view.label}
-      description={view.description}
-      isDefault={data.defaultProvider === view.id}
-      ready={view.ready}
-      onMakeDefault={() => patch.mutate({ defaultProvider: view.id })}
-      makingDefault={patch.isPending && patch.variables?.defaultProvider === view.id}
-    >
-      {!editingKey ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {view.keySet ? (
-            <Badge tone="ok">
-              <KeyRound className="size-3" /> Key saved {view.keyHint}
-            </Badge>
-          ) : (
-            <Badge tone="muted">No key needed</Badge>
+    <div data-provider={view.id} className="py-0.5">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-muted/50"
+      >
+        <span className="truncate text-sm font-medium text-foreground">
+          {view.label}
+        </span>
+        {isDefault ? (
+          <Badge tone="primary">Default</Badge>
+        ) : view.connected ? (
+          <Badge tone="ok">{view.keySet ? "Key saved" : "Connected"}</Badge>
+        ) : null}
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+          {open
+            ? null
+            : view.connected
+              ? "Manage"
+              : view.keyOptional
+                ? "Set up"
+                : "Add key"}
+        </span>
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
           )}
-          {showEndpoints && (
-            <Badge tone="muted">
-              <Globe className="size-3" /> {matched?.label ?? view.baseUrl}
-            </Badge>
-          )}
-          <button
-            type="button"
-            onClick={() => setEditingKey(true)}
-            className={secondaryButton}
-          >
-            {view.keySet ? "Replace" : "Change"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (
-                window.confirm(
-                  `Disconnect ${view.label}? The saved key is deleted.`,
-                )
-              ) {
-                removeKey.mutate(view.id, {
-                  onSuccess: () => {
-                    setOpen(false);
-                    setEditingKey(true);
-                  },
-                });
-              }
-            }}
-            disabled={removeKey.isPending}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-destructive hover:bg-destructive/10"
-          >
-            <Unplug className="size-3.5" /> Disconnect
-          </button>
-        </div>
-      ) : (
-        <form onSubmit={onSave} className="flex flex-col gap-2">
-          {showEndpoints && (
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">Endpoint</span>
-              <select
-                value={endpoint}
-                onChange={(event) => setEndpoint(event.target.value)}
-                className={inputClass}
-                disabled={setKey.isPending}
-              >
-                {view.endpoints.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-                {view.customUrl && (
-                  <option value={CUSTOM_ENDPOINT}>Another address…</option>
-                )}
-              </select>
-            </label>
-          )}
-          {endpoint === CUSTOM_ENDPOINT && (
-            <input
-              value={customUrl}
-              onChange={(event) => setCustomUrl(event.target.value)}
-              placeholder="http://192.168.1.20:11434"
-              aria-label={`${view.label} address`}
-              className={inputClass}
-              disabled={setKey.isPending}
-            />
-          )}
-          <div className="flex items-center gap-2">
-            <input
-              type="password"
-              autoComplete="off"
-              value={key}
-              onChange={(event) => setKeyValue(event.target.value)}
-              placeholder={
-                view.keySet
-                  ? "Leave empty to keep the saved key"
-                  : view.keyOptional
-                    ? "API key (only for Ollama Cloud)"
-                    : (view.keyPlaceholder ?? "API key")
-              }
-              aria-label={`${view.label} API key`}
-              className={inputClass}
-              disabled={setKey.isPending}
-            />
-            <button type="submit" disabled={!canSave} className={primaryButton}>
-              {setKey.isPending ? (
-                <LogoSpinner size={14} tone="mono" label="Checking" />
-              ) : (
-                <Check className="size-3.5" />
-              )}
-              {setKey.isPending ? "Checking…" : view.connected ? "Save" : "Connect"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setKeyError(null);
-                if (view.connected) setEditingKey(false);
-                else setOpen(false);
-              }}
-              className={secondaryButton}
-            >
-              Cancel
-            </button>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Stored encrypted on the server and never shown again. Saving checks
-            the key with the provider.{" "}
-            <a
-              href={view.keyUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary hover:underline"
-            >
-              Get a key
-            </a>
-          </p>
-          {keyError && <p className="text-xs text-destructive">{keyError}</p>}
-        </form>
-      )}
-
-      {view.connected && (
-        <ModelPicker
-          label="Chat model"
-          value={view.model}
-          options={models.data}
-          loading={models.isLoading}
-          loadError={
-            models.error
-              ? errorMessage(models.error, "Could not load models.")
-              : null
-          }
-          saving={
-            patch.isPending && patch.variables?.models?.[view.id] !== undefined
-          }
-          onSave={(model) => patch.mutateAsync({ models: { [view.id]: model } })}
-          allowCustom
-          placeholder="Search models…"
         />
+      </button>
+      {open && (
+        <div className="flex flex-col gap-3 px-2 pb-3 pt-1">
+          <p className="text-xs text-muted-foreground">{view.description}</p>
+          {!editingKey ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {view.keySet ? (
+                <Badge tone="ok">
+                  <KeyRound className="size-3" /> Key saved {view.keyHint}
+                </Badge>
+              ) : (
+                <Badge tone="muted">No key needed</Badge>
+              )}
+              {showEndpoints && (
+                <Badge tone="muted">
+                  <Globe className="size-3" /> {matched?.label ?? view.baseUrl}
+                </Badge>
+              )}
+              <button
+                type="button"
+                onClick={() => setEditingKey(true)}
+                className={compactButton}
+              >
+                {view.keySet ? "Replace" : "Change"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Disconnect ${view.label}? The saved key is deleted.`,
+                    )
+                  ) {
+                    removeKey.mutate(view.id, {
+                      onSuccess: () => {
+                        setOpen(false);
+                        setEditingKey(true);
+                      },
+                    });
+                  }
+                }}
+                disabled={removeKey.isPending}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-destructive hover:bg-destructive/10"
+              >
+                <Unplug className="size-3.5" /> Disconnect
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={onSave} className="flex flex-col gap-2">
+              {showEndpoints && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Endpoint</span>
+                  <select
+                    value={endpoint}
+                    onChange={(event) => setEndpoint(event.target.value)}
+                    className={inputClass}
+                    disabled={setKey.isPending}
+                  >
+                    {view.endpoints.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                    {view.customUrl && (
+                      <option value={CUSTOM_ENDPOINT}>Another address…</option>
+                    )}
+                  </select>
+                </label>
+              )}
+              {endpoint === CUSTOM_ENDPOINT && (
+                <input
+                  value={customUrl}
+                  onChange={(event) => setCustomUrl(event.target.value)}
+                  placeholder="http://192.168.1.20:11434"
+                  aria-label={`${view.label} address`}
+                  className={inputClass}
+                  disabled={setKey.isPending}
+                />
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={key}
+                  onChange={(event) => setKeyValue(event.target.value)}
+                  placeholder={
+                    view.keySet
+                      ? "Leave empty to keep the saved key"
+                      : view.keyOptional
+                        ? "API key (only for Ollama Cloud)"
+                        : (view.keyPlaceholder ?? "API key")
+                  }
+                  aria-label={`${view.label} API key`}
+                  className={inputClass}
+                  disabled={setKey.isPending}
+                />
+                <button
+                  type="submit"
+                  disabled={!canSave}
+                  className={primaryButton}
+                >
+                  {setKey.isPending ? (
+                    <LogoSpinner size={14} tone="mono" label="Checking" />
+                  ) : (
+                    <Check className="size-3.5" />
+                  )}
+                  {setKey.isPending
+                    ? "Checking…"
+                    : view.connected
+                      ? "Save"
+                      : "Connect"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setKeyError(null);
+                    if (view.connected) setEditingKey(false);
+                    else setOpen(false);
+                  }}
+                  className={secondaryButton}
+                >
+                  Cancel
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Stored encrypted on the server and never shown again. Saving
+                checks the key with the provider.{" "}
+                <a
+                  href={view.keyUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Get a key
+                </a>
+              </p>
+              {keyError && <p className="text-xs text-destructive">{keyError}</p>}
+            </form>
+          )}
+
+          {view.connected && (
+            <ModelPicker
+              label="Chat model"
+              value={view.model}
+              options={models.data}
+              loading={models.isLoading}
+              loadError={
+                models.error
+                  ? errorMessage(models.error, "Could not load models.")
+                  : null
+              }
+              saving={
+                patch.isPending &&
+                patch.variables?.models?.[view.id] !== undefined
+              }
+              onSave={(model) =>
+                patch.mutateAsync({ models: { [view.id]: model } })
+              }
+              allowCustom
+              placeholder="Search models…"
+            />
+          )}
+          {!view.search && (
+            <p className="text-[11px] text-muted-foreground">
+              No web search with this provider: chats that have it switched on
+              answer without it.
+            </p>
+          )}
+          {view.connected && !isDefault && (
+            <div>
+              <button
+                type="button"
+                onClick={() => patch.mutate({ defaultProvider: view.id })}
+                disabled={!view.ready || makingDefault}
+                title={
+                  view.ready
+                    ? "Use this provider for new chats"
+                    : "Pick a chat model first"
+                }
+                className={compactButton}
+              >
+                {makingDefault ? <LogoSpinner size={14} label="Saving" /> : null}
+                Use as default
+              </button>
+            </div>
+          )}
+        </div>
       )}
-      {!view.search && (
-        <p className="text-[11px] text-muted-foreground">
-          No web search with this provider: chats that have it switched on
-          answer without it.
-        </p>
-      )}
-    </ProviderCard>
+    </div>
   );
 }
 
@@ -1011,9 +1128,23 @@ function DecisionsCard() {
             Pre-fills the Clarify form for Inbox items and estimates how long
             new work takes. In agent chat it narrows the tools the agent gets,
             points you to an earlier chat about the same thing and flags
-            changes worth a check before you apply them. Runs on Jev,
-            TypeSafe&apos;s fast decision model. Suggestions never change
-            anything until you save or apply.
+            changes worth a check before you apply them. For receipts it
+            picks a category and sheet you already use and notes likely
+            repeats; it also suggests a template for a new sheet and column
+            types for an imported CSV from a few of its values. On tasks and
+            projects it suggests a status, stage, fields or blocker from the
+            description, lists work idle for three weeks, reads how a project
+            is going and spots labels or statuses that mean the same. In docs
+            it suggests where a doc belongs, its type, properties and a
+            template, lines that could be tasks, a link for selected text and
+            headings for a plain-text import, and notes a doc that looks out
+            of date. On Today it picks work worth focusing on and the best
+            task for your next free gap; it reads how urgent each task sounds
+            for Auto-schedule, keeps related work together, and suggests a
+            next step for missed or overdue work. Receipt photos
+            and receipt amounts are never sent. Runs on Jev, TypeSafe&apos;s
+            fast decision model.
+            Suggestions never change anything until you save or apply.
           </p>
           <p className="mt-1 text-xs text-foreground" data-testid="decisions-source">
             {source}
@@ -1179,7 +1310,170 @@ function DecisionsCard() {
           </p>
         )}
       </div>
+      {data.available && <DecisionPrefs data={data} />}
+      {data.enabled && <UseCaseField />}
+      {data.enabled && <LearnedDefaults />}
     </section>
+  );
+}
+
+/** What the person uses Timely for, in their own words. Starter labels in
+ * workspace settings are picked from it. */
+function UseCaseField() {
+  const prefs = usePersonalPrefs();
+  const save = useSaveUseCase();
+  const saved = prefs.data?.prefs.useCase ?? "";
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? saved;
+  const dirty = value.trim() !== saved;
+  const onSave = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      await save.mutateAsync(value.trim());
+      setDraft(null);
+    } catch {
+      // The error shows below.
+    }
+  };
+  return (
+    <form onSubmit={onSave} className="flex flex-col gap-1.5 border-t border-border pt-4" data-testid="use-case">
+      <label htmlFor="use-case" className="text-xs text-muted-foreground">
+        What you use Timely for
+      </label>
+      <input
+        id="use-case"
+        value={value}
+        maxLength={300}
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder="Running a bakery and studying for a design course"
+        className={inputClass}
+        disabled={save.isPending || prefs.isLoading}
+      />
+      <div className="flex items-center gap-2">
+        <button type="submit" disabled={!dirty || save.isPending} className={secondaryButton}>
+          Save
+        </button>
+        <span className="text-[11px] text-muted-foreground">
+          Workspace settings suggest starter labels that fit it.
+        </span>
+      </div>
+      {save.error && <p className="text-xs text-destructive">{errorMessage(save.error, "Could not save.")}</p>}
+    </form>
+  );
+}
+
+/** A feature's name, or its key in words when it has none yet. */
+function learnedName(feature: string) {
+  const words = feature.replace(/_/g, " ");
+  return LEARNED_NAMES[feature] ?? words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Names for the features that learn from what the person keeps. */
+const LEARNED_NAMES: Record<string, string> = {
+  clarify: "Clarify form",
+  doc_mention: "Link selection to an item",
+  project_template: "Start from a template",
+  sheet_template: "Sheet templates",
+  doc_template: "Doc templates",
+  chat_target: "Which item a chat change means",
+  chat_context: "Attached items in chat",
+  doc_passages: "Long doc reads",
+  sheet_cell_fit: "Sheet entry checks",
+  goal_progress: "Work toward goals",
+  estimate: "Suggested length",
+  import_format: "Plain-text import",
+  search_related: "Related lists",
+  search: "Search",
+  screen_tip: "Screen tips",
+  chat_prompts: "Chat example prompts",
+  starter_labels: "Starter labels",
+  today: "Today suggestions",
+  task_hints: "Task hints",
+  stale_work: "Stale work",
+  project_insights: "Project insights",
+  project_move: "Move to project",
+  taxonomy_cleanup: "Merge suggestions",
+  doc_hints: "Doc suggestions",
+  receipt: "Receipts",
+  smart_alerts: "Smart alerts",
+  dashboard_highlights: "Dashboard highlights",
+};
+
+/** How often the person kept each feature's suggestions. A feature whose
+ * suggestions were mostly changed now waits until it is surer. */
+function LearnedDefaults() {
+  const learned = useLearned();
+  const reset = useResetLearned();
+  const rows = learned.data?.features ?? [];
+  if (!rows.length) return null;
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-4" data-testid="decisions-learned">
+      <div>
+        <p className="text-sm font-medium">What suggestions learned</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          When you change most of a feature&apos;s suggestions, it suggests only when it is surer. Counts cover the last 20 answers in 30 days.
+        </p>
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {rows.map((row) => (
+          <li key={row.feature} className="flex items-center justify-between gap-3 text-xs">
+            <span>
+              <span className="font-medium text-foreground">{learnedName(row.feature)}</span>
+              <span className="text-muted-foreground"> · kept {row.kept} of {row.decided}</span>
+              {row.raise > 0 ? <span className="text-amber-600 dark:text-amber-400"> · now asks for more certainty</span> : null}
+            </span>
+            {row.raise > 0 ? (
+              <button
+                type="button"
+                disabled={reset.isPending}
+                onClick={() => reset.mutate(row.feature)}
+                className="shrink-0 rounded-md px-2 py-0.5 text-primary hover:bg-primary/10 disabled:opacity-50"
+              >
+                Reset
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** What suggestions weigh on Today and in task hints: the person's best time
+ * of day for deep work. Goals are kept on Today, in Habits and goals. */
+function DecisionPrefs({ data }: { data: DecisionsView }) {
+  const save = useSetDecisionPrefs();
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-border pt-4" data-testid="decision-prefs">
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs text-muted-foreground">Best time for deep work</span>
+        <div className="max-w-xs">
+          <Select
+            aria-label="Best time for deep work"
+            value={data.deepWorkTime ?? ""}
+            onChange={(value) => save.mutate({ deepWorkTime: value as DeepWorkTime })}
+            disabled={save.isPending}
+            options={[
+              { value: "", label: "No preference" },
+              { value: "morning", label: "Mornings" },
+              { value: "afternoon", label: "Afternoons" },
+              { value: "evening", label: "Evenings" },
+            ]}
+          />
+        </div>
+        <span className="text-[11px] text-muted-foreground">
+          Deep focus tasks get a hint to plan them at this time of day.
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          Your goals now live on{" "}
+          <Link href="/today" className="text-primary hover:underline">
+            Today
+          </Link>
+          , next to your habits.
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -1223,22 +1517,8 @@ export default function AgentSettings() {
       {data && (
         <>
           <OpenRouterCard data={data} />
-          <div className="flex flex-col gap-2">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">
-                Direct API providers
-              </h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Use a provider&apos;s own API key instead of OpenRouter. Saving a
-                key checks it; choosing a model or making it the default sends
-                one tiny test request.
-              </p>
-            </div>
-            {data.apiProviders.map((view) => (
-              <ApiProviderCard key={view.id} data={data} view={view} />
-            ))}
-          </div>
           <DecisionsCard />
+          <MoreApiKeys data={data} />
           {data.localCli ? (
             <>
               <CliCard id="claude" data={data} view={data.claude} />

@@ -15,7 +15,7 @@ Timely is a **multi-account, single-user personal productivity system**. Multipl
 | **Desktop web / Electron** | Full product: sidebar, AI Chat, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors, command palette; the same web app also has an Electron shell with native chat notifications |
 | **Native app** | Expo Android/iOS: Home, Calendar, Tasks, Search (command palette), Files tabs; pinch-to-open AI assistant with camera/receipt capture; Inbox/Today, local reminder notifications (permission on first launch), working hours, API keys, export |
 | **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue, in-app agent runner with OpenRouter, direct API (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, Ollama, NVIDIA, OpenCode Zen/Go), Claude Code and Codex providers |
-| **Hermes / MCP** | 147 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can, including export/backup/restore and sheet templates |
+| **Hermes / MCP** | 148 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can, including export/backup/restore and sheet templates |
 
 Ownership is always “this user owns this row.” No members, roles, invites, or resource ACLs.
 
@@ -175,7 +175,7 @@ Deep links: `?taskId=`, `?projectId=`.
 - Comments via `Ctrl/Cmd+Enter`. **No comment delete** in the UI.
 - Native has activity + comments; notes are not the full rich editor.
 
-**Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks`, and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete). It never schedules: `scheduledOn` in the patch is refused with 400 ("schedule tasks one at a time"), and the `bulk_update_tasks` tool has no `scheduledOn` or `scheduleAt`, because placing by hand pushes other Work aside (ADR 0010).
+**Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks` (larger sets than the 50-id API limit go in batches; `pick_tasks` finds the targets from a description, checked by smart suggestions when on), and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete). It never schedules: `scheduledOn` in the patch is refused with 400 ("schedule tasks one at a time"), and the `bulk_update_tasks` tool has no `scheduledOn` or `scheduleAt`, because placing by hand pushes other Work aside (ADR 0010).
 
 **Checklists** are items on the task, not nested tasks. Completing a task does not auto-complete its checklist. `parentTaskId` is rejected on create/update (REST and MCP); nested-task creation has no replacement. Sheet `description` is also rejected.
 
@@ -571,7 +571,7 @@ Mint an API key → point Hermes at `/mcp`. The server instructions tell the age
 
 Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `delete_backup`, `restore_account` — require `confirm=true`. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
 
-### Complete MCP tool list (147)
+### Complete MCP tool list (148)
 
 **Context / intelligence (7):** `get_context`, `search`, `semantic_search`, `reindex_search`, `get_agenda`, `get_free_time`, `what_next`
 
@@ -579,7 +579,7 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 
 **Projects (13):** `list_projects`, `get_project`, `list_project_activity`, `create_project`, `update_project`, `complete_project`, `reopen_project`, `delete_project`, `create_stage`, `update_stage`, `delete_stage`, `reorder_stages`, `duplicate_project`
 
-**Tasks (33):** `list_tasks`, `get_task`, `create_task`, `update_task`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `add_checklist_item`, `update_checklist_item`, `toggle_checklist_item`, `replace_checklist`, `delete_checklist_item`, `start_focus`, `pause_focus`, `stop_focus`, `get_today`, `set_today_focus`, `duplicate_task`
+**Tasks (34):** `list_tasks`, `get_task`, `create_task`, `update_task`, `pick_tasks`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `add_checklist_item`, `update_checklist_item`, `toggle_checklist_item`, `replace_checklist`, `delete_checklist_item`, `start_focus`, `pause_focus`, `stop_focus`, `get_today`, `set_today_focus`, `duplicate_task`
 
 **Events (7):** `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `edit_event_occurrence`, `split_event_series`
 

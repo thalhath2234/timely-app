@@ -1,0 +1,340 @@
+package search
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"timely-api/internal/features/decide"
+	"timely-api/internal/features/embed"
+	"timely-api/internal/models"
+)
+
+// fixedHits is a search Service that always returns the same hits.
+type fixedHits struct {
+	Service
+	hits []Hit
+}
+
+func (f fixedHits) SemanticSearch(context.Context, string, string, int, []string) ([]Hit, error) {
+	return append([]Hit(nil), f.hits...), nil
+}
+
+// nearIndexer is an embed.Indexer whose Related returns fixed neighbours.
+type nearIndexer struct {
+	embed.Indexer
+	near []embed.Hit
+}
+
+func (n nearIndexer) EnabledFor(string) bool { return true }
+func (n nearIndexer) Related(context.Context, string, string, string, int, []string) (embed.Source, []embed.Hit, error) {
+	return embed.Source{Title: "Kitchen remodel", Content: "Cabinets, tiles and the budget."}, n.near, nil
+}
+
+// fakeJev answers each question id from a table, the way Jev returns them.
+func fakeJev(t *testing.T, calls *atomic.Int32, answers map[string]any) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		raw, _ := io.ReadAll(r.Body)
+		var req struct {
+			Questions map[string]json.RawMessage `json:"questions"`
+		}
+		_ = json.Unmarshal(raw, &req)
+		out := map[string]any{}
+		for id := range req.Questions {
+			key := id
+			if len(id) > 3 && id[len(id)-3:] == "__2" {
+				key = id[:len(id)-3]
+			}
+			if a, ok := answers[key]; ok {
+				out[id] = a
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": "jev-1.13.0", "answers": out})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func jevService(t *testing.T, enabled bool, answers map[string]any, calls *atomic.Int32) Decider {
+	srv := fakeJev(t, calls, answers)
+	client := decide.NewClient(nil)
+	client.TypeSafeURL = srv.URL
+	keys := decide.Keys{Enabled: enabled, TypeSafe: "ts-test-key-123"}
+	return decide.New(nil, func(context.Context, string) (decide.Keys, error) { return keys, nil }, client)
+}
+
+func yes(p float64) map[string]any { return map[string]any{"type": "noul", "noul": p} }
+func pick(name string) map[string]any {
+	return map[string]any{"type": "choice", "choice": name, "confidence": 0.9}
+}
+
+func TestSmartSearchReordersHidesAndReadsCommands(t *testing.T) {
+	var calls atomic.Int32
+	d := jevService(t, true, map[string]any{
+		"match1":   yes(0.4),
+		"match2":   yes(0.95),
+		"match3":   yes(0.03), // a clear miss
+		"match4":   yes(0.2),
+		"intent":   pick("sheet"),
+		"category": pick("sheet"),
+	}, &calls)
+	hits := []Hit{{Kind: "doc", ID: "a", Title: "Budget notes"}, {Kind: "sheet", ID: "b", Title: "Budget 2026"}, {Kind: "task", ID: "c", Title: "Buy milk"}, {Kind: "doc", ID: "d", Title: "Old"}}
+	s := NewSmart(fixedHits{hits: hits}, nil, d)
+
+	got, err := s.Search(context.Background(), "u1", "make a budget sheet", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	for _, h := range got.Hits {
+		order = append(order, h.ID)
+	}
+	if len(order) != 3 || order[0] != "b" || order[1] != "a" || order[2] != "d" {
+		t.Fatalf("order = %v, want [b a d]", order)
+	}
+	if len(got.Hidden) != 1 || got.Hidden[0].ID != "c" {
+		t.Fatalf("hidden = %+v", got.Hidden)
+	}
+	if got.Category != "sheet" {
+		t.Fatalf("category = %q", got.Category)
+	}
+	if got.Create == nil || got.Create.Kind != "sheet" || got.Create.Title != "Budget" {
+		t.Fatalf("create = %+v", got.Create)
+	}
+}
+
+func TestSmartSearchOffOrUnsureChangesNothing(t *testing.T) {
+	var calls atomic.Int32
+	hits := []Hit{{Kind: "doc", ID: "a"}, {Kind: "doc", ID: "b"}}
+	off := NewSmart(fixedHits{hits: hits}, nil, jevService(t, false, nil, &calls))
+	got, err := off.Search(context.Background(), "u1", "budget", nil)
+	if err != nil || got.Hits != nil || got.Create != nil || got.Category != "" {
+		t.Fatalf("off: %+v, %v", got, err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("off sent %d calls to Jev", calls.Load())
+	}
+
+	// Unsure: "find" is the only confident intent, the category is "any".
+	unsure := NewSmart(fixedHits{hits: hits}, nil, jevService(t, true, map[string]any{
+		"intent":   map[string]any{"type": "choice", "choice": "doc", "confidence": 0.5},
+		"category": pick("any"),
+	}, &calls))
+	got, err = unsure.Search(context.Background(), "u1", "budget", nil)
+	if err != nil || got.Create != nil || got.Category != "" || len(got.Hidden) != 0 || len(got.Hits) != 2 {
+		t.Fatalf("unsure: %+v, %v", got, err)
+	}
+}
+
+func TestRerankSaysWhenEverythingMisses(t *testing.T) {
+	var calls atomic.Int32
+	s := NewSmart(nil, nil, jevService(t, true, map[string]any{"match1": yes(0.02), "match2": yes(0.05)}, &calls))
+	kept, hidden, ok := s.Rerank(context.Background(), "u1", "dentist", []Hit{{ID: "a"}, {ID: "b"}})
+	if !ok || len(kept) != 0 || len(hidden) != 2 {
+		t.Fatalf("kept %v hidden %v ok %v", kept, hidden, ok)
+	}
+}
+
+func TestRelatedKeepsOnlyConfirmedItems(t *testing.T) {
+	var calls atomic.Int32
+	d := jevService(t, true, map[string]any{"rel1": yes(0.9), "rel2": yes(0.3), "rel3": yes(0.85)}, &calls)
+	idx := nearIndexer{near: []embed.Hit{
+		{Kind: "sheet", EntityID: "s1", Title: "Remodel budget"},
+		{Kind: "doc", EntityID: "d2", Title: "Garden ideas"},
+		{Kind: "task", EntityID: "t1", Title: "Order tiles"},
+	}}
+	got, err := NewSmart(nil, idx, d).Related(context.Background(), "u1", "project", "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "s1" || got[1].ID != "t1" {
+		t.Fatalf("related = %+v", got)
+	}
+	if _, err := NewSmart(nil, idx, d).Related(context.Background(), "u1", "event", "e1"); err == nil {
+		t.Fatal("events have no Related list")
+	}
+}
+
+// liveOnly is a Service whose Existing keeps only the listed items.
+type liveOnly struct {
+	Service
+	live map[string]bool
+}
+
+func (l liveOnly) Existing(_ string, hits []embed.Hit) []embed.Hit {
+	out := []embed.Hit{}
+	for _, hit := range hits {
+		if l.live[hit.EntityID] {
+			out = append(out, hit)
+		}
+	}
+	return out
+}
+
+func (l liveOnly) Relatable(userID, _, _ string, hits []embed.Hit) []embed.Hit {
+	return l.Existing(userID, hits)
+}
+
+func TestRelatedSkipsDeletedItems(t *testing.T) {
+	var calls atomic.Int32
+	// Jev would confirm both; the doc was deleted but its vectors remain.
+	d := jevService(t, true, map[string]any{"rel1": yes(0.9), "rel2": yes(0.9)}, &calls)
+	idx := nearIndexer{near: []embed.Hit{
+		{Kind: "doc", EntityID: "gone", Title: "Mobile App bugs"},
+		{Kind: "task", EntityID: "t1", Title: "Order tiles"},
+	}}
+	got, err := NewSmart(liveOnly{live: map[string]bool{"t1": true}}, idx, d).Related(context.Background(), "u1", "project", "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "t1" {
+		t.Fatalf("a deleted item must not be offered: %+v", got)
+	}
+}
+
+func TestCreateTitle(t *testing.T) {
+	cases := map[string]string{
+		"make a budget sheet":         "Budget",
+		"create new doc for meeting":  "Meeting",
+		"new project kitchen remodel": "Kitchen remodel",
+		"a sheet for the budget":      "Budget",
+		"sheet":                       "",
+		"plan trip to Porto":          "Trip to Porto",
+		"Creata doc Test":             "Test",
+		"crate a sheet for taxes":     "Taxes",
+		"white paper":                 "White paper",
+		"write doc":                   "",
+	}
+	for in, want := range cases {
+		if got := createTitle(in, "sheet"); got != want {
+			t.Errorf("createTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRerankHidesUncheckedTailAfterAMiss(t *testing.T) {
+	var calls atomic.Int32
+	hits := make([]Hit, rerankTop+2)
+	for i := range hits {
+		hits[i] = Hit{ID: fmt.Sprintf("h%d", i+1)}
+	}
+	s := NewSmart(nil, nil, jevService(t, true, map[string]any{"match3": yes(0.03)}, &calls))
+	kept, hidden, ok := s.Rerank(context.Background(), "u1", "milk", hits)
+	if !ok || len(kept) != rerankTop-1 || len(hidden) != 3 || hidden[0].ID != "h3" || hidden[2].ID != fmt.Sprintf("h%d", rerankTop+2) {
+		t.Fatalf("kept %d, hidden %+v", len(kept), hidden)
+	}
+	// Without a clear miss the unchecked tail stays in order after the rest.
+	s = NewSmart(nil, nil, jevService(t, true, map[string]any{}, &calls))
+	kept, hidden, _ = s.Rerank(context.Background(), "u1", "milk", hits)
+	if len(hidden) != 0 || len(kept) != rerankTop+2 || kept[rerankTop+1].ID != hits[rerankTop+1].ID {
+		t.Fatalf("kept %d, hidden %d", len(kept), len(hidden))
+	}
+}
+
+func TestPickSplitsMatchesUnsureAndMisses(t *testing.T) {
+	var calls atomic.Int32
+	hits := []Hit{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}}
+	s := NewSmart(nil, nil, jevService(t, true, map[string]any{"pick1": yes(0.97), "pick2": yes(0.03), "pick3": yes(0.6)}, &calls))
+	matches, unsure, left, ok := s.Pick(context.Background(), "u1", "website launch", hits)
+	if !ok || len(matches) != 1 || matches[0].ID != "a" || left != 1 || len(unsure) != 2 || unsure[0].ID != "c" || unsure[1].ID != "d" {
+		t.Fatalf("matches %v unsure %v left %d ok %v", matches, unsure, left, ok)
+	}
+	// Off: the whole shortlist comes back unchecked.
+	s = NewSmart(nil, nil, jevService(t, false, nil, &calls))
+	matches, unsure, _, ok = s.Pick(context.Background(), "u1", "website launch", hits)
+	if ok || len(matches) != 0 || len(unsure) != 4 {
+		t.Fatalf("off: matches %v unsure %v ok %v", matches, unsure, ok)
+	}
+}
+
+// A sensitive chat (a receipt photo) never sends its searches or titles.
+func TestSensitiveChatsSkipRerankAndPick(t *testing.T) {
+	var calls atomic.Int32
+	s := NewSmart(nil, nil, jevService(t, true, map[string]any{"match1": yes(0.02), "pick1": yes(0.97)}, &calls))
+	ctx := decide.WithSensitive(context.Background())
+	hits := []Hit{{ID: "a", Title: "Pharmacy receipt"}}
+	if kept, _, ok := s.Rerank(ctx, "u1", "pharmacy", hits); ok || len(kept) != 1 {
+		t.Fatalf("rerank ran: kept %v ok %v", kept, ok)
+	}
+	if _, unsure, _, ok := s.Pick(ctx, "u1", "pharmacy", hits); ok || len(unsure) != 1 {
+		t.Fatalf("pick ran: unsure %v ok %v", unsure, ok)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("%d calls reached Jev", calls.Load())
+	}
+}
+
+func TestSmartSearchPicksASavedView(t *testing.T) {
+	var calls atomic.Int32
+	views := func(context.Context, string, string) []SavedView {
+		return []SavedView{
+			{ID: "v_all", Name: "Everything", Description: "lists work items"},
+			{ID: "v_late", Name: "Needs attention", Description: "lists work items; only overdue ones"},
+		}
+	}
+	s := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{"view": pick("view2")}, &calls))
+	s.SetViews(views)
+	got, err := s.Search(context.Background(), "u1", "what needs attention", nil)
+	if err != nil || got.View == nil || got.View.ID != "v_late" || got.View.Name != "Needs attention" {
+		t.Fatalf("view = %+v, %v", got.View, err)
+	}
+
+	// One word reads as looking for an item: views are not offered.
+	var asked atomic.Int32
+	one := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{"view": pick("view1")}, &asked))
+	one.SetViews(views)
+	got, err = one.Search(context.Background(), "u1", "invoice", nil)
+	if err != nil || got.View != nil {
+		t.Fatalf("one word: %+v, %v", got.View, err)
+	}
+
+	// "none" and an unsure pick both leave the view out.
+	unsure := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{
+		"view": map[string]any{"type": "choice", "choice": "view1", "confidence": 0.6},
+	}, &calls))
+	unsure.SetViews(views)
+	if got, _ = unsure.Search(context.Background(), "u1", "show my stuff", nil); got.View != nil {
+		t.Fatalf("unsure: %+v", got.View)
+	}
+}
+
+func TestDescribeView(t *testing.T) {
+	hide := false
+	v := models.TaskViewConfig{OnlyOverdue: true, ShowCompleted: &hide, SelectedPriorityLevels: []string{"High", "Urgent"}, SortBy: models.SortByDeadline}
+	got := describeView(v, []string{"Doing"}, []string{"Shop launch"}, []string{"Waiting"})
+	want := "lists work items; only overdue ones; hides finished ones; priority High or Urgent; status Doing; in Shop launch; labelled Waiting; sorted by deadline"
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// client=phone offers the phone's own saved views, anything else the web's.
+func TestSmartSearchOffersTheClientViews(t *testing.T) {
+	asked := map[string]bool{}
+	views := func(_ context.Context, _ string, client string) []SavedView {
+		asked[client] = true
+		if client == ClientPhone {
+			return []SavedView{{ID: "native_view_late", Name: "Late on phone", Description: "lists work items; only overdue ones"}}
+		}
+		return []SavedView{{ID: "view_late", Name: "Late", Description: "lists work items; only overdue ones"}}
+	}
+	var calls atomic.Int32
+	s := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{"view": pick("view1")}, &calls))
+	s.SetViews(views)
+	got, err := s.SearchFor(context.Background(), "u1", "my overdue stuff", nil, ClientPhone)
+	if err != nil || got.View == nil || got.View.ID != "native_view_late" {
+		t.Fatalf("phone view = %+v, %v", got.View, err)
+	}
+	if got, err = s.Search(context.Background(), "u1", "my late stuff", nil); err != nil || got.View == nil || got.View.ID != "view_late" {
+		t.Fatalf("web view = %+v, %v", got.View, err)
+	}
+	if !asked[ClientPhone] || !asked[ClientWeb] {
+		t.Fatalf("asked %v", asked)
+	}
+}

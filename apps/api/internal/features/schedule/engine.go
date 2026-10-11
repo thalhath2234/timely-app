@@ -66,7 +66,11 @@ type Candidate struct {
 	TodayFocus         bool
 	ActualMinutes      int
 	Unscheduled        bool
-	Rank               Rank
+	Urgency            *int
+	// GroupKey ties tasks that share a topic or tool; order keeps them next
+	// to each other when their ranks are close.
+	GroupKey string
+	Rank     Rank
 }
 
 type PlanInput struct {
@@ -264,6 +268,7 @@ func order(candidates []Candidate, byID map[string]*Candidate) []Candidate {
 		}
 		return a.CreatedAt < b.CreatedAt
 	})
+	sorted = groupClose(sorted)
 
 	var out []Candidate
 	visited := map[string]bool{}
@@ -283,6 +288,35 @@ func order(candidates []Candidate, byID map[string]*Candidate) []Candidate {
 	}
 	for _, candidate := range sorted {
 		visit(candidate)
+	}
+	return out
+}
+
+// groupSlack is how far below a group's first task a member may rank and
+// still be pulled up next to it.
+const groupSlack = 10
+
+// groupClose pulls each task's group members up behind it when they rank
+// within groupSlack, so related work lands back to back. The rest keep their
+// order.
+func groupClose(sorted []Candidate) []Candidate {
+	out := make([]Candidate, 0, len(sorted))
+	used := make([]bool, len(sorted))
+	for i, c := range sorted {
+		if used[i] {
+			continue
+		}
+		used[i] = true
+		out = append(out, c)
+		if c.GroupKey == "" {
+			continue
+		}
+		for j := i + 1; j < len(sorted); j++ {
+			if !used[j] && sorted[j].GroupKey == c.GroupKey && c.Rank.Score-sorted[j].Rank.Score <= groupSlack {
+				used[j] = true
+				out = append(out, sorted[j])
+			}
+		}
 	}
 	return out
 }

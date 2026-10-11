@@ -28,16 +28,17 @@ import {
   Plus,
   Repeat,
   RotateCcw,
+  Sparkles,
   Sun,
   Timer,
   Trash2,
   Zap,
 } from "lucide-react-native";
 import {
-  BUILTIN_CARDS,
   CARD_TEMPLATES,
   DASHBOARD_MAX_CARDS,
   cardTitle,
+  catalogCards,
   computeCard,
   defaultDashboard,
   newCardId,
@@ -55,6 +56,7 @@ import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import { SectionLabel } from "../../components/ui/primitives";
 import CustomCardView from "../../components/report/customCardView";
 import PomodoroCard from "../../components/report/pomodoroCard";
+import HighlightsCard from "../../components/report/highlightsCard";
 import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "../../components/report/builtinCards";
 import {
   ClockCard,
@@ -71,7 +73,7 @@ import type { SettingsUpdate } from "../../components/report/cardParts";
 import { useDashboardData, useDashboardLayout, useNow } from "../../lib/dashboard";
 import { forgetPomodoro } from "../../lib/pomodoroStore";
 import { cancelPomodoroNotification } from "../../lib/notifications";
-import { useConfigQuery, useInvalidateAll } from "../../lib/hooks";
+import { useConfigQuery, useDecisionsStatusQuery, useInvalidateAll } from "../../lib/hooks";
 import { fileHref } from "../../lib/fileRoutes";
 import { showUndoToast, useToastStore } from "../../lib/toast";
 import type { CalendarItem } from "../../lib/types";
@@ -95,6 +97,7 @@ const BUILTIN_ICON: Record<BuiltinCardType, typeof Timer> = {
   inboxZero: Inbox,
   clock: AlarmClock,
   journal: BookOpen,
+  highlights: Sparkles,
 };
 
 /** Stops what a card keeps running outside the screen: a pomodoro, or a timer's alert. */
@@ -132,6 +135,7 @@ export default function DashboardScreen() {
   const now = useNow(30_000);
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
+  const smart = useDecisionsStatusQuery().data?.available === true;
   const [confirmReset, setConfirmReset] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const tasks = useMemo(() => data.tasks ?? [], [data.tasks]);
@@ -221,6 +225,8 @@ export default function DashboardScreen() {
         return (
           <MatrixCard tasks={tasks} timeZone={timeZone} urgentDays={typeof settings.urgentDays === "number" ? settings.urgentDays : 3} onOpenTask={openTask} />
         );
+      case "highlights":
+        return <HighlightsCard data={data} now={now} timeZone={timeZone} loading={loading} onOpenTask={openTask} />;
       case "countdown":
         return (
           <CountdownCard
@@ -359,7 +365,7 @@ export default function DashboardScreen() {
 
       <BottomSheet open={adding} onClose={() => setAdding(false)} title="Add a card">
         <SectionLabel>Productivity tools</SectionLabel>
-        {BUILTIN_CARDS.map((info) => {
+        {catalogCards(smart).map((info) => {
           const Icon = BUILTIN_ICON[info.type];
           return (
             <AnimatedPressable

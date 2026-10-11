@@ -1,5 +1,6 @@
 // Package self-import: Node strip-types cannot resolve an extensionless relative value import.
 import { columnIndexToLetter } from "@timely/contract/sheetFormula";
+import { normalizeTypedCell } from "@timely/contract/sheetCell";
 import type { SheetColumn, SheetRow } from "./sheetTypes";
 
 /** Id generators differ per platform, so callers supply them. */
@@ -103,5 +104,88 @@ export function csvToGrid(
     return { id: newRowId(), cells: mapped };
   });
 
+  return { columns, rows };
+}
+
+/** An imported column as smart suggestions read it: its header and up to
+ * `limit` values. */
+export function columnSamples(
+  grid: { columns: SheetColumn[]; rows: SheetRow[] },
+  limit = 200,
+): { name: string; values: string[] }[] {
+  return grid.columns.map((column) => ({
+    name: column.name,
+    values: grid.rows.slice(0, limit).map((row) => row.cells[column.id] ?? ""),
+  }));
+}
+
+/** A suggested type for one imported column; null keeps it as text. */
+export type ColumnTypeSuggestion = { type: string; options?: string[] } | null;
+
+const importTypes = new Set(["number", "currency", "percent", "date", "boolean", "select"]);
+
+/** A number written the one way that reads the same everywhere: an optional
+ * sign, comma thousands groups and a decimal point. A
+ * decimal comma (12,50) or a leading zero (02134, a code) does not count. */
+const plainNumber = /^[-+]?(0|[1-9]\d{0,2}(,\d{3})+|[1-9]\d*)(\.\d+)?$/;
+const yesNo = new Set(["TRUE", "FALSE", "YES", "NO", "Y", "N"]);
+
+/** Whether an imported value keeps its meaning in a column of this type; the
+ * same rules the server uses to offer the type, applied to every row. */
+function fitsImportType(type: string, value: string, options?: string[]): boolean {
+  const v = value.trim();
+  switch (type) {
+    case "number":
+    case "currency":
+      return plainNumber.test(v);
+    case "percent":
+      return v.endsWith("%") && plainNumber.test(v.slice(0, -1).trim());
+    case "date":
+      return /^\d{4}-\d{2}-\d{2}$/.test(v);
+    case "boolean":
+      return yesNo.has(v.toUpperCase());
+    case "select":
+      return !!options?.includes(v);
+    default:
+      return false;
+  }
+}
+
+/**
+ * Applies suggested column types to an imported grid. The server checks only
+ * the first rows, so every row is checked again here: a column keeps a type
+ * only when each value fits it, so normalizing keeps each value's meaning
+ * (12.50 → 12.5, yes → TRUE). Any value that does not fit leaves the column
+ * as text.
+ */
+export function applyColumnTypes<C extends SheetColumn, R extends SheetRow>(
+  grid: { columns: C[]; rows: R[] },
+  suggestions: ColumnTypeSuggestion[],
+): { columns: C[]; rows: R[] } {
+  const columns = grid.columns.map((column, index) => {
+    const suggestion = suggestions[index];
+    if (!suggestion || !importTypes.has(suggestion.type)) return column;
+    const type = suggestion.type as SheetColumn["type"];
+    const fits = grid.rows.every((row) => {
+      const value = row.cells[column.id] ?? "";
+      if (!value.trim()) return true;
+      return fitsImportType(type, value, suggestion.options) && normalizeTypedCell(type, value) !== "";
+    });
+    if (!fits) return column;
+    return {
+      ...column,
+      type,
+      ...(type === "select" && suggestion.options?.length ? { options: suggestion.options } : {}),
+    };
+  });
+  const rows = grid.rows.map((row) => {
+    const cells = { ...row.cells };
+    columns.forEach((column, index) => {
+      if (column.type === grid.columns[index].type) return;
+      const value = cells[column.id];
+      if (value !== undefined) cells[column.id] = normalizeTypedCell(column.type, value);
+    });
+    return { ...row, cells };
+  });
   return { columns, rows };
 }

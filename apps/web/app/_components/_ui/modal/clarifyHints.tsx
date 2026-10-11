@@ -17,16 +17,30 @@ const MISSING: Record<NonNullable<ClarifySuggestions["missing"]>, string> = {
   scope: "It is not clear what done looks like.",
 };
 
+/** Whether the person kept a Clarify suggestion, from one check per field it
+ * named. At least half kept counts: someone who always tweaks the length but
+ * keeps the rest still finds the pre-fills useful, and learned defaults
+ * (decide/learned.go) would otherwise switch them off. */
+export function clarifyKept(checks: boolean[]) {
+  return checks.filter(Boolean).length * 2 >= checks.length;
+}
+
 /** Notes from smart suggestions above the Clarify form. The fields they
  * filled stay editable; these lines only point at things worth a look. */
 export default function ClarifyHints({
   loading,
   suggestions,
+  filled,
+  dateFilled = false,
   error,
   onOpenDuplicate,
 }: {
   loading: boolean;
   suggestions?: ClarifySuggestions;
+  /** Whether the suggestions filled any field. */
+  filled: boolean;
+  /** Whether the date in the item's words filled its field. */
+  dateFilled?: boolean;
   /** Why suggestions are on but did not run, from the server. */
   error?: string;
   onOpenDuplicate: (id: string) => void;
@@ -56,7 +70,9 @@ export default function ClarifyHints({
     notes.push("This looks like an event at a fixed time. It may belong on the calendar.");
   if (suggestions.dateRole)
     notes.push(
-      `The date in the name looks like ${DATE_FIELD[suggestions.dateRole]}. Set it in the fields on the right.`,
+      dateFilled
+        ? `The date in the name was used as ${DATE_FIELD[suggestions.dateRole]}. Check it in the fields on the right.`
+        : `The date in the name looks like ${DATE_FIELD[suggestions.dateRole]}. Set it in the fields on the right.`,
     );
   if (suggestions.severalActions)
     notes.push("This looks like more than one action. Consider splitting it.");
@@ -64,6 +80,7 @@ export default function ClarifyHints({
     notes.push("This may not be ready to act on yet. It can stay in the Inbox.");
   if (suggestions.missing) notes.push(MISSING[suggestions.missing]);
   const duplicates = suggestions.duplicates ?? [];
+  if (!filled && notes.length === 0 && duplicates.length === 0) return null;
 
   return (
     <div
@@ -72,7 +89,7 @@ export default function ClarifyHints({
     >
       <p className="flex items-center gap-1.5 font-medium text-foreground">
         <Sparkles className="size-3.5 text-primary" />
-        Some fields were filled in for you. Check them before you save.
+        {filled ? "Some fields were filled in for you. Check them before you save." : "Suggestions"}
       </p>
       {notes.map((note) => (
         <p key={note}>{note}</p>

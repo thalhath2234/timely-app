@@ -24,6 +24,7 @@ const (
 	JobSendPush     = "send_push"
 	JobCreateBackup = "create_backup"
 	JobReindexUser  = "reindex_user"
+	JobSmartAlerts  = "smart_alerts"
 
 	NotifyReminder = "reminder"
 	NotifyDigest   = "digest"
@@ -31,6 +32,9 @@ const (
 	NotifyOverdue  = "overdue"
 	NotifyMissed   = "missed"
 	NotifyStart    = "start"
+	// NotifySuggestion is a smart alert: an optional suggestion Jev judged
+	// worth an alert, with its best next step.
+	NotifySuggestion = "suggestion"
 )
 
 type JobPayload map[string]any
@@ -113,7 +117,10 @@ type Notification struct {
 	ReadAt       *time.Time `json:"readAt,omitempty"`
 	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
 	DeliveredAt  *time.Time `json:"deliveredAt,omitempty"`
-	CreatedAt    time.Time  `gorm:"type:timestamptz;not null" json:"createdAt"`
+	// DismissedAt hides a smart alert the person dismissed or cleared; the
+	// row stays so the alerts job can learn from it.
+	DismissedAt *time.Time `json:"dismissedAt,omitempty"`
+	CreatedAt   time.Time  `gorm:"type:timestamptz;not null" json:"createdAt"`
 }
 
 func (Notification) TableName() string { return "notifications" }
@@ -140,6 +147,9 @@ type NotificationSettings struct {
 	Timezone        string `json:"timezone"`
 	MorningDigestAt string `json:"morningDigestAt"`
 	EveningDigestAt string `json:"eveningDigestAt"`
+	// SmartAlerts sends a few alerts a day for suggestions worth acting on
+	// (needs smart suggestions on). Nil reads as on.
+	SmartAlerts *bool `json:"smartAlerts,omitempty"`
 }
 
 func (s NotificationSettings) Value() (driver.Value, error) {
@@ -194,6 +204,10 @@ func (s NotificationSettings) Normalized() NotificationSettings {
 	if out.EveningDigestAt == "" {
 		out.EveningDigestAt = "18:00"
 	}
+	if out.SmartAlerts == nil {
+		on := true
+		out.SmartAlerts = &on
+	}
 	out.QuietHoursStart = normalizeClock(out.QuietHoursStart)
 	out.QuietHoursEnd = normalizeClock(out.QuietHoursEnd)
 	out.MorningDigestAt = normalizeClock(out.MorningDigestAt)
@@ -239,6 +253,9 @@ func (s NotificationSettings) InQuietHours(now time.Time) bool {
 // zone, then the given Working hours zone, then the server's own zone. The
 // desktop app hosts the backend (ADR 0011), so that last zone is the person's
 // own; an unknown or invalid name also lands there rather than on UTC.
+// SmartAlertsOn is the SmartAlerts setting, on when never set.
+func (s NotificationSettings) SmartAlertsOn() bool { return s.SmartAlerts == nil || *s.SmartAlerts }
+
 func (s NotificationSettings) Location(fallback string) *time.Location {
 	tz := s.Timezone
 	if tz == "" {

@@ -21,7 +21,8 @@ type AuthContextValue = AuthState & {
   signup: (name: string, email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
   refresh: () => Promise<User | null>;
-  finishOnboarding: (workspaceName: string) => Promise<void>;
+  /** setup runs after the workspace exists, before onboarding is marked done. */
+  finishOnboarding: (workspaceName: string, setup?: (workspaceId: string) => Promise<void>) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -156,8 +157,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return null;
         }
       },
-      finishOnboarding: async (workspaceName: string) => {
-        await createWorkspace({ name: workspaceName });
+      finishOnboarding: async (workspaceName: string, setup?: (workspaceId: string) => Promise<void>) => {
+        const workspace = await createWorkspace({ name: workspaceName });
+        if (setup && workspace?.id) await setup(workspace.id).catch(() => undefined);
         if (!onboarded(state.user)) await completeOnboarding();
         const refreshToken = await getRefreshToken();
         if (refreshToken) {

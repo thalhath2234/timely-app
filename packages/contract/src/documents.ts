@@ -156,3 +156,16 @@ export function pageChoices<T extends PageLike>(docs: T[], query = ""): PageChoi
   if (!needle) return out;
   return out.filter((row) => (row.doc.title || "Untitled").toLowerCase().includes(needle)).map((row) => ({ ...row, depth: 0 }));
 }
+
+const DOC_TYPE_PHRASES: Record<string, string> = {
+  "meeting notes": "meeting notes",
+  plan: "a plan",
+  reference: "reference material",
+  journal: "a journal entry",
+  spec: "a spec",
+};
+
+/** The doc type smart suggestions name, as words after "Reads like". */
+export function docTypePhrase(docType: string): string {
+  return DOC_TYPE_PHRASES[docType] ?? `a ${docType}`;
+}

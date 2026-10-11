@@ -291,3 +291,28 @@ func TestCheck(t *testing.T) {
 		t.Fatalf("Jev's state must be an object, got %T", or.last["state"])
 	}
 }
+
+func TestPrivateAsksOpenRouterForZeroRetention(t *testing.T) {
+	ts, or := &fakeJev{status: 529}, &fakeJev{answer: yesAnswer(0.9)}
+	s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
+	req := oneYesNo()
+	req.Private = true
+	if _, err := s.Ask(context.Background(), "u1", req); err != nil {
+		t.Fatal(err)
+	}
+	if _, sent := ts.last["provider"]; sent {
+		t.Fatalf("TypeSafe got OpenRouter routing: %s", ts.raw)
+	}
+	provider, _ := or.last["provider"].(map[string]any)
+	if provider["zdr"] != true {
+		t.Fatalf("private call not limited to zero-retention endpoints: %s", or.raw)
+	}
+	req.Private = false
+	req.State = "Buy bread" // a new request, not the cached one
+	if _, err := s.Ask(context.Background(), "u1", req); err != nil {
+		t.Fatal(err)
+	}
+	if _, sent := or.last["provider"]; sent {
+		t.Fatalf("an ordinary call sent routing: %s", or.raw)
+	}
+}

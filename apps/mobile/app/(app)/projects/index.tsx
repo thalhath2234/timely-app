@@ -1,15 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FolderKanban } from "lucide-react-native";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useMutation } from "@tanstack/react-query";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
+import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import { Field, PrimaryButton, SectionLabel, Select } from "../../../components/ui/primitives";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
-import { useCreateProject, useProjectsQuery, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
+import { useInvalidateAll, useProjectsQuery, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
+import { ProjectStartChoices, createProjectWithStart, useProjectStart } from "../../../components/projects/ProjectStart";
+import type { CreateProjectPayload } from "../../../lib/api/projects";
 import { resolvedColor } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { formatShortDate, toDateInputValue } from "../../../lib/format";
 import type { Project, Task } from "../../../lib/types";
 
 function statsFor(project: Project, tasks: Task[]) {
@@ -23,11 +28,26 @@ export default function ProjectsScreen() {
   const projectsQ = useProjectsQuery();
   const spaces = useWorkspacesQuery().data ?? [];
   const tasks = useTasksQuery().data ?? [];
-  const create = useCreateProject();
+  // Smart search's "Create project “X”" opens this screen with the title.
+  const params = useLocalSearchParams<{ title?: string }>();
   const projects = projectsQ.data ?? [];
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(params.title ?? "");
   const [workspaceId, setWorkspaceId] = useState("");
+  // Optional dates; with "Start from" a copied repeating series restarts on
+  // the start date, as on web.
+  const [startDate, setStartDate] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [picker, setPicker] = useState<"start" | "deadline" | null>(null);
   const chosenWorkspace = workspaceId || spaces[0]?.id || "";
+  const start = useProjectStart(title, chosenWorkspace);
+  const invalidate = useInvalidateAll();
+  const create = useMutation({
+    mutationFn: (payload: CreateProjectPayload) => createProjectWithStart(payload, start.suggestion, start.choices),
+    onSuccess: () => invalidate(),
+  });
+  useEffect(() => {
+    if (params.title) setTitle(params.title);
+  }, [params.title]);
   const visibleProjects = projects.filter((project) => !chosenWorkspace || project.workspaceId === chosenWorkspace);
 
   return (
@@ -52,21 +72,42 @@ export default function ProjectsScreen() {
                   />
                 ) : null}
                 <Field value={title} onChangeText={setTitle} placeholder="Project title" autoCapitalize="words" />
+                <View style={styles.dates}>
+                  <Pressable accessibilityRole="button" onPress={() => setPicker("start")} style={[styles.card, styles.dateCard]}>
+                    <Text style={styles.meta}>Start</Text>
+                    <Text style={styles.dateValue}>{startDate ? formatShortDate(`${startDate}T12:00:00`) : "Pick a date"}</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" onPress={() => setPicker("deadline")} style={[styles.card, styles.dateCard]}>
+                    <Text style={styles.meta}>Deadline</Text>
+                    <Text style={styles.dateValue}>{deadline ? formatShortDate(`${deadline}T12:00:00`) : "Pick a date"}</Text>
+                  </Pressable>
+                </View>
+                <ProjectStartChoices suggestion={start.suggestion} choices={start.choices} onChange={start.setChoices} />
                 <PrimaryButton
                   label="Create project"
                   disabled={!title.trim() || !chosenWorkspace || create.isPending}
                   onPress={() => {
                     create.mutate(
-                      { title: title.trim(), workspaceId: chosenWorkspace },
+                      {
+                        title: title.trim(),
+                        workspaceId: chosenWorkspace,
+                        ...(startDate ? { startDate } : {}),
+                        ...(deadline ? { deadline } : {}),
+                      },
                       {
                         onSuccess: (project) => {
                           setTitle("");
+                          setStartDate("");
+                          setDeadline("");
                           router.push(`/(app)/projects/${project.id}`);
                         },
                       },
                     );
                   }}
                 />
+                {create.error ? (
+                  <Text style={styles.error}>{create.error instanceof Error ? create.error.message : "Could not create the project."}</Text>
+                ) : null}
               </>
             )}
             {visibleProjects.length === 0 ? (
@@ -110,6 +151,22 @@ export default function ProjectsScreen() {
           </>
         )}
       </ScrollView>
+      <DateTimeSheet
+        open={picker !== null}
+        value={(() => {
+          const current = picker === "deadline" ? deadline : startDate;
+          return current ? new Date(`${current}T12:00:00`) : new Date();
+        })()}
+        mode="date"
+        title={picker === "deadline" ? "Deadline" : "Start"}
+        onClose={() => setPicker(null)}
+        onChange={(next) => {
+          const value = next ? toDateInputValue(next) : "";
+          if (picker === "deadline") setDeadline(value);
+          else setStartDate(value);
+          setPicker(null);
+        }}
+      />
     </Screen>
   );
 }
@@ -125,6 +182,10 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   title: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 12 },
+  error: { color: colors.destructive, fontSize: 12 },
+  dates: { flexDirection: "row", gap: 10 },
+  dateCard: { flex: 1, paddingVertical: 10, gap: 2 },
+  dateValue: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
   bar: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden" },
   fill: { height: "100%", backgroundColor: colors.primary },
 }));

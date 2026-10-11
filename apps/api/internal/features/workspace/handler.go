@@ -472,6 +472,9 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 		ProjectTaskViews      *models.ProjectTaskViews `json:"projectTaskViews"`
 		Appearance            *models.Appearance       `json:"appearance"`
 		ReportDashboard       *models.ReportDashboard  `json:"reportDashboard"`
+		// The phone's own saved views; absent keys leave them alone.
+		MobileTaskViews        models.TaskViews `json:"mobileTaskViews"`
+		MobileActiveTaskViewId *string          `json:"mobileActiveTaskViewId"`
 	}
 
 	if err := c.Bind(&req); err != nil {
@@ -500,6 +503,12 @@ func (h *Handler) UpdateConfig(c *echo.Context) error {
 	}
 	if req.ReportDashboard != nil {
 		config.ReportDashboard = *req.ReportDashboard
+	}
+	if len(req.MobileTaskViews) > 0 {
+		config.MobileTaskViews = req.MobileTaskViews
+	}
+	if req.MobileActiveTaskViewId != nil {
+		config.MobileActiveTaskViewId = *req.MobileActiveTaskViewId
 	}
 
 	updatedConfig, err := h.workspaceService.UpdateConfig(config)

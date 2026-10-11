@@ -27,6 +27,8 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/agent/decisions/key", s.setTypeSafeKey)
 	g.DELETE("/agent/decisions/key", s.removeTypeSafeKey)
 	g.POST("/agent/decisions/feedback", s.decisionFeedback)
+	g.GET("/agent/decisions/learned", s.decisionsLearned)
+	g.POST("/agent/decisions/learned/reset", s.resetLearned)
 	g.POST("/agent/decisions/test", s.testDecisions)
 }
 

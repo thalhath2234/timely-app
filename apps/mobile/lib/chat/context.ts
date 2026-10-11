@@ -11,6 +11,16 @@ export function contextChip(
     value: typeof value === "string" ? value : JSON.stringify(value),
   };
 }
+/** The project a chat's context chips point at: a project chip, or the
+ * project the screen shows. Example prompts fit it. */
+export function contextProjectId(chips: ChatContext[]): string | undefined {
+  const project = chips.find((c) => c.kind === "project")?.value;
+  if (project) return project;
+  const object = chips.find(
+    (c) => c.kind === "object" && c.value.startsWith("projects/"),
+  )?.value;
+  return object ? object.slice("projects/".length) || undefined : undefined;
+}
 export function mergeContext(
   current: ChatContext[],
   incoming: ChatContext[],

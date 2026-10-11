@@ -27,6 +27,25 @@ import (
 // not answer in time. Callers treat it as "no suggestion".
 var ErrOff = errors.New("suggestions are off")
 
+// MaxStateBytes is the largest JSON state Ask sends (about 8,000 tokens,
+// well inside Jev's 32K limit). Callers with open-ended state trim to it.
+const MaxStateBytes = 32000
+
+type sensitiveKey struct{}
+
+// WithSensitive marks work done for a sensitive chat (a receipt photo).
+// Helpers that would send its searches or titles to Jev check IsSensitive
+// and skip the call; only callers that mark their state Private send.
+func WithSensitive(ctx context.Context) context.Context {
+	return context.WithValue(ctx, sensitiveKey{}, true)
+}
+
+// IsSensitive reports whether ctx belongs to a sensitive chat.
+func IsSensitive(ctx context.Context) bool {
+	v, _ := ctx.Value(sensitiveKey{}).(bool)
+	return v
+}
+
 // Thresholds. Confidence runs from 0 (spread evenly) to 1 (certain), as
 // TypeSafe defines it for choice and score; yes/no uses |2p-1|.
 const (
@@ -42,7 +61,7 @@ const (
 
 	maxOptions    = 255
 	maxLevels     = 10
-	maxStateBytes = 32000 // about 8,000 tokens, well inside Jev's 32K limit
+	maxStateBytes = MaxStateBytes
 	perUserCalls  = 4
 	cacheFor      = 10 * time.Minute
 )
@@ -92,6 +111,9 @@ type Request struct {
 	Feature   string
 	State     any
 	Questions map[string]Question
+	// Private marks state taken from private content such as a receipt.
+	// OpenRouter then routes the call only to zero-data-retention endpoints.
+	Private bool
 }
 
 // Answer is Jev's answer to one question.
@@ -108,12 +130,24 @@ type Answers struct {
 	Provider string
 	LogID    string
 	answers  map[string]Answer
+	// raise is added to every reader's minimum confidence: learned from
+	// how often the person kept this feature's suggestions (see learned.go).
+	raise float64
+}
+
+// need is the confidence a reader asks for once the person's history is
+// counted. A reader asking for any confidence (0) is left alone.
+func (a Answers) need(min float64) float64 {
+	if min <= 0 || a.raise <= 0 {
+		return min
+	}
+	return math.Min(min+a.raise, maxNeed)
 }
 
 // Choice returns the chosen option when confidence reaches min.
 func (a Answers) Choice(id string, min float64) (string, bool) {
 	x, ok := a.answers[id]
-	if !ok || x.Kind != typeChoice || x.Confidence < min {
+	if !ok || x.Kind != typeChoice || x.Confidence < a.need(min) {
 		return "", false
 	}
 	return x.Choice, true
@@ -122,7 +156,7 @@ func (a Answers) Choice(id string, min float64) (string, bool) {
 // Level returns the score level index when confidence reaches min.
 func (a Answers) Level(id string, min float64) (int, bool) {
 	x, ok := a.answers[id]
-	if !ok || x.Kind != typeScore || x.Confidence < min {
+	if !ok || x.Kind != typeScore || x.Confidence < a.need(min) {
 		return 0, false
 	}
 	return x.Level, true
@@ -131,7 +165,7 @@ func (a Answers) Level(id string, min float64) (int, bool) {
 // Yes returns the yes/no answer when confidence reaches min.
 func (a Answers) Yes(id string, min float64) (bool, bool) {
 	x, ok := a.answers[id]
-	if !ok || x.Kind != typeNoul || x.Confidence < min {
+	if !ok || x.Kind != typeNoul || x.Confidence < a.need(min) {
 		return false, false
 	}
 	return x.Yes >= 0.5, true
@@ -163,6 +197,10 @@ type Service struct {
 	slots map[string]chan struct{}
 	cache map[string]cached
 	rand  func(int) []int
+	// learned holds each account's raise per feature for a while.
+	learned map[string]learnedRaise
+	// learnGen counts forget calls (see learned.go).
+	learnGen uint64
 
 	pruned time.Time
 }
@@ -178,7 +216,7 @@ func New(db *gorm.DB, keys KeySource, client Caller) *Service {
 	if client == nil {
 		client = NewClient(nil)
 	}
-	return &Service{db: db, keys: keys, client: client, slots: map[string]chan struct{}{}, cache: map[string]cached{}, rand: rand.Perm}
+	return &Service{db: db, keys: keys, client: client, slots: map[string]chan struct{}{}, cache: map[string]cached{}, rand: rand.Perm, learned: map[string]learnedRaise{}}
 }
 
 // Status reports whether suggestions are available for an account and which
@@ -209,10 +247,13 @@ func (s *Service) Ask(ctx context.Context, userID string, req Request) (Answers,
 	}
 	body, plan, err := s.build(req)
 	if err != nil {
+		// Nothing was sent, so the log is the only trace of the dropped check.
+		log.Printf("decide: %s not sent: %v", req.Feature, err)
 		return Answers{}, err
 	}
 	cacheKey := fmt.Sprintf("%x", sha256.Sum256(append([]byte(userID+"\x00"+req.Feature+"\x00"), stableKey(req)...)))
 	if a, ok := s.cached(cacheKey); ok {
+		a.raise = s.raiseFor(userID, req.Feature)
 		return a, nil
 	}
 	release, ok := s.acquire(ctx, userID)
@@ -236,6 +277,7 @@ func (s *Service) Ask(ctx context.Context, userID string, req Request) (Answers,
 	}
 	answers.LogID = logID
 	s.store(cacheKey, answers)
+	answers.raise = s.raiseFor(userID, req.Feature)
 	return answers, nil
 }
 
@@ -244,6 +286,9 @@ type wire struct {
 	Model     string               `json:"model"`
 	State     any                  `json:"state"`
 	Questions map[string]wireQuest `json:"questions"`
+	// Provider is OpenRouter's routing preference; TypeSafe takes none.
+	Provider map[string]any `json:"provider,omitempty"`
+	private  bool
 }
 
 type wireQuest struct {
@@ -290,7 +335,7 @@ func (s *Service) build(req Request) (wire, plan, error) {
 	if len(state) > maxStateBytes {
 		return wire{}, plan{}, fmt.Errorf("decide: state for %s is %d bytes; trim it below %d", req.Feature, len(state), maxStateBytes)
 	}
-	w := wire{State: req.State, Questions: map[string]wireQuest{}}
+	w := wire{State: req.State, Questions: map[string]wireQuest{}, private: req.Private}
 	p := plan{kinds: map[string]string{}, pairs: map[string][]string{}, levels: map[string]int{}}
 	ids := make([]string, 0, len(req.Questions))
 	for id := range req.Questions {
@@ -496,8 +541,23 @@ func (s *Service) Feedback(userID, logID string, accepted bool) error {
 		return nil
 	}
 	now := time.Now().UTC()
-	return s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ?", logID, userID).
+	err := s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ?", logID, userID).
 		Updates(map[string]any{"accepted": accepted, "decided_at": now}).Error
+	s.forget(userID)
+	return err
+}
+
+// Dismissed records that the person set a suggestion aside without using
+// it, unless they already answered it: a kept answer stands, and a second
+// dismissal of the same decision changes nothing.
+func (s *Service) Dismissed(userID, logID string) error {
+	if s == nil || s.db == nil || logID == "" {
+		return nil
+	}
+	err := s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ? AND accepted IS NULL", logID, userID).
+		Updates(map[string]any{"accepted": false, "decided_at": time.Now().UTC()}).Error
+	s.forget(userID)
+	return err
 }
 
 // Prune drops log rows older than 30 days, at most once an hour (the job

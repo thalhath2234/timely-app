@@ -223,8 +223,9 @@ func (r *workspaceRepository) GetConfig(userID string) (*models.Config, error) {
 // UpdateConfig persists config changes by user id.
 func (r *workspaceRepository) UpdateConfig(config *models.Config) (*models.Config, error) {
 	updates := map[string]any{
-		"is_on_boarding_completed": config.IsOnBoardingCompleted,
-		"active_task_view_id":      config.ActiveTaskViewId,
+		"is_on_boarding_completed":   config.IsOnBoardingCompleted,
+		"active_task_view_id":        config.ActiveTaskViewId,
+		"mobile_active_task_view_id": config.MobileActiveTaskViewId,
 	}
 
 	result := r.db.Model(&models.Config{}).
@@ -232,8 +233,9 @@ func (r *workspaceRepository) UpdateConfig(config *models.Config) (*models.Confi
 		Updates(updates)
 	if result.Error == nil {
 		jsonCols := map[string]any{
-			"task_views": config.TaskViews,
-			"appearance": config.Appearance,
+			"task_views":        config.TaskViews,
+			"mobile_task_views": config.MobileTaskViews,
+			"appearance":        config.Appearance,
 		}
 		if config.ProjectTaskViews != nil {
 			jsonCols["project_task_views"] = config.ProjectTaskViews

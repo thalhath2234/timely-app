@@ -51,6 +51,9 @@ import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
 import type { CalendarItem, Task } from "@/app/_types/types";
 import { entityTitleKey } from "@/app/utils/titleMorph";
+import TodaySuggestions from "@/app/_components/today/todaySuggestions";
+import HabitsGoals from "@/app/_components/today/habitsGoals";
+import ScreenTip from "@/app/_components/_ui/screenTip";
 
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
@@ -871,6 +874,8 @@ export default function TodayDashboard() {
             )
           ) : (
             <>
+              <HabitsGoals today={data.date} version={String(today.dataUpdatedAt)} />
+
               <section className="space-y-3">
                 <SectionHeading
                   icon={<Star className="size-3.5 fill-primary text-primary" />}
@@ -934,6 +939,14 @@ export default function TodayDashboard() {
                   </button>
                 </div>
               </section>
+
+              <ScreenTip screen="today" />
+
+              <TodaySuggestions
+                date={data.date}
+                slotsLeft={remainingSlots}
+                version={`${data.todayFocus.map((task) => task.id).join(",")}|${scheduled.map((item) => item.id).join(",")}`}
+              />
 
               <section className="space-y-3">
                 <SectionHeading

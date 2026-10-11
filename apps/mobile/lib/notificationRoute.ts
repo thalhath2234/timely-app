@@ -16,6 +16,8 @@ export function routeForNotification(data: Record<string, unknown>): string {
       ? dataString(data, "entityId")
       : null);
   if (chatId) return `/(app)/assistant?chatId=${encodeURIComponent(chatId)}`;
+  // A smart alert about waiting Inbox items opens the Inbox, not one item.
+  if (dataString(data, "category") === "suggestion" && dataString(data, "kind") === "inbox") return "/(app)/inbox";
   const taskId = dataString(data, "taskId");
   if (taskId) return `/(app)/tasks/${taskId}`;
 
@@ -38,6 +40,13 @@ export function routeForNotification(data: Record<string, unknown>): string {
   for (const [key, route] of entityRoutes) {
     const id = dataString(data, key);
     if (id) return route(id);
+  }
+
+  // A smart alert about several tasks opens the first one, as on the web.
+  if (dataString(data, "category") === "suggestion") {
+    const ids = data.taskIds;
+    const first = Array.isArray(ids) ? ids.find((id): id is string => typeof id === "string" && id !== "") : undefined;
+    if (first) return `/(app)/tasks/${first}`;
   }
 
   const category = dataString(data, "category") ?? dataString(data, "kind");

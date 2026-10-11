@@ -13,7 +13,7 @@ import {
   useUpdateSheetTemplate,
 } from "@/app/utils/hooks/sheets";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
-import { csvToGrid } from "@/app/utils/sheetCsv";
+import { importCsvGrid } from "@/app/utils/sheetCsv";
 import { formatSheetDate, sheetMetaLabel } from "@/app/utils/sheetWorkbook";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
@@ -92,7 +92,7 @@ export default function FilesHome() {
   // A .csv becomes a sheet; anything else is read as Markdown into a doc.
   const handleImport = async (file: File) => {
     if (/\.csv$/i.test(file.name) || file.type === "text/csv") {
-      const csv = csvToGrid(await file.text());
+      const csv = await importCsvGrid(await file.text());
       const title = file.name.replace(/\.csv$/i, "") || "Imported sheet";
       const sheet = await createSheet.mutateAsync({ title, ...csv });
       router.push(fileHref(sheet.id));

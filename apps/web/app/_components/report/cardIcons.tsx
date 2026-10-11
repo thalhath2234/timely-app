@@ -13,6 +13,7 @@ import {
   ListChecks,
   NotebookPen,
   Repeat,
+  Sparkles,
   Sun,
   Timer,
   Zap,
@@ -37,6 +38,7 @@ const ICONS: Record<BuiltinCardType, typeof Timer> = {
   inboxZero: Inbox,
   clock: AlarmClock,
   journal: BookOpen,
+  highlights: Sparkles,
 };
 
 export function BuiltinIcon({ type, className }: { type: BuiltinCardType; className?: string }) {

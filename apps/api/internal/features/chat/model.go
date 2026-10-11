@@ -67,6 +67,7 @@ type Conversation struct {
 	Phase          string            `json:"phase"`
 	WebSearch      bool              `json:"webSearch"`
 	Timezone       string            `json:"timezone"` // device IANA zone from the latest message
+	Client         string            `json:"client"`   // "phone" or "web": the app of the latest message
 	Language       string            `json:"language"` // see i18n.go; empty means English`
 	Provider       string            `json:"provider"`
 	Model          string            `json:"model"`

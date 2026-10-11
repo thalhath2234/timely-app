@@ -278,6 +278,30 @@ func DefaultTaskViews() TaskViews {
 	}
 }
 
+// DefaultMobileTaskViews are the phone's built-in views (the same ids and
+// layouts as defaultNativeTaskViews in apps/mobile/lib/nativeTaskViews.ts).
+// The phone shows list and board only.
+func DefaultMobileTaskViews() TaskViews {
+	view := func(id, name string) TaskViewConfig {
+		return TaskViewConfig{
+			ID: id, Name: name, DataMode: DataModeTask, RenderMode: RenderModeList,
+			GroupFields: []string{"workspace", "project", "stage"}, GroupSortDirection: SortDirectionAsc,
+			GroupValueOrders: map[string][]string{}, SortBy: SortByDeadline, SortDirection: SortDirectionAsc,
+			SelectedWorkspaceIds: []string{}, SelectedStatusIds: []string{}, SelectedProjectIds: []string{},
+			SelectedPriorityLevels: []string{}, SelectedLabelIds: []string{}, SelectedStageIds: []string{},
+			ShowCompleted: boolPtr(true), OnlyDated: boolPtr(false), ColumnOrder: []string{},
+		}
+	}
+	list := view("native_view_task_list", "Task List")
+	deadlines := view("native_view_my_deadlines", "My Deadlines")
+	deadlines.GroupFields, deadlines.ShowCompleted, deadlines.OnlyDated = []string{"priority"}, boolPtr(false), boolPtr(true)
+	overview := view("native_view_overview", "Overview")
+	overview.GroupFields, overview.SortBy, overview.SortDirection = []string{"workspace"}, SortByCreatedAt, SortDirectionDesc
+	board := view("native_view_board", "Board")
+	board.RenderMode, board.GroupFields = RenderModeKanban, []string{"status"}
+	return TaskViews{list, deadlines, overview, board}
+}
+
 // ---- Appearance (account-wide theme) ----
 
 const (
@@ -400,6 +424,11 @@ type Config struct {
 	CustomFields          []CustomField        `gorm:"-" json:"customFields,omitempty"`
 	CreatedAt             string               `json:"createdAt"`
 	UpdatedAt             string               `json:"updatedAt"`
+
+	// MobileTaskViews are the phone app's saved views, apart from the web and
+	// desktop ones. Empty until the phone uploads its device views once.
+	MobileTaskViews        TaskViews `gorm:"type:jsonb;not null;default:'[]'" json:"mobileTaskViews"`
+	MobileActiveTaskViewId string    `gorm:"type:text;not null;default:''" json:"mobileActiveTaskViewId"`
 }
 
 func (c *Config) BeforeCreate(tx *gorm.DB) error {

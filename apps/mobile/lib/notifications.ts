@@ -32,7 +32,8 @@ function easProjectId() {
 function notifications(): NotificationsModule | null {
   if (loaded !== undefined) return loaded;
   // Expo Go (SDK 53+) throws if the Android push module is touched.
-  if (Constants.appOwnership === "expo") {
+  // The web build has no device notifications, and most of the module throws there.
+  if (Constants.appOwnership === "expo" || Platform.OS === "web") {
     loaded = null;
     return null;
   }

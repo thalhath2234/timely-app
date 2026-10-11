@@ -1,3 +1,4 @@
+import type { ImportFormat } from "@timely/contract/importFormat";
 import { apiFetch } from "./client";
 
 /** Smart suggestions (Jev): which key is in use and whether it is on. */
@@ -7,7 +8,11 @@ export type DecisionsView = {
   provider?: "typesafe" | "openrouter";
   typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
   openrouterKeySet: boolean;
+  deepWorkTime: DeepWorkTime;
 };
+
+export type DeepWorkTime = "" | "morning" | "afternoon" | "evening";
+export type EffortKind = "deep" | "admin" | "creative" | "routine";
 
 /** One live call with the keys suggestions use, in the same order. */
 export type DecisionsTest = {
@@ -32,6 +37,9 @@ export type ClarifySuggestions = {
   labelIds?: string[];
   duration?: number;
   dateRole?: "deadline" | "start" | "reminder";
+  /** The date (YYYY-MM-DD) and time (HH:MM) code read from the words. */
+  date?: string;
+  time?: string;
   severalActions?: boolean;
   notReady?: boolean;
   missing?: "duration" | "place" | "date" | "scope";
@@ -64,6 +72,8 @@ async function request<T>(
 export const getDecisions = () => request<DecisionsView>("/agent/decisions");
 export const setDecisionsEnabled = (enabled: boolean) =>
   request<DecisionsView>("/agent/decisions", "PATCH", { enabled });
+export const setDecisionPrefs = (prefs: { deepWorkTime?: DeepWorkTime }) =>
+  request<DecisionsView>("/agent/decisions", "PATCH", prefs);
 /** Checks the key with one tiny call to TypeSafe, then saves it. */
 export const setTypeSafeKey = (key: string) =>
   request<DecisionsView>("/agent/decisions/key", "POST", { key });
@@ -73,7 +83,252 @@ export const testDecisions = () =>
   request<DecisionsTest>("/agent/decisions/test", "POST");
 export const sendDecisionFeedback = (logId: string, accepted: boolean) =>
   request<void>("/agent/decisions/feedback", "POST", { logId, accepted });
+/** The saved template a new sheet's title calls for, if any. */
+export type SheetTemplateSuggestion = {
+  available: boolean;
+  logId?: string;
+  templateId?: string;
+};
+/** One suggested type per imported column; null keeps the column as text. */
+export type ColumnTypeSuggestions = {
+  available: boolean;
+  logId?: string;
+  columns: ({ type: string; options?: string[] } | null)[];
+};
+export const getSheetTemplateSuggestion = (title: string) =>
+  request<SheetTemplateSuggestion>(
+    `/suggestions/sheet-template?title=${encodeURIComponent(title)}`,
+  );
+export const getColumnTypeSuggestions = (
+  columns: { name: string; values: string[] }[],
+) =>
+  request<ColumnTypeSuggestions>("/suggestions/column-types", "POST", {
+    columns,
+  });
+/** Whether a new entry in a text or select column fits that column. */
+export type CellFit = {
+  available: boolean;
+  logId?: string;
+  misfit: boolean;
+  hint?: string;
+};
+export type CellFitInput = {
+  column: string;
+  type: string;
+  value: string;
+  values: string[];
+  options?: string[];
+};
+export const getCellFit = (input: CellFitInput) =>
+  request<CellFit>("/suggestions/cell-fit", "POST", input);
 export const getClarifySuggestions = (inboxId: string) =>
   request<ClarifySuggestions>(
-    `/inbox/${encodeURIComponent(inboxId)}/suggestions`,
+    `/inbox/${encodeURIComponent(inboxId)}/suggestions?timezone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`,
   );
+
+/** What a task's own words suggest (Phase 5). Every field is optional. */
+export type TaskHints = {
+  available: boolean;
+  logId?: string;
+  statusId?: string;
+  stageId?: string;
+  fields?: { fieldId: string; type: string; optionIds?: string[]; value?: string }[];
+  blockedBy?: { id: string; name: string };
+  vagueOutcome?: boolean;
+  checklistGap?: boolean;
+  notDone?: boolean;
+  openChecklist?: number;
+  effortKind?: EffortKind;
+  /** A long task that reads like it needs one unbroken stretch. */
+  oneSitting?: boolean;
+  /** Deep-focus work with no preferred window, for the person's best time of day. */
+  preferredTime?: Exclude<DeepWorkTime, "">;
+  preferredWindow?: { start: string; end: string };
+};
+export const getTaskHints = (taskId: string) =>
+  request<TaskHints>(`/suggestions/task/${encodeURIComponent(taskId)}`);
+
+export type StaleVerdict = "actionable" | "clarify" | "blocked" | "obsolete";
+export type StaleWork = {
+  available: boolean;
+  logId?: string;
+  tasks: { id: string; name: string; idleDays: number; verdict?: StaleVerdict }[];
+};
+export const getStaleWork = () => request<StaleWork>("/suggestions/stale-work");
+/** Records a review that keeps the task, which restarts its idle days. */
+export const keepStaleTask = (taskId: string) =>
+  request<void>(`/suggestions/stale-work/${encodeURIComponent(taskId)}/keep`, "POST");
+
+export type ProjectInsights = {
+  available: boolean;
+  logId?: string;
+  facts: {
+    open: number;
+    done: number;
+    doneRecent: number;
+    overdue: number;
+    blocked: number;
+    idleDays: number;
+    daysLeft?: number;
+  };
+  health?: "progressing" | "stalled" | "blocked";
+  noBrief?: boolean;
+  noOutcome?: boolean;
+  noNextAction?: boolean;
+  uncovered?: string[];
+  misfiled?: { taskId: string; name: string; moveTo?: string; moveToTitle?: string; stageId?: string }[];
+  overlaps?: { id: string; title: string }[];
+};
+export const getProjectInsights = (projectId: string) =>
+  request<ProjectInsights>(`/suggestions/project/${encodeURIComponent(projectId)}`);
+
+export type ProjectStart = {
+  available: boolean;
+  logId?: string;
+  copyProjectId?: string;
+  copyTitle?: string;
+  docTemplateId?: string;
+  docTitle?: string;
+  sheetTemplateId?: string;
+  sheetTitle?: string;
+};
+export const getProjectStart = (title: string, workspaceId: string) =>
+  request<ProjectStart>(
+    `/suggestions/project-template?title=${encodeURIComponent(title)}&workspaceId=${encodeURIComponent(workspaceId)}`,
+  );
+
+export type CleanupItem = { id: string; name: string; uses: number };
+export type CleanupMerge = {
+  kind: "label" | "status" | "option";
+  fieldId?: string;
+  fieldName?: string;
+  from: CleanupItem;
+  into: CleanupItem;
+};
+export const getCleanupSuggestions = (workspaceId: string) =>
+  request<{ available: boolean; logId?: string; merges: CleanupMerge[] }>(
+    `/suggestions/workspace/${encodeURIComponent(workspaceId)}/cleanup`,
+  );
+
+export type MergeResult = { tasks: number; projects: number; views: number };
+/** Folds one label, status or select option into another everywhere it is used. */
+export const mergeTaxonomy = (workspaceId: string, merge: CleanupMerge) => {
+  const ws = encodeURIComponent(workspaceId);
+  if (merge.kind === "option")
+    return request<MergeResult>(
+      `/workspaces/${ws}/custom-field/${encodeURIComponent(merge.fieldId ?? "")}/options/merge`,
+      "POST",
+      { from: merge.from.id, into: merge.into.id },
+    );
+  const path = merge.kind === "label" ? "lable" : "status";
+  return request<MergeResult>(`/workspaces/${ws}/${path}/${encodeURIComponent(merge.from.id)}/merge`, "POST", {
+    into: merge.into.id,
+  });
+};
+
+/** Suggestions for one doc: where it belongs, lines that read like Work, its
+ * type and properties, a template for a near-empty doc, and whether it looks
+ * outdated. Every field is optional. */
+export type DocHints = {
+  available: boolean;
+  logId?: string;
+  project?: { id: string; title: string };
+  parent?: { id: string; title: string };
+  work?: string[];
+  docType?: string;
+  properties?: { key: string; value: string }[];
+  template?: { id: string; title: string };
+  outdated?: boolean;
+};
+
+export const getDocHints = (docId: string) => request<DocHints>(`/suggestions/doc/${encodeURIComponent(docId)}`);
+
+export type MentionTarget = { kind: "task" | "project" | "doc" | "sheet"; id: string; title: string };
+/** What a selected phrase may refer to: Jev's match when sure, and the
+ * closest items to pick from. */
+export type MentionMatch = { available: boolean; logId?: string; match?: MentionTarget; options: MentionTarget[] };
+
+export const matchMention = (text: string, docId?: string) =>
+  request<MentionMatch>("/suggestions/mention", "POST", { text, docId });
+
+export type { ImportLineKind } from "@timely/contract/importFormat";
+/** What each line of a plain-text import is, "paragraph" when unsure. */
+export const getImportFormat = (lines: string[]) => request<ImportFormat>("/suggestions/import-format", "POST", { lines });
+
+/** Today: focus picks, the best Work for the next free gap, and how the top
+ * open Work lines up with the person's goals. */
+export type TodaySuggestions = {
+  available: boolean;
+  logId?: string;
+  error?: string;
+  focus?: { taskId: string; name: string; reasons: string[]; goal?: string; effortKind?: EffortKind }[];
+  gap?: {
+    start: string;
+    end: string;
+    minutes: number;
+    task?: { id: string; name: string; minutes: number; effortKind?: EffortKind };
+  };
+  goals?: { goal: string; count: number }[];
+};
+export const getTodaySuggestions = (timezone: string) =>
+  request<TodaySuggestions>(`/suggestions/today?timezone=${encodeURIComponent(timezone)}`);
+
+/** Dashboard Highlights: facts worth a look, why Work is blocked or left
+ * unfinished, and tips the person's own data backs. */
+export type HighlightGroup = { key: string; label: string; count: number; tasks: { id: string; name: string }[] };
+export type Highlights = {
+  available: boolean;
+  logId?: string;
+  highlights: { id: string; text: string }[];
+  blockers: HighlightGroup[];
+  missed: HighlightGroup[];
+  tips: { key: string; text: string }[];
+};
+export const getHighlights = (facts: { id: string; text: string }[]) =>
+  request<Highlights>("/suggestions/highlights", "POST", { facts });
+
+export type AlertStep = "review" | "clarify" | "focus" | "reschedule";
+export type TriageStep = "reschedule" | "extend" | "addtime" | "move" | "lower" | AlertStep;
+/** Runs a missed or overdue notification's next step and marks it read. */
+export const runNotificationTriage = (notificationId: string, action: TriageStep) =>
+  request<{ message: string }>(`/notifications/${encodeURIComponent(notificationId)}/triage`, "POST", { action });
+
+// Personalisation (Phase 9).
+export type StarterUse = { key: string; label: string; workspace?: string };
+export type StarterLabel = { name: string; color: string };
+export type PersonalPrefs = { useCase: string; dismissedTips: string[] };
+
+export const getPersonalPrefs = () => request<{ prefs: PersonalPrefs; uses: StarterUse[] }>("/suggestions/prefs");
+export const savePersonalUseCase = (useCase: string) =>
+  request<{ prefs: PersonalPrefs }>("/suggestions/prefs", "PATCH", { useCase });
+/** The catalog's labels for the picked uses; code only, so it works before any key is saved. */
+export const getStarterPresets = (uses: string[]) =>
+  request<{ labels: StarterLabel[]; uses: StarterUse[] }>(`/suggestions/starter/presets?uses=${encodeURIComponent(uses.join(","))}`);
+export const getStarterLabels = (workspaceId: string) =>
+  request<{ available: boolean; logId?: string; labels: StarterLabel[] }>(`/suggestions/starter?workspaceId=${encodeURIComponent(workspaceId)}`);
+export const applyStarterLabels = (workspaceId: string, labels: StarterLabel[]) =>
+  request<{ created: { id: string; name: string; color: string }[]; skipped: string[] }>("/suggestions/starter/apply", "POST", { workspaceId, labels });
+
+export type TipScreen = "today" | "tasks" | "calendar" | "inbox";
+export type TipAction = "inbox" | "calendar" | "settings_schedule" | "settings_workspaces";
+export type ScreenTip = { key: string; text: string; action?: TipAction };
+export const getScreenTip = (screen: TipScreen, timezone: string) =>
+  request<{ available: boolean; logId?: string; tip: ScreenTip | null }>(
+    `/suggestions/tip?screen=${screen}&platform=web&timezone=${encodeURIComponent(timezone)}`,
+  );
+export const dismissScreenTip = (key: string, logId?: string) => request<void>("/suggestions/tips/dismiss", "POST", { key, logId });
+
+export type ChatPrompt = { key: string; title: string; text: string };
+export const getChatPrompts = (projectId: string | undefined, timezone: string) =>
+  request<{ available: boolean; logId?: string; project?: string; prompts: ChatPrompt[] }>("/suggestions/prompts", "POST", {
+    projectId: projectId ?? "",
+    timezone,
+  });
+
+export type LearnedFeature = { feature: string; kept: number; decided: number; raise: number };
+export const getLearned = () => request<{ features: LearnedFeature[] }>("/agent/decisions/learned");
+export const resetLearned = (feature: string) => request<void>("/agent/decisions/learned/reset", "POST", { feature });
+
+/** The work length smart suggestions would offer for a new title; offered, never set. */
+export const getEstimate = (name: string, description = "") =>
+  request<{ available: boolean; minutes?: number }>("/suggestions/estimate", "POST", { name, description });

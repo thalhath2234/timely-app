@@ -232,3 +232,39 @@ func TestScoreOverdueBeatsFocus(t *testing.T) {
 		t.Fatalf("overdue %d focus %d", overdue.Score, focus.Score)
 	}
 }
+
+func TestScoreUrgencyNudgesLessThanPriority(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	level := func(n int) *int { return &n }
+	critical := ScoreTask(ScoreInput{Priority: models.PriorityMedium, Now: now, Urgency: level(4)})
+	canWait := ScoreTask(ScoreInput{Priority: models.PriorityMedium, Now: now, Urgency: level(0)})
+	normal := ScoreTask(ScoreInput{Priority: models.PriorityMedium, Now: now, Urgency: level(2)})
+	unknown := ScoreTask(ScoreInput{Priority: models.PriorityMedium, Now: now})
+	if critical.Score != unknown.Score+12 || canWait.Score != unknown.Score-12 || normal.Score != unknown.Score {
+		t.Fatalf("critical %d can wait %d normal %d unknown %d", critical.Score, canWait.Score, normal.Score, unknown.Score)
+	}
+	if critical.Reasons[len(critical.Reasons)-1] != "sounds urgent" || canWait.Reasons[len(canWait.Reasons)-1] != "sounds like it can wait" {
+		t.Fatalf("reasons %v %v", critical.Reasons, canWait.Reasons)
+	}
+	high := ScoreTask(ScoreInput{Priority: models.PriorityHigh, Now: now, Urgency: level(0)})
+	if high.Score <= ScoreTask(ScoreInput{Priority: models.PriorityMedium, Now: now}).Score {
+		t.Fatalf("a priority step must still lead: high %d", high.Score)
+	}
+}
+
+func TestOrderKeepsCloseGroupMembersTogether(t *testing.T) {
+	cand := func(id string, score int, group string) Candidate {
+		return Candidate{ID: id, GroupKey: group, Rank: Rank{Score: score}, CreatedAt: id}
+	}
+	got := order([]Candidate{
+		cand("a", 50, "g"), cand("b", 48, ""), cand("c", 45, "g"), cand("d", 30, "g"), cand("e", 44, ""),
+	}, map[string]*Candidate{})
+	ids := ""
+	for _, c := range got {
+		ids += c.ID
+	}
+	// c is within 10 of a and moves up next to it; d is 20 below and stays.
+	if ids != "acbed" {
+		t.Fatalf("order %s", ids)
+	}
+}

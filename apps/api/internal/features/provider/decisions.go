@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -58,7 +59,13 @@ type decisionsView struct {
 		Rejected bool   `json:"rejected"`
 	} `json:"typesafe"`
 	OpenRouterKeySet bool `json:"openrouterKeySet"`
+	// DeepWorkTime is kept while suggestions are off. Goals live on Today
+	// (features/focus) and are no longer part of these settings.
+	DeepWorkTime string `json:"deepWorkTime"`
 }
+
+// DeepWorkTimes are the times of day the person may prefer for deep work.
+var DeepWorkTimes = []string{"", "morning", "afternoon", "evening"}
 
 func (s *Service) decisionsView(ctx context.Context, userID string) (decisionsView, error) {
 	var out decisionsView
@@ -75,6 +82,7 @@ func (s *Service) decisionsView(ctx context.Context, userID string) (decisionsVi
 	out.TypeSafe.KeyHint = api.KeyHint
 	out.TypeSafe.Rejected = out.TypeSafe.KeySet && row.TypeSafeRejected
 	out.OpenRouterKeySet = row.OpenRouterKey != ""
+	out.DeepWorkTime = row.DeepWorkTime
 	if out.Enabled {
 		switch {
 		case out.TypeSafe.KeySet && !row.TypeSafeRejected:
@@ -96,13 +104,22 @@ func (s *Service) decisionsOverview(c *echo.Context) error {
 
 func (s *Service) configureDecisions(c *echo.Context) error {
 	var in struct {
-		Enabled *bool `json:"enabled"`
+		Enabled      *bool   `json:"enabled"`
+		DeepWorkTime *string `json:"deepWorkTime"`
 	}
-	if err := c.Bind(&in); err != nil || in.Enabled == nil {
+	if err := c.Bind(&in); err != nil || (in.Enabled == nil && in.DeepWorkTime == nil) {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
+	if in.DeepWorkTime != nil && !slices.Contains(DeepWorkTimes, *in.DeepWorkTime) {
+		return echo.NewHTTPError(400, "Invalid time of day")
+	}
 	if _, err := s.update(user(c), func(row *Settings) error {
-		row.DecisionsOff = !*in.Enabled
+		if in.Enabled != nil {
+			row.DecisionsOff = !*in.Enabled
+		}
+		if in.DeepWorkTime != nil {
+			row.DeepWorkTime = *in.DeepWorkTime
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -207,6 +224,30 @@ func (s *Service) decisionFeedback(c *echo.Context) error {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
 	if err := s.decisions.Feedback(user(c), in.LogID, in.Accepted); err != nil {
+		return err
+	}
+	return c.NoContent(204)
+}
+
+// decisionsLearned lists how often the person kept each feature's
+// suggestions and which ones now ask for more certainty [96].
+func (s *Service) decisionsLearned(c *echo.Context) error {
+	out, err := s.decisions.LearnedFor(user(c))
+	if err != nil {
+		return err
+	}
+	return c.JSON(200, map[string]any{"features": out})
+}
+
+// resetLearned forgets the person's answers for one feature.
+func (s *Service) resetLearned(c *echo.Context) error {
+	var in struct {
+		Feature string `json:"feature"`
+	}
+	if err := c.Bind(&in); err != nil || in.Feature == "" || len(in.Feature) > 60 {
+		return echo.NewHTTPError(400, "Invalid request")
+	}
+	if err := s.decisions.ResetLearned(user(c), in.Feature); err != nil {
 		return err
 	}
 	return c.NoContent(204)

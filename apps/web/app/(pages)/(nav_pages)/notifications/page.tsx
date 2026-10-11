@@ -1,12 +1,13 @@
 "use client";
 
-import { Bell } from "lucide-react";
+import { Bell, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import {
   useClearNotifications,
+  useDeleteNotification,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotifications,
@@ -16,6 +17,9 @@ import type { AppNotification } from "@/app/_types/types";
 import { motion } from "motion/react";
 import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 import { fileHref } from "@/app/utils/fileRoutes";
+import { useDecisions, useNotificationTriage } from "@/app/utils/hooks/decisions";
+import type { AlertStep, TriageStep } from "@/app/utils/api/decisions";
+import { useToastStore } from "@/app/_store/toastStore";
 
 type NotificationTarget =
   | { kind: "task"; id: string }
@@ -45,7 +49,57 @@ function targetFor(item: AppNotification): NotificationTarget {
   if (fileId) return { kind: "route", href: fileHref(fileId) };
   if (dataString(item, "eventId")) return { kind: "route", href: "/calendar" };
   if (item.category === "digest") return { kind: "route", href: "/dashboard" };
+  if (item.category === "suggestion" && dataString(item, "kind") === "inbox") return { kind: "route", href: "/inbox" };
+  if (item.category === "suggestion") {
+    const first = alertItems(item)[0];
+    if (first) return { kind: "task", id: first.id };
+  }
   return { kind: "route", href: "/today" };
+}
+
+/** Next steps for Work that is past its deadline or whose block ended unfinished.
+ * Smart suggestions may mark one as suggested ([35][36]). */
+const TRIAGE_STEPS: Record<string, { step: TriageStep; label: string }[]> = {
+  overdue: [
+    { step: "reschedule", label: "Reschedule urgently" },
+    { step: "extend", label: "Deadline +1 week" },
+    { step: "lower", label: "Lower priority" },
+  ],
+  missed: [
+    { step: "addtime", label: "Add time" },
+    { step: "move", label: "Move to next free time" },
+    { step: "lower", label: "Lower priority" },
+  ],
+};
+
+/** The steps a notification offers. They come with smart suggestions, so
+ * without them there are none. A repeating task's missed block only offers
+ * Lower priority: adding time or moving would change every occurrence. */
+function triageSteps(item: AppNotification, smart: boolean) {
+  const steps = smart ? (TRIAGE_STEPS[item.category] ?? []) : [];
+  return item.category === "missed" && item.data?.recurring === true ? steps.filter(({ step }) => step === "lower") : steps;
+}
+
+/** A smart alert's button: what the suggested step is called. */
+const ALERT_STEP_LABEL: Record<AlertStep, string> = {
+  review: "Review",
+  clarify: "Clarify",
+  focus: "Add to Focus",
+  reschedule: "Find time",
+};
+
+function alertItems(item: AppNotification): { id: string; name: string }[] {
+  const raw = item.data?.items;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (entry): entry is { id: string; name: string } =>
+      Boolean(entry) && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string" && typeof (entry as { name?: unknown }).name === "string",
+  );
+}
+
+function alertStep(item: AppNotification): AlertStep | null {
+  const step = dataString(item, "action");
+  return step && step in ALERT_STEP_LABEL ? (step as AlertStep) : null;
 }
 
 function tomorrowNine() {
@@ -58,9 +112,12 @@ function tomorrowNine() {
 export default function NotificationsPage() {
   const router = useRouter();
   const list = useNotifications();
+  const triage = useNotificationTriage();
+  const smart = useDecisions().data?.available === true;
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const clearAll = useClearNotifications();
+  const remove = useDeleteNotification();
   const snooze = useSnoozeNotification();
   const openTask = useEntityDetailStore((state) => state.openTask);
   const items = list.data ?? [];
@@ -120,6 +177,7 @@ export default function NotificationsPage() {
             {items.map((item) => {
               const target = targetFor(item);
               const unread = !item.readAt;
+              const steps = unread ? triageSteps(item, smart) : [];
               return (
                 <motion.li
                   key={item.id}
@@ -145,15 +203,31 @@ export default function NotificationsPage() {
                         {item.category} · {new Date(item.createdAt).toLocaleString()}
                       </p>
                     </button>
-                    {unread ? (
+                    <div className="flex shrink-0 items-center gap-2">
+                      {unread ? (
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => void markRead.mutateAsync(item.id)}
+                        >
+                          Mark read
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
-                        onClick={() => void markRead.mutateAsync(item.id)}
+                        aria-label="Dismiss"
+                        title="Dismiss"
+                        disabled={remove.isPending}
+                        className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                        onClick={() =>
+                          void remove.mutateAsync(item.id).catch((error) => {
+                            useToastStore.getState().show(error instanceof Error ? error.message : "Could not dismiss that");
+                          })
+                        }
                       >
-                        Mark read
+                        <X className="size-3.5" />
                       </button>
-                    ) : null}
+                    </div>
                   </div>
                   {item.category === "reminder" ? (
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -180,6 +254,50 @@ export default function NotificationsPage() {
                       </button>
                     </div>
                   ) : null}
+                  {item.category === "suggestion" ? (
+                    <SmartAlert
+                      item={item}
+                      unread={unread}
+                      pending={triage.isPending}
+                      onOpenTask={openTask}
+                      onRoute={(href) => router.push(href)}
+                      onStep={(step) =>
+                        triage
+                          .mutateAsync({ id: item.id, action: step })
+                          .then((res) => {
+                            if (res.message) useToastStore.getState().show(res.message);
+                          })
+                          .catch((error) => {
+                          useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that");
+                        })
+                      }
+                    />
+                  ) : null}
+                  {steps.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-2" data-testid="triage-steps">
+                      {steps.map(({ step, label }) => {
+                        const suggested = dataString(item, "suggest") === step;
+                        return (
+                          <button
+                            key={step}
+                            type="button"
+                            disabled={triage.isPending}
+                            title={suggested ? "Suggested for this task" : undefined}
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs disabled:opacity-50 ${suggested ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15" : "border-border bg-muted hover:border-primary/30"}`}
+                            onClick={() =>
+                              void triage
+                                .mutateAsync({ id: item.id, action: step })
+                                .then((res) => useToastStore.getState().show(res.message))
+                                .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
+                            }
+                          >
+                            {suggested ? <Sparkles className="size-3" /> : null}
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                   {snooze.isError ? (
                     <p className="mt-2 text-xs text-destructive">
                       {snooze.error instanceof Error ? snooze.error.message : "Could not snooze."}
@@ -191,6 +309,67 @@ export default function NotificationsPage() {
           </motion.ul>
         )}
       </div>
+    </div>
+  );
+}
+
+/** A smart alert: the Work it names and its suggested step. Review and
+ * Clarify open the Work; Focus and Find time run on the server. */
+function SmartAlert({
+  item,
+  unread,
+  pending,
+  onOpenTask,
+  onRoute,
+  onStep,
+}: {
+  item: AppNotification;
+  unread: boolean;
+  pending: boolean;
+  onOpenTask: (id: string) => void;
+  onRoute: (href: string) => void;
+  onStep: (step: AlertStep) => Promise<void>;
+}) {
+  const items = alertItems(item);
+  const step = alertStep(item);
+  const inbox = dataString(item, "kind") === "inbox";
+  const projectId = dataString(item, "projectId");
+  const open = (id: string) => (inbox ? onRoute("/inbox") : onOpenTask(id));
+  return (
+    <div className="mt-2 space-y-2" data-testid="smart-alert">
+      {items.length > 1 ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {items.map((entry) => (
+            <li key={entry.id}>
+              <button
+                type="button"
+                onClick={() => open(entry.id)}
+                className="max-w-[16rem] truncate rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {entry.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {unread && step ? (
+        <button
+          type="button"
+          disabled={pending}
+          title="Suggested next step"
+          className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/15 disabled:opacity-50"
+          onClick={() => {
+            if (step === "review" || step === "clarify") {
+              if (projectId) onRoute(`/projects/${projectId}`);
+              else if (items[0]) open(items[0].id);
+            }
+            void onStep(step);
+          }}
+        >
+          <Sparkles className="size-3" />
+          {ALERT_STEP_LABEL[step]}
+        </button>
+      ) : null}
     </div>
   );
 }

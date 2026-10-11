@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -30,6 +31,22 @@ type Decider interface {
 // SetDecisions turns on Jev triage and proposal checks for runs.
 func (s *Service) SetDecisions(d Decider) { s.decisions = d }
 
+// jevOn reports whether Jev can answer for the account, so work done only to
+// ask it (reading sheets) is skipped when it is off. A Decider without
+// Status (a test fake) counts as on.
+func (s *Service) jevOn(ctx context.Context, userID string) bool {
+	if s.decisions == nil {
+		return false
+	}
+	if st, ok := s.decisions.(interface {
+		Status(context.Context, string) (bool, string)
+	}); ok {
+		on, _ := st.Status(ctx, userID)
+		return on
+	}
+	return true
+}
+
 const (
 	// The run waits for triage before its first model call, so it is short;
 	// on timeout the run continues exactly as it would without Jev.
@@ -50,11 +67,11 @@ type ChatRef struct {
 var (
 	essentialTools = []string{"get_context", "search", "semantic_search", "get_task", "get_project", "get_workspace", "list_workspaces", "list_projects"}
 	areaTools      = map[string][]string{
-		"tasks":         {"list_tasks", "list_inbox", "get_today", "what_next", "get_agenda", "get_calendar", "get_free_time"},
+		"tasks":         {"list_tasks", "pick_tasks", "list_inbox", "get_today", "what_next", "get_agenda", "get_calendar", "get_free_time", "list_habits", "list_goals", "list_task_views"},
 		"calendar":      {"get_calendar", "list_events", "get_event", "get_free_time", "get_capacity", "get_agenda", "get_today", "get_working_hours", "get_schedule_settings", "auto_schedule_preview", "undo_schedule_preview", "list_tasks"},
 		"docs":          {"list_docs", "get_doc"},
 		"sheets":        {"list_sheets", "get_sheet", "list_sheet_templates", "get_sheet_template"},
-		"projects":      {"list_tasks", "list_docs", "list_sheets"},
+		"projects":      {"list_tasks", "pick_tasks", "list_docs", "list_sheets", "list_task_views"},
 		"notifications": {"list_notifications", "unread_notification_count", "get_notification_settings", "list_tasks"},
 	}
 	latinLanguages = []decide.Option{
@@ -72,6 +89,7 @@ type triage struct {
 	web      bool   // needs public information from the web
 	unclear  bool   // too ambiguous to act on without asking first
 	scope    string // one, future or all occurrences of a repeating item
+	meeting  string // prepare, add or remind, for a message about a meeting
 	language string
 	similar  *ChatRef
 }
@@ -156,6 +174,11 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 			decide.Option{Name: "one", Description: "Only one occurrence."},
 			decide.Option{Name: "future", Description: "This occurrence and the ones after it."},
 			decide.Option{Name: "all", Description: "Every occurrence, past ones included."}),
+		"meeting": decide.Choice("If the message is about a meeting, appointment or other event, what does the person want done about it?",
+			decide.Option{Name: "none", Description: "It is not about an event, or it does not say."},
+			decide.Option{Name: "prepare", Description: "Block time before it to prepare."},
+			decide.Option{Name: "add", Description: "Put the event itself on the calendar."},
+			decide.Option{Name: "remind", Description: "Be reminded shortly before it."}),
 	}
 	// Scripts other than Latin are recognised without Jev (detectLanguage).
 	if detectLanguage(latest) == "latin" {
@@ -165,14 +188,14 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 	if len(c.Messages) == 1 {
 		similar = s.recentChats(ctx, c)
 		if len(similar) > 0 {
-			opts := []decide.Option{{Name: "none", Description: "None of these chats is about the same request."}}
+			opts := []decide.Option{{Name: "none", Description: "None of these chats asks for the same thing about the same item."}}
 			for name := range similar {
 				opts = append(opts, decide.Option{Name: name})
 			}
-			questions["similar"] = decide.Choice("The person already has these chats with the assistant. Which one, if any, is about the same request as this message, so it could be continued there?", opts...).Twice()
+			questions["similar"] = decide.Choice("The person already has these chats with the assistant. Which one, if any, asks for the same thing about the same item as this message (not just the same kind of action, or another item in the same project), so it could be continued there?", opts...).Twice()
 			// With near-duplicate earlier chats the two option orders can pick
 			// different ones; a confident "there is a match" keeps the first pick.
-			questions["hasSimilar"] = decide.YesNo("Is one of the person's earlier chats about the same request as this message, so it could be continued there?",
+			questions["hasSimilar"] = decide.YesNo("Does one of the person's earlier chats ask for the same thing about the same item as this message (not just the same kind of action), so it could be continued there?",
 				"Yes, an earlier chat is about the same request", "No, this is a new request")
 		}
 	}
@@ -195,6 +218,9 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 	}
 	if scope, ok := a.Choice("scope", decide.Route); ok && scope != "none" {
 		t.scope = scope
+	}
+	if meeting, ok := a.Choice("meeting", decide.Route); ok && meeting != "none" {
+		t.meeting = meeting
 	}
 	if lang, ok := a.Choice("language", decide.Route); ok {
 		t.language = supportedLanguage(lang)
@@ -262,6 +288,14 @@ func (t triage) hint(webSearch bool) string {
 	case "all":
 		parts = append(parts, "if it changes a repeating item, the person most likely means the whole series")
 	}
+	switch t.meeting {
+	case "prepare":
+		parts = append(parts, "about an event, the person most likely wants time blocked before it to prepare (a task with a time block), not the event added again")
+	case "add":
+		parts = append(parts, "about an event, the person most likely wants the event itself added to the calendar")
+	case "remind":
+		parts = append(parts, "about an event, the person most likely wants a reminder shortly before it, not a time block")
+	}
 	if len(parts) == 0 {
 		return ""
 	}
@@ -305,6 +339,12 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 	}
 	listed := make([]map[string]string, len(steps))
 	questions := map[string]decide.Question{}
+	changes := map[int]string{}
+	drafts := map[int]docDraft{}
+	if s.jevOn(ctx, c.UserID) {
+		changes = s.sheetChanges(ctx, c.UserID, steps)
+		drafts = s.docDrafts(ctx, c.UserID, steps)
+	}
 	if p.Remaining == "" && !continuing(c) {
 		questions["missing"] = decide.YesNo("Did the person ask for something that none of the proposed changes does?",
 			"Something the person asked for is not covered by any change.", "The changes cover everything the person asked for.")
@@ -313,11 +353,27 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 		listed[i] = map[string]string{"number": fmt.Sprint(i + 1), "change": clip(step.Summary, 300)}
 		questions[fmt.Sprintf("asked%d", i+1)] = decide.YesNo(fmt.Sprintf("Did the person ask for change number %d, directly or as a necessary part of what they asked?", i+1),
 			"The person asked for it, or it is needed to do what they asked.", "The person did not ask for it.")
+		if d, ok := drafts[i]; ok {
+			listed[i]["docText"] = d.draft
+			questions[fmt.Sprintf("draft%d", i+1)] = decide.YesNo(fmt.Sprintf("Does the docText of change number %d leave out something the person asked the doc to contain, or break an instruction they gave about it (length, format, sections, tone, language)?", i+1),
+				"Yes: something asked for is missing, or an instruction is not followed.", "No: it covers what was asked and follows the instructions.")
+			if d.existing != "" {
+				listed[i]["docNow"] = d.existing
+				questions[fmt.Sprintf("contra%d", i+1)] = decide.YesNo(fmt.Sprintf("Does the docText of change number %d state something that contradicts what docNow already says, in a part the person did not ask to change?", i+1),
+					"Yes: it contradicts something the doc already says.", "No: nothing it says conflicts with the rest of the doc.")
+			}
+		}
+		if text := changes[i]; text != "" {
+			listed[i]["sheetChanges"] = text
+			questions[fmt.Sprintf("sheet%d", i+1)] = decide.YesNo(fmt.Sprintf("Does change number %d remove or alter anything in the sheet (a column, rows or values) that the person did not ask to remove or alter?", i+1),
+				"Yes: its sheetChanges remove or alter something the person did not ask about.", "No: every listed column and row change is something the person asked for.")
+		}
 	}
 	state := map[string]any{"request": latest, "changes": listed}
 	if earlier != "" {
 		state["previousMessage"] = earlier
 	}
+	fitReview(state, listed, questions, decide.MaxStateBytes)
 	a, err := s.decisions.Ask(ctx, c.UserID, decide.Request{Feature: "chat_review", State: state, Questions: questions})
 	if err != nil {
 		return nil
@@ -326,12 +382,70 @@ func (s *Service) reviewNotes(ctx context.Context, c *Conversation, p proposal) 
 	for i, step := range steps {
 		if yes, ok := a.Yes(fmt.Sprintf("asked%d", i+1), decide.Route); ok && !yes {
 			notes = append(notes, tr(c.Language, txtNoteNotAsked)+" "+clip(step.Summary, 200))
+			continue
+		}
+		if yes, ok := a.Yes(fmt.Sprintf("sheet%d", i+1), decide.Route); ok && yes {
+			notes = append(notes, tr(c.Language, txtNoteSheetChange)+" "+changes[i])
+		}
+		if yes, ok := a.Yes(fmt.Sprintf("draft%d", i+1), decide.Route); ok && yes {
+			notes = append(notes, tr(c.Language, txtNoteDraftMisses)+" "+clip(step.Summary, 200))
+		}
+		if yes, ok := a.Yes(fmt.Sprintf("contra%d", i+1), decide.Route); ok && yes {
+			notes = append(notes, tr(c.Language, txtNoteContradiction)+" "+clip(step.Summary, 200))
 		}
 	}
 	if yes, ok := a.Yes("missing", decide.Route); ok && yes {
 		notes = append(notes, tr(c.Language, txtNoteMissing))
 	}
 	return notes
+}
+
+// fitReview trims a review's state until it fits Jev's limit, which a large
+// proposal can pass (30 steps, doc drafts, and CJK text at three bytes a
+// character): over the limit the whole check would be dropped. Doc draft
+// checks go first, from the last step back, then long texts are cut on
+// character boundaries, the steps' texts before the request's.
+func fitReview(state map[string]any, listed []map[string]string, questions map[string]decide.Question, limit int) {
+	fits := func() bool {
+		b, err := json.Marshal(state)
+		return err == nil && len(b) <= limit
+	}
+	if fits() {
+		return
+	}
+	for i := len(listed) - 1; i >= 0; i-- {
+		if _, ok := listed[i]["docText"]; !ok {
+			continue
+		}
+		delete(listed[i], "docText")
+		delete(listed[i], "docNow")
+		delete(questions, fmt.Sprintf("draft%d", i+1))
+		delete(questions, fmt.Sprintf("contra%d", i+1))
+		if fits() {
+			return
+		}
+	}
+	for _, n := range []int{150, 80, 40} {
+		for _, step := range listed {
+			for k, v := range step {
+				if k != "number" {
+					step[k] = clip(v, n)
+				}
+			}
+		}
+		if fits() {
+			return
+		}
+	}
+	for _, n := range []int{2000, 1000, 500} {
+		state["request"] = clip(state["request"].(string), n)
+		if earlier, ok := state["previousMessage"].(string); ok {
+			state["previousMessage"] = clip(earlier, n/4)
+		}
+		if fits() {
+			return
+		}
+	}
 }
 
 // continuing reports whether the run is a later batch of the person's latest
@@ -420,6 +534,16 @@ func (s *Service) similar(c *echo.Context) error {
 		}
 		if row.Timezone != "" {
 			target.Timezone = row.Timezone
+		}
+		// The request was written with this chat's web search switch and
+		// model; it runs with them there too.
+		target.WebSearch = row.WebSearch
+		// Its view tools act on the app that sent it (phone or web views).
+		if row.Client != "" {
+			target.Client = row.Client
+		}
+		if row.ChosenProvider != "" {
+			target.ChosenProvider, target.ChosenModel = row.ChosenProvider, row.ChosenModel
 		}
 		target.Status, target.Phase = "queued", "plan"
 		target.Error, target.Unread = "", false

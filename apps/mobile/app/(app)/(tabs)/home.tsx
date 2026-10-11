@@ -3,6 +3,7 @@ import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   ChevronRight,
@@ -35,6 +36,9 @@ import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { taskEntityColor } from "../../../lib/entityColor";
 import TimelyLogo from "../../../components/ui/TimelyLogo";
+import TodaySuggestionsCard from "../../../components/tasks/TodaySuggestionsCard";
+import HabitsGoalsCard from "../../../components/tasks/HabitsGoalsCard";
+import ScreenTip from "../../../components/ui/ScreenTip";
 
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
@@ -120,6 +124,7 @@ function formatClock(iso: string) {
 export default function HomeScreen() {
   const router = useRouter();
   const today = useTodayQuery();
+  const queryClient = useQueryClient();
   const tasks = useTasksQuery();
   const startFocus = useStartFocus();
   const pauseFocus = usePauseFocus();
@@ -243,7 +248,10 @@ export default function HomeScreen() {
         refreshControl={
           <RefreshControl
             refreshing={today.isRefetching && !today.isPending}
-            onRefresh={() => void today.refetch()}
+            onRefresh={() => {
+              void today.refetch();
+              for (const key of ["habits", "goals", "goal-progress"]) void queryClient.invalidateQueries({ queryKey: [key] });
+            }}
             tintColor={colors.primary}
           />
         }
@@ -258,6 +266,8 @@ export default function HomeScreen() {
           <EmptyState icon={Sun} title="Couldn't load today" description="Pull to retry." />
         ) : (
           <>
+            <HabitsGoalsCard today={data.date} version={String(today.dataUpdatedAt)} onOpenTask={openTask} />
+
             <AnimatedPressable onPress={() => router.push("/(app)/inbox")} style={styles.inboxCard}>
               <View style={styles.inboxIcon}>
                 <Inbox size={21} color={colors.primary} strokeWidth={1.8} />
@@ -348,6 +358,15 @@ export default function HomeScreen() {
               </AnimatedPressable>
             ) : null}
 
+            <ScreenTip screen="today" style={{ marginBottom: 8 }} />
+
+            <TodaySuggestionsCard
+              date={data.date}
+              slotsLeft={remainingSlots}
+              onOpenTask={openTask}
+              version={`${data.todayFocus.map((task) => task.id).join(",")}|${scheduled.map((item) => item.id).join(",")}`}
+            />
+
             <View style={styles.sectionHead}>
               <View style={styles.sectionTitleRow}>
                 <Text style={styles.sectionHeading}>Scheduled</Text>
@@ -434,7 +453,7 @@ export default function HomeScreen() {
 
             <Text style={[styles.sectionHeading, styles.endOfDayHeading]}>End of day</Text>
             {data.unfinished.length === 0 ? (
-              <Text style={styles.meta}>All of today’s focus is done.</Text>
+              <Text style={styles.meta}>{focusCount === 0 ? "Nothing in today’s focus yet." : "All of today’s focus is done."}</Text>
             ) : (
               <>
                 <Text style={styles.meta}>

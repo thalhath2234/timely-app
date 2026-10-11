@@ -1,6 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppState } from "react-native";
+import { useQueryClient } from "@tanstack/react-query";
 import * as FileSystem from "expo-file-system/legacy";
 import { useAuth } from "./auth/AuthProvider";
+import { ApiError } from "./api/client";
+import { getConfig, updateConfig } from "./api/workspaces";
+import { keys, useConfigQuery } from "./hooks";
+import {
+  adoptDeviceViews,
+  capForServer,
+  defaultNativeTaskViews,
+  MAX_VIEWS,
+  NATIVE_VIEW_TEMPLATE,
+  normalizeViews,
+  rebaseViews,
+  resolveActiveId,
+  sameViews,
+  withExtra,
+  type Snapshot,
+} from "./nativeTaskViewsMerge";
+import { useToastStore } from "./toast";
 import type {
   CustomField,
   Task,
@@ -10,68 +29,26 @@ import type {
   TaskViewConfig,
 } from "./types";
 
-const EMPTY: string[] = [];
+export { NATIVE_VIEW_TEMPLATE, defaultNativeTaskViews } from "./nativeTaskViewsMerge";
 
-export const NATIVE_VIEW_TEMPLATE: Omit<TaskViewConfig, "id" | "name"> = {
-  dataMode: "task",
-  renderMode: "list",
-  groupFields: ["workspace", "project", "stage"],
-  groupSortDirection: "asc",
-  groupValueOrders: {},
-  sortBy: "deadline",
-  sortDirection: "asc",
-  selectedWorkspaceIds: [],
-  selectedStatusIds: [],
-  selectedProjectIds: [],
-  selectedPriorityLevels: [],
-  selectedLabelIds: [],
-  selectedStageIds: [],
-  showCompleted: true,
-  onlyOverdue: false,
-  onlyScheduled: false,
-  onlyRecurring: false,
-  onlyDated: false,
-  showReminders: false,
-  columnOrder: [],
+const NO_VIEWS: TaskViewConfig[] = [];
+
+/**
+ * The device copy of the phone's views. The server keeps them
+ * (config.mobileTaskViews); this file is the offline cache. `synced` is false
+ * only in files written before the server kept them, and `dirty` marks a
+ * change the server has not taken yet, with `base` the server list it was
+ * made on. `extra` holds views past the server's limit, kept only here.
+ */
+type StoredNativeViews = Snapshot & {
+  synced?: boolean;
+  dirty?: boolean;
+  base?: TaskViewConfig[];
+  extra?: TaskViewConfig[];
 };
 
-export function defaultNativeTaskViews(): TaskViewConfig[] {
-  return [
-    {
-      ...NATIVE_VIEW_TEMPLATE,
-      id: "native_view_task_list",
-      name: "Task List",
-    },
-    {
-      ...NATIVE_VIEW_TEMPLATE,
-      id: "native_view_my_deadlines",
-      name: "My Deadlines",
-      groupFields: ["priority"],
-      showCompleted: false,
-      onlyDated: true,
-    },
-    {
-      ...NATIVE_VIEW_TEMPLATE,
-      id: "native_view_overview",
-      name: "Overview",
-      groupFields: ["workspace"],
-      sortBy: "createdAt",
-      sortDirection: "desc",
-    },
-    {
-      ...NATIVE_VIEW_TEMPLATE,
-      id: "native_view_board",
-      name: "Board",
-      renderMode: "kanban",
-      groupFields: ["status"],
-    },
-  ];
-}
-
-type StoredNativeViews = {
-  views: TaskViewConfig[];
-  activeId: string;
-};
+/** An unsent change and the server list it was made on. */
+type Draft = { snapshot: Snapshot; base: TaskViewConfig[] };
 
 function fileUri(userId: string) {
   const root = FileSystem.documentDirectory;
@@ -79,56 +56,33 @@ function fileUri(userId: string) {
   return `${root}native-task-views-${userId}.json`;
 }
 
-function resolveActiveId(views: TaskViewConfig[], preferred?: string) {
-  if (preferred && views.some((view) => view.id === preferred)) return preferred;
-  return views[0]?.id ?? "";
-}
-
-function normalizeView(raw: Partial<TaskViewConfig> | null | undefined, fallbackId: string): TaskViewConfig {
-  return {
-    ...NATIVE_VIEW_TEMPLATE,
-    ...raw,
-    id: typeof raw?.id === "string" && raw.id ? raw.id : fallbackId,
-    name: typeof raw?.name === "string" && raw.name.trim() ? raw.name.trim() : "View",
-    groupFields: Array.isArray(raw?.groupFields) ? raw.groupFields.slice(0, 3) : NATIVE_VIEW_TEMPLATE.groupFields,
-    groupValueOrders: raw?.groupValueOrders && typeof raw.groupValueOrders === "object" ? raw.groupValueOrders : {},
-    selectedWorkspaceIds: raw?.selectedWorkspaceIds ?? EMPTY,
-    selectedStatusIds: raw?.selectedStatusIds ?? EMPTY,
-    selectedProjectIds: raw?.selectedProjectIds ?? EMPTY,
-    selectedPriorityLevels: raw?.selectedPriorityLevels ?? EMPTY,
-    selectedLabelIds: raw?.selectedLabelIds ?? EMPTY,
-    selectedStageIds: raw?.selectedStageIds ?? EMPTY,
-    columnOrder: raw?.columnOrder ?? EMPTY,
-  };
-}
-
 function parseStored(raw: string): StoredNativeViews | null {
   try {
     const parsed = JSON.parse(raw) as Partial<StoredNativeViews>;
-    const views = (Array.isArray(parsed.views) ? parsed.views : [])
-      .map((view, index) => normalizeView(view, `native_view_${index + 1}`))
-      .filter((view) => view.id);
+    const views = normalizeViews(parsed.views);
     if (views.length === 0) return null;
-    return { views, activeId: resolveActiveId(views, parsed.activeId) };
+    return {
+      views,
+      activeId: resolveActiveId(views, parsed.activeId),
+      synced: parsed.synced === true,
+      dirty: parsed.dirty === true,
+      base: Array.isArray(parsed.base) ? normalizeViews(parsed.base) : undefined,
+      extra: normalizeViews(parsed.extra),
+    };
   } catch {
     return null;
   }
 }
 
-async function loadStored(userId: string): Promise<StoredNativeViews> {
-  const fallback: StoredNativeViews = {
-    views: defaultNativeTaskViews(),
-    activeId: "native_view_task_list",
-  };
+async function loadStored(userId: string): Promise<StoredNativeViews | null> {
   const uri = fileUri(userId);
-  if (!uri) return fallback;
+  if (!uri) return null;
   try {
     const info = await FileSystem.getInfoAsync(uri);
-    if (!info.exists) return fallback;
-    const parsed = parseStored(await FileSystem.readAsStringAsync(uri));
-    return parsed ?? fallback;
+    if (!info.exists) return null;
+    return parseStored(await FileSystem.readAsStringAsync(uri));
   } catch {
-    return fallback;
+    return null;
   }
 }
 
@@ -138,9 +92,17 @@ async function saveStored(userId: string, payload: StoredNativeViews) {
   try {
     await FileSystem.writeAsStringAsync(uri, JSON.stringify(payload));
   } catch {
-    // Local view layout only; a failed write should not surface as an unhandled rejection.
+    // Only the offline copy; a failed write should not surface as an unhandled rejection.
   }
 }
+
+/** The clean device copy of a server list, with the views kept only here. */
+function cleanCopy(server: Snapshot, extra: TaskViewConfig[]): StoredNativeViews {
+  const ids = new Set(server.views.map((view) => view.id));
+  return { ...server, extra: extra.filter((view) => !ids.has(view.id)), synced: true, dirty: false };
+}
+
+const SAVE_DELAY_MS = 300;
 
 export function groupFieldLabel(field: TaskListGroupField, customFields: CustomField[] = []) {
   if (field.startsWith("cf:")) {
@@ -176,101 +138,267 @@ export const NATIVE_RENDER_OPTIONS: { value: TaskRenderMode; label: string }[] =
   { value: "kanban", label: "Board" },
 ];
 
+/**
+ * The phone's saved task views. The server keeps them (config.mobileTaskViews,
+ * apart from the web and desktop views) so the assistant and smart search
+ * can use them; a file on the device is the offline copy. Changes show at
+ * once and are saved a moment after the last one, the whole list at a time.
+ */
 export function useNativeTaskViews() {
   const { user } = useAuth();
   const userId = user?.id ?? "";
-  const [views, setViews] = useState<TaskViewConfig[]>(defaultNativeTaskViews);
-  const [activeId, setActiveIdState] = useState("native_view_task_list");
-  const [ready, setReady] = useState(false);
-  const dirty = useRef(false);
-  const activeIdRef = useRef(activeId);
-  activeIdRef.current = activeId;
+  const client = useQueryClient();
+  const configQuery = useConfigQuery();
+  const config = configQuery.data;
+  const [local, setLocal] = useState<{ userId: string; stored: StoredNativeViews | null } | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  // Bumped by every change; `savedRevision` is the last one the server took
+  // (or refused). While they differ the device copy must not follow the server.
+  const revision = useRef(0);
+  const savedRevision = useRef(0);
+  const pending = useRef<Draft | null>(null);
+  const draftRef = useRef<Draft | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const migrated = useRef("");
 
   useEffect(() => {
     let cancelled = false;
-    setReady(false);
-    dirty.current = false;
-    if (!userId) {
-      setViews(defaultNativeTaskViews());
-      setActiveIdState("native_view_task_list");
-      setReady(true);
-      return;
-    }
+    if (!userId) return;
     void loadStored(userId).then((stored) => {
-      if (cancelled) return;
-      setViews(stored.views);
-      setActiveIdState(stored.activeId);
-      setReady(true);
+      if (!cancelled) setLocal({ userId, stored });
     });
     return () => {
       cancelled = true;
     };
   }, [userId]);
 
+  // An older server sends no phone views; the device copy is used alone.
+  const serverKeeps = Boolean(config && Array.isArray(config.mobileTaskViews));
+  const serverViews = useMemo(() => normalizeViews(config?.mobileTaskViews), [config?.mobileTaskViews]);
+  const serverActive = config?.mobileActiveTaskViewId;
+  const server = useMemo<Snapshot | null>(
+    () => (serverViews.length ? { views: serverViews, activeId: resolveActiveId(serverViews, serverActive) } : null),
+    [serverActive, serverViews],
+  );
+  const localLoaded = local?.userId === userId;
+  const device = localLoaded ? local?.stored ?? null : null;
+  const extra = device?.extra ?? NO_VIEWS;
+  const fallback = useMemo<Snapshot>(() => ({ views: defaultNativeTaskViews(), activeId: "native_view_task_list" }), []);
+  // An unsent change is shown merged onto the server's latest list, so views
+  // the assistant made meanwhile show (and ?view=<id> finds them).
+  const current = useMemo<Snapshot>(() => {
+    if (draft) return server ? rebaseViews(draft.snapshot, draft.base, server.views) : draft.snapshot;
+    if (server) return withExtra(server, extra);
+    if (device) return withExtra(device, extra);
+    return fallback;
+  }, [device, draft, extra, fallback, server]);
+  const ready = !userId || localLoaded;
+
+  const currentRef = useRef(current);
+  const serverRef = useRef(server);
   useEffect(() => {
-    if (!ready || !userId || !dirty.current) return;
-    const timer = setTimeout(() => {
-      dirty.current = false;
-      void saveStored(userId, { views, activeId: resolveActiveId(views, activeId) });
-    }, 280);
-    return () => clearTimeout(timer);
-  }, [ready, userId, views, activeId]);
+    currentRef.current = current;
+    serverRef.current = server;
+  });
 
-  const setActiveId = useCallback((id: string) => {
-    dirty.current = true;
-    setActiveIdState(id);
-  }, []);
+  const flush = useCallback(async () => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    const next = pending.current;
+    if (!next) return;
+    pending.current = null;
+    const sent = revision.current;
+    const keepForLater = () => {
+      if (!pending.current) pending.current = next;
+    };
+    // Merge onto the server's latest list so views made elsewhere since this
+    // change began are not overwritten.
+    let latest: TaskViewConfig[] | null = null;
+    try {
+      const fresh = await client.fetchQuery({ queryKey: keys.config, queryFn: getConfig, staleTime: 0 });
+      latest = Array.isArray(fresh.mobileTaskViews) ? normalizeViews(fresh.mobileTaskViews) : null;
+    } catch {
+      // Offline or failing: the change stays on this device and is sent again
+      // when the app comes back to the foreground.
+      keepForLater();
+      return;
+    }
+    const merged = latest ? rebaseViews(next.snapshot, next.base, latest) : next.snapshot;
+    const { sent: out, extra: deviceOnly } = capForServer(merged);
+    try {
+      const saved = await updateConfig({ mobileTaskViews: out.views, mobileActiveTaskViewId: out.activeId });
+      // A config fetch begun before the save must not roll the views back.
+      await client.cancelQueries({ queryKey: keys.config });
+      client.setQueryData(keys.config, saved);
+      if (revision.current !== sent) return;
+      savedRevision.current = sent;
+      draftRef.current = null;
+      setDraft(null);
+      if (userId) {
+        const savedViews = normalizeViews(saved.mobileTaskViews);
+        const stored: StoredNativeViews = savedViews.length
+          ? cleanCopy({ views: savedViews, activeId: resolveActiveId(savedViews, saved.mobileActiveTaskViewId) }, deviceOnly)
+          : { ...withExtra(out, deviceOnly), synced: false, dirty: false };
+        setLocal({ userId, stored });
+        void saveStored(userId, stored);
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        // The server refused this list (a conflict or a limit): show its copy.
+        if (error.status !== 409) useToastStore.getState().show(error.message || "Couldn't save your views");
+        if (revision.current === sent) {
+          savedRevision.current = sent;
+          draftRef.current = null;
+          setDraft(null);
+        }
+        void client.invalidateQueries({ queryKey: keys.config });
+        return;
+      }
+      keepForLater();
+    }
+  }, [client, userId]);
 
-  const patchActiveView = useCallback((patch: Partial<TaskViewConfig>) => {
-    dirty.current = true;
-    setViews((current) => {
-      const id = resolveActiveId(current, activeIdRef.current);
-      return current.map((view) => (view.id === id ? { ...view, ...patch } : view));
+  /**
+   * Shows and stores a change, and sends it a moment later. `base` is the
+   * server list it was made on: by default the server list on screen, since
+   * an unsent change is shown already merged onto it.
+   */
+  const commit = useCallback(
+    (next: Snapshot, baseOverride?: TaskViewConfig[]) => {
+      const base = baseOverride ?? serverRef.current?.views ?? draftRef.current?.base ?? NO_VIEWS;
+      const nextDraft: Draft = { snapshot: next, base };
+      revision.current += 1;
+      pending.current = nextDraft;
+      draftRef.current = nextDraft;
+      currentRef.current = next;
+      setDraft(nextDraft);
+      if (userId) {
+        const stored: StoredNativeViews = { ...next, synced: true, dirty: true, base };
+        setLocal({ userId, stored });
+        void saveStored(userId, stored);
+      }
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
+    },
+    [flush, userId],
+  );
+
+  // Once per account on this device: the server takes the device's views when
+  // it has none (the built-in ones when the device has none either), a change
+  // left unsent is sent again, and a device copy from before the server kept
+  // the views is merged into the server's.
+  useEffect(() => {
+    if (!userId || !localLoaded || !serverKeeps || migrated.current === userId) return;
+    migrated.current = userId;
+    if (device?.dirty) {
+      commit({ views: device.views, activeId: device.activeId }, device.base ?? NO_VIEWS);
+      return;
+    }
+    if (!server) {
+      commit(device ? withExtra(device, extra) : fallback, NO_VIEWS);
+      return;
+    }
+    if (device && !device.synced) {
+      const views = adoptDeviceViews(server.views, withExtra(device, extra).views);
+      if (!sameViews(views, server.views)) commit({ views, activeId: server.activeId }, server.views);
+    }
+  }, [commit, device, extra, fallback, localLoaded, server, serverKeeps, userId]);
+
+  // The device copy follows what the server keeps, but never while a change
+  // is still on its way: until the save lands the file is the only copy.
+  const serverKey = server ? JSON.stringify(server) : "";
+  useEffect(() => {
+    if (!userId || !serverKey || draft || migrated.current !== userId) return;
+    if (pending.current || revision.current !== savedRevision.current) return;
+    void saveStored(userId, cleanCopy(JSON.parse(serverKey) as Snapshot, extra));
+  }, [draft, extra, serverKey, userId]);
+
+  // Coming back to the app sends a change that could not be saved, then
+  // shows views the assistant or another device made; leaving saves the last one.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void (async () => {
+          if (pending.current && timer.current === null) await flush();
+          void client.invalidateQueries({ queryKey: keys.config });
+        })();
+      } else void flush();
     });
-  }, []);
+    return () => {
+      subscription.remove();
+      void flush();
+    };
+  }, [client, flush]);
+
+  const update = useCallback(
+    (change: (current: Snapshot) => Snapshot) => {
+      const base = currentRef.current;
+      const next = change(base);
+      if (next === base) return;
+      commit(next);
+    },
+    [commit],
+  );
+
+  const setActiveId = useCallback(
+    (id: string) => update((state) => (state.activeId === id ? state : { ...state, activeId: id })),
+    [update],
+  );
+
+  const patchActiveView = useCallback(
+    (patch: Partial<TaskViewConfig>) =>
+      update((state) => {
+        const id = resolveActiveId(state.views, state.activeId);
+        return { activeId: id, views: state.views.map((view) => (view.id === id ? { ...view, ...patch } : view)) };
+      }),
+    [update],
+  );
 
   const addView = useCallback(() => {
-    dirty.current = true;
-    const id = `native_view_${Date.now()}`;
-    setViews((current) => {
-      const active = current.find((view) => view.id === resolveActiveId(current, activeIdRef.current)) ?? current[0];
+    update((state) => {
+      if (state.views.length >= MAX_VIEWS) {
+        useToastStore.getState().show(`You can keep up to ${MAX_VIEWS} views`);
+        return state;
+      }
+      const id = `native_view_${Date.now()}`;
+      const active = state.views.find((view) => view.id === resolveActiveId(state.views, state.activeId)) ?? state.views[0];
       const nextView: TaskViewConfig = {
         ...(active ?? NATIVE_VIEW_TEMPLATE),
         id,
-        name: `New View ${current.length + 1}`,
+        name: `New View ${state.views.length + 1}`,
       };
-      return [...current, nextView];
+      return { views: [...state.views, nextView], activeId: id };
     });
-    setActiveIdState(id);
-  }, []);
+  }, [update]);
 
   const deleteActiveView = useCallback(() => {
-    dirty.current = true;
-    setViews((current) => {
-      if (current.length <= 1) return current;
-      const id = resolveActiveId(current, activeIdRef.current);
-      const index = current.findIndex((view) => view.id === id);
-      const next = current.filter((view) => view.id !== id);
-      const fallback = next[Math.max(0, index - 1)] ?? next[0];
-      setActiveIdState(fallback?.id ?? "");
-      return next;
+    update((state) => {
+      if (state.views.length <= 1) return state;
+      const id = resolveActiveId(state.views, state.activeId);
+      const index = state.views.findIndex((view) => view.id === id);
+      const next = state.views.filter((view) => view.id !== id);
+      const fallbackView = next[Math.max(0, index - 1)] ?? next[0];
+      return { views: next, activeId: fallbackView?.id ?? "" };
     });
-  }, []);
+  }, [update]);
 
-  const renameView = useCallback((viewId: string, name: string) => {
-    const nextName = name.trim();
-    if (!nextName) return;
-    dirty.current = true;
-    setViews((current) =>
-      current.map((view) => (view.id === viewId ? { ...view, name: nextName } : view)),
-    );
-  }, []);
-
-  const activeViewId = resolveActiveId(views, activeId);
-  const activeView = useMemo(
-    () => views.find((view) => view.id === activeViewId),
-    [activeViewId, views],
+  const renameView = useCallback(
+    (viewId: string, name: string) => {
+      const nextName = name.trim();
+      if (!nextName) return;
+      update((state) => ({
+        ...state,
+        views: state.views.map((view) => (view.id === viewId ? { ...view, name: nextName } : view)),
+      }));
+    },
+    [update],
   );
+
+  const views = current.views;
+  const activeViewId = resolveActiveId(views, current.activeId);
+  const activeView = useMemo(() => views.find((view) => view.id === activeViewId), [activeViewId, views]);
 
   return {
     ready,
@@ -282,5 +410,9 @@ export function useNativeTaskViews() {
     addView,
     deleteActiveView,
     renameView,
+    /** True while the server copy is being fetched. */
+    syncing: configQuery.isFetching,
+    /** Fetches the server copy again, e.g. for a view the assistant just made. */
+    refresh: configQuery.refetch,
   };
 }

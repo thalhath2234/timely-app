@@ -45,8 +45,13 @@ export function reorderStages(projectId: string, ids: string[]) {
   return api<Stage[]>(`/projects/${projectId}/stages/reorder`, { method: "PUT", body: { ids } });
 }
 
-export async function duplicateProject(id: string) {
-  const res = await api<Project | { project: Project }>(`/projects/${id}/duplicate`, { method: "POST" });
+/** Copies a project with its stages and tasks; `as` gives the copy its own
+ * title and fields. */
+export async function duplicateProject(id: string, as?: CreateProjectPayload) {
+  const res = await api<Project | { project: Project }>(`/projects/${id}/duplicate`, {
+    method: "POST",
+    ...(as ? { body: as } : {}),
+  });
   return unwrap(res, "project");
 }
 

@@ -19,6 +19,7 @@ import {
   usePathname,
   useRootNavigationState,
   useRouter,
+  useSegments,
   type Href,
 } from "expo-router";
 import {
@@ -28,7 +29,7 @@ import {
 } from "react-native-gesture-handler";
 import { captureRef } from "react-native-view-shot";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "../../lib/auth/AuthProvider";
+import { isOnboarded, useAuth } from "../../lib/auth/AuthProvider";
 import {
   clearAssistantCache,
   loadAssistantCache,
@@ -58,6 +59,10 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const { user, token } = useAuth();
   const uid = user?.id;
   const path = usePathname();
+  // The assistant (its hint and the pinch) belongs to the signed-in app, not
+  // to sign-in, sign-up or onboarding.
+  const segments = useSegments();
+  const inApp = segments[0] === "(app)" && isOnboarded(user);
   const navigationState = useRootNavigationState();
   const navigationKey = JSON.stringify(navigationState, (key, value) =>
     ["key", "index", "routes", "state", "name", ""].includes(key) ||
@@ -198,7 +203,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const gestureTriggered = useRef(false);
   const pinch = Gesture.Pinch()
     .runOnJS(true)
-    .enabled(Boolean(uid && token && hydratedUser === uid && !visible))
+    .enabled(Boolean(inApp && uid && token && hydratedUser === uid && !visible))
     .onBegin(() => {
       gestureTriggered.current = false;
     })
@@ -266,7 +271,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
             {children}
           </View>
         </GestureDetector>
-        {uid && hydratedUser === uid && !cache.hintDismissed && !visible ? (
+        {inApp && uid && hydratedUser === uid && !cache.hintDismissed && !visible ? (
           <View style={styles.hint}>
             <View style={styles.hintIcon}>
               <Sparkles size={18} color={colors.primary} />
