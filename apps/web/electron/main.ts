@@ -21,6 +21,7 @@ import { waitForHttp } from "./supervisor/api";
 import { makeSealer } from "./supervisor/config";
 import { checkPrivileges } from "./supervisor/guards";
 import { ACTIONS, BootError, SETTING_KEYS, Supervisor, type BootProgress, type BootStep } from "./supervisor/index";
+import { installFingerprint, isPackageManaged } from "./supervisor/install";
 import { resolveResourceDirs } from "./supervisor/paths";
 import { createElectronUpdater } from "./supervisor/updater";
 import type { DesktopAction, DesktopSettingKey, PageTabCommand } from "../electron-env";
@@ -429,6 +430,65 @@ function closeBootWindow() {
 }
 
 // ---------------------------------------------------------------------------
+// Install replaced while running
+// ---------------------------------------------------------------------------
+
+// A package manager (pacman/AUR) can swap the app's files while this copy keeps
+// running in the tray. Opening Timely again only reaches this old process
+// through the single-instance lock, and its Next server now serves pages whose
+// CSS/JS chunks are gone (an unstyled or white window). So when the files have
+// changed, opening Timely restarts it into the new version instead.
+const INSTALL_CHECK_MS = 60_000;
+let installRoot: string | null = null;
+let installAtBoot: string | null = null;
+let installReplaced = false;
+// Held so the click handler survives garbage collection.
+let installNotification: Notification | null = null;
+
+function watchInstall(nextRoot: string) {
+  installRoot = nextRoot;
+  installAtBoot = installFingerprint({ execPath: process.execPath, nextRoot });
+  if (!installAtBoot) return;
+  setInterval(() => {
+    if (installReplaced || !wasInstallReplaced()) return;
+    supervisor?.log.info("app files changed on disk (package upgrade); offering a restart");
+    rebuildTrayMenu();
+    if (Notification.isSupported()) {
+      installNotification = new Notification({
+        title: `${FLAVOR.name} was updated`,
+        body: `Click to restart ${FLAVOR.name} into the new version.`,
+        icon: notificationIcon(),
+      });
+      installNotification.on("click", () => restartIntoNewInstall());
+      installNotification.show();
+    }
+  }, INSTALL_CHECK_MS).unref();
+}
+
+function wasInstallReplaced(): boolean {
+  if (installReplaced) return true;
+  if (!installRoot || !installAtBoot) return false;
+  const now = installFingerprint({ execPath: process.execPath, nextRoot: installRoot });
+  // null is a half-swapped install; decide on the next look.
+  installReplaced = now !== null && now !== installAtBoot;
+  return installReplaced;
+}
+
+function restartIntoNewInstall() {
+  supervisor?.log.info("restarting into the updated install");
+  // Electron's relauncher waits for this process to exit, so the new copy gets
+  // the single-instance lock once the sidecars here have stopped.
+  app.relaunch();
+  requestQuit();
+}
+
+/** Every "open Timely" path: the launcher (second instance), tray, menu. */
+function openOrRestart() {
+  if (HOSTED && !quitting && wasInstallReplaced()) restartIntoNewInstall();
+  else showMainWindow();
+}
+
+// ---------------------------------------------------------------------------
 // Tray
 // ---------------------------------------------------------------------------
 
@@ -449,7 +509,10 @@ function rebuildTrayMenu() {
   tray.setToolTip(`${FLAVOR.name} — ${serverLabel}`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: `Open ${FLAVOR.name}`, click: () => showMainWindow() },
+      ...(installReplaced
+        ? [{ label: `Restart to finish updating`, click: () => restartIntoNewInstall() }, { type: "separator" as const }]
+        : []),
+      { label: `Open ${FLAVOR.name}`, click: () => openOrRestart() },
       { label: serverLabel, enabled: false },
       { type: "separator" },
       { label: "Copy address", click: () => void supervisor?.action("copyAddress") },
@@ -473,7 +536,7 @@ function rebuildTrayMenu() {
 function installTray() {
   if (tray) return;
   tray = new Tray(trayIcon());
-  tray.on("click", () => showMainWindow());
+  tray.on("click", () => openOrRestart());
   rebuildTrayMenu();
 }
 
@@ -511,6 +574,7 @@ async function bootHosted() {
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
   });
+  if (app.isPackaged) watchInstall(resources.next);
   const encryptionAvailable = safeStorage.isEncryptionAvailable();
   supervisor = new Supervisor({
     userData,
@@ -526,7 +590,13 @@ async function bootHosted() {
     openPath: (target) => shell.openPath(target),
     writeClipboard: (text) => clipboard.writeText(text),
     // A local build must not update itself into the release.
-    updater: FLAVOR.release ? createElectronUpdater({ isPackaged: app.isPackaged, log: (m) => supervisor?.log.warn(m) }) : undefined,
+    updater: FLAVOR.release
+      ? createElectronUpdater({
+          isPackaged: app.isPackaged,
+          managed: app.isPackaged && isPackageManaged({ platform: process.platform, env: process.env, resourcesPath: process.resourcesPath }),
+          log: (m) => supervisor?.log.warn(m),
+        })
+      : undefined,
     defaultPorts: FLAVOR.ports,
     echo: !app.isPackaged,
   });
@@ -597,7 +667,7 @@ async function boot() {
   else await bootDev();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0 || (mainWindow && !mainWindow.isVisible())) showMainWindow();
+    if (BrowserWindow.getAllWindows().length === 0 || (mainWindow && !mainWindow.isVisible())) openOrRestart();
   });
 }
 
@@ -616,7 +686,7 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => showMainWindow());
+  app.on("second-instance", () => openOrRestart());
 
   app.setName(FLAVOR.name);
   if (process.platform === "win32") {

@@ -17,8 +17,13 @@ type AutoUpdaterLike = {
  * `install`: an unpackaged run, a missing feed or a network error becomes an
  * `error` (or `idle`) status so the renderer can show it.
  */
-export function createElectronUpdater(options: { isPackaged: boolean; log?: (message: string) => void }): Updater {
-  let status: UpdateStatus = { status: "idle" };
+export function createElectronUpdater(options: {
+  isPackaged: boolean;
+  /** A package manager owns the install (AUR); see isPackageManaged. */
+  managed?: boolean;
+  log?: (message: string) => void;
+}): Updater {
+  let status: UpdateStatus = options.managed ? { status: "managed" } : { status: "idle" };
   let listener: ((status: UpdateStatus) => void) | null = null;
   let updater: AutoUpdaterLike | null = null;
   let downloaded = false;
@@ -59,10 +64,15 @@ export function createElectronUpdater(options: { isPackaged: boolean; log?: (mes
   }
 
   return {
+    current: () => status,
     onStatus(callback) {
       listener = callback;
     },
     async check() {
+      if (options.managed) {
+        set({ status: "managed" });
+        return;
+      }
       if (!options.isPackaged) {
         set({ status: "error", error: "Updates only work in the installed app." });
         return;
@@ -78,6 +88,10 @@ export function createElectronUpdater(options: { isPackaged: boolean; log?: (mes
       }
     },
     async install() {
+      if (options.managed) {
+        set({ status: "managed" });
+        return;
+      }
       try {
         const auto = load();
         if (downloaded || status.status === "ready") {
