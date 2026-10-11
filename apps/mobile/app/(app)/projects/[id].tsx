@@ -211,7 +211,9 @@ export default function ProjectDetailScreen() {
         />
         <Pressable onPress={() => setPicker("status")} style={styles.card}>
           <Text style={styles.label}>Status</Text>
-          <Text style={styles.value}>{project.status?.name || "None"}</Text>
+          <Text style={styles.value}>
+            {project.status?.name || workspace?.status?.find((status) => status.id === project.statusId)?.name || "None"}
+          </Text>
         </Pressable>
         <Pressable onPress={() => setPicker("priority")} style={styles.card}>
           <Text style={styles.label}>Priority</Text>

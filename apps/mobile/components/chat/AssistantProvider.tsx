@@ -43,6 +43,8 @@ import {
   routeObject,
 } from "../../lib/chat/context";
 import type { AssistantDraft, ChatContext } from "../../lib/chat/types";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { floatingTabBarInset } from "../ui/FloatingTabBar";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import Assistant from "./Assistant";
 import { Action } from "./shared";
@@ -61,8 +63,14 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const path = usePathname();
   // The assistant (its hint and the pinch) belongs to the signed-in app, not
   // to sign-in, sign-up or onboarding.
-  const segments = useSegments();
+  const segments: string[] = useSegments();
   const inApp = segments[0] === "(app)" && isOnboarded(user);
+  // The first-run hint only shows on the five tab roots, where it sits above
+  // the + button and the floating tab bar; pushed screens keep their bottom
+  // edge (the Inbox composer, a task's rows) uncovered.
+  const onTabRoot = inApp && segments[1] === "(tabs)";
+  const insets = useSafeAreaInsets();
+  const hintBottom = floatingTabBarInset(insets.bottom) + 12 + 56 + 12;
   const navigationState = useRootNavigationState();
   const navigationKey = JSON.stringify(navigationState, (key, value) =>
     ["key", "index", "routes", "state", "name", ""].includes(key) ||
@@ -271,8 +279,8 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
             {children}
           </View>
         </GestureDetector>
-        {inApp && uid && hydratedUser === uid && !cache.hintDismissed && !visible ? (
-          <View style={styles.hint}>
+        {onTabRoot && uid && hydratedUser === uid && !cache.hintDismissed && !visible ? (
+          <View style={[styles.hint, { bottom: hintBottom }]}>
             <View style={styles.hintIcon}>
               <Sparkles size={18} color={colors.primary} />
             </View>
@@ -311,7 +319,6 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
 const styles = createThemedStyleSheet(() => ({
   hint: {
     position: "absolute",
-    bottom: 110,
     left: 16,
     right: 16,
     paddingVertical: 12,

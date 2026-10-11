@@ -245,8 +245,8 @@ export default function TaskDetailScreen() {
   return (
     <Screen>
       <MobileHeader
-        title="Timely"
-        subtitle={`TASK-${task.id.slice(-4).toUpperCase()}${isReminder ? "  ·  REMINDER" : ""}`}
+        title={isReminder ? "Reminder" : isInbox ? "Inbox item" : "Task"}
+        subtitle={[workspace?.name, selectedProject?.title].filter(Boolean).join(" › ") || undefined}
         back
         large={false}
         statusDot
