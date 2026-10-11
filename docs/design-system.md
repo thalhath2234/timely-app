@@ -30,7 +30,7 @@ Web `app/_components/_ui/button.tsx` (`Button`, `buttonClass` for links). Phone 
 
 Sizes: web `sm` 28px in rows and toolbars, `md` 32px by default (page header actions, dialog footers), `lg` 36px next to an `lg` input. Phone `sm` 36px inside cards, `md` 44px by default, `lg` 48px for the action under a form (`PrimaryButton` is primary + lg + full width).
 
-States: hover darkens (web), press dims (phone), disabled is 50% opacity, `loading` swaps the leading icon for the animated Timely logo and blocks presses. Icon-only buttons are `icon` on the web (square) and need an `aria-label`. Shortcut hints go in `<Kbd>`.
+States: hover darkens (web), press dims (phone), disabled is 50% opacity, `loading` swaps the leading icon for the animated Timely logo and blocks presses. Icon-only buttons are `icon` on the web (square) and need an `aria-label`. The app has only two keyboard shortcuts, Ctrl/Cmd+K (search) and Ctrl/Cmd+Shift+J (agent), so buttons and menu rows show no key hints.
 
 ## Inputs
 

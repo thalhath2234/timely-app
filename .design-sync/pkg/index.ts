@@ -25,7 +25,6 @@ export { default as CustomFieldControl } from "@/app/_components/_ui/customField
 export { default as DatePicker, DateField, TimeField, DateTimeField } from "@/app/_components/_ui/datePicker";
 export { default as EmptyState } from "@/app/_components/_ui/emptyState";
 export { default as ExpandCollapsedListButton } from "@/app/_components/_ui/expandCollapsedListButton";
-export { default as KeyboardShortcuts } from "@/app/_components/_ui/keyboardShortcuts";
 export { default as LabelPicker } from "@/app/_components/_ui/labelPicker";
 export { default as LoadError, LoadErrorBanner, QueryFailure } from "@/app/_components/_ui/loadError";
 

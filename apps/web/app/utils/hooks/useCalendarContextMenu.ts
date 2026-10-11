@@ -127,7 +127,6 @@ export function useCalendarContextMenu(handlers: CalendarMenuHandlers) {
           kind: "action",
           label: isTask ? "Open task details" : "Open event",
           icon: SquarePen,
-          shortcut: "Enter",
           onSelect: () => {
             if (isTask && task) openTask(task.id);
             else handlers.onOpenEvent(entry);
@@ -176,7 +175,6 @@ export function useCalendarContextMenu(handlers: CalendarMenuHandlers) {
           kind: "action",
           label: completed ? "Reopen task" : "Mark complete",
           icon: completed ? RotateCcw : Check,
-          shortcut: "X",
           onSelect: () => {
             const previous = task.completedAt ?? "";
             void updateTask
@@ -293,7 +291,6 @@ export function useCalendarContextMenu(handlers: CalendarMenuHandlers) {
           label: entry.event.recurrence ? "Delete whole series" : "Delete event",
           icon: Trash2,
           danger: true,
-          shortcut: "mod+Backspace",
           onSelect: () =>
             requestConfirm({
               title: `Delete “${entry.title}”?`,

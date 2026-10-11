@@ -417,7 +417,7 @@ No persisted sheet views, charts, or database-style linked records. HTTP support
 
 ## 12. Search
 
-**Command palette** (desktop: sidebar Search, **Ctrl/Cmd+K** or `/`; native: Search tab). “Search anything, or run a command…”:
+**Command palette** (desktop: sidebar Search, **Ctrl/Cmd+K**; native: Search tab). “Search anything, or run a command…”:
 
 - Category tabs: All, Sheets, Docs, Tasks, Projects, Events.
 - Semantic `/search?mode=semantic`, fallback to keyword if 503. Hits → deep links (events → calendar). Duplicate hits are collapsed by `kind:id`; stale results are hidden while a new query debounces (native 250ms).
@@ -496,7 +496,7 @@ Picker → Name and color / Statuses / Labels / Custom fields (including Yes/No)
 
 ### Notifications
 
-Desktop `/notifications` (sidebar Bell, `g` then `n`) and native Notifications screen: in-app center with read/unread, clear all, reminder snooze, overdue / start-soon / missed alerts, and assistant updates (which open the chat). The native overdue alert has a **Reschedule urgently** action. Settings → Notifications: category prefs (reminder, digest, planning, overdue, agent, missed, start), quiet hours, digest times (digests include Unscheduled counts), failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
+Desktop `/notifications` (sidebar Bell) and native Notifications screen: in-app center with read/unread, clear all, reminder snooze, overdue / start-soon / missed alerts, and assistant updates (which open the chat). The native overdue alert has a **Reschedule urgently** action. Settings → Notifications: category prefs (reminder, digest, planning, overdue, agent, missed, start), quiet hours, digest times (digests include Unscheduled counts), failed-job retry. Native also registers Expo push and always keeps local reminder schedules.
 
 **No** language picker, billing, or connected-account screens.
 
@@ -508,7 +508,7 @@ There are two agent surfaces over **one tool catalog**: the in-app chat (desktop
 
 ### In-app chat — desktop
 
-- **Page** `/chat` (`?id=` opens a conversation) and an **overlay** from anywhere with **Ctrl/Cmd+Shift+J** (New chat, Open in Chat tab, Close). `g` then `a` goes to `/chat`. Chat is the first sidebar item, with an unread badge (9+ cap).
+- **Page** `/chat` (`?id=` opens a conversation) and an **overlay** from anywhere with **Ctrl/Cmd+Shift+J** (New chat, Open in Chat tab, Close). Chat is the first sidebar item, with an unread badge (9+ cap).
 - **Screen context:** removable chips added automatically: location, the open doc/sheet/project/task, its workspace and project, selected text (≤12,000 chars), sheet tab + selected cells, calendar view and date.
 - **History:** grouped Needs you / Today / Yesterday / This week / Earlier; title search; status or relative time per row; inline rename (≤120 chars) and delete (removes history, temporary images, and notifications; applied changes stay). Collapsible; a drawer on narrow widths.
 - **Conversation:** status pill (Queued / Working / Applying / Needs your review / Needs attention / Stopped), provider · model subtitle, day separators, notice rows for run events, collapsible archived proposals, inline change cards. Empty state suggests Start a project, Build a budget, Make room to learn, Save a receipt. Finished runs refresh tasks, projects, docs, sheets, calendar, Today, Inbox, and notifications.
@@ -609,15 +609,12 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 
 ### Keyboard (desktop)
 
-- Ctrl/Cmd+K or `/` command palette
+Only two app shortcuts exist (2026-10-11, the user removed the rest; buttons and menus show no key hints):
+
+- Ctrl/Cmd+K command palette
 - Ctrl/Cmd+Shift+J chat overlay (new chat with screen context)
-- `g` then `a` Chat, `y` Today, `i` Inbox, `c` Calendar, `t` Tasks, `p` Projects, `d` Dashboard (`r` too, its old name), `f` Files (`s` too), `n` Notifications
-- `c` or `n` new task (on `/inbox`, `c` focuses capture)
-- On `/tasks`: `x` completes the open task (with Undo), `s` schedules it on the calendar
-- Escape close
-- Ctrl/Cmd+Enter comment; in chat, Enter sends and Shift+Enter adds a line
-- Sheet: arrows, Tab, Enter/F2, Delete, type-to-edit
-- `/` slash, `@` mention, `.`/`-` + space in editor
+
+Standard editing keys still work: Escape closes, Ctrl/Cmd+Enter posts a comment, in chat Enter sends and Shift+Enter adds a line; sheets keep arrows, Tab, Enter/F2, Delete, type-to-edit and clipboard/undo/bold; docs keep `/` slash, `@` mention, `.`/`-` + space, find and replace, and the usual formatting keys.
 
 ---
 
@@ -857,7 +854,7 @@ Grouped so you can pick from current holes.
 | Sheets + formulas | Tabs, formatting, filters, templates, CSV | Tabs, formatting, filters, templates | Granular + archive + templates + duplicate |
 | Archive docs/sheets | Yes | Yes | Yes |
 | Dashboard | Full | Thinner | No |
-| Global search / command palette | Cmd+K or `/`, quick actions | Tab, quick actions | Keyword + semantic |
+| Global search / command palette | Cmd+K, quick actions | Tab, quick actions | Keyword + semantic |
 | AI chat | `/chat` + Cmd+Shift+J overlay, images, receipts, Electron notifications | Pinch overlay, camera/screenshot, receipts, private push | Is the tool catalog (chat uses an allowlisted subset) |
 | AI provider settings | Settings → Agent | Settings → Agent | No |
 | API keys / Hermes | Yes | Yes | Auth itself |

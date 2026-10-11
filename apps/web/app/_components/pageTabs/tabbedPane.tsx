@@ -246,38 +246,6 @@ function PageTabStrip({
     [router],
   );
 
-  // Keyboard: the desktop app forwards Ctrl/Cmd+T, Ctrl/Cmd+W, Ctrl+Tab and
-  // back/forward keys here (a browser keeps those for its own tabs).
-  useEffect(() => {
-    const desktop = window.timelyDesktop;
-    if (!desktop?.onPageTabCommand) return;
-    desktop.setPageTabsActive?.(true);
-    const unsubscribe = desktop.onPageTabCommand((command) => {
-      const store = usePageTabsStore.getState();
-      const at = store.tabs.findIndex((tab) => tab.id === store.activeId);
-      switch (command) {
-        case "new":
-          return newTab();
-        case "close":
-          return store.activeId ? closeTab(store.activeId) : undefined;
-        case "next":
-        case "previous": {
-          if (store.tabs.length < 2) return;
-          const step = command === "next" ? 1 : -1;
-          return switchTo(store.tabs[(at + step + store.tabs.length) % store.tabs.length].id);
-        }
-        case "back":
-          return go(-1);
-        case "forward":
-          return go(1);
-      }
-    });
-    return () => {
-      unsubscribe();
-      desktop.setPageTabsActive?.(false);
-    };
-  }, [closeTab, go, newTab, switchTo]);
-
   // Mouse back/forward buttons move through the active tab's history.
   useEffect(() => {
     const onMouseUp = (event: MouseEvent) => {

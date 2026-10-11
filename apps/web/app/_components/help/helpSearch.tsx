@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { CornerDownLeft, FileText, Hash, Search } from "lucide-react";
@@ -41,19 +41,6 @@ export default function HelpSearch({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const results = useMemo(() => rank(entries, query), [entries, query]);
-
-  // "/" focuses the search box unless you are typing somewhere else.
-  useEffect(() => {
-    if (size !== "large") return;
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (event.key !== "/" || target?.closest("input, textarea, [contenteditable='true']")) return;
-      event.preventDefault();
-      inputRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [size]);
 
   const go = (entry: SearchEntry) => {
     setOpen(false);
@@ -110,9 +97,6 @@ export default function HelpSearch({
             size === "large" ? "text-base" : "text-sm",
           )}
         />
-        {size === "large" ? (
-          <kbd className="hidden rounded-md border border-white/15 px-1.5 font-mono text-xs text-white/40 sm:block">/</kbd>
-        ) : null}
       </div>
 
       <AnimatePresence>

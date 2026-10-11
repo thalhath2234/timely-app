@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, Copy, Play, Plus, Square, Star } from "lucide-react";
 import type { Task } from "@/app/_types/types";
 import { dateOnly, localDateStamp } from "@/app/utils/calendar";
@@ -51,24 +51,6 @@ export default function TaskExecution({
   const totalCount = checklist.length;
   const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
-      if (event.target instanceof HTMLElement) {
-        const tag = event.target.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || event.target.isContentEditable) return;
-      }
-      event.preventDefault();
-      if (focusing) {
-        void stopFocus.mutateAsync(task.id);
-        return;
-      }
-      void startFocus.mutateAsync(task.id);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [focusing, startFocus, stopFocus, task.id]);
-
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
@@ -91,9 +73,6 @@ export default function TaskExecution({
           >
             <Play className="size-3.5" />
             Focus Now
-            <kbd className="ml-0.5 rounded bg-primary/20 px-1 font-mono text-[10px] opacity-80">
-              ⌘F
-            </kbd>
           </button>
         )}
         <button

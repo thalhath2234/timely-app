@@ -242,7 +242,6 @@ export default function KanbanView({
           kind: "action",
           label: "New task",
           icon: Plus,
-          shortcut: "C",
           onSelect: () => {
             setAddNewMode("task");
             setIsAddItemModalOpen(true);

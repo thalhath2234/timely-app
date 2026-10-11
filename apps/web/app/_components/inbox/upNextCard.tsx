@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
 import { motion } from "motion/react";
 import { BellRing, CheckSquare, Clock, SkipForward, Sparkles, Trash2 } from "lucide-react";
 import { inboxSuggestionSummary, type InboxAge } from "@timely/contract/inbox";
-import Button, { Kbd } from "@/app/_components/_ui/button";
+import Button from "@/app/_components/_ui/button";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { useClarifySuggestions, useDecisions } from "@/app/utils/hooks/decisions";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
@@ -14,15 +13,9 @@ import { springSoft } from "@/app/_components/_ui/motion";
 
 export type InboxDecision = "task" | "reminder";
 
-function isTypingTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable;
-}
-
 /**
  * The capture that has waited longest, shown big with what smart suggestions
- * would make of it and one-key decisions: T task, R reminder, S skip,
- * Delete. Keys work while nothing else has focus, like the app's shortcuts.
+ * would make of it and one-step decisions: task, reminder, later or delete.
  */
 export default function UpNextCard({
   task,
@@ -48,25 +41,6 @@ export default function UpNextCard({
   const s = suggestions.data?.available ? suggestions.data : undefined;
   const summary = s ? inboxSuggestionSummary(s, workspaces.find((w) => w.id === s.workspaceId)?.name) : undefined;
   const remindFirst = s?.kind === "reminder";
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-      if (isTypingTarget(event.target) || document.querySelector('[role="dialog"]')) return;
-      const key = event.key.toLowerCase();
-      const run =
-        key === "t" ? () => onDecide("task")
-        : key === "r" ? () => onDecide("reminder")
-        : key === "s" && canSkip ? onSkip
-        : key === "delete" || key === "backspace" ? onDelete
-        : null;
-      if (!run) return;
-      event.preventDefault();
-      run();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onDecide, onSkip, onDelete, canSkip]);
 
   return (
     <motion.article
@@ -127,7 +101,6 @@ export default function UpNextCard({
         <Button
           variant={remindFirst ? "outline" : "primary"}
           leading={<CheckSquare />}
-          trailing={<Kbd>T</Kbd>}
           onClick={() => onDecide("task")}
         >
           Make it a task
@@ -135,13 +108,12 @@ export default function UpNextCard({
         <Button
           variant={remindFirst ? "primary" : "outline"}
           leading={<BellRing />}
-          trailing={<Kbd>R</Kbd>}
           onClick={() => onDecide("reminder")}
         >
           Remind me
         </Button>
         {canSkip ? (
-          <Button variant="ghost" leading={<SkipForward />} trailing={<Kbd>S</Kbd>} onClick={onSkip}>
+          <Button variant="ghost" leading={<SkipForward />} onClick={onSkip}>
             Later
           </Button>
         ) : null}
@@ -149,7 +121,6 @@ export default function UpNextCard({
           variant="destructive-ghost"
           className="ml-auto"
           leading={<Trash2 />}
-          trailing={<Kbd>Del</Kbd>}
           onClick={onDelete}
         >
           Delete

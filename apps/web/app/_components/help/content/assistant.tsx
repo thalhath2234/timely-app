@@ -170,7 +170,7 @@ export const assistant: HelpSection = {
           body: (
             <>
               <p>
-                Open <strong>Chat</strong> in the sidebar (<kbd>g</kbd> then <kbd>a</kbd>). Describe what you want in
+                Open <strong>Chat</strong> in the sidebar. Describe what you want in
                 your own words, attach pictures if they help, and turn on web search when the answer needs it.
               </p>
               <Shot

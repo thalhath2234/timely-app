@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -768,17 +768,6 @@ function DetailBody({
       }}
       onToggleComplete={toggleComplete}
       onClose={closeWithMorph}
-      onSaveAndClose={() => {
-        void (async () => {
-          try {
-            await saveDescription();
-            const saved = await flush();
-            if (saved) closeWithMorph();
-          } catch {
-            // Keep the panel open so the save failure stays visible.
-          }
-        })();
-      }}
       onDelete={onDelete}
       onDuplicate={onDuplicate}
       onCopyLink={onCopyLink}
@@ -1354,7 +1343,6 @@ function TaskActivityItem({ entry }: { entry: TaskActivity }) {
 function PanelShell({
   children,
   onClose,
-  onSaveAndClose,
   saveStatus,
   crumbs,
   kind = "task",
@@ -1368,7 +1356,6 @@ function PanelShell({
 }: {
   children: React.ReactNode;
   onClose: () => void;
-  onSaveAndClose?: () => void;
   saveStatus?: React.ReactNode;
   crumbs?: { workspace?: string; project?: string; stage?: string };
   kind?: "task" | "project";
@@ -1393,31 +1380,6 @@ function PanelShell({
       runViewTransition(() => setConfirmingDelete(false));
     }
   };
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (confirmingDelete) return;
-      if (!(event.target instanceof HTMLElement)) return;
-      const typing =
-        event.target.tagName === "INPUT" ||
-        event.target.tagName === "TEXTAREA" ||
-        event.target.tagName === "SELECT" ||
-        event.target.isContentEditable;
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        if (event.target instanceof HTMLTextAreaElement) return;
-        event.preventDefault();
-        onSaveAndClose?.();
-        return;
-      }
-      if (typing) return;
-      if (event.key.toLowerCase() === "c" && onToggleComplete) {
-        event.preventDefault();
-        onToggleComplete();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [confirmingDelete, onSaveAndClose, onToggleComplete]);
 
   const crumbParts = [crumbs?.workspace, crumbs?.project, crumbs?.stage].filter(
     Boolean,
@@ -1491,32 +1453,6 @@ function PanelShell({
               </button>
             ) : null}
           </>
-        }
-        footer={
-          <footer className="flex h-10 shrink-0 items-center border-t border-border bg-muted/20 px-5 text-[11px] text-muted-foreground">
-            <div className="flex items-center gap-4">
-              <span className="inline-flex items-center gap-1.5">
-                <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-                  ⌘↵
-                </kbd>
-                Save &amp; Close
-              </span>
-              <span className="hidden items-center gap-1.5 sm:inline-flex">
-                <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-                  Tab
-                </kbd>
-                Navigate
-              </span>
-              {onToggleComplete ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-                    C
-                  </kbd>
-                  Mark Complete
-                </span>
-              ) : null}
-            </div>
-          </footer>
         }
       >
         {children}

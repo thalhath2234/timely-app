@@ -91,7 +91,6 @@ Target project: "Timely Design System" (projectId in config.json). Shape: packag
 - Capture browser TZ isn't UTC: datetime props as local `YYYY-MM-DDTHH:mm` (no `Z`).
 - Popover-open states are opened by clicking the trigger in a mount effect.
   ExpandCollapsedListButton renders only when collapsed (cell seeds localStorage).
-  KeyboardShortcuts renders null - its card is a legend of its bindings.
 - Skipped: context-menu submenu flyouts (hover), group-panel drag-reorder.
 - **Per-cell data: use `seed`, never a nested `api`.** `installMockApi` is page-global (fetch
   is shared), so a nested `<TimelyProvider api>` leaks into every other cell. `seed` is per

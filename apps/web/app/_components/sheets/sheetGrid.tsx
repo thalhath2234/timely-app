@@ -1346,7 +1346,6 @@ export default function SheetGrid({
         kind: "action",
         label: "Rename column",
         icon: Pencil,
-        shortcut: "F2",
         onSelect: () => setRenamingColumnIndex(index),
       },
       {

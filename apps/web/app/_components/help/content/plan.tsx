@@ -27,7 +27,7 @@ export const plan: HelpSection = {
           body: (
             <>
               <p>
-                Open <strong>Inbox</strong> in the sidebar (<kbd>g</kbd> then <kbd>i</kbd>), type in the box at the
+                Open <strong>Inbox</strong> in the sidebar, type in the box at the
                 top and press <kbd>Enter</kbd>. Inbox items have no workspace, project, date or length, and
                 Auto-schedule leaves them alone.
               </p>
@@ -265,7 +265,7 @@ export const plan: HelpSection = {
       keywords: ["today", "focus", "habits", "goals", "streak", "timer", "home"],
       lead: (
         <p>
-          <strong>Today</strong> (<kbd>g</kbd> then <kbd>y</kbd>) is the page to keep open while you work. On the
+          <strong>Today</strong> is the page to keep open while you work. On the
           phone, the same things are on the <strong>Home</strong> tab.
         </p>
       ),
@@ -354,7 +354,7 @@ export const plan: HelpSection = {
           body: (
             <>
               <p>
-                <strong>Notifications</strong> in the sidebar (<kbd>g</kbd> then <kbd>n</kbd>) lists everything
+                <strong>Notifications</strong> in the sidebar lists everything
                 Timely has told you. Snooze a reminder for 15 minutes, an hour, or until 9:00 tomorrow; mark items read
                 or clear them all.
               </p>

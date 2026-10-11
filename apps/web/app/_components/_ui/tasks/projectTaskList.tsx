@@ -1,6 +1,6 @@
 "use client";
 
-import Button, { Kbd } from "@/app/_components/_ui/button";
+import Button from "@/app/_components/_ui/button";
 import { useCallback, useMemo, useState } from "react";
 import { Plus, Eye, EyeOff } from "lucide-react";
 import type { Project, Task, Workspace } from "@/app/_types/types";
@@ -224,7 +224,6 @@ export default function ProjectTaskList({
         </Button>
         <Button onClick={openCreate} leading={<Plus />}>
           New task
-          <Kbd className="hidden sm:inline-flex">C</Kbd>
         </Button>
       </div>
 

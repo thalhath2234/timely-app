@@ -141,8 +141,7 @@ can be selected during implementation.
   checkpoint commit in one transaction; retries skip committed steps.
 - A dedicated worker pool handles model calls independently of reminder jobs.
   Proposals are checked against input schemas and current data before execution.
-- Chat lives at `/chat`; Ctrl/Cmd+Shift+J opens a new contextual overlay and
-  G then A navigates to Chat. Web search is per conversation and defaults off.
+- Chat lives at `/chat`; Ctrl/Cmd+Shift+J opens a new contextual overlay. Web search is per conversation and defaults off.
 - OpenRouter's web plugin runs only for explicit model search-tool calls when
   enabled, using a public query rather than the private conversation as the
   search request. See the [provider documentation](https://openrouter.ai/docs/guides/features/plugins/web-search).

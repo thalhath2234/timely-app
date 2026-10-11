@@ -106,17 +106,3 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 });
 
 export default Button;
-
-/** A keyboard shortcut hint shown inside a button or menu row. */
-export function Kbd({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <kbd
-      className={cn(
-        "inline-flex h-4 min-w-4 items-center justify-center rounded border border-current/20 px-1 font-sans text-[10px] font-medium leading-none opacity-70",
-        className,
-      )}
-    >
-      {children}
-    </kbd>
-  );
-}

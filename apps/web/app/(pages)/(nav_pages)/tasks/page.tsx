@@ -1,6 +1,6 @@
 "use client";
 
-import Button, { Kbd } from "@/app/_components/_ui/button";
+import Button from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -547,11 +547,10 @@ function TaskHeader({
           <Button
             onClick={openCreate}
             disabled={!canCreate}
-            title={canCreate ? "Create a task (C)" : "Create a workspace first"}
+            title={canCreate ? "Create a task" : "Create a workspace first"}
             leading={<Plus />}
           >
             New task
-            <Kbd className="hidden sm:inline-flex">C</Kbd>
           </Button>
         </>
       }

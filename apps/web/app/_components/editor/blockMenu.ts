@@ -163,7 +163,7 @@ export function openBlockMenu(editor: Editor, range: BlockRange, x: number, y: n
         onSelect: () => void downloadImages(images),
       },
       { kind: "separator" },
-      { kind: "action", label: "Duplicate", icon: CopyPlus, shortcut: "mod+D", onSelect: run(() => duplicateBlocks(view, range)) },
+      { kind: "action", label: "Duplicate", icon: CopyPlus, onSelect: run(() => duplicateBlocks(view, range)) },
       {
         kind: "action",
         label: "Copy",

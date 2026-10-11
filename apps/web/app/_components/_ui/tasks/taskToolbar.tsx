@@ -839,13 +839,6 @@ export function TaskListStatusBar({
           </kbd>
           Quick search
         </span>
-        <span className="text-border">·</span>
-        <span className="inline-flex items-center gap-1.5">
-          <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px] text-foreground">
-            C
-          </kbd>
-          New task
-        </span>
       </div>
     </footer>
   );

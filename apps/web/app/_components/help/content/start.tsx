@@ -179,7 +179,7 @@ export const start: HelpSection = {
           body: (
             <Steps>
               <p>
-                Open the <Link href="/help/plan/inbox">Inbox</Link> (<kbd>g</kbd> then <kbd>i</kbd>) and type
+                Open the <Link href="/help/plan/inbox">Inbox</Link> and type
                 everything on your mind, one item per line.
               </p>
               <p>
@@ -291,127 +291,48 @@ export const start: HelpSection = {
     {
       slug: "shortcuts",
       title: "Keyboard shortcuts",
-      summary: "Every keyboard shortcut in the desktop and web app.",
+      summary: "The two keyboard shortcuts in the desktop and web app.",
       keywords: ["keyboard", "hotkeys", "keys", "shortcut"],
-      lead: <p>Most of Timely can be driven from the keyboard. On a Mac, use Cmd where this page says Ctrl.</p>,
+      lead: (
+        <p>
+          Timely keeps keyboard shortcuts to two, so a stray key never does something you did not mean. On a Mac, use
+          Cmd where this page says Ctrl.
+        </p>
+      ),
       sections: [
         {
           id: "everywhere",
           title: "Everywhere",
           body: (
-            <table>
-              <thead>
-                <tr>
-                  <th>Keys</th>
-                  <th>What it does</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>
-                    <kbd>Ctrl</kbd> <kbd>K</kbd> or <kbd>/</kbd>
-                  </td>
-                  <td>Search and run a command</td>
-                </tr>
-                <tr>
-                  <td>
-                    <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>J</kbd>
-                  </td>
-                  <td>Quick prompt: ask the assistant from a bar at the bottom</td>
-                </tr>
-                <tr>
-                  <td>
-                    <kbd>c</kbd> or <kbd>n</kbd>
-                  </td>
-                  <td>New task (in the Inbox, <kbd>c</kbd> jumps to the capture box)</td>
-                </tr>
-                <tr>
-                  <td>
-                    <kbd>Esc</kbd>
-                  </td>
-                  <td>Close a panel or dialog</td>
-                </tr>
-              </tbody>
-            </table>
-          ),
-        },
-        {
-          id: "go-to",
-          title: "Go to a page",
-          body: (
             <>
-              <p>
-                Press <kbd>g</kbd>, then:
-              </p>
               <table>
+                <thead>
+                  <tr>
+                    <th>Keys</th>
+                    <th>What it does</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {[
-                    ["a", "Chat"],
-                    ["y", "Today"],
-                    ["i", "Inbox"],
-                    ["c", "Calendar"],
-                    ["t", "Tasks"],
-                    ["p", "Projects"],
-                    ["d", "Dashboard"],
-                    ["f", "Files"],
-                    ["n", "Notifications"],
-                  ].map(([key, page]) => (
-                    <tr key={key}>
-                      <td>
-                        <kbd>g</kbd> <kbd>{key}</kbd>
-                      </td>
-                      <td>{page}</td>
-                    </tr>
-                  ))}
+                  <tr>
+                    <td>
+                      <kbd>Ctrl</kbd> <kbd>K</kbd>
+                    </td>
+                    <td>Search and run a command</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>J</kbd>
+                    </td>
+                    <td>Quick prompt: ask the assistant from a bar at the bottom</td>
+                  </tr>
                 </tbody>
               </table>
+              <p>
+                Typing works as you would expect everywhere else: <kbd>Enter</kbd> sends or saves, <kbd>Esc</kbd>{" "}
+                closes a panel or dialog, and docs and sheets keep the usual editing keys such as copy, paste, undo
+                and bold. In a doc, type <kbd>/</kbd> for the block menu or <kbd>@</kbd> to mention something.
+              </p>
             </>
-          ),
-        },
-        {
-          id: "tasks-and-editors",
-          title: "Tasks, docs and sheets",
-          body: (
-            <table>
-              <tbody>
-                <tr>
-                  <td>
-                    <kbd>x</kbd>
-                  </td>
-                  <td>On Tasks, complete the open task (with Undo)</td>
-                </tr>
-                <tr>
-                  <td>
-                    <kbd>s</kbd>
-                  </td>
-                  <td>On Tasks, schedule the open task on the calendar</td>
-                </tr>
-                <tr>
-                  <td>
-                    <kbd>Ctrl</kbd> <kbd>Enter</kbd>
-                  </td>
-                  <td>Post a comment on a task</td>
-                </tr>
-                <tr>
-                  <td>
-                    <kbd>/</kbd> and <kbd>@</kbd>
-                  </td>
-                  <td>In a doc, open the block menu or mention a doc, sheet, task or project</td>
-                </tr>
-                <tr>
-                  <td>
-                    <kbd>Enter</kbd> or <kbd>F2</kbd>
-                  </td>
-                  <td>In a sheet, edit the selected cell; arrows and <kbd>Tab</kbd> move</td>
-                </tr>
-                <tr>
-                  <td>
-                    <kbd>Ctrl</kbd> <kbd>T</kbd>, <kbd>Ctrl</kbd> <kbd>W</kbd>, <kbd>Ctrl</kbd> <kbd>Tab</kbd>
-                  </td>
-                  <td>Open, close and switch doc and sheet tabs in the desktop app</td>
-                </tr>
-              </tbody>
-            </table>
           ),
         },
       ],

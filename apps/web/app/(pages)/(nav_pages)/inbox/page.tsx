@@ -17,7 +17,7 @@ import type { Task } from "@/app/_types/types";
 import { AnimatePresence, motion } from "motion/react";
 import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 import ScreenTip from "@/app/_components/_ui/screenTip";
-import Button, { Kbd } from "@/app/_components/_ui/button";
+import Button from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 import UpNextCard, { type InboxDecision } from "@/app/_components/inbox/upNextCard";
 import InboxSidePanel from "@/app/_components/inbox/inboxSidePanel";
@@ -114,8 +114,7 @@ export default function InboxPage() {
               <input
                 id="inbox-capture"
                 ref={captureRef}
-                data-inbox-capture
-                value={title}
+                  value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="Something to follow up…"
                 autoComplete="off"
@@ -152,7 +151,7 @@ export default function InboxPage() {
               <EmptyState
                 icon={Inbox}
                 title="Inbox zero"
-                description="Nothing is waiting for a decision. Capture anything above, or press N anywhere to create a full task."
+                description="Nothing is waiting for a decision. Capture anything above and decide later."
               />
             ) : (
               <>
@@ -183,9 +182,6 @@ export default function InboxPage() {
                       <h2 id="inbox-rest" className="text-sm font-semibold text-foreground">
                         Also waiting <span className="font-normal tabular-nums text-muted-foreground">{rest.length}</span>
                       </h2>
-                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground xl:hidden">
-                        Press <Kbd className="opacity-100">C</Kbd> to capture
-                      </p>
                     </div>
                     <motion.ul
                       className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"

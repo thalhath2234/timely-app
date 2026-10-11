@@ -2,24 +2,15 @@
 
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
-import { buttonClass, Kbd } from "@/app/_components/_ui/button";
+import { buttonClass } from "@/app/_components/_ui/button";
 import { useDecisions } from "@/app/utils/hooks/decisions";
 
 const card = "rounded-xl border border-border bg-card p-4";
 const label = "text-xs font-medium text-muted-foreground";
 
-const KEYS: [string, string][] = [
-  ["T", "Make it a task"],
-  ["R", "Remind me"],
-  ["S", "Later"],
-  ["Del", "Delete"],
-  ["C", "Capture"],
-  ["N", "New task anywhere"],
-];
-
 /**
  * The Inbox's right column on wide screens: how much is waiting and how old it
- * is, the triage keys, and a pointer to smart suggestions when they are off.
+ * is, and a pointer to smart suggestions when they are off.
  * It only summarises; the Up next card keeps the page's one strong colour.
  */
 export default function InboxSidePanel({
@@ -95,19 +86,6 @@ export default function InboxSidePanel({
         </section>
       ) : null}
 
-      <section className={card}>
-        <h2 className={label}>Keys</h2>
-        <dl className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-sm">
-          {KEYS.map(([key, action]) => (
-            <div key={key} className="contents">
-              <dt>
-                <Kbd className="h-5 min-w-6 text-[11px] opacity-100 text-muted-foreground">{key}</Kbd>
-              </dt>
-              <dd className="text-muted-foreground">{action}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
     </aside>
   );
 }

@@ -54,7 +54,7 @@ import { entityTitleKey } from "@/app/utils/titleMorph";
 import TodaySuggestions from "@/app/_components/today/todaySuggestions";
 import HabitsGoals from "@/app/_components/today/habitsGoals";
 import ScreenTip from "@/app/_components/_ui/screenTip";
-import Button, { Kbd } from "@/app/_components/_ui/button";
+import Button from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 import { buttonClass } from "@/app/_components/_ui/button";
 
@@ -742,19 +742,11 @@ export default function TodayDashboard() {
     : 0;
 
   useEffect(() => {
+    if (!pickerOpen) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (!(event.target instanceof HTMLElement)) return;
-      const tag = event.target.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || event.target.isContentEditable) return;
-      if (event.key === "Escape" && pickerOpen) {
-        event.preventDefault();
-        setPickerOpen(false);
-        return;
-      }
-      if (event.key.toLowerCase() !== "p") return;
+      if (event.key !== "Escape") return;
       event.preventDefault();
-      setPickerOpen(true);
+      setPickerOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -843,10 +835,9 @@ export default function TodayDashboard() {
               onClick={() => setPickerOpen(true)}
               disabled={remainingSlots <= 0}
               leading={<Star />}
-              title="Star a task for today (P)"
+              title="Star a task for today"
             >
               Add to focus
-              <Kbd>P</Kbd>
             </Button>
           }
         />
@@ -1143,16 +1134,10 @@ export default function TodayDashboard() {
               Review inbox
               <ArrowRight className="size-3" />
             </Link>
-            <kbd className="hidden rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline">
-              G then I
-            </kbd>
           </div>
           <div className="pointer-events-auto hidden items-center gap-2 rounded-full border border-border bg-background/90 px-3.5 py-1.5 text-[11px] text-muted-foreground md:flex">
             <span>Quick search</span>
             <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd>
-            <span className="text-border">•</span>
-            <span>New task</span>
-            <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">C</kbd>
           </div>
         </div>
       ) : null}

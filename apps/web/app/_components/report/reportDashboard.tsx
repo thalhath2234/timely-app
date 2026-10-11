@@ -179,7 +179,7 @@ export default function ReportDashboard() {
       openMenu(
         event,
         tidyEntries([
-          { kind: "action", label: "Open", icon: ExternalLink, shortcut: "Enter", onSelect: () => openRow(row) },
+          { kind: "action", label: "Open", icon: ExternalLink, onSelect: () => openRow(row) },
           row.entity !== "event" && {
             kind: "action",
             label: "Copy link",

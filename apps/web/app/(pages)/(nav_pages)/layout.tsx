@@ -5,10 +5,8 @@ import AutoScheduleIndicator from "@/app/_components/calendarView/autoScheduleIn
 import ToastHost from "@/app/_components/_ui/toastHost";
 import ContextMenuHost from "@/app/_components/_ui/contextMenu";
 import ConfirmHost from "@/app/_components/_ui/confirmHost";
-import KeyboardShortcuts from "@/app/_components/_ui/keyboardShortcuts";
 import EntityDetailHost from "@/app/_components/_ui/tasks/entityDetailHost";
 import PageTabLinks from "@/app/_components/pageTabs/pageTabLinks";
-import { Suspense } from "react";
 
 export default async function DashboardLayout({
   children,
@@ -22,9 +20,6 @@ export default async function DashboardLayout({
       <EntityDetailHost />
       <PageTabLinks />
       <AutoScheduleIndicator />
-      <Suspense fallback={null}>
-        <KeyboardShortcuts />
-      </Suspense>
       <ToastHost />
       <ContextMenuHost />
       <ConfirmHost />
