@@ -186,3 +186,24 @@ export function cellFitsType(type: SheetColumnType | undefined, value: string): 
   if (type === "boolean") return trimmed === "TRUE" || trimmed === "FALSE";
   return true;
 }
+
+/**
+ * What a person typed into a cell, read the way spreadsheets do at entry
+ * time: in a percent column "25" means 25% (stored as 0.25), like "25%" and
+ * "0.25". Only used when typing, never when re-normalizing stored values.
+ */
+export function typedEntryForColumn(type: SheetColumnType | undefined, value: string): string {
+  const trimmed = value.trim();
+  if (type !== "percent" || !trimmed || isFormulaValue(trimmed) || trimmed.endsWith("%")) return value;
+  const parsed = parseNumberInput(trimmed);
+  if (parsed === null || Math.abs(parsed) < 1) return value;
+  return String(Number((parsed / 100).toPrecision(15)));
+}
+
+/** The text an editor starts with: percent cells edit as "25%", not 0.25. */
+export function editTextForCell(type: SheetColumnType | undefined, raw: string): string {
+  if (type !== "percent" || isFormulaValue(raw)) return raw;
+  const trimmed = raw.trim();
+  if (!/^-?\d*\.?\d+(e[-+]?\d+)?$/i.test(trimmed)) return raw;
+  return `${Number((Number(trimmed) * 100).toPrecision(15))}%`;
+}

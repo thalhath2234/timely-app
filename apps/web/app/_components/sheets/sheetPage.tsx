@@ -14,7 +14,7 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
-import SheetGrid from "@/app/_components/sheets/sheetGrid";
+import SheetGrid, { type SheetGridChange } from "@/app/_components/sheets/sheetGrid";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Sheet, SheetTab } from "@/app/_types/types";
 import { UpdateSheetPayload } from "@/app/utils/api/sheets";
@@ -34,9 +34,10 @@ import { createSheetEvaluator } from "@timely/contract/sheetFormula";
 import { downloadCsv, sheetToCsv } from "@/app/utils/sheetCsv";
 import {
   addWorkbookTab,
+  duplicateWorkbookTab,
   tabsFromSheet,
-  workbookPayload,
 } from "@/app/utils/sheetWorkbook";
+import { adjustTabForStructure, renameSheetInTabs, type StructureChange } from "@timely/contract/sheetOps";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { addTabMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
 import { registerSheetFlush } from "@/app/utils/sheetFlush";
@@ -112,22 +113,45 @@ function SheetView({ sheet }: { sheet: Sheet }) {
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
-  const { schedule, flush, status } = useAutosave<UpdateSheetPayload>((patch) =>
-    updateSheet.mutateAsync({ id: sheet.id, ...patch }),
-  );
   const tabsRef = useRef(tabs);
+  /**
+   * Tabs changed since the last confirmed save. Only these are sent, with the
+   * tab order, so two devices editing different tabs don't overwrite each
+   * other. A sheet saved before tabs existed sends every tab once.
+   */
+  const dirtyTabsRef = useRef<Set<string>>(
+    new Set(sheet.tabs && sheet.tabs.length > 0 ? [] : tabs.map((tab) => tab.id)),
+  );
+
+  const { schedule, flush, status } = useAutosave<UpdateSheetPayload>(async (patch) => {
+    const result = await updateSheet.mutateAsync({ id: sheet.id, ...patch });
+    // A tab is clean once the copy that was sent is still the current one.
+    for (const sent of patch.tabs ?? []) {
+      if (tabsRef.current.find((tab) => tab.id === sent.id) === sent) dirtyTabsRef.current.delete(sent.id);
+    }
+    return result;
+  });
 
   useEffect(() => registerSheetFlush(sheet.id, flush), [sheet.id, flush]);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 
   const persistTabs = (nextTabs: SheetTab[]) => {
+    const previous = tabsRef.current;
+    for (const tab of nextTabs) {
+      if (previous.find((item) => item.id === tab.id) !== tab) dirtyTabsRef.current.add(tab.id);
+    }
+    const ids = new Set(nextTabs.map((tab) => tab.id));
+    for (const id of [...dirtyTabsRef.current]) if (!ids.has(id)) dirtyTabsRef.current.delete(id);
     tabsRef.current = nextTabs;
     setTabs(nextTabs);
     if (!nextTabs.some((tab) => tab.id === activeTabId) && nextTabs[0]) {
       setActiveTabId(nextTabs[0].id);
     }
-    schedule(workbookPayload(nextTabs));
+    schedule({
+      tabs: nextTabs.filter((tab) => dirtyTabsRef.current.has(tab.id)),
+      tabOrder: nextTabs.map((tab) => tab.id),
+    });
   };
 
   const handleDelete = async () => {
@@ -135,25 +159,69 @@ function SheetView({ sheet }: { sheet: Sheet }) {
     router.push(FILES_PATH);
   };
 
-  const handleGridChange = (next: Partial<Pick<SheetTab, "columns" | "rows" | "merges">>) => {
-    if (!activeTab) return;
+  const handleGridChange = (next: SheetGridChange, meta?: { structure?: StructureChange }) => {
+    const current = tabsRef.current;
+    const active = current.find((tab) => tab.id === activeTabId) ?? current[0];
+    if (!active) return;
     persistTabs(
-      tabs.map((tab) =>
-        tab.id === activeTab.id
-          ? {
-              ...tab,
-              columns: next.columns ?? tab.columns,
-              rows: next.rows ?? tab.rows,
-              merges: next.merges ?? tab.merges,
-            }
-          : tab,
-      ),
+      current.map((tab) => {
+        if (tab.id === active.id) {
+          const updated: SheetTab = { ...tab };
+          for (const key of Object.keys(next) as (keyof SheetGridChange)[]) {
+            if (next[key] !== undefined) (updated as unknown as Record<string, unknown>)[key] = next[key];
+          }
+          return updated;
+        }
+        // Rows or columns moved in the active tab: references to it follow.
+        return meta?.structure ? adjustTabForStructure(tab, meta.structure, active.name) : tab;
+      }),
     );
+  };
+
+  const renameTab = (id: string, name: string) => {
+    const current = tabsRef.current;
+    const tab = current.find((item) => item.id === id);
+    if (!tab) return;
+    const wanted = name.trim() || tab.name;
+    // Tab names stay unique so formulas can tell them apart.
+    let unique = wanted;
+    for (let n = 2; current.some((item) => item.id !== id && item.name.toLowerCase() === unique.toLowerCase()); n += 1) {
+      unique = `${wanted} ${n}`;
+    }
+    if (unique === tab.name) return;
+    const renamed = current.map((item) => (item.id === id ? { ...item, name: unique } : item));
+    persistTabs(renameSheetInTabs(renamed, tab.name, unique));
+  };
+
+  const deleteTab = (id: string) => {
+    const current = tabsRef.current;
+    if (current.length <= 1) return;
+    const index = current.findIndex((tab) => tab.id === id);
+    const removed = current[index];
+    if (!removed) return;
+    persistTabs(current.filter((tab) => tab.id !== id));
+    showUndoToast(`Deleted “${removed.name}”`, () => {
+      const now = tabsRef.current;
+      if (now.some((tab) => tab.id === removed.id)) return;
+      const restored = [...now];
+      restored.splice(Math.min(index, restored.length), 0, removed);
+      setActiveTabId(removed.id);
+      persistTabs(restored);
+    });
+  };
+
+  const moveTab = (id: string, direction: -1 | 1) => {
+    const current = [...tabsRef.current];
+    const index = current.findIndex((tab) => tab.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= current.length) return;
+    [current[index], current[target]] = [current[target], current[index]];
+    persistTabs(current);
   };
 
   const handleExport = () => {
     if (!activeTab) return;
-    const evaluator = createSheetEvaluator(activeTab.columns, activeTab.rows);
+    const evaluator = createSheetEvaluator(activeTab.columns, activeTab.rows, { tabs, currentTabId: activeTab.id });
     const csv = sheetToCsv(activeTab.columns, activeTab.rows, evaluator.displayAt);
     downloadCsv(activeTab.name || title || "sheet", csv);
   };
@@ -168,7 +236,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
   };
 
   const tabItems = useMemo(
-    () => tabs.map((tab) => ({ id: tab.id, name: tab.name })),
+    () => tabs.map((tab) => ({ id: tab.id, name: tab.name, color: tab.color })),
     [tabs],
   );
 
@@ -379,6 +447,10 @@ function SheetView({ sheet }: { sheet: Sheet }) {
             columns={activeTab.columns}
             rows={activeTab.rows}
             merges={activeTab.merges ?? []}
+            frozenRows={activeTab.frozenRows ?? 0}
+            frozenCols={activeTab.frozenCols ?? 0}
+            conditionalFormats={activeTab.conditionalFormats}
+            workbook={tabs}
             onChange={handleGridChange}
             tabs={tabItems}
             activeTabId={activeTab.id}
@@ -419,15 +491,27 @@ function SheetView({ sheet }: { sheet: Sheet }) {
                 { title: "New tab" },
               );
             }}
-            onRenameTab={(id, name) =>
+            onRenameTab={renameTab}
+            onDeleteTab={deleteTab}
+            onMoveTab={moveTab}
+            onDuplicateTab={(id) => {
+              const next = duplicateWorkbookTab(tabsRef.current, id);
+              if (next === tabsRef.current) return;
+              const copy = next[next.findIndex((tab) => tab.id === id) + 1];
+              if (copy) setActiveTabId(copy.id);
+              persistTabs(next);
+            }}
+            onColorTab={(id, color) =>
               persistTabs(
-                tabs.map((tab) => (tab.id === id ? { ...tab, name } : tab)),
+                tabsRef.current.map((tab) => {
+                  if (tab.id !== id) return tab;
+                  const next = { ...tab };
+                  if (color) next.color = color;
+                  else delete next.color;
+                  return next;
+                }),
               )
             }
-            onDeleteTab={(id) => {
-              if (tabs.length <= 1) return;
-              persistTabs(tabs.filter((tab) => tab.id !== id));
-            }}
           />
         )}
       </div>

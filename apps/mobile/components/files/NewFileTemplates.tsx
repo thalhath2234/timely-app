@@ -3,12 +3,14 @@ import { Alert, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { FileText, LayoutTemplate, Sheet as SheetIcon, Sparkles } from "lucide-react-native";
 import { availableTemplates, contentFromTemplate, templateVars } from "@timely/contract/templates";
+import { builtinSheetTemplate, isBuiltinSheetTemplate } from "@timely/contract/sheetTemplates";
 import BottomSheet from "../ui/BottomSheet";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { Field, PropertyRow } from "../ui/primitives";
 import { useCreateDoc, useCreateSheet, useDecisionsStatusQuery, useDocsQuery, useSheetTemplatesQuery } from "../../lib/hooks";
 import { getDocTemplateSuggestion, getSheetTemplateSuggestion, sendDecisionFeedback } from "../../lib/api/decisions";
 import {
+  builtinSheetTemplateChoices,
   docTemplateChoices,
   docTitleFromTemplate,
   sheetTemplateChoices,
@@ -59,11 +61,13 @@ export function useNewFileTemplates(kind: FileKind, title: string, enabled: bool
   const sheetTemplatesQ = useSheetTemplatesQuery();
   const docTemplates = useMemo(() => availableTemplates(docsQ.data ?? []), [docsQ.data]);
   const choices = useMemo<TemplateChoice[]>(() => {
-    if (kind === "sheet") return sheetTemplateChoices(sheetTemplatesQ.data ?? []);
+    if (kind === "sheet") return [...sheetTemplateChoices(sheetTemplatesQ.data ?? []), ...builtinSheetTemplateChoices()];
     const plain = new Map((docsQ.data ?? []).map((doc) => [doc.id, doc.plainText ?? ""]));
     return docTemplateChoices(docTemplates, plain);
   }, [kind, docTemplates, docsQ.data, sheetTemplatesQ.data]);
-  const suggestion = useTemplateSuggestion(kind, title, enabled && choices.length > 0);
+  // Sheet suggestions pick among the person's stored templates only.
+  const askable = kind === "sheet" ? choices.some((choice) => !isBuiltinSheetTemplate(choice.id)) : choices.length > 0;
+  const suggestion = useTemplateSuggestion(kind, title, enabled && askable);
   const { suggested, rest } = withSuggestion(choices, suggestion?.templateId);
   return {
     kind,
@@ -98,6 +102,12 @@ export function useCreateFromTemplate() {
       } else {
         id = (await createDoc.mutateAsync({ title: typed || "Untitled", workspaceId: input.workspaceId })).id;
       }
+    } else if (input.templateId && isBuiltinSheetTemplate(input.templateId)) {
+      // Built-in sheets are built here and created as an ordinary sheet.
+      const builtin = builtinSheetTemplate(input.templateId);
+      if (!builtin) throw new Error("That template is not available.");
+      const payload = builtin.build({ year: new Date().getFullYear() });
+      id = (await createSheet.mutateAsync({ ...payload, title: typed || payload.title, workspaceId: input.workspaceId })).id;
     } else if (input.templateId) {
       id = (await createSheet.mutateAsync({ templateId: input.templateId, title: typed || undefined, workspaceId: input.workspaceId })).id;
     } else {

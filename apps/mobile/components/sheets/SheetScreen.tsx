@@ -18,13 +18,13 @@ import { showUndoToast } from "../../lib/toast";
 import { shareLocalText } from "../../lib/api/portability";
 import {
   addWorkbookTab,
-  formatCellDisplay,
   normalizeSheet,
   tabsFromSheet,
   workbookPayload,
 } from "../../lib/sheet";
 import { sheetToCsv } from "../../lib/sheetCsv";
 import { createSheetEvaluator } from "@timely/contract/sheetFormula";
+import { formatSheetCell } from "@timely/contract/sheetDisplay";
 import { timeAgo } from "../../lib/format";
 import type { UpdateSheetPayload } from "../../lib/api/sheets";
 import type { Sheet, SheetTab } from "../../lib/types";
@@ -142,11 +142,12 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   async function exportCsv() {
     if (!activeTab) return;
     try {
-      const evaluator = createSheetEvaluator(activeTab.columns, activeTab.rows);
+      const evaluator = createSheetEvaluator(activeTab.columns, activeTab.rows, { tabs, currentTabId: activeTab.id });
       const csv = sheetToCsv(activeTab.columns, activeTab.rows, (col, row) => {
         const column = activeTab.columns[col];
         const format = column ? activeTab.rows[row]?.formats?.[column.id] : undefined;
-        return formatCellDisplay(evaluator.displayAt(col, row), format, column?.type);
+        const raw = column ? String(activeTab.rows[row]?.cells?.[column.id] ?? "") : "";
+        return formatSheetCell(evaluator.valueAt(col, row), column, raw, format);
       });
       const filename = `${(sheet.title || "sheet").replace(/[^\w.-]+/g, "_")}.csv`;
       await shareLocalText(filename, csv, "text/csv");
@@ -217,6 +218,9 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
             columns={activeTab.columns}
             rows={activeTab.rows}
             merges={activeTab.merges ?? []}
+            workbook={{ tabs, currentTabId: activeTab.id }}
+            conditionalFormats={activeTab.conditionalFormats}
+            frozenRows={activeTab.frozenRows ?? 0}
             onChange={handleGridChange}
           />
         ) : null}
@@ -232,7 +236,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
                 setTabDraft(tab.name);
                 setMenu("tab");
               }}
-              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn]}
+              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn, tab.color ? { borderBottomColor: tab.color } : null]}
             >
               <Text style={[styles.tabLabel, tab.id === activeTab?.id && styles.tabLabelOn]}>{tab.name}</Text>
             </Pressable>

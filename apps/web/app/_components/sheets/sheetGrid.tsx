@@ -49,11 +49,23 @@ import Type from "lucide-react/dist/esm/icons/type.mjs";
 import Underline from "lucide-react/dist/esm/icons/underline.mjs";
 import Undo2 from "lucide-react/dist/esm/icons/undo-2.mjs";
 import WrapText from "lucide-react/dist/esm/icons/wrap-text.mjs";
+import Palette from "lucide-react/dist/esm/icons/palette.mjs";
+import Snowflake from "lucide-react/dist/esm/icons/snowflake.mjs";
+import EyeOff from "lucide-react/dist/esm/icons/eye-off.mjs";
+import Eye from "lucide-react/dist/esm/icons/eye.mjs";
+import Copy from "lucide-react/dist/esm/icons/copy.mjs";
+import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left.mjs";
+import ArrowRight from "lucide-react/dist/esm/icons/arrow-right.mjs";
+import ArrowDown from "lucide-react/dist/esm/icons/arrow-down.mjs";
+import ListFilter from "lucide-react/dist/esm/icons/list-filter.mjs";
+import Settings2 from "lucide-react/dist/esm/icons/settings-2.mjs";
 import {
   SheetBorder,
   SheetCellFormat,
   SheetColumn,
+  SheetColumnFormat,
   SheetColumnType,
+  SheetConditionalFormat,
   SheetFontFamily,
   SheetMerge,
   SheetNumberFormat,
@@ -64,8 +76,26 @@ import {
   columnIndexToLetter,
   createSheetEvaluator,
   shiftFormula,
+  type WorkbookTab,
 } from "@timely/contract/sheetFormula";
-import { isFormulaValue, normalizeTypedCell } from "@timely/contract/sheetCell";
+import {
+  cellFitsType,
+  editTextForCell,
+  isFormulaValue,
+  normalizeTypedCell,
+  typedEntryForColumn,
+} from "@timely/contract/sheetCell";
+import { conditionalStyles, formatSheetCell } from "@timely/contract/sheetDisplay";
+import {
+  applyStructureChange,
+  parseClipboardTable,
+  pasteTable as pasteIntoGrid,
+  seriesValues,
+  sortGridRows,
+  tableToClipboardText,
+  type StructureChange,
+} from "@timely/contract/sheetOps";
+import { SHEET_FUNCTION_HELP } from "@timely/contract/sheetFunctions";
 import {
   isBooleanTrue,
   newColumnId,
@@ -73,7 +103,6 @@ import {
   setCellFormat,
   isEmptyCellFormat,
   parseSelectOptions,
-  SHEET_COLUMN_TYPES,
   syncSelectOptions,
   toggleNumberFormat,
 } from "@/app/utils/sheetColumns";
@@ -82,7 +111,6 @@ import {
   cellFormatFontFamily,
   cellTextDecoration,
   defaultAlign,
-  formatSheetDisplay,
   statusChip,
 } from "@/app/utils/sheetDisplay";
 import {
@@ -117,6 +145,7 @@ import {
 import {
   closeOpenParens,
   formulaAcceptsAnotherRange,
+  formulaInputHint,
   insertFormulaRange,
   type FormulaRefSpan,
 } from "@timely/contract/sheetFormulaInput";
@@ -129,39 +158,28 @@ import {
 } from "@/app/_store/contextMenuStore";
 import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
+import DatePicker from "@/app/_components/_ui/datePicker";
+import SheetColorSwatches, { SHEET_FILL_COLORS, SHEET_TEXT_COLORS } from "@/app/_components/sheets/sheetColorSwatches";
+import SheetColumnSettings from "@/app/_components/sheets/sheetColumnSettings";
+import SheetConditionalPanel from "@/app/_components/sheets/sheetConditionalPanel";
+import SheetColumnFilter from "@/app/_components/sheets/sheetColumnFilter";
+import { sheetPrintHtml } from "@/app/_components/sheets/sheetPrint";
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 640;
 const ROW_HEADER_WIDTH = 52;
 const ROW_HEIGHT = 32;
+const HEADER_HEIGHT = 34;
+/** Above this many rows only the rows in view are drawn. */
+const VIRTUAL_ROWS = 120;
+const OVERSCAN_ROWS = 24;
 const ZOOM_OPTIONS = [50, 75, 90, 100, 125, 150, 200];
 const FONT_SIZES = [10, 11, 12, 14, 18, 24];
-const TEXT_COLORS = ["#e8eaed", "#f28b82", "#fdd663", "#81c995", "#8ab4f8", "#c58af9", "#ff8bcb"];
-const FILL_COLORS = ["#202124", "#5f2120", "#614a19", "#137333", "#174ea6", "#7627bb", "#3c4043"];
-const FORMULA_INSERTS: { label: string; template: (range: string) => string }[] = [
-  { label: "SUM", template: (range) => `=SUM(${range})` },
-  { label: "AVERAGE", template: (range) => `=AVERAGE(${range})` },
-  { label: "MIN", template: (range) => `=MIN(${range})` },
-  { label: "MAX", template: (range) => `=MAX(${range})` },
-  { label: "PRODUCT", template: (range) => `=PRODUCT(${range})` },
-  { label: "COUNT", template: (range) => `=COUNT(${range})` },
-  { label: "COUNTA", template: (range) => `=COUNTA(${range})` },
-  { label: "ABS", template: (range) => `=ABS(${range || "A1"})` },
-  { label: "SQRT", template: (range) => `=SQRT(${range || "A1"})` },
-  { label: "ROUND", template: (range) => `=ROUND(${range || "A1"},0)` },
-  { label: "FLOOR", template: (range) => `=FLOOR(${range || "A1"})` },
-  { label: "CEILING", template: (range) => `=CEILING(${range || "A1"})` },
-  { label: "POWER", template: (range) => `=POWER(${range || "A1"},2)` },
-  { label: "IF", template: (range) => `=IF(${range || "A1"}>0,"yes","no")` },
-  { label: "AND", template: (range) => `=AND(${range})` },
-  { label: "OR", template: (range) => `=OR(${range})` },
-  { label: "NOT", template: (range) => `=NOT(${range || "A1"})` },
-  { label: "CONCAT", template: (range) => `=CONCAT(${range || "A1"},"")` },
-  { label: "LEN", template: (range) => `=LEN(${range || "A1"})` },
-  { label: "UPPER", template: (range) => `=UPPER(${range || "A1"})` },
-  { label: "LOWER", template: (range) => `=LOWER(${range || "A1"})` },
-  { label: "TRIM", template: (range) => `=TRIM(${range || "A1"})` },
-];
+const FUNCTION_NAMES = Object.keys(SHEET_FUNCTION_HELP);
+/** Functions that take a range first, so the selection is filled in for them. */
+const RANGE_FUNCTIONS = new Set(["SUM", "AVERAGE", "MIN", "MAX", "MEDIAN", "COUNT", "COUNTA", "COUNTBLANK", "PRODUCT", "AND", "OR", "STDEV", "UNIQUE", "SORT"]);
+const FUNCTION_GROUPS = ["Math", "Conditional", "Lookup", "Logic", "Text", "Date"];
+const functionTemplate = (name: string) => (range: string) => `=${name}(${RANGE_FUNCTIONS.has(name) ? range : ""})`;
 const NUMBER_FORMATS: { value: SheetNumberFormat | ""; label: string }[] = [
   { value: "", label: "Automatic" },
   { value: "plain", label: "Plain text" },
@@ -176,32 +194,52 @@ const POPOVER_PANEL =
 const POPOVER_ITEM =
   "block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent";
 
+export interface SheetGridChange {
+  columns?: SheetColumn[];
+  rows?: SheetRow[];
+  merges?: SheetMerge[];
+  frozenRows?: number;
+  frozenCols?: number;
+  conditionalFormats?: SheetConditionalFormat[];
+}
+
 type GridSnapshot = {
   columns: SheetColumn[];
   rows: SheetRow[];
   merges: SheetMerge[];
+  frozenRows: number;
+  frozenCols: number;
+  conditionalFormats: SheetConditionalFormat[];
+  /** The insert/delete that produced the next state, so undo can reverse it in other tabs. */
+  structure?: StructureChange;
 };
 
 export interface SheetTabItem {
   id: string;
   name: string;
+  color?: string;
 }
 
 export interface SheetGridProps {
   columns: SheetColumn[];
   rows: SheetRow[];
   merges?: SheetMerge[];
-  onChange: (next: {
-    columns?: SheetColumn[];
-    rows?: SheetRow[];
-    merges?: SheetMerge[];
-  }) => void;
+  frozenRows?: number;
+  frozenCols?: number;
+  conditionalFormats?: SheetConditionalFormat[];
+  /** Every tab, so formulas can read other tabs (`=SUM(January!H2:H)`). */
+  workbook?: WorkbookTab[];
+  /** `structure` says rows or columns moved, so formulas in other tabs must follow. */
+  onChange: (next: SheetGridChange, meta?: { structure?: StructureChange }) => void;
   tabs?: SheetTabItem[];
   activeTabId?: string;
   onSelectTab?: (id: string) => void;
   onAddTab?: (event: ReactMouseEvent) => void;
   onRenameTab?: (id: string, name: string) => void;
   onDeleteTab?: (id: string) => void;
+  onDuplicateTab?: (id: string) => void;
+  onMoveTab?: (id: string, direction: -1 | 1) => void;
+  onColorTab?: (id: string, color: string | undefined) => void;
 }
 
 function emptyRow(columns: SheetColumn[]): SheetRow {
@@ -244,17 +282,41 @@ function cellFitEdit(column: SheetColumn, rows: SheetRow[], rowIndex: number, va
   };
 }
 
-function parseTsv(text: string): string[][] {
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const body = normalized.endsWith("\n") ? normalized.slice(0, -1) : normalized;
-  if (body === "") return [];
-  return body.split("\n").map((line) => line.split("\t"));
+function newBlankColumn(index: number): SheetColumn {
+  return { id: newColumnId(), name: columnIndexToLetter(index), width: 160, type: "text" };
+}
+
+const GRID_MAKERS = { row: emptyRow, column: newBlankColumn };
+const EMPTY_RULES: SheetConditionalFormat[] = [];
+const TAB_COLORS = [
+  { label: "Purple", value: "#6E56CF" },
+  { label: "Blue", value: "#0090FF" },
+  { label: "Teal", value: "#12A594" },
+  { label: "Green", value: "#30A66D" },
+  { label: "Amber", value: "#FFB224" },
+  { label: "Orange", value: "#F76808" },
+  { label: "Red", value: "#E5484D" },
+  { label: "Pink", value: "#E93D82" },
+];
+
+function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...record };
+  delete next[key];
+  return next;
+}
+
+function inverseChange(change: StructureChange): StructureChange {
+  return { ...change, kind: change.kind === "insert" ? "delete" : "insert" };
 }
 
 export default function SheetGrid({
   columns,
   rows,
   merges = [],
+  frozenRows: frozenRowsProp = 0,
+  frozenCols: frozenColsProp = 0,
+  conditionalFormats = EMPTY_RULES,
+  workbook,
   onChange: persist,
   tabs,
   activeTabId,
@@ -262,6 +324,9 @@ export default function SheetGrid({
   onAddTab,
   onRenameTab,
   onDeleteTab,
+  onDuplicateTab,
+  onMoveTab,
+  onColorTab,
 }: SheetGridProps) {
   const [range, setRange] = useState<CellRange>({
     anchor: { col: 0, row: 0 },
@@ -274,18 +339,25 @@ export default function SheetGrid({
   );
   const [typeMenuIndex, setTypeMenuIndex] = useState<number | null>(null);
   const [optionsEditorIndex, setOptionsEditorIndex] = useState<number | null>(null);
+  const [filterMenuIndex, setFilterMenuIndex] = useState<number | null>(null);
   const columnPopoverAnchorRef = useRef<HTMLDivElement>(null);
   const [filterQuery, setFilterQuery] = useState("");
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
   const [paintFormat, setPaintFormat] = useState<SheetCellFormat | null>(null);
   const [formulaRanges, setFormulaRanges] = useState<CellRange[]>([]);
+  const [caret, setCaret] = useState(0);
+  const [functionQuery, setFunctionQuery] = useState("");
   const [history, setHistory] = useState<{ past: GridSnapshot[]; future: GridSnapshot[] }>({
     past: [],
     future: [],
   });
+  const [viewport, setViewport] = useState({ top: 0, height: 800 });
 
+  const frozenRows = Math.min(frozenRowsProp, rows.length);
+  const frozenCols = Math.min(frozenColsProp, columns.length);
   const selected = activeCellInRange(range, merges);
   const gridRef = useRef<HTMLDivElement>(null);
   const cellInputRef = useRef<HTMLInputElement>(null);
@@ -295,13 +367,16 @@ export default function SheetGrid({
     "select" | "fill" | "formula" | "formula-col" | "formula-row" | null
   >(null);
   const fillOriginRef = useRef<CellRange | null>(null);
+  /** Set by keyboard moves so the effect below scrolls the new cell into view. */
+  const revealRef = useRef(false);
   const formulaPickOriginRef = useRef<CellAddress | null>(null);
   const formulaSpanRef = useRef<FormulaRefSpan | null>(null);
   const formulaPickingRef = useRef(false);
   const caretRef = useRef(0);
   const draftRef = useRef(draft);
   const editingRef = useRef(editing);
-  const clipboardRef = useRef<string[][]>([]);
+  /** What this grid last copied, so pasting it shifts formulas like a fill. */
+  const clipboardRef = useRef<{ text: string; table: string[][]; origin: CellAddress; cut: boolean } | null>(null);
   const resizeStateRef = useRef<{
     index: number;
     startX: number;
@@ -318,29 +393,58 @@ export default function SheetGrid({
   const cellFit = useCellFit(fitEdit);
   const fitFeedback = useDecisionFeedback();
 
+  const sheetName = tabs?.find((tab) => tab.id === activeTabId)?.name ?? "Sheet 1";
+
   const evaluator = useMemo(
-    () => createSheetEvaluator(columns, rows),
-    [columns, rows],
+    () =>
+      createSheetEvaluator(
+        columns,
+        rows,
+        workbook && activeTabId
+          ? {
+              tabs: workbook.map((tab) => (tab.id === activeTabId ? { ...tab, columns, rows } : tab)),
+              currentTabId: activeTabId,
+            }
+          : undefined,
+      ),
+    [activeTabId, columns, rows, workbook],
   );
 
-  const commit = (next: {
-    columns?: SheetColumn[];
-    rows?: SheetRow[];
-    merges?: SheetMerge[];
-  }) => {
+  const conditional = useMemo(
+    () => conditionalStyles(conditionalFormats, columns, rows.length, evaluator.valueAt, frozenRows),
+    [columns, conditionalFormats, evaluator, frozenRows, rows.length],
+  );
+
+  const snapshot = (): GridSnapshot => ({ columns, rows, merges, frozenRows, frozenCols, conditionalFormats });
+
+  const commit = (next: SheetGridChange, meta?: { structure?: StructureChange }) => {
     setHistory((current) => ({
-      past: [...current.past.slice(-79), { columns, rows, merges }],
+      past: [...current.past.slice(-79), { ...snapshot(), structure: meta?.structure }],
       future: [],
     }));
     if (next.rows) {
       // Dropdown columns learn new values as they are typed or pasted.
       const synced = syncSelectOptions(next.columns ?? columns, next.rows);
       if (synced.columns !== (next.columns ?? columns) || synced.rows !== next.rows) {
-        persist({ ...next, columns: synced.columns, rows: synced.rows });
+        persist({ ...next, columns: synced.columns, rows: synced.rows }, meta);
         return;
       }
     }
-    persist(next);
+    persist(next, meta);
+  };
+
+  const restore = (state: GridSnapshot, structure?: StructureChange) => {
+    persist(
+      {
+        columns: state.columns,
+        rows: state.rows,
+        merges: state.merges,
+        frozenRows: state.frozenRows,
+        frozenCols: state.frozenCols,
+        conditionalFormats: state.conditionalFormats,
+      },
+      structure ? { structure } : undefined,
+    );
   };
 
   const undo = () => {
@@ -348,19 +452,20 @@ export default function SheetGrid({
     if (!prev) return;
     setHistory({
       past: history.past.slice(0, -1),
-      future: [...history.future, { columns, rows, merges }],
+      future: [...history.future, { ...snapshot(), structure: prev.structure }],
     });
-    persist(prev);
+    // Other tabs followed the insert/delete; undoing it walks them back.
+    restore(prev, prev.structure ? inverseChange(prev.structure) : undefined);
   };
 
   const redo = () => {
     const next = history.future[history.future.length - 1];
     if (!next) return;
     setHistory({
-      past: [...history.past, { columns, rows, merges }],
+      past: [...history.past, { ...snapshot(), structure: next.structure }],
       future: history.future.slice(0, -1),
     });
-    persist(next);
+    restore(next, next.structure);
   };
 
   const rawAt = (address: CellAddress) => {
@@ -370,18 +475,52 @@ export default function SheetGrid({
     return row.cells?.[column.id] ?? "";
   };
 
+  /** Columns that are drawn, in order. Hidden columns keep their data. */
+  const visibleCols = useMemo(() => {
+    const shown = columns.flatMap((column, index) => (column.hidden ? [] : [index]));
+    return shown.length ? shown : [0];
+  }, [columns]);
+
+  const stepCol = (col: number, delta: number) => {
+    const position = visibleCols.indexOf(col);
+    if (position < 0) {
+      const after = visibleCols.find((index) => index > col);
+      return after ?? visibleCols[visibleCols.length - 1];
+    }
+    return visibleCols[Math.max(0, Math.min(visibleCols.length - 1, position + delta))];
+  };
+
+  const textAt = (col: number, row: number) => {
+    const column = columns[col];
+    const cell = rows[row];
+    if (!column || !cell) return "";
+    return formatSheetCell(evaluator.valueAt(col, row), column, cell.cells?.[column.id] ?? "", cell.formats?.[column.id]);
+  };
+
+  const activeFilters = Object.entries(columnFilters).filter(([id]) => columns.some((column) => column.id === id));
+
   const visibleRows = useMemo(() => {
     const query = filterQuery.trim().toLowerCase();
-    if (!query) return rows.map((_, index) => index);
+    if (!query && activeFilters.length === 0) return rows.map((_, index) => index);
+    const filters = activeFilters.map(([id, allowed]) => ({
+      col: columns.findIndex((column) => column.id === id),
+      allowed: new Set(allowed),
+    }));
     return rows.flatMap((row, index) => {
+      // Frozen header and total rows always stay in view.
+      if (index < frozenRows) return [index];
+      if (filters.some(({ col, allowed }) => !allowed.has(textAt(col, index).trim()))) return [];
+      if (!query) return [index];
       const haystack = columns
-        .map((column) => `${column.name} ${row.cells?.[column.id] ?? ""}`)
-        .join(" ")
+        .map((_, col) => textAt(col, index))
+        .join("\u0001")
         .toLowerCase();
       return haystack.includes(query) ? [index] : [];
     });
-  }, [columns, filterQuery, rows]);
-  const filtering = filterQuery.trim().length > 0;
+    // textAt reads the evaluator, which changes with rows and columns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns, filterQuery, rows, evaluator, columnFilters, frozenRows]);
+  const filtering = visibleRows.length !== rows.length || filterQuery.trim().length > 0;
 
   useEffect(() => {
     if (editing && editSourceRef.current === "cell") cellInputRef.current?.focus();
@@ -438,10 +577,15 @@ export default function SheetGrid({
       if (!column || !row) return;
       nextRows[address.row] = mutator(row, address, column);
     });
-    commit({ rows: nextRows });
+    commit({
+      rows: nextRows.map((row) => ({
+        ...row,
+        formats: row.formats && Object.keys(row.formats).length ? row.formats : undefined,
+      })),
+    });
   };
 
-  const copySelection = () => {
+  const copySelection = (cut = false) => {
     const { minCol, maxCol, minRow, maxRow } = normalizedRange(range);
     const table: string[][] = [];
     for (let row = minRow; row <= maxRow; row += 1) {
@@ -451,9 +595,9 @@ export default function SheetGrid({
       }
       table.push(line);
     }
-    clipboardRef.current = table;
-    const tsv = table.map((line) => line.join("\t")).join("\n");
-    void navigator.clipboard.writeText(tsv).catch(() => undefined);
+    const text = tableToClipboardText(table);
+    clipboardRef.current = { text, table, origin: { col: minCol, row: minRow }, cut };
+    void navigator.clipboard.writeText(text).catch(() => undefined);
   };
 
   const clearSelection = () => {
@@ -463,50 +607,48 @@ export default function SheetGrid({
     }));
   };
 
-  const pasteTable = (table: string[][], origin: CellAddress) => {
+  const pasteTable = (table: string[][], origin: CellAddress, source?: CellAddress) => {
     if (table.length === 0) return;
-    const width = Math.max(...table.map((line) => line.length), 0);
-    if (width === 0) return;
-    const nextRows = rows.map((row) => ({
-      ...row,
-      cells: { ...row.cells },
-    }));
-    for (let rowOffset = 0; rowOffset < table.length; rowOffset += 1) {
-      const rowIndex = origin.row + rowOffset;
-      if (rowIndex >= nextRows.length) break;
-      for (let colOffset = 0; colOffset < table[rowOffset].length; colOffset += 1) {
-        const colIndex = origin.col + colOffset;
-        const column = columns[colIndex];
-        const row = nextRows[rowIndex];
-        if (!column || !row) continue;
-        const value = table[rowOffset][colOffset] ?? "";
-        row.cells[column.id] = isFormulaValue(value)
-          ? value
-          : normalizeTypedCell(column.type, value);
-      }
+    const bounds = normalizedRange(range);
+    const multi = bounds.maxRow > bounds.minRow || bounds.maxCol > bounds.minCol;
+    // One copied value pasted over a selection fills all of it.
+    if (table.length === 1 && table[0].length === 1 && multi) {
+      const value = table[0][0];
+      patchCells((row, address, column) => {
+        const next = !isFormulaValue(value)
+          ? normalizeTypedCell(column.type, value)
+          : source
+            ? shiftFormula(value, address.col - source.col, address.row - source.row)
+            : value;
+        return { ...row, cells: { ...row.cells, [column.id]: next } };
+      });
+      return;
     }
-    commit({ rows: nextRows });
-    setSelection({
-      anchor: origin,
-      focus: {
-        col: Math.min(origin.col + width - 1, columns.length - 1),
-        row: Math.min(origin.row + table.length - 1, rows.length - 1),
-      },
+    const result = pasteIntoGrid({ columns, rows }, table, origin, GRID_MAKERS, source);
+    if (result.rows === 0) return;
+    commit({
+      columns: result.grid.columns !== columns ? result.grid.columns : undefined,
+      rows: result.grid.rows,
     });
+    setRange({ anchor: origin, focus: { col: origin.col + result.cols - 1, row: origin.row + result.rows - 1 } });
   };
 
   const pasteFromClipboard = async () => {
+    const copied = clipboardRef.current;
+    let text: string | null = null;
     try {
-      const text = await navigator.clipboard.readText();
-      const table = parseTsv(text);
-      if (table.length) {
-        pasteTable(table, selected);
-        return;
-      }
+      text = await navigator.clipboard.readText();
     } catch {
-      // Fall through to the in-memory copy from Cut/Copy in this session.
+      text = null;
     }
-    if (clipboardRef.current.length) pasteTable(clipboardRef.current, selected);
+    if (text !== null && text !== "" && (!copied || text !== copied.text)) {
+      pasteTable(parseClipboardTable(text), selected);
+      return;
+    }
+    if (copied) {
+      // Pasting a cut keeps formulas exactly as they were.
+      pasteTable(copied.table, selected, copied.cut ? undefined : copied.origin);
+    }
   };
 
   const applyFormat = (patch: Partial<SheetCellFormat>) => {
@@ -514,6 +656,21 @@ export default function SheetGrid({
       ...row,
       formats: setCellFormat(row.formats, column.id, patch),
     }));
+  };
+
+  const setColumnFormat = (index: number, patch: Partial<SheetColumnFormat>) => {
+    commit({
+      columns: columns.map((column, columnIndex) => {
+        if (columnIndex !== index) return column;
+        const format: SheetColumnFormat = { ...(column.format ?? {}), ...patch };
+        (Object.keys(format) as (keyof SheetColumnFormat)[]).forEach((key) => {
+          if (format[key] === undefined || format[key] === "") delete format[key];
+        });
+        const next: SheetColumn = { ...column, format };
+        if (Object.keys(format).length === 0) delete next.format;
+        return next;
+      }),
+    });
   };
 
   const setColumnType = (index: number, type: SheetColumnType) => {
@@ -590,89 +747,42 @@ export default function SheetGrid({
     setCellValue(address, isBooleanTrue(current) ? "FALSE" : "TRUE");
   };
 
-  const addColumn = (atIndex = columns.length) => {
-    const column: SheetColumn = {
-      id: newColumnId(),
-      name: columnIndexToLetter(atIndex),
-      width: 160,
-      type: "text",
-    };
-
-    const nextColumns = [...columns];
-    nextColumns.splice(atIndex, 0, column);
-
-    commit({
-      columns: nextColumns,
-      rows: rows.map((row) => ({
-        ...row,
-        cells: { ...row.cells, [column.id]: "" },
-      })),
-      merges: merges.map((merge) =>
-        merge.startCol >= atIndex
-          ? { ...merge, startCol: merge.startCol + 1 }
-          : merge.startCol + merge.colSpan > atIndex
-            ? { ...merge, colSpan: merge.colSpan + 1 }
-            : merge,
-      ),
-    });
-  };
-
-  const deleteColumn = (index: number) => {
-    if (columns.length <= 1) return;
-    const removed = columns[index];
-    commit({
-      columns: columns.filter((_, columnIndex) => columnIndex !== index),
-      rows: rows.map((row) => {
-        const cells = { ...row.cells };
-        const formats = { ...(row.formats ?? {}) };
-        delete cells[removed.id];
-        delete formats[removed.id];
-        return { ...row, cells, formats: Object.keys(formats).length ? formats : undefined };
-      }),
-      merges: merges
-        .filter((merge) => merge.startCol + merge.colSpan - 1 < index || merge.startCol > index)
-        .map((merge) =>
-          merge.startCol > index ? { ...merge, startCol: merge.startCol - 1 } : merge,
-        ),
-    });
-    setSelection({
-      col: Math.max(0, Math.min(selected.col, columns.length - 2)),
-      row: selected.row,
-    });
-  };
-
-  const addRows = (count = 1, atIndex = rows.length) => {
-    const nextRows = [...rows];
-    for (let index = 0; index < count; index += 1) {
-      nextRows.splice(atIndex + index, 0, emptyRow(columns));
+  /** Inserts or deletes rows/columns; formulas here and in other tabs follow. */
+  const changeStructure = (change: StructureChange) => {
+    if (change.count <= 0) return;
+    if (change.kind === "delete") {
+      const total = change.axis === "row" ? rows.length : columns.length;
+      if (total - change.count < 1) return;
     }
-    commit({
-      rows: nextRows,
-      merges: merges.map((merge) =>
-        merge.startRow >= atIndex
-          ? { ...merge, startRow: merge.startRow + count }
-          : merge.startRow + merge.rowSpan > atIndex
-            ? { ...merge, rowSpan: merge.rowSpan + count }
-            : merge,
-      ),
-    });
+    const next = applyStructureChange(
+      { name: sheetName, columns, rows, merges, frozenRows, frozenCols, conditionalFormats },
+      change,
+      GRID_MAKERS,
+    );
+    commit(
+      {
+        columns: next.columns,
+        rows: next.rows,
+        merges: next.merges,
+        frozenRows: next.frozenRows ?? 0,
+        frozenCols: next.frozenCols ?? 0,
+        conditionalFormats: next.conditionalFormats ?? [],
+      },
+      { structure: change },
+    );
+    if (change.kind === "delete") {
+      const limit = (change.axis === "row" ? rows.length : columns.length) - change.count - 1;
+      const at = Math.max(0, Math.min(change.at, limit));
+      setSelection(change.axis === "row" ? { col: selected.col, row: at } : { col: at, row: selected.row });
+    }
   };
 
-  const deleteRow = (index: number) => {
-    if (rows.length <= 1) return;
-    commit({
-      rows: rows.filter((_, rowIndex) => rowIndex !== index),
-      merges: merges
-        .filter((merge) => merge.startRow + merge.rowSpan - 1 < index || merge.startRow > index)
-        .map((merge) =>
-          merge.startRow > index ? { ...merge, startRow: merge.startRow - 1 } : merge,
-        ),
-    });
-    setSelection({
-      col: selected.col,
-      row: Math.max(0, Math.min(selected.row, rows.length - 2)),
-    });
-  };
+  const addColumn = (atIndex = columns.length, count = 1) =>
+    changeStructure({ kind: "insert", axis: "col", at: atIndex, count });
+  const deleteColumns = (at: number, count = 1) => changeStructure({ kind: "delete", axis: "col", at, count });
+  const addRows = (count = 1, atIndex = rows.length) =>
+    changeStructure({ kind: "insert", axis: "row", at: atIndex, count });
+  const deleteRows = (at: number, count = 1) => changeStructure({ kind: "delete", axis: "row", at, count });
 
   const renameColumn = (index: number, name: string) => {
     commit({
@@ -684,72 +794,101 @@ export default function SheetGrid({
     });
   };
 
-  const sortByColumn = (index: number, direction: "asc" | "desc") => {
-    const column = columns[index];
-    if (!column) return;
-    const sorted = [...rows].sort((left, right) => {
-      const a = left.cells?.[column.id] ?? "";
-      const b = right.cells?.[column.id] ?? "";
-      const aNum = Number(a.replace(/,/g, ""));
-      const bNum = Number(b.replace(/,/g, ""));
-      const bothNumeric = a !== "" && b !== "" && Number.isFinite(aNum) && Number.isFinite(bNum);
-      const compared = bothNumeric
-        ? aNum - bNum
-        : a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
-      return direction === "asc" ? compared : -compared;
+  const setColumnsHidden = (indexes: number[], hidden: boolean) => {
+    const targets = new Set(indexes);
+    const next = columns.map((column, index) => {
+      if (!targets.has(index)) return column;
+      const copy: SheetColumn = { ...column };
+      if (hidden) copy.hidden = true;
+      else delete copy.hidden;
+      return copy;
     });
-    commit({ rows: sorted, merges: [] });
+    // At least one column stays visible.
+    if (next.every((column) => column.hidden)) return;
+    commit({ columns: next });
+    if (hidden && targets.has(selected.col)) setSelection({ col: stepCol(Math.max(...indexes), 1), row: selected.row });
+  };
+
+  const setFrozen = (patch: { frozenRows?: number; frozenCols?: number }) => {
+    commit(patch);
     setOpenMenu(null);
   };
 
+  const sortByColumn = (index: number, direction: "asc" | "desc") => {
+    const column = columns[index];
+    if (!column) return;
+    const bounds = normalizedRange(range);
+    // A block of several rows sorts only those rows; otherwise the whole tab.
+    const rowRange = bounds.maxRow > bounds.minRow ? { start: bounds.minRow, end: bounds.maxRow } : undefined;
+    const sorted = sortGridRows(rows, columns, index, direction, evaluator.valueAt, { frozenRows, rowRange });
+    if (sorted === rows) {
+      setOpenMenu(null);
+      return;
+    }
+    const first = rowRange?.start ?? frozenRows;
+    const last = rowRange?.end ?? rows.length - 1;
+    // Merges inside the sorted rows cannot follow them.
+    const keptMerges = merges.filter(
+      (merge) => merge.startRow + merge.rowSpan - 1 < first || merge.startRow > last,
+    );
+    commit({ rows: sorted, merges: keptMerges.length === merges.length ? undefined : keptMerges });
+    setOpenMenu(null);
+  };
+
+  /** Drag-fill: continues number, date, month and "Item 1" series; formulas shift. */
   const fillRange = (from: CellRange, to: CellAddress) => {
     const source = normalizedRange(from);
     const target = normalizedRange({ anchor: from.anchor, focus: to });
+    const vertical = target.minRow < source.minRow || target.maxRow > source.maxRow;
+    const horizontal = !vertical && (target.minCol < source.minCol || target.maxCol > source.maxCol);
+    if (!vertical && !horizontal) return;
     const nextRows = rows.map((row) => ({
       ...row,
       cells: { ...row.cells },
       formats: { ...(row.formats ?? {}) },
     }));
 
-    for (let row = target.minRow; row <= target.maxRow; row += 1) {
-      for (let col = target.minCol; col <= target.maxCol; col += 1) {
-        if (
-          col >= source.minCol &&
-          col <= source.maxCol &&
-          row >= source.minRow &&
-          row <= source.maxRow
-        ) {
-          continue;
-        }
-        const srcCol =
-          source.minCol + ((col - source.minCol) % (source.maxCol - source.minCol + 1) + (source.maxCol - source.minCol + 1)) % (source.maxCol - source.minCol + 1);
-        const srcRow =
-          source.minRow + ((row - source.minRow) % (source.maxRow - source.minRow + 1) + (source.maxRow - source.minRow + 1)) % (source.maxRow - source.minRow + 1);
-        const sourceColumn = columns[srcCol];
-        const targetColumn = columns[col];
-        const sourceRow = nextRows[srcRow];
-        const targetRow = nextRows[row];
-        if (!sourceColumn || !targetColumn || !sourceRow || !targetRow) continue;
-        const deltaCol = col - srcCol;
-        const deltaRow = row - srcRow;
-        let value = sourceRow.cells?.[sourceColumn.id] ?? "";
-        if (isFormulaValue(value)) {
-          value = shiftFormula(value, deltaCol, deltaRow);
-        } else if (
-          source.minCol === source.maxCol &&
-          source.minRow === source.maxRow &&
-          col === srcCol
-        ) {
-          const numeric = Number(value.replace(/,/g, ""));
-          if (value !== "" && Number.isFinite(numeric)) {
-            value = String(numeric + deltaRow);
-          }
-        }
-        targetRow.cells[targetColumn.id] = isFormulaValue(value)
-          ? value
-          : normalizeTypedCell(targetColumn.type, value);
-        const sourceFormat = sourceRow.formats?.[sourceColumn.id];
-        if (sourceFormat) targetRow.formats[targetColumn.id] = sourceFormat;
+    const write = (srcCol: number, srcRow: number, col: number, row: number, value: string) => {
+      const sourceColumn = columns[srcCol];
+      const targetColumn = columns[col];
+      const sourceRow = rows[srcRow];
+      const targetRow = nextRows[row];
+      if (!sourceColumn || !targetColumn || !sourceRow || !targetRow) return;
+      targetRow.cells[targetColumn.id] = isFormulaValue(value) ? value : normalizeTypedCell(targetColumn.type, value);
+      const sourceFormat = sourceRow.formats?.[sourceColumn.id];
+      if (sourceFormat) targetRow.formats[targetColumn.id] = sourceFormat;
+      else delete targetRow.formats[targetColumn.id];
+    };
+
+    const lines = vertical
+      ? Array.from({ length: source.maxCol - source.minCol + 1 }, (_, i) => source.minCol + i)
+      : Array.from({ length: source.maxRow - source.minRow + 1 }, (_, i) => source.minRow + i);
+    for (const line of lines) {
+      const cells = vertical
+        ? Array.from({ length: source.maxRow - source.minRow + 1 }, (_, i) => ({ col: line, row: source.minRow + i }))
+        : Array.from({ length: source.maxCol - source.minCol + 1 }, (_, i) => ({ col: source.minCol + i, row: line }));
+      const values = cells.map((cell) => rawAt(cell));
+      const forward = vertical ? target.maxRow > source.maxRow : target.maxCol > source.maxCol;
+      const count = vertical
+        ? forward
+          ? target.maxRow - source.maxRow
+          : source.minRow - target.minRow
+        : forward
+          ? target.maxCol - source.maxCol
+          : source.minCol - target.minCol;
+      const series = seriesValues(values, count, !forward);
+      for (let step = 1; step <= count; step += 1) {
+        // Cells further from the source cycle through it, like a pattern.
+        const cycle = forward ? (step - 1) % cells.length : cells.length - 1 - ((step - 1) % cells.length);
+        const sourceCell = cells[cycle];
+        const position = vertical
+          ? { col: line, row: forward ? source.maxRow + step : source.minRow - step }
+          : { col: forward ? source.maxCol + step : source.minCol - step, row: line };
+        const raw = values[cycle];
+        const value = isFormulaValue(raw)
+          ? shiftFormula(raw, position.col - sourceCell.col, position.row - sourceCell.row)
+          : series[step - 1];
+        write(sourceCell.col, sourceCell.row, position.col, position.row, value);
       }
     }
 
@@ -762,6 +901,22 @@ export default function SheetGrid({
     setSelection({ anchor: from.anchor, focus: to });
   };
 
+  /** Copies the top row of the selection into the rows below it. */
+  const fillDown = () => {
+    const bounds = normalizedRange(range);
+    if (bounds.maxRow === bounds.minRow) return;
+    patchCells((row, address, column) => {
+      if (address.row === bounds.minRow) return row;
+      const sourceRow = rows[bounds.minRow];
+      const raw = sourceRow.cells?.[column.id] ?? "";
+      const value = isFormulaValue(raw) ? shiftFormula(raw, 0, address.row - bounds.minRow) : raw;
+      const formats = { ...(row.formats ?? {}) };
+      const sourceFormat = sourceRow.formats?.[column.id];
+      if (sourceFormat) formats[column.id] = sourceFormat;
+      return { ...row, cells: { ...row.cells, [column.id]: value }, formats };
+    });
+  };
+
   const startEditing = (
     address: CellAddress,
     initialValue?: string,
@@ -772,7 +927,7 @@ export default function SheetGrid({
     formulaPickOriginRef.current = null;
     setFormulaRanges([]);
     setSelection(address);
-    const nextDraft = initialValue ?? rawAt(address);
+    const nextDraft = initialValue ?? editTextForCell(columns[address.col]?.type, rawAt(address));
     caretRef.current = nextDraft.length;
     setDraft(nextDraft);
     setEditing(address);
@@ -790,9 +945,9 @@ export default function SheetGrid({
     if (!address) return;
     const startedInFormulaBar = editSourceRef.current === "formulaBar";
     const raw = draftRef.current;
-    const value = isFormulaValue(raw) ? closeOpenParens(raw.trim()) : raw;
-    editingRef.current = null;
     const column = columns[address.col];
+    const value = isFormulaValue(raw) ? closeOpenParens(raw.trim()) : typedEntryForColumn(column?.type, raw);
+    editingRef.current = null;
     const fit = column ? cellFitEdit(column, rows, address.row, normalizeTypedCell(column.type, value)) : null;
     if (fit) setFitEdit(fit);
     // Retyping a cell that had a hint counts as the hint being useful.
@@ -808,11 +963,12 @@ export default function SheetGrid({
       const merge = findMerge(merges, address);
       const nextRow = merge ? merge.startRow + merge.rowSpan : address.row + 1;
       setSelection({ col: address.col, row: Math.min(nextRow, rows.length - 1) });
+      revealRef.current = true;
     }
     if (move === "right") {
       const merge = findMerge(merges, address);
-      const nextCol = merge ? merge.startCol + merge.colSpan : address.col + 1;
-      setSelection({ col: Math.min(nextCol, columns.length - 1), row: address.row });
+      const nextCol = merge ? merge.startCol + merge.colSpan - 1 : address.col;
+      setSelection({ col: stepCol(Math.min(nextCol, columns.length - 1), 1), row: address.row });
     }
     if (!startedInFormulaBar || move !== "none") gridRef.current?.focus();
   };
@@ -829,6 +985,7 @@ export default function SheetGrid({
 
   const trackCaret = (target: HTMLInputElement) => {
     caretRef.current = target.selectionStart ?? target.value.length;
+    setCaret(caretRef.current);
   };
 
   const focusFormulaInput = (caret: number) => {
@@ -905,53 +1062,93 @@ export default function SheetGrid({
     applyFormulaRange({ anchor: origin, focus: address });
   };
 
+  const isBlankAt = (col: number, row: number) => rawAt({ col, row }).trim() === "";
+
+  /** Ctrl+Arrow: jump to the edge of the block of filled cells, like other spreadsheets. */
+  const jumpTarget = (from: CellAddress, axis: "row" | "col", delta: 1 | -1): CellAddress => {
+    if (axis === "row") {
+      const list = visibleRows;
+      let position = list.indexOf(from.row);
+      if (position < 0) position = 0;
+      const at = (p: number) => list[p];
+      const last = delta > 0 ? list.length - 1 : 0;
+      if (position === last) return from;
+      const nextBlank = isBlankAt(from.col, at(position + delta));
+      if (isBlankAt(from.col, from.row) || nextBlank) {
+        // Skip blanks to the next filled cell (or the edge).
+        let p = position + delta;
+        while (p !== last && isBlankAt(from.col, at(p))) p += delta;
+        return { col: from.col, row: at(p) };
+      }
+      let p = position;
+      while (p !== last && !isBlankAt(from.col, at(p + delta))) p += delta;
+      return { col: from.col, row: at(p) };
+    }
+    const list = visibleCols;
+    let position = list.indexOf(from.col);
+    if (position < 0) position = 0;
+    const last = delta > 0 ? list.length - 1 : 0;
+    if (position === last) return from;
+    const nextBlank = isBlankAt(list[position + delta], from.row);
+    if (isBlankAt(from.col, from.row) || nextBlank) {
+      let p = position + delta;
+      while (p !== last && isBlankAt(list[p], from.row)) p += delta;
+      return { col: list[p], row: from.row };
+    }
+    let p = position;
+    while (p !== last && !isBlankAt(list[p + delta], from.row)) p += delta;
+    return { col: list[p], row: from.row };
+  };
+
+  const stepRow = (row: number, delta: number) => {
+    const position = visibleRows.indexOf(row);
+    if (position < 0) return visibleRows[0] ?? 0;
+    return visibleRows[Math.max(0, Math.min(visibleRows.length - 1, position + delta))] ?? row;
+  };
+
+  const pageRows = () => Math.max(1, Math.floor((viewport.height - HEADER_HEIGHT) / ROW_HEIGHT) - 1);
+
   const handleGridKeyDown = (event: React.KeyboardEvent) => {
     if (editing) return;
     const extend = event.shiftKey;
+    const mod = event.metaKey || event.ctrlKey;
     const nav = normalizedRange(range);
+    const origin = extend ? range.focus : selected;
+    const move = (target: CellAddress) => {
+      event.preventDefault();
+      revealRef.current = true;
+      return setSelection(target, extend);
+    };
 
     switch (event.key) {
       case "ArrowUp":
-        event.preventDefault();
-        return setSelection(
-          {
-            col: extend ? range.focus.col : selected.col,
-            row: extend ? range.focus.row - 1 : nav.minRow - 1,
-          },
-          extend,
-        );
+        if (mod) return move(jumpTarget(origin, "row", -1));
+        return move({ col: origin.col, row: stepRow(extend ? range.focus.row : nav.minRow, -1) });
       case "ArrowDown":
-        event.preventDefault();
-        return setSelection(
-          {
-            col: extend ? range.focus.col : selected.col,
-            row: extend ? range.focus.row + 1 : nav.maxRow + 1,
-          },
-          extend,
-        );
+        if (mod) return move(jumpTarget(origin, "row", 1));
+        return move({ col: origin.col, row: stepRow(extend ? range.focus.row : nav.maxRow, 1) });
       case "ArrowLeft":
-        event.preventDefault();
-        return setSelection(
-          {
-            col: extend ? range.focus.col - 1 : nav.minCol - 1,
-            row: extend ? range.focus.row : selected.row,
-          },
-          extend,
-        );
+        if (mod) return move(jumpTarget(origin, "col", -1));
+        return move({ col: stepCol(extend ? range.focus.col : nav.minCol, -1), row: origin.row });
       case "ArrowRight":
-        event.preventDefault();
-        return setSelection(
-          {
-            col: extend ? range.focus.col + 1 : nav.maxCol + 1,
-            row: extend ? range.focus.row : selected.row,
-          },
-          extend,
+        if (mod) return move(jumpTarget(origin, "col", 1));
+        return move({ col: stepCol(extend ? range.focus.col : nav.maxCol, 1), row: origin.row });
+      case "Home":
+        return move(mod ? { col: visibleCols[0], row: visibleRows[0] ?? 0 } : { col: visibleCols[0], row: origin.row });
+      case "End":
+        return move(
+          mod
+            ? { col: visibleCols[visibleCols.length - 1], row: visibleRows[visibleRows.length - 1] ?? 0 }
+            : { col: visibleCols[visibleCols.length - 1], row: origin.row },
         );
+      case "PageDown":
+        return move({ col: origin.col, row: stepRow(origin.row, pageRows()) });
+      case "PageUp":
+        return move({ col: origin.col, row: stepRow(origin.row, -pageRows()) });
       case "Tab":
         event.preventDefault();
-        return setSelection(
-          { col: selected.col + (event.shiftKey ? -1 : 1), row: selected.row },
-        );
+        revealRef.current = true;
+        return setSelection({ col: stepCol(selected.col, event.shiftKey ? -1 : 1), row: selected.row });
       case "Enter":
       case "F2": {
         event.preventDefault();
@@ -972,23 +1169,40 @@ export default function SheetGrid({
           ...row,
           cells: { ...row.cells, [column.id]: "" },
         }));
+      case "a":
+      case "A":
+        if (mod) {
+          event.preventDefault();
+          return setSelection({
+            anchor: { col: 0, row: 0 },
+            focus: { col: columns.length - 1, row: rows.length - 1 },
+          });
+        }
+        break;
+      case "d":
+      case "D":
+        if (mod) {
+          event.preventDefault();
+          return fillDown();
+        }
+        break;
       case "z":
       case "Z":
-        if (event.metaKey || event.ctrlKey) {
+        if (mod) {
           event.preventDefault();
           return event.shiftKey ? redo() : undo();
         }
         break;
       case "y":
       case "Y":
-        if (event.metaKey || event.ctrlKey) {
+        if (mod) {
           event.preventDefault();
           return redo();
         }
         break;
       case "c":
       case "C":
-        if (event.metaKey || event.ctrlKey) {
+        if (mod) {
           event.preventDefault();
           copySelection();
           return;
@@ -996,16 +1210,16 @@ export default function SheetGrid({
         break;
       case "x":
       case "X":
-        if (event.metaKey || event.ctrlKey) {
+        if (mod) {
           event.preventDefault();
-          copySelection();
+          copySelection(true);
           clearSelection();
           return;
         }
         break;
       case "v":
       case "V":
-        if (event.metaKey || event.ctrlKey) {
+        if (mod) {
           event.preventDefault();
           void pasteFromClipboard();
           return;
@@ -1017,7 +1231,7 @@ export default function SheetGrid({
       case "I":
       case "u":
       case "U":
-        if (event.metaKey || event.ctrlKey) {
+        if (mod) {
           event.preventDefault();
           const current = formatAt(rows[selected.row], columns[selected.col]?.id);
           const key = event.key.toLowerCase();
@@ -1072,20 +1286,23 @@ export default function SheetGrid({
   }, [columns, persist, zoom]);
 
   useEffect(() => {
-    if (openMenu == null && typeMenuIndex == null && optionsEditorIndex == null) return;
-    const close = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("[data-sheet-popover]")) return;
+    if (openMenu == null && typeMenuIndex == null && optionsEditorIndex == null && filterMenuIndex == null) return;
+    const closeAll = () => {
       setOpenMenu(null);
       setTypeMenuIndex(null);
       setOptionsEditorIndex(null);
+      setFilterMenuIndex(null);
+    };
+    const close = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      // Kit dropdowns and the date picker open in their own layer.
+      if (target?.closest("[data-sheet-popover], [data-select-portal], [role='dialog'], [role='listbox']")) return;
+      closeAll();
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (editing) return;
-      setOpenMenu(null);
-      setTypeMenuIndex(null);
-      setOptionsEditorIndex(null);
+      closeAll();
     };
     document.addEventListener("pointerdown", close);
     window.addEventListener("keydown", onKey);
@@ -1093,7 +1310,66 @@ export default function SheetGrid({
       document.removeEventListener("pointerdown", close);
       window.removeEventListener("keydown", onKey);
     };
-  }, [editing, openMenu, optionsEditorIndex, typeMenuIndex]);
+  }, [editing, filterMenuIndex, openMenu, optionsEditorIndex, typeMenuIndex]);
+
+  // Track the scroll window so long sheets only draw the rows in view.
+  useEffect(() => {
+    const element = gridRef.current;
+    if (!element) return;
+    let frame = 0;
+    const read = () => {
+      frame = 0;
+      setViewport((current) =>
+        current.top === element.scrollTop && current.height === element.clientHeight
+          ? current
+          : { top: element.scrollTop, height: element.clientHeight },
+      );
+    };
+    const onScroll = () => {
+      if (!frame) frame = window.requestAnimationFrame(read);
+    };
+    read();
+    element.addEventListener("scroll", onScroll, { passive: true });
+    const observer = new ResizeObserver(onScroll);
+    observer.observe(element);
+    return () => {
+      element.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  // Keyboard moves keep the active cell in view, under the frozen rows and columns.
+  useEffect(() => {
+    if (!revealRef.current) return;
+    revealRef.current = false;
+    const element = gridRef.current;
+    if (!element) return;
+    const focus = range.focus;
+    const position = visibleRows.indexOf(focus.row);
+    if (position >= 0 && focus.row >= frozenRows) {
+      const frozenHeight = frozenRows * ROW_HEIGHT;
+      const top = HEADER_HEIGHT + position * ROW_HEIGHT;
+      if (top - HEADER_HEIGHT - frozenHeight < element.scrollTop) {
+        element.scrollTop = top - HEADER_HEIGHT - frozenHeight;
+      } else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
+        element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
+      }
+    }
+    const colPosition = visibleCols.indexOf(focus.col);
+    if (colPosition >= 0 && colPosition >= frozenCols) {
+      let left = ROW_HEADER_WIDTH;
+      let frozenWidth = 0;
+      for (const index of visibleCols.slice(0, colPosition)) left += columns[index].width;
+      for (const index of visibleCols.slice(0, Math.min(frozenCols, visibleCols.length))) frozenWidth += columns[index].width;
+      const width = columns[focus.col]?.width ?? 0;
+      if (left - ROW_HEADER_WIDTH - frozenWidth < element.scrollLeft) {
+        element.scrollLeft = left - ROW_HEADER_WIDTH - frozenWidth;
+      } else if (left + width > element.scrollLeft + element.clientWidth) {
+        element.scrollLeft = left + width - element.clientWidth;
+      }
+    }
+  }, [columns, frozenCols, frozenRows, range.focus, visibleCols, visibleRows]);
 
   const commitEditRef = useRef(commitEdit);
   useEffect(() => {
@@ -1116,9 +1392,107 @@ export default function SheetGrid({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [editing]);
 
-  const gridTemplateColumns = `${ROW_HEADER_WIDTH}px ${columns
-    .map((column) => `${column.width}px`)
-    .join(" ")} 40px`;
+  // The last track takes the spare width so wide screens have no empty band.
+  const gridTemplateColumns = `${ROW_HEADER_WIDTH}px ${visibleCols
+    .map((index) => `${columns[index].width}px`)
+    .join(" ")} minmax(40px, 1fr)`;
+
+  /** Left offsets of frozen columns, which stick beside the row numbers. */
+  const stickyLeft = new Map<number, number>();
+  let frozenOffset = ROW_HEADER_WIDTH;
+  for (const index of visibleCols) {
+    if (index >= frozenCols) break;
+    stickyLeft.set(index, frozenOffset);
+    frozenOffset += columns[index].width;
+  }
+  const lastFrozenCol = stickyLeft.size ? Math.max(...stickyLeft.keys()) : -1;
+
+  /** Hidden columns sitting just before each visible one, for the "show" chip. */
+  const hiddenBeforeCol = new Map<number, number[]>();
+  let pendingHidden: number[] = [];
+  columns.forEach((column, index) => {
+    if (column.hidden) {
+      pendingHidden.push(index);
+      return;
+    }
+    if (pendingHidden.length) hiddenBeforeCol.set(index, pendingHidden);
+    pendingHidden = [];
+  });
+  if (pendingHidden.length && visibleCols.length) {
+    // Hidden columns at the far right show their chip on the last visible column.
+    const last = visibleCols[visibleCols.length - 1];
+    hiddenBeforeCol.set(last, [...(hiddenBeforeCol.get(last) ?? []), ...pendingHidden]);
+  }
+
+  /** How many drawn tracks a merge covers once hidden columns are left out. */
+  const visibleSpan = (startCol: number, colSpan: number) => {
+    let count = 0;
+    for (let col = startCol; col < startCol + colSpan; col += 1) if (!columns[col]?.hidden) count += 1;
+    return Math.max(1, count);
+  };
+
+  // Long sheets draw only the rows in view (plus a margin); spacers keep the scroll height.
+  const frozenCount = visibleRows.filter((row) => row < frozenRows).length;
+  const bodyRows = visibleRows.slice(frozenCount);
+  let startPos = 0;
+  let endPos = bodyRows.length - 1;
+  if (bodyRows.length > VIRTUAL_ROWS) {
+    const scale = zoom / 100 || 1;
+    const top = viewport.top / Math.max(scale, 1);
+    const first = Math.floor(top / ROW_HEIGHT) - frozenCount;
+    const inView = Math.ceil(viewport.height / (ROW_HEIGHT * Math.min(scale, 1)));
+    startPos = Math.max(0, first - OVERSCAN_ROWS);
+    endPos = Math.min(bodyRows.length - 1, first + inView + OVERSCAN_ROWS);
+    // Keep the start of a tall merge that reaches into view.
+    const firstRow = bodyRows[startPos];
+    if (!filtering && firstRow !== undefined) {
+      for (const merge of merges) {
+        if (merge.rowSpan > 1 && merge.startRow < firstRow && merge.startRow + merge.rowSpan - 1 >= firstRow) {
+          const position = bodyRows.indexOf(merge.startRow);
+          if (position >= 0 && position < startPos) startPos = position;
+        }
+      }
+    }
+  }
+  const renderRows = [...visibleRows.slice(0, frozenCount), ...bodyRows.slice(startPos, endPos + 1)];
+  const topSpacer = startPos * ROW_HEIGHT;
+  const bottomSpacer = Math.max(0, bodyRows.length - 1 - endPos) * ROW_HEIGHT;
+
+  /** Double-clicking a column edge sizes it to its longest shown value. */
+  const autoFitColumn = (index: number) => {
+    const column = columns[index];
+    if (!column) return;
+    let longest = column.name.length + 4;
+    const limit = Math.min(rows.length, 2000);
+    for (let row = 0; row < limit; row += 1) longest = Math.max(longest, textAt(index, row).length);
+    const width = Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(longest * 7.4 + 28)));
+    if (width !== column.width) commit({ columns: columns.map((item, i) => (i === index ? { ...item, width } : item)) });
+  };
+
+  const hint = editing ? formulaInputHint(draft, caret, FUNCTION_NAMES) : null;
+  const currentHelp = hint?.current ? SHEET_FUNCTION_HELP[hint.current.name] : undefined;
+
+  const acceptSuggestion = (name: string) => {
+    if (!hint?.word) return;
+    const next = `${draft.slice(0, hint.word.start)}${name}(${draft.slice(hint.word.end)}`;
+    const position = hint.word.start + name.length + 1;
+    formulaSpanRef.current = null;
+    setDraft(next);
+    draftRef.current = next;
+    caretRef.current = position;
+    setCaret(position);
+    requestAnimationFrame(() => focusFormulaInput(position));
+  };
+
+  /** Tab picks the first suggested function while typing a formula. */
+  const handleHintKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Tab" && hint?.suggestions.length) {
+      event.preventDefault();
+      acceptSuggestion(hint.suggestions[0]);
+      return true;
+    }
+    return false;
+  };
 
   const fitRow = cellFit ? rows.findIndex((row) => row.id === cellFit.rowId) : -1;
   const fitCol = cellFit ? columns.findIndex((column) => column.id === cellFit.columnId) : -1;
@@ -1144,6 +1518,7 @@ export default function SheetGrid({
     (address) => rawAt(address).trim() === "",
   );
 
+  const bounds = normalizedRange(range);
   const selectedMerge = mergeFromRange(range);
   const canMerge = selectedMerge.colSpan > 1 || selectedMerge.rowSpan > 1;
   const mergeActive = hasMergeInRange(merges, range);
@@ -1172,10 +1547,10 @@ export default function SheetGrid({
     applyFormat({ fontSize: Math.max(8, Math.min(36, current + delta)) });
   };
 
-  const insertFormula = (template: (rangeLabel: string) => string) => {
-    const multi = !sameAddress(range.anchor, range.focus);
+  const insertFormula = (template: (rangeLabel: string) => string, usesRange = true) => {
+    const multi = usesRange && !sameAddress(range.anchor, range.focus);
     const guessed =
-      !multi && rawAt(selected).trim() === ""
+      usesRange && !multi && rawAt(selected).trim() === ""
         ? guessAggregateRange(
             selected,
             columns.length,
@@ -1217,6 +1592,95 @@ export default function SheetGrid({
     setOpenMenu(null);
   };
 
+  /** The block of rows (or columns) a menu acts on: the selection when the click is inside it. */
+  const spanFor = (axis: "row" | "col", index: number) => {
+    const first = axis === "row" ? bounds.minRow : bounds.minCol;
+    const last = axis === "row" ? bounds.maxRow : bounds.maxCol;
+    return index >= first && index <= last ? { at: first, count: last - first + 1 } : { at: index, count: 1 };
+  };
+
+  const plural = (count: number, word: string) => (count === 1 ? `1 ${word}` : `${count} ${word}s`);
+
+  const rowEntries = (index: number): ContextMenuEntry[] => {
+    const span = spanFor("row", index);
+    const label = span.count === 1 ? `row ${span.at + 1}` : `rows ${span.at + 1}–${span.at + span.count}`;
+    return [
+      {
+        kind: "action",
+        label: `Insert ${plural(span.count, "row")} above`,
+        icon: BetweenHorizontalStart,
+        onSelect: () => addRows(span.count, span.at),
+      },
+      {
+        kind: "action",
+        label: `Insert ${plural(span.count, "row")} below`,
+        icon: BetweenHorizontalEnd,
+        onSelect: () => addRows(span.count, span.at + span.count),
+      },
+      {
+        kind: "action",
+        label: frozenRows === span.at + span.count ? "Unfreeze rows" : `Freeze up to row ${span.at + span.count}`,
+        icon: Snowflake,
+        onSelect: () => setFrozen({ frozenRows: frozenRows === span.at + span.count ? 0 : span.at + span.count }),
+      },
+      {
+        kind: "action",
+        label: `Delete ${label}`,
+        icon: Minus,
+        disabled: rows.length - span.count < 1,
+        danger: true,
+        onSelect: () => deleteRows(span.at, span.count),
+      },
+    ];
+  };
+
+  const columnEntries = (index: number): ContextMenuEntry[] => {
+    const span = spanFor("col", index);
+    const letters =
+      span.count === 1
+        ? columnIndexToLetter(span.at)
+        : `${columnIndexToLetter(span.at)}–${columnIndexToLetter(span.at + span.count - 1)}`;
+    const indexes = Array.from({ length: span.count }, (_, i) => span.at + i);
+    return [
+      {
+        kind: "action",
+        label: `Insert ${plural(span.count, "column")} left`,
+        icon: BetweenVerticalStart,
+        onSelect: () => addColumn(span.at, span.count),
+      },
+      {
+        kind: "action",
+        label: `Insert ${plural(span.count, "column")} right`,
+        icon: BetweenVerticalEnd,
+        onSelect: () => addColumn(span.at + span.count, span.count),
+      },
+      {
+        kind: "action",
+        label: span.count === 1 ? "Hide column" : `Hide columns ${letters}`,
+        icon: EyeOff,
+        disabled: visibleCols.length - span.count < 1,
+        onSelect: () => setColumnsHidden(indexes, true),
+      },
+      {
+        kind: "action",
+        label:
+          frozenCols === span.at + span.count
+            ? "Unfreeze columns"
+            : `Freeze up to column ${columnIndexToLetter(span.at + span.count - 1)}`,
+        icon: Snowflake,
+        onSelect: () => setFrozen({ frozenCols: frozenCols === span.at + span.count ? 0 : span.at + span.count }),
+      },
+      {
+        kind: "action",
+        label: span.count === 1 ? "Delete column" : `Delete columns ${letters}`,
+        icon: Trash2,
+        disabled: columns.length - span.count < 1,
+        danger: true,
+        onSelect: () => deleteColumns(span.at, span.count),
+      },
+    ];
+  };
+
   const cellMenu = (address: CellAddress): ContextMenuEntry[] => {
     const activeRange = isInRange(address, range)
       ? range
@@ -1229,9 +1693,8 @@ export default function SheetGrid({
         kind: "action",
         label: "Cut",
         icon: Scissors,
-        shortcut: "mod+X",
         onSelect: () => {
-          copySelection();
+          copySelection(true);
           clearSelection();
         },
       },
@@ -1239,28 +1702,30 @@ export default function SheetGrid({
         kind: "action",
         label: "Copy",
         icon: ClipboardCopy,
-        shortcut: "mod+C",
-        onSelect: copySelection,
+        onSelect: () => copySelection(),
       },
       {
         kind: "action",
         label: "Paste",
         icon: ClipboardPaste,
-        shortcut: "mod+V",
         onSelect: () => void pasteFromClipboard(),
       },
       {
         kind: "action",
         label: "Clear",
-        shortcut: "Delete",
         onSelect: clearSelection,
+      },
+      bounds.maxRow > bounds.minRow && {
+        kind: "action" as const,
+        label: "Fill down",
+        icon: ArrowDown,
+        onSelect: fillDown,
       },
       { kind: "separator" },
       {
         kind: "action",
         label: "Edit cell",
         icon: Pencil,
-        shortcut: "F2",
         onSelect: () => startEditing(address),
       },
       canMergeHere || merged ? {
@@ -1295,52 +1760,14 @@ export default function SheetGrid({
         ],
       } : false,
       { kind: "separator" },
-      {
-        kind: "action",
-        label: "Insert row above",
-        icon: BetweenHorizontalStart,
-        onSelect: () => addRows(1, address.row),
-      },
-      {
-        kind: "action",
-        label: "Insert row below",
-        icon: BetweenHorizontalEnd,
-        onSelect: () => addRows(1, address.row + 1),
-      },
-      {
-        kind: "action",
-        label: "Insert column left",
-        icon: BetweenVerticalStart,
-        onSelect: () => addColumn(address.col),
-      },
-      {
-        kind: "action",
-        label: "Insert column right",
-        icon: BetweenVerticalEnd,
-        onSelect: () => addColumn(address.col + 1),
-      },
-      { kind: "separator" },
-      {
-        kind: "action",
-        label: "Delete row",
-        icon: Minus,
-        disabled: rows.length <= 1,
-        danger: true,
-        onSelect: () => deleteRow(address.row),
-      },
-      {
-        kind: "action",
-        label: "Delete column",
-        icon: Trash2,
-        disabled: columns.length <= 1,
-        danger: true,
-        onSelect: () => deleteColumn(address.col),
-      },
+      { kind: "submenu", label: "Rows", icon: BetweenHorizontalStart, items: rowEntries(address.row) },
+      { kind: "submenu", label: "Columns", icon: BetweenVerticalStart, items: columnEntries(address.col) },
     ]);
   };
 
   const columnMenu = (index: number): ContextMenuEntry[] => {
     const column = columns[index];
+    const filtered = Boolean(column && columnFilters[column.id]);
     return tidyEntries([
       {
         kind: "action",
@@ -1349,15 +1776,10 @@ export default function SheetGrid({
         onSelect: () => setRenamingColumnIndex(index),
       },
       {
-        kind: "submenu",
-        label: "Column type",
-        icon: Type,
-        items: SHEET_COLUMN_TYPES.map<ContextMenuEntry>((option) => ({
-          kind: "action",
-          label: option.label,
-          checked: column?.type === option.value,
-          onSelect: () => setColumnType(index, option.value),
-        })),
+        kind: "action",
+        label: "Type and format…",
+        icon: Settings2,
+        onSelect: () => setTypeMenuIndex(index),
       },
       column?.type === "select" && {
         kind: "action" as const,
@@ -1378,56 +1800,35 @@ export default function SheetGrid({
         icon: ArrowDownAZ,
         onSelect: () => sortByColumn(index, "desc"),
       },
+      {
+        kind: "action",
+        label: "Filter by values…",
+        icon: ListFilter,
+        onSelect: () => setFilterMenuIndex(index),
+      },
+      filtered && {
+        kind: "action" as const,
+        label: "Clear this filter",
+        onSelect: () => setColumnFilters((current) => withoutKey(current, column!.id)),
+      },
       { kind: "separator" },
-      {
-        kind: "action",
-        label: "Insert column left",
-        icon: BetweenVerticalStart,
-        onSelect: () => addColumn(index),
-      },
-      {
-        kind: "action",
-        label: "Insert column right",
-        icon: BetweenVerticalEnd,
-        onSelect: () => addColumn(index + 1),
-      },
-      {
-        kind: "action",
-        label: "Delete column",
-        icon: Trash2,
-        disabled: columns.length <= 1,
-        danger: true,
-        onSelect: () => deleteColumn(index),
-      },
+      ...columnEntries(index),
     ]);
   };
 
-  const rowMenu = (index: number): ContextMenuEntry[] =>
-    tidyEntries([
-      {
-        kind: "action",
-        label: "Insert row above",
-        icon: BetweenHorizontalStart,
-        onSelect: () => addRows(1, index),
-      },
-      {
-        kind: "action",
-        label: "Insert row below",
-        icon: BetweenHorizontalEnd,
-        onSelect: () => addRows(1, index + 1),
-      },
-      {
-        kind: "action",
-        label: "Delete row",
-        icon: Minus,
-        disabled: rows.length <= 1,
-        danger: true,
-        onSelect: () => deleteRow(index),
-      },
-    ]);
+  const rowMenu = (index: number): ContextMenuEntry[] => tidyEntries(rowEntries(index));
 
   const printSheet = () => {
-    const markup = gridRef.current?.innerHTML ?? "";
+    const markup = sheetPrintHtml({
+      title: sheetName,
+      columns,
+      visibleCols,
+      rows,
+      visibleRows,
+      merges: filtering ? [] : merges,
+      displayAt: textAt,
+      conditional,
+    });
     const iframe = document.createElement("iframe");
     iframe.setAttribute("aria-hidden", "true");
     iframe.style.position = "fixed";
@@ -1446,12 +1847,7 @@ export default function SheetGrid({
     const cleanup = () => iframe.remove();
     frameWindow.addEventListener("afterprint", cleanup);
     frameDocument.open();
-    frameDocument.write(
-      `<html><head><title>Sheet</title><style>
-        body{font:12px sans-serif;background:#fff;color:#111;margin:16px}
-        button{display:none}
-      </style></head><body>${markup}</body></html>`,
-    );
+    frameDocument.write(markup);
     frameDocument.close();
     frameWindow.focus();
     frameWindow.print();
@@ -1473,7 +1869,6 @@ export default function SheetGrid({
   }, [evaluator, range]);
 
   const chartMax = Math.max(1, ...chartValues.map((item) => Math.abs(item.value)));
-  const bounds = normalizedRange(range);
   const toolClass = (active = false) =>
     `flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-35 ${
       active ? "bg-accent text-foreground" : "text-muted-foreground"
@@ -1631,18 +2026,16 @@ export default function SheetGrid({
             <Type className="size-3.5" style={{ color: selectedFormat?.textColor }} />
           </button>
           {openMenu === "textColor" && (
-            <div className="absolute left-0 top-8 z-40 flex gap-1 rounded-md border border-border bg-popover p-2 shadow-lg">
-              <button type="button" title="Default" onClick={() => { applyFormat({ textColor: undefined }); setOpenMenu(null); }} className="size-5 rounded border border-border" />
-              {TEXT_COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  title={color}
-                  onClick={() => { applyFormat({ textColor: color }); setOpenMenu(null); }}
-                  className="size-5 rounded border border-border"
-                  style={{ background: color }}
-                />
-              ))}
+            <div className="absolute left-0 top-8 z-40 rounded-lg border border-border bg-popover p-2 shadow-xl">
+              <SheetColorSwatches
+                colors={SHEET_TEXT_COLORS}
+                value={selectedFormat?.textColor}
+                noneLabel="Default"
+                onPick={(color) => {
+                  applyFormat({ textColor: color });
+                  setOpenMenu(null);
+                }}
+              />
             </div>
           )}
         </div>
@@ -1651,18 +2044,16 @@ export default function SheetGrid({
             <Highlighter className="size-3.5" />
           </button>
           {openMenu === "fill" && (
-            <div className="absolute left-0 top-8 z-40 flex gap-1 rounded-md border border-border bg-popover p-2 shadow-lg">
-              <button type="button" title="No fill" onClick={() => { applyFormat({ fillColor: undefined }); setOpenMenu(null); }} className="size-5 rounded border border-border" />
-              {FILL_COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  title={color}
-                  onClick={() => { applyFormat({ fillColor: color }); setOpenMenu(null); }}
-                  className="size-5 rounded border border-border"
-                  style={{ background: color }}
-                />
-              ))}
+            <div className="absolute left-0 top-8 z-40 rounded-lg border border-border bg-popover p-2 shadow-xl">
+              <SheetColorSwatches
+                colors={SHEET_FILL_COLORS}
+                value={selectedFormat?.fillColor}
+                noneLabel="No fill"
+                onPick={(color) => {
+                  applyFormat({ fillColor: color });
+                  setOpenMenu(null);
+                }}
+              />
             </div>
           )}
         </div>
@@ -1979,18 +2370,35 @@ export default function SheetGrid({
           )}
         </div>
         <div className="relative" data-sheet-popover>
-          <button type="button" title="Filter & sort" onClick={() => toggleMenu("filter")} className={toolClass(openMenu === "filter" || Boolean(filterQuery))}>
+          <button type="button" title="Filter & sort" onClick={() => toggleMenu("filter")} className={toolClass(openMenu === "filter" || Boolean(filterQuery) || activeFilters.length > 0)}>
             <Filter className="size-3.5" />
           </button>
           {openMenu === "filter" && (
-            <div className="absolute right-0 top-8 z-40 w-56 rounded-lg border border-border bg-popover p-2 shadow-xl">
+            <div className="absolute right-0 top-8 z-40 w-60 rounded-lg border border-border bg-popover p-2 shadow-xl">
               <input
                 autoFocus
                 value={filterQuery}
                 onChange={(event) => setFilterQuery(event.target.value)}
-                placeholder="Filter rows..."
+                placeholder="Show rows containing…"
                 className={controlClass("sm", "w-full")}
               />
+              <p className="mt-1.5 px-0.5 text-[11px] text-muted-foreground">
+                {filtering
+                  ? `Showing ${visibleRows.length} of ${rows.length} rows`
+                  : `Sorts by column ${columnIndexToLetter(selected.col)}. Right-click a column to filter by its values.`}
+              </p>
+              {activeFilters.length > 0 || filterQuery ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterQuery("");
+                    setColumnFilters({});
+                  }}
+                  className="mt-1 w-full rounded-md px-1 py-1 text-left text-[11px] text-primary hover:bg-accent/60"
+                >
+                  Clear all filters
+                </button>
+              ) : null}
               <div className="mt-2 flex gap-1">
                 <button type="button" onClick={() => sortByColumn(selected.col, "asc")} className={buttonClass({ variant: "secondary", size: "sm", className: "flex-1" })}>
                   Sort A → Z
@@ -2007,17 +2415,100 @@ export default function SheetGrid({
             <Sigma className="size-3.5" />
           </button>
           {openMenu === "fx" && (
-            <div className={`${POPOVER_PANEL} right-0 top-8 max-h-72 w-36 overflow-y-auto`}>
-              {FORMULA_INSERTS.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => insertFormula(item.template)}
-                  className={`${POPOVER_ITEM} font-mono`}
-                >
-                  {item.label}
+            <div className="absolute right-0 top-8 z-40 flex max-h-96 w-72 flex-col rounded-lg border border-border bg-popover p-1.5 shadow-xl">
+              <input
+                autoFocus
+                value={functionQuery}
+                onChange={(event) => setFunctionQuery(event.target.value)}
+                placeholder="Search functions"
+                aria-label="Search functions"
+                className={controlClass("sm", "mb-1 w-full text-xs")}
+              />
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {FUNCTION_GROUPS.map((group) => {
+                  const query = functionQuery.trim().toLowerCase();
+                  const names = FUNCTION_NAMES.filter(
+                    (name) =>
+                      SHEET_FUNCTION_HELP[name].group === group &&
+                      (!query ||
+                        name.toLowerCase().includes(query) ||
+                        SHEET_FUNCTION_HELP[name].summary.toLowerCase().includes(query)),
+                  );
+                  if (names.length === 0) return null;
+                  return (
+                    <div key={group} className="mb-1">
+                      <p className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
+                      {names.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => insertFormula(functionTemplate(name), RANGE_FUNCTIONS.has(name))}
+                          className="flex w-full items-baseline gap-2 rounded px-2 py-1 text-left hover:bg-accent"
+                        >
+                          <span className="w-20 shrink-0 font-mono text-[11px] text-foreground">{name}</span>
+                          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{SHEET_FUNCTION_HELP[name].summary}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="relative" data-sheet-popover>
+          <button
+            type="button"
+            title="Colour rules"
+            onClick={() => toggleMenu("rules")}
+            className={toolClass(openMenu === "rules" || conditionalFormats.length > 0)}
+          >
+            <Palette className="size-3.5" />
+          </button>
+          {openMenu === "rules" && (
+            <div className="absolute right-0 top-8 z-40 rounded-lg border border-border bg-popover p-1.5 shadow-xl">
+              <SheetConditionalPanel
+                columns={columns}
+                rules={conditionalFormats}
+                defaultColumnId={columns[selected.col]?.id}
+                onChange={(next) => commit({ conditionalFormats: next })}
+              />
+            </div>
+          )}
+        </div>
+        <div className="relative" data-sheet-popover>
+          <button
+            type="button"
+            title="Freeze rows and columns"
+            onClick={() => toggleMenu("freeze")}
+            className={toolClass(openMenu === "freeze" || frozenRows > 0 || frozenCols > 0)}
+          >
+            <Snowflake className="size-3.5" />
+          </button>
+          {openMenu === "freeze" && (
+            <div className={`${POPOVER_PANEL} right-0 top-8 w-52`}>
+              <p className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Rows</p>
+              {[0, 1, 2].map((count) => (
+                <button key={`r${count}`} type="button" onClick={() => setFrozen({ frozenRows: count })} className={`${POPOVER_ITEM} ${frozenRows === count ? "bg-accent" : ""}`}>
+                  {count === 0 ? "No rows" : plural(count, "row")}
                 </button>
               ))}
+              {selected.row + 1 > 2 ? (
+                <button type="button" onClick={() => setFrozen({ frozenRows: selected.row + 1 })} className={`${POPOVER_ITEM} ${frozenRows === selected.row + 1 ? "bg-accent" : ""}`}>
+                  Up to row {selected.row + 1}
+                </button>
+              ) : null}
+              <p className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Columns</p>
+              {[0, 1, 2].map((count) => (
+                <button key={`c${count}`} type="button" onClick={() => setFrozen({ frozenCols: count })} className={`${POPOVER_ITEM} ${frozenCols === count ? "bg-accent" : ""}`}>
+                  {count === 0 ? "No columns" : plural(count, "column")}
+                </button>
+              ))}
+              {selected.col + 1 > 2 ? (
+                <button type="button" onClick={() => setFrozen({ frozenCols: selected.col + 1 })} className={`${POPOVER_ITEM} ${frozenCols === selected.col + 1 ? "bg-accent" : ""}`}>
+                  Up to column {columnIndexToLetter(selected.col)}
+                </button>
+              ) : null}
             </div>
           )}
         </div>
@@ -2028,7 +2519,7 @@ export default function SheetGrid({
         <button type="button" title="Add column after" onClick={() => addColumn(selected.col + 1)} className={toolClass()}>
           <BetweenVerticalEnd className="size-3.5" />
         </button>
-        <button type="button" title="Delete column" disabled={columns.length <= 1} onClick={() => deleteColumn(selected.col)} className={toolClass()}>
+        <button type="button" title="Delete column" disabled={columns.length <= 1} onClick={() => { const span = spanFor("col", selected.col); deleteColumns(span.at, span.count); }} className={toolClass()}>
           <Minus className="size-3.5" />
         </button>
         <button type="button" title="Add row before" onClick={() => addRows(1, selected.row)} className={toolClass()}>
@@ -2037,7 +2528,7 @@ export default function SheetGrid({
         <button type="button" title="Add row after" onClick={() => addRows(1, selected.row + 1)} className={toolClass()}>
           <BetweenHorizontalEnd className="size-3.5" />
         </button>
-        <button type="button" title="Delete row" disabled={rows.length <= 1} onClick={() => deleteRow(selected.row)} className={toolClass()}>
+        <button type="button" title="Delete row" disabled={rows.length <= 1} onClick={() => { const span = spanFor("row", selected.row); deleteRows(span.at, span.count); }} className={toolClass()}>
           <Minus className="size-3.5" />
         </button>
       </div>
@@ -2087,6 +2578,7 @@ export default function SheetGrid({
             }}
             onKeyDown={(event) => {
               trackCaret(event.currentTarget);
+              if (handleHintKey(event)) return;
               if (event.key === "Enter") {
                 event.preventDefault();
                 commitEdit("down");
@@ -2101,6 +2593,34 @@ export default function SheetGrid({
           />
         </div>
       </div>
+      {hint && (hint.suggestions.length > 0 || currentHelp) ? (
+        <div className="flex min-h-7 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-[#15171D] px-3 py-1 text-[11px]" data-formula-bar>
+          {hint.suggestions.length > 0 ? (
+            <>
+              {hint.suggestions.map((name, index) => (
+                <button
+                  key={name}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    acceptSuggestion(name);
+                  }}
+                  title={SHEET_FUNCTION_HELP[name]?.summary}
+                  className={`shrink-0 rounded px-1.5 py-0.5 font-mono ${index === 0 ? "bg-[#2A2445] text-[#C4B5FD]" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                >
+                  {name}
+                </button>
+              ))}
+              <span className="shrink-0 text-muted-foreground/70">Tab picks the first</span>
+            </>
+          ) : currentHelp ? (
+            <>
+              <span className="shrink-0 font-mono text-[#C4B5FD]">{currentHelp.signature}</span>
+              <span className="min-w-0 truncate text-muted-foreground">{currentHelp.summary}</span>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       <div
         ref={gridRef}
@@ -2112,13 +2632,18 @@ export default function SheetGrid({
         <div className="inline-block min-w-full">
           <div
             className="sticky top-0 z-20 grid bg-muted"
-            style={{ gridTemplateColumns }}
+            style={{ gridTemplateColumns, height: HEADER_HEIGHT }}
           >
-            <div className="sticky left-0 z-30 border-b border-r border-border bg-muted text-center font-mono text-[10px] text-muted-foreground">
+            <div className="sticky left-0 z-30 flex items-center justify-center border-b border-r border-border bg-muted font-mono text-[10px] text-muted-foreground">
               #
             </div>
 
-            {columns.map((column, index) => (
+            {visibleCols.map((index) => {
+              const column = columns[index];
+              const hiddenBefore = hiddenBeforeCol.get(index) ?? [];
+              const frozenLeft = stickyLeft.get(index);
+              const filtered = Boolean(columnFilters[column.id]);
+              return (
               <div
                 key={column.id}
                 onContextMenu={(event) => {
@@ -2141,14 +2666,26 @@ export default function SheetGrid({
                     extendFormulaPick({ col: index, row: 0 });
                   }
                 }}
-                className={`group relative flex items-center gap-1.5 border-b border-r border-border px-2 py-1.5 ${
+                className={`group relative flex min-w-0 items-center gap-1.5 border-b border-r border-border bg-muted px-2 ${
                   index >= bounds.minCol && index <= bounds.maxCol ? "bg-accent/60" : ""
                 } ${
                   formulaRanges.some((picked) => rangeTouchesCol(picked, index))
                     ? "outline outline-dashed outline-primary/70"
                     : ""
-                }`}
+                } ${index === lastFrozenCol ? "border-r-2 border-r-[#7C66DC]/60" : ""}`}
+                style={frozenLeft !== undefined ? { position: "sticky", left: frozenLeft, zIndex: 25 } : undefined}
               >
+                {hiddenBefore.length > 0 ? (
+                  <button
+                    type="button"
+                    title={`Show ${plural(hiddenBefore.length, "hidden column")}`}
+                    aria-label={`Show ${plural(hiddenBefore.length, "hidden column")}`}
+                    onClick={() => setColumnsHidden(hiddenBefore, false)}
+                    className="absolute -left-2 top-1/2 z-10 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full border border-[#7C66DC] bg-[#2A2445] text-[#C4B5FD] hover:bg-[#6E56CF] hover:text-white"
+                  >
+                    <Eye className="size-2.5" />
+                  </button>
+                ) : null}
                 <span className="shrink-0 font-mono text-[10px] font-bold text-muted-foreground">
                   {columnIndexToLetter(index)}
                 </span>
@@ -2173,18 +2710,33 @@ export default function SheetGrid({
                     onDoubleClick={() => setRenamingColumnIndex(index)}
                     onClick={() => {
                       if (isEditingFormula) return;
-                      setSelection({ col: index, row: selected.row });
+                      setSelection({
+                        anchor: { col: index, row: 0 },
+                        focus: { col: index, row: rows.length - 1 },
+                      });
                     }}
-                    title="Double-click to rename"
+                    title={`${column.name} · double-click to rename`}
                     className="min-w-0 flex-1 cursor-pointer truncate text-left text-xs font-medium text-foreground"
                   >
                     {column.name}
                   </button>
                 )}
 
+                {filtered ? (
+                  <button
+                    type="button"
+                    title="Filtered · change filter"
+                    aria-label="Change filter"
+                    onClick={() => setFilterMenuIndex(index)}
+                    className="flex size-5 shrink-0 items-center justify-center rounded text-[#C4B5FD] hover:bg-accent"
+                  >
+                    <ListFilter className="size-3" />
+                  </button>
+                ) : null}
+
                 <div
                   ref={
-                    typeMenuIndex === index || optionsEditorIndex === index
+                    typeMenuIndex === index || optionsEditorIndex === index || filterMenuIndex === index
                       ? columnPopoverAnchorRef
                       : undefined
                   }
@@ -2193,7 +2745,7 @@ export default function SheetGrid({
                 >
                   <button
                     type="button"
-                    title="Column type"
+                    title="Column type and format"
                     onClick={() =>
                       setTypeMenuIndex((current) => (current === index ? null : index))
                     }
@@ -2205,34 +2757,37 @@ export default function SheetGrid({
                     <AnchoredPopover
                       anchorRef={columnPopoverAnchorRef}
                       boundsRef={gridRef}
-                      className="min-w-28 rounded-md border border-border bg-popover p-1 shadow-lg"
+                      className="rounded-lg border border-border bg-popover p-1.5 shadow-xl"
                     >
-                      {SHEET_COLUMN_TYPES.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setColumnType(index, option.value)}
-                          className={`block w-full rounded px-2 py-1 text-left text-xs ${
-                            column.type === option.value
-                              ? "bg-accent text-foreground"
-                              : "text-muted-foreground hover:bg-accent"
-                          }`}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                      {column.type === "select" ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTypeMenuIndex(null);
-                            setOptionsEditorIndex(index);
-                          }}
-                          className="mt-1 block w-full rounded border-t border-border px-2 py-1 text-left text-xs text-muted-foreground hover:bg-accent"
-                        >
-                          Edit options…
-                        </button>
-                      ) : null}
+                      <SheetColumnSettings
+                        column={column}
+                        onType={(type) => setColumnType(index, type)}
+                        onFormat={(patch) => setColumnFormat(index, patch)}
+                        onEditOptions={() => {
+                          setTypeMenuIndex(null);
+                          setOptionsEditorIndex(index);
+                        }}
+                      />
+                    </AnchoredPopover>
+                  ) : null}
+                  {filterMenuIndex === index ? (
+                    <AnchoredPopover
+                      anchorRef={columnPopoverAnchorRef}
+                      boundsRef={gridRef}
+                      className="rounded-lg border border-border bg-popover p-1.5 shadow-xl"
+                    >
+                      <SheetColumnFilter
+                        columnName={column.name}
+                        values={rows.slice(frozenRows).map((_, offset) => textAt(index, offset + frozenRows).trim())}
+                        selected={columnFilters[column.id] ?? null}
+                        onClose={() => setFilterMenuIndex(null)}
+                        onApply={(allowed) => {
+                          setColumnFilters((current) =>
+                            allowed ? { ...current, [column.id]: allowed } : withoutKey(current, column.id),
+                          );
+                          setFilterMenuIndex(null);
+                        }}
+                      />
                     </AnchoredPopover>
                   ) : null}
                   {optionsEditorIndex === index ? (
@@ -2289,72 +2844,84 @@ export default function SheetGrid({
                   ) : null}
                 </div>
 
-                <button
-                  type="button"
-                  title="Delete column"
-                  onClick={() => deleteColumn(index)}
-                  disabled={columns.length <= 1}
-                  className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 transition hover:text-destructive group-hover:opacity-100 disabled:hidden"
-                >
-                  <Trash2 className="size-3" />
-                </button>
-
                 <span
                   role="separator"
                   aria-orientation="vertical"
+                  title="Drag to resize · double-click to fit"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
+                    // One undo step for the whole drag.
+                    setHistory((current) => ({ past: [...current.past.slice(-79), snapshot()], future: [] }));
                     resizeStateRef.current = {
                       index,
                       startX: event.clientX,
                       startWidth: column.width,
                     };
                   }}
-                  className="absolute -right-0.5 top-0 h-full w-1.5 cursor-col-resize hover:bg-primary"
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                    autoFitColumn(index);
+                  }}
+                  className="absolute -right-0.5 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-primary"
                 />
               </div>
-            ))}
+              );
+            })}
 
             <button
               type="button"
               title="Add column"
               onClick={() => addColumn()}
-              className="flex cursor-pointer items-center justify-center border-b border-border text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="flex cursor-pointer items-center justify-start border-b border-border pl-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               +
             </button>
           </div>
 
-          {visibleRows.map((rowIndex) => {
+          {topSpacer > 0 ? <div aria-hidden style={{ height: topSpacer }} /> : null}
+
+          {renderRows.map((rowIndex) => {
             const rowHasVerticalMerge =
               !filtering &&
               merges.some((merge) => merge.startRow === rowIndex && merge.rowSpan > 1);
+            const frozen = rowIndex < frozenRows;
             return (
             <div
               key={rows[rowIndex].id}
-              className="relative grid overflow-visible"
+              className={`${frozen ? "" : "relative"} grid overflow-visible`}
               style={{
                 gridTemplateColumns,
-                zIndex: rowHasVerticalMerge ? 8 : undefined,
+                zIndex: frozen ? 15 : rowHasVerticalMerge ? 8 : undefined,
+                ...(frozen ? { position: "sticky", top: HEADER_HEIGHT + rowIndex * ROW_HEIGHT } : {}),
               }}
             >
               <div
                 className={`sticky left-0 z-10 border-b border-r border-border px-2 text-center font-mono text-[11px] text-muted-foreground ${
                   rowIndex >= bounds.minRow && rowIndex <= bounds.maxRow
-                    ? "bg-accent/60 text-primary"
+                    ? "bg-[#2A2445] text-primary"
                     : "bg-muted"
                 } ${
                   formulaRanges.some((picked) => rangeTouchesRow(picked, rowIndex))
                     ? "outline outline-dashed outline-primary/70"
                     : ""
-                }`}
+                } ${rowIndex === frozenRows - 1 ? "border-b-2 border-b-[#7C66DC]/60" : ""}`}
                 style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   window.getSelection()?.removeAllRanges();
-                  if (!isEditingFormula) return;
-                  beginFormulaPick({ col: 0, row: rowIndex }, "formula-row");
+                  gridRef.current?.focus();
+                  if (isEditingFormula) {
+                    beginFormulaPick({ col: 0, row: rowIndex }, "formula-row");
+                    return;
+                  }
+                  if (event.button !== 0) return;
+                  const lastCol = columns.length - 1;
+                  if (event.shiftKey) {
+                    setRange((previous) => ({ anchor: { col: 0, row: previous.anchor.row }, focus: { col: lastCol, row: rowIndex } }));
+                  } else {
+                    setRange({ anchor: { col: 0, row: rowIndex }, focus: { col: lastCol, row: rowIndex } });
+                  }
                 }}
                 onMouseEnter={() => {
                   if (dragRef.current === "formula-row") {
@@ -2373,8 +2940,12 @@ export default function SheetGrid({
                 {rowIndex + 1}
               </div>
 
-              {columns.map((column, colIndex) => {
+              {visibleCols.map((colIndex) => {
+                const column = columns[colIndex];
                 const address = { col: colIndex, row: rowIndex };
+                const frozenLeft = stickyLeft.get(colIndex);
+                const stickyStyle =
+                  frozenLeft !== undefined ? { position: "sticky" as const, left: frozenLeft, zIndex: 6 } : undefined;
                 if (coveredByMerge(merges, address)) {
                   const covered = findMerge(merges, address);
                   const ignoreVerticalCover = Boolean(
@@ -2390,7 +2961,7 @@ export default function SheetGrid({
                           key={column.id}
                           className="h-8 min-w-0"
                           style={{
-                            gridColumn: `span ${covered.colSpan}`,
+                            gridColumn: `span ${visibleSpan(covered.startCol, covered.colSpan)}`,
                             height: ROW_HEIGHT,
                           }}
                           onMouseDown={(event) => {
@@ -2418,6 +2989,15 @@ export default function SheetGrid({
                         />
                       );
                     }
+                    // A merge that starts in a hidden column still needs its space.
+                    if (covered && columns[covered.startCol]?.hidden && visibleCols.find((c) => c >= covered.startCol) === colIndex) {
+                      return (
+                        <div
+                          key={column.id}
+                          style={{ gridColumn: `span ${visibleSpan(covered.startCol, covered.colSpan)}`, height: ROW_HEIGHT }}
+                        />
+                      );
+                    }
                     return null;
                   }
                 }
@@ -2433,11 +3013,14 @@ export default function SheetGrid({
                 const isEditing = editing?.col === colIndex && editing?.row === rowIndex;
                 const result = evaluator.valueAt(colIndex, rowIndex);
                 const raw = rawAt(address);
-                const format = formatAt(rows[rowIndex], column.id);
-                const display = formatSheetDisplay(result, column.type, raw, format);
+                const ownFormat = formatAt(rows[rowIndex], column.id);
+                const rule = conditional.get(`${colIndex}:${rowIndex}`);
+                const format = rule ? { ...ownFormat, ...rule } : ownFormat;
+                const display = formatSheetCell(result, column, raw, ownFormat);
                 const chip = column.type === "text" || column.type === "formula" ? statusChip(display) : null;
                 const align = format?.align ?? defaultAlign(column.type);
                 const inFormulaRange = isInAnyRange(address, formulaRanges);
+                const misfit = !cellFitsType(column.type, raw);
                 const isFillCorner =
                   !isEditingFormula &&
                   ((merge &&
@@ -2447,6 +3030,8 @@ export default function SheetGrid({
                       rowIndex === bounds.maxRow &&
                       !isVerticalOrigin));
                 const verticalAlign: SheetVerticalAlign = format?.verticalAlign ?? "middle";
+                const showDatePicker =
+                  isSelected && !isEditing && column.type === "date" && !isFormulaValue(raw);
 
                 return (
                   <div
@@ -2455,11 +3040,12 @@ export default function SheetGrid({
                     style={{
                       gridColumn:
                         merge && isMergeOrigin(merge, address) && merge.colSpan > 1
-                          ? `span ${merge.colSpan}`
+                          ? `span ${visibleSpan(merge.startCol, merge.colSpan)}`
                           : undefined,
                       height:
                         format?.wrap && mergeRowSpan === 1 ? "auto" : ROW_HEIGHT,
                       minHeight: ROW_HEIGHT,
+                      ...stickyStyle,
                     }}
                   >
                   <div
@@ -2484,6 +3070,7 @@ export default function SheetGrid({
                         return;
                       }
                       if (isEditing) return;
+                      if ((event.target as HTMLElement).closest("[data-cell-picker]")) return;
                       event.preventDefault();
                       window.getSelection()?.removeAllRanges();
                       gridRef.current?.focus();
@@ -2535,18 +3122,23 @@ export default function SheetGrid({
                       }
                       dragRef.current = null;
                     }}
-                    onDoubleClick={() => startEditing(address)}
+                    onDoubleClick={(event) => {
+                      if ((event.target as HTMLElement).closest("[data-cell-picker]")) return;
+                      startEditing(address);
+                    }}
                     onContextMenu={(event) => {
                       if (!inRange) setSelection(address);
                       showContextMenu(event, cellMenu(address), {
                         title: rangeAddressLabel(inRange ? range : { anchor: address, focus: address }),
                       });
                     }}
-                    onClick={() => {
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest("[data-cell-picker]")) return;
                       if (!isSelected || isFormulaValue(raw)) return;
                       if (column.type === "boolean") toggleBoolean(address);
                       if (column.type === "select") openSelectMenu(address);
                     }}
+                    title={misfit ? `This doesn't look like a ${column.type === "boolean" ? "checkbox value" : column.type}. It is kept as typed.` : format?.note}
                     className={`flex min-w-0 border-b border-r border-border px-2 text-sm ${
                       isVerticalOrigin ? "absolute inset-x-0 top-0 z-[8]" : "relative h-full"
                     } ${
@@ -2570,7 +3162,9 @@ export default function SheetGrid({
                     } ${
                       format?.border === "outer" ? "outline outline-1 outline-foreground/40" : ""
                     } ${format?.clip && !isVerticalOrigin ? "overflow-hidden" : ""} ${
-                      merge && isMergeOrigin(merge, address) && !isSelected ? "bg-background" : ""
+                      (merge && isMergeOrigin(merge, address)) || frozen || frozenLeft !== undefined ? (isSelected ? "" : "bg-background") : ""
+                    } ${colIndex === lastFrozenCol ? "border-r-2 border-r-[#7C66DC]/60" : ""} ${
+                      rowIndex === frozenRows - 1 ? "border-b-2 border-b-[#7C66DC]/60" : ""
                     }`}
                     style={{
                       height:
@@ -2633,6 +3227,7 @@ export default function SheetGrid({
                         }}
                         onKeyDown={(event) => {
                           trackCaret(event.currentTarget);
+                          if (handleHintKey(event)) return;
                           if (event.key === "Enter") {
                             event.preventDefault();
                             commitEdit("down");
@@ -2682,6 +3277,26 @@ export default function SheetGrid({
                         {display}
                       </span>
                     )}
+                    {showDatePicker ? (
+                      <span data-cell-picker className="absolute right-1 top-1/2 z-20 -translate-y-1/2">
+                        <DatePicker
+                          iconOnly
+                          value={/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()) ? raw.trim() : ""}
+                          onChange={(value) => {
+                            setCellValue(address, value);
+                            gridRef.current?.focus();
+                          }}
+                          aria-label="Pick a date"
+                          className="size-6 bg-[#251F3E]"
+                        />
+                      </span>
+                    ) : null}
+                    {misfit ? (
+                      <span
+                        aria-hidden
+                        className="absolute bottom-0 left-0 size-0 border-b-[6px] border-r-[6px] border-b-warning border-r-transparent"
+                      />
+                    ) : null}
                     {format?.note ? (
                       <span
                         title={format.note}
@@ -2690,6 +3305,7 @@ export default function SheetGrid({
                     ) : null}
                     {isFillCorner && !isEditing ? (
                       <span
+                        title="Drag to fill"
                         onMouseDown={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
@@ -2704,10 +3320,12 @@ export default function SheetGrid({
                 );
               })}
 
-              <div className="border-b border-border" />
+              <div className={`border-b border-border ${frozen ? "bg-background" : ""}`} />
             </div>
             );
           })}
+
+          {bottomSpacer > 0 ? <div aria-hidden style={{ height: bottomSpacer }} /> : null}
 
           <div className="grid" style={{ gridTemplateColumns }}>
             <button
@@ -2760,18 +3378,71 @@ export default function SheetGrid({
       )}
 
       <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-[#191B22] px-3 text-[11px]">
-        <div className="flex min-w-0 items-end gap-1 pt-1">
-          {(tabs ?? []).map((tab) => {
+        <div className="flex min-w-0 items-end gap-1 overflow-x-auto pt-1 [scrollbar-width:none]">
+          {(tabs ?? []).map((tab, tabIndex) => {
             const active = tab.id === activeTabId;
+            const openTabMenu = (event: ReactMouseEvent) => {
+              event.preventDefault();
+              showContextMenu(
+                event,
+                tidyEntries([
+                  { kind: "action", label: "Rename", icon: Pencil, onSelect: () => setRenamingTabId(tab.id) },
+                  onDuplicateTab && { kind: "action" as const, label: "Duplicate", icon: Copy, onSelect: () => onDuplicateTab(tab.id) },
+                  onColorTab && {
+                    kind: "submenu" as const,
+                    label: "Colour",
+                    icon: Palette,
+                    items: [
+                      { kind: "action" as const, label: "None", checked: !tab.color, onSelect: () => onColorTab(tab.id, undefined) },
+                      ...TAB_COLORS.map((choice) => ({
+                        kind: "action" as const,
+                        label: choice.label,
+                        checked: tab.color?.toUpperCase() === choice.value,
+                        onSelect: () => onColorTab(tab.id, choice.value),
+                      })),
+                    ],
+                  },
+                  { kind: "separator" },
+                  onMoveTab && {
+                    kind: "action" as const,
+                    label: "Move left",
+                    icon: ArrowLeft,
+                    disabled: tabIndex === 0,
+                    onSelect: () => onMoveTab(tab.id, -1),
+                  },
+                  onMoveTab && {
+                    kind: "action" as const,
+                    label: "Move right",
+                    icon: ArrowRight,
+                    disabled: tabIndex === (tabs?.length ?? 1) - 1,
+                    onSelect: () => onMoveTab(tab.id, 1),
+                  },
+                  { kind: "separator" },
+                  onDeleteTab && {
+                    kind: "action" as const,
+                    label: "Delete tab",
+                    icon: Trash2,
+                    danger: true,
+                    disabled: (tabs?.length ?? 0) <= 1,
+                    onSelect: () => onDeleteTab(tab.id),
+                  },
+                ]),
+                { title: tab.name },
+              );
+            };
             return (
               <div
                 key={tab.id}
-                className={`flex items-center gap-1 rounded-t border border-b-0 px-2 py-1 ${
+                onContextMenu={openTabMenu}
+                className={`relative flex shrink-0 items-center gap-1 rounded-t border border-b-0 px-2 py-1 ${
                   active
                     ? "border-[#7C66DC] bg-[#1F222B] text-foreground"
                     : "border-transparent text-muted-foreground hover:bg-accent/60"
                 }`}
               >
+                {tab.color ? (
+                  <span aria-hidden className="absolute inset-x-1.5 bottom-0 h-0.5 rounded-full" style={{ background: tab.color }} />
+                ) : null}
                 {renamingTabId === tab.id ? (
                   <input
                     autoFocus
@@ -2791,21 +3462,23 @@ export default function SheetGrid({
                     type="button"
                     onClick={() => onSelectTab?.(tab.id)}
                     onDoubleClick={() => setRenamingTabId(tab.id)}
+                    title={`${tab.name} · right-click for more`}
                     className="max-w-28 truncate"
                   >
                     {tab.name}
                   </button>
                 )}
-                {(tabs?.length ?? 0) > 1 && (
+                {active ? (
                   <button
                     type="button"
-                    title="Delete tab"
-                    onClick={() => onDeleteTab?.(tab.id)}
-                    className="text-muted-foreground hover:text-destructive"
+                    title="Tab options"
+                    aria-label="Tab options"
+                    onClick={openTabMenu}
+                    className="text-muted-foreground hover:text-foreground"
                   >
-                    ×
+                    <ChevronDown className="size-3" />
                   </button>
-                )}
+                ) : null}
               </div>
             );
           })}

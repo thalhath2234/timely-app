@@ -24,6 +24,8 @@ type DatePickerProps = {
   disabled?: boolean;
   clearable?: boolean;
   size?: ControlSize;
+  /** Only the calendar icon as the trigger, for a picker inside a cell. */
+  iconOnly?: boolean;
   "aria-label"?: string;
 };
 
@@ -234,6 +236,7 @@ export default function DatePicker({
   disabled,
   clearable = true,
   size = "md",
+  iconOnly = false,
   "aria-label": ariaLabel,
 }: DatePickerProps) {
   const panelId = useId();
@@ -398,9 +401,14 @@ export default function DatePicker({
         aria-label={ariaLabel}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => (open ? setOpen(false) : openPanel())}
-        className={cn("flex w-full items-center gap-2 text-left", controlClass(size), className)}
+        className={
+          iconOnly
+            ? cn("flex items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground", className)
+            : cn("flex w-full items-center gap-2 text-left", controlClass(size), className)
+        }
       >
         <TriggerIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        {!iconOnly && (
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
@@ -409,7 +417,8 @@ export default function DatePicker({
         >
           {label}
         </span>
-        {clearable && value && !disabled && (
+        )}
+        {!iconOnly && clearable && value && !disabled && (
           <span
             role="button"
             tabIndex={-1}

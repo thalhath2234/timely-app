@@ -271,9 +271,9 @@ install-browser: ## Install Chromium for browser checks
 
 .PHONY: test-sheet-formulas lint-sheet-formulas format-sheet-formulas
 test-sheet-formulas: ## Test the shared sheet logic (formulas, ranges, cells, CSV) and grid growth
-	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/sheet-formulas.test.mjs scripts/sheet-refs.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs scripts/sheet-grid-grow.test.mjs
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/sheet-formulas.test.mjs scripts/sheet-refs.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs scripts/sheet-template-display.test.mjs scripts/sheet-ops.test.mjs scripts/sheet-grid-grow.test.mjs
 lint-sheet-formulas: ## Lint the shared sheet logic in packages/contract
-	@apps/web/node_modules/.bin/eslint -c apps/web/eslint.config.mjs packages/contract/src/sheetFormula.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts
+	@apps/web/node_modules/.bin/eslint -c apps/web/eslint.config.mjs packages/contract/src/sheetFormula.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts packages/contract/src/sheetDisplay.ts packages/contract/src/sheetTemplates.ts packages/contract/src/sheetRefs.ts packages/contract/src/sheetValues.ts packages/contract/src/sheetFunctions.ts packages/contract/src/sheetOps.ts
 format-sheet-formulas: ## Format shared sheet logic and tests
 	@pnpm exec prettier --write packages/contract/src/sheetFormula.ts packages/contract/src/sheetFormulaInput.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts scripts/sheet-formulas.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs apps/mobile/lib/sheetGrow.ts scripts/sheet-grid-grow.test.mjs
 
