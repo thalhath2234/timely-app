@@ -445,7 +445,7 @@ function MenuPanel({ items, title, anchor, onDismiss, onCloseSelf }: PanelProps)
               ) : null}
 
               {entry.kind === "action" && entry.shortcut ? (
-                <span className="shrink-0 font-mono text-[11px] tracking-tight text-muted-foreground tabular-nums">
+                <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
                   {formatShortcut(entry.shortcut)}
                 </span>
               ) : null}

@@ -9,6 +9,7 @@ import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/
 import { deleteMe } from "@/app/utils/api/user";
 import { setAccessToken } from "@/app/utils/api/client";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
+import { controlClass } from "@/app/_components/_ui/field";
 
 const CONFIRM_WORD = "DELETE";
 
@@ -17,7 +18,7 @@ const CONFIRM_WORD = "DELETE";
 const ACCOUNT_STORAGE_KEYS = ["timely.pageTabs", "timely.report.pomodoro", "timely.staleReview.hiddenUntil"];
 
 const inputClass =
-  "w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring";
+  controlClass("md", "w-full");
 
 /** Settings → Account: deletes the account and its data. Only the desktop app
  * shows it, since there the account lives in the computer's own database. */

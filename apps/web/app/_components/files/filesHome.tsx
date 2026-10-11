@@ -1,5 +1,7 @@
 "use client";
 
+import Button, { buttonClass } from "@/app/_components/_ui/button";
+import PageHeader from "@/app/_components/_ui/pageHeader";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Plus, Upload } from "lucide-react";
@@ -170,28 +172,29 @@ export default function FilesHome() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="flex min-h-full flex-col px-6 py-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <ExpandCollapsedListButton storageKey="timely.filesListCollapsed" label="files list" />
-              <h1 className="text-2xl font-semibold text-foreground">Files</h1>
-            </div>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Docs for notes, specs and meeting minutes; sheets for numbers in a grid. Type{" "}
-              <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs">/</kbd>{" "}
-              inside a doc for blocks, or a formula like{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-primary">=SUM(A1:A10)</code>{" "}
-              in a sheet cell.
-            </p>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            <ExpandCollapsedListButton storageKey="timely.filesListCollapsed" label="files list" />
+            Files
+          </span>
+        }
+        description={
+          <>
+            Docs for notes, specs and meeting minutes; sheets for numbers in a grid. Type{" "}
+            <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs">/</kbd>{" "}
+            inside a doc for blocks, or a formula like{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-primary">=SUM(A1:A10)</code>{" "}
+            in a sheet cell.
+          </>
+        }
+        actions={
+          <>
             <label
               title="Import a Markdown file as a doc, or a CSV file as a sheet"
-              className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 font-medium text-foreground transition-colors hover:border-primary/30"
+              className={buttonClass({ variant: "outline" })}
             >
-              <Upload className="size-4" />
+              <Upload />
               Import
               <input
                 type="file"
@@ -204,28 +207,22 @@ export default function FilesHome() {
                 }}
               />
             </label>
-            <button
-              type="button"
+            <Button
+              variant="outline"
               onClick={onNewSheetClick}
-              disabled={createSheet.isPending}
-              className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 font-medium text-foreground transition-colors hover:border-primary/30 disabled:opacity-60"
+              loading={createSheet.isPending}
+              leading={<Plus />}
+              trailing={templates.length > 0 ? <ChevronDown className="opacity-70" /> : undefined}
             >
-              <Plus className="size-4" />
-              {createSheet.isPending ? "Creating..." : "New sheet"}
-              {templates.length > 0 && <ChevronDown className="size-4 opacity-80" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => void createNewDoc()}
-              disabled={createDoc.isPending}
-              className="flex cursor-pointer items-center gap-2 rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-            >
-              <Plus className="size-4" />
-              {createDoc.isPending ? "Creating..." : "New doc"}
-            </button>
-          </div>
-        </div>
-
+              New sheet
+            </Button>
+            <Button onClick={() => void createNewDoc()} loading={createDoc.isPending} leading={<Plus />}>
+              New doc
+            </Button>
+          </>
+        }
+      />
+      <div className="flex min-h-full flex-col px-6 pb-6">
         {favorites.length > 0 && (
           <>
             <h2 className={sectionHeading}>Favorites</h2>

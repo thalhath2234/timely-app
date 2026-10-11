@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 export type NamedColorItem = {
   id: string;
@@ -128,20 +130,20 @@ export default function NamedColorEditor({
                     <input
                       value={editName}
                       onChange={(event) => setEditName(event.target.value)}
-                      className="min-w-0 flex-1 rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/40"
+                      className={controlClass("md", "min-w-0 flex-1")}
                     />
                     <button
                       type="button"
                       disabled={busyId === item.id}
                       onClick={() => handleUpdate(item.id)}
-                      className="cursor-pointer rounded-lg bg-primary px-2 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                      className={buttonClass({ size: "sm" })}
                     >
                       Save
                     </button>
                     <button
                       type="button"
                       onClick={() => setEditingId(null)}
-                      className="cursor-pointer rounded-lg bg-secondary px-2 py-1.5 text-xs text-secondary-foreground hover:bg-accent"
+                      className={buttonClass({ variant: "secondary", size: "sm" })}
                     >
                       Cancel
                     </button>
@@ -191,13 +193,13 @@ export default function NamedColorEditor({
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder={`New ${noun} name`}
-          className="min-w-0 flex-1 rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/40"
+          className={controlClass("md", "min-w-0 flex-1")}
         />
         <button
           type="button"
           disabled={creating}
           onClick={handleCreate}
-          className="inline-flex cursor-pointer items-center gap-1 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-accent disabled:opacity-60"
+          className={buttonClass({ variant: "secondary", size: "sm" })}
         >
           <Plus className="size-3.5" />
           Add

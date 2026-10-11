@@ -13,6 +13,9 @@ import type { Task } from "@/app/_types/types";
 import { AnimatePresence, motion } from "motion/react";
 import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 import ScreenTip from "@/app/_components/_ui/screenTip";
+import Button from "@/app/_components/_ui/button";
+import { Input } from "@/app/_components/_ui/field";
+import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 
 export default function InboxPage() {
   const inbox = useInboxTasks();
@@ -41,36 +44,26 @@ export default function InboxPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="border-b border-border px-6 py-5">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
-          {items.length > 0 ? (
-            <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[0.6875rem] font-medium tracking-wider text-primary uppercase">
-              {items.length} unreviewed
-            </span>
-          ) : null}
-        </div>
-        <p className="mt-1.5 text-sm text-muted-foreground">
-          Capture a title now. Assign a workspace to make it work, or turn it into a reminder when you review.
-        </p>
+      <PageHeader
+        title="Inbox"
+        bordered
+        badge={items.length > 0 ? <PageBadge tone="primary">{items.length} to review</PageBadge> : null}
+        description="Capture a title now. Assign a workspace to make it work, or turn it into a reminder when you review."
+      >
         <ScreenTip screen="inbox" className="mt-3" />
-        <form onSubmit={onCapture} className="mt-4 flex gap-2">
-          <input
+        <form onSubmit={onCapture} className="mt-4 flex max-w-3xl gap-2">
+          <Input
             ref={captureRef}
             data-inbox-capture
+            size="lg"
             aria-label="Capture to inbox"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Something to follow up…"
-            className="h-11 flex-1 rounded-lg border border-border bg-muted px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
           />
-          <button
-            type="submit"
-            disabled={!title.trim() || capture.isPending}
-            className="h-11 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
-          >
+          <Button type="submit" size="lg" disabled={!title.trim()} loading={capture.isPending}>
             Capture
-          </button>
+          </Button>
         </form>
         {capturedFlash ? (
           <motion.p
@@ -87,8 +80,8 @@ export default function InboxPage() {
             {capture.error instanceof Error ? capture.error.message : "Could not capture."}
           </p>
         ) : null}
-      </header>
-      <div className="flex flex-1 flex-col overflow-y-auto p-6">
+      </PageHeader>
+      <div className="flex flex-1 flex-col overflow-y-auto px-6 py-5">
         {inbox.isError && inbox.data ? (
           <LoadErrorBanner
             what="inbox"
@@ -135,10 +128,10 @@ export default function InboxPage() {
                   onContextMenu={(event) =>
                     openMenu(event, taskMenu(task), { title: task.name })
                   }
-                  className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm transition hover:bg-accent"
+                  className="group flex w-full items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:border-primary/30 hover:bg-accent/40"
                 >
                   <span className="truncate">{task.name}</span>
-                  <span className="text-xs font-medium text-primary">Review</span>
+                  <span className="text-xs font-medium text-primary group-hover:underline">Review</span>
                 </motion.button>
               </motion.li>
             ))}
@@ -147,7 +140,7 @@ export default function InboxPage() {
         )}
         <p className="mt-6 text-xs text-muted-foreground">
           Need the full task list?{" "}
-          <Link href="/tasks" className="text-primary underline">
+          <Link href="/tasks" className="text-primary hover:underline">
             Open tasks
           </Link>
         </p>

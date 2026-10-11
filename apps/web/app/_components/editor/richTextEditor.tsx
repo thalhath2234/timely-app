@@ -95,6 +95,7 @@ import {
   filterSlashItems,
 } from "./slashMenu";
 import { fileHref } from "@/app/utils/fileRoutes";
+import { controlClass } from "@/app/_components/_ui/field";
 
 const LINK_POPOVER_WIDTH = 320;
 const TOOLBAR_WIDTH = 340;
@@ -1129,7 +1130,7 @@ export default function RichTextEditor({
                   }
                 }}
                 placeholder="Paste or type a link"
-                className="min-w-0 flex-1 rounded-md border border-border bg-input/30 px-2 py-1.5 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring/40"
+                className={controlClass("md", "min-w-0 flex-1")}
               />
 
               <button

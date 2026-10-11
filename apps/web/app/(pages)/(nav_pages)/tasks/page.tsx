@@ -1,5 +1,7 @@
 "use client";
 
+import Button, { Kbd } from "@/app/_components/_ui/button";
+import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -29,6 +31,7 @@ import { useTaskViewsState } from "@/app/utils/hooks/taskViews";
 import ScreenTip from "@/app/_components/_ui/screenTip";
 import { beginOpenMorph, entityTitleKey } from "@/app/utils/titleMorph";
 import { runViewTransition } from "@/app/utils/viewTransition";
+import { controlClass } from "@/app/_components/_ui/field";
 
 /** Project rows are synthesised from their tasks and carry a prefixed id. */
 const PROJECT_ROW_PREFIX = "project-";
@@ -521,48 +524,38 @@ function TaskHeader({
   };
 
   return (
-    <div className="flex items-center justify-between border-b border-border px-5 py-4">
-      <div className="flex items-center gap-3">
-        <span
-          className="size-2.5 rounded-full bg-primary shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_65%,transparent)]"
-          aria-hidden
-        />
-        <h1 className="text-xl font-bold tracking-tight text-foreground">
-          Projects &amp; Tasks
-        </h1>
-        <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-          {taskCount} Task{taskCount === 1 ? "" : "s"} · {projectCount} Project
-          {projectCount === 1 ? "" : "s"}
-        </span>
-      </div>
-
-      <div className="flex items-center gap-2.5">
-        {onToggleOptions ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-            onClick={onToggleOptions}
-            aria-pressed={!optionsVisible}
+    <PageHeader
+      title="Tasks"
+      bordered
+      badge={
+        <PageBadge>
+          {taskCount} task{taskCount === 1 ? "" : "s"} · {projectCount} project{projectCount === 1 ? "" : "s"}
+        </PageBadge>
+      }
+      actions={
+        <>
+          {onToggleOptions ? (
+            <Button
+              variant="ghost"
+              onClick={onToggleOptions}
+              aria-pressed={!optionsVisible}
+              leading={optionsVisible ? <EyeOff /> : <Eye />}
+            >
+              {optionsVisible ? "Hide options" : "Show options"}
+            </Button>
+          ) : null}
+          <Button
+            onClick={openCreate}
+            disabled={!canCreate}
+            title={canCreate ? "Create a task (C)" : "Create a workspace first"}
+            leading={<Plus />}
           >
-            {optionsVisible ? <EyeOff size={14} /> : <Eye size={14} />}
-            {optionsVisible ? "Hide options" : "Show options"}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={openCreate}
-          disabled={!canCreate}
-          title={canCreate ? "Create a task" : "Create a workspace first"}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-60"
-        >
-          <Plus size={14} />
-          New task
-          <kbd className="ml-0.5 hidden rounded bg-primary-foreground/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary-foreground/90 sm:inline">
-            C
-          </kbd>
-        </button>
-      </div>
-    </div>
+            New task
+            <Kbd className="hidden sm:inline-flex">C</Kbd>
+          </Button>
+        </>
+      }
+    />
   );
 }
 
@@ -607,7 +600,7 @@ function TaskNavigationBar({
   };
 
   return (
-    <div className="flex h-11 items-end border-b border-border px-5">
+    <div className="flex h-11 items-end border-b border-border px-6">
       <div className="flex items-end gap-5 text-xs">
         {views.map((view) => {
           const isEditing = editingViewId === view.id;
@@ -631,7 +624,7 @@ function TaskNavigationBar({
                   }
                 }}
                 autoFocus
-                className="h-7 w-40 rounded-md border border-border bg-input/30 px-2 text-sm text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring/40"
+                className={controlClass("sm", "w-40")}
               />
             );
           }

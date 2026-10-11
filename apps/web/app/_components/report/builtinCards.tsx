@@ -23,6 +23,8 @@ import { useToastStore } from "@/app/_store/toastStore";
 import { cn } from "@/app/utils/cn";
 import DatePicker from "@/app/_components/_ui/datePicker";
 import { Meter, useElementSize } from "./charts";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 /* ------------------------------------------------------------------ */
 /* Today                                                               */
@@ -145,7 +147,7 @@ export function QuickCaptureCard({ inboxCount }: { inboxCount: number }) {
           event.preventDefault();
           submit();
         }}
-        className="flex items-center gap-2 rounded-lg border border-border bg-input/30 px-2.5 py-1.5 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40"
+        className="flex items-center gap-2 rounded-md border border-input bg-card shadow-xs px-2.5 py-1.5 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20"
       >
         <input
           value={text}
@@ -418,7 +420,7 @@ export function CountdownCard({
           onChange={(event) => setDraftLabel(event.target.value.slice(0, 80))}
           placeholder="What are you counting down to?"
           aria-label="Countdown name"
-          className="rounded-md border border-border bg-input/30 px-2 py-1 text-sm text-foreground outline-none focus:border-ring"
+          className={controlClass("md")}
         />
         <div className="flex gap-2">
           <div className="min-w-0 flex-1">
@@ -428,10 +430,10 @@ export function CountdownCard({
               clearable={false}
               placeholder="Pick a date"
               aria-label="Date"
-              className="rounded-md px-2 py-1"
+              size="sm"
             />
           </div>
-          <button type="submit" disabled={!draftDate} className="rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-50">
+          <button type="submit" disabled={!draftDate} className={buttonClass({ size: "sm" })}>
             Save
           </button>
         </div>

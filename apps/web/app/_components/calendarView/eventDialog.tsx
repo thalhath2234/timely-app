@@ -39,6 +39,8 @@ import {
 } from "@/app/utils/hooks/tasks";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 type EventDialogProps = {
   event: CalendarEvent | null;
@@ -59,14 +61,11 @@ const SCOPE_OPTIONS: { value: Scope; label: string; hint: string }[] = [
   { value: "all", label: "All occurrences", hint: "Updates the whole series." },
 ];
 
-const primaryButton =
-  "cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60";
-const secondaryButton =
-  "inline-flex cursor-pointer items-center gap-1 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent disabled:opacity-60";
-const dangerButton =
-  "cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60";
+const primaryButton = buttonClass();
+const secondaryButton = buttonClass({ variant: "secondary" });
+const dangerButton = buttonClass({ variant: "destructive-ghost" });
 const fieldClass =
-  "w-full rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40";
+  controlClass("md", "w-full");
 
 export default function EventDialog({ event, onClose, onOpenTask }: EventDialogProps) {
   useEffect(() => {
@@ -326,7 +325,7 @@ function TimeFields({
       ) : (
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">
-            Duration ({formatDuration(duration)})
+            Duration in minutes{duration >= 60 ? ` (${formatDuration(duration)})` : ""}
           </span>
           <input
             type="number"

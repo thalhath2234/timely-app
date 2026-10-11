@@ -13,6 +13,7 @@ import TimezoneSelect from "@/app/_components/_ui/timezoneSelect";
 import type { NotificationSettings } from "@/app/_types/types";
 import { browserTimezone } from "@/app/utils/api/schedule";
 import { useDecisions } from "@/app/utils/hooks/decisions";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 export default function NotificationSettingsPanel() {
   const { data: settings, isLoading, isError } = useNotificationSettings();
@@ -141,7 +142,7 @@ function NotificationSettingsForm({ initial }: { initial: NotificationSettings }
         <button
           type="submit"
           disabled={update.isPending}
-          className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+          className={buttonClass()}
         >
           {update.isPending ? "Saving..." : "Save notification settings"}
         </button>

@@ -232,20 +232,20 @@ function hasClockTime(value: string): boolean {
   return /T\d{2}:\d{2}/.test(value);
 }
 
+/** "Oct 13", plus the year when it isn't this year, as elsewhere in the app. */
 function formatDate(value?: string | null, includeTime = false): string {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
+  const day: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    ...(date.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}),
+  };
   if (includeTime && hasClockTime(value)) {
-    return date.toLocaleString(undefined, {
-      month: "numeric",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    return date.toLocaleString(undefined, { ...day, hour: "numeric", minute: "2-digit" });
   }
-  return date.toLocaleDateString();
+  return date.toLocaleDateString(undefined, day);
 }
 
 function scheduledStamp(task: Task): string | null | undefined {
@@ -998,7 +998,7 @@ export default function TasksTable({
   const textCell = "px-3 py-2.5 text-foreground whitespace-nowrap align-middle";
   const primaryTextCell = "px-3 py-2.5 font-medium text-foreground whitespace-nowrap align-middle";
   const descriptionCell = "px-3 py-2.5 text-muted-foreground max-w-80 truncate align-middle";
-  const numericCell = "px-3 py-2.5 text-muted-foreground text-right font-mono text-[11px] tabular-nums whitespace-nowrap align-middle";
+  const numericCell = "px-3 py-2.5 text-muted-foreground text-right text-xs tabular-nums whitespace-nowrap align-middle";
   const dateCell = "px-3 py-2.5 text-muted-foreground tabular-nums whitespace-nowrap align-middle";
 
   const alignHeader = (align: ColumnAlign) =>
@@ -1437,7 +1437,7 @@ export default function TasksTable({
                           </button>
 
                           {allDone ? (
-                            <span className="shrink-0 rounded-full border border-success/25 bg-success/10 px-2 py-0.5 font-mono text-[11px] text-success">
+                            <span className="shrink-0 rounded-full border border-success/25 bg-success/10 px-2 py-0.5 tabular-nums text-[11px] text-success">
                               100% DONE
                             </span>
                           ) : showProgress ? (

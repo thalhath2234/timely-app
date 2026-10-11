@@ -54,6 +54,9 @@ import { entityTitleKey } from "@/app/utils/titleMorph";
 import TodaySuggestions from "@/app/_components/today/todaySuggestions";
 import HabitsGoals from "@/app/_components/today/habitsGoals";
 import ScreenTip from "@/app/_components/_ui/screenTip";
+import Button, { Kbd } from "@/app/_components/_ui/button";
+import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
@@ -406,7 +409,7 @@ function FocusTaskRow({
           <>
             <div
               className={cn(
-                "inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-1.5 font-mono text-xs",
+                "inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-1.5 tabular-nums text-xs",
                 overEstimate ? "text-destructive" : "text-primary",
               )}
               title="Elapsed in this session"
@@ -425,7 +428,7 @@ function FocusTaskRow({
               type="button"
               disabled={busy}
               onClick={onStop}
-              className="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground disabled:opacity-60"
+              className={buttonClass({ size: "sm" })}
             >
               Stop
             </button>
@@ -487,6 +490,9 @@ function AgendaTimeline({
             const left = ((Math.max(minutesOfDay(start), from) - from) / span) * 100;
             const right = ((Math.min(minutesOfDay(end), to) - from) / span) * 100;
             const width = Math.max(right - left, 1.5);
+            // A short block would only show "T…"; its title is in the tooltip
+            // and the list below.
+            const labelled = minutesOfDay(end) - minutesOfDay(start) >= 30;
             return (
               <button
                 key={item.id}
@@ -494,7 +500,7 @@ function AgendaTimeline({
                 title={`${item.title} · ${formatTime(start)} – ${formatTime(end)}`}
                 onClick={() => onOpen(item)}
                 onContextMenu={(event) => onContextMenu?.(event, item)}
-                className="absolute overflow-hidden rounded-md px-2 text-left text-[10px] font-medium"
+                className="absolute overflow-hidden rounded-md px-2 text-left text-[11px] font-medium"
                 style={{
                   top: 6 + laneIndex * (laneHeight + 6),
                   height: laneHeight,
@@ -503,7 +509,7 @@ function AgendaTimeline({
                   ...fillStyle(itemAccent(item)),
                 }}
               >
-                <span className="block truncate leading-8">{item.title}</span>
+                {labelled ? <span className="block truncate leading-8">{item.title}</span> : null}
               </button>
             );
           }),
@@ -516,7 +522,7 @@ function AgendaTimeline({
           />
         ) : null}
       </div>
-      <div className="relative h-4 font-mono text-[10px] text-muted-foreground">
+      <div className="relative h-4 whitespace-nowrap text-[10px] tabular-nums text-muted-foreground">
         {hours.map((hour, index) => (
           <span
             key={hour}
@@ -563,7 +569,7 @@ function AgendaRow({
       <div className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3.5 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[11px] font-medium" style={{ color: accent }}>
+            <span className="tabular-nums text-[11px] font-medium" style={{ color: accent }}>
               {item.allDay || !start || !end
                 ? "All day"
                 : `${formatTime(start)} – ${formatTime(end)}`}
@@ -806,50 +812,46 @@ export default function TodayDashboard() {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      <div className="flex flex-1 flex-col overflow-y-auto px-6 py-6 sm:px-8">
-        <header className="flex flex-col gap-4 border-b border-border pb-6 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">Today</h1>
-              {data?.focusing ? (
-                <span className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-primary">
-                  Focus Mode
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-              <span className="font-medium text-foreground/80">{dateLabel}</span>
+      <div className="flex flex-1 flex-col overflow-y-auto">
+        <PageHeader
+          title="Today"
+          bordered
+          badge={data?.focusing ? <PageBadge tone="primary">Focus mode</PageBadge> : null}
+          description={
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>{dateLabel}</span>
               {inboxCount > 0 ? (
                 <>
-                  <span className="size-1 rounded-full bg-border" />
+                  <span aria-hidden className="size-1 rounded-full bg-border" />
                   <Link href="/inbox" className="font-medium text-warning hover:underline">
                     {inboxCount} item{inboxCount === 1 ? "" : "s"} in inbox
                   </Link>
                 </>
               ) : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {focusLoggedMinutes > 0 ? (
-              <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 px-3.5 py-2 text-xs">
-                <span className="text-muted-foreground">
-                  <span className="font-semibold text-primary">{formatDuration(focusLoggedMinutes)}</span> focus logged
-                </span>
-              </div>
-            ) : null}
-            <button
-              type="button"
+              {focusLoggedMinutes > 0 ? (
+                <>
+                  <span aria-hidden className="size-1 rounded-full bg-border" />
+                  <span>
+                    <span className="font-medium text-foreground">{formatDuration(focusLoggedMinutes)}</span> focus logged
+                  </span>
+                </>
+              ) : null}
+            </span>
+          }
+          actions={
+            <Button
               onClick={() => setPickerOpen(true)}
               disabled={remainingSlots <= 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
+              leading={<Star />}
+              title="Star a task for today (P)"
             >
-              <Plus className="size-4" />
-              Star Priority (P)
-            </button>
-          </div>
-        </header>
+              Add to focus
+              <Kbd>P</Kbd>
+            </Button>
+          }
+        />
 
-        <div className={cn("mt-6 space-y-7", inboxCount > 0 ? "pb-28" : "pb-8")}>
+        <div className={cn("mt-6 space-y-7 px-6", inboxCount > 0 ? "pb-28" : "pb-8")}>
           {today.isError && data ? (
             <LoadErrorBanner
               what="today"
@@ -879,8 +881,8 @@ export default function TodayDashboard() {
               <section className="space-y-3">
                 <SectionHeading
                   icon={<Star className="size-3.5 fill-primary text-primary" />}
-                  title="Today Focus"
-                  hint="Star up to 7 tasks to complete today. Independent of deadlines."
+                  title="Today focus"
+                  hint="Up to 7 tasks to finish today, whatever their deadlines."
                   extra={
                     focusTotal > 0 ? (
                       <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
@@ -901,7 +903,7 @@ export default function TodayDashboard() {
                 <div className="space-y-2.5 rounded-2xl border border-border bg-muted/20 p-4">
                   {focusRows.length === 0 ? (
                     <p className="px-1 py-3 text-sm text-muted-foreground">
-                      Star up to 7 tasks from here or a task detail. This set is independent of deadlines.
+                      Nothing starred yet. Star a task here or from its detail panel.
                     </p>
                   ) : (
                     focusRows.map((task) => (
@@ -951,7 +953,7 @@ export default function TodayDashboard() {
               <section className="space-y-3">
                 <SectionHeading
                   icon={<Clock className="size-3.5 text-primary" />}
-                  title="Scheduled Agenda"
+                  title="Scheduled"
                   hint="Reserved blocks and events, placed on today’s clock"
                   extra={
                     nextEvent ? (
@@ -1038,7 +1040,7 @@ export default function TodayDashboard() {
                         className="flex w-full items-center justify-between gap-3 px-3.5 py-3.5 text-left hover:bg-accent/30"
                       >
                         <span className="min-w-0 truncate text-sm font-medium">{item.title}</span>
-                        <span className="rounded-md border border-border bg-background px-2 py-0.5 font-mono text-xs text-muted-foreground">
+                        <span className="rounded-md border border-border bg-background px-2 py-0.5 tabular-nums text-xs text-muted-foreground">
                           {formatTime(new Date(item.start))}
                         </span>
                       </button>

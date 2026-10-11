@@ -29,6 +29,7 @@ import {
   PROVIDER_LABELS,
   type ProviderId,
 } from "@/app/utils/api/agentProviders";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -459,7 +460,7 @@ export default function Conversation({
                       onClick={() =>
                         act("/images/confirm", { revision: chat.revision })
                       }
-                      className="rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                      className={buttonClass()}
                     >
                       Confirm image review
                     </button>

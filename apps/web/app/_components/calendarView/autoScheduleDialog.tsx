@@ -9,6 +9,7 @@ import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { cn } from "@/app/utils/cn";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import type { PlanRequest } from "@/app/utils/api/schedule";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 type AutoScheduleDialogProps = {
   open: boolean;
@@ -508,7 +509,7 @@ function AutoSchedulePanel({
             <button
               type="button"
               onClick={onClose}
-              className="cursor-pointer rounded-lg bg-secondary px-3 py-1.5 font-medium text-secondary-foreground transition-colors hover:bg-accent"
+              className={buttonClass({ variant: "secondary" })}
             >
               {applied ? "Done" : "Cancel"}
             </button>
@@ -517,7 +518,7 @@ function AutoSchedulePanel({
                 type="button"
                 onClick={undoLast}
                 disabled={undo.isPending}
-                className="cursor-pointer rounded-lg bg-secondary px-3 py-1.5 font-medium text-secondary-foreground transition-colors hover:bg-accent disabled:opacity-60"
+                className={buttonClass({ variant: "secondary" })}
               >
                 {undo.isPending ? "Undoing..." : "Undo last apply"}
               </button>
@@ -526,7 +527,7 @@ function AutoSchedulePanel({
               type="button"
               onClick={confirm}
               disabled={apply.isPending || applied || !plan || proposals.length === 0}
-              className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+              className={buttonClass()}
             >
               {apply.isPending ? "Applying..." : "Apply schedule"}
             </button>

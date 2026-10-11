@@ -18,6 +18,8 @@ import { useClientGate } from "@/app/_components/_ui/motion";
 import { bindPomodoroQueryClient, pomodoroTimeLeft, usePomodoroStore } from "@/app/_store/pomodoroStore";
 import { cn } from "@/app/utils/cn";
 import { useElementSize } from "./charts";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const PHASE_LABEL: Record<PomodoroPhase, string> = { focus: "Focus", short: "Short break", long: "Long break" };
 const PHASE_SETTING = { focus: "focus", short: "shortBreak", long: "longBreak" } as const;
@@ -200,7 +202,7 @@ export default function PomodoroCard({
             if (running) actions.pause(cardId);
             else actions.start(cardId);
           }}
-          className="flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          className={buttonClass({ size: "lg" })}
         >
           {running ? <Pause className="size-4" /> : <Play className="size-4" />}
           {running ? "Pause" : timer.remaining !== null ? "Resume" : "Start"}
@@ -326,7 +328,7 @@ function PomodoroSettingsForm({
             const value = Number(event.target.value);
             if (Number.isFinite(value) && value >= 1) onChange({ [key]: Math.min(max, Math.round(value)) });
           }}
-          className="w-16 rounded-md border border-border bg-input/30 px-2 py-1 text-right tabular-nums text-foreground outline-none focus:border-ring"
+          className={controlClass("md", "w-16 text-right tabular-nums")}
         />
         <span className="w-8 text-xs text-muted-foreground">{unit}</span>
       </span>

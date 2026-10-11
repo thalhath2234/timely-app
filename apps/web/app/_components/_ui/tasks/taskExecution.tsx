@@ -133,13 +133,13 @@ export default function TaskExecution({
                 Checklist
               </h3>
               {totalCount > 0 ? (
-                <span className="rounded-full border border-success/20 bg-success/10 px-2 py-0.5 font-mono text-[11px] font-medium text-success">
+                <span className="rounded-full border border-success/20 bg-success/10 px-2 py-0.5 tabular-nums text-[11px] font-medium text-success">
                   {doneCount} of {totalCount} done
                 </span>
               ) : null}
             </div>
             {totalCount > 0 ? (
-              <span className="font-mono text-xs text-muted-foreground">{progressPct}%</span>
+              <span className="tabular-nums text-xs text-muted-foreground">{progressPct}%</span>
             ) : null}
           </div>
           {totalCount > 0 ? (

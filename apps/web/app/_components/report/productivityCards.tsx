@@ -68,6 +68,7 @@ import { usePomodoroStore } from "@/app/_store/pomodoroStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { cn } from "@/app/utils/cn";
 import { ColumnChart } from "./charts";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 type Settings = Record<string, unknown>;
 type OnSettings = (next: Settings) => void;
@@ -601,7 +602,7 @@ export function HabitsCard({ settings, timeZone, onSettings }: { settings: Setti
             event.preventDefault();
             add();
           }}
-          className="flex items-center gap-2 rounded-lg border border-border bg-input/30 px-2.5 py-1 focus-within:border-ring"
+          className="flex items-center gap-2 rounded-md border border-input bg-card shadow-xs px-2.5 py-1 focus-within:border-ring"
         >
           <Plus className="size-3.5 text-muted-foreground" />
           <input
@@ -849,7 +850,7 @@ export function WeeklyReviewCard({
         placeholder="What went well? What will you change next week?"
         aria-label="Notes for this week"
         rows={2}
-        className="w-full resize-none rounded-lg border border-border bg-input/30 px-2.5 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+        className="w-full resize-none rounded-md border border-input bg-card shadow-xs px-2.5 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
       />
     </div>
   );
@@ -909,7 +910,7 @@ export function InboxZeroCard({ inbox, loading, now, timeZone }: { inbox: Task[]
         <p className="text-[11px] text-muted-foreground">Oldest · captured {ageText(next.createdAt, todayInZone(timeZone, now))}</p>
       </div>
       <div className="mt-auto flex items-center gap-1.5">
-        <button type="button" onClick={review} className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90">
+        <button type="button" onClick={review} className={buttonClass({ size: "sm" })}>
           Review
         </button>
         <button
@@ -1029,7 +1030,7 @@ export function ClockCard({ title, settings, onSettings }: { title: string; sett
         <button
           type="button"
           onClick={running ? pause : start}
-          className="flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className={buttonClass({ size: "lg" })}
         >
           {running ? <Pause className="size-4" /> : <Play className="size-4" />}
           {running ? "Pause" : elapsed > 0 && !state.done ? "Resume" : "Start"}
@@ -1113,7 +1114,7 @@ export function JournalCard({ settings, timeZone, onSettings }: { settings: Sett
         onChange={(event) => draft.onChange(event.target.value)}
         placeholder="Write a few lines…"
         aria-label={prompt}
-        className="min-h-0 w-full flex-1 resize-none rounded-lg border border-border bg-input/30 px-2.5 py-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+        className="min-h-0 w-full flex-1 resize-none rounded-md border border-input bg-card shadow-xs px-2.5 py-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
       />
       <div className="flex items-center gap-2 text-xs">
         {upToDate ? (
@@ -1130,7 +1131,7 @@ export function JournalCard({ settings, timeZone, onSettings }: { settings: Sett
             type="button"
             onClick={() => void save()}
             disabled={!text || saving}
-            className="rounded-md bg-primary px-2.5 py-1 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className={buttonClass()}
           >
             {saving ? "Saving…" : savedDocId ? "Update today's note" : "Save to today's note"}
           </button>

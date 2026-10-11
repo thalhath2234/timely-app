@@ -9,6 +9,8 @@ import { DateField } from "@/app/_components/_ui/datePicker";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
 import ColorChip from "@/app/_components/_ui/colorChip";
 import Select from "@/app/_components/_ui/select";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
+import { requestConfirm } from "@/app/_store/confirmStore";
 import StageBoard from "@/app/_components/projects/stageBoard";
 import StageCatalog from "@/app/_components/projects/stageCatalog";
 import ProjectInsights from "@/app/_components/projects/projectInsights";
@@ -49,10 +51,7 @@ export default function ProjectDetailPage() {
           title="Project not found"
           description="It may have been deleted, or you don't have access."
           action={
-            <Link
-              href="/projects"
-              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-            >
+            <Link href="/projects" className={buttonClass()}>
               Back to projects
             </Link>
           }
@@ -110,7 +109,7 @@ function ProjectHub({ project }: { project: Project }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <header
-        className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3"
+        className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-3"
         onContextMenu={(event) => {
           if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
           openMenu(event, projectMenu(project, { omit: ["open"] }), {
@@ -118,11 +117,8 @@ function ProjectHub({ project }: { project: Project }) {
           });
         }}
       >
-        <Link
-          href="/projects"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
+        <Link href="/projects" className={buttonClass({ variant: "ghost", size: "sm", className: "-ml-2" })}>
+          <ArrowLeft />
           Projects
         </Link>
         {workspace ? (
@@ -150,8 +146,41 @@ function ProjectHub({ project }: { project: Project }) {
           </span>
         ) : null}
         <SaveStatusBadge status={status} onRetry={() => void flush()} />
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          leading={<Copy />}
+          loading={duplicateProject.isPending}
+          onClick={() =>
+            void duplicateProject.mutateAsync(project.id).then((copy) => {
+              router.push(`/projects/${copy.id}`);
+            })
+          }
+        >
+          Duplicate
+        </Button>
+        <Button
+          variant="ghost"
+          icon
+          aria-label="Delete project"
+          title="Delete project"
+          className="hover:text-destructive"
+          onClick={() =>
+            requestConfirm({
+              title: "Delete this project?",
+              description: "Its stages are deleted too.",
+              confirmLabel: "Delete project",
+              onConfirm: async () => {
+                await deleteProject.mutateAsync(project.id);
+                router.push("/projects");
+              },
+            })
+          }
+        >
+          <Trash2 />
+        </Button>
+        <Button
+          variant={project.completedAt ? "soft" : "primary"}
+          leading={<Check />}
           onClick={() => {
             const completing = !project.completedAt;
             schedule({
@@ -159,41 +188,12 @@ function ProjectHub({ project }: { project: Project }) {
             });
             void flush();
           }}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium ${
-            project.completedAt
-              ? "bg-success/15 text-success"
-              : "bg-primary text-primary-foreground hover:bg-primary/90"
-          }`}
         >
-          <Check className="size-4" />
           {project.completedAt ? "Completed" : "Mark complete"}
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            void duplicateProject.mutateAsync(project.id).then((copy) => {
-              router.push(`/projects/${copy.id}`);
-            })
-          }
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:border-primary/30"
-        >
-          <Copy className="size-4" />
-          Duplicate
-        </button>
-        <button
-          type="button"
-          onClick={async () => {
-            if (!window.confirm("Delete this project and its stages?")) return;
-            await deleteProject.mutateAsync(project.id);
-            router.push("/projects");
-          }}
-          className="rounded-lg px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-        >
-          <Trash2 className="size-4" />
-        </button>
+        </Button>
       </header>
 
-      <div className="flex gap-1 border-b border-border px-5">
+      <div className="flex gap-1 border-b border-border px-6">
         {tabs.map((item) => (
           <button
             key={item.id}
@@ -220,7 +220,7 @@ function ProjectHub({ project }: { project: Project }) {
         ))}
       </div>
 
-      <div className={`flex-1 ${tab === "tasks" ? "min-h-0 overflow-hidden" : "overflow-y-auto p-5"}`}>
+      <div className={`flex-1 ${tab === "tasks" ? "min-h-0 overflow-hidden" : "overflow-y-auto px-6 py-5"}`}>
         {tab === "overview" ? (
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="space-y-4">

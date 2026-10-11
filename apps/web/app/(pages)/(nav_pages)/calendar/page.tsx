@@ -42,8 +42,10 @@ import { cn } from "@/app/utils/cn";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
 import { AnimatePresence, motion } from "motion/react";
-import { fadeTransition, springSoft } from "@/app/_components/_ui/motion";
+import { fadeTransition } from "@/app/_components/_ui/motion";
 import ScreenTip from "@/app/_components/_ui/screenTip";
+import Button from "@/app/_components/_ui/button";
+import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 
 function CalendarContent() {
   const searchParams = useSearchParams();
@@ -216,22 +218,23 @@ function CalendarContent() {
   const isToday = todayStamp != null && isSameDay(selectedDate, new Date(todayStamp));
 
   return (
-    <main className="flex h-full flex-col gap-4 overflow-hidden bg-background p-4">
+    <main className="flex h-full flex-col gap-4 overflow-hidden bg-background px-6 pb-4 pt-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
 
           <div className="flex items-center gap-1">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              icon
               aria-label="Previous period"
               onClick={() =>
                 setSelectedDate(shiftDate(selectedDate, activeView, -1), -1)
               }
-              className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              <ChevronLeft className="size-4" />
-            </button>
+              <ChevronLeft />
+            </Button>
 
             <span
               suppressHydrationWarning
@@ -240,39 +243,35 @@ function CalendarContent() {
               {headerLabel(selectedDate, activeView)}
             </span>
 
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              icon
               aria-label="Next period"
               onClick={() =>
                 setSelectedDate(shiftDate(selectedDate, activeView, 1), 1)
               }
-              className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              <ChevronRight className="size-4" />
-            </button>
+              <ChevronRight />
+            </Button>
 
-            <button
-              type="button"
-              disabled={isToday}
-              onClick={() => setSelectedDate(new Date(), 0)}
-              className="h-7 rounded-lg border border-border bg-input/30 px-2.5 text-[0.8rem] font-medium transition-colors hover:bg-muted disabled:cursor-default disabled:opacity-50"
+            <Button
+              variant="outline"
+              size="sm"
+              aria-current={isToday ? "date" : undefined}
+              onClick={() => {
+                if (!isToday) setSelectedDate(new Date(), 0);
+              }}
             >
               Today
-            </button>
+            </Button>
           </div>
         </div>
 
         <div className="flex w-fit items-center gap-2">
-          <button
-            type="button"
-            onClick={() => openAutoSchedule()}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
+          <Button variant="outline" onClick={() => openAutoSchedule()}>
             <Sparkles
-              className={cn(
-                "size-3.5",
-                scheduleStatus === "running" && "animate-pulse text-primary",
-              )}
+              className={cn(scheduleStatus === "running" && "animate-pulse text-primary")}
             />
             {scheduleStatus === "running" ? "Scheduling…" : "Auto-schedule"}
             {unscheduledCount > 0 && (
@@ -280,10 +279,10 @@ function CalendarContent() {
                 {unscheduledCount}
               </span>
             )}
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            leading={<CalendarPlus />}
             onClick={() =>
               runViewTransition(() =>
                 setScheduleSlot({
@@ -292,37 +291,16 @@ function CalendarContent() {
                 }),
               )
             }
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            <CalendarPlus className="size-3.5" />
             Add
-          </button>
+          </Button>
 
-          <div className="flex items-center gap-0.5">
-            {CALENDAR_VIEWS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={activeView === option.value}
-                onClick={() => goToView(option.value)}
-                className={cn(
-                  "relative h-8 min-w-8 rounded-lg px-2.5 text-sm font-medium transition-colors",
-                  activeView === option.value
-                    ? "text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
-                {activeView === option.value ? (
-                  <motion.span
-                    layoutId="calendar-view-pill"
-                    transition={springSoft}
-                    className="absolute inset-0 rounded-lg bg-primary"
-                  />
-                ) : null}
-                <span className="relative z-10">{option.label}</span>
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            aria-label="Calendar view"
+            value={activeView}
+            onChange={goToView}
+            options={CALENDAR_VIEWS.map((option) => ({ value: option.value, label: option.label }))}
+          />
         </div>
       </div>
 

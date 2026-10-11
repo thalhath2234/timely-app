@@ -1,5 +1,6 @@
 "use client";
 
+import Button, { Kbd } from "@/app/_components/_ui/button";
 import { useCallback, useMemo, useState } from "react";
 import { Plus, Eye, EyeOff } from "lucide-react";
 import type { Project, Task, Workspace } from "@/app/_types/types";
@@ -212,27 +213,19 @@ export default function ProjectTaskList({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between border-b border-border px-5 py-3">
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+      <div className="flex items-center justify-between border-b border-border px-6 py-2">
+        <Button
+          variant="ghost"
           onClick={() => setOptionsVisible((previous) => !previous)}
           aria-pressed={!optionsVisible}
+          leading={optionsVisible ? <EyeOff /> : <Eye />}
         >
-          {optionsVisible ? <EyeOff size={14} /> : <Eye size={14} />}
           {optionsVisible ? "Hide options" : "Show options"}
-        </button>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-        >
-          <Plus size={14} />
+        </Button>
+        <Button onClick={openCreate} leading={<Plus />}>
           New task
-          <kbd className="ml-0.5 hidden rounded bg-primary-foreground/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary-foreground/90 sm:inline">
-            C
-          </kbd>
-        </button>
+          <Kbd className="hidden sm:inline-flex">C</Kbd>
+        </Button>
       </div>
 
       {syncError ? (

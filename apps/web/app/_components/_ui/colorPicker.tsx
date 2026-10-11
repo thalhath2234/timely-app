@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Check, Pipette } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
+import { controlClass } from "@/app/_components/_ui/field";
 
 const PRESET_COLORS = [
   "#889096",
@@ -163,7 +164,7 @@ export default function ColorPicker({
         aria-label={ariaLabel ?? "Choose color"}
         onClick={() => (open ? setOpen(false) : openPanel())}
         className={cn(
-          "inline-flex shrink-0 items-center justify-center rounded-lg border border-border bg-input/30 transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60",
+          "inline-flex shrink-0 items-center justify-center rounded-md border border-input bg-card shadow-xs transition focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60",
           size === "sm" ? "size-7" : "h-8 w-10",
           className,
         )}
@@ -258,7 +259,7 @@ export default function ColorPicker({
                   }}
                   spellCheck={false}
                   placeholder="#889096"
-                  className="min-w-0 flex-1 rounded-lg border border-border bg-input/30 px-2 py-1.5 font-mono text-xs uppercase outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40"
+                  className={controlClass("sm", "min-w-0 flex-1 font-mono uppercase")}
                 />
               </div>
             </label>
