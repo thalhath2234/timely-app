@@ -227,6 +227,7 @@ export default function RichTextEditor({
   onWikiLink,
   placeholder = "Start writing. Type '/' for blocks, '@' to mention…",
   syncKey = 0,
+  focusRequest = 0,
   compact = false,
   findOpen = false,
   onFindClose,
@@ -245,6 +246,8 @@ export default function RichTextEditor({
   placeholder?: string;
   /** Increment when remote content should replace the local draft. */
   syncKey?: number;
+  /** Bump to put the caret in the editor (at the end) once it has loaded; 0 asks nothing. */
+  focusRequest?: number;
   compact?: boolean;
   /** Shows the find and replace bar over the editor. */
   findOpen?: boolean;
@@ -367,6 +370,14 @@ export default function RichTextEditor({
   useEffect(() => {
     applyRemoteIfIdle();
   }, [applyRemoteIfIdle, syncKey]);
+
+  // After the content sync above, so the caret lands after any text the
+  // screen handed over while the page was loading.
+  useEffect(() => {
+    if (!ready || !focusRequest) return;
+    webRef.current?.requestFocus();
+    run("focus");
+  }, [focusRequest, ready, run]);
 
   function onMessage(event: WebViewMessageEvent) {
     // Only the editor page itself may drive the document.
