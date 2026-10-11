@@ -99,7 +99,7 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	if h.Instance != nil {
 		protected.GET("/instance", h.Instance.Instance)
 	}
-	setupAuthRoutes(protected, h.Auth)
+	setupAuthRoutes(protected, h.Auth, limiter)
 	setupTaskRoutes(protected, h.Task)
 	setupProjectRoutes(protected, h.Project)
 	setupWorkspaceRoutes(protected, h.Workspace)
@@ -139,9 +139,11 @@ func setupPublicRoutes(e *echo.Echo, authHandler *auth.Handler, limiter *middlew
 }
 
 // setupAuthRoutes defines all protected auth endpoints
-func setupAuthRoutes(g *echo.Group, authHandler *auth.Handler) {
+func setupAuthRoutes(g *echo.Group, authHandler *auth.Handler, limiter *middleware.RateLimiter) {
 	g.GET("/me", authHandler.Me)
 	g.PUT("/me", authHandler.UpdateMe)
+	// Rate limited like sign-in, since it checks the password.
+	g.DELETE("/me", authHandler.DeleteMe, limiter.Middleware(false))
 	g.GET("/sessions", authHandler.ListSessions)
 	g.DELETE("/sessions/others", authHandler.RevokeOtherSessions)
 	g.DELETE("/sessions/:id", authHandler.RevokeSession)

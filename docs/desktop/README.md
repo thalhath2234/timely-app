@@ -114,8 +114,14 @@ Returns 503 with `"status": "degraded"` and `"db": "<error>"` when the database 
 `ALLOW_REGISTRATION` is not `true` and at least one account exists. Sign-ups after the first
 account are off by default.
 
-`/login`, `/register`, `/auth/refresh` are rate limited: 20 requests per minute per IP and 8 per
-minute per account (email). Over the limit returns 429 with `Retry-After`.
+`DELETE /me` (authenticated, body `{"password": "..."}`) permanently deletes the signed-in
+account, every row it owns and its backup files, and signs out all of its devices. A wrong
+password returns 403. The answer is `{"registrationOpen": bool, "lastAccount": bool}`: the
+desktop app (Settings → Account, shown only there) then opens sign-up or sign-in, and sets
+`setupDone` back to false when no account is left so the first-run setup runs again.
+
+`/login`, `/register`, `/auth/refresh` and `DELETE /me` are rate limited: 20 requests per minute per IP and 8 per
+minute per account (email; `DELETE /me` by IP only). Over the limit returns 429 with `Retry-After`.
 
 `POST /agent/providers/rescan` (authenticated) drops the cached CLI detection so the next
 `GET /agent/providers` runs detection again.
