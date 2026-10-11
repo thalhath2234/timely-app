@@ -82,7 +82,6 @@ export const EXPENSE_UNITS = [
 
 export const EXPENSE_PAYMENTS = ["Cash", "Card", "Bank transfer", "Mobile wallet", "Credit"];
 
-const HEADER_FILL = "#2A2445";
 const TOTAL_FILL = "#1F2A24";
 const WARN_FILL = "#5C3A12";
 const OVER_FILL = "#5F2120";
@@ -110,8 +109,8 @@ function monthTab(name: string): SheetTab {
   const item = col("item", { name: "Item", width: 200, type: "text" });
   const category = col("category", { name: "Category", width: 150, type: "select", options: EXPENSE_CATEGORIES });
   const store = col("store", { name: "Store / from", width: 150, type: "text" });
-  const qty = col("qty", { name: "Qty", width: 64, type: "number" });
-  const unit = col("unit", { name: "Unit", width: 84, type: "select", options: EXPENSE_UNITS });
+  const qty = col("qty", { name: "Qty", width: 76, type: "number" });
+  const unit = col("unit", { name: "Unit", width: 92, type: "select", options: EXPENSE_UNITS });
   const price = col("price", { name: "Unit price", width: 116, type: "currency", format: money() });
   const total = col("total", { name: "Total", width: 124, type: "currency", format: money() });
   const payment = col("payment", { name: "Paid with", width: 124, type: "select", options: EXPENSE_PAYMENTS });
@@ -129,7 +128,7 @@ function monthTab(name: string): SheetTab {
   const totals = row(
     {
       [date.id]: "",
-      [item.id]: `=COUNTA(${L.item}2:${L.item})&" items"`,
+      [item.id]: `="Month total · "&COUNTA(${L.item}2:${L.item})&" items"`,
       [category.id]: "",
       [store.id]: "",
       [qty.id]: "",
@@ -137,9 +136,9 @@ function monthTab(name: string): SheetTab {
       [price.id]: "",
       [total.id]: `=SUM(${L.total}2:${L.total})`,
       [payment.id]: "",
-      [notes.id]: "Month total",
+      [notes.id]: "",
     },
-    boldAll(columns, HEADER_FILL),
+    boldAll(columns, TOTAL_FILL),
   );
 
   const entries: SheetRow[] = [];
@@ -183,7 +182,7 @@ function summaryTab(): SheetTab {
     { id: makeId("col"), name: "Budget", width: 130, type: "currency", format: money() },
     { id: makeId("col"), name: "Left", width: 130, type: "currency", format: money() },
     { id: makeId("col"), name: "Used", width: 90, type: "percent", format: { decimals: 0 } },
-    { id: makeId("col"), name: "Items", width: 80, type: "number" },
+    { id: makeId("col"), name: "Items", width: 96, type: "number" },
     { id: makeId("col"), name: "Biggest buy", width: 130, type: "currency", format: money() },
     { id: makeId("col"), name: "Notes", width: 220, type: "text" },
   ];

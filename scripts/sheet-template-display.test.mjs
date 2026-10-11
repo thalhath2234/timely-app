@@ -58,7 +58,7 @@ describe("yearly expenses template", () => {
     assert.deepEqual(jan.valueAt(7, 1), { type: "number", value: 1100 });
     assert.deepEqual(jan.valueAt(7, 2), { type: "number", value: 80 }, "blank qty counts as one");
     assert.deepEqual(jan.valueAt(7, 0), { type: "number", value: 2080 });
-    assert.deepEqual(jan.valueAt(1, 0), { type: "text", value: "3 items" });
+    assert.deepEqual(jan.valueAt(1, 0), { type: "text", value: "Month total · 3 items" });
     assert.deepEqual(jan.valueAt(7, 10), { type: "text", value: "" });
 
     const summary = evaluatorFor(tabs, tabs[0].id);
