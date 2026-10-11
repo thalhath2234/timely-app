@@ -1,0 +1,427 @@
+/* ---- Public site: landing page and help center ----
+   Always dark. The app's dark tokens are re-declared for `.site` in
+   globals.css so real product UI (and screenshots) sit on the same palette;
+   everything below is site-only. */
+
+.site {
+  --s-bg: #0b0c10;
+  --s-raised: #111319;
+  --s-card: #15171e;
+  --s-card-hover: #1a1c24;
+  --s-line: rgb(255 255 255 / 7%);
+  --s-line-strong: rgb(255 255 255 / 13%);
+  --s-ink: #ecebf5;
+  --s-soft: #a4a3b8;
+  --s-faint: #6e6d82;
+  --s-primary: #c0c1ff;
+  --s-primary-ink: #1000a9;
+  --s-violet: #8183f4;
+  --s-pink: #f0abfc;
+  --s-green: #4edea3;
+  --s-amber: #ffb95f;
+  --s-blue: #7cc4ff;
+  --s-red: #ff8a80;
+
+  flex-shrink: 0;
+  min-height: 100vh;
+  background: var(--s-bg);
+  color: var(--s-ink);
+  color-scheme: dark;
+}
+
+/* The page scrolls the document, so the canvas and scrollbar are dark too,
+   whatever the account theme on <html> says. */
+html:has(.site) {
+  background: #0b0c10;
+  color-scheme: dark;
+  scrollbar-color: #34343f #0b0c10;
+  scroll-padding-top: 5.5rem;
+}
+
+html:has(.site) body {
+  background: transparent;
+}
+
+html:has(.site)::-webkit-scrollbar-track {
+  background: #0b0c10;
+}
+
+html:has(.site)::-webkit-scrollbar-thumb {
+  background: #34343f;
+}
+
+.site ::selection {
+  background: color-mix(in oklch, var(--s-primary) 35%, transparent);
+}
+
+.site :focus-visible {
+  outline: 2px solid var(--s-primary);
+  outline-offset: 2px;
+}
+
+/* The help search box draws its own focus ring around the whole field. */
+.site .s-search-input:focus-visible {
+  outline: none;
+}
+
+.s-soft {
+  color: var(--s-soft);
+}
+
+.s-faint {
+  color: var(--s-faint);
+}
+
+.s-display {
+  letter-spacing: -0.035em;
+  font-feature-settings: "ss01", "cv11";
+}
+
+.s-gradient-text {
+  background: linear-gradient(100deg, #ffffff 0%, #d9d9ff 35%, var(--s-primary) 55%, var(--s-pink) 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.s-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--s-line-strong);
+  background: rgb(255 255 255 / 3%);
+  color: var(--s-soft);
+}
+
+.s-card {
+  background: var(--s-card);
+  border: 1px solid var(--s-line);
+}
+
+.s-btn-primary {
+  background: var(--s-primary);
+  color: var(--s-primary-ink);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 12%) inset,
+    0 8px 30px -10px color-mix(in oklch, var(--s-primary) 70%, transparent);
+  transition:
+    transform 160ms ease-out,
+    box-shadow 160ms ease-out,
+    background-color 160ms ease-out;
+}
+
+.s-btn-primary:hover {
+  background: #d1d2ff;
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 18%) inset,
+    0 12px 40px -10px color-mix(in oklch, var(--s-primary) 85%, transparent);
+}
+
+.s-btn-ghost {
+  border: 1px solid var(--s-line-strong);
+  background: rgb(255 255 255 / 3%);
+  color: var(--s-ink);
+  transition:
+    background-color 160ms ease-out,
+    border-color 160ms ease-out;
+}
+
+.s-btn-ghost:hover {
+  background: rgb(255 255 255 / 7%);
+  border-color: rgb(255 255 255 / 20%);
+}
+
+.s-link {
+  color: var(--s-soft);
+  transition: color 140ms ease-out;
+}
+
+.s-link:hover {
+  color: var(--s-ink);
+}
+
+.s-header {
+  background: color-mix(in oklch, var(--s-bg) 72%, transparent);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border-bottom: 1px solid var(--s-line);
+}
+
+/* ---- Backdrop ---- */
+
+.s-grid {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 4.5%) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 4.5%) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 20%, transparent 75%);
+}
+
+.s-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.55;
+  animation: s-orb 18s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes s-orb {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(6%, -8%, 0) scale(1.08);
+  }
+  66% {
+    transform: translate3d(-5%, 6%, 0) scale(0.95);
+  }
+}
+
+/* A light pulse that runs along an SVG path (pathLength="1"). */
+.s-beam {
+  stroke-dasharray: 0.14 0.86;
+  animation: s-beam 5.5s linear infinite;
+}
+
+@keyframes s-beam {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.s-marquee {
+  animation: s-marquee 40s linear infinite;
+}
+
+@keyframes s-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.s-spin-slow {
+  animation: s-spin 30s linear infinite;
+}
+
+@keyframes s-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.s-blink {
+  animation: s-blink 1s steps(2, start) infinite;
+}
+
+@keyframes s-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.s-shimmer {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 9%), transparent);
+  background-size: 200% 100%;
+  animation: s-shimmer 2.4s ease-in-out infinite;
+}
+
+@keyframes s-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* A card border that lights up under the pointer (--mx/--my set by script). */
+.s-spot {
+  position: relative;
+  isolation: isolate;
+}
+
+.s-spot::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(
+    400px circle at var(--mx, -999px) var(--my, -999px),
+    color-mix(in oklch, var(--s-primary) 45%, transparent),
+    transparent 45%
+  );
+  opacity: 0;
+  transition: opacity 240ms ease-out;
+}
+
+.s-spot:hover::before {
+  opacity: 1;
+}
+
+.s-spot > .s-spot-inner {
+  border-radius: inherit;
+  background: var(--s-card);
+  height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-orb,
+  .s-beam,
+  .s-marquee,
+  .s-spin-slow,
+  .s-blink,
+  .s-shimmer {
+    animation: none;
+  }
+
+  .s-beam {
+    stroke-dasharray: none;
+    opacity: 0.25;
+  }
+}
+
+/* ---- Help center article text ----
+   Inside the components layer so utilities on a child (margins, list style)
+   still win over these defaults. */
+@layer components {
+
+  .help-prose {
+    color: var(--s-soft);
+    font-size: 0.96875rem;
+    line-height: 1.75;
+  }
+
+  .help-prose > * + * {
+    margin-top: 1.1rem;
+  }
+
+  .help-prose h2 {
+    margin-top: 2.75rem;
+    color: var(--s-ink);
+    font-size: 1.375rem;
+    line-height: 1.3;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+
+  .help-prose h3 {
+    margin-top: 2rem;
+    color: var(--s-ink);
+    font-size: 1.0625rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .help-prose h2 + *,
+  .help-prose h3 + * {
+    margin-top: 0.75rem;
+  }
+
+  .help-prose strong {
+    color: var(--s-ink);
+    font-weight: 600;
+  }
+
+  .help-prose a {
+    color: var(--s-primary);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklch, var(--s-primary) 40%, transparent);
+    text-underline-offset: 3px;
+  }
+
+  .help-prose a:hover {
+    text-decoration-color: var(--s-primary);
+  }
+
+  .help-prose ul,
+  .help-prose ol {
+    padding-left: 1.25rem;
+  }
+
+  .help-prose ul {
+    list-style: disc;
+  }
+
+  .help-prose ol {
+    list-style: decimal;
+  }
+
+  .help-prose li + li {
+    margin-top: 0.4rem;
+  }
+
+  .help-prose li::marker {
+    color: var(--s-faint);
+  }
+
+  .help-prose code {
+    border: 1px solid var(--s-line);
+    border-radius: 6px;
+    background: rgb(255 255 255 / 5%);
+    padding: 0.1rem 0.35rem;
+    color: var(--s-ink);
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+  }
+
+  .help-prose pre {
+    overflow-x: auto;
+    border: 1px solid var(--s-line);
+    border-radius: 12px;
+    background: #08090c;
+    padding: 1rem 1.1rem;
+    font-size: 0.8125rem;
+    line-height: 1.7;
+  }
+
+  .help-prose pre code {
+    border: 0;
+    background: none;
+    padding: 0;
+  }
+
+  .help-prose kbd {
+    display: inline-flex;
+    min-width: 1.5rem;
+    justify-content: center;
+    border: 1px solid var(--s-line-strong);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    background: rgb(255 255 255 / 5%);
+    padding: 0 0.35rem;
+    color: var(--s-ink);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.45rem;
+  }
+
+  .help-prose table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+
+  .help-prose th {
+    color: var(--s-ink);
+    font-weight: 600;
+    text-align: left;
+  }
+
+  .help-prose th,
+  .help-prose td {
+    border-bottom: 1px solid var(--s-line);
+    padding: 0.6rem 0.75rem 0.6rem 0;
+    vertical-align: top;
+  }
+}

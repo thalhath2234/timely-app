@@ -49,10 +49,9 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* The landing page (`.landing`) carries its own light/dark choice, independent of
-   the account theme on <html>, so it re-declares the same tokens on its root. */
-:root,
-[data-landing-theme="light"] .landing {
+/* The public site (landing page and help center, `.site`) is always dark,
+   whatever the account theme on <html>, so it re-declares the dark tokens. */
+:root {
   color-scheme: light;
   --background: oklch(0.985 0.002 264);
   --foreground: oklch(0.22 0.02 270);
@@ -93,7 +92,7 @@
 }
 
 .dark,
-.landing {
+.site {
   color-scheme: dark;
   --background: #111319;
   --foreground: #e2e2eb;

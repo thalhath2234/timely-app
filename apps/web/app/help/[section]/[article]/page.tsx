@@ -1,0 +1,146 @@
+import { Fragment } from "react";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ArrowLeft, ArrowRight, ChevronRight, Pencil } from "lucide-react";
+import HelpSearch from "@/app/_components/help/helpSearch";
+import HelpSidebar, { type SidebarSection } from "@/app/_components/help/helpSidebar";
+import OnThisPage from "@/app/_components/help/onThisPage";
+import { ALL_ARTICLES, HELP_SECTIONS, SEARCH_INDEX, articleHref, findArticle } from "@/app/_components/help/registry";
+import { Reveal } from "@/app/_components/landing/reveal";
+import { ISSUES_URL } from "@/app/_components/site/links";
+
+type Params = Promise<{ section: string; article: string }>;
+
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+  return ALL_ARTICLES.map(({ section, article }) => ({ section: section.id, article: article.slug }));
+}
+
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const { section, article } = await params;
+  const found = findArticle(section, article);
+  if (!found) return {};
+  return { title: found.article.title, description: found.article.summary };
+}
+
+const SIDEBAR: SidebarSection[] = HELP_SECTIONS.map((section) => ({
+  id: section.id,
+  title: section.title,
+  articles: section.articles.map((article) => ({ href: articleHref(section, article), title: article.title })),
+}));
+
+export default async function HelpArticle({ params }: { params: Params }) {
+  const { section: sectionId, article: slug } = await params;
+  const found = findArticle(sectionId, slug);
+  if (!found) notFound();
+  const { section, article, previous, next } = found;
+  const headings = article.sections.map(({ id, title }) => ({ id, title }));
+
+  return (
+    <div className="relative">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-16 h-[420px] overflow-hidden">
+        <div className="s-orb top-[-60%] left-[30%] size-[460px] bg-[#6f6ff0] opacity-25" />
+      </div>
+
+      <div className="relative mx-auto grid max-w-7xl gap-8 px-4 pt-8 pb-24 sm:px-8 lg:grid-cols-[230px_minmax(0,1fr)] lg:gap-10 lg:pt-12 xl:grid-cols-[230px_minmax(0,1fr)_200px]">
+        <aside className="lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pr-2 lg:pb-8">
+          <HelpSearch entries={SEARCH_INDEX} size="small" className="relative z-30 mb-4 lg:mb-7" />
+          <HelpSidebar sections={SIDEBAR} />
+        </aside>
+
+        <article className="min-w-0 lg:max-w-[760px]">
+          <Reveal>
+            <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-white/45">
+              <Link href="/help" className="hover:text-[var(--s-ink)]">
+                Help
+              </Link>
+              <ChevronRight className="size-3.5" />
+              <Link href={`/help#${section.id}`} className="hover:text-[var(--s-ink)]">
+                {section.title}
+              </Link>
+            </nav>
+            <h1 className="s-display mt-4 text-[2rem] leading-[1.1] font-semibold text-balance sm:text-[2.6rem]">
+              {article.title}
+            </h1>
+            <div className="help-prose mt-5 text-[1.0625rem]">{article.lead}</div>
+          </Reveal>
+
+          {/* Narrow screens get "On this page" inline, above the first heading. */}
+          {headings.length > 1 ? (
+            <div className="s-card mt-8 rounded-xl p-4 xl:hidden">
+              <p className="text-xs font-semibold tracking-wide text-white/40 uppercase">On this page</p>
+              <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+                {headings.map((heading) => (
+                  <li key={heading.id}>
+                    <a href={`#${heading.id}`} className="s-link text-sm">
+                      {heading.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="help-prose mt-2">
+            {article.sections.map((part) => (
+              <Fragment key={part.id}>
+                <h2 id={part.id} className="group scroll-mt-24">
+                  <a href={`#${part.id}`} className="!text-inherit !no-underline">
+                    {part.title}
+                    <span aria-hidden className="ml-2 text-white/20 opacity-0 transition-opacity group-hover:opacity-100">
+                      #
+                    </span>
+                  </a>
+                </h2>
+                {part.body}
+              </Fragment>
+            ))}
+          </div>
+
+          <div className="mt-14 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.08] pt-6 text-sm">
+            <p className="s-faint">Something wrong or missing on this page?</p>
+            <a href={ISSUES_URL} className="s-link inline-flex items-center gap-1.5 font-medium">
+              <Pencil className="size-3.5" />
+              Tell us on GitHub
+            </a>
+          </div>
+
+          <nav aria-label="More articles" className="mt-6 grid gap-3 sm:grid-cols-2">
+            {previous ? (
+              <Link
+                href={previous.href}
+                className="group s-card rounded-2xl p-4 transition-colors hover:border-white/20"
+              >
+                <span className="s-faint flex items-center gap-1.5 text-xs">
+                  <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
+                  Previous
+                </span>
+                <span className="mt-1 block font-medium">{previous.article.title}</span>
+              </Link>
+            ) : (
+              <span className="hidden sm:block" />
+            )}
+            {next ? (
+              <Link
+                href={next.href}
+                className="group s-card rounded-2xl p-4 text-right transition-colors hover:border-white/20"
+              >
+                <span className="s-faint flex items-center justify-end gap-1.5 text-xs">
+                  Next
+                  <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                </span>
+                <span className="mt-1 block font-medium">{next.article.title}</span>
+              </Link>
+            ) : null}
+          </nav>
+        </article>
+
+        <aside className="hidden xl:sticky xl:top-24 xl:block xl:self-start">
+          <OnThisPage headings={headings} />
+        </aside>
+      </div>
+    </div>
+  );
+}
