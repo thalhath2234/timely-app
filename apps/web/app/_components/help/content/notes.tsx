@@ -233,8 +233,7 @@ export const notes: HelpSection = {
           body: (
             <p>
               The same box creates a task, project, event, doc or sheet, and jumps to any page. If search itself is
-              unavailable, the commands still work.{" "}
-              <Link href="/demo/command-palette">Try it with sample data</Link> without an account.
+              unavailable, the commands still work.
             </p>
           ),
         },

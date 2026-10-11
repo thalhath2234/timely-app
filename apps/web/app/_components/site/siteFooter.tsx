@@ -12,7 +12,6 @@ const COLUMNS = [
       { href: "/#docs-and-sheets", label: "Docs and sheets" },
       { href: "/#features", label: "Features" },
       { href: "/#download", label: "Download" },
-      { href: "/demo/command-palette", label: "Try the search demo" },
     ],
   },
   {
