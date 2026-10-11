@@ -9,6 +9,7 @@
     "./calendar": "./src/calendar.ts",
     "./config": "./src/config.ts",
     "./dashboard": "./src/dashboard.ts",
+    "./designTokens": "./src/designTokens.ts",
     "./documents": "./src/documents.ts",
     "./embeds": "./src/embeds.ts",
     "./entities": "./src/entities.ts",
