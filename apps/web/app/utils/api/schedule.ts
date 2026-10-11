@@ -212,11 +212,14 @@ export async function pinBlock(blockId: string, locked: boolean): Promise<Schedu
   return body.block ?? body;
 }
 
+/** A hand placement and the other tasks whose blocks it pushed aside. */
+export type Placed<T> = { displacedTaskIds: string[] } & T;
+
 /** Pins a manual block for a one-off task. */
 export async function addTaskBlock(
   taskId: string,
   data: AddBlockPayload,
-): Promise<Task> {
+): Promise<Placed<{ task: Task }>> {
   const response = await apiFetch(`/tasks/${taskId}/blocks`, {
     method: "POST",
     credentials: "include",
@@ -227,7 +230,7 @@ export async function addTaskBlock(
     throw new Error(await readError(response, "Failed to schedule task"));
   }
   const body = await response.json();
-  return body.task ?? body;
+  return { task: body.task ?? body, displacedTaskIds: body.displacedTaskIds ?? [] };
 }
 
 /** Removes every block so the task leaves the calendar. */
@@ -246,7 +249,7 @@ export async function clearTaskBlocks(taskId: string): Promise<Task> {
 export async function moveBlock(
   blockId: string,
   data: { start: string; end?: string },
-): Promise<ScheduledBlock> {
+): Promise<Placed<{ block: ScheduledBlock }>> {
   const response = await apiFetch(`/blocks/${blockId}`, {
     method: "PUT",
     credentials: "include",
@@ -257,7 +260,7 @@ export async function moveBlock(
     throw new Error(await readError(response, "Failed to move block"));
   }
   const body = await response.json();
-  return body.block ?? body;
+  return { block: body.block ?? body, displacedTaskIds: body.displacedTaskIds ?? [] };
 }
 
 export async function deleteBlock(blockId: string): Promise<void> {

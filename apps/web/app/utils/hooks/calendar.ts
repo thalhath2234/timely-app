@@ -235,7 +235,7 @@ export function useAddTaskBlock() {
   return useMutation({
     mutationFn: ({ taskId, ...data }: AddBlockPayload & { taskId: string }) =>
       addTaskBlock(taskId, data),
-    onSuccess: async (task) => {
+    onSuccess: async ({ task }) => {
       writeTaskCache(queryClient, task);
       await invalidate();
     },
@@ -269,7 +269,7 @@ export function useMoveBlock() {
   });
 }
 
-/** Pin the dragged block, then rebuild engine-owned blocks around it. */
+/** Pin the dragged block, then re-place the work it pushed aside. */
 export function useCommitCalendarBlock() {
   const queryClient = useQueryClient();
   const invalidate = useInvalidateCalendar();
@@ -285,7 +285,7 @@ export function useCommitCalendarBlock() {
       start: Date;
       end: Date;
     }) => {
-      await moveBlock(blockId, {
+      const { displacedTaskIds } = await moveBlock(blockId, {
         start: start.toISOString(),
         end: end.toISOString(),
       });
@@ -297,10 +297,16 @@ export function useCommitCalendarBlock() {
           // Already removed when the move displaced overlapping chunks.
         }
       }
+      // Only the pushed-aside tasks: a full run would also place every other
+      // waiting task, which is not what a move asked for.
+      if (displacedTaskIds.length === 0) return null;
       const activity = useScheduleActivityStore.getState();
       activity.start();
       try {
-        const plan = await applySchedule({ includeManual: false });
+        const plan = await applySchedule({
+          taskIds: displacedTaskIds,
+          includeManual: false,
+        });
         activity.finish(plan);
         return plan;
       } catch (err) {

@@ -703,6 +703,38 @@ export function slotAt(day: Date, hour: number, minute = 0): Date {
   );
 }
 
+/** The first quarter hour at or after `now`. */
+function nextSlot(now: Date): Date {
+  const step = SNAP_MINUTES * 60_000;
+  return new Date(Math.ceil(now.getTime() / step) * step);
+}
+
+/**
+ * Where work dropped on the calendar at `at` starts, or null when that slot
+ * is already over. A drop on the slot under way starts at the next quarter
+ * hour instead.
+ */
+export function dropStart(at: Date, now: Date): Date | null {
+  if (at.getTime() + SNAP_MINUTES * 60_000 <= now.getTime()) return null;
+  const earliest = nextSlot(now);
+  return at < earliest ? earliest : at;
+}
+
+/** A whole-day drop (month view) lands at 09:00, or the next free quarter hour today. */
+export function dayDropAt(day: Date, now: Date): Date {
+  const nine = slotAt(day, 9);
+  if (!isSameDay(day, now)) return nine;
+  const earliest = nextSlot(now);
+  return nine < earliest ? earliest : nine;
+}
+
+/** Why a drop on `at` was refused, for the toast. */
+export function pastDropMessage(at: Date, now: Date): string {
+  return isSameDay(at, now)
+    ? "That time has already passed. Drop it on a later time."
+    : "That day has already passed. Drop it on today or a later day.";
+}
+
 export function headerLabel(date: Date, view: CalendarView): string {
   if (view === "day") {
     return date.toLocaleDateString(undefined, {

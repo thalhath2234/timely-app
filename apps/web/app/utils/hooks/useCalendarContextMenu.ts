@@ -117,7 +117,11 @@ export function useCalendarContextMenu(handlers: CalendarMenuHandlers) {
                 });
               }),
             )
-            .catch(() => useToastStore.getState().show("Could not move block"));
+            .catch((err) =>
+              useToastStore
+                .getState()
+                .show(err instanceof Error ? err.message : "Could not move block"),
+            );
         },
       }));
 

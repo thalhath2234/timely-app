@@ -471,7 +471,7 @@ func (s *Server) scheduleTask(ctx context.Context, req *mcp.CallToolRequest, in 
 	if in.DurationMinutes > 0 {
 		input.DurationMinutes = &in.DurationMinutes
 	}
-	t, err := s.Schedule.AddBlock(uid, in.TaskID, input)
+	t, _, err := s.Schedule.AddBlock(uid, in.TaskID, input)
 	if err != nil {
 		return fail(err)
 	}
@@ -493,7 +493,7 @@ func (s *Server) moveBlock(ctx context.Context, req *mcp.CallToolRequest, in mov
 	if in.End != "" {
 		end = &in.End
 	}
-	block, err := s.Schedule.MoveBlock(uid, in.BlockID, in.Start, end)
+	block, _, err := s.Schedule.MoveBlock(uid, in.BlockID, in.Start, end)
 	if err != nil {
 		return fail(err)
 	}

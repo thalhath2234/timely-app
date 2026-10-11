@@ -176,7 +176,11 @@ export default function CalendarScreen() {
         newEnd: end.toISOString(),
       });
     } else if (item.kind === "task" && item.blockId) {
-      void moveBlk.mutateAsync({ id: item.blockId, start: start.toISOString(), end: end.toISOString() });
+      void moveBlk
+        .mutateAsync({ id: item.blockId, start: start.toISOString(), end: end.toISOString() })
+        .catch((error: unknown) => {
+          Alert.alert("Could not move", error instanceof Error ? error.message : "Try again.");
+        });
     } else if ((item.kind === "event" || item.kind === "eventOccurrence") && item.eventId) {
       void moveEvt.mutateAsync({
         id: item.eventId,
