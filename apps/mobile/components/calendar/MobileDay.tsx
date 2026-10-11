@@ -60,6 +60,7 @@ export default function MobileDay({
 
   return (
     <ScrollView
+      keyboardShouldPersistTaps="handled"
       contentOffset={{ x: 0, y: isToday ? Math.max(0, nowY - 160) : 7 * HOUR_PX }}
       contentContainerStyle={{ paddingBottom: floatingTabBarInset(insets.bottom) }}
     >

@@ -1241,6 +1241,7 @@ export default function AgentSettings() {
     <Screen>
       <MobileHeader title="Agent" back large={false} />
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           padding: 16,
           paddingBottom: 24 + insets.bottom,

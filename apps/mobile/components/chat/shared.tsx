@@ -180,7 +180,7 @@ export function DetailValue({
   return (
     <View style={styles.stack}>
       {columns && rows ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView keyboardShouldPersistTaps="handled" horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.grid}>
             <View style={[styles.row, styles.headRow]}>
               {columns.map((col, i) => (

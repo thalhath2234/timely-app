@@ -19,7 +19,7 @@ export default function ApiKeysSettings() {
   return (
     <Screen>
       <MobileHeader title="API keys" back large={false} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 10 }}>
         <Text style={styles.hint}>Copy a new key immediately. It is only shown once.</Text>
         {secret ? (
           <View style={styles.secret}>

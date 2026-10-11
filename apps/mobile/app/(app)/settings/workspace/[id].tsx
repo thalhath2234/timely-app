@@ -138,7 +138,7 @@ export default function WorkspaceEditor() {
   return (
     <Screen>
       <MobileHeader title={workspace.name} back large={false} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}>
         <Field value={name} onChangeText={setName} placeholder="Workspace name" autoCapitalize="words" />
         <PrimaryButton
           label="Rename"

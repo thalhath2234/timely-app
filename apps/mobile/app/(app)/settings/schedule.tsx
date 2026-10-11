@@ -67,7 +67,7 @@ export default function ScheduleSettings() {
   return (
     <Screen>
       <MobileHeader title="Schedule" back large={false} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 12 }}>
         {hoursQ.isError ? (
           <Text style={styles.error}>Could not load working hours.</Text>
         ) : null}

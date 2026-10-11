@@ -61,6 +61,7 @@ export default function DateStrip({
 
   return (
     <ScrollView
+      keyboardShouldPersistTaps="handled"
       ref={scrollRef}
       style={styles.strip}
       horizontal

@@ -71,7 +71,7 @@ export default function ProjectsScreen() {
           </HeaderIconButton>
         }
       />
-      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40, gap: 10 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 12, paddingBottom: 40, gap: 10 }}>
         {projectsQ.isError ? (
           <EmptyState icon={FolderKanban} title="Couldn't load projects" description="Check your connection and try again." />
         ) : (

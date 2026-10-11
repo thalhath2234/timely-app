@@ -1561,6 +1561,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
           <View style={styles.drawerHandle} />
         </Pressable>
         <ScrollView
+          keyboardShouldPersistTaps="handled"
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.drawerTabsScroll}
