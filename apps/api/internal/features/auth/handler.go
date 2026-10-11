@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ type Handler struct {
 	authService       AuthService
 	userRepo          UserRepository
 	allowRegistration bool
+	afterDelete       func(userID string)
 }
 
 // RegistrationClosedMessage is returned when ALLOW_REGISTRATION=false and an
@@ -53,6 +55,10 @@ func (h *Handler) RegistrationOpen() bool {
 	return err == nil && n == 0
 }
 
+// SetAfterDelete runs fn once an account's rows are gone, e.g. to remove its
+// backup files and cached search vectors.
+func (h *Handler) SetAfterDelete(fn func(userID string)) { h.afterDelete = fn }
+
 type authRequest struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
@@ -64,6 +70,10 @@ type updateProfileRequest struct {
 	Email           string `json:"email"`
 	CurrentPassword string `json:"currentPassword"`
 	NewPassword     string `json:"newPassword"`
+}
+
+type deleteAccountRequest struct {
+	Password string `json:"password"`
 }
 
 type userProfileResponse struct {
@@ -221,6 +231,44 @@ func (h *Handler) UpdateMe(c *echo.Context) error {
 		Email:                 user.Email,
 		Name:                  user.Name,
 		IsOnBoardingCompleted: onboardingDone,
+	})
+}
+
+// DeleteMe permanently deletes the signed-in account and everything it owns.
+// The password is asked again so a borrowed session cannot wipe the account.
+func (h *Handler) DeleteMe(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "User context not found")
+	}
+
+	var req deleteAccountRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request payload")
+	}
+
+	if err := h.authService.DeleteAccount(userID, req.Password); err != nil {
+		switch {
+		case errors.Is(err, ErrWrongPassword):
+			return echo.NewHTTPError(http.StatusForbidden, "Password is incorrect")
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return echo.NewHTTPError(http.StatusNotFound, "Account not found")
+		default:
+			return echo.NewHTTPError(http.StatusInternalServerError, "Could not delete the account")
+		}
+	}
+	if h.afterDelete != nil {
+		h.afterDelete(userID)
+	}
+
+	clearAuthCookies(c)
+	// lastAccount tells the desktop app to run its first-run setup again;
+	// registrationOpen says whether to land on sign-up or sign-in.
+	remaining, err := h.userRepo.CountUsers()
+	return c.JSON(http.StatusOK, map[string]any{
+		"message":          "account deleted",
+		"registrationOpen": h.RegistrationOpen(),
+		"lastAccount":      err == nil && remaining == 0,
 	})
 }
 

@@ -42,6 +42,7 @@ type AuthService interface {
 	IssueToken(user *models.User) (string, error)
 	GetProfile(userID string) (*models.User, bool, error)
 	UpdateProfile(userID string, name, email, currentPassword, newPassword, sessionID string) (*models.User, string, error)
+	DeleteAccount(userID, password string) error
 }
 
 type JWTClaims struct {
@@ -350,6 +351,23 @@ func (s *authService) UpdateProfile(
 	}
 
 	return user, token, nil
+}
+
+// ErrWrongPassword is returned when a destructive account change is not
+// confirmed with the account's password.
+var ErrWrongPassword = errors.New("password is incorrect")
+
+// DeleteAccount permanently removes the account and all of its data once the
+// password matches. Every session goes with it, so no device stays signed in.
+func (s *authService) DeleteAccount(userID, password string) error {
+	user, err := s.repo.GetUserByID(userID)
+	if err != nil {
+		return gorm.ErrRecordNotFound
+	}
+	if password == "" || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)) != nil {
+		return ErrWrongPassword
+	}
+	return s.repo.DeleteUser(userID)
 }
 
 func (s *authService) issueAccessToken(user *models.User, sessionID string) (string, error) {

@@ -8,6 +8,7 @@ import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 import { formatLastUsed, humanizeDeviceLabel } from "@/app/utils/deviceLabel";
 import { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useRouter } from "next/navigation";
+import DeleteAccountSection from "@/app/_components/settings/deleteAccount";
 
 export default function AccountSettings() {
   const { data: user, isLoading } = useMe();
@@ -32,6 +33,7 @@ export default function AccountSettings() {
         initialEmail={user.email}
       />
       <DeviceSessions />
+      <DeleteAccountSection email={user.email} />
     </>
   );
 }

@@ -56,6 +56,16 @@ func (f *fakeUserRepo) CountUsers() (int64, error) {
 	return int64(len(f.byID)), nil
 }
 
+func (f *fakeUserRepo) DeleteUser(userID string) error {
+	user, ok := f.byID[userID]
+	if !ok {
+		return gorm.ErrRecordNotFound
+	}
+	delete(f.byEmail, NormalizeEmail(user.Email))
+	delete(f.byID, userID)
+	return nil
+}
+
 type fakeSessions struct {
 	byID      map[string]*models.UserSession
 	byRefresh map[string]*models.UserSession

@@ -45,3 +45,17 @@ export interface UpdateMePayload {
   currentPassword?: string;
   newPassword?: string;
 }
+
+/** DELETE /me (`deleteAccountRequest`): the password confirms the delete. */
+export interface DeleteAccountPayload {
+  password: string;
+}
+
+/** DELETE /me response once the account and its data are gone. */
+export interface DeleteAccountResult {
+  message: string;
+  /** Whether POST /register accepts an account now (sign-up vs sign-in). */
+  registrationOpen: boolean;
+  /** No account is left on this server. */
+  lastAccount: boolean;
+}
