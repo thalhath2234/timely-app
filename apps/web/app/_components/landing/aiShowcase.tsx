@@ -446,7 +446,7 @@ export default function AiShowcase() {
               aria-controls="ai-panel"
               onClick={() => select(itemIndex)}
               className={cn(
-                "relative shrink-0 overflow-hidden rounded-2xl border text-left transition-colors duration-300",
+                "relative shrink-0 overflow-hidden rounded-xl border text-left transition-colors duration-300",
                 "px-3.5 py-2.5 lg:px-5 lg:py-4",
                 on ? "border-white/15 bg-[#15171e]" : "border-transparent bg-white/[0.02] hover:bg-white/[0.04]",
               )}
@@ -499,9 +499,7 @@ export default function AiShowcase() {
       </div>
 
       <div id="ai-panel" role="tabpanel" aria-labelledby={`ai-tab-${tab.id}`}>
-        <div className="relative overflow-hidden rounded-[26px] border border-white/10 bg-[#0e1015] p-4 sm:p-6">
-          <div aria-hidden className="s-orb top-[-30%] right-[-10%] size-[320px] bg-[#6f6ff0] opacity-30" />
-          <div aria-hidden className="s-orb bottom-[-40%] left-[-10%] size-[300px] bg-[#c26bf0] opacity-20" style={{ animationDelay: "-5s" }} />
+        <div className="relative overflow-hidden rounded-xl border border-[var(--lp-line)] bg-[var(--lp-surface)] p-4 sm:p-6">
           <p className="relative text-center text-xs font-medium text-white/45 lg:hidden">{tab.line}</p>
           <div className="relative mt-4 h-[440px] sm:h-[360px] lg:mt-0 lg:h-[400px]">
             <AnimatePresence mode="wait" initial={false}>

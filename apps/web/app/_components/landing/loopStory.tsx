@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { AnimatePresence, motion, useInView, useScroll, useTransform } from "motion/react";
+import { AnimatePresence, motion, useInView } from "motion/react";
 import { CalendarClock, Inbox, ListChecks, Timer, type LucideIcon } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 
@@ -58,13 +58,9 @@ const STEPS: Step[] = [
 export default function LoopStory() {
   const [active, setActive] = useState(0);
   const select = useCallback((index: number) => setActive(index), []);
-  const frameRef = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({ target: frameRef, offset: ["start end", "start 30%"] });
-  const tilt = useTransform(scrollYProgress, [0, 1], [14, 0]);
-  const scale = useTransform(scrollYProgress, [0, 1], [0.92, 1]);
 
   return (
-    <div className="mt-14 grid gap-10 lg:mt-20 lg:grid-cols-[0.85fr_1.15fr] lg:gap-14">
+    <div className="mt-12 grid gap-10 lg:mt-16 lg:grid-cols-[0.85fr_1.15fr] lg:gap-14">
       <ol className="relative">
         <span aria-hidden className="absolute top-2 bottom-2 left-[19px] hidden w-px bg-white/[0.08] lg:block" />
         {STEPS.map((step, index) => (
@@ -73,8 +69,8 @@ export default function LoopStory() {
       </ol>
 
       <div className="hidden lg:block">
-        <div className="sticky top-28" style={{ perspective: 1400 }}>
-          <motion.div ref={frameRef} style={{ rotateX: tilt, scale }} className="origin-top">
+        <div className="sticky top-28">
+          <div>
             <ScreenFrame>
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.div
@@ -95,7 +91,7 @@ export default function LoopStory() {
                 </motion.div>
               </AnimatePresence>
             </ScreenFrame>
-          </motion.div>
+          </div>
         </div>
       </div>
     </div>
@@ -127,7 +123,7 @@ function StepBlock({
           className={cn(
             "relative z-10 flex size-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-500",
             active
-              ? "border-[#c0c1ff]/50 bg-[#c0c1ff]/15 text-[#c0c1ff] shadow-[0_0_30px_-4px_rgba(192,193,255,0.6)]"
+              ? "border-[#c0c1ff]/50 bg-[#c0c1ff]/15 text-[#c0c1ff]"
               : "border-white/10 bg-[var(--s-card)] text-white/45",
           )}
         >
@@ -137,7 +133,7 @@ function StepBlock({
           <p className="text-sm font-semibold text-[var(--s-primary)]">
             {index + 1}. {step.label}
           </p>
-          <h3 className="s-display mt-2 text-2xl font-semibold sm:text-3xl">{step.title}</h3>
+          <h3 className="lp-display mt-2 text-3xl leading-none sm:text-4xl">{step.title}</h3>
           <p className="s-soft mt-3 max-w-md text-base leading-relaxed">{step.body}</p>
           <a href={step.help} className="mt-4 inline-block text-sm font-medium text-[var(--s-primary)] hover:underline">
             How {step.label.toLowerCase()} works →
@@ -157,11 +153,11 @@ export function ScreenFrame({ children, className }: { children: React.ReactNode
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-white/10 bg-[#111319] p-1.5 shadow-[0_30px_90px_-30px_rgba(129,131,244,0.5)]",
+        "relative overflow-hidden rounded-xl border border-[var(--lp-line,rgb(255_255_255/10%))] bg-[#111319] p-1",
         className,
       )}
     >
-      <div className="overflow-hidden rounded-[11px] border border-white/[0.06]">{children}</div>
+      <div className="overflow-hidden rounded-[9px]">{children}</div>
     </div>
   );
 }

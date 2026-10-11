@@ -15,7 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/app/utils/cn";
-import { spotlight, useLoop } from "@/app/_components/site/motion";
+import { useLoop } from "@/app/_components/site/motion";
 import { Reveal } from "./reveal";
 
 const spring = { type: "spring", stiffness: 260, damping: 26 } as const;
@@ -324,30 +324,28 @@ function ShowcaseCard({
   delay?: number;
 }) {
   return (
-    <Reveal delay={delay} onPointerMove={spotlight} className="s-spot rounded-[26px] p-px">
-      <div className="s-spot-inner flex h-full flex-col rounded-[25px] border border-white/[0.06] p-4 sm:p-6">
-        <div className="h-[330px]">{graphic}</div>
-        <p className="mt-6 text-xs font-semibold tracking-wide text-[var(--s-primary)] uppercase">{eyebrow}</p>
-        <h3 className="mt-2 text-xl font-semibold tracking-[-0.01em]">{title}</h3>
-        <p className="s-soft mt-2 text-sm leading-relaxed">{body}</p>
-        <ul className="mt-4 flex flex-wrap gap-1.5">
-          {features.map((feature) => (
-            <li key={feature} className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-xs text-[var(--s-soft)]">
-              {feature}
-            </li>
-          ))}
-        </ul>
-        <a href={href} className="mt-5 inline-block text-sm font-medium text-[var(--s-primary)] hover:underline">
-          Learn more →
-        </a>
-      </div>
+    <Reveal delay={delay} className="flex min-w-0 flex-col">
+      <div className="h-[330px]">{graphic}</div>
+      <p className="mt-6 text-xs font-semibold tracking-wide text-[var(--lp-now)] uppercase">{eyebrow}</p>
+      <h3 className="lp-display mt-2 text-3xl leading-none">{title}</h3>
+      <p className="mt-3 text-sm leading-relaxed text-[var(--lp-soft)]">{body}</p>
+      <ul className="mt-4 flex flex-wrap gap-1.5">
+        {features.map((feature) => (
+          <li key={feature} className="lp-mono rounded-md border border-[var(--lp-line)] px-2 py-1 text-[11px] text-[var(--lp-soft)]">
+            {feature}
+          </li>
+        ))}
+      </ul>
+      <a href={href} className="mt-5 inline-block text-sm font-medium text-[var(--lp-now)] hover:underline">
+        Learn more →
+      </a>
     </Reveal>
   );
 }
 
 export default function DocsSheetsShowcase() {
   return (
-    <div className="mt-14 grid gap-4 lg:grid-cols-2">
+    <div className="mt-14 grid gap-x-8 gap-y-14 lg:grid-cols-2">
       <ShowcaseCard
         eyebrow="Docs"
         title="Write it down where the work is."

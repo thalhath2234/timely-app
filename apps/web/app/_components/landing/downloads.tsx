@@ -43,29 +43,35 @@ const PLATFORMS = [
   },
 ] as const;
 
+/** Releases as a timetable: one row per platform, with the file it ships and where to go next. */
 export default function Downloads() {
   return (
-    <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="mt-12 border-t border-[var(--lp-line)]">
       {PLATFORMS.map((platform, index) => (
-        <Reveal key={platform.name} delay={index * 0.08} className="s-card flex flex-col rounded-2xl p-5">
-          <span
-            className="flex size-11 items-center justify-center rounded-xl border border-white/10"
-            style={{ color: platform.color, background: `color-mix(in oklch, ${platform.color} 12%, transparent)` }}
-          >
-            <platform.mark className="size-5" />
-          </span>
-          <h3 className="mt-4 text-lg font-semibold">{platform.name}</h3>
-          <p className="s-soft mt-1 text-sm">{platform.note}</p>
-          <p className="s-faint mt-3 truncate font-mono text-xs">{platform.file}</p>
-          <div className="mt-auto flex flex-col gap-2 pt-5">
-            <a
-              href={platform.download.href}
-              className="s-btn-primary inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold"
+        <Reveal
+          key={platform.name}
+          delay={index * 0.05}
+          className="grid items-center gap-x-6 gap-y-3 border-b border-[var(--lp-line)] py-5 md:grid-cols-[220px_minmax(0,1fr)_auto]"
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+              style={{ color: platform.color, background: `color-mix(in oklch, ${platform.color} 14%, transparent)` }}
             >
+              <platform.mark className="size-5" />
+            </span>
+            <span className="text-lg font-semibold">{platform.name}</span>
+          </div>
+          <div className="min-w-0">
+            <p className="lp-mono truncate text-sm text-[var(--lp-ink)]">{platform.file}</p>
+            <p className="mt-0.5 text-sm text-[var(--lp-soft)]">{platform.note}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <a href={platform.download.href} className="lp-btn lp-btn-primary !h-10 !text-sm">
               {platform.download.label}
               <ArrowUpRight className="size-4" />
             </a>
-            <Link href={platform.guide} className="s-btn-ghost rounded-full px-4 py-2 text-center text-sm font-medium">
+            <Link href={platform.guide} className="lp-btn lp-btn-ghost !h-10 !text-sm">
               Install guide
             </Link>
           </div>
