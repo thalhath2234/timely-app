@@ -97,15 +97,20 @@ function lengthLabel(minutes: number) {
   return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
 }
 
+/** How many possible duplicates the Up next card offers to open. */
+export const INBOX_DUPLICATES_SHOWN = 2;
+
 /**
  * One plain line of what smart suggestions would make of a capture ("A 45 min
- * task, deadline Fri, Oct 31, in Personal") and the first note worth a look.
- * Both are empty when the answer had nothing confident to say.
+ * task, deadline Fri, Oct 31, in Personal"), the first note worth a look, and
+ * the existing tasks it might duplicate (never the capture itself), so the
+ * card can open them. All are empty when the answer had nothing to say.
  */
 export function inboxSuggestionSummary(
   s: InboxSuggestionFields,
   workspaceName?: string,
-): { line: string; note: string } {
+  captureId?: string,
+): { line: string; note: string; duplicates: { id: string; name: string }[] } {
   const parts: string[] = [];
   if (s.kind === "reminder") {
     parts.push(
@@ -126,8 +131,9 @@ export function inboxSuggestionSummary(
       ? "It may be more than one task."
       : s.notReady
         ? "It may not be ready to act on yet."
-        : s.duplicates?.length
-          ? `It might already exist as “${s.duplicates[0].name}”.`
-          : "";
-  return { line: parts.join(", "), note };
+        : "";
+  const duplicates = (s.duplicates ?? [])
+    .filter((item) => item.id && item.id !== captureId)
+    .slice(0, INBOX_DUPLICATES_SHOWN);
+  return { line: parts.join(", "), note, duplicates };
 }

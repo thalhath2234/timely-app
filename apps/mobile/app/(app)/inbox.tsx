@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Clock, Inbox, Sparkles, Trash2 } from "lucide-react-native";
+import { ChevronRight, Clock, Inbox, Sparkles, Trash2 } from "lucide-react-native";
 import { inboxAge, inboxQueue, inboxSuggestionSummary, skipInboxItem, type InboxAge } from "@timely/contract/inbox";
 import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
@@ -32,8 +32,9 @@ function upNextAge(age: InboxAge) {
   return age.label;
 }
 
-/** What smart suggestions would make of the capture; the task screen applies it. */
-function Suggestion({ task }: { task: Task }) {
+/** What smart suggestions would make of the capture, and the tasks it might
+ * duplicate to open and compare; the task screen applies it. */
+function Suggestion({ task, onOpenTask }: { task: Task; onOpenTask: (id: string) => void }) {
   const status = useDecisionsStatusQuery();
   const on = status.data?.available === true;
   const suggestions = useInboxSuggestionsQuery(task.id, on);
@@ -49,8 +50,8 @@ function Suggestion({ task }: { task: Task }) {
   }
   const s = suggestions.data?.available ? suggestions.data : undefined;
   if (!s) return null;
-  const summary = inboxSuggestionSummary(s, spaces.find((space) => space.id === s.workspaceId)?.name);
-  if (!summary.line && !summary.note) return null;
+  const summary = inboxSuggestionSummary(s, spaces.find((space) => space.id === s.workspaceId)?.name, task.id);
+  if (!summary.line && !summary.note && summary.duplicates.length === 0) return null;
   return (
     <View style={styles.suggestion}>
       <Sparkles size={16} color={colors.primary} />
@@ -62,6 +63,26 @@ function Suggestion({ task }: { task: Task }) {
           </Text>
         ) : null}
         {summary.note ? <Text style={styles.suggestionMuted}>{summary.note}</Text> : null}
+        {summary.duplicates.length > 0 ? (
+          <View style={{ gap: 6, marginTop: 2 }} testID="inbox-up-next-duplicates">
+            <Text style={styles.suggestionMuted}>Might already exist:</Text>
+            {summary.duplicates.map((dup) => (
+              <AnimatedPressable
+                key={dup.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Open “${dup.name}”`}
+                onPress={() => onOpenTask(dup.id)}
+                style={styles.duplicate}
+              >
+                <Text style={styles.duplicateName} numberOfLines={1}>
+                  {dup.name}
+                </Text>
+                <ChevronRight size={16} color={colors.mutedForeground} />
+              </AnimatedPressable>
+            ))}
+            <Text style={styles.suggestionMuted}>Same thing? Delete this capture.</Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -147,7 +168,7 @@ export default function InboxScreen() {
                         </Text>
                       ) : null}
                     </View>
-                    <Suggestion key={next.id} task={next} />
+                    <Suggestion key={next.id} task={next} onOpenTask={review} />
                     <View style={styles.focusActions}>
                       <View style={{ flex: 1 }}>
                         <Button label="Review" size="lg" stretch onPress={() => review(next.id)} />
@@ -303,6 +324,18 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   suggestionText: { color: colors.accentForeground, fontSize: 13, lineHeight: 19 },
   suggestionMuted: { color: colors.mutedForeground, fontSize: 13, lineHeight: 19 },
+  duplicate: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  duplicateName: { flex: 1, color: colors.foreground, fontSize: 14, fontWeight: "500" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   cellWrap: { flexBasis: "45%", flexGrow: 1 },
   cell: {
