@@ -28,6 +28,7 @@ import {
 } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
 import { dragHasTask, readTaskDragId } from "@/app/utils/taskDrag";
+import DeadlinePassedDot from "@/app/_components/calendarView/deadlinePassedDot";
 
 type TimeGridProps = {
   days: Date[];
@@ -548,11 +549,15 @@ export default function TimeGrid({
                         )}
                       >
                         <span className={cn("truncate text-xs font-medium leading-tight", height < 20 && "text-[10px] leading-none", event.completedAt && "text-muted-foreground line-through")}>
+                          {event.deadlinePassed ? <DeadlinePassedDot /> : null}
                           {event.title}
                         </span>
                         {height > 36 ? (
                           <span className="truncate text-[10px] tabular-nums text-muted-foreground">
                             {formatTime(event.start)} – {formatTime(event.end)}
+                            {event.deadlinePassed ? (
+                              <span className="text-destructive"> · overdue</span>
+                            ) : null}
                           </span>
                         ) : null}
                         {draggable ? (

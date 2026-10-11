@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { formatDuration } from "@/app/utils/calendar";
 import { taskEntityColor } from "@/app/utils/entityColor";
-import { useRank } from "@/app/utils/hooks/calendar";
+import { useWaitingForSlot } from "@/app/utils/hooks/calendar";
 import { setTaskDragData } from "@/app/utils/taskDrag";
 import { taskDeadlineDate } from "@/app/utils/taskDates";
 import { cn } from "@/app/utils/cn";
@@ -22,7 +22,7 @@ export default function WaitingForSlotRail({
   onOpen: (taskId: string) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const rank = useRank();
+  const rank = useWaitingForSlot();
   const waiting = useMemo(() => (rank.data ?? []).map((row) => row.task), [rank.data]);
   const openMenu = useContextMenu();
   const taskMenu = useTaskContextMenu();

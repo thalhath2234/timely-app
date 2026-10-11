@@ -24,7 +24,7 @@ import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { runViewTransition } from "@/app/utils/viewTransition";
-import { useAddTaskBlock, useCalendarRange, useCommitCalendarBlock, useApplySchedule, useRank } from "@/app/utils/hooks/calendar";
+import { useAddTaskBlock, useCalendarRange, useCommitCalendarBlock, useApplySchedule, useWaitingForSlot } from "@/app/utils/hooks/calendar";
 import {
   eventLegend,
   headerLabel,
@@ -37,7 +37,7 @@ import {
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
-import { overdueAgendaTasks, taskToCalendarItem } from "@/app/utils/overdue";
+import { markDeadlinePassed, overdueAgendaTasks, taskToCalendarItem } from "@/app/utils/overdue";
 import { cn } from "@/app/utils/cn";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
@@ -61,7 +61,7 @@ function CalendarContent() {
     [selectedDate, activeView],
   );
   const calendarQuery = useCalendarRange(range.from, range.to);
-  const rankQuery = useRank();
+  const rankQuery = useWaitingForSlot();
   const { data: calendar, isLoading, status } = calendarQuery;
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -76,8 +76,8 @@ function CalendarContent() {
   const timeZone = useWorkingHoursZone();
   const typedTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
   const events = useMemo(
-    () => toCalendarEvents(calendar?.items ?? []),
-    [calendar],
+    () => markDeadlinePassed(toCalendarEvents(calendar?.items ?? []), timeZone),
+    [calendar, timeZone],
   );
   const overdueEvents = useMemo(
     () => toCalendarEvents(overdueAgendaTasks(typedTasks, timeZone).map(taskToCalendarItem)),
