@@ -103,6 +103,7 @@ export type SidebarProps = {
 };
 
 export const SIDEBAR_ITEMS = [
+  { name: "Dashboard", icon: "LayoutDashboard", href: "/dashboard" },
   { name: "Chat", icon: "MessageCircle", href: "/chat" },
   {
     name: "Today",
@@ -130,19 +131,9 @@ export const SIDEBAR_ITEMS = [
     href: "/projects",
   },
   {
-    name: "Docs",
-    icon: "FileText",
-    href: "/docs",
-  },
-  {
-    name: "Sheets",
-    icon: "Sheet",
-    href: "/sheets",
-  },
-  {
-    name: "Report",
-    icon: "Brain",
-    href: "/report",
+    name: "Files",
+    icon: "Files",
+    href: "/files",
   },
   {
     name: "Notifications",

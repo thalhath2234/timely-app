@@ -28,7 +28,6 @@ export default function AppLayout() {
     <>
       <ReminderNotifications />
       <AccountAppearanceSync />
-      <ToastHost />
       <Stack
         screenOptions={({ route }: { route: { name: string } }) => {
           const fade =
@@ -36,7 +35,7 @@ export default function AppLayout() {
             route.name === "search" ||
             route.name === "today" ||
             route.name === "inbox" ||
-            route.name === "report" ||
+            route.name === "dashboard" ||
             route.name === "notifications";
           return {
             headerShown: false,
@@ -48,6 +47,8 @@ export default function AppLayout() {
           };
         }}
       />
+      {/* After the stack so toasts (and their Undo) draw above every screen. */}
+      <ToastHost />
     </>
   );
 }

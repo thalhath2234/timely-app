@@ -1,6 +1,6 @@
 {
   "name": "@timely/web",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "Private personal planning, scheduling, and notes.",
   "author": "Timely",
@@ -40,6 +40,7 @@
     "electron-updater": "^6.8.9",
     "jose": "^6.2.3",
     "katex": "^0.16.47",
+    "koffi": "3.3.2",
     "lucide-react": "^1.8.0",
     "mermaid": "^12.1.0",
     "motion": "^12.38.0",

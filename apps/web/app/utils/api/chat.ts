@@ -17,11 +17,15 @@ export type ChatStatus =
   | "queued"
   | "running"
   | "approval"
+  | "choose"
   | "idle"
   | "failed"
   | "stopped";
-/** "" is a turn, "notice" a run event, "archive" a superseded or discarded plan. */
-export type ChatMessageKind = "" | "notice" | "archive";
+/**
+ * "" is a turn, "notice" a run event, "archive" a superseded or discarded
+ * plan, "similar" a pointer to an earlier chat about the same request.
+ */
+export type ChatMessageKind = "" | "notice" | "archive" | "similar";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
@@ -31,6 +35,14 @@ export type ChatMessage = {
   content: string;
   createdAt: string;
   steps?: ChatStep[];
+  /** Marks a proposal summary. */
+  proposal?: boolean;
+  /** Smart suggestions' notes on a proposal: worth a check before applying. */
+  notes?: string[];
+  /** The earlier chat a "similar" message points at. */
+  chat?: { id: string; title: string };
+  /** What the person chose on a "similar" message. */
+  choice?: "move" | "stay";
 };
 /** GET /chats returns only these columns. */
 export type ChatSummary = {
@@ -69,12 +81,16 @@ export type Chat = {
   updatedAt: string;
   createdAt: string;
 };
-/** New messages carry the browser zone; the agent uses it when no timezone is saved in Working hours. */
+/**
+ * New messages carry the browser zone; the agent uses it when no timezone is
+ * saved in Working hours. client=web (web, desktop and the quick prompt) makes
+ * its saved-view tools act on the web and desktop views.
+ */
 function withTimezone(path: string, method: string, body: unknown) {
   const sendsMessage =
     method === "POST" && (path === "" || path.endsWith("/messages"));
   return sendsMessage && body && typeof body === "object"
-    ? { ...body, timezone: browserTimezone() }
+    ? { ...body, timezone: browserTimezone(), client: "web" }
     : body;
 }
 
@@ -157,6 +173,10 @@ export type ImageReview = {
   receipt?: ReceiptDraft;
   duplicates?: ReceiptDuplicate[];
   destination?: ReceiptDestination;
+  /** Smart-suggestion notes on the draft; unlike issues they never block Apply. */
+  hints?: string[];
+  /** Where smart suggestions would record the receipt; the person's pick wins. */
+  suggestedDestination?: ReceiptDestination;
 };
 export async function uploadChatImage(file: File): Promise<ChatImage> {
   const form = new FormData();

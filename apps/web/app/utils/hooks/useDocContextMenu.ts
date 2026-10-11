@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ExternalLink,
   FileText,
+  FolderInput,
   FolderUp,
   Link2,
   PanelTop,
@@ -19,11 +20,12 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Doc } from "@/app/_types/types";
-import { useCreateDoc, useDeleteDoc, useUpdateDoc } from "@/app/utils/hooks/docs";
+import { useCreateDoc, useDeleteDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { openInTab } from "@/app/_components/pageTabs/openInTab";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 export type DocMenuOptions = {
   hasChildren?: boolean;
@@ -33,6 +35,28 @@ export type DocMenuOptions = {
   onDeleted?: (id: string) => void;
 };
 
+const MOVE_TARGETS = 15;
+
+/** Pages a doc can move under: same workspace, not itself or one of its
+ * sub-pages, not its current parent, templates or daily notes. Most recently
+ * edited first. */
+function moveTargets(docs: Doc[], doc: Doc) {
+  const below = new Set([doc.id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const d of docs) {
+      if (d.parentId && below.has(d.parentId) && !below.has(d.id)) {
+        below.add(d.id);
+        grew = true;
+      }
+    }
+  }
+  return docs
+    .filter((d) => !below.has(d.id) && d.id !== doc.parentId && d.workspaceId === doc.workspaceId && !d.archivedAt && !d.isTemplate && !d.dailyDate)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, MOVE_TARGETS);
+}
+
 function copyText(text: string, message: string) {
   void navigator.clipboard
     .writeText(text)
@@ -40,17 +64,19 @@ function copyText(text: string, message: string) {
     .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
 }
 
-/** Right-click menu for a doc, shared by the docs list and Report. */
+/** Right-click menu for a doc, shared by the docs list and the Dashboard. */
 export function useDocContextMenu() {
   const router = useRouter();
   const createDoc = useCreateDoc();
   const deleteDoc = useDeleteDoc();
   const updateDoc = useUpdateDoc();
+  const { data: allDocs } = useDocs();
 
   return useCallback(
     (doc: Doc, options: DocMenuOptions = {}): ContextMenuEntry[] => {
       const archived = Boolean(doc.archivedAt);
       const title = doc.title || "Untitled";
+      const targets = moveTargets(allDocs ?? [], doc);
 
       return tidyEntries([
         {
@@ -58,19 +84,19 @@ export function useDocContextMenu() {
           label: "Open",
           icon: FileText,
           shortcut: "Enter",
-          onSelect: () => router.push(`/docs/${doc.id}`),
+          onSelect: () => router.push(fileHref(doc.id)),
         },
         {
           kind: "action",
           label: "Open in new tab",
           icon: PanelTop,
-          onSelect: () => openInTab(`/docs/${doc.id}`, (href) => router.push(href)),
+          onSelect: () => openInTab(fileHref(doc.id), (href) => router.push(href)),
         },
         {
           kind: "action",
           label: "Open in new window",
           icon: ExternalLink,
-          onSelect: () => window.open(`/docs/${doc.id}`, "_blank", "noopener"),
+          onSelect: () => window.open(fileHref(doc.id), "_blank", "noopener"),
         },
         options.hasChildren && options.onToggleExpand && {
           kind: "action",
@@ -86,7 +112,7 @@ export function useDocContextMenu() {
           onSelect: () => {
             void createDoc
               .mutateAsync({ parentId: doc.id })
-              .then((child) => router.push(`/docs/${child.id}`))
+              .then((child) => router.push(fileHref(child.id)))
               .catch(() => useToastStore.getState().show("Could not create subpage"));
           },
         },
@@ -111,6 +137,21 @@ export function useDocContextMenu() {
               );
           },
         },
+        targets.length > 0 && {
+          kind: "submenu",
+          label: "Move to page",
+          icon: FolderInput,
+          items: targets.map((target) => ({
+            kind: "action" as const,
+            label: `${target.icon ? `${target.icon} ` : ""}${target.title || "Untitled"}`,
+            onSelect: () => {
+              void updateDoc
+                .mutateAsync({ id: doc.id, parentId: target.id })
+                .then(() => useToastStore.getState().show(`Moved under ${target.title || "Untitled"}`))
+                .catch(() => useToastStore.getState().show("Could not move the doc"));
+            },
+          })),
+        },
         doc.parentId && {
           kind: "action",
           label: "Move to top level",
@@ -128,7 +169,7 @@ export function useDocContextMenu() {
           icon: Link2,
           shortcut: "mod+shift+C",
           onSelect: () =>
-            copyText(new URL(`/docs/${doc.id}`, window.location.origin).toString(), "Link copied"),
+            copyText(new URL(fileHref(doc.id), window.location.origin).toString(), "Link copied"),
         },
         {
           kind: "action",
@@ -162,6 +203,6 @@ export function useDocContextMenu() {
         },
       ]);
     },
-    [createDoc, deleteDoc, router, updateDoc],
+    [allDocs, createDoc, deleteDoc, router, updateDoc],
   );
 }

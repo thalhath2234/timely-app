@@ -85,6 +85,8 @@ import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import ConfirmDialog from "@/app/_components/_ui/confirmDialog";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import TaskExecution from "@/app/_components/_ui/tasks/taskExecution";
+import RelatedItems from "@/app/_components/_ui/relatedItems";
+import TaskHints from "@/app/_components/_ui/tasks/taskHints";
 import { runViewTransition } from "@/app/utils/viewTransition";
 import {
   attachMorphTarget,
@@ -370,6 +372,7 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
       }}
     >
       <TaskExecution task={task} />
+      {task.kind !== "inbox" && <RelatedItems kind="task" id={task.id} section />}
     </DetailBody>
   );
 }
@@ -448,6 +451,7 @@ function ProjectDetail({
           </ul>
         </section>
       )}
+      <RelatedItems kind="project" id={project.id} section />
     </DetailBody>
   );
 }
@@ -577,6 +581,16 @@ function DetailBody({
     setSyncedCustomFieldsKey(nextCustomFieldsKey);
     setCustomFieldValues(savedCustomFields);
   }
+
+  const filledFieldIds = useMemo(
+    () =>
+      new Set(
+        customFieldValues
+          .filter((draft) => (draft.stringValue ?? "") !== "" || (draft.optionsValue ?? []).length > 0)
+          .map((draft) => draft.id),
+      ),
+    [customFieldValues],
+  );
 
   const changeCustomField = (
     field: CustomField,
@@ -828,7 +842,44 @@ function DetailBody({
           ) : null}
         </div>
 
-        <div className="mt-5">{children}</div>
+        <div className="mt-5">
+          {view.kind === "task" && !isInbox && !isReminder && (
+            <TaskHints
+              taskId={view.id}
+              version={`${view.description.length}:${view.description.slice(-40)}:${view.completedAt ?? ""}:${view.blockedById ?? ""}:${view.stageId ?? ""}:${view.duration ?? 0}`}
+              statusId={view.statusId}
+              stageId={view.stageId}
+              blockedById={view.blockedById}
+              statusOptions={statusOptions}
+              stageOptions={stageOptions}
+              customFields={customFields}
+              filledFieldIds={filledFieldIds}
+              onStatus={(statusId) => {
+                const next = statusOptions.find((option) => option.id === statusId);
+                const completing = next ? isCompletedStatus(next) : false;
+                commit({
+                  statusId,
+                  ...(completing && !view.completedAt
+                    ? { completedAt: new Date().toISOString() }
+                    : !completing && view.completedAt
+                      ? { completedAt: "" }
+                      : {}),
+                });
+              }}
+              onStage={(stageId) => commit({ stageId })}
+              onField={(field, next) => {
+                changeCustomField(field, next);
+                void flush();
+              }}
+              onBlocker={(blockedById) => commit({ blockedById })}
+              contiguous={view.contiguous}
+              hasPreferredWindows={(view.preferredWindows ?? []).length > 0}
+              onOneSitting={() => commit({ contiguous: true })}
+              onPreferredWindow={(window) => commit({ preferredWindows: [window] })}
+            />
+          )}
+          {children}
+        </div>
 
         <section className="mt-6 border-t border-border pt-5">
           <div className="mb-3 flex items-center justify-between">

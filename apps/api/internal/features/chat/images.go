@@ -264,9 +264,12 @@ func (s *Service) extractImages(ctx context.Context, c *Conversation) error {
 	if len(extracted.Text) > 20000 || (extracted.Receipt != nil && len(extracted.Receipt.Items) > 300) {
 		return fmt.Errorf("This receipt is too large. Split it into smaller sections")
 	}
+	hints, suggested := s.receiptHints(ctx, c, extracted.Receipt, true)
 	return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
 		row.ImageReview.Text = extracted.Text
 		row.ImageReview.Receipt = extracted.Receipt
+		row.ImageReview.Hints = hints
+		row.ImageReview.Suggested = suggested
 		row.ImageReview.Status = "review"
 		row.Status = "idle"
 		row.Phase = "review"

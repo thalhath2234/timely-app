@@ -1,14 +1,10 @@
 "use client";
 import { useRef, type RefObject } from "react";
-import {
-  ArrowUp,
-  Check,
-  Globe2,
-  ImagePlus,
-  Square,
-  X,
-} from "lucide-react";
-import TimelyLogo, { LogoSpinner, SPINNER_LOOP_SECONDS } from "@/app/_components/_ui/timelyLogo";
+import { ArrowUp, Check, Globe2, ImagePlus, Square, X } from "lucide-react";
+import TimelyLogo, {
+  LogoSpinner,
+  SPINNER_LOOP_SECONDS,
+} from "@/app/_components/_ui/timelyLogo";
 import type { ChatContext, ChatImage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import { chipIcon } from "./chatMeta";
@@ -74,6 +70,7 @@ export default function Composer({
   onSend,
   onStop,
   hint,
+  variant = "panel",
 }: {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
@@ -95,15 +92,24 @@ export default function Composer({
   onSend: () => void;
   onStop: () => void;
   hint: string;
+  // "bar" is the floating quick prompt: no outer padding and the hint moves
+  // inside the card.
+  variant?: "panel" | "bar";
 }) {
+  const bar = variant === "bar";
   const fileInput = useRef<HTMLInputElement>(null);
   const privateImages = sensitive || images.length > 0;
   const searchOn = webSearch && !privateImages;
   const canSend = (draft.trim() || images.length) && !pending && !uploading;
   return (
-    <div className="shrink-0 px-4 pb-4 pt-1 md:px-8 md:pb-5">
+    <div className={cn("shrink-0", !bar && "px-4 pb-4 pt-1 md:px-8 md:pb-5")}>
       <div className="mx-auto max-w-3xl">
-        <div className="rounded-2xl border border-border bg-card p-2.5 shadow-sm transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/15">
+        <div
+          className={cn(
+            "rounded-2xl border border-border bg-card p-2.5 transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/15",
+            bar ? "shadow-2xl" : "shadow-sm",
+          )}
+        >
           <div className="px-1 pt-0.5">
             <ContextChips
               chips={chips}
@@ -118,7 +124,11 @@ export default function Composer({
                 role="status"
                 className="mb-2 flex items-center gap-2 text-xs text-muted-foreground"
               >
-                <TimelyLogo size={12} animated duration={SPINNER_LOOP_SECONDS} />
+                <TimelyLogo
+                  size={12}
+                  animated
+                  duration={SPINNER_LOOP_SECONDS}
+                />
                 Uploading image…
               </p>
             )}
@@ -233,10 +243,17 @@ export default function Composer({
               )}
             </div>
           </div>
+          {bar && hint && (
+            <p className="px-1.5 pt-1.5 text-[11px] text-muted-foreground">
+              {hint}
+            </p>
+          )}
         </div>
-        <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          {hint}
-        </p>
+        {!bar && (
+          <p className="mt-2 text-center text-[11px] text-muted-foreground">
+            {hint}
+          </p>
+        )}
       </div>
     </div>
   );

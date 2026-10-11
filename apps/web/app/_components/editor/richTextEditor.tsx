@@ -83,6 +83,7 @@ import { dismissSuggestionAndQuery } from "./dismissSuggestion";
 import { DotBulletShortcut } from "./dotBullet";
 import { Mention, MentionPluginKey } from "./mention";
 import { createMentionRenderer, filterMentionItems } from "./mentionMenu";
+import MentionLinkButton from "./mentionLink";
 import { SlashCommand, SlashCommandPluginKey } from "./slashCommand";
 import {
   DIAGRAM_SAMPLE,
@@ -93,6 +94,7 @@ import {
   createSlashRenderer,
   filterSlashItems,
 } from "./slashMenu";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 const LINK_POPOVER_WIDTH = 320;
 const TOOLBAR_WIDTH = 340;
@@ -121,6 +123,8 @@ export interface RichTextEditorProps {
   onCreateSubpage?: (props: { editor: Editor; range: Range }) => void | Promise<void>;
   /** False shows the doc read-only, without toolbars (version previews). */
   editable?: boolean;
+  /** The doc being edited, left out of "Link selection to an item" matches. */
+  docId?: string;
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -200,6 +204,7 @@ export default function RichTextEditor({
   syncKey = 0,
   onCreateSubpage,
   editable = true,
+  docId,
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -494,7 +499,7 @@ export default function RichTextEditor({
         const doc = mentionBox
           .get()
           .find((item) => item.entityType === "doc" && item.label.trim().toLowerCase() === wanted);
-        if (doc) router.push(`/docs/${doc.id}`);
+        if (doc) router.push(fileHref(doc.id));
         else useToastStore.getState().show(`No page named "${page}" yet.`);
         return;
       }
@@ -987,6 +992,7 @@ export default function RichTextEditor({
             >
               <Link2 className="size-3.5" />
             </button>
+            {variant === "page" && enableMentions && <MentionLinkButton editor={editor} docId={docId} />}
             {variant === "page" && (
               <button
                 type="button"

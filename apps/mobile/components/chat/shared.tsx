@@ -109,15 +109,18 @@ export function Pill({
   label,
   tone = "muted",
   icon: Icon,
+  spin = false,
 }: {
   label: string;
   tone?: Tone;
   icon?: LucideIcon;
+  /** Show the animated mark in place of the icon while something runs. */
+  spin?: boolean;
 }) {
   const color = toneColor(tone, colors);
   return (
     <View style={[styles.pill, { backgroundColor: `${color}22` }]}>
-      {Icon ? <Icon size={12} color={color} /> : null}
+      {spin ? <LogoSpinner size={12} color={color} /> : Icon ? <Icon size={12} color={color} /> : null}
       <Text style={[styles.pillText, { color }]}>{label}</Text>
     </View>
   );

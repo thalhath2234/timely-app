@@ -9,6 +9,21 @@ import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useChats } from "@/app/utils/hooks/chat";
 import type { ChatContext } from "@/app/utils/api/chat";
+import { fileIdFromPath, fileKind } from "@/app/utils/fileRoutes";
+import { cn } from "@/app/utils/cn";
+import { morphIntoIsland } from "@/app/_components/_layout/activityIsland";
+import { usePreferences } from "@/app/_components/_layout/clientRuntime";
+
+/** The object a page shows, as [collection, id]; sheet templates have none. */
+function routeObject(pathname: string): [string, string] | null {
+  const fileId = fileIdFromPath(pathname);
+  if (fileId) {
+    const kind = fileKind(fileId);
+    return kind === "template" ? null : [kind === "sheet" ? "sheets" : "docs", fileId];
+  }
+  const match = pathname.match(/^\/(projects)\/([^/]+)/);
+  return match ? [match[1], match[2]] : null;
+}
 
 export default function ChatRuntime() {
   const { open: overlayOpen, openNew, close } = useChatStore();
@@ -38,9 +53,9 @@ export default function ChatRuntime() {
         },
       ];
       const detail = useEntityDetailStore.getState();
-      const match = pathname.match(/^\/(docs|sheets|projects)\/([^/]+)/);
-      const kind = detail.id ? detail.kind : match?.[1];
-      const entityId = detail.id || match?.[2];
+      const match = routeObject(pathname);
+      const kind = detail.id ? detail.kind : match?.[0];
+      const entityId = detail.id || match?.[1];
       if (kind && entityId) {
         const plural =
           kind === "task" ? "tasks" : kind === "project" ? "projects" : kind;
@@ -115,7 +130,7 @@ export default function ChatRuntime() {
       if (
         !first &&
         chat.unread &&
-        ["idle", "approval", "failed"].includes(chat.status) &&
+        ["idle", "approval", "choose", "failed"].includes(chat.status) &&
         previous !== version
       ) {
         window.timelyDesktop.notifyChat({
@@ -124,7 +139,9 @@ export default function ChatRuntime() {
           body:
             chat.status === "approval"
               ? "Your changes are ready to review."
-              : chat.status === "failed"
+              : chat.status === "choose"
+                ? "You already have a chat about this. Choose where to continue."
+                : chat.status === "failed"
                 ? "Your chat needs attention."
                 : "Your chat has a new update.",
           revision: chat.revision,
@@ -143,7 +160,9 @@ export default function ChatRuntime() {
   return overlayOpen ? <ChatOverlay /> : null;
 }
 function ChatOverlay() {
-  const { context, conversationId, setId, close, openNew } = useChatStore();
+  const { context, conversationId, setId, close, openNew, track } =
+    useChatStore();
+  const { sidebarAutoHide } = usePreferences();
   const dialog = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   useEffect(() => {
@@ -162,17 +181,43 @@ function ChatOverlay() {
         e.preventDefault();
         close();
       }}
+      // Opening an item from the chat (an applied change, a mention) moves to
+      // its page, so the overlay gets out of the way. New-tab clicks keep it.
+      onClickCapture={(e) => {
+        const link = (e.target as Element).closest?.("a[href^='/']");
+        if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0)
+          close();
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) close();
       }}
-      className="fixed inset-0 m-auto h-[min(820px,90dvh)] max-h-[90dvh] w-[min(760px,94vw)] max-w-none overflow-hidden rounded-2xl border border-border bg-background p-0 text-foreground shadow-2xl backdrop:bg-black/45 backdrop:backdrop-blur-sm open:animate-[vt-panel-in_280ms_cubic-bezier(0.22,1,0.36,1)_both] open:backdrop:animate-[vt-fade-in_200ms_ease-out_both] motion-reduce:open:animate-none"
+      // Opens as a floating prompt bar near the bottom of the page (no dimmed
+      // backdrop). Sending shrinks it into the Activity island; opening a chat
+      // from the island shows it here as a panel.
+      className={cn(
+        "fixed inset-0 mx-auto mb-[max(1.5rem,5dvh)] mt-auto max-h-[85dvh] w-[min(760px,94vw)] max-w-none p-0 text-foreground backdrop:bg-transparent open:animate-[vt-panel-in_220ms_cubic-bezier(0.22,1,0.36,1)_both] motion-safe:transition-[height] motion-safe:duration-300 motion-reduce:open:animate-none [interpolate-size:allow-keywords]",
+        conversationId
+          ? "h-[min(720px,80dvh)] overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+          : "h-fit overflow-visible bg-transparent",
+      )}
     >
       <div className="flex h-full flex-col">
         <Conversation
           key={conversationId || "new"}
           id={conversationId}
           initialContext={context}
-          onCreated={setId}
+          onCreated={(id) => {
+            const handOff = () => {
+              track(id);
+              close();
+            };
+            // An auto-hidden sidebar would hide the island, so the reply
+            // stays in view here instead.
+            if (sidebarAutoHide) {
+              track(id);
+              setId(id);
+            } else morphIntoIsland(dialog.current, handOff);
+          }}
           onNew={conversationId ? () => openNew([]) : undefined}
           onOpenFull={
             conversationId

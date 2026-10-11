@@ -68,3 +68,18 @@ func TestChecklistProgressAndClone(t *testing.T) {
 		t.Fatal("clone titles")
 	}
 }
+
+func TestChecklistCloneUncheckedClearsCompletion(t *testing.T) {
+	done := "2026-09-12T00:00:00Z"
+	list := Checklist{{ID: "chk_1", Title: "A", CompletedAt: &done}, {ID: "chk_2", Title: "B"}}
+	cloned := list.CloneUnchecked()
+	if len(cloned) != 2 || cloned[0].Title != "A" || cloned[0].ID == "chk_1" {
+		t.Fatalf("clone = %+v", cloned)
+	}
+	if doneCount, _ := cloned.Progress(); doneCount != 0 {
+		t.Fatalf("done = %d, want 0", doneCount)
+	}
+	if !list[0].IsCompleted() {
+		t.Fatal("source should stay checked")
+	}
+}

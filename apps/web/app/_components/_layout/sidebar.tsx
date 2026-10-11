@@ -18,17 +18,17 @@ import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
+import ActivityIsland from "@/app/_components/_layout/activityIsland";
 
 const GO_SHORTCUTS: Record<string, string> = {
+  Dashboard: "G then D",
   Chat: "G then A",
   Today: "G then Y",
   Inbox: "G then I",
   Calendar: "G then C",
   Tasks: "G then T",
   Projects: "G then P",
-  Docs: "G then D",
-  Sheets: "G then S",
-  Report: "G then R",
+  Files: "G then F",
   Notifications: "G then N",
 };
 
@@ -261,6 +261,7 @@ export default function Sidebar() {
             </div>
           );
         })}
+        <ActivityIsland />
       </div>
       <button
         type="button"

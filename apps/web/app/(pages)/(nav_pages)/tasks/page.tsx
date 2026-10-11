@@ -21,10 +21,12 @@ import GanttView from "@/app/_components/_ui/tasks/ganttView";
 import BulkActionBar from "@/app/_components/_ui/tasks/bulkActionBar";
 import { TaskListStatusBar, TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToolbar";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
+import StaleWorkReview from "@/app/_components/_ui/tasks/staleWorkReview";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { filterTasks } from "@/app/utils/taskFilters";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
 import { useTaskViewsState } from "@/app/utils/hooks/taskViews";
+import ScreenTip from "@/app/_components/_ui/screenTip";
 import { beginOpenMorph, entityTitleKey } from "@/app/utils/titleMorph";
 import { runViewTransition } from "@/app/utils/viewTransition";
 
@@ -100,6 +102,18 @@ function Tasks() {
   );
   const stageNames = useMemo(() => stageNameMap(typedProjects), [typedProjects]);
   const stageColors = useMemo(() => stageColorMap(typedProjects), [typedProjects]);
+
+  // Search can open a saved view by id (?view=…); the param is dropped once
+  // the view is active so later view switches are the person's own.
+  const viewParam = searchParams.get("view");
+  const hasViewParam = Boolean(viewParam && taskViews.some((view) => view.id === viewParam));
+  const configLoaded = Boolean(typedConfig);
+  useEffect(() => {
+    if (!viewParam || !configLoaded) return;
+    // A view deleted since the search ran is dropped from the URL too.
+    if (hasViewParam) setActiveTaskViewId(viewParam);
+    router.replace("/tasks", { scroll: false });
+  }, [viewParam, hasViewParam, configLoaded, setActiveTaskViewId, router]);
 
   // The open row lives in the URL so an @mention can link straight to it.
   // Clicks set it locally first, inside a view transition (router updates
@@ -288,6 +302,8 @@ function Tasks() {
         onToggleOptions={() => setOptionsVisible((previous) => !previous)}
       />
 
+      <ScreenTip screen="tasks" className="mx-5 mt-3" />
+
       <TaskNavigationBar
         views={taskViews}
         activeTaskViewId={activeTaskViewId}
@@ -308,6 +324,8 @@ function Tasks() {
           {syncError}
         </div>
       )}
+
+      {tasks && <StaleWorkReview />}
 
       {tasksQuery.isError && tasks && (
         <LoadErrorBanner

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/embed"
@@ -29,6 +30,21 @@ type Service struct {
 	indexer      embed.Indexer
 	http         *http.Client
 	overdueSwept map[string]time.Time
+	triage       Triager // nil until SetTriage
+	alerts       Alerter // nil until SetAlerts
+	briefing     Briefer // nil until SetBriefing
+	triageSlots  chan struct{}
+	triageWait   sync.WaitGroup
+
+	// Smart suggestions' status and feedback; nil until SetDecisions.
+	decisionsOn func(ctx context.Context, userID string) bool
+	feedback    func(userID, logID string, accepted bool) error
+	// dismissed records a smart alert set aside without its step; nil until
+	// SetDismissed.
+	dismissed func(userID, logID string) error
+	// dismissedPruned is when each account's old dismissed alerts were last
+	// deleted; sweepDismissed fills it.
+	dismissedPruned map[string]time.Time
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -41,6 +57,7 @@ func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks
 		indexer:      indexer,
 		http:         &http.Client{Timeout: 15 * time.Second},
 		overdueSwept: map[string]time.Time{},
+		triageSlots:  make(chan struct{}, triageParallel),
 	}
 }
 
@@ -50,6 +67,7 @@ func (s *Service) Register(worker *jobs.Worker) {
 	worker.Handle(models.JobOverdueTask, s.HandleOverdueTask)
 	worker.Handle(models.JobMissedBlock, s.HandleMissedBlock)
 	worker.Handle(models.JobStartSoon, s.HandleStartSoon)
+	worker.Handle(models.JobSmartAlerts, s.HandleSmartAlerts)
 	worker.Handle(models.JobSendPush, s.HandlePush)
 	worker.Handle(models.JobIndexEntity, s.HandleIndex)
 	worker.SetSweep(s.Sweep)
@@ -100,8 +118,36 @@ func (s *Service) MarkAllRead(userID string) error {
 	return s.repo.MarkAllRead(userID)
 }
 
+// ClearAll removes every notification. Smart alerts are hidden rather than
+// deleted, and each one cleared without its step counts as dismissed.
 func (s *Service) ClearAll(userID string) error {
+	rows, err := s.repo.DismissAlerts(userID, "")
+	if err != nil {
+		return err
+	}
+	s.alertsDismissed(userID, rows)
 	return s.repo.ClearAll(userID)
+}
+
+// Delete removes one notification; a smart alert is dismissed as in
+// ClearAll.
+func (s *Service) Delete(userID, id string) error {
+	n, err := s.repo.Get(userID, id)
+	if err != nil {
+		return err
+	}
+	if n.Category != models.NotifySuggestion {
+		return s.repo.Delete(userID, id)
+	}
+	rows, err := s.repo.DismissAlerts(userID, id)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return gorm.ErrRecordNotFound // already dismissed
+	}
+	s.alertsDismissed(userID, rows)
+	return nil
 }
 
 // PrioritizeOverdue is the server-side action for an overdue task.
@@ -261,6 +307,12 @@ func (s *Service) Sweep(ctx context.Context) error {
 		if err := s.sweepMissedAndStart(userID, now); err != nil {
 			return err
 		}
+		if err := s.sweepDismissed(userID, now); err != nil {
+			return err
+		}
+		if err := s.sweepSmartAlerts(ctx, userID, now); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -320,15 +372,20 @@ func (s *Service) HandleOverdueTask(ctx context.Context, job *models.Job) error 
 		return nil
 	}
 	entity := item.ID
-	ntf, err := s.repo.Upsert(&models.Notification{
+	today := s.notificationDay(job.UserID, settings, time.Now())
+	row := &models.Notification{
 		UserID: job.UserID, Category: models.NotifyOverdue,
 		Title: item.Name, Body: "Past deadline. Reschedule as urgent?",
 		EntityType: strPtr("task"), EntityID: &entity,
 		Data:      models.JobPayload{"taskId": item.ID, "deadline": deadline},
 		DedupeKey: job.DedupeKey,
-	})
+	}
+	ntf, err := s.repo.Upsert(row)
 	if err != nil {
 		return err
+	}
+	if ntf.ID == row.ID {
+		s.suggestLater(ntf.ID, job.UserID, item, models.NotifyOverdue, "overdue", daysPast(deadline, today))
 	}
 	return s.deliver(ctx, ntf, settings)
 }
@@ -432,14 +489,26 @@ func (s *Service) HandleMissedBlock(ctx context.Context, job *models.Job) error 
 		return nil
 	}
 	entity := taskID
-	ntf, err := s.repo.Upsert(&models.Notification{
+	data := models.JobPayload{}
+	for k, v := range job.Payload {
+		data[k] = v
+	}
+	// Apps hide the steps that would change every occurrence of a series.
+	if item.IsRecurring() {
+		data["recurring"] = true
+	}
+	row := &models.Notification{
 		UserID: job.UserID, Category: models.NotifyMissed,
 		Title: item.Name, Body: "This block ended and the work is still open.",
 		EntityType: strPtr("task"), EntityID: &entity,
-		Data: job.Payload, DedupeKey: job.DedupeKey,
-	})
+		Data: data, DedupeKey: job.DedupeKey,
+	}
+	ntf, err := s.repo.Upsert(row)
 	if err != nil {
 		return err
+	}
+	if ntf.ID == row.ID {
+		s.suggestLater(ntf.ID, job.UserID, item, models.NotifyMissed, "missed", 0)
 	}
 	return s.deliver(ctx, ntf, settings)
 }
@@ -705,16 +774,20 @@ func (s *Service) HandleDigest(ctx context.Context, job *models.Job) error {
 	}
 	title, body, category := digestCopy(kind, today)
 	key := job.DedupeKey
-	ntf, err := s.repo.Upsert(&models.Notification{
+	row := &models.Notification{
 		UserID:    job.UserID,
 		Category:  category,
 		Title:     title,
 		Body:      body,
 		Data:      job.Payload,
 		DedupeKey: key,
-	})
+	}
+	ntf, err := s.repo.Upsert(row)
 	if err != nil {
 		return err
+	}
+	if kind == "morning" && ntf.ID == row.ID && s.briefLater(ctx, ntf, today, settings) {
+		return nil // sent once the briefing names the day's top items
 	}
 	return s.deliver(ctx, ntf, settings)
 }
@@ -752,6 +825,10 @@ func (s *Service) HandlePush(ctx context.Context, job *models.Job) error {
 	}
 	if ntf.DeliveredAt != nil {
 		return nil
+	}
+	// A smart alert dismissed before its deferred push ran stays quiet.
+	if ntf.DismissedAt != nil {
+		return s.repo.MarkDelivered(ntf.ID)
 	}
 	if ntf.Category == models.NotifyOverdue {
 		if ntf.ReadAt != nil || ntf.EntityID == nil {
@@ -863,6 +940,10 @@ func notificationPushMessage(ntf *models.Notification, token string) expoMessage
 			"taskId":         ntf.Data.String("taskId"),
 			"entityType":     ntf.EntityType,
 			"entityId":       ntf.EntityID,
+			"kind":           ntf.Data.String("kind"),
+			"projectId":      ntf.Data.String("projectId"),
+			// A smart alert about several tasks opens the first one.
+			"taskIds": ntf.Data["taskIds"],
 		},
 	}
 }

@@ -359,6 +359,9 @@ func (s *workspaceService) UpdateConfig(config *models.Config) (*models.Config, 
 	if err := validateTaskViews(config.TaskViews, config.ActiveTaskViewId); err != nil {
 		return nil, err
 	}
+	if err := validateTaskViews(config.MobileTaskViews, config.MobileActiveTaskViewId); err != nil {
+		return nil, errors.New("phone views: " + err.Error())
+	}
 	if config.ProjectTaskViews != nil {
 		if err := config.ProjectTaskViews.Validate(); err != nil {
 			return nil, err
@@ -369,6 +372,9 @@ func (s *workspaceService) UpdateConfig(config *models.Config) (*models.Config, 
 		return nil, err
 	}
 	config.Appearance = appearance
+	if err := config.ReportDashboard.Validate(); err != nil {
+		return nil, err
+	}
 
 	updatedConfig, err := s.repo.UpdateConfig(config)
 	if err != nil {

@@ -57,6 +57,8 @@ function useProviderMutation<TVars>(
         queryKey: agentProvidersKey,
         exact: true,
       });
+      // The OpenRouter key also powers smart suggestions.
+      queryClient.invalidateQueries({ queryKey: ["agent-decisions"] });
     },
   });
 }

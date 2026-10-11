@@ -55,6 +55,24 @@ func (s *Server) semanticSearch(ctx context.Context, req *mcp.CallToolRequest, i
 	if hits == nil {
 		hits = []search.Hit{}
 	}
+	if s.Rerank != nil && len(hits) > 0 {
+		if kept, hidden, ok := s.Rerank(ctx, uid, in.Query, hits); ok {
+			if len(kept) == 0 {
+				// Every hit looks like a miss: keep them, but say so, so the
+				// agent searches again instead of building on a wrong item.
+				return reply(fmt.Sprintf("%d semantic hits for %q, but none looks like a match. Search again with other words or another kind before relying on them.", len(hits), in.Query),
+					map[string]any{"hits": hits, "note": "none of these results looks like a match"})
+			}
+			text := fmt.Sprintf("%d semantic hits for %q", len(kept), in.Query)
+			data := map[string]any{"hits": kept}
+			if len(hidden) > 0 {
+				text += fmt.Sprintf(" (%d clear misses left out)", len(hidden))
+				// In-app chat reads only the data, so the note goes there too.
+				data["note"] = fmt.Sprintf("%d clear misses left out", len(hidden))
+			}
+			return reply(text, data)
+		}
+	}
 	return reply(fmt.Sprintf("%d semantic hits for %q", len(hits), in.Query), map[string]any{"hits": hits})
 }
 
@@ -150,9 +168,10 @@ func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emp
 		"workingHours":      hours,
 		"workspaces":        workspaces,
 		"projects":          sums,
-		"activeViewId":      config.ActiveTaskViewId,
-		"taskViews":         config.TaskViews,
 	}
+	// Chat from the phone sees the phone's own saved views.
+	views := viewsOf(ctx, config)
+	out["activeViewId"], out["taskViews"], out["viewsOn"] = *views.active, *views.views, views.on()
 	return reply(fmt.Sprintf("%s — %d workspaces, %d projects, zone %s", user.Email, len(workspaces), len(projects), zoneLabel(hours.Timezone)), out)
 }
 

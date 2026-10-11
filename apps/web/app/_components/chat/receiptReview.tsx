@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Plus,
   ReceiptText,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import type {
@@ -15,6 +16,7 @@ import type {
 import { useSheets, useSheet } from "@/app/utils/hooks/sheets";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { ImagePreview } from "./imageAttachments";
+import DatePicker from "@/app/_components/_ui/datePicker";
 import {
   receiptDestination,
   receiptTabId,
@@ -64,7 +66,11 @@ export default function ReceiptReview({
   const [reviewed, setReviewed] = useState(false);
   const { data: sheets = [] } = useSheets();
   const { data: workspaces = [] } = useWorkspaces();
-  const suggested = receiptDestination(chat.context, sheets);
+  const suggested = receiptDestination(
+    chat.context,
+    sheets,
+    review.suggestedDestination,
+  );
   const baseDestination = chosenDestination || suggested;
   const { data: sheet } = useSheet(baseDestination.sheetId || undefined);
   const destination = {
@@ -141,6 +147,23 @@ export default function ReceiptReview({
               </label>
             </div>
           )}
+          {!!review.hints?.length && (
+            <div
+              role="note"
+              className="flex gap-2 rounded-xl border border-border bg-background/60 p-3 text-xs"
+              data-testid="receipt-hints"
+            >
+              <Sparkles className="mt-0.5 size-3.5 shrink-0 text-primary" />
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium">Smart suggestions</p>
+                {review.hints.map((hint) => (
+                  <p key={hint} className="text-muted-foreground">
+                    {hint}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             {(
               [
@@ -164,28 +187,37 @@ export default function ReceiptReview({
                   {["merchant", "date", "currency", "total"].includes(key) &&
                     " *"}
                 </span>
-                <input
-                  aria-label={label}
-                  className={fieldClass}
-                  value={draft[key] || ""}
-                  onChange={(e) =>
-                    field(
-                      key,
+                {key === "date" ? (
+                  <DatePicker
+                    value={draft.date || ""}
+                    onChange={(value) => field("date", value)}
+                    placeholder="Unknown / not printed"
+                    aria-label={label}
+                    className="bg-background py-2"
+                  />
+                ) : (
+                  <input
+                    aria-label={label}
+                    className={fieldClass}
+                    value={draft[key] || ""}
+                    onChange={(e) =>
+                      field(
+                        key,
+                        key === "currency"
+                          ? e.target.value.toUpperCase()
+                          : e.target.value,
+                      )
+                    }
+                    placeholder={
                       key === "currency"
-                        ? e.target.value.toUpperCase()
-                        : e.target.value,
-                    )
-                  }
-                  type={key === "date" ? "date" : "text"}
-                  placeholder={
-                    key === "currency"
-                      ? "JPY, USD…"
-                      : key === "total"
-                        ? "Required"
-                        : "Unknown / not printed"
-                  }
-                  maxLength={key === "merchant" ? 300 : 200}
-                />
+                        ? "JPY, USD…"
+                        : key === "total"
+                          ? "Required"
+                          : "Unknown / not printed"
+                    }
+                    maxLength={key === "merchant" ? 300 : 200}
+                  />
+                )}
               </label>
             ))}
           </div>

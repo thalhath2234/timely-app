@@ -121,6 +121,16 @@ func (c Checklist) Clone() Checklist {
 	return out
 }
 
+// CloneUnchecked copies the list with fresh ids and every item unchecked, for
+// work that starts over (a new project started from an earlier one).
+func (c Checklist) CloneUnchecked() Checklist {
+	out := c.Clone()
+	for i := range out {
+		out[i].CompletedAt = nil
+	}
+	return out
+}
+
 func NewChecklistItem(title string, order int) ChecklistItem {
 	return ChecklistItem{
 		ID:    utils.NewChecklistItemID(),

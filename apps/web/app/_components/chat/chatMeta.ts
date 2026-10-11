@@ -9,7 +9,9 @@ import {
   Clock,
   FileText,
   FolderKanban,
+  History,
   Layers,
+  ListFilter,
   LoaderCircle,
   MapPin,
   MousePointerSquareDashed,
@@ -22,7 +24,8 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react";
-import type { ChatStep, ChatSummary } from "@/app/utils/api/chat";
+import type { Chat, ChatStep, ChatSummary } from "@/app/utils/api/chat";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 /** Context chips carry a kind from the client that attached them. */
 export const chipIcons: Record<string, LucideIcon> = {
@@ -67,6 +70,12 @@ export function statusMeta(status: string): {
         label: "Needs your review",
         tone: "warning",
         icon: AlertTriangle,
+      };
+    case "choose":
+      return {
+        label: "Choose where to continue",
+        tone: "warning",
+        icon: History,
       };
     case "failed":
       return {
@@ -164,6 +173,7 @@ export function readableTimestamp(value: string): string | null {
 export function stepIcon(tool: string): LucideIcon {
   if (isRemoval(tool)) return Trash2;
   if (tool.includes("notification") || tool === "snooze_reminder") return Bell;
+  if (tool.includes("task_view")) return ListFilter;
   if (tool === "set_today_focus") return Sun;
   if (tool.includes("focus")) return Timer;
   if (tool === "undo_schedule") return Undo2;
@@ -185,9 +195,9 @@ const targetKinds: [
   noun: string,
   href: (id: string) => string,
 ][] = [
-  ["shtpl_", "template", (id) => `/sheets/templates/${id}`],
-  ["sht_", "sheet", (id) => `/sheets/${id}`],
-  ["doc_", "doc", (id) => `/docs/${id}`],
+  ["shtpl_", "template", (id) => fileHref(id)],
+  ["sht_", "sheet", (id) => fileHref(id)],
+  ["doc_", "doc", (id) => fileHref(id)],
   ["tsk_", "task", (id) => `/tasks?taskId=${id}`],
   ["pr_", "project", (id) => `/projects/${id}`],
   ["evt_", "event", () => "/calendar"],
@@ -222,6 +232,17 @@ export type StepTarget = { href: string; title?: string; noun: string };
  */
 export function stepTarget(step: ChatStep): StepTarget | null {
   const result = step.result ?? {};
+  // A saved view opens Tasks with it active, on the app whose views it is
+  // (viewsOn); a phone view has nothing to open here.
+  const view = result.view as Record<string, unknown> | undefined;
+  if (view && typeof view === "object" && typeof view.id === "string" && result.viewsOn) {
+    if (result.viewsOn !== "web") return null;
+    return {
+      href: `/tasks?view=${encodeURIComponent(view.id)}`,
+      title: typeof view.name === "string" ? view.name : undefined,
+      noun: "view",
+    };
+  }
   const sources: Record<string, unknown>[] = [];
   for (const key of nestedKeys) {
     const item = result[key];
@@ -295,7 +316,7 @@ export function groupChats(chats: ChatSummary[], now = new Date()): Group[] {
     { label: "Earlier", items: [] },
   ];
   for (const chat of chats) {
-    if (["approval", "failed"].includes(chat.status)) {
+    if (["approval", "choose", "failed"].includes(chat.status)) {
       groups[0].items.push(chat);
       continue;
     }
@@ -306,4 +327,15 @@ export function groupChats(chats: ChatSummary[], now = new Date()): Group[] {
     else groups[4].items.push(chat);
   }
   return groups.filter((g) => g.items.length);
+}
+
+/** Notes smart suggestions left on the proposal waiting for review. */
+export function reviewNotes(chat: Chat): string[] {
+  if (chat.status !== "approval") return [];
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    const m = chat.messages[i];
+    if (m.proposal) return m.notes ?? [];
+    if (m.role === "user" && !m.kind) return [];
+  }
+  return [];
 }

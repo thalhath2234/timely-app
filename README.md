@@ -25,12 +25,12 @@ timely/
 
 Timely runs on your own computer. Two downloads, nothing else:
 
-1. **Timely desktop** from the [latest release](https://github.com/thalhath2234/timely-app/releases/latest): `.exe` installer (Windows), `.AppImage` (Linux; on Arch, the `timely-bin` AUR package), or `.dmg` (macOS). On first launch it creates its own database, starts its server, and opens the app. Create your account; the setup steps that follow are optional.
+1. **Timely desktop** from the [latest release](https://github.com/thalhath2234/timely-app/releases/latest): `.exe` installer (Windows) or `.AppImage` (Linux; on Arch, the `timely-bin` AUR package). There is no macOS release. On first launch it creates its own database, starts its server, and opens the app. Create your account; the setup steps that follow are optional.
 2. **Timely on your phone** (Android `.apk` from the same release). Open it, tap *Scan QR code*, and scan the code in the desktop app under **Settings → Server**. Sign in with the same account.
 
 To use the phone away from home, install [Tailscale](https://tailscale.com/download) on both devices and sign them into the same tailnet, then turn on *Allow my Tailscale devices to connect* in **Settings → Server**. Nothing is exposed to your Wi‑Fi or the internet; the phone reaches the computer only through the tailnet. Closing the desktop window keeps the server running in the tray; *Quit Timely* stops it. Updating the desktop app keeps your data and takes a backup first.
 
-On Linux the AppImage needs FUSE (`libfuse2` on Debian/Ubuntu, `fuse2` on Arch); without it, run it as `./Timely-*.AppImage --appimage-extract-and-run`. The first Windows and macOS releases are not code-signed: Windows shows a SmartScreen prompt (*More info → Run anyway*); macOS needs right-click → *Open* once. Details: [`docs/desktop/README.md`](docs/desktop/README.md).
+On Linux the AppImage needs FUSE (`libfuse2` on Debian/Ubuntu, `fuse2` on Arch); without it, run it as `./Timely-*.AppImage --appimage-extract-and-run`. The Windows installer is not code-signed yet, so Windows shows a SmartScreen prompt (*More info → Run anyway*). Details: [`docs/desktop/README.md`](docs/desktop/README.md).
 
 ## Prerequisites (developers)
 
@@ -96,7 +96,7 @@ Migrations run automatically when the API starts.
 ## Releases
 
 Releases are built by GitHub Actions when a `vX.Y.Z` tag is pushed on `main`:
-Windows `.exe`, Linux AppImage, macOS `.dmg`/`.zip` and the Android APK, all on
+Windows `.exe`, Linux AppImage and the Android APK, all on
 one GitHub Release. The version lives in `apps/web/package.json`. Step by step,
 including the AUR update and signing secrets: [`package.md`](package.md).
 

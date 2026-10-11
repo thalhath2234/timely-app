@@ -62,6 +62,11 @@ var exportTables = []tableSpec{
 	{"schedule_revisions", `SELECT to_jsonb(x) FROM schedule_revisions x WHERE x.user_id = ? ORDER BY x.created_at`},
 	{"configs", `SELECT to_jsonb(x) FROM configs x WHERE x.user_id = ? ORDER BY x.id`},
 	{"notifications", `SELECT to_jsonb(x) FROM notifications x WHERE x.user_id = ? ORDER BY x.created_at`},
+	// Habits and goals on Today. A check has no id of its own, so the backup
+	// names it by habit and day; restore ignores that key.
+	{"habits", `SELECT to_jsonb(x) FROM habits x WHERE x.user_id = ? ORDER BY x.position, x.id`},
+	{"habit_checks", `SELECT to_jsonb(x) || jsonb_build_object('id', x.habit_id || ':' || x.day::text) FROM habit_checks x WHERE x.user_id = ? ORDER BY x.habit_id, x.day`},
+	{"goals", `SELECT to_jsonb(x) FROM goals x WHERE x.user_id = ? ORDER BY x.position, x.id`},
 }
 
 func (s *Service) Export(userID string) (*Backup, error) {
@@ -227,6 +232,7 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 // made; a missing key would otherwise insert NULL instead of the default.
 var restoreDefaults = map[string]map[string]any{
 	"documents": {"is_template": false},
+	"configs":   {"mobile_task_views": []any{}, "mobile_active_task_view_id": ""},
 }
 
 type parentRef struct {
@@ -251,6 +257,7 @@ var restoreParents = map[string][]parentRef{
 	"doc_versions":          {{"document_id", "documents", true}},
 	"sheets":                {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}},
 	"recurrence_exceptions": {{"rule_id", "recurrence_rules", true}},
+	"habit_checks":          {{"habit_id", "habits", true}},
 }
 
 // checkRestoreParents vets a row's parents against rows restored earlier from
@@ -288,6 +295,7 @@ var ownedQueries = map[string]string{
 	"tasks":            `SELECT count(*) FROM tasks WHERE id = ? AND user_id = ?`,
 	"documents":        `SELECT count(*) FROM documents WHERE id = ? AND user_id = ?`,
 	"recurrence_rules": `SELECT count(*) FROM recurrence_rules WHERE id = ? AND user_id = ?`,
+	"habits":           `SELECT count(*) FROM habits WHERE id = ? AND user_id = ?`,
 }
 
 type restoreOwnership struct {
@@ -362,6 +370,9 @@ func clearAccountData(tx *gorm.DB, userID string) error {
 		`DELETE FROM schedule_revisions WHERE user_id = ?`,
 		`DELETE FROM configs WHERE user_id = ?`,
 		`DELETE FROM notifications WHERE user_id = ?`,
+		`DELETE FROM habits WHERE user_id = ?`,
+		`DELETE FROM goals WHERE user_id = ?`,
+		`DELETE FROM goal_task_tags WHERE user_id = ?`,
 		`DELETE FROM jobs WHERE user_id = ?`,
 		`DELETE FROM embeddings WHERE user_id = ?`,
 	}

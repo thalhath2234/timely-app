@@ -79,6 +79,10 @@ _Avoid_: current screen (when referring to previously attached context)
 An attempt to carry out a request in a conversation, with progress and results retained in its history. It can continue while the person leaves the chat; stopping prevents further steps but preserves completed changes.
 _Avoid_: task (Work is a separate concept)
 
+**Quick prompt**:
+The floating chat bar opened with Ctrl/Cmd+Shift+J from any screen. It carries Chat context, image attach, Web search and the model choice. Sending starts the conversation and hands it to the Activity island.
+_Avoid_: agent modal, chat overlay (in copy)
+
 **Agent provider**:
 The model source an account's Agent runs use: OpenRouter or a direct API provider (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, Ollama, NVIDIA, OpenCode) with the account's own key, or the Claude Code or Codex CLI installed and signed in on the API host. Each account has one default provider and a model per provider; a run keeps the provider it started with.
 _Avoid_: backend, engine (Auto-schedule is the engine), LLM (in copy)
@@ -86,6 +90,16 @@ _Avoid_: backend, engine (Auto-schedule is the engine), LLM (in copy)
 **Connect**:
 Verifying a CLI Agent provider on the API host: the binary is found, its sign-in is valid, and one test call succeeds. Connect never takes a path from the person and never signs in for them.
 _Avoid_: install, log in (those happen in a terminal on the host)
+
+**Smart suggestions**:
+Pre-filled fields and hints from Jev, TypeSafe's decision model, such as the Clarify form's type, effort, priority, project, labels and possible duplicates, or the Agent's default length for new Work. They use the account's TypeSafe key first and its OpenRouter key otherwise, and change nothing until the person saves. With neither key, or turned off in Settings → Agent, Timely behaves as it does without them.
+_Avoid_: AI autofill, auto-classify, Jev (in copy, except where the key is set up)
+
+### Activity
+
+**Activity island**:
+The pill above Sign out in the web and desktop sidebar that tracks what is in progress: Agent runs that are working or waiting for the person (including ones sent from the Quick prompt), the Work being focused, Pomodoro timers from the Dashboard (running or paused), and a running Auto-schedule. Clicking it opens a list of those activities. It bounces when an Agent run finishes, and it disappears when nothing is in progress.
+_Avoid_: dynamic island (in copy), status bar, tray
 
 ### Work status and order
 
@@ -108,6 +122,20 @@ _Avoid_: missed, skipped, late
 **Missed**:
 An occurrence of Work whose calendar time has ended while the Work remains incomplete. Missed is not Overdue unless its deadline has also passed.
 _Avoid_: overdue (deadline only), skipped
+
+### Habits and goals
+
+**Habit**:
+Something the person wants to do every day, checked off on Today (web, desktop and the phone's Home tab). Up to 20 per account, stored on the server so every surface matches.
+_Avoid_: routine, recurring task (a habit is never Work and is never scheduled)
+
+**Streak**:
+The run of consecutive days a Habit was checked off, counted on the server from the person's own date. A Habit not yet checked today keeps yesterday's Streak.
+_Avoid_: score, combo
+
+**Goal**:
+One of up to five outcomes the person names in their own words on Today. Goals work without Smart suggestions; with them, each Goal shows the open Work that moves it forward, and Today's suggestions name the Goal a pick serves.
+_Avoid_: target, objective, OKR
 
 ### Desktop host and devices
 

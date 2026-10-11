@@ -32,7 +32,8 @@ function easProjectId() {
 function notifications(): NotificationsModule | null {
   if (loaded !== undefined) return loaded;
   // Expo Go (SDK 53+) throws if the Android push module is touched.
-  if (Constants.appOwnership === "expo") {
+  // The web build has no device notifications, and most of the module throws there.
+  if (Constants.appOwnership === "expo" || Platform.OS === "web") {
     loaded = null;
     return null;
   }
@@ -272,4 +273,35 @@ export function addReminderResponseListener(
   if (initial) handleResponse(initial);
   const sub = N.addNotificationResponseReceivedListener(handleResponse);
   return () => sub.remove();
+}
+
+const POMODORO_PREFIX = "timely-pomodoro:";
+
+/** Rings when a Dashboard pomodoro phase ends, even with the app in the background. */
+export async function schedulePomodoroNotification(cardId: string, at: number, title: string, body: string, sound = true) {
+  const N = notifications();
+  if (!N) return;
+  await cancelPomodoroNotification(cardId);
+  const current = await N.getPermissionsAsync();
+  if (!current.granted && current.ios?.status !== N.IosAuthorizationStatus.PROVISIONAL) return;
+  await ensureReminderChannel();
+  try {
+    await N.scheduleNotificationAsync({
+      identifier: `${POMODORO_PREFIX}${cardId}`,
+      content: { title, body, sound: sound ? ("default" as const) : false, data: { kind: "pomodoro" } },
+      trigger: { type: N.SchedulableTriggerInputTypes.DATE, date: new Date(at), channelId: CHANNEL },
+    });
+  } catch {
+    // A missed chime is not worth an error.
+  }
+}
+
+export async function cancelPomodoroNotification(cardId: string) {
+  const N = notifications();
+  if (!N) return;
+  try {
+    await N.cancelScheduledNotificationAsync(`${POMODORO_PREFIX}${cardId}`);
+  } catch {
+    // Nothing was scheduled.
+  }
 }

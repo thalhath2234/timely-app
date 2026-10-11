@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/decide"
+	"timely-api/internal/models"
 
 	"gorm.io/gorm"
 )
@@ -77,7 +79,15 @@ func snapshotRead(tool string, args json.RawMessage) (string, bool) {
 		return "", false
 	}
 	var input map[string]any
-	if json.Unmarshal(args, &input) != nil || len(input) != 1 {
+	if json.Unmarshal(args, &input) != nil {
+		return "", false
+	}
+	// get_doc with full=true returns the whole doc, the same as a plain read;
+	// a focused read may leave sections out, so it is not a snapshot.
+	if tool == "get_doc" && input["full"] == true && input["focus"] == nil {
+		delete(input, "full")
+	}
+	if len(input) != 1 {
 		return "", false
 	}
 	value, _ := input[field].(string)
@@ -86,6 +96,48 @@ func snapshotRead(tool string, args json.RawMessage) (string, bool) {
 	}
 	return readKey(tool, raw(map[string]string{field: value})), true
 }
+
+// recordRead notes the hash of what a read tool returned, keyed like
+// snapshotRead. A get_doc with a focus may leave sections out, so it is not a
+// snapshot itself; the doc is read again plainly (a plain get_doc never asks
+// Jev) and that version is recorded, so a later edit to the doc still stops a
+// proposal built on the focused read.
+func recordRead(ctx context.Context, catalog agent.Catalog, uid, tool string, args json.RawMessage, result any, reads map[string]string) {
+	if key, ok := snapshotRead(tool, args); ok {
+		reads[key] = hash(result)
+		return
+	}
+	docID, ok := focusedDocRead(tool, args)
+	if !ok || catalog["get_doc"].Call == nil {
+		return
+	}
+	plain := raw(map[string]string{"docId": docID})
+	if whole, err := catalog["get_doc"].Call(ctx, uid, plain); err == nil {
+		reads[readKey("get_doc", plain)] = hash(whole)
+	}
+}
+
+// focusedDocRead returns the doc a get_doc with a focus read.
+func focusedDocRead(tool string, args json.RawMessage) (string, bool) {
+	if tool != "get_doc" {
+		return "", false
+	}
+	var input map[string]any
+	if json.Unmarshal(args, &input) != nil || input["focus"] == nil {
+		return "", false
+	}
+	for key := range input {
+		if key != "docId" && key != "focus" && key != "full" {
+			return "", false
+		}
+	}
+	docID, _ := input["docId"].(string)
+	return docID, docID != ""
+}
+
+// docMarkdownTools are the writes whose markdown may hold the [section kept
+// out ...] lines of a focused get_doc.
+var docMarkdownTools = map[string]bool{"create_doc": true, "update_doc": true, "append_to_doc": true}
 
 // prepareProposal validates a proposal, snapshots what it edits, and rehearses
 // it. reads maps snapshotRead keys to the hash of what the model read; when
@@ -123,6 +175,18 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		if err := json.Unmarshal(step.Arguments, &input); err != nil || input == nil || strings.TrimSpace(step.Summary) == "" {
 			return p, nil, fmt.Errorf("Step %d requires a summary and arguments object", i+1)
 		}
+		// The person reviews (and Jev checks) the doc as it will be written,
+		// not the placeholder lines of a focused read.
+		if markdown, ok := input["markdown"].(string); ok && docMarkdownTools[step.Tool] {
+			full, err := agent.RestoreSections(ctx, catalog, uid, markdown)
+			if err != nil {
+				return p, nil, fmt.Errorf("Step %d (%s): %w", i+1, step.Tool, err)
+			}
+			if full != markdown {
+				input["markdown"] = full
+				step.Arguments = raw(input)
+			}
+		}
 		if step.Tool == "update_sheet" {
 			sheetID, _ := input["sheetId"].(string)
 			for _, field := range []string{"rows", "columns", "tabs"} {
@@ -159,6 +223,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		step.Before = nil
 		step.Error = ""
 	}
+	s.estimateWork(ctx, uid, p.Steps)
 	snapshots, err := s.snapshots(ctx, s.db, catalog, uid, p.Steps)
 	if err != nil {
 		return p, nil, err
@@ -172,6 +237,61 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		return p, nil, err
 	}
 	return p, snapshots, nil
+}
+
+// SetEstimates lets proposals estimate new Work in one batch (smart
+// suggestions); a 0 means no estimate for that item.
+func (s *Service) SetEstimates(fn func(ctx context.Context, userID string, names, descriptions []string) []int) {
+	s.estimates = fn
+}
+
+// estimateWork writes a length into every create_task step for Work that has
+// none, before the rehearsal: create_task would otherwise ask for its own
+// estimate one step at a time inside the rehearsal's transaction, and again
+// on apply. With the minutes in the arguments the review shows the length
+// that is applied. A failed estimate writes the usual 30 minutes.
+func (s *Service) estimateWork(ctx context.Context, uid string, steps []Step) {
+	if s.estimates == nil || decide.IsSensitive(ctx) || !s.jevOn(ctx, uid) {
+		return
+	}
+	var at []int
+	var names, descriptions []string
+	for i, step := range steps {
+		if step.Tool != "create_task" {
+			continue
+		}
+		var in map[string]any
+		if json.Unmarshal(step.Arguments, &in) != nil || in["duration"] != nil {
+			continue
+		}
+		kind, _ := in["kind"].(string)
+		if k, err := models.NormalizeKind(kind); err != nil || k != models.KindTask {
+			continue
+		}
+		name, _ := in["name"].(string)
+		if strings.TrimSpace(name) == "" || strings.HasPrefix(name, "$") {
+			continue
+		}
+		description, _ := in["description"].(string)
+		at = append(at, i)
+		names = append(names, name)
+		descriptions = append(descriptions, description)
+	}
+	if len(at) == 0 {
+		return
+	}
+	minutes := s.estimates(ctx, uid, names, descriptions)
+	for j, i := range at {
+		var in map[string]any
+		if json.Unmarshal(steps[i].Arguments, &in) != nil {
+			continue
+		}
+		in["duration"] = 30
+		if j < len(minutes) && minutes[j] > 0 {
+			in["duration"] = minutes[j]
+		}
+		steps[i].Arguments = raw(in)
+	}
 }
 
 var errRehearsal = errors.New("rehearsal rolled back")

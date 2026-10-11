@@ -15,7 +15,7 @@ import ConfirmSheet from "../ui/ConfirmSheet";
 import EmptyState from "../ui/EmptyState";
 import ListEnter from "../ui/ListEnter";
 import { Field, PrimaryButton } from "../ui/primitives";
-import TimelyLogo from "../ui/TimelyLogo";
+import TimelyLogo, { LogoSpinner } from "../ui/TimelyLogo";
 import { groupChats, relativeTime, statusMeta, toneColor } from "./chatMeta";
 import { Action } from "./shared";
 
@@ -118,6 +118,7 @@ export default function HistoryPage({
               const active = chat.id === activeId;
               const attention = [
                 "approval",
+                "choose",
                 "failed",
                 "running",
                 "queued",
@@ -138,7 +139,11 @@ export default function HistoryPage({
                         { backgroundColor: `${color}1f` },
                       ]}
                     >
-                      <Icon size={16} color={color} />
+                      {meta.spin ? (
+                        <LogoSpinner size={16} color={color} />
+                      ) : (
+                        <Icon size={16} color={color} />
+                      )}
                     </View>
                     <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
                       <Text

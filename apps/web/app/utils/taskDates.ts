@@ -3,7 +3,7 @@ import { dateFromDateInput } from "@/app/utils/calendar";
 
 /**
  * One place that answers "when is this task happening?" so Kanban, Gantt,
- * Report, saved views and Today agree. A task can carry time in several
+ * Dashboard, saved views and Today agree. A task can carry time in several
  * shapes (deadline, engine/manual blocks, a bare scheduledOn, a recurrence
  * anchor, a start date) and each surface used to pick its own subset.
  */

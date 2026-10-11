@@ -16,7 +16,7 @@ export const FLOATING_TAB_HEIGHT = 58;
 export const FLOATING_TAB_MARGIN = 12;
 const PILL_INSET_X = 4;
 const PILL_INSET_Y = 5;
-const VISIBLE_TABS = new Set(["home", "calendar", "tasks", "search", "docs"]);
+const VISIBLE_TABS = new Set(["home", "calendar", "tasks", "search", "files"]);
 
 export function floatingTabBarInset(bottomInset: number) {
   return Math.max(bottomInset, 8) + FLOATING_TAB_MARGIN + FLOATING_TAB_HEIGHT;

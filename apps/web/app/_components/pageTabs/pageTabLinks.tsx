@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { docsKey } from "@/app/utils/hooks/docs";
 import { wikiLinkPage } from "@/app/_components/editor/wikiLink";
-import { isPageTabHref, openInTab } from "@/app/_components/pageTabs/openInTab";
+import { openInTab, pageTabPath } from "@/app/_components/pageTabs/openInTab";
 import type { Doc } from "@/app/_types/types";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 /**
  * Ctrl/Cmd-click or middle-click on any link to a doc or sheet (lists, mention
@@ -30,7 +31,7 @@ export default function PageTabLinks() {
         const doc = queryClient
           .getQueryData<Doc[]>(docsKey)
           ?.find((item) => item.title.trim().toLowerCase() === wanted);
-        return doc ? `/docs/${doc.id}` : null;
+        return doc ? fileHref(doc.id) : null;
       }
 
       let url: URL;
@@ -40,7 +41,7 @@ export default function PageTabLinks() {
         return null;
       }
       if (url.origin !== window.location.origin) return null;
-      return isPageTabHref(url.pathname) ? url.pathname : null;
+      return pageTabPath(url.pathname);
     };
 
     const open = (event: MouseEvent, href: string) => {

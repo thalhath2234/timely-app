@@ -31,6 +31,12 @@ type Service interface {
 	// instead of failing, so callers always get something.
 	SemanticSearch(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error)
 	Reindex(ctx context.Context, userID string) (int, error)
+	// Existing keeps the vector hits whose item still exists for the account.
+	Existing(userID string, hits []embed.Hit) []embed.Hit
+	// Relatable keeps the hits that may show in the Related list of the
+	// given item: existing ones, minus unclarified Inbox items and, for a
+	// project, its own tasks.
+	Relatable(userID, kind, id string, hits []embed.Hit) []embed.Hit
 }
 
 type service struct {
@@ -150,6 +156,7 @@ func (s *service) vector(ctx context.Context, userID, query string, limit int, k
 	if err != nil {
 		return nil, err
 	}
+	raw = s.Existing(userID, raw)
 	hits := make([]Hit, 0, len(raw))
 	for _, item := range raw {
 		if item.EntityID == "" {
@@ -159,12 +166,92 @@ func (s *service) vector(ctx context.Context, userID, query string, limit int, k
 			Kind:    item.Kind,
 			ID:      item.EntityID,
 			Title:   item.Title,
-			Snippet: snippet(item.Content),
+			Snippet: snippet(item.Title, item.Content),
 			Score:   item.Score,
 			Content: item.Content,
 		})
 	}
 	return hits, nil
+}
+
+// Existing drops hits for items that are gone. Embeddings can outlive an
+// item removed by a path that doesn't clean them up (a deleted workspace, for
+// one), and a hit for it would open a missing page. On a lookup error the
+// hits are kept: a stale hit is better than no results.
+func (s *service) Existing(userID string, hits []embed.Hit) []embed.Hit {
+	ids := map[string][]string{}
+	for _, hit := range hits {
+		ids[hit.Kind] = append(ids[hit.Kind], hit.EntityID)
+	}
+	live := map[string]bool{}
+	for kind, list := range ids {
+		var q *gorm.DB
+		switch kind {
+		case embed.KindTask:
+			q = s.db.Model(&models.Task{}).Where("user_id = ? AND id IN ?", userID, list)
+		case embed.KindProject:
+			q = s.db.Model(&models.Project{}).Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
+				Where("workspaces.user_id = ? AND projects.id IN ?", userID, list).Select("projects.id")
+		case embed.KindDoc:
+			q = s.db.Model(&models.Document{}).Where("user_id = ? AND id IN ?", userID, list)
+		case embed.KindSheet:
+			q = s.db.Model(&models.Sheet{}).Where("user_id = ? AND id IN ?", userID, list)
+		case embed.KindEvent:
+			q = s.db.Model(&models.Event{}).Where("user_id = ? AND id IN ?", userID, list)
+		default:
+			continue
+		}
+		var found []string
+		if err := q.Pluck("id", &found).Error; err != nil {
+			log.Printf("search: checking %s hits failed: %v", kind, err)
+			return hits
+		}
+		for _, id := range found {
+			live[kind+"/"+id] = true
+		}
+	}
+	out := hits[:0:0]
+	for _, hit := range hits {
+		if live[hit.Kind+"/"+hit.EntityID] {
+			out = append(out, hit)
+		}
+	}
+	return out
+}
+
+func (s *service) Relatable(userID, kind, id string, hits []embed.Hit) []embed.Hit {
+	hits = s.Existing(userID, hits)
+	var tasks []string
+	for _, hit := range hits {
+		if hit.Kind == embed.KindTask {
+			tasks = append(tasks, hit.EntityID)
+		}
+	}
+	if len(tasks) == 0 {
+		return hits
+	}
+	q := s.db.Model(&models.Task{}).Where("user_id = ? AND id IN ?", userID, tasks)
+	if kind == embed.KindProject {
+		q = q.Where("kind = ? OR project_id = ?", models.KindInbox, id)
+	} else {
+		q = q.Where("kind = ?", models.KindInbox)
+	}
+	var drop []string
+	if err := q.Pluck("id", &drop).Error; err != nil {
+		log.Printf("search: checking related tasks failed: %v", err)
+		return hits
+	}
+	skip := map[string]bool{}
+	for _, taskID := range drop {
+		skip[taskID] = true
+	}
+	out := hits[:0:0]
+	for _, hit := range hits {
+		if hit.Kind != embed.KindTask || !skip[hit.EntityID] {
+			out = append(out, hit)
+		}
+	}
+	return out
 }
 
 func (s *service) Reindex(ctx context.Context, userID string) (int, error) {
@@ -325,7 +412,7 @@ func (s *service) keywordKind(query string, limit int, q kindQuery) []keywordHit
 			text = rest
 		}
 		out = append(out, keywordHit{
-			Hit:  Hit{Kind: q.kind, ID: r.ID, Title: r.Title, Snippet: snippet(text)},
+			Hit:  Hit{Kind: q.kind, ID: r.ID, Title: r.Title, Snippet: snippet(r.Title, text)},
 			Tier: r.Tier,
 		})
 	}
@@ -355,10 +442,16 @@ func allowedKinds(kinds []string) []string {
 	return out
 }
 
-func snippet(text string) string {
+// snippet is the start of an item's text for a result row. Indexed text
+// often begins with the title, which the row already shows, so that is left
+// off; the cut counts characters, not bytes.
+func snippet(title, text string) string {
 	text = strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
-	if len(text) > 160 {
-		return text[:157] + "..."
+	if t := strings.TrimSpace(title); t != "" && len(text) >= len(t) && strings.EqualFold(text[:len(t)], t) {
+		text = strings.TrimLeft(text[len(t):], " \t·:-—")
+	}
+	if r := []rune(text); len(r) > 160 {
+		return string(r[:157]) + "..."
 	}
 	return text
 }

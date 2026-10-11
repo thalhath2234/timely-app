@@ -16,6 +16,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FLAVOR } from "./flavor";
 import { isOpenableExternally, isPermissionAllowed, isSameOrigin } from "./origin";
+import { movePointer } from "./pointer";
 import { waitForHttp } from "./supervisor/api";
 import { makeSealer } from "./supervisor/config";
 import { checkPrivileges } from "./supervisor/guards";
@@ -86,6 +87,24 @@ ipcMain.handle("doc:savePdf", async (event, title: unknown) => {
   const data = await event.sender.printToPDF({ printBackground: true, pageSize: "A4", preferCSSPageSize: true });
   await writeFile(filePath, data);
   return { ok: true, filePath };
+});
+
+// ---------------------------------------------------------------------------
+// Confirm dialogs move the pointer onto their default button (electron/pointer.ts).
+// ---------------------------------------------------------------------------
+
+ipcMain.on("pointer:snap", (event, x: unknown, y: unknown) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed() || !win.isFocused() || win.isMinimized()) return;
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) return;
+  if (!isSameOrigin(event.senderFrame.url, new URL(rendererUrl).origin)) return;
+  if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return;
+  // x/y are CSS pixels in the page; only points inside the window are honoured.
+  const zoom = event.sender.getZoomFactor();
+  const bounds = win.getContentBounds();
+  const point = { x: bounds.x + x * zoom, y: bounds.y + y * zoom };
+  if (point.x < bounds.x || point.y < bounds.y || point.x > bounds.x + bounds.width || point.y > bounds.y + bounds.height) return;
+  movePointer(point);
 });
 
 // ---------------------------------------------------------------------------

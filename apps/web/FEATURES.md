@@ -15,7 +15,7 @@ Timely is a **multi-account, single-user personal productivity system**. Multipl
 | **Desktop web / Electron** | Full product: sidebar, AI Chat, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors, command palette; the same web app also has an Electron shell with native chat notifications |
 | **Native app** | Expo Android/iOS: Home, Calendar, Tasks, Search (command palette), Files tabs; pinch-to-open AI assistant with camera/receipt capture; Inbox/Today, local reminder notifications (permission on first launch), working hours, API keys, export |
 | **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue, in-app agent runner with OpenRouter, direct API (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, Ollama, NVIDIA, OpenCode Zen/Go), Claude Code and Codex providers |
-| **Hermes / MCP** | 147 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can, including export/backup/restore and sheet templates |
+| **Hermes / MCP** | 148 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can, including export/backup/restore and sheet templates |
 
 Ownership is always “this user owns this row.” No members, roles, invites, or resource ACLs.
 
@@ -36,7 +36,7 @@ Ownership is always “this user owns this row.” No members, roles, invites, o
 
 **Protected routes (web proxy)**
 
-`/chat`, `/calendar`, `/today`, `/inbox`, `/tasks`, `/projects`, `/report`, `/settings`, `/docs`, `/sheets`, `/notifications`, plus `/onboarding` when logged out. Requests to `/m` or `/m/*` redirect to `/calendar`.
+`/chat`, `/calendar`, `/today`, `/inbox`, `/tasks`, `/projects`, `/dashboard`, `/settings`, `/files`, `/notifications`, plus `/onboarding` when logged out. Requests to `/m` or `/m/*` redirect to `/calendar`. Old `/docs/*` and `/sheets/*` links (including `/sheets/templates/<id>`) redirect to their `/files` page, and `/report` (the Dashboard's old name) redirects to `/dashboard`.
 
 **What does not exist**
 
@@ -175,7 +175,7 @@ Deep links: `?taskId=`, `?projectId=`.
 - Comments via `Ctrl/Cmd+Enter`. **No comment delete** in the UI.
 - Native has activity + comments; notes are not the full rich editor.
 
-**Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks`, and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete). It never schedules: `scheduledOn` in the patch is refused with 400 ("schedule tasks one at a time"), and the `bulk_update_tasks` tool has no `scheduledOn` or `scheduleAt`, because placing by hand pushes other Work aside (ADR 0010).
+**Bulk update** exists on the API (`PATCH /tasks/bulk`), as MCP `bulk_update_tasks` (larger sets than the 50-id API limit go in batches; `pick_tasks` finds the targets from a description, checked by smart suggestions when on), and in the desktop/native task list (complete/reopen, status, priority, project, label, deadline, delete). It never schedules: `scheduledOn` in the patch is refused with 400 ("schedule tasks one at a time"), and the `bulk_update_tasks` tool has no `scheduledOn` or `scheduleAt`, because placing by hand pushes other Work aside (ADR 0010).
 
 **Checklists** are items on the task, not nested tasks. Completing a task does not auto-complete its checklist. `parentTaskId` is rejected on create/update (REST and MCP); nested-task creation has no replacement. Sheet `description` is also rejected.
 
@@ -340,7 +340,7 @@ This is one of the product’s distinctive features.
 
 **Overdue is deadline-only:** open Work (not a reminder or inbox item) whose deadline date is before today. A Block that already ended does **not** make Work overdue. That case is **Missed** and produces a `missed_block` notification instead. **Unscheduled** means open Work with no Block or ping today. Web, native, and API all use these rules.
 
-Shown in: Agenda Overdue section, Report, native “Overdue” filter, agent `get_agenda` / `what_next`.
+Shown in: Agenda Overdue section, Dashboard, native “Overdue” filter, agent `get_agenda` / `what_next`.
 
 For open schedulable work with a past **deadline**, the notification worker creates one deduplicated overdue alert per task and deadline when reminder notifications are enabled. Desktop shows the alert in the notification center. Native offers **Reschedule urgently** from the notification: the API sets priority to Urgent, applies the schedule, marks the alert read, and restores the old priority if scheduling fails. The same urgent reschedule is available to MCP as `reschedule_urgent`; desktop does not have the button yet.
 
@@ -434,9 +434,9 @@ A public demo of the palette with sample data lives at `/demo/command-palette`.
 
 ---
 
-## 13. Reports
+## 13. Dashboard
 
-Client-computed snapshot (not a separate analytics API). Desktop `/report`; native has a thinner screen under Settings.
+Client-computed snapshot (not a separate analytics API). Desktop `/dashboard`; native has a thinner screen under Settings.
 
 Computed from live tasks/projects/docs/sheets:
 
@@ -491,7 +491,7 @@ Picker → Name and color / Statuses / Labels / Custom fields (including Yes/No)
 
 - Create key (name, default “Hermes”).
 - Secret shown **once**.
-- Hermes MCP YAML snippet + copy (`localhost:8080/mcp`).
+- MCP server address + copy, and the Hermes MCP YAML snippet. The address is the API's real port in the desktop app (plus Tailscale addresses when on), else `<web origin>/api-proxy/mcp` (or `NEXT_PUBLIC_API_URL/mcp`).
 - List: prefix, created, last used.
 - Revoke with confirm.
 - Keys are `tk_…`, stored as prefix + SHA-256. Used **only** for MCP, not for the JWT app session.
@@ -571,7 +571,7 @@ Mint an API key → point Hermes at `/mcp`. The server instructions tell the age
 
 Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `delete_backup`, `restore_account` — require `confirm=true`. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
 
-### Complete MCP tool list (147)
+### Complete MCP tool list (148)
 
 **Context / intelligence (7):** `get_context`, `search`, `semantic_search`, `reindex_search`, `get_agenda`, `get_free_time`, `what_next`
 
@@ -579,7 +579,7 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 
 **Projects (13):** `list_projects`, `get_project`, `list_project_activity`, `create_project`, `update_project`, `complete_project`, `reopen_project`, `delete_project`, `create_stage`, `update_stage`, `delete_stage`, `reorder_stages`, `duplicate_project`
 
-**Tasks (33):** `list_tasks`, `get_task`, `create_task`, `update_task`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `add_checklist_item`, `update_checklist_item`, `toggle_checklist_item`, `replace_checklist`, `delete_checklist_item`, `start_focus`, `pause_focus`, `stop_focus`, `get_today`, `set_today_focus`, `duplicate_task`
+**Tasks (34):** `list_tasks`, `get_task`, `create_task`, `update_task`, `pick_tasks`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `add_checklist_item`, `update_checklist_item`, `toggle_checklist_item`, `replace_checklist`, `delete_checklist_item`, `start_focus`, `pause_focus`, `stop_focus`, `get_today`, `set_today_focus`, `duplicate_task`
 
 **Events (7):** `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `edit_event_occurrence`, `split_event_series`
 
@@ -601,7 +601,7 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 
 ## 16. Create / navigation UX
 
-**Desktop sidebar:** + menu (Task, Event, Workspace, Project, Doc, Sheet), Search, Chat (unread badge), Today, Inbox, Calendar, Tasks, Projects, Docs, Sheets, Report, Notifications, Settings, Logout. Settings → Appearance can auto-hide the rail until the pointer is at the left edge.
+**Desktop sidebar:** + menu (Task, Event, Workspace, Project, Doc, Sheet), Search, Dashboard, Chat (unread badge), Today, Inbox, Calendar, Tasks, Projects, Files, Notifications, Settings, Logout. Settings → Appearance can auto-hide the rail until the pointer is at the left edge.
 
 **Add Item modal:** per-type forms. Tasks open with a **Work | Reminder** toggle first. Reminder uses Notify at (date and time). Work uses duration, workspace, project, stage, labels, custom fields. Rich description for task/project. Recurrence for task/event. Labels/custom fields with inline create. Events all-day/duration/workspace.
 
@@ -613,7 +613,7 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 
 - Ctrl/Cmd+K or `/` command palette
 - Ctrl/Cmd+Shift+J chat overlay (new chat with screen context)
-- `g` then `a` Chat, `y` Today, `i` Inbox, `c` Calendar, `t` Tasks, `p` Projects, `d` Docs, `s` Sheets, `r` Report, `n` Notifications
+- `g` then `a` Chat, `y` Today, `i` Inbox, `c` Calendar, `t` Tasks, `p` Projects, `d` Dashboard (`r` too, its old name), `f` Files (`s` too), `n` Notifications
 - `c` or `n` new task (on `/inbox`, `c` focuses capture)
 - On `/tasks`: `x` completes the open task (with Undo), `s` schedules it on the calendar
 - Escape close
@@ -690,12 +690,10 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/tasks` | Saved views, List / Kanban / Gantt |
 | `/projects` | Project hub |
 | `/projects/[id]` | Overview, tasks, stages, activity |
-| `/docs` | Docs home + Markdown import |
-| `/docs/[id]` | Doc editor |
-| `/sheets` | Sheets and template home |
-| `/sheets/[id]` | Multi-tab spreadsheet |
-| `/sheets/templates/[id]` | Template preview and create-from-template |
-| `/report` | Productivity snapshot |
+| `/files` | Files home: recent docs and sheets together, sheet templates, Markdown/CSV import |
+| `/files/[id]` | Doc editor (`doc_` IDs), multi-tab spreadsheet (`sht_`), or template preview and create-from-template (`shtpl_`) |
+| `/docs/*`, `/sheets/*` | Redirect to the matching `/files` page (links from before the merge) |
+| `/dashboard` | Card dashboard |
 | `/notifications` | In-app notification center |
 | `/settings` | Account (incl. devices), Appearance, Schedule, Notifications, Workspaces, Agent, Data & privacy, Integrations (`?tab=`) |
 | `/m`, `/m/*` | Redirect to `/calendar` (legacy mobile-web bookmarks) |
@@ -709,7 +707,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/(app)/(tabs)/calendar` | Calendar tab |
 | `/(app)/(tabs)/tasks` | Task list |
 | `/(app)/(tabs)/search` | Command palette search |
-| `/(app)/(tabs)/docs` | Files (Docs \| Sheets) |
+| `/(app)/(tabs)/files` | Files: docs and sheets in one list (All \| Docs \| Sheets), sheet templates |
 | `/(app)/(tabs)/more` | Hidden; redirects to settings |
 | `/(app)/assistant` | Deep-link shim: opens the assistant overlay at `?chatId=` |
 | `/(app)/search` | Redirects to the Search tab |
@@ -719,10 +717,9 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/(app)/events/[id]` | Event detail |
 | `/(app)/projects` | Project list |
 | `/(app)/projects/[id]` | Project detail + stages |
-| `/(app)/docs/[id]` | Doc editor |
-| `/(app)/sheets/[id]` | Sheet editor |
-| `/(app)/sheets/templates/[id]` | Template preview and create-from-template |
-| `/(app)/report` | Report |
+| `/(app)/files/[id]` | Doc editor (`doc_`), sheet editor (`sht_`), or template preview and create-from-template (`shtpl_`) |
+| `/(app)/docs/*`, `/(app)/sheets/*` | Redirect to the matching Files route (links from before the merge) |
+| `/(app)/dashboard` | Dashboard |
 | `/(app)/settings/*` | Account, notifications, schedule, workspaces, API keys |
 | `/(app)/settings/agent` | AI provider and model settings |
 | `/(app)/settings/data` | Portable exports, restore, encrypted backup scheduling and history |
@@ -862,7 +859,7 @@ Grouped so you can pick from current holes.
 | Code Copy + IDE colors | Yes | Yes | — |
 | Sheets + formulas | Tabs, formatting, filters, templates, CSV | Tabs, formatting, filters, templates | Granular + archive + templates + duplicate |
 | Archive docs/sheets | Yes | Yes | Yes |
-| Report | Full | Thinner | No |
+| Dashboard | Full | Thinner | No |
 | Global search / command palette | Cmd+K or `/`, quick actions | Tab, quick actions | Keyword + semantic |
 | AI chat | `/chat` + Cmd+Shift+J overlay, images, receipts, Electron notifications | Pinch overlay, camera/screenshot, receipts, private push | Is the tool catalog (chat uses an allowlisted subset) |
 | AI provider settings | Settings → Agent | Settings → Agent | No |

@@ -12,7 +12,8 @@ type ContextChip struct {
 }
 
 // Message kinds: "" is a normal turn, "notice" is a run event (stopped, done,
-// data changed) and "archive" carries a superseded or discarded plan.
+// data changed), "archive" carries a superseded or discarded plan and
+// "similar" points at an earlier chat (Chat) about the same request.
 type Message struct {
 	Kind      string        `json:"kind,omitempty"`
 	RequestID string        `json:"requestId,omitempty"`
@@ -29,6 +30,11 @@ type Message struct {
 	Proposal  bool   `json:"proposal,omitempty"`
 	Remaining string `json:"remaining,omitempty"`
 	Continue  string `json:"continue,omitempty"`
+	// Notes are a proposal's review notes from Jev (see jev.go).
+	Notes []string `json:"notes,omitempty"`
+	Chat  *ChatRef `json:"chat,omitempty"`
+	// Choice is what the person did with a "similar" pointer: "move" or "stay".
+	Choice string `json:"choice,omitempty"`
 }
 type Step struct {
 	Tool      string          `json:"tool"`
@@ -61,6 +67,7 @@ type Conversation struct {
 	Phase          string            `json:"phase"`
 	WebSearch      bool              `json:"webSearch"`
 	Timezone       string            `json:"timezone"` // device IANA zone from the latest message
+	Client         string            `json:"client"`   // "phone" or "web": the app of the latest message
 	Language       string            `json:"language"` // see i18n.go; empty means English`
 	Provider       string            `json:"provider"`
 	Model          string            `json:"model"`

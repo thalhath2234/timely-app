@@ -57,6 +57,18 @@ export async function markAllNotificationsRead(): Promise<void> {
   }
 }
 
+/** Removes one notification. A smart alert removed without its step counts
+ * as dismissed on the server. */
+export async function deleteNotification(id: string): Promise<void> {
+  const response = await apiFetch(`/notifications/${id}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to dismiss notification"));
+  }
+}
+
 export async function clearNotifications(): Promise<void> {
   const response = await apiFetch("/notifications/clear", {
     method: "POST",

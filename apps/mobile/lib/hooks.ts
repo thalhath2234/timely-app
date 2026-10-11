@@ -27,8 +27,9 @@ import {
   updateWorkingHours,
 } from "./api/schedule";
 import { useScheduleActivity } from "./scheduleActivity";
+import { deviceTimezone } from "./format";
 import { createEvent, deleteEvent, editEventOccurrence, getEvent, splitEventSeries, updateEvent } from "./api/events";
-import { searchItems } from "./api/search";
+import { relatedItems, searchItems, smartSearch, type RelatedKind } from "./api/search";
 import { listApiKeys, createApiKey, revokeApiKey } from "./api/apiKeys";
 import {
   connectProvider,
@@ -46,6 +47,43 @@ import {
   type ProviderPatch,
 } from "./api/agentProviders";
 import {
+  getDecisionSettings,
+  getDecisionsStatus,
+  getInboxSuggestions,
+  getDocHints,
+  getTodaySuggestions,
+  getHighlights,
+  runNotificationTriage,
+  type TriageStep,
+  getProjectInsights,
+  getStaleWork,
+  getTaskHints,
+  keepStaleTask,
+  patchDecisionSettings,
+  patchDeepWorkTime,
+  type DeepWorkTime,
+  testDecisions,
+  removeTypeSafeKey,
+  sendDecisionFeedback,
+  getScreenTip,
+  dismissScreenTip,
+  getChatPrompts,
+  getLearned,
+  resetLearned,
+  getStarterLabels,
+  getCleanupSuggestions,
+  mergeTaxonomy,
+  type CleanupMerge,
+  getPersonalPrefs,
+  savePersonalUseCase,
+  type TipScreen,
+  setTypeSafeKey,
+  type DecisionSettings,
+  getEstimate,
+  getCellFit,
+  type CellFitInput,
+} from "./api/decisions";
+import {
   getJobHealth,
   getNotificationSettings,
   listFailedJobs,
@@ -53,6 +91,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   clearNotifications,
+  deleteNotification,
   retryJob,
   snoozeNotification,
   prioritizeOverdueTask,
@@ -92,9 +131,28 @@ export const keys = {
   scheduleSettings: ["schedule-settings"] as const,
   activity: (id: string) => ["task-activity", id] as const,
   search: (q: string) => ["search", q] as const,
+  smartSearch: (q: string) => ["smart-search", q] as const,
+  related: (kind: string, id: string) => ["related", kind, id] as const,
+  estimate: (title: string) => ["estimate", title] as const,
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
   agentProviders: ["agent-providers"] as const,
+  decisions: ["decisions"] as const,
+  decisionSettings: ["decisions", "settings"] as const,
+  decisionsStatus: ["decisions", "status"] as const,
+  inboxSuggestions: (id: string) => ["inbox-suggestions", id] as const,
+  taskHints: (id: string, version: string) => ["task-hints", id, version] as const,
+  staleWork: ["stale-work"] as const,
+  projectInsights: (id: string, version: string) => ["project-insights", id, version] as const,
+  docHints: (id: string, version: string) => ["doc-hints", id, version] as const,
+  todaySuggestions: (timezone: string, version: string) => ["today-suggestions", timezone, version] as const,
+  highlights: (factsKey: string) => ["highlights", factsKey] as const,
+  screenTip: (screen: string) => ["screen-tip", screen] as const,
+  chatPrompts: (projectId: string) => ["chat-prompts", projectId] as const,
+  learned: ["decisions-learned"] as const,
+  starterLabels: (workspaceId: string) => ["starter-labels", workspaceId] as const,
+  cleanup: (workspaceId: string) => ["cleanup-suggestions", workspaceId] as const,
+  personalPrefs: ["personal-prefs"] as const,
   inbox: ["tasks", "inbox"] as const,
   rank: ["schedule", "rank"] as const,
   freeTime: ["schedule", "free-time"] as const,
@@ -253,10 +311,11 @@ export function useUpdateTaskViews() {
   });
 }
 
-export function useCalendarQuery(from: Date, to: Date) {
+export function useCalendarQuery(from: Date, to: Date, enabled = true) {
   return useQuery({
     queryKey: keys.calendar(from.toISOString(), to.toISOString()),
     queryFn: () => getCalendarRange(from, to),
+    enabled,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
@@ -353,6 +412,49 @@ export function useSearchQuery(query: string) {
   return { ...result, query: trimmed };
 }
 
+/**
+ * Smart suggestions' take on a search. Pass the `query` useSearchQuery
+ * returns (already debounced and trimmed) so both run on the same text.
+ * Nothing is requested while Smart suggestions are off.
+ */
+export function useSmartSearchQuery(debouncedQuery: string, enabled = true) {
+  const query = debouncedQuery.trim();
+  const status = useDecisionsStatusQuery(enabled && query.length >= 2);
+  const result = useQuery({
+    queryKey: keys.smartSearch(query),
+    queryFn: () => smartSearch(query),
+    enabled: enabled && query.length >= 2 && status.data?.available === true,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  return { ...result, query };
+}
+
+/** A suggested length for new Work with this title; quiet while Smart suggestions are off. */
+export function useEstimateQuery(title: string, enabled = true) {
+  const name = title.trim();
+  const status = useDecisionsStatusQuery(enabled && name.length >= 3);
+  return useQuery({
+    queryKey: keys.estimate(name),
+    queryFn: () => getEstimate(name),
+    enabled: enabled && name.length >= 3 && status.data?.available === true,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+}
+
+/** Items related to one task, project, doc or sheet; quiet while Smart suggestions are off. */
+export function useRelatedQuery(kind: RelatedKind, id: string | undefined, enabled = true) {
+  const status = useDecisionsStatusQuery(enabled && !!id);
+  return useQuery({
+    queryKey: keys.related(kind, id ?? ""),
+    queryFn: () => relatedItems(kind, id ?? ""),
+    enabled: enabled && !!id && status.data?.available === true,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+}
+
 export function useApiKeysQuery() {
   return useQuery({ queryKey: keys.apiKeys, queryFn: listApiKeys });
 }
@@ -383,7 +485,11 @@ function useAgentProviderMutation<TVars>(fn: (vars: TVars) => Promise<AgentProvi
   return useMutation({
     mutationFn: fn,
     onSuccess: (data) => client.setQueryData(keys.agentProviders, data),
-    onSettled: () => client.invalidateQueries({ queryKey: keys.agentProviders, exact: true }),
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: keys.agentProviders, exact: true });
+      // Smart suggestions fall back to the OpenRouter key.
+      client.invalidateQueries({ queryKey: keys.decisions });
+    },
   });
 }
 
@@ -401,6 +507,247 @@ export const useSetApiProviderKey = () =>
   );
 export const useRemoveApiProviderKey = () =>
   useAgentProviderMutation((id: ApiProviderId) => removeApiProviderKey(id));
+
+export function useDecisionSettingsQuery() {
+  return useQuery({ queryKey: keys.decisionSettings, queryFn: getDecisionSettings, retry: false });
+}
+
+function useDecisionSettingsMutation<TVars>(fn: (vars: TVars) => Promise<DecisionSettings>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: (data) => client.setQueryData(keys.decisionSettings, data),
+    onSettled: () => client.invalidateQueries({ queryKey: keys.decisions }),
+  });
+}
+
+export const usePatchDecisionSettings = () =>
+  useDecisionSettingsMutation((enabled: boolean) => patchDecisionSettings(enabled));
+export const useSetTypeSafeKey = () => useDecisionSettingsMutation((key: string) => setTypeSafeKey(key));
+export const useRemoveTypeSafeKey = () => useDecisionSettingsMutation<void>(() => removeTypeSafeKey());
+export const useSetDeepWorkTime = () => useDecisionSettingsMutation((time: DeepWorkTime) => patchDeepWorkTime(time));
+/** One live call with the saved keys; the settings card shows the result. */
+export const useTestDecisions = () => useMutation({ mutationFn: testDecisions });
+
+/** Whether smart suggestions can run. Fails quietly: an older server without
+ * the endpoint just means no suggestions. */
+export function useDecisionsStatusQuery(enabled = true) {
+  return useQuery({ queryKey: keys.decisionsStatus, queryFn: getDecisionsStatus, enabled, retry: false, staleTime: 60_000 });
+}
+
+/** One model call per item: kept for the session and never retried. */
+export function useInboxSuggestionsQuery(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.inboxSuggestions(id ?? ""),
+    queryFn: () => getInboxSuggestions(id!),
+    enabled: Boolean(id) && enabled,
+    retry: false,
+    staleTime: Infinity,
+  });
+}
+
+/** Hints from a task's own words; asked again when `version` changes. */
+export function useTaskHintsQuery(id: string | undefined, version: string, enabled = true) {
+  const status = useDecisionsStatusQuery(enabled && !!id);
+  return useQuery({
+    queryKey: keys.taskHints(id ?? "", version),
+    queryFn: () => getTaskHints(id!),
+    enabled: enabled && !!id && status.data?.available === true,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Open Work with no activity for three weeks, with what each likely needs. */
+export function useStaleWorkQuery(enabled = true) {
+  const status = useDecisionsStatusQuery(enabled);
+  return useQuery({
+    queryKey: keys.staleWork,
+    queryFn: getStaleWork,
+    enabled: enabled && status.data?.available === true,
+    retry: false,
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
+export function useKeepStaleTask() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: keepStaleTask,
+    onSuccess: (_data, id) =>
+      client.setQueryData(keys.staleWork, (old: { tasks: { id: string }[] } | undefined) =>
+        old ? { ...old, tasks: old.tasks.filter((task) => task.id !== id) } : old,
+      ),
+  });
+}
+
+export function useProjectInsightsQuery(id: string | undefined, version: string) {
+  const status = useDecisionsStatusQuery(!!id);
+  return useQuery({
+    queryKey: keys.projectInsights(id ?? "", version),
+    queryFn: () => getProjectInsights(id!),
+    enabled: !!id && status.data?.available === true,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useDocHintsQuery(id: string | undefined, version: string, enabled = true) {
+  const status = useDecisionsStatusQuery(!!id && enabled);
+  return useQuery({
+    queryKey: keys.docHints(id ?? "", version),
+    queryFn: () => getDocHints(id!),
+    enabled: !!id && enabled && status.data?.available === true,
+    placeholderData: keepPreviousData,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Today's focus picks and free-gap suggestion; version changes when the
+ * focus list or agenda changes. */
+export function useTodaySuggestionsQuery(timezone: string, version: string, enabled = true) {
+  const status = useDecisionsStatusQuery(enabled);
+  return useQuery({
+    queryKey: keys.todaySuggestions(timezone, version),
+    queryFn: () => getTodaySuggestions(timezone),
+    enabled: enabled && status.data?.available === true,
+    placeholderData: keepPreviousData,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+/** Dashboard Highlights for the facts the card worked out. */
+export function useHighlightsQuery(facts: { id: string; text: string }[], enabled = true) {
+  const factsKey = facts.map((fact) => fact.text).join("\n");
+  return useQuery({
+    queryKey: keys.highlights(factsKey),
+    queryFn: () => getHighlights(facts),
+    enabled,
+    placeholderData: keepPreviousData,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useNotificationTriage() {
+  const client = useQueryClient();
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ id, action }: { id: string; action: TriageStep }) => runNotificationTriage(id, action),
+    onSuccess: () => {
+      void invalidate().catch(() => undefined);
+      void client.invalidateQueries({ queryKey: keys.notifications });
+      void client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
+/** The one tip smart suggestions pick for a screen, if any. */
+export function useScreenTipQuery(screen: TipScreen) {
+  const status = useDecisionsStatusQuery();
+  return useQuery({
+    queryKey: keys.screenTip(screen),
+    queryFn: () => getScreenTip(screen, deviceTimezone()),
+    enabled: status.data?.available === true,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useDismissTip() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, logId }: { key: string; logId?: string }) => dismissScreenTip(key, logId),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["screen-tip"] }),
+  });
+}
+
+/** Example prompts for the empty chat, fitted to a project. */
+export function useChatPromptsQuery(projectId?: string) {
+  const status = useDecisionsStatusQuery();
+  return useQuery({
+    queryKey: keys.chatPrompts(projectId ?? ""),
+    queryFn: () => getChatPrompts(projectId, deviceTimezone()),
+    enabled: status.data?.available === true,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useLearnedQuery(enabled = true) {
+  return useQuery({ queryKey: keys.learned, queryFn: getLearned, enabled });
+}
+
+export function useResetLearned() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (feature: string) => resetLearned(feature),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.learned }),
+  });
+}
+
+/** Starter labels smart suggestions think a workspace is missing. */
+export function useStarterLabelsQuery(workspaceId: string) {
+  const status = useDecisionsStatusQuery(!!workspaceId);
+  return useQuery({
+    queryKey: keys.starterLabels(workspaceId),
+    queryFn: () => getStarterLabels(workspaceId),
+    enabled: !!workspaceId && status.data?.available === true,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+/** Labels, statuses or options that look like the same thing; quiet while
+ * Smart suggestions are off. */
+export function useCleanupSuggestionsQuery(workspaceId: string) {
+  const status = useDecisionsStatusQuery(!!workspaceId);
+  return useQuery({
+    queryKey: keys.cleanup(workspaceId),
+    queryFn: () => getCleanupSuggestions(workspaceId),
+    enabled: !!workspaceId && status.data?.available === true,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Merges, then refreshes everything that shows labels, statuses or fields. */
+export function useMergeTaxonomy(workspaceId: string) {
+  const invalidate = useInvalidateAll();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (merge: CleanupMerge) => mergeTaxonomy(workspaceId, merge),
+    onSuccess: () => {
+      void invalidate();
+      // Saved views live in config.
+      void client.invalidateQueries({ queryKey: keys.config });
+      void client.invalidateQueries({ queryKey: ["cleanup-suggestions"] });
+    },
+  });
+}
+
+export function usePersonalPrefsQuery(enabled = true) {
+  return useQuery({ queryKey: keys.personalPrefs, queryFn: getPersonalPrefs, enabled, retry: false });
+}
+
+export function useSaveUseCase() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (useCase: string) => savePersonalUseCase(useCase),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.personalPrefs });
+      client.invalidateQueries({ queryKey: ["starter-labels"] });
+    },
+  });
+}
+
+export function useDecisionFeedback() {
+  return useMutation({
+    mutationFn: ({ logId, accepted }: { logId: string; accepted: boolean }) => sendDecisionFeedback(logId, accepted),
+  });
+}
 
 export function useInvalidateAll() {
   const client = useQueryClient();
@@ -1089,7 +1436,7 @@ export function useSetTodayFocus() {
 
 export function useDuplicateProject() {
   const invalidate = useInvalidateAll();
-  return useMutation({ mutationFn: duplicateProject, onSuccess: invalidate });
+  return useMutation({ mutationFn: (id: string) => duplicateProject(id), onSuccess: invalidate });
 }
 
 export function useProjectActivityQuery(id?: string) {
@@ -1150,6 +1497,17 @@ export function useMarkAllNotificationsRead() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: markAllNotificationsRead,
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.notifications });
+      client.invalidateQueries({ queryKey: keys.unreadNotifications });
+    },
+  });
+}
+
+export function useDeleteNotification() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: deleteNotification,
     onSuccess: () => {
       client.invalidateQueries({ queryKey: keys.notifications });
       client.invalidateQueries({ queryKey: keys.unreadNotifications });
@@ -1224,4 +1582,33 @@ export function useRetryJob() {
       client.invalidateQueries({ queryKey: keys.jobHealth });
     },
   });
+}
+
+/** One edited cell to check, with an id that is new for every edit. */
+export type CellFitEdit = { id: number; rowId: string; columnId: string; input: CellFitInput };
+
+/** A hint that the latest checked entry may not fit its column, asked once
+ * per edit a moment after it is saved. The last hint stays until a newer one
+ * replaces it; nothing is asked while Smart suggestions are off. */
+export function useCellFit(edit: CellFitEdit | null) {
+  const status = useDecisionsStatusQuery(!!edit);
+  const on = status.data?.available === true;
+  const [answer, setAnswer] = useState<{ id: number; rowId: string; columnId: string; value: string; hint: string; logId?: string }>();
+  useEffect(() => {
+    if (!on || !edit) return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      getCellFit(edit.input)
+        .then((next) => {
+          if (!stale && next.available && next.misfit && next.hint)
+            setAnswer({ id: edit.id, rowId: edit.rowId, columnId: edit.columnId, value: edit.input.value, hint: next.hint, logId: next.logId });
+        })
+        .catch(() => {});
+    }, 700);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [edit, on]);
+  return on ? answer : undefined;
 }

@@ -10,6 +10,7 @@ import (
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/instance"
 	"timely-api/internal/features/linkpreview"
 	"timely-api/internal/features/notify"
@@ -19,6 +20,7 @@ import (
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
+	"timely-api/internal/features/suggest"
 	"timely-api/internal/features/task"
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/middleware"
@@ -43,6 +45,9 @@ type Handlers struct {
 	Schedule  *schedule.Handler
 	ApiKey    *apikey.Handler
 	Search    *search.Handler
+	Suggest   *suggest.Service
+	Focus     *focus.Service // habits and goals on Today
+	Merge     *workspace.Merger
 	Notify    *notify.Handler
 	Portable  *portability.Handler
 	Instance  *instance.Handler
@@ -81,6 +86,15 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	}
 	if h.Providers != nil {
 		h.Providers.Routes(protected)
+	}
+	if h.Merge != nil {
+		h.Merge.Routes(protected)
+	}
+	if h.Suggest != nil {
+		h.Suggest.Routes(protected)
+	}
+	if h.Focus != nil {
+		h.Focus.Routes(protected)
 	}
 	if h.Instance != nil {
 		protected.GET("/instance", h.Instance.Instance)
@@ -290,6 +304,8 @@ func setupSearchRoutes(g *echo.Group, searchHandler *search.Handler) {
 		return
 	}
 	g.GET("/search", searchHandler.Search)
+	g.GET("/search/smart", searchHandler.Smart)
+	g.GET("/search/related", searchHandler.Related)
 	g.POST("/search/reindex", searchHandler.Reindex)
 }
 
@@ -301,8 +317,10 @@ func setupNotifyRoutes(g *echo.Group, h *notify.Handler) {
 	g.POST("/notifications/read-all", h.MarkAllRead)
 	g.POST("/notifications/clear", h.ClearAll)
 	g.POST("/notifications/:id/read", h.MarkRead)
+	g.DELETE("/notifications/:id", h.Delete)
 	g.POST("/notifications/:id/snooze", h.Snooze)
 	g.POST("/notifications/:id/reschedule", h.Reschedule)
+	g.POST("/notifications/:id/triage", h.Triage)
 	g.POST("/tasks/:id/reschedule-urgent", h.PrioritizeOverdue)
 	g.PUT("/devices/push", h.RegisterDevice)
 	g.DELETE("/devices/push", h.UnregisterDevice)

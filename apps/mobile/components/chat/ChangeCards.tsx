@@ -13,6 +13,7 @@ import {
   toneColor,
 } from "./chatMeta";
 import { DetailValue, styles as common } from "./shared";
+import { LogoSpinner } from "../ui/TimelyLogo";
 
 function Card({
   step,
@@ -63,7 +64,11 @@ function Card({
             accessibilityLabel={meta.label}
             style={[styles.badge, { backgroundColor: color }]}
           >
-            <Badge size={10} color={colors.card} strokeWidth={3} />
+            {meta.spin ? (
+              <LogoSpinner size={10} color={colors.card} />
+            ) : (
+              <Badge size={10} color={colors.card} strokeWidth={3} />
+            )}
           </View>
         </View>
         <View style={{ flex: 1, minWidth: 0, gap: 4 }}>

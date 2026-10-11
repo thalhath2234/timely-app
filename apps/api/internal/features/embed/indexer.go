@@ -27,6 +27,7 @@ const (
 var (
 	ErrDisabled   = errors.New("semantic search is not configured (add an OpenRouter key in Settings → Agent)")
 	ErrEmptyQuery = errors.New("query is empty")
+	ErrNotIndexed = errors.New("this item is not indexed yet")
 )
 
 // Credentials resolves the OpenRouter key and embedding model for one account.
@@ -54,6 +55,9 @@ type Indexer interface {
 	Delete(userID, kind, entityID string)
 	Invalidate(userID string)
 	Query(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error)
+	// Related ranks the account's other items by closeness to an item that
+	// is already indexed; the source item's own chunks come first in Source.
+	Related(ctx context.Context, userID, kind, entityID string, limit int, kinds []string) (Source, []Hit, error)
 	Count(ctx context.Context, userID string) (int64, error)
 	ReindexUser(ctx context.Context, userID string) (int, error)
 	Reindex(ctx context.Context, userID string, progress func(done, total int)) (int, error)
@@ -73,6 +77,13 @@ type Hit struct {
 	Title    string  `json:"title"`
 	Content  string  `json:"content"`
 	Score    float64 `json:"score"`
+}
+
+// Source is the indexed item Related compares against: its title and first
+// chunk of text.
+type Source struct {
+	Title   string
+	Content string
 }
 
 type indexer struct {

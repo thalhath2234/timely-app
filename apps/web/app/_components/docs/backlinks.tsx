@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ChevronDown, FileText, Link2 } from "lucide-react";
 import { useDocBacklinks } from "@/app/utils/hooks/docs";
+import { fileHref } from "@/app/utils/fileRoutes";
 
 /** "Linked from": the other docs that @mention this one or [[link]] to its
  * title. A count next to the word count that opens the list. */
@@ -28,7 +29,7 @@ export default function Backlinks({ docId }: { docId: string }) {
         <ul className="mb-3 mt-1 flex w-full flex-col gap-0.5 rounded-lg border border-border bg-muted/20 p-1" aria-label="Backlinks">
           {data.map((link) => (
             <li key={link.id}>
-              <Link href={`/docs/${link.id}`} className="block rounded-md px-2 py-1.5 transition-colors hover:bg-accent">
+              <Link href={fileHref(link.id)} className="block rounded-md px-2 py-1.5 transition-colors hover:bg-accent">
                 <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                   {link.icon ? <span>{link.icon}</span> : <FileText className="size-3.5 text-muted-foreground" />}
                   {link.title || "Untitled"}

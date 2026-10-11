@@ -40,9 +40,10 @@ function wireTaskUpdate(data: UpdateTaskPayload): WireUpdateTaskPayload {
   return clearNulls<WireUpdateTaskPayload>(data, CLEARABLE_TASK_FIELDS, ["preferredChunkMinutes"]);
 }
 
-export function getTasks(query: { inbox?: boolean; kind?: string } = {}) {
+export function getTasks(query: { inbox?: boolean; reminders?: boolean; kind?: string } = {}) {
   const params = new URLSearchParams();
   if (query.inbox) params.set("inbox", "true");
+  if (query.reminders) params.set("reminders", "true");
   if (query.kind) params.set("kind", query.kind);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return api<Task[]>(`/tasks${suffix}`);

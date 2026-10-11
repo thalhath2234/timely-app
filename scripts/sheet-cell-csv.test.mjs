@@ -5,6 +5,8 @@ import {
   normalizeTypedCell,
 } from "../packages/contract/src/sheetCell.ts";
 import {
+  applyColumnTypes,
+  columnSamples,
   csvToGrid,
   parseCsvLine,
   sheetToCsv,
@@ -106,5 +108,34 @@ describe("sheet CSV", () => {
     const csv = sheetToCsv(columns, rows, () => 'x,"y"');
     const parsed = csvToGrid(csv, ids());
     assert.equal(Object.values(parsed.rows[0].cells)[0], 'x,"y"');
+  });
+});
+
+describe("applyColumnTypes", () => {
+  test("types columns the suggestions name and normalizes their values", () => {
+    const grid = csvToGrid("Item,Cost,Paid,Status\nRent,900.50,yes,Open\nFood,12,no,Done\n", ids());
+    assert.deepEqual(columnSamples(grid)[1], { name: "Cost", values: ["900.50", "12"] });
+    const typed = applyColumnTypes(grid, [null, { type: "currency" }, { type: "boolean" }, { type: "select", options: ["Open", "Done"] }]);
+    assert.deepEqual(typed.columns.map((c) => c.type), ["text", "currency", "boolean", "select"]);
+    assert.deepEqual(typed.columns[3].options, ["Open", "Done"]);
+    assert.deepEqual(typed.rows[0].cells, { c1: "Rent", c2: "900.5", c3: "TRUE", c4: "Open" });
+  });
+  test("a column whose values do not all fit stays text", () => {
+    const grid = csvToGrid("Amount\n12\nabout 5\n", ids());
+    const typed = applyColumnTypes(grid, [{ type: "number" }]);
+    assert.equal(typed.columns[0].type, "text");
+    assert.equal(typed.rows[1].cells.c1, "about 5");
+  });
+  test("decimal commas, codes and other date formats stay text", () => {
+    const grid = csvToGrid('Betrag,Zip,When,Status\n"12,50",02134,2026-10-01,Open\n"3,99",10001,03/04/2026,Gone\n', ids());
+    const typed = applyColumnTypes(grid, [{ type: "currency" }, { type: "number" }, { type: "date" }, { type: "select", options: ["Open"] }]);
+    assert.deepEqual(typed.columns.map((c) => c.type), ["text", "text", "text", "text"]);
+    assert.equal(typed.rows[0].cells.c1, "12,50");
+    assert.equal(typed.rows[0].cells.c2, "02134");
+  });
+  test("thousands groups still read as amounts", () => {
+    const grid = csvToGrid('Cost\n"1,234.50"\n-12\n0.99\n', ids());
+    const typed = applyColumnTypes(grid, [{ type: "currency" }]);
+    assert.equal(typed.columns[0].type, "currency");
   });
 });

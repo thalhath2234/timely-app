@@ -161,7 +161,7 @@ function HistoryRow({
               {chat.title}
             </span>
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-              {["approval", "failed", "running", "queued"].includes(chat.status)
+              {["approval", "choose", "failed", "running", "queued"].includes(chat.status)
                 ? meta.label
                 : relativeTime(chat.updatedAt)}
             </span>

@@ -1,8 +1,16 @@
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import {
+  AlarmClock,
   AlertTriangle,
+  ArrowRight,
   Ban,
+  ClipboardList,
+  Clock,
+  FileText,
+  ListTree,
+  LockOpen,
+  Sun,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -25,6 +33,7 @@ import ImagePreview from "./ImagePreview";
 import { dayLabel, isBusy, phaseLabel, timeOfDay } from "./chatMeta";
 import { Action, ChatText, styles as common } from "./shared";
 import { LogoSpinner } from "../ui/TimelyLogo";
+import { useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
 
 const suggestions: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: CalendarDays, title: "Plan my day", text: "Help me plan today." },
@@ -45,13 +54,44 @@ const suggestions: { icon: LucideIcon; title: string; text: string }[] = [
   },
 ];
 
+/** Icons for the example prompts smart suggestions fit to a project. */
+const PROMPT_ICONS: Record<string, LucideIcon> = {
+  next: ArrowRight,
+  status: ClipboardList,
+  plan_week: CalendarDays,
+  overdue: AlarmClock,
+  blocked: LockOpen,
+  breakdown: ListTree,
+  find_time: Clock,
+  brief: FileText,
+  budget: Table2,
+  day: Sun,
+};
+
 export function Welcome({
   disabled,
+  projectId,
   onPick,
 }: {
   disabled: boolean;
+  /** The project on the screen the assistant was opened from, if any. */
+  projectId?: string;
   onPick: (text: string) => void;
 }) {
+  // With smart suggestions on, the examples fit the project on screen, or
+  // else the one the person worked on most recently; otherwise the fixed
+  // ones show.
+  const fitted = useChatPromptsQuery(projectId);
+  const feedback = useDecisionFeedback();
+  const prompts = fitted.data?.prompts ?? [];
+  const project = prompts.length ? fitted.data?.project : undefined;
+  const items = prompts.length
+    ? prompts.map((p) => ({ icon: PROMPT_ICONS[p.key] ?? Sparkles, title: p.title, text: p.text }))
+    : suggestions;
+  const pick = (text: string) => {
+    if (prompts.length && fitted.data?.logId) feedback.mutate({ logId: fitted.data.logId, accepted: true });
+    onPick(text);
+  };
   return (
     <View style={styles.welcome}>
       <View style={styles.badge}>
@@ -63,14 +103,19 @@ export function Welcome({
         Plan your day, shape a sheet, or attach a receipt. Small changes happen
         right away; bigger ones wait for your approval.
       </Text>
+      {project ? (
+        <Text style={common.muted} testID="chat-prompts-project">
+          Ideas for {project}
+        </Text>
+      ) : null}
       <View style={{ gap: 10, marginTop: 6 }}>
-        {suggestions.map(({ icon: Icon, title, text }, i) => (
+        {items.map(({ icon: Icon, title, text }, i) => (
           <ListEnter key={title} index={i}>
             <AnimatedPressable
               accessibilityRole="button"
               accessibilityLabel={title}
               disabled={disabled}
-              onPress={() => onPick(text)}
+              onPress={() => pick(text)}
               style={[styles.suggestion, disabled && { opacity: 0.5 }]}
             >
               <View style={styles.suggestionIcon}>
@@ -169,13 +214,18 @@ export default function Thread({
   onLink,
   onPreviewImage,
   onReviewArchive,
+  pending,
+  onSimilar,
 }: {
   chat: Chat;
   onLink: (href: string) => void;
   onPreviewImage: (uri: string) => void;
   onReviewArchive: (steps: ChatStep[]) => void;
+  pending: boolean;
+  onSimilar: (action: "move" | "stay") => void;
 }) {
   let lastDay = "";
+  const last = chat.messages[chat.messages.length - 1];
   return (
     <View style={{ gap: 18 }}>
       {chat.messages.map((message) => {
@@ -204,6 +254,44 @@ export default function Thread({
                 >
                   {message.content}
                 </Text>
+              </View>
+            ) : message.kind === "similar" && message.chat ? (
+              <View style={styles.similar}>
+                <View style={styles.similarRow}>
+                  <History size={14} color={colors.mutedForeground} />
+                  <Text style={[common.muted, { flexShrink: 1 }]}>
+                    You already have a chat about this: {message.chat.title}
+                  </Text>
+                </View>
+                {message === last &&
+                !message.choice &&
+                chat.status === "choose" ? (
+                  <View style={styles.similarRow}>
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Continue in your chat ${message.chat.title}`}
+                      disabled={pending}
+                      onPress={() => onSimilar("move")}
+                      style={[
+                        styles.choice,
+                        styles.choicePrimary,
+                        pending && { opacity: 0.5 },
+                      ]}
+                    >
+                      <Text style={styles.choicePrimaryText}>
+                        Continue there
+                      </Text>
+                    </AnimatedPressable>
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      disabled={pending}
+                      onPress={() => onSimilar("stay")}
+                      style={[styles.choice, pending && { opacity: 0.5 }]}
+                    >
+                      <Text style={styles.choiceText}>Answer here</Text>
+                    </AnimatedPressable>
+                  </View>
+                ) : null}
               </View>
             ) : message.kind === "archive" ? (
               <Archive message={message} onReview={onReviewArchive} />
@@ -417,6 +505,37 @@ const styles = createThemedStyleSheet(() => ({
     backgroundColor: colors.muted,
     paddingHorizontal: 12,
     paddingVertical: 6,
+  },
+  similar: {
+    alignSelf: "center",
+    maxWidth: "92%",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.muted,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  similarRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  choice: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  choicePrimary: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  choiceText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
+  choicePrimaryText: {
+    color: colors.primaryForeground,
+    fontSize: 13,
+    fontWeight: "600",
   },
   archive: {
     flexDirection: "row",

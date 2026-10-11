@@ -172,12 +172,18 @@ html.dark.theme-custom {
 /* `.reduce-motion` is the in-app "Reduce motion" toggle (Settings → Appearance). */
 /* Mermaid lays diagrams out from measured transitions, so its render
    container (.doc-mermaid-render) is left out of the reduce-motion rules. */
+/* Transitions get no duration at all, not a tiny one: every element's
+   transition-property is `all` by default, so any duration starts a CSS
+   transition on every style change of every element on the page, which made
+   dragging Dashboard cards stutter. Nothing in the app waits for
+   transitionend. */
 @media (prefers-reduced-motion: reduce) {
   *:not(.doc-mermaid-render, .doc-mermaid-render *), *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
   }
 }
 html.reduce-motion *:not(.doc-mermaid-render, .doc-mermaid-render *),
@@ -186,7 +192,8 @@ html.reduce-motion *::after {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   scroll-behavior: auto !important;
-  transition-duration: 0.01ms !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
 }
 
 html,
@@ -822,6 +829,20 @@ body::-webkit-scrollbar-corner,
   animation:
     vt-fade-in 160ms ease-out both,
     vt-popover-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The quick chat prompt shrinking into the Activity island pill after Send
+   (app/_components/_layout/activityIsland.tsx). Both snapshots fill the
+   group, so the bar squeezes into the pill like a Dynamic Island. */
+::view-transition-group(activity-island) {
+  animation-duration: 460ms;
+  animation-timing-function: cubic-bezier(0.34, 1.36, 0.64, 1);
+}
+::view-transition-old(activity-island),
+::view-transition-new(activity-island) {
+  width: 100%;
+  height: 100%;
+  animation-duration: 300ms;
 }
 
 /* A task or project title morphing into the detail modal's title and back
@@ -1614,4 +1635,44 @@ html.reduce-motion .tl-bar {
   #doc-print a {
     color: inherit;
   }
+}
+
+/* Report dashboard charts: a fixed categorical order checked for colour-blind
+   separation, stepped separately for the light and dark card surfaces. Slot 1
+   is the default single-series colour; "other" is the folded tail. The heat
+   ramp is one hue, light to dark, for the completion heatmap. */
+.report-dashboard {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --series-other: #a3a29c;
+  --heat-0: oklch(0.955 0.005 270);
+  --heat-1: #b7d3f6;
+  --heat-2: #86b6ef;
+  --heat-3: #3987e5;
+  --heat-4: #1c5cab;
+  --chart-grid: oklch(0.93 0.005 270);
+}
+
+.dark .report-dashboard {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --series-other: #6b6a66;
+  --heat-0: #23252d;
+  --heat-1: #184f95;
+  --heat-2: #256abf;
+  --heat-3: #3987e5;
+  --heat-4: #86b6ef;
+  --chart-grid: rgb(255 255 255 / 7%);
 }

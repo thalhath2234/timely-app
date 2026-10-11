@@ -25,10 +25,12 @@ import (
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/chat"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/docfile"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/focus"
 	"timely-api/internal/features/instance"
 	"timely-api/internal/features/linkpreview"
 	"timely-api/internal/features/notify"
@@ -39,6 +41,7 @@ import (
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
+	"timely-api/internal/features/suggest"
 	"timely-api/internal/features/task"
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/jobs"
@@ -116,12 +119,40 @@ func main() {
 	jobWorker := jobs.NewWorker(jobQueue)
 	notifyService.Register(jobWorker)
 	portabilityService.Register(jobWorker)
+	var decisions *decide.Service // set below, once the provider keys exist
 	jobWorker.SetSweep(func(ctx context.Context) error {
 		if err := notifyService.Sweep(ctx); err != nil {
 			return err
 		}
+		if err := decisions.Prune(); err != nil {
+			return err
+		}
 		return portabilityService.Sweep(ctx)
 	})
+	providerService := provider.New(db, indexer, jobQueue)
+	providerService.Register(jobWorker)
+	// Smart suggestions (Jev): TypeSafe key first, then the OpenRouter key;
+	// with neither, decide answers ErrOff and nothing changes.
+	jev := decide.NewClient(nil)
+	jev.Rejected = providerService.MarkTypeSafeRejected
+	decisions = decide.New(db, providerService.DecisionKeys, jev)
+	providerService.SetDecisions(decisions, jev)
+	suggestions := suggest.New(db, decisions, searchService)
+	suggestions.SetSchedule(scheduleService)
+	notifyService.SetTriage(suggestions.Triage)
+	notifyService.SetAlerts(suggestions.Alerts)
+	notifyService.SetBriefing(suggestions.Brief)
+	notifyService.SetDecisions(func(ctx context.Context, userID string) bool {
+		on, _ := decisions.Status(ctx, userID)
+		return on
+	}, decisions.Feedback)
+	notifyService.SetDismissed(decisions.Dismissed)
+	workEstimate = suggestions.Estimate
+	smartSearch := search.NewSmart(searchService, indexer, decisions)
+	smartSearch.SetViews(search.ViewsFromDB(db))
+	searchRerank = smartSearch.Rerank
+	taskPick = smartSearch.Pick
+	docDecisions = decisions
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -136,14 +167,23 @@ func main() {
 		Notify:     notifyService,
 		Jobs:       jobQueue,
 		Portable:   portabilityService,
+		Estimate:   suggestions.Estimate,
+		Rerank:     smartSearch.Rerank,
+		Pick:       smartSearch.Pick,
+		Decisions:  decisions,
+		Focus:      focus.NewStore(db),
+		DecisionsOn: func(ctx context.Context, userID string) bool {
+			on, _ := decisions.Status(ctx, userID)
+			return on
+		},
 	})
 
-	providerService := provider.New(db, indexer, jobQueue)
-	providerService.Register(jobWorker)
 	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) }, chat.NewOpenRouter())
 	// Proposals are rehearsed in a rolled-back transaction; no live doc broadcasts.
 	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, providerService.EmbedCredentials) })
 	chatService.SetCompleters(providerService)
+	chatService.SetDecisions(decisions)
+	chatService.SetEstimates(suggestions.EstimateMany)
 
 	authHandler := auth.NewHandler(authService, userRepo)
 	port, bind := listenConfig()
@@ -173,7 +213,10 @@ func main() {
 		Calendar:  calendar.NewHandler(calendarService),
 		Schedule:  schedule.NewHandler(scheduleService),
 		ApiKey:    apikey.NewHandler(apiKeyService),
-		Search:    search.NewHandler(searchService),
+		Search:    searchHandler(searchService, smartSearch),
+		Suggest:   suggestions,
+		Focus:     focus.New(db, decisions),
+		Merge:     workspace.NewMerger(db),
 		Notify:    notify.NewHandler(notifyService, jobQueue),
 		Portable:  portability.NewHandler(portabilityService),
 		MCP:       agent.Handler(mcpServer, apiKeyService.Verifier()),
@@ -257,6 +300,13 @@ func main() {
 // listenConfig reads API_PORT (fallback PORT, default 8080) and API_BIND, a
 // comma-separated list of hosts that defaults to loopback only. Hosting on a
 // server still works with API_BIND=0.0.0.0.
+// searchHandler serves /search with smart search on top.
+func searchHandler(service search.Service, smart *search.Smart) *search.Handler {
+	h := search.NewHandler(service)
+	h.SetSmart(smart)
+	return h
+}
+
 func listenConfig() (int, []string) {
 	portText := strings.TrimSpace(os.Getenv("API_PORT"))
 	if portText == "" {

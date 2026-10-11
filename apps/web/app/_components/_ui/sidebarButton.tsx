@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { SidebarProps } from "../../_types/types";
-import { MessageCircle, Brain, Bell, Calendar, FileText, FolderKanban, Inbox, ListTodo, Settings, Sheet, Sun } from "lucide-react";
+import { MessageCircle, LayoutDashboard, Bell, Calendar, Files, FolderKanban, Inbox, ListTodo, Settings, Sun } from "lucide-react";
 import { useSidebarStore } from "../../_store/sidebarStore";
 import { motion } from "motion/react";
 import { usePathname } from "next/navigation";
@@ -55,12 +55,10 @@ export const SidebarButtonIcon = ({ icon }: { icon: string }) => {
       return <ListTodo className="size-5" />;
     case "FolderKanban":
       return <FolderKanban className="size-5" />;
-    case "FileText":
-      return <FileText className="size-5" />;
-    case "Sheet":
-      return <Sheet className="size-5" />;
-    case "Brain":
-      return <Brain className="size-5" />;
+    case "Files":
+      return <Files className="size-5" />;
+    case "LayoutDashboard":
+      return <LayoutDashboard className="size-5" />;
     case "Bell":
       return <Bell className="size-5" />;
     case "Settings":

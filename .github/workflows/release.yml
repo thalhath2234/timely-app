@@ -1,7 +1,7 @@
 # Desktop installers + Android APK for a tagged release.
 #
 # Push a tag `v<version>` that matches apps/web/package.json → one GitHub
-# Release with AppImage, dmg/zip, nsis exe, their latest*.yml update manifests
+# Release with AppImage, nsis exe, their latest*.yml update manifests
 # (electron-updater) and the APK. workflow_dispatch builds the same artifacts
 # as workflow artifacts only (nothing is published).
 #
@@ -60,10 +60,7 @@ jobs:
         include:
           - os: ubuntu-latest
             target: linux-x64
-          # Both mac architectures in one job so a single latest-mac.yml lists
-          # both files (two jobs would overwrite each other's manifest).
-          - os: macos-14
-            target: darwin-x64,darwin-arm64
+          # No macOS: releases ship Windows, Linux and Android only.
           - os: windows-latest
             target: win32-x64
     runs-on: ${{ matrix.os }}
@@ -87,8 +84,7 @@ jobs:
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: apps/web/.cache/postgres
-          # runner.os, not matrix.target: cache keys cannot contain commas and the
-          # mac target is "darwin-x64,darwin-arm64". One desktop job per OS keeps it unique.
+          # One desktop job per OS keeps runner.os unique.
           key: zonky-postgres-${{ runner.os }}-${{ hashFiles('apps/web/electron/targets.mjs') }}
       - run: pnpm install --frozen-lockfile
       - name: Build and package (${{ matrix.target }})
@@ -102,13 +98,6 @@ jobs:
           # The release is created by the prepare job; let electron-builder
           # upload to it even when a re-run happens hours later.
           EP_GH_IGNORE_TIME: "true"
-          # macOS: Developer ID certificate (.p12, base64) + notarization
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Windows: code-signing certificate (.pfx, base64)
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
@@ -119,9 +108,7 @@ jobs:
           if-no-files-found: error
           path: |
             apps/web/release/*.AppImage
-            apps/web/release/*.dmg
             apps/web/release/*.exe
-            apps/web/release/*.zip
             apps/web/release/*.yml
             apps/web/release/*.blockmap
 

@@ -38,6 +38,7 @@ type ProjectService interface {
 	Update(userID string, projectID string, update ProjectUpdate) (*models.Project, error)
 	Delete(userID, projectID string) error
 	Duplicate(userID, projectID string) (*models.Project, error)
+	DuplicateAs(userID, projectID string, as *models.Project, values []*models.CustomFieldValue) (*models.Project, error)
 	SetTaskCopier(tasks TaskCopier)
 	CreateStage(userID, projectID, name string, color string) (*models.Stage, error)
 	UpdateStage(userID, projectID, stageID string, name, color *string) (*models.Stage, error)
@@ -51,7 +52,7 @@ type workspaceOwner interface {
 }
 
 type TaskCopier interface {
-	CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string) error
+	CopyProjectTasks(userID, fromProjectID, toProjectID string, stageMap map[string]string, fresh bool) error
 }
 
 type projectService struct {
@@ -124,23 +125,40 @@ func (s *projectService) Create(userID string, project *models.Project, customFi
 }
 
 func (s *projectService) Duplicate(userID, projectID string) (*models.Project, error) {
+	return s.DuplicateAs(userID, projectID, nil, nil)
+}
+
+// DuplicateAs copies a project's stages and tasks. A nil `as` copies the
+// project's own fields too; otherwise the copy takes the fields from `as`
+// (a new project started from an earlier one) in the source's workspace, and
+// its tasks start over: no dates, unchecked checklists, the default status.
+func (s *projectService) DuplicateAs(userID, projectID string, as *models.Project, values []*models.CustomFieldValue) (*models.Project, error) {
 	src, err := s.repo.GetProjectByIdForUser(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
-	clone := &models.Project{
-		Title:           "Copy of " + src.Title,
-		Description:     src.Description,
-		DescriptionRich: src.DescriptionRich,
-		StatusID:        src.StatusID,
-		Deadline:        src.Deadline,
-		StartDate:       src.StartDate,
-		PriorityLevel:   src.PriorityLevel,
-		Color:           src.Color,
-		DoesHaveStages:  src.DoesHaveStages,
-		WorkspaceID:     src.WorkspaceID,
+	if as != nil {
+		if as.WorkspaceID == nil || src.WorkspaceID == nil || *as.WorkspaceID != *src.WorkspaceID {
+			return nil, errors.New("a project can only start from one in the same workspace")
+		}
+		as.DoesHaveStages = as.DoesHaveStages || src.DoesHaveStages
 	}
-	created, err := s.Create(userID, clone, nil)
+	clone := as
+	if clone == nil {
+		clone = &models.Project{
+			Title:           "Copy of " + src.Title,
+			Description:     src.Description,
+			DescriptionRich: src.DescriptionRich,
+			StatusID:        src.StatusID,
+			Deadline:        src.Deadline,
+			StartDate:       src.StartDate,
+			PriorityLevel:   src.PriorityLevel,
+			Color:           src.Color,
+			DoesHaveStages:  src.DoesHaveStages,
+			WorkspaceID:     src.WorkspaceID,
+		}
+	}
+	created, err := s.Create(userID, clone, values)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +174,7 @@ func (s *projectService) Duplicate(userID, projectID string) (*models.Project, e
 		stageMap[stage.ID] = copied.ID
 	}
 	if s.tasks != nil {
-		if err := s.tasks.CopyProjectTasks(userID, src.ID, created.ID, stageMap); err != nil {
+		if err := s.tasks.CopyProjectTasks(userID, src.ID, created.ID, stageMap, as != nil); err != nil {
 			return nil, err
 		}
 	}

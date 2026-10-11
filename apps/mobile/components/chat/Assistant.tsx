@@ -33,12 +33,13 @@ import {
   uploadChatImage,
 } from "../../lib/api/chat";
 import { isOffline, subscribeOffline } from "../../lib/networkState";
-import { mergeContext } from "../../lib/chat/context";
+import { contextProjectId, mergeContext } from "../../lib/chat/context";
 import { removeLocalImage, retainImage } from "../../lib/chat/storage";
 import type { Chat, ChatStep, PendingImage } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { emptyDraft, useAssistant } from "../../lib/chat/runtime";
 import { useToastStore } from "../../lib/toast";
+import { fileHref, legacyFilePath } from "../../lib/fileRoutes";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import AssistantHeader from "./AssistantHeader";
 import AttachSheet, { type ImageSource } from "./AttachSheet";
@@ -168,6 +169,9 @@ export default function Assistant() {
         "search",
         "task-activity",
         "project-activity",
+        "habits",
+        "goals",
+        "goal-progress",
       ])
         void queryClient.invalidateQueries({ queryKey: [key] });
       lastRevision.current = chat.revision;
@@ -279,6 +283,30 @@ export default function Assistant() {
   const pending = mutation.isPending || uploading;
   function act(action: string, body?: unknown) {
     if (!pending && !offline) mutation.mutate({ action, body });
+  }
+  function chooseSimilar(action: "move" | "stay") {
+    if (action === "stay") return act("/similar", { action });
+    const from = id;
+    if (pending || offline || !from) return;
+    mutation.mutate(
+      { action: "/similar", body: { action } },
+      {
+        onSuccess: (next) => {
+          // The new chat is gone: its message now lives in the earlier one.
+          queryClient.removeQueries({ queryKey: ["chat", uid, from] });
+          assistant.updateCache((cache) => ({
+            ...cache,
+            chats: cache.chats.filter((c) => c.id !== from),
+            conversations: Object.fromEntries(
+              Object.entries(cache.conversations).filter(
+                ([key]) => key !== from,
+              ),
+            ),
+          }));
+          assistant.select(next.id);
+        },
+      },
+    );
   }
   function editText(text: string) {
     if (otherDraft) return;
@@ -586,16 +614,21 @@ export default function Assistant() {
       /^timely:\/\/(task|project|doc|sheet|event)\/([^/?#]+)/,
     );
     if (timely) {
+      // Docs and sheets share the Files routes, keyed by the ID's prefix.
       assistant.openResult(
-        `/(app)/${timely[1]}s/${encodeURIComponent(timely[2])}`,
+        timely[1] === "doc" || timely[1] === "sheet"
+          ? fileHref(timely[2])
+          : `/(app)/${timely[1]}s/${encodeURIComponent(timely[2])}`,
       );
       return;
     }
     if (href.startsWith("/")) {
       const task = href.match(/^\/tasks\?taskId=([^&]+)/);
+      const legacyFile = legacyFilePath(href);
       if (task) assistant.openResult(`/(app)/tasks/${task[1]}`);
+      else if (legacyFile) assistant.openResult(legacyFile);
       else if (
-        /^\/(tasks|projects|docs|sheets|events|calendar|today|settings)(\/|\?|$)/.test(
+        /^\/(tasks|projects|files|events|calendar|today|settings)(\/|\?|$)/.test(
           href,
         )
       )
@@ -822,7 +855,11 @@ export default function Assistant() {
                     </StatusCard>
                   ) : null}
                   {!id ? (
-                    <Welcome disabled={otherDraft} onPick={editText} />
+                    <Welcome
+                      disabled={otherDraft}
+                      projectId={contextProjectId(context)}
+                      onPick={editText}
+                    />
                   ) : null}
                   {chat ? (
                     <Thread
@@ -833,6 +870,8 @@ export default function Assistant() {
                         setReviewSteps(steps);
                         setPage("proposal");
                       }}
+                      pending={pending}
+                      onSimilar={chooseSimilar}
                     />
                   ) : null}
                   {savedReceipt && review?.receipt ? (
@@ -846,7 +885,11 @@ export default function Assistant() {
                         <Action
                           label="Open expense sheet"
                           compact
-                          onPress={() => openLink(`/sheets/${savedSheetId}`)}
+                          onPress={() =>
+                            openLink(
+                              `/files/${encodeURIComponent(savedSheetId)}`,
+                            )
+                          }
                         />
                       ) : null}
                     </StatusCard>

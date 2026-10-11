@@ -126,3 +126,45 @@ func rank(chunks []cachedChunk, query []float32, kinds []string, limit int) []Hi
 	}
 	return hits
 }
+
+// related ranks every other entity by cosine similarity to the mean of the
+// source entity's chunk vectors. found is false when the source has no
+// chunks (not indexed yet, or embeddings off when it was saved).
+func related(chunks []cachedChunk, kind, entityID string, kinds []string, limit int) (Source, []Hit, bool) {
+	var src Source
+	var mean []float64
+	n := 0
+	for i := range chunks {
+		chunk := &chunks[i]
+		if chunk.kind != kind || chunk.entityID != entityID || chunk.norm == 0 {
+			continue
+		}
+		if mean == nil {
+			mean = make([]float64, len(chunk.vec))
+			src = Source{Title: chunk.title, Content: chunk.content}
+		}
+		if len(chunk.vec) != len(mean) {
+			continue
+		}
+		// Unit vectors, so a long chunk doesn't outweigh a short one.
+		for j, f := range chunk.vec {
+			mean[j] += float64(f) / float64(chunk.norm)
+		}
+		n++
+	}
+	if n == 0 {
+		return Source{}, nil, false
+	}
+	query := make([]float32, len(mean))
+	for j := range mean {
+		query[j] = float32(mean[j] / float64(n))
+	}
+	others := make([]cachedChunk, 0, len(chunks))
+	for _, chunk := range chunks {
+		if chunk.kind == kind && chunk.entityID == entityID {
+			continue
+		}
+		others = append(others, chunk)
+	}
+	return src, rank(others, query, kinds, limit), true
+}

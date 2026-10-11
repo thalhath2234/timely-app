@@ -50,7 +50,7 @@ function Scene() {
 
   return (
     <div ref={ref} className="absolute inset-0">
-      <MiniWindow title="Report" className="h-full">
+      <MiniWindow title="Dashboard" className="h-full">
         <div className="flex h-full flex-col gap-3 p-4">
           <div className="flex items-center gap-4">
             <div className="relative size-[calc(var(--u)*86)] shrink-0">

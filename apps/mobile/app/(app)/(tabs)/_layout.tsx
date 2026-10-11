@@ -64,11 +64,10 @@ export default function TabLayout() {
           options={{ title: "Search", tabBarIcon: ({ color }) => <Search size={20} color={color} /> }}
         />
         <Tabs.Screen
-          name="docs"
+          name="files"
           options={{ title: "Files", tabBarIcon: ({ color }) => <FileText size={20} color={color} /> }}
         />
         <Tabs.Screen name="more" options={{ href: null, title: "Settings" }} />
-        <Tabs.Screen name="sheets" options={{ href: null }} />
       </Tabs>
       {!hideFab ? (
         <AnimatedPressable

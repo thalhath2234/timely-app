@@ -1,7 +1,7 @@
 import { useAssistant } from "../../lib/chat/runtime";
 import { useState } from "react";
 import { receiptReviewProblems } from "../../lib/chat/receiptReview";
-import { CalendarDays, ChevronDown, ChevronUp } from "lucide-react-native";
+import { CalendarDays, ChevronDown, ChevronUp, Sparkles } from "lucide-react-native";
 import DateTimeSheet from "../ui/DateTimeSheet";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { toDateInputValue } from "../../lib/format";
@@ -72,7 +72,9 @@ export default function ReceiptReview({
   const sheetsQuery = useSheetsQuery();
   const sheets = sheetsQuery.data ?? [];
   const spaces = useWorkspacesQuery().data ?? [];
-  const base = chosen ?? receiptDestination(chat.context, sheets);
+  const base =
+    chosen ??
+    receiptDestination(chat.context, sheets, review.suggestedDestination);
   const sheetQuery = useSheetQuery(base.sheetId);
   const sheet = sheetQuery.data;
   const destination = {
@@ -137,6 +139,23 @@ export default function ReceiptReview({
                 saveEdit({ reviewed: value });
               }}
             />
+          </View>
+        )}
+        {!!review.hints?.length && (
+          <View
+            accessibilityRole="summary"
+            testID="receipt-hints"
+            style={[styles.stack, { flexDirection: "row", gap: 8 }]}
+          >
+            <Sparkles size={14} color={colors.primary} style={{ marginTop: 2 }} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={styles.text}>Smart suggestions</Text>
+              {review.hints.map((hint) => (
+                <Text key={hint} style={styles.muted}>
+                  {hint}
+                </Text>
+              ))}
+            </View>
           </View>
         )}
         {(

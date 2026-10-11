@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { Pressable, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable, StyleSheet, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
@@ -29,10 +29,14 @@ export default function AnimatedPressable({
   const reduceMotion = useReducedMotion();
   const scale = useSharedValue(1);
   const pressed = useSharedValue(0);
+  // The press dim multiplies the caller's own opacity (a dimmed disabled
+  // button) instead of replacing it.
+  const flatOpacity = StyleSheet.flatten([wrapStyle, style])?.opacity;
+  const baseOpacity = typeof flatOpacity === "number" ? flatOpacity : 1;
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-    opacity: 1 - pressed.value * 0.16,
-  }));
+    opacity: baseOpacity * (1 - pressed.value * 0.16),
+  }), [baseOpacity]);
 
   return (
     <AnimatedPressableView

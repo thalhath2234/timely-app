@@ -43,7 +43,18 @@ func (s *Service) zoned(ctx context.Context, c *Conversation) (context.Context, 
 	} else if device, err := time.LoadLocation(c.Timezone); c.Timezone != "" && err == nil && models.ZoneName(device) != "" {
 		loc, source, name = device, "device", device.String()
 	}
-	return agent.WithTimezone(ctx, name), loc, source
+	// The app that sent the latest message picks which saved views the view
+	// tools act on (agent.WithClient), the same way the device zone is carried.
+	return agent.WithClient(agent.WithTimezone(ctx, name), c.Client), loc, source
+}
+
+// clientNote is the one line that tells the model which app the person is
+// using, so it knows whose saved views it lists and changes.
+func clientNote(client string) string {
+	if agent.NormalizeClient(client) == agent.ClientPhone {
+		return "\nThe person is writing from the phone app: saved task views you list, create or change are the phone's own views (list or board only), and Tasks there shows the active one."
+	}
+	return "\nThe person is writing from the web or desktop app: saved task views you list, create or change are that app's views."
 }
 
 // timeContext tells the model the person's local date and time and lists the
