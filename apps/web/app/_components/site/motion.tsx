@@ -41,12 +41,6 @@ export function usePublicSite() {
   }, []);
 }
 
-/** Renders nothing; for public pages that bring their own motion wrapper. */
-export function PublicSiteMarker() {
-  usePublicSite();
-  return null;
-}
-
 /**
  * Wraps the public site. While the visitor asks for reduced motion every Motion
  * animation jumps straight to its end state (Motion's own "user" mode still
