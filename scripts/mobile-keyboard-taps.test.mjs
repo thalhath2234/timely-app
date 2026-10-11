@@ -28,7 +28,9 @@ test("every phone scroller lets taps through while the keyboard is up", () => {
       if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && scrollers.test(node.tagName.getText(source))) {
         const prop = node.attributes.properties.find((attr) => attr.name?.getText(source) === "keyboardShouldPersistTaps");
         const value = prop?.initializer?.getText(source);
-        if (value !== '"handled"' && value !== '"always"') {
+        // A wrapper passing its own prop through ({keyboardShouldPersistTaps}) is fine.
+        const passedThrough = prop?.initializer && ts.isJsxExpression(prop.initializer) && !ts.isStringLiteral(prop.initializer.expression);
+        if (!passedThrough && value !== '"handled"' && value !== '"always"') {
           const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
           missing.push(`${relative(mobile, file)}:${line} ${node.tagName.getText(source)}`);
         }

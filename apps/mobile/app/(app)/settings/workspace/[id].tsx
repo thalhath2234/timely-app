@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import Screen from "../../../../components/ui/Screen";
@@ -14,6 +14,7 @@ import CustomFieldBuilder, {
   type OptionDraft,
 } from "../../../../components/ui/CustomFieldBuilder";
 import { Field, PrimaryButton, SectionLabel } from "../../../../components/ui/primitives";
+import { FocusGroupScrollView } from "../../../../components/ui/FocusGroup";
 import StarterLabels from "../../../../components/settings/StarterLabels";
 import CleanupSuggestions from "../../../../components/settings/CleanupSuggestions";
 import ConfirmSheet, { type ConfirmRequest } from "../../../../components/ui/ConfirmSheet";
@@ -138,7 +139,7 @@ export default function WorkspaceEditor() {
   return (
     <Screen>
       <MobileHeader title={workspace.name} back large={false} />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}>
+      <FocusGroupScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}>
         <Field value={name} onChangeText={setName} placeholder="Workspace name" autoCapitalize="words" />
         <PrimaryButton
           label="Rename"
@@ -389,7 +390,7 @@ export default function WorkspaceEditor() {
           </Pressable>
           {spaces.length <= 1 ? <Text style={styles.meta}>Your last workspace cannot be deleted.</Text> : null}
         </View>
-      </ScrollView>
+      </FocusGroupScrollView>
       <ConfirmSheet
         open={confirm !== null}
         onClose={() => setConfirm(null)}

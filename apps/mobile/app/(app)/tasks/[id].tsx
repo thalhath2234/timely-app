@@ -13,6 +13,7 @@ import TaskMetaEditor from "../../../components/ui/TaskMetaEditor";
 import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
 import { Chip, Dot, Field, PrimaryButton, PropertyGroup, PropertyRow } from "../../../components/ui/primitives";
+import { FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 import EmptyState from "../../../components/ui/EmptyState";
 import DescriptionCard from "../../../components/editor/DescriptionCard";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
@@ -264,7 +265,7 @@ export default function TaskDetailScreen() {
           </Pressable>
         }
       />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+      <FocusGroupScrollView contentContainerStyle={styles.content}>
         <View style={styles.objectiveCard}>
           <Text style={styles.eyebrow}>{isReminder ? "TITLE" : "TASK OBJECTIVE"}</Text>
           <Field
@@ -771,7 +772,7 @@ export default function TaskDetailScreen() {
           <Trash2 size={16} color={colors.destructive} />
           <Text style={styles.deleteText}>Delete task</Text>
         </Pressable>
-      </ScrollView>
+      </FocusGroupScrollView>
 
       <BottomSheet open={picker === "status"} onClose={() => setPicker(null)} title="Status">
         {(workspace?.status ?? []).map((s) => (

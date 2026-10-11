@@ -50,6 +50,7 @@ import {
 } from "../../../lib/api/agentProviders";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { LogoSpinner } from "../../../components/ui/TimelyLogo";
+import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
@@ -322,7 +323,7 @@ function OpenRouterCard({
           ) : null}
         </View>
       ) : (
-        <View style={{ gap: 8 }}>
+        <FocusGroup style={{ gap: 8 }}>
           <Field
             value={key}
             onChangeText={setKeyValue}
@@ -357,7 +358,7 @@ function OpenRouterCard({
               <Text style={styles.link}>Cancel</Text>
             </Pressable>
           ) : null}
-        </View>
+        </FocusGroup>
       )}
       <ModelPicker
         label="Chat model"
@@ -554,7 +555,7 @@ function SmartSuggestionsCard({
           ) : null}
         </View>
       ) : (
-        <View style={{ gap: 8 }}>
+        <FocusGroup style={{ gap: 8 }}>
           <Field
             value={key}
             onChangeText={setKeyValue}
@@ -603,7 +604,7 @@ function SmartSuggestionsCard({
               </Pressable>
             ) : null}
           </View>
-        </View>
+        </FocusGroup>
       )}
       {data.available ? <DeepWorkTimeField value={data.deepWorkTime ?? ""} /> : null}
       {data.available ? <UseCaseField /> : null}
@@ -673,7 +674,7 @@ function UseCaseField() {
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? saved;
   return (
-    <View style={{ gap: 8 }} testID="use-case">
+    <FocusGroup style={{ gap: 8 }} testID="use-case">
       <Text style={styles.label}>What you use Timely for</Text>
       <Field value={value} onChangeText={setDraft} placeholder="Running a bakery and studying design" />
       {value.trim() !== saved ? (
@@ -687,7 +688,7 @@ function UseCaseField() {
         />
       ) : null}
       {save.error ? <Text style={styles.error}>{errorMessage(save.error, "Could not save.")}</Text> : null}
-    </View>
+    </FocusGroup>
   );
 }
 
@@ -952,7 +953,7 @@ function ApiProviderRow({
               </Pressable>
             </View>
           ) : (
-            <View style={{ gap: 8 }}>
+            <FocusGroup style={{ gap: 8 }}>
               {showEndpoints ? (
                 <View style={{ gap: 4 }}>
                   <Text style={styles.label}>Endpoint</Text>
@@ -1051,7 +1052,7 @@ function ApiProviderRow({
                   <Text style={styles.smallLink}>Cancel</Text>
                 </Pressable>
               </View>
-            </View>
+            </FocusGroup>
           )}
           {view.connected ? (
             <ModelPicker
@@ -1240,8 +1241,7 @@ export default function AgentSettings() {
   return (
     <Screen>
       <MobileHeader title="Agent" back large={false} />
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
+      <FocusGroupScrollView
         contentContainerStyle={{
           padding: 16,
           paddingBottom: 24 + insets.bottom,
@@ -1305,7 +1305,7 @@ export default function AgentSettings() {
             </View>
           </>
         ) : null}
-      </ScrollView>
+      </FocusGroupScrollView>
       <ConfirmSheet
         open={confirm !== null}
         onClose={() => setConfirm(null)}
