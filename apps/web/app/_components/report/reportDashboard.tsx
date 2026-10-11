@@ -54,6 +54,17 @@ import PomodoroCard from "./pomodoroCard";
 import HighlightsCard from "./highlightsCard";
 import { BuiltinIcon } from "./cardIcons";
 import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "./builtinCards";
+import {
+  ClockCard,
+  FocusTimeCard,
+  GoalCard,
+  HabitsCard,
+  InboxZeroCard,
+  JournalCard,
+  NextUpCard,
+  TopThreeCard,
+  WeeklyReviewCard,
+} from "./productivityCards";
 import { useDashboardData, useDashboardLayout } from "./useDashboard";
 
 const SIZE_PRESETS = [
@@ -380,6 +391,33 @@ export default function ReportDashboard() {
             onChange={setSettings}
           />
         );
+      case "topThree":
+        return <TopThreeCard settings={settings} tasks={tasks} timeZone={timeZone} onSettings={setSettings} onOpenTask={openTask} />;
+      case "focusTime":
+        return <FocusTimeCard tasks={tasks} now={now} timeZone={timeZone} />;
+      case "nextUp":
+        return (
+          <NextUpCard
+            events={data.events ?? []}
+            loading={loading.events}
+            now={now}
+            workingHours={configQuery.data?.workingHours}
+            timeZone={timeZone}
+            onOpenEvent={openEvent}
+          />
+        );
+      case "habits":
+        return <HabitsCard settings={settings} timeZone={timeZone} onSettings={setSettings} />;
+      case "goal":
+        return <GoalCard settings={settings} tasks={tasks} now={now} timeZone={timeZone} onSettings={setSettings} />;
+      case "weeklyReview":
+        return <WeeklyReviewCard settings={settings} tasks={tasks} timeZone={timeZone} onSettings={setSettings} onOpenTask={openTask} />;
+      case "inboxZero":
+        return <InboxZeroCard inbox={(data.inbox ?? []) as Task[]} loading={loading.inbox} now={now} timeZone={timeZone} />;
+      case "clock":
+        return <ClockCard title={cardTitle(card)} settings={settings} onSettings={setSettings} />;
+      case "journal":
+        return <JournalCard settings={settings} timeZone={timeZone} onSettings={setSettings} />;
     }
   };
 

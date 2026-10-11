@@ -100,6 +100,7 @@ type TaskService interface {
 	StartFocus(userID, taskID string) (*models.Task, error)
 	PauseFocus(userID, taskID string) (*models.Task, error)
 	StopFocus(userID, taskID string) (*models.Task, error)
+	ListFocusSessions(userID string, from, to time.Time) ([]models.FocusSession, error)
 	SetTodayFocus(userID, taskID string, date *string) (*models.Task, error)
 	WithActor(name string) TaskService
 }
@@ -560,9 +561,12 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 	if err := s.syncCompletionWithStatus(before, updates); err != nil {
 		return nil, err
 	}
+	// Completing a task while it is being focused banks the running stretch.
+	focusElapsed := 0
 	if completedAt, ok := updates["completed_at"]; ok && completedAt != nil {
 		if before.IsFocusing() {
-			updates["actual_minutes"] = before.ActualMinutes + elapsedFocusMinutes(*before.FocusStartedAt)
+			focusElapsed = elapsedFocusMinutes(*before.FocusStartedAt)
+			updates["actual_minutes"] = before.ActualMinutes + focusElapsed
 		}
 		updates["focus_started_at"] = nil
 		updates["focus_paused_at"] = nil
@@ -639,6 +643,7 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 	if err != nil {
 		return nil, err
 	}
+	s.logFocusSession(userID, before, focusElapsed)
 
 	if err := s.syncCalendarPresence(userID, after, update); err != nil {
 		return nil, err
