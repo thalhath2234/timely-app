@@ -423,6 +423,149 @@ html:has(.site)::-webkit-scrollbar-thumb {
   }
 }
 
+/* ---- Sign-in, sign-up, onboarding and desktop setup ----
+   The same day as the landing page: the form is the block happening now,
+   and a day view beside it fills in with what the person picks. */
+
+.lp-field {
+  display: flex;
+  height: 2.75rem;
+  width: 100%;
+  align-items: center;
+  border: 1px solid rgb(236 235 245 / 12%);
+  border-radius: 10px;
+  background: var(--lp-surface);
+  transition:
+    border-color 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+
+.lp-field:hover {
+  border-color: rgb(236 235 245 / 20%);
+}
+
+.lp-field:focus-within {
+  border-color: var(--lp-now);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--lp-now) 22%, transparent);
+}
+
+.lp-field[data-invalid] {
+  border-color: #ff8a80;
+}
+
+.lp-field > input {
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  padding-inline: 0.875rem;
+  color: var(--lp-ink);
+  font-size: 0.9375rem;
+  outline: none;
+}
+
+.site .lp-field > input:focus-visible {
+  outline: none;
+}
+
+.lp-field > input::placeholder {
+  color: #85849a;
+}
+
+/* Choice chips: a picked chip turns into a small calendar block. */
+.lp-chip {
+  --c: var(--lp-now);
+  display: inline-flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgb(236 235 245 / 12%);
+  border-radius: 8px;
+  background: transparent;
+  padding: 0.35rem 0.75rem;
+  color: var(--lp-soft);
+  font-size: 0.875rem;
+  transition:
+    background-color 140ms ease-out,
+    border-color 140ms ease-out,
+    color 140ms ease-out;
+}
+
+.lp-chip:hover {
+  border-color: rgb(236 235 245 / 24%);
+  color: var(--lp-ink);
+}
+
+.lp-chip[aria-pressed="true"] {
+  border-color: transparent;
+  box-shadow: inset 3px 0 0 var(--c);
+  background: color-mix(in oklch, var(--c) 18%, var(--lp-bg));
+  color: var(--lp-ink);
+}
+
+/* A label the person left out stays visible, dashed and quiet. */
+.lp-chip[data-off] {
+  border-style: dashed;
+  color: var(--lp-faint);
+}
+
+.lp-chip[data-off] > .lp-dot {
+  opacity: 0.35;
+}
+
+.lp-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: var(--c);
+}
+
+/* The day view beside the form. */
+.lp-day {
+  border: 1px solid var(--lp-line);
+  border-radius: 14px;
+  background: var(--lp-surface);
+}
+
+.lp-day-grid {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--lp-line) 0 1px,
+    transparent 1px var(--hour)
+  );
+}
+
+.lp-day-block {
+  --c: var(--lp-now);
+  position: absolute;
+  overflow: hidden;
+  border-left: 3px solid var(--c);
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--c) 17%, var(--lp-surface));
+}
+
+.lp-day-block[data-state="past"] {
+  opacity: 0.5;
+}
+
+.lp-day-block[data-state="ghost"] {
+  border: 1px dashed rgb(236 235 245 / 14%);
+  background: transparent;
+}
+
+.lp-day-block[data-state="now"] {
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--c) 60%, transparent);
+}
+
+/* Errors and confirmations are blocks too, in red or green. */
+.lp-notice {
+  --c: #ff8a80;
+  border-left: 3px solid var(--c);
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--c) 13%, var(--lp-bg));
+}
+
 /* ---- Help center article text ----
    Inside the components layer so utilities on a child (margins, list style)
    still win over these defaults. */

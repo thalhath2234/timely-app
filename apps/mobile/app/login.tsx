@@ -1,12 +1,9 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Link, Redirect, useRouter } from "expo-router";
-import Screen from "../components/ui/Screen";
-import TimelyLogo from "../components/ui/TimelyLogo";
-import { Field, PrimaryButton } from "../components/ui/primitives";
+import { AUTH, AuthButton, AuthField, AuthLink, AuthNotice, AuthScreen, NowBlock } from "../components/auth/AuthKit";
 import { isOnboarded, useAuth } from "../lib/auth/AuthProvider";
 import { useServer } from "../lib/server/ServerProvider";
-import { colors, createThemedStyleSheet } from "../lib/theme";
 
 export default function LoginScreen() {
   const { token, user, login } = useAuth();
@@ -23,7 +20,7 @@ export default function LoginScreen() {
 
   async function submit() {
     if (!email.trim() || !password.trim()) {
-      setError("Please fill in all fields.");
+      setError("Enter your email and password.");
       return;
     }
     setPending(true);
@@ -39,50 +36,86 @@ export default function LoginScreen() {
   }
 
   return (
-    <Screen padded>
-      <View style={styles.wrap}>
-        <TimelyLogo size={44} style={styles.logo} />
-        <Text style={styles.title}>Timely</Text>
-        <Text style={styles.sub}>Sign in to plan your day</Text>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Field
-          testID="login-email"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="Email"
-          keyboardType="email-address"
-        />
-        <Field testID="login-password" value={password} onChangeText={setPassword} placeholder="Password" secure />
-        <PrimaryButton
+    <AuthScreen
+      block={<NowBlock label="Sign in" />}
+      title={"Pick up where\nyou left off."}
+      lead="Your week is where you left it, with the assistant ready when you are."
+      headerAction={
+        <Link href="/signup" asChild>
+          <Pressable accessibilityRole="link" style={styles.headerLink}>
+            <Text style={styles.headerLinkText}>Register</Text>
+          </Pressable>
+        </Link>
+      }
+    >
+      {error ? <AuthNotice>{error}</AuthNotice> : null}
+      <AuthField
+        testID="login-email"
+        label="Email"
+        value={email}
+        onChangeText={setEmail}
+        placeholder="you@example.com"
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoComplete="email"
+        textContentType="emailAddress"
+      />
+      <AuthField
+        testID="login-password"
+        label="Password"
+        value={password}
+        onChangeText={setPassword}
+        secure
+        autoCapitalize="none"
+        autoComplete="current-password"
+        textContentType="password"
+        onSubmitEditing={() => void submit()}
+      />
+      <View style={styles.actions}>
+        <AuthButton
           testID="login-submit"
           label={pending ? "Signing in…" : "Sign in"}
+          pending={pending}
           disabled={pending}
           onPress={() => void submit()}
         />
-        <Link href="/signup" asChild>
-          <Pressable>
-            <Text style={styles.link}>Need an account? Create one</Text>
-          </Pressable>
-        </Link>
-        <Link href="/connect?mode=change" asChild>
-          <Pressable accessibilityRole="button" accessibilityLabel="Change server">
-            <Text style={styles.server} numberOfLines={2}>
-              {server.name ? `${server.name} · ` : ""}
-              {server.activeUrl} · Change
-            </Text>
-          </Pressable>
-        </Link>
       </View>
-    </Screen>
+      <AuthLink label="New to Timely? Create an account" tone="now" onPress={() => router.push("/signup")} />
+      <Link href="/connect?mode=change" asChild>
+        <Pressable accessibilityRole="button" accessibilityLabel="Change server" style={styles.server}>
+          <View style={styles.serverDot} />
+          <Text style={styles.serverText} numberOfLines={2}>
+            {server.name ? `${server.name} · ` : ""}
+            {server.activeUrl}
+          </Text>
+          <Text style={styles.serverChange}>Change</Text>
+        </Pressable>
+      </Link>
+    </AuthScreen>
   );
 }
 
-const styles = createThemedStyleSheet((colors) => ({
-  wrap: { flex: 1, justifyContent: "center", gap: 14 },
-  logo: { marginBottom: 4 },
-  title: { color: colors.foreground, fontSize: 34, fontWeight: "700", letterSpacing: -0.8 },
-  sub: { color: colors.mutedForeground, fontSize: 15, marginBottom: 10 },
-  error: { color: colors.destructive, fontSize: 13 },
-  link: { color: colors.primary, textAlign: "center", marginTop: 8 },
-  server: { color: colors.mutedForeground, fontSize: 12, textAlign: "center", marginTop: 12 },
-}));
+const styles = StyleSheet.create({
+  headerLink: {
+    borderWidth: 1,
+    borderColor: AUTH.lineStrong,
+    backgroundColor: AUTH.surface,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  headerLinkText: { color: AUTH.ink, fontSize: 14, fontWeight: "600" },
+  actions: { marginTop: 6 },
+  server: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: AUTH.lineStrong,
+    paddingTop: 14,
+  },
+  serverDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: AUTH.green },
+  serverText: { flex: 1, color: AUTH.soft, fontFamily: AUTH.mono, fontSize: 11 },
+  serverChange: { color: AUTH.now, fontSize: 13, fontWeight: "600" },
+});

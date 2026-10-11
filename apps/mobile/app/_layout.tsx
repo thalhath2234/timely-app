@@ -26,6 +26,7 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useFonts({
     SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
+    ArchivoCondensed: require("../assets/fonts/Archivo-CondensedExtraBold.ttf"),
   });
 
   useEffect(() => {

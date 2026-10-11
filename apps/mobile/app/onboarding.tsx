@@ -1,17 +1,26 @@
 import { useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import Screen from "../components/ui/Screen";
-import AnimatedPressable from "../components/ui/AnimatedPressable";
-import { Chip, Field, PrimaryButton } from "../components/ui/primitives";
+import {
+  AUTH,
+  AuthButton,
+  AuthField,
+  AuthLink,
+  AuthNotice,
+  AuthScreen,
+  ChoiceChip,
+  DayPreview,
+  NowBlock,
+  SectionLabel,
+} from "../components/auth/AuthKit";
+import { DAY_COLORS, onboardingDay } from "../lib/authDay";
 import { isOnboarded, useAuth } from "../lib/auth/AuthProvider";
 import { createWorkspace } from "../lib/api/workspaces";
 import { applyStarterLabels, getPersonalPrefs, getStarterPresets, savePersonalUseCase } from "../lib/api/decisions";
-import { createThemedStyleSheet } from "../lib/theme";
 
 export default function OnboardingScreen() {
-  const { token, user, finishOnboarding } = useAuth();
+  const { token, user, finishOnboarding, logout } = useAuth();
   const router = useRouter();
   const [name, setName] = useState("");
   const [error, setError] = useState("");
@@ -85,36 +94,59 @@ export default function OnboardingScreen() {
     }
   }
 
+  const signedIn = user.email ? (
+    <View style={styles.signedIn}>
+      <Text style={styles.signedInText} numberOfLines={1}>
+        Signed in as <Text style={{ color: AUTH.ink }}>{user.email}</Text>
+      </Text>
+      <AuthLink
+        label="Sign out"
+        onPress={() => {
+          void logout().then(() => router.replace("/login"));
+        }}
+      />
+    </View>
+  ) : null;
+
   if (step === 1) {
     return (
-      <Screen padded>
-        <ScrollView contentContainerStyle={styles.scroll} testID="onboarding-uses">
-          <Text style={styles.step}>Step 1 of 2</Text>
-          <Text style={styles.title}>What will you use Timely for?</Text>
-          <Text style={styles.sub}>Pick any that fit. Timely sets up a few labels to match.</Text>
-          <View style={styles.chips}>
-            {useOptions.map((u) => (
-              <Chip key={u.key} label={u.label} active={uses.includes(u.key)} onPress={() => toggleUse(u.key)} />
-            ))}
-          </View>
-          {starter.length ? (
-            <View style={{ gap: 8 }}>
-              <Text style={styles.label}>Starter labels</Text>
-              <View style={styles.chips}>
-                {starter.map((label) => (
-                  <Chip
+      <AuthScreen
+        contentKey="uses"
+        block={<NowBlock label="Step 1 of 2 · What it’s for" />}
+        title="What fills your days?"
+        lead="Pick any that fit. Timely adds a few labels to match."
+      >
+        <View style={styles.chips} testID="onboarding-uses">
+          {useOptions.map((u) => (
+            <ChoiceChip key={u.key} label={u.label} pressed={uses.includes(u.key)} onPress={() => toggleUse(u.key)} />
+          ))}
+        </View>
+        {starter.length ? (
+          <>
+            <SectionLabel>Starter labels</SectionLabel>
+            <View style={styles.chips}>
+              {starter.map((label) => {
+                const on = !unpicked.has(label.name);
+                return (
+                  <ChoiceChip
                     key={label.name}
                     label={label.name}
                     color={label.color}
-                    active={!unpicked.has(label.name)}
+                    pressed={on}
+                    off={!on}
                     onPress={() => toggleLabel(label.name)}
                   />
-                ))}
-              </View>
-              <Text style={styles.hint}>Tap a label to leave it out. You can edit labels later in settings.</Text>
+                );
+              })}
             </View>
-          ) : null}
-          <PrimaryButton
+            <Text style={styles.hint}>Tap a label to leave it out. You can edit labels later in Settings.</Text>
+          </>
+        ) : null}
+        {chosen.length ? (
+          <DayPreview title="Your first day" tabs={starterWorkspaces} blocks={onboardingDay(chosen, 3)} />
+        ) : null}
+        <View style={styles.actions}>
+          <AuthButton
             label="Continue"
             disabled={uses.length === 0}
             onPress={() => {
@@ -122,50 +154,67 @@ export default function OnboardingScreen() {
               setStep(2);
             }}
           />
-          <AnimatedPressable
-            accessibilityRole="button"
+          <AuthLink
+            label="Skip for now"
             onPress={() => {
               setUses([]);
               setStep(2);
             }}
-            style={styles.link}
-          >
-            <Text style={styles.linkText}>Skip</Text>
-          </AnimatedPressable>
-        </ScrollView>
-      </Screen>
+          />
+        </View>
+        {signedIn}
+      </AuthScreen>
     );
   }
 
   return (
-    <Screen padded>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.step}>Step 2 of 2</Text>
-        <Text style={styles.title}>Name your workspace</Text>
-        <Text style={styles.sub}>This is the home for your tasks, docs, and calendar.</Text>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Field value={name} onChangeText={setName} placeholder="Personal, Studio, …" autoCapitalize="words" />
-        {starterWorkspaces.length ? (
-          <View style={{ gap: 8 }} testID="starter-workspaces">
-            <Text style={styles.label}>Suggested names</Text>
-            <View style={styles.chips}>
-              {starterWorkspaces.map((n) => (
-                <Chip key={n} label={n} active={name.trim() === n} onPress={() => setName(n)} />
-              ))}
-            </View>
-            {others.length ? (
-              <>
-                <Text style={styles.label}>Also create</Text>
-                <View style={styles.chips}>
-                  {others.map((n) => (
-                    <Chip key={n} label={`${n} workspace`} active={alsoCreate.has(n)} onPress={() => toggleAlso(n)} />
-                  ))}
-                </View>
-              </>
-            ) : null}
+    <AuthScreen
+      contentKey="workspace"
+      block={<NowBlock label="Step 2 of 2 · Your workspace" />}
+      title={"Name your\nfirst workspace."}
+      lead="A workspace holds your tasks, calendar, docs and sheets. You can rename it or add more later."
+    >
+      {error ? <AuthNotice>{error}</AuthNotice> : null}
+      <AuthField
+        label="Workspace name"
+        value={name}
+        onChangeText={setName}
+        placeholder="Work, Studio or Personal"
+        autoCapitalize="words"
+      />
+      {starterWorkspaces.length ? (
+        <View style={styles.group} testID="starter-workspaces">
+          <SectionLabel>Suggested names</SectionLabel>
+          <View style={styles.chips}>
+            {starterWorkspaces.map((n) => (
+              <ChoiceChip key={n} label={n} pressed={name.trim() === n} onPress={() => setName(n)} />
+            ))}
           </View>
-        ) : null}
-        <PrimaryButton label={pending ? "Creating…" : "Continue"} disabled={pending} onPress={() => void submit()} />
+          {others.length ? (
+            <>
+              <SectionLabel>Also create</SectionLabel>
+              <View style={styles.chips}>
+                {others.map((n) => (
+                  <ChoiceChip
+                    key={n}
+                    label={`${n} workspace`}
+                    color={DAY_COLORS.violet}
+                    pressed={alsoCreate.has(n)}
+                    onPress={() => toggleAlso(n)}
+                  />
+                ))}
+              </View>
+            </>
+          ) : null}
+        </View>
+      ) : null}
+      <View style={styles.actions}>
+        <AuthButton
+          label={pending ? "Creating…" : "Create workspace"}
+          pending={pending}
+          disabled={pending}
+          onPress={() => void submit()}
+        />
         {chosen.length || extra.length ? (
           <Text style={[styles.hint, { textAlign: "center" }]}>
             {[
@@ -174,25 +223,30 @@ export default function OnboardingScreen() {
             ]
               .filter(Boolean)
               .join(" ")}
+            .
           </Text>
         ) : null}
-        <AnimatedPressable accessibilityRole="button" disabled={pending} onPress={() => setStep(1)} style={styles.link}>
-          <Text style={styles.linkText}>Back</Text>
-        </AnimatedPressable>
-      </ScrollView>
-    </Screen>
+        <AuthLink label="Back" disabled={pending} onPress={() => setStep(1)} />
+      </View>
+      {signedIn}
+    </AuthScreen>
   );
 }
 
-const styles = createThemedStyleSheet((colors) => ({
-  scroll: { flexGrow: 1, justifyContent: "center", gap: 14, paddingVertical: 24 },
-  step: { color: colors.primary, fontSize: 12, fontWeight: "600", letterSpacing: 0.8, textTransform: "uppercase" },
-  title: { color: colors.foreground, fontSize: 28, fontWeight: "600" },
-  sub: { color: colors.mutedForeground, fontSize: 14, marginBottom: 8 },
-  label: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.8 },
-  hint: { color: colors.mutedForeground, fontSize: 12 },
+const styles = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  error: { color: colors.destructive, fontSize: 13 },
-  link: { alignSelf: "center", padding: 8 },
-  linkText: { color: colors.mutedForeground, fontSize: 14 },
-}));
+  group: { gap: 10 },
+  hint: { color: AUTH.soft, fontSize: 12, lineHeight: 17 },
+  actions: { marginTop: 8, gap: 4 },
+  signedIn: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: AUTH.lineStrong,
+    paddingTop: 6,
+  },
+  signedInText: { flex: 1, color: AUTH.soft, fontSize: 12 },
+});

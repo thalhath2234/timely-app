@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Archivo } from "next/font/google";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import packageJson from "@/package.json";
 import AiShowcase from "@/app/_components/landing/aiShowcase";
@@ -15,13 +14,12 @@ import { FeatureBlock, Reveal } from "@/app/_components/landing/reveal";
 import SyncDiagram from "@/app/_components/landing/syncDiagram";
 import { LATEST_RELEASE_URL, REPO_URL } from "@/app/_components/site/links";
 import { GitHubMark } from "@/app/_components/site/marks";
+import { displayFont } from "@/app/_components/site/displayFont";
 import { SiteMotion } from "@/app/_components/site/motion";
 import SiteFooter from "@/app/_components/site/siteFooter";
 import SiteHeader from "@/app/_components/site/siteHeader";
 import { cn } from "@/app/utils/cn";
 import "@/app/_components/site/site.css";
-
-const display = Archivo({ subsets: ["latin"], axes: ["wdth"], variable: "--font-lp-display", display: "swap" });
 
 const TITLE = "Timely: write it down, Timely finds the time";
 const DESCRIPTION =
@@ -99,7 +97,7 @@ function Cta({ className }: { className?: string }) {
 
 export default function Home() {
   return (
-    <div className={cn("site lp", display.variable)}>
+    <div className={cn("site lp", displayFont.variable)}>
       <SiteMotion>
         <SiteHeader />
 
