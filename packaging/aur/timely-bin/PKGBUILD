@@ -22,8 +22,7 @@ _license_rev=84d57b740eb61625755d9be286a154528190808c  # commit that added LICEN
 source=("${_appimage}::${url}/releases/download/${_tag}/${_appimage}"
         "LICENSE-${_license_rev}::https://raw.githubusercontent.com/thalhath2234/timely-app/${_license_rev}/LICENSE")
 noextract=("${_appimage}")
-# AppImage checksum is SKIP until v0.3.1 is published; run `updpkgsums` before pushing to the AUR.
-sha256sums=('SKIP'
+sha256sums=('a00673ef5c497ddcf4b9ebd3ac40535423f86efa7266f525c94d17e77d0a519e'
             'd188c1d24bd091d0be11ea5fc1d0a6c1751b5584370bc8a2ff85673cb2a1ec60')
 
 prepare() {
