@@ -1,0 +1,629 @@
+/* ---- Design 5: "Dashboard" ----
+   The site is Timely's card dashboard. Every block of content is a dashboard
+   card with the app's own chrome (grip, small uppercase title, resize corner)
+   and a believable live number. Rows of cards replace sections. */
+
+.v5 {
+  --v-bg: #0c0d12;
+  --v-surface: #13151c;
+  --v-raised: #1b1d27;
+  --v-line: rgb(236 235 245 / 8%);
+  --v-line-strong: rgb(236 235 245 / 15%);
+  --v-ink: #ecebf5;
+  --v-soft: #a3a2b6;
+  --v-faint: #6c6b80;
+  --v-primary: #c0c1ff;
+  --v-primary-ink: #1000a9;
+  --v-radius: 12px;
+  --v-radius-lg: 12px;
+  --v-max: 80rem;
+
+  --v5-green: #30a66d;
+  --v5-violet: #6e56cf;
+  --v5-amber: #ffb224;
+  --v5-blue: #0090ff;
+  --v5-pink: #e93d82;
+  --v5-cyan: #00a2c7;
+  --v5-orange: #f76808;
+  --v5-teal: #12a594;
+  --v5-lime: #99d52a;
+  --v5-red: #e5484d;
+}
+
+/* A faint dot grid behind the whole site: the board the cards sit on. */
+.v5 main {
+  background-image: radial-gradient(rgb(236 235 245 / 5%) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
+}
+
+.v5-display {
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  text-wrap: balance;
+}
+
+/* ---- Card chrome, copied from the app's Dashboard ---- */
+
+.v5-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border: 1px solid var(--v-line);
+  border-radius: var(--v-radius);
+  background: var(--v-surface);
+  padding: 0.8rem 1rem 1rem;
+  transition:
+    translate 160ms ease-out,
+    border-color 160ms ease-out,
+    box-shadow 160ms ease-out;
+}
+
+.v5-card:hover {
+  translate: 0 -1px;
+  border-color: var(--v-line-strong);
+  box-shadow: 0 12px 28px -18px rgb(0 0 0 / 70%);
+}
+
+/* The resize corner: two short diagonals in the bottom-right corner. */
+.v5-card::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 9px;
+  height: 9px;
+  background: repeating-linear-gradient(135deg, transparent 0 2.5px, var(--v-line-strong) 2.5px 3.5px);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+
+.v5-card-link {
+  color: inherit;
+}
+
+.v5-card-link:hover .v5-card-title {
+  color: var(--v-ink);
+}
+
+.v5-card-head {
+  display: flex;
+  min-height: 1.25rem;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--v-soft);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.v5-card-head .v5-grip {
+  margin-left: -0.3rem;
+  color: var(--v-faint);
+}
+
+.v5-card-head .v5-head-right {
+  margin-left: auto;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--v-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.v5-card-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin-top: 0.7rem;
+}
+
+/* The ghost "Add card" slot. */
+.v5-card-ghost {
+  border: 1px dashed var(--v-line-strong);
+  background: transparent;
+  color: var(--v-soft);
+}
+
+.v5-card-ghost:hover {
+  border-color: var(--v-primary);
+  color: var(--v-ink);
+  box-shadow: none;
+}
+
+.v5-card-ghost::after {
+  display: none;
+}
+
+/* A dashboard number, with the app's coloured bar at its left. */
+.v5-num {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0.45rem;
+  font-size: 2.25rem;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.v5-num-bar {
+  width: 3px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--c, var(--v-primary));
+}
+
+.v5-num-unit {
+  margin-left: 0.15rem;
+  align-self: flex-end;
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--v-soft);
+}
+
+.v5-pop {
+  display: inline-block;
+  animation: v5-pop 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes v5-pop {
+  from {
+    opacity: 0;
+    translate: 0 0.35em;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+.v5-caption {
+  margin-top: auto;
+  padding-top: 0.6rem;
+  font-size: 0.75rem;
+  color: var(--v-soft);
+}
+
+/* ---- Rings, meters, dots, checks ---- */
+
+.v5-ring {
+  --size: 4.5rem;
+  --stroke: 6px;
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  flex: none;
+}
+
+.v5-ring svg {
+  width: 100%;
+  height: 100%;
+  rotate: -90deg;
+}
+
+.v5-ring circle {
+  fill: none;
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+}
+
+.v5-ring .track {
+  stroke: var(--v-line-strong);
+}
+
+.v5-ring .value {
+  stroke: var(--c, var(--v-primary));
+  transition: stroke-dashoffset 900ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.v5-meter {
+  position: relative;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--v-line-strong);
+}
+
+.v5-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--c, var(--v-primary));
+  transition: width 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.v5-check {
+  display: inline-flex;
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--v-line-strong);
+  border-radius: 5px;
+  color: var(--v-primary-ink);
+  transition:
+    background-color 220ms,
+    border-color 220ms;
+}
+
+.v5-check svg {
+  opacity: 0;
+  scale: 0.6;
+  transition:
+    opacity 180ms,
+    scale 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.v5-check[data-on="true"] {
+  border-color: var(--v-primary);
+  background: var(--v-primary);
+}
+
+.v5-check[data-on="true"] svg {
+  opacity: 1;
+  scale: 1;
+}
+
+.v5-dot {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--v-line-strong);
+  transition:
+    background-color 260ms,
+    border-color 260ms;
+}
+
+.v5-dot[data-on="true"] {
+  border-color: var(--c, var(--v5-green));
+  background: var(--c, var(--v5-green));
+}
+
+.v5-dot[data-today="true"] {
+  box-shadow: 0 0 0 2px var(--v-bg), 0 0 0 3.5px var(--v-line-strong);
+}
+
+.v5-bar {
+  width: 100%;
+  border-radius: 3px 3px 1px 1px;
+  background: var(--c, var(--v-primary));
+  transition: height 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.v5-pill {
+  display: inline-flex;
+  height: 1.5rem;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--v-line-strong);
+  border-radius: 999px;
+  padding-inline: 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--v-ink);
+  white-space: nowrap;
+}
+
+.v5-chip {
+  display: inline-flex;
+  height: 1.4rem;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 6px;
+  padding-inline: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--v-ink);
+  background: color-mix(in oklch, var(--c, var(--v-primary)) 16%, transparent);
+  box-shadow: inset 2px 0 0 var(--c, var(--v-primary));
+  animation: v5-pop 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.v5-caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: var(--v-primary);
+  animation: v5-blink 1s steps(2, start) infinite;
+}
+
+@keyframes v5-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* The tiny "now" pulse on the next item. */
+.v5-pulse {
+  position: relative;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--v-primary);
+}
+
+.v5-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  border: 1.5px solid var(--v-primary);
+  animation: v5-pulse 1.8s ease-out infinite;
+}
+
+@keyframes v5-pulse {
+  from {
+    opacity: 0.8;
+    scale: 0.6;
+  }
+  to {
+    opacity: 0;
+    scale: 1.6;
+  }
+}
+
+/* ---- Rows: a small label, a rule, a count; then the cards ---- */
+
+.v5-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--v-faint);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.v5-row-head::after {
+  content: "";
+  order: 1;
+  flex: 1;
+  height: 1px;
+  background: var(--v-line-strong);
+}
+
+.v5-row-head .v5-badge {
+  order: 2;
+}
+
+.v5-badge {
+  display: inline-flex;
+  height: 1.25rem;
+  min-width: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding-inline: 0.4rem;
+  background: var(--v-raised);
+  border: 1px solid var(--v-line);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--v-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.v5-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(var(--cols-sm, 1), minmax(0, 1fr));
+  grid-auto-flow: dense;
+}
+
+@media (min-width: 640px) {
+  .v5-grid {
+    grid-template-columns: repeat(var(--cols-md, 2), minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .v5-grid {
+    grid-template-columns: repeat(var(--cols-lg, 3), minmax(0, 1fr));
+  }
+}
+
+.v5-span-2 {
+  grid-column: span 2;
+}
+
+.v5-span-full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 639px) {
+  .v5-span-2 {
+    grid-column: span min(2, var(--cols-sm, 1));
+  }
+}
+
+.v5-row-span-2 {
+  grid-row: span 2;
+}
+
+@media (max-width: 1023px) {
+  .v5-row-span-2 {
+    grid-row: auto;
+  }
+}
+
+/* ---- Feature graphics (CSS loops; the base style is the resting state) ---- */
+
+.v5-g {
+  position: relative;
+  height: 7.5rem;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--v-line);
+  background: var(--v-bg);
+}
+
+.v5-g-block {
+  position: absolute;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--c) 28%, transparent);
+  box-shadow: inset 2px 0 0 var(--c);
+}
+
+.v5-g-move {
+  animation: v5-move 5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@keyframes v5-move {
+  0%,
+  28% {
+    translate: var(--from-x, 0) var(--from-y, 0);
+  }
+  52%,
+  100% {
+    translate: 0 0;
+  }
+}
+
+.v5-g-lift {
+  animation: v5-lift 5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@keyframes v5-lift {
+  0%,
+  22% {
+    translate: var(--from-x, 0) var(--from-y, 0);
+    box-shadow: none;
+  }
+  30%,
+  48% {
+    box-shadow: 0 8px 18px -6px rgb(0 0 0 / 80%);
+    scale: 1.04;
+  }
+  58%,
+  100% {
+    translate: 0 0;
+    scale: 1;
+    box-shadow: none;
+  }
+}
+
+.v5-g-grow {
+  transform-origin: left center;
+  animation: v5-grow 4.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@keyframes v5-grow {
+  0%,
+  20% {
+    scale: 0 1;
+  }
+  60%,
+  100% {
+    scale: 1 1;
+  }
+}
+
+.v5-g-fill {
+  animation: v5-fill 4s ease-out infinite;
+}
+
+@keyframes v5-fill {
+  0%,
+  35% {
+    background-color: transparent;
+    border-color: var(--v-line-strong);
+  }
+  55%,
+  100% {
+    background-color: var(--c);
+    border-color: var(--c);
+  }
+}
+
+.v5-dash {
+  stroke-dasharray: 5 6;
+  animation: v5-dash 1.6s linear infinite;
+}
+
+@keyframes v5-dash {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v5-pop,
+  .v5-chip,
+  .v5-caret,
+  .v5-pulse::after,
+  .v5-g-move,
+  .v5-g-lift,
+  .v5-g-grow,
+  .v5-g-fill,
+  .v5-dash {
+    animation: none;
+  }
+
+  .v5-g-fill {
+    background-color: var(--c);
+    border-color: var(--c);
+  }
+
+  .v5-ring .value,
+  .v5-meter > span,
+  .v5-bar,
+  .v5-check,
+  .v5-check svg,
+  .v5-dot {
+    transition: none;
+  }
+}
+
+/* ---- Help page: the search box inside a card ---- */
+
+.v5-search > div > div {
+  border-radius: 10px;
+  border-color: var(--v-line-strong);
+  background: var(--v-bg);
+}
+
+.v5-search > div > div:focus-within {
+  border-color: var(--v-primary);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--v-primary) 18%, transparent);
+}
+
+.v5-article {
+  display: flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-inline: -0.5rem;
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.875rem;
+  color: var(--v-soft);
+  transition:
+    background-color 140ms,
+    color 140ms;
+}
+
+.v5-article:hover {
+  background: var(--v-raised);
+  color: var(--v-ink);
+}
+
+.v5-article svg {
+  flex: none;
+  opacity: 0;
+  color: var(--v-primary);
+  transition: opacity 140ms;
+}
+
+.v5-article:hover svg {
+  opacity: 1;
+}

@@ -2,6 +2,8 @@
    The shell (header, footer, buttons, switcher) reads these tokens; each
    variation sets its own values in its stylesheet and lays out the rest. */
 
+/* Tokens and the canvas stay unlayered so they beat `.site`; the rest sits in
+   the components layer so Tailwind utilities on the same element win. */
 .v {
   --v-bg: #0d0e13;
   --v-surface: #14161d;
@@ -22,147 +24,149 @@
   color: var(--v-ink);
 }
 
-.v-container {
-  margin-inline: auto;
-  width: 100%;
-  max-width: var(--v-max);
-  padding-inline: 1rem;
-}
-
-@media (min-width: 640px) {
+@layer components {
   .v-container {
-    padding-inline: 2rem;
+    margin-inline: auto;
+    width: 100%;
+    max-width: var(--v-max);
+    padding-inline: 1rem;
   }
-}
 
-.v-header {
-  border-bottom: 1px solid transparent;
-  transition:
-    background-color 200ms,
-    border-color 200ms;
-}
+  @media (min-width: 640px) {
+    .v-container {
+      padding-inline: 2rem;
+    }
+  }
 
-.v-header.is-scrolled {
-  background: color-mix(in oklch, var(--v-bg) 78%, transparent);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  border-bottom-color: var(--v-line);
-}
+  .v-header {
+    border-bottom: 1px solid transparent;
+    transition:
+      background-color 200ms,
+      border-color 200ms;
+  }
 
-.v-nav-link {
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--v-radius);
-  padding: 0.5rem 0.85rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--v-soft);
-  transition: color 140ms ease-out;
-}
+  .v-header.is-scrolled {
+    background: color-mix(in oklch, var(--v-bg) 78%, transparent);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border-bottom-color: var(--v-line);
+  }
 
-.v-nav-link:hover,
-.v-nav-link.is-active {
-  color: var(--v-ink);
-}
+  .v-nav-link {
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--v-radius);
+    padding: 0.5rem 0.85rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--v-soft);
+    transition: color 140ms ease-out;
+  }
 
-.v-link {
-  color: var(--v-soft);
-  transition: color 140ms ease-out;
-}
+  .v-nav-link:hover,
+  .v-nav-link.is-active {
+    color: var(--v-ink);
+  }
 
-.v-link:hover {
-  color: var(--v-ink);
-}
+  .v-link {
+    color: var(--v-soft);
+    transition: color 140ms ease-out;
+  }
 
-.v-btn {
-  display: inline-flex;
-  height: 2.75rem;
-  align-items: center;
-  gap: 0.5rem;
-  border-radius: var(--v-radius);
-  padding-inline: 1.15rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  white-space: nowrap;
-  transition:
-    background-color 150ms ease-out,
-    border-color 150ms ease-out,
-    color 150ms ease-out;
-}
+  .v-link:hover {
+    color: var(--v-ink);
+  }
 
-.v-btn-primary {
-  background: var(--v-primary);
-  color: var(--v-primary-ink);
-}
+  .v-btn {
+    display: inline-flex;
+    height: 2.75rem;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: var(--v-radius);
+    padding-inline: 1.15rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition:
+      background-color 150ms ease-out,
+      border-color 150ms ease-out,
+      color 150ms ease-out;
+  }
 
-.v-btn-primary:hover {
-  background: color-mix(in oklch, var(--v-primary) 88%, white);
-}
+  .v-btn-primary {
+    background: var(--v-primary);
+    color: var(--v-primary-ink);
+  }
 
-.v-btn-ghost {
-  border: 1px solid var(--v-line-strong);
-  background: var(--v-surface);
-  color: var(--v-ink);
-}
+  .v-btn-primary:hover {
+    background: color-mix(in oklch, var(--v-primary) 88%, white);
+  }
 
-.v-btn-ghost:hover {
-  border-color: color-mix(in oklch, var(--v-ink) 28%, transparent);
-}
+  .v-btn-ghost {
+    border: 1px solid var(--v-line-strong);
+    background: var(--v-surface);
+    color: var(--v-ink);
+  }
 
-.v-footer {
-  border-top: 1px solid var(--v-line);
-}
+  .v-btn-ghost:hover {
+    border-color: color-mix(in oklch, var(--v-ink) 28%, transparent);
+  }
 
-/* The design switcher, fixed bottom centre on every numbered page. */
-.v-switcher {
-  position: fixed;
-  bottom: max(0.75rem, env(safe-area-inset-bottom));
-  left: 50%;
-  z-index: 60;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.125rem;
-  translate: -50% 0;
-  border: 1px solid var(--v-line-strong);
-  border-radius: 9999px;
-  background: color-mix(in oklch, var(--v-surface) 88%, transparent);
-  padding: 0.25rem;
-  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 60%);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
+  .v-footer {
+    border-top: 1px solid var(--v-line);
+  }
 
-.v-switcher-label {
-  padding-inline: 0.65rem 0.4rem;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--v-faint);
-}
+  /* The design switcher, fixed bottom centre on every numbered page. */
+  .v-switcher {
+    position: fixed;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    left: 50%;
+    z-index: 60;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    translate: -50% 0;
+    border: 1px solid var(--v-line-strong);
+    border-radius: 9999px;
+    background: color-mix(in oklch, var(--v-surface) 88%, transparent);
+    padding: 0.25rem;
+    box-shadow: 0 10px 30px -10px rgb(0 0 0 / 60%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
 
-.v-switcher-item {
-  display: inline-flex;
-  width: 2rem;
-  height: 2rem;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--v-soft);
-  transition:
-    background-color 140ms,
-    color 140ms;
-}
+  .v-switcher-label {
+    padding-inline: 0.65rem 0.4rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--v-faint);
+  }
 
-.v-switcher-item:hover {
-  color: var(--v-ink);
-  background: color-mix(in oklch, var(--v-ink) 8%, transparent);
-}
+  .v-switcher-item {
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--v-soft);
+    transition:
+      background-color 140ms,
+      color 140ms;
+  }
 
-.v-switcher-item.is-current {
-  background: var(--v-primary);
-  color: var(--v-primary-ink);
+  .v-switcher-item:hover {
+    color: var(--v-ink);
+    background: color-mix(in oklch, var(--v-ink) 8%, transparent);
+  }
+
+  .v-switcher-item.is-current {
+    background: var(--v-primary);
+    color: var(--v-primary-ink);
+  }
 }
