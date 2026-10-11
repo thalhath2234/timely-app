@@ -1898,10 +1898,10 @@ export default function SheetGrid({
   return (
     <div data-chat-sheet-range={selectedAddress} data-chat-sheet-tab={activeTabId} className="flex h-full flex-col overflow-hidden bg-background">
       <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-[#191B22] px-2 py-1">
-        <button type="button" title="Undo (⌘Z)" disabled={history.past.length === 0} onClick={undo} className={toolClass()}>
+        <button type="button" title="Undo" disabled={history.past.length === 0} onClick={undo} className={toolClass()}>
           <Undo2 className="size-4" />
         </button>
-        <button type="button" title="Redo (⌘Y)" disabled={history.future.length === 0} onClick={redo} className={toolClass()}>
+        <button type="button" title="Redo" disabled={history.future.length === 0} onClick={redo} className={toolClass()}>
           <Redo2 className="size-4" />
         </button>
         <button type="button" title="Print" onClick={printSheet} className={toolClass()}>
@@ -2025,13 +2025,13 @@ export default function SheetGrid({
         <button type="button" title="Increase font size" onClick={() => bumpFontSize(1)} className={toolClass()}>
           <Plus className="size-3.5" />
         </button>
-        <button type="button" title="Bold (⌘B)" onClick={() => applyFormat({ bold: !selectedFormat?.bold })} className={toolClass(Boolean(selectedFormat?.bold))}>
+        <button type="button" title="Bold" onClick={() => applyFormat({ bold: !selectedFormat?.bold })} className={toolClass(Boolean(selectedFormat?.bold))}>
           <Bold className="size-3.5" />
         </button>
-        <button type="button" title="Italic (⌘I)" onClick={() => applyFormat({ italic: !selectedFormat?.italic })} className={toolClass(Boolean(selectedFormat?.italic))}>
+        <button type="button" title="Italic" onClick={() => applyFormat({ italic: !selectedFormat?.italic })} className={toolClass(Boolean(selectedFormat?.italic))}>
           <Italic className="size-3.5" />
         </button>
-        <button type="button" title="Underline (⌘U)" onClick={() => applyFormat({ underline: !selectedFormat?.underline })} className={toolClass(Boolean(selectedFormat?.underline))}>
+        <button type="button" title="Underline" onClick={() => applyFormat({ underline: !selectedFormat?.underline })} className={toolClass(Boolean(selectedFormat?.underline))}>
           <Underline className="size-3.5" />
         </button>
         <button type="button" title="Strikethrough" onClick={() => applyFormat({ strikethrough: !selectedFormat?.strikethrough })} className={toolClass(Boolean(selectedFormat?.strikethrough))}>
