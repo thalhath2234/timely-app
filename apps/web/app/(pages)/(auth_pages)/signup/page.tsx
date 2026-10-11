@@ -1,40 +1,94 @@
 "use client";
 
 import React, { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  User,
-  Mail,
-  Lock,
-  ArrowRight,
-  AlertCircle,
-  CheckCircle2,
-  Eye,
-  EyeOff,
-} from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
-import AuthBrandPanel from "../_components/authBrandPanel";
-import { motion } from "motion/react";
-import { LogoSpinner, TimelyWordmark } from "@/app/_components/_ui/timelyLogo";
-import { springSoft } from "@/app/_components/_ui/motion";
+import { getHealth } from "@/app/utils/api/instance";
+import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
+import AuthShell, { NowBlock } from "@/app/_components/auth/authShell";
+import DayPanel, { type DayBlock } from "@/app/_components/auth/dayPanel";
+import {
+  AuthField,
+  AuthNotice,
+  PasswordField,
+} from "@/app/_components/auth/fields";
+import { SIGN_UP_DAY } from "@/app/_components/auth/sampleDay";
 
-const fieldClass =
-  "flex h-11 w-full items-center rounded-lg border border-white/10 bg-[#0c0e14] transition focus-within:border-[#c0c1ff] focus-within:ring-1 focus-within:ring-[#c0c1ff]";
-const inputClass =
-  "h-full w-full bg-transparent pr-3.5 text-sm text-[#e2e2eb] outline-none placeholder:text-[#908fa0]/70";
-const labelClass =
-  "mb-2 block text-[0.6875rem] font-medium tracking-[0.08em] text-[#c7c4d7] uppercase";
+const CLOSED_RED = "#E5484D";
+
+const CLOSED_DAY: DayBlock[] = [
+  {
+    id: "now",
+    title: "Sign-ups are closed",
+    at: 0,
+    length: 20,
+    color: CLOSED_RED,
+    state: "now",
+  },
+  { id: "a", title: "", at: 30, length: 60, color: CLOSED_RED, state: "ghost" },
+  {
+    id: "b",
+    title: "",
+    at: 100,
+    length: 45,
+    color: CLOSED_RED,
+    state: "ghost",
+  },
+];
+
+/** Shown instead of the form when the server takes no new accounts. */
+function SignupClosed() {
+  return (
+    <AuthShell
+      block={<NowBlock label="Sign-ups closed" color={CLOSED_RED} />}
+      title="New accounts are turned off here."
+      lead="This Timely already has its owner, and only the first account can sign up on its own. If this is your Timely, sign in."
+      aside={
+        <DayPanel title="This server" blocks={CLOSED_DAY} hoursBefore={1} />
+      }
+    >
+      <div className="flex flex-wrap gap-2.5">
+        <Link href="/login" className="lp-btn lp-btn-primary">
+          Sign in
+          <ArrowRight className="size-4" />
+        </Link>
+        <Link
+          href="/help/account/server#pairing-and-access"
+          className="lp-btn lp-btn-ghost"
+        >
+          How accounts work
+        </Link>
+      </div>
+      <p className="mt-8 max-w-[44ch] text-sm leading-relaxed text-[var(--lp-soft)]">
+        To let someone else join, the owner turns on{" "}
+        <span className="text-[var(--lp-ink)]">Allow new accounts</span> in
+        Settings, Server in the desktop app, or sets{" "}
+        <code className="lp-mono rounded bg-white/5 px-1 py-0.5 text-[0.8125rem] text-[var(--lp-ink)]">
+          ALLOW_REGISTRATION=true
+        </code>{" "}
+        on a self-hosted server.
+      </p>
+    </AuthShell>
+  );
+}
 
 export default function SignupPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [validationError, setValidationError] = useState("");
   const [success, setSuccess] = useState(false);
+  // The form shows while this loads; a closed server swaps it for SignupClosed.
+  const health = useQuery({
+    queryKey: ["health"],
+    queryFn: getHealth,
+    retry: false,
+    staleTime: 30_000,
+  });
 
   const signupMutation = useMutation({
     mutationFn: async () => {
@@ -64,14 +118,17 @@ export default function SignupPage() {
     },
   });
 
+  if (health.data?.registrationOpen === false && !success)
+    return <SignupClosed />;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !password.trim()) {
-      setValidationError("Please fill in all fields.");
+      setValidationError("Fill in your name, email and a password.");
       return;
     }
     if (password.length < 8) {
-      setValidationError("Password must be at least 8 characters long.");
+      setValidationError("Use a password of at least 8 characters.");
       return;
     }
     signupMutation.mutate();
@@ -80,146 +137,98 @@ export default function SignupPage() {
   const errorMessage = !success
     ? validationError || signupMutation.error?.message
     : "";
+  const firstName = name.trim().split(/\s+/)[0];
 
   return (
-    <main id="main-content" className="flex min-h-screen flex-col bg-[#0c0e14] text-[#e2e2eb] md:flex-row">
-      <AuthBrandPanel />
-
-      <section className="relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12 sm:px-10">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(#282a30_1px,transparent_1px)] [background-size:24px_24px] opacity-25" />
-
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={springSoft}
-          className="relative z-10 w-full max-w-[420px] rounded-xl border border-white/10 bg-[#191b22] p-8 shadow-2xl sm:p-9"
+    <AuthShell
+      block={<NowBlock label="Create your account" />}
+      title="Start your first day."
+      lead="One account owns this Timely. Your tasks, docs and keys stay on this server, and the assistant runs on the AI you already pay for."
+      headerAction={
+        <Link
+          href="/login"
+          className="lp-btn lp-btn-ghost !h-9 !px-3.5 !text-sm"
         >
-          <Link
-            href="/"
-            aria-label="Timely home"
-            className="mx-auto mb-6 flex w-fit items-center justify-center gap-2.5 rounded-lg md:hidden"
-          >
-            <TimelyWordmark />
-          </Link>
+          Log in
+        </Link>
+      }
+      aside={
+        <DayPanel
+          title={firstName ? `${firstName}’s first day` : "Your first day"}
+          blocks={SIGN_UP_DAY}
+          hoursBefore={1}
+        />
+      }
+    >
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        {success ? (
+          <AuthNotice tone="success">
+            <span className="flex items-center gap-2">
+              <Check className="size-4 text-[var(--lp-green)]" />
+              Account created. Setting up your first day…
+            </span>
+          </AuthNotice>
+        ) : null}
+        {errorMessage ? <AuthNotice>{errorMessage}</AuthNotice> : null}
 
-          <h1 className="text-2xl font-semibold tracking-tight">Create Account</h1>
-          <p className="mt-1.5 text-sm text-[#908fa0]">
-            Get started with Timely task manager
-          </p>
+        <AuthField
+          id="name"
+          label="Name"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Sam Rivera"
+          autoComplete="name"
+          autoFocus
+        />
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-            {success ? (
-              <div className="flex items-center gap-2.5 rounded-lg border border-[#4edea3]/30 bg-[#00311f]/40 px-3.5 py-3 text-sm font-medium text-[#4edea3]">
-                <CheckCircle2 className="size-[18px] shrink-0" />
-                <span>Registration successful! Redirecting...</span>
-              </div>
-            ) : null}
+        <AuthField
+          id="email"
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          autoComplete="email"
+        />
 
-            {errorMessage ? (
-              <div className="flex items-center gap-2.5 rounded-lg border border-[#ffb4ab]/30 bg-[#93000a]/20 px-3.5 py-3 text-sm font-medium text-[#ffb4ab]">
-                <AlertCircle className="size-[18px] shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            ) : null}
+        <PasswordField
+          id="password"
+          label="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
+          hint="At least 8 characters."
+        />
 
-            <div>
-              <label htmlFor="name" className={labelClass}>
-                Full Name
-              </label>
-              <div className={fieldClass}>
-                <User className="ml-3.5 mr-2.5 size-[18px] shrink-0 text-[#908fa0]" />
-                <input
-                  id="name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe"
-                  autoComplete="name"
-                  className={inputClass}
-                />
-              </div>
-            </div>
+        <button
+          type="submit"
+          disabled={signupMutation.isPending || success}
+          className="lp-btn lp-btn-primary mt-2 w-full justify-center disabled:opacity-60"
+        >
+          {signupMutation.isPending ? (
+            <>
+              <LogoSpinner size={18} tone="mono" label="Creating account" />
+              Creating account…
+            </>
+          ) : (
+            <>
+              Create account
+              <ArrowRight className="size-4" />
+            </>
+          )}
+        </button>
+      </form>
 
-            <div>
-              <label htmlFor="email" className={labelClass}>
-                Email Address
-              </label>
-              <div className={fieldClass}>
-                <Mail className="ml-3.5 mr-2.5 size-[18px] shrink-0 text-[#908fa0]" />
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  autoComplete="email"
-                  className={inputClass}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className={labelClass}>
-                Password
-              </label>
-              <div className={fieldClass}>
-                <Lock className="ml-3.5 mr-2.5 size-[18px] shrink-0 text-[#908fa0]" />
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="•••••••• (Min 8 characters)"
-                  autoComplete="new-password"
-                  className={`${inputClass} pr-2`}
-                />
-                <button
-                  type="button"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  onClick={() => setShowPassword((open) => !open)}
-                  className="pr-3.5 text-[#908fa0] transition-colors hover:text-[#e2e2eb]"
-                >
-                  {showPassword ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={signupMutation.isPending || success}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#c0c1ff] text-sm font-semibold text-[#1000a9] shadow-sm transition hover:bg-[#a8a6ff] focus:outline-none focus:ring-2 focus:ring-[#c0c1ff]/50 active:scale-[0.98] disabled:opacity-60"
-              >
-                {signupMutation.isPending ? (
-                  <>
-                    <LogoSpinner size={20} tone="mono" label="Creating account" />
-                    Creating account...
-                  </>
-                ) : (
-                  <>
-                    Sign Up
-                    <ArrowRight className="size-4" />
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-[#908fa0]">
-            Already have an account?{" "}
-            <Link
-              href="/login"
-              className="font-medium text-[#c0c1ff] transition-colors hover:text-[#e1e0ff] hover:underline"
-            >
-              Sign in
-            </Link>
-          </p>
-        </motion.div>
-
-        <footer className="relative z-10 mt-8 text-center text-xs text-[#464554]">
-          © {new Date().getFullYear()} Timely Technologies Inc. All rights reserved.
-        </footer>
-      </section>
-    </main>
+      <p className="mt-6 text-sm text-[var(--lp-soft)]">
+        Already have an account?{" "}
+        <Link
+          href="/login"
+          className="font-medium text-[var(--lp-now)] underline-offset-4 hover:underline"
+        >
+          Sign in
+        </Link>
+      </p>
+    </AuthShell>
   );
 }
