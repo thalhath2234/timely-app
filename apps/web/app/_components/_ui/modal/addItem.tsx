@@ -520,11 +520,31 @@ function AddItemModalInner() {
     });
   };
 
+  // What Schedule held before the person picked Reminder, so going back to
+  // Work does not keep the ping time as a scheduled block.
+  const [workSchedule, setWorkSchedule] = useState<string | null>(null);
   const makeTaskReminder = () => {
     setTaskKind("reminder");
+    setWorkSchedule(taskScheduledOn);
     setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
-    if (!taskScheduledOn) {
+    // A time the suggestions read from the words ("Tuesday afternoon") is
+    // the ping; one that has already passed pings at the next hour.
+    if (suggestions?.date && (suggestions.dateRole === "reminder" || suggestions.time)) {
+      const at = applyClockToDate(dateFromDateInput(suggestions.date), suggestions.time || "09:00");
+      setValueTask("scheduledOn", toDatetimeLocalValue(at < new Date() ? nextRoundHour() : at), {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    } else if (!taskScheduledOn) {
       setTaskClock(toTimeInputValue(nextRoundHour()));
+    }
+  };
+  const makeTaskWork = () => {
+    setTaskKind("task");
+    setValueTask("duration", 30, { shouldValidate: true, shouldDirty: true });
+    if (workSchedule !== null) {
+      setValueTask("scheduledOn", workSchedule, { shouldValidate: true, shouldDirty: true });
+      setWorkSchedule(null);
     }
   };
 
@@ -812,7 +832,9 @@ function AddItemModalInner() {
   const clarifyInboxId =
     isAddItemModalOpen && addNewMode === "task" ? createTaskDraft?.inboxId : undefined;
   const decisionsOn = useDecisions().data?.available === true;
-  const suggestionsQuery = useClarifySuggestions(clarifyInboxId, decisionsOn);
+  // Asked even with smart suggestions off: the server still reads "Remind
+  // me…" and a date or time in the words, which needs no model.
+  const suggestionsQuery = useClarifySuggestions(clarifyInboxId);
   const suggestions = suggestionsQuery.data?.available ? suggestionsQuery.data : undefined;
   const decisionFeedback = useDecisionFeedback();
   // The suggestions (by logId) that filled at least one field, so the note
@@ -1346,7 +1368,7 @@ function AddItemModalInner() {
 
             {isClarify && (
               <ClarifyHints
-                loading={suggestionsQuery.isFetching && !suggestionsQuery.data}
+                loading={decisionsOn && suggestionsQuery.isFetching && !suggestionsQuery.data}
                 suggestions={suggestions}
                 filled={Boolean(suggestions?.logId) && filledFor === suggestions?.logId}
                 dateFilled={
@@ -1398,11 +1420,7 @@ function AddItemModalInner() {
                       makeTaskReminder();
                       return;
                     }
-                    setTaskKind("task");
-                    setValueTask("duration", 30, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    });
+                    makeTaskWork();
                   }}
                 />
                 <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">

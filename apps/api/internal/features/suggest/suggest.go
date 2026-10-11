@@ -234,28 +234,62 @@ func (s *Service) clarify(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if out.DateRole != "" {
-		out.Date, out.Time = s.clarifyDate(ctx, user(c), c.Param("id"), c.QueryParam("timezone"))
-	}
+	s.readWords(ctx, user(c), c.Param("id"), c.QueryParam("timezone"), &out)
 	return c.JSON(200, out)
 }
 
-// clarifyDate reads the date in an Inbox item's words in the person's own
-// day (their saved hours' zone, else the client's).
-func (s *Service) clarifyDate(ctx context.Context, userID, inboxID, timezone string) (string, string) {
+// readWords adds what plain code can read from an Inbox item's words, with
+// or without Jev: "Remind me to…" makes it a Reminder, and a date or time in
+// the words fills the field Jev says it is for (or, when Jev gave no answer,
+// the one the wording points at: a reminder's ping, "by Friday", "start
+// Monday"). Dates are read in the person's own day (their saved hours' zone,
+// else the client's). With suggestions off this is the whole answer.
+func (s *Service) readWords(ctx context.Context, userID, inboxID, timezone string, out *ClarifySuggestions) {
 	var item models.Task
 	if err := s.db.WithContext(ctx).Select("name").Where("id = ? AND user_id = ?", inboxID, userID).First(&item).Error; err != nil {
-		return "", ""
+		return
 	}
 	hours, err := schedule.NewRepository(s.db.WithContext(ctx)).GetWorkingHours(userID)
 	if err != nil {
 		hours = models.WorkingHours{}
 	}
 	date, clock, ok := titleDate(item.Name, task.TodayFor(hours, timezone, time.Now()).Now())
-	if !ok {
-		return "", ""
+	applyWords(out, item.Name, inboxID, date, clock, ok)
+}
+
+// applyWords is readWords without the database, so tests can run it.
+func applyWords(out *ClarifySuggestions, name, inboxID, date, clock string, dated bool) {
+	before := out.Kind != "" || out.DateRole != ""
+	if asksForReminder(name) {
+		out.Kind = models.KindReminder
+		out.LooksLikeEvent = false
+		out.NotReady = false
+		out.Duration = 0
 	}
-	return date, clock
+	if dated {
+		switch {
+		case out.Kind == models.KindReminder:
+			// A reminder has one moment: when it pings.
+			out.DateRole = "reminder"
+		case out.DateRole == "" || (out.Kind == models.KindTask && out.DateRole == "reminder"):
+			// No answer, or a reminder time on Work, which has no such field:
+			// use the one the wording points at.
+			out.DateRole = dateRoleFromWords(name, out.Kind, clock)
+		}
+	}
+	if out.DateRole != "" && dated {
+		out.Date, out.Time = date, clock
+		if out.Missing == "date" {
+			out.Missing = ""
+		}
+	}
+	// With suggestions off (or failing), what the words said is still worth
+	// filling in. It has no decision log, so it gets an id of its own that
+	// keeps the form's "filled once" bookkeeping working.
+	if !out.Available && !before && (out.Kind != "" || out.DateRole != "") {
+		out.Available = true
+		out.LogID = "words:" + inboxID
+	}
 }
 
 type namedProject struct {

@@ -91,6 +91,15 @@ function shortDate(date: string) {
   return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
+/** "15:00" as "3 PM", "09:30" as "9:30 AM". */
+function clockLabel(time: string) {
+  const [h, m] = time.split(":").map(Number);
+  return new Date(2000, 0, 1, h, m).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    ...(m ? { minute: "2-digit" } : {}),
+  });
+}
+
 function lengthLabel(minutes: number) {
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
@@ -115,7 +124,7 @@ export function inboxSuggestionSummary(
   if (s.kind === "reminder") {
     parts.push(
       s.dateRole === "reminder" && s.date
-        ? `A reminder for ${shortDate(s.date)}${s.time ? ` at ${s.time}` : ""}`
+        ? `A reminder for ${shortDate(s.date)}${s.time ? ` at ${clockLabel(s.time)}` : ""}`
         : "A reminder",
     );
   } else if (s.kind === "task") {

@@ -168,7 +168,9 @@ export default function InboxSuggestionsCard({
 }) {
   const isInbox = task.kind === "inbox";
   const status = useDecisionsStatusQuery(isInbox);
-  const suggestions = useInboxSuggestionsQuery(task.id, isInbox && status.data?.available === true);
+  // Asked with suggestions off too: the server still reads "Remind me…" and
+  // a date or time in the words, which needs no model.
+  const suggestions = useInboxSuggestionsQuery(task.id, isInbox);
   const feedback = useDecisionFeedback();
   const [closed, setClosed] = useState(false);
   const data = suggestions.data;

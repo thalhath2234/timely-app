@@ -105,7 +105,7 @@ describe("inboxSuggestionSummary", () => {
 
   test("reads a reminder with its time", () => {
     const summary = inboxSuggestionSummary({ kind: "reminder", dateRole: "reminder", date: "2026-10-12", time: "09:00" });
-    assert.equal(summary.line, "A reminder for Mon, Oct 12 at 09:00");
+    assert.equal(summary.line, "A reminder for Mon, Oct 12 at 9 AM");
   });
 
   test("keeps only a note when there is no confident kind", () => {
