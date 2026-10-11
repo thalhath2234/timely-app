@@ -283,11 +283,11 @@ function MonthDayGrid({ value, onChange }: { value: number[]; onChange: (days: n
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  root: { gap: 14, borderRadius: 24, backgroundColor: colors.card, padding: 16 },
+  root: { gap: 14, borderRadius: 16, backgroundColor: colors.card, padding: 16 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   row: { gap: 8 },
-  panel: { gap: 12, borderRadius: 18, backgroundColor: colors.background, padding: 14 },
-  muted: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  panel: { gap: 12, borderRadius: 14, backgroundColor: colors.background, padding: 14 },
+  muted: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   stepper: { flexDirection: "row", alignItems: "center", gap: 10 },
   step: {
     width: 40,
@@ -298,6 +298,6 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
   },
   stepText: { color: colors.foreground, fontSize: 18, fontWeight: "600" },
-  stepValue: { color: colors.primary, fontSize: 18, fontWeight: "800", minWidth: 24, textAlign: "center" },
+  stepValue: { color: colors.primary, fontSize: 18, fontWeight: "600", minWidth: 24, textAlign: "center" },
   summary: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 12 },
 }));

@@ -99,7 +99,7 @@ export default function ReceiptReview({
   }
   return (
     <View style={{ gap: 16 }}>
-      <Text style={[styles.text, { fontWeight: "700", fontSize: 22 }]}>
+      <Text style={[styles.text, { fontWeight: "600", fontSize: 22 }]}>
         Check your receipt
       </Text>
       <Text style={styles.muted}>1. Check details → 2. Confirm and save</Text>
@@ -233,7 +233,7 @@ export default function ReceiptReview({
             />
           </View>
         )}
-        <Text style={[styles.text, { fontWeight: "700" }]}>
+        <Text style={[styles.text, { fontWeight: "600" }]}>
           Individual items ({draft.items.length})
         </Text>
         {!draft.items.length && (
@@ -262,7 +262,7 @@ export default function ReceiptReview({
                   {item.category ? ` · ${item.category}` : ""}
                 </Text>
               </View>
-              <Text style={[styles.text, { fontWeight: "700" }]}>
+              <Text style={[styles.text, { fontWeight: "600" }]}>
                 {draft.currency} {item.amount || "—"}
               </Text>
               {editingItem === i ? (
@@ -377,7 +377,7 @@ export default function ReceiptReview({
             />
           </View>
         )}
-        <Text style={[styles.text, { fontWeight: "700" }]}>Save to</Text>
+        <Text style={[styles.text, { fontWeight: "600" }]}>Save to</Text>
         <Select
           placeholder="Expense sheet"
           value={destination.sheetId}
@@ -459,7 +459,7 @@ export default function ReceiptReview({
       )}
       {!!problems.length && (
         <View style={dateStyles.card}>
-          <Text style={[styles.text, { fontWeight: "700" }]}>
+          <Text style={[styles.text, { fontWeight: "600" }]}>
             Before continuing
           </Text>
           {problems.map((problem) => (
@@ -523,11 +523,11 @@ export function ReceiptSaveSummary({
   )?.name;
   return (
     <View style={dateStyles.card}>
-      <Text style={[styles.text, { fontWeight: "700" }]}>Ready to save</Text>
+      <Text style={[styles.text, { fontWeight: "600" }]}>Ready to save</Text>
       <Text
         style={[
           styles.text,
-          { fontSize: 30, lineHeight: 36, fontWeight: "800" },
+          { fontSize: 30, lineHeight: 36, fontWeight: "600" },
         ]}
       >
         {receipt.currency} {receipt.total}
@@ -584,8 +584,8 @@ const dateStyles = createThemedStyleSheet(() => ({
     minHeight: 48,
   },
   trigger: {
-    minHeight: 56,
-    borderRadius: 16,
+    minHeight: 48,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.input,
     backgroundColor: colors.card,

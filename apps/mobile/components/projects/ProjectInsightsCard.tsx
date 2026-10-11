@@ -122,9 +122,9 @@ export default function ProjectInsightsCard({ project }: { project: Project }) {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  card: { gap: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
+  card: { gap: 8, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
   header: { flexDirection: "row", alignItems: "center", gap: 6 },
-  health: { marginLeft: "auto", overflow: "hidden", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, fontSize: 12, fontWeight: "700" },
+  health: { marginLeft: "auto", overflow: "hidden", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, fontSize: 12, fontWeight: "600" },
   progressing: { color: colors.success, backgroundColor: colors.secondary },
   stalled: { color: colors.warning, backgroundColor: colors.secondary },
   blocked: { color: colors.destructive, backgroundColor: colors.secondary },
@@ -133,6 +133,6 @@ const styles = createThemedStyleSheet((colors) => ({
   text: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   link: { color: colors.foreground },
   button: { minHeight: 32, borderRadius: 10, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.secondary },
-  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "700" },
+  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
   dismiss: { padding: 4 },
 }));

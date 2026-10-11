@@ -6,6 +6,8 @@ import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
+import { Button } from "../../components/ui/primitives";
+import { formatDateAndTime } from "../../lib/format";
 import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import {
   useClearNotifications,
@@ -117,20 +119,22 @@ export default function NotificationsScreen() {
         }
       >
         <View style={styles.toolbar}>
-          <AnimatedPressable
+          <Button
+            label="Mark all read"
+            variant="outline"
+            size="sm"
+            loading={markAll.isPending}
+            disabled={items.length === 0 || items.every((item) => item.readAt)}
             onPress={() => void markAll.mutateAsync()}
-            disabled={markAll.isPending || items.length === 0 || items.every((item) => item.readAt)}
-            style={styles.markAll}
-          >
-            <Text style={styles.markAllText}>Mark all read</Text>
-          </AnimatedPressable>
-          <AnimatedPressable
+          />
+          <Button
+            label="Clear all"
+            variant="destructive-ghost"
+            size="sm"
+            loading={clearAll.isPending}
+            disabled={items.length === 0}
             onPress={() => setConfirmClear(true)}
-            disabled={clearAll.isPending || items.length === 0}
-            style={styles.markAll}
-          >
-            <Text style={styles.clearText}>Clear all</Text>
-          </AnimatedPressable>
+          />
         </View>
         {clearAll.isError ? (
           <Text style={styles.meta}>Couldn't clear notifications. Try again.</Text>
@@ -166,7 +170,7 @@ export default function NotificationsScreen() {
                     <Text style={styles.title}>{item.title}</Text>
                     {item.body ? <Text style={styles.meta}>{item.body}</Text> : null}
                     <Text style={styles.stamp}>
-                      {item.category} · {new Date(item.createdAt).toLocaleString()}
+                      {item.category.charAt(0).toUpperCase() + item.category.slice(1)} · {formatDateAndTime(item.createdAt)}
                     </Text>
                   </AnimatedPressable>
                   <AnimatedPressable
@@ -337,10 +341,7 @@ function SmartAlert({
 
 const styles = createThemedStyleSheet((colors) => ({
   body: { padding: 16, gap: 10, paddingBottom: 40 },
-  toolbar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 16 },
-  markAll: { alignSelf: "flex-end", paddingVertical: 4 },
-  markAllText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
-  clearText: { color: colors.destructive, fontSize: 13, fontWeight: "600" },
+  toolbar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 8 },
   row: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -355,7 +356,7 @@ const styles = createThemedStyleSheet((colors) => ({
   dismiss: { padding: 2 },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 13, marginTop: 4 },
-  stamp: { color: colors.mutedForeground, fontSize: 11, marginTop: 6, textTransform: "uppercase" },
+  stamp: { color: colors.mutedForeground, fontSize: 12, marginTop: 6 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     borderWidth: 1,

@@ -89,7 +89,7 @@ const styles = createThemedStyleSheet((colors) => ({
   track: {
     flexGrow: 1,
     padding: 3,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.muted,
     overflow: "hidden",
   },

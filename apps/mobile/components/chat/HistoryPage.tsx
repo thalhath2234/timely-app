@@ -256,7 +256,7 @@ const styles = createThemedStyleSheet(() => ({
   groupLabel: {
     color: colors.mutedForeground,
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "600",
     textTransform: "uppercase",
     letterSpacing: 0.8,
     paddingHorizontal: 8,
@@ -267,7 +267,7 @@ const styles = createThemedStyleSheet(() => ({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 18,
+    borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 10,
     marginBottom: 2,
@@ -281,7 +281,7 @@ const styles = createThemedStyleSheet(() => ({
     justifyContent: "center",
   },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  unreadTitle: { fontWeight: "800" },
+  unreadTitle: { fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17 },
   dot: {
     width: 8,
@@ -292,12 +292,12 @@ const styles = createThemedStyleSheet(() => ({
   deleteOption: { color: colors.destructive, fontSize: 15, fontWeight: "600" },
   errorCard: {
     marginTop: 16,
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.destructive,
     backgroundColor: `${colors.destructive}10`,
     padding: 16,
     gap: 8,
   },
-  errorTitle: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
+  errorTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
 }));

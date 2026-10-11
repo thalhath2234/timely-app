@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Inbox, Trash2 } from "lucide-react-native";
 import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
-import { Field, PrimaryButton } from "../../components/ui/primitives";
+import { Button, Field } from "../../components/ui/primitives";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import { useCaptureInbox, useDeleteTask, useInboxQuery } from "../../lib/hooks";
@@ -37,16 +37,22 @@ export default function InboxScreen() {
         }
       >
         <ScreenTip screen="inbox" />
-        <Field value={title} onChangeText={setTitle} placeholder="Capture a title…" autoCapitalize="sentences" />
-        <PrimaryButton
-          label={capture.isPending ? "Saving…" : "Capture"}
-          disabled={!title.trim() || capture.isPending}
-          onPress={() => {
-            const name = title.trim();
-            if (!name) return;
-            void capture.mutateAsync(name).then(() => setTitle(""));
-          }}
-        />
+        <View style={styles.capture}>
+          <View style={{ flex: 1 }}>
+            <Field value={title} onChangeText={setTitle} placeholder="Capture a title…" autoCapitalize="sentences" />
+          </View>
+          <Button
+            label="Capture"
+            size="lg"
+            loading={capture.isPending}
+            disabled={!title.trim()}
+            onPress={() => {
+              const name = title.trim();
+              if (!name) return;
+              void capture.mutateAsync(name).then(() => setTitle(""));
+            }}
+          />
+        </View>
         <Text style={styles.hint}>Inbox items are not auto-scheduled until you assign a workspace and duration.</Text>
         {capture.isError ? (
           <Text style={styles.error}>
@@ -66,16 +72,17 @@ export default function InboxScreen() {
                 onPress={() => router.push(`/(app)/tasks/${task.id}`)}
                 style={styles.rowBody}
               >
-                <Text style={[styles.title, task.completedAt ? styles.done : null]}>{task.name}</Text>
+                <Text style={[styles.title, task.completedAt ? styles.done : null]} numberOfLines={2}>{task.name}</Text>
               </AnimatedPressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Delete ${task.name}`}
+              <Button label="Review" variant="outline" size="sm" onPress={() => router.push(`/(app)/tasks/${task.id}`)} />
+              <Button
+                label={`Delete ${task.name}`}
+                variant="destructive-ghost"
+                size="sm"
+                iconOnly
+                icon={<Trash2 size={18} color={colors.destructive} />}
                 onPress={() => setDeleteItem({ id: task.id, name: task.name })}
-                style={styles.deleteButton}
-              >
-                <Trash2 size={18} color={colors.destructive} />
-              </Pressable>
+              />
             </View>
           ))
         )}
@@ -104,14 +111,16 @@ const styles = createThemedStyleSheet((colors) => ({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
-    padding: 12,
+    paddingVertical: 6,
+    paddingLeft: 14,
+    paddingRight: 6,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     backgroundColor: colors.card,
   },
   rowBody: { flex: 1, minHeight: 48, justifyContent: "center" },
-  deleteButton: { width: 48, height: 48, borderRadius: 16, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
-  title: { color: colors.foreground, fontSize: 15, flex: 1 },
+  capture: { flexDirection: "row", alignItems: "center", gap: 8 },
+  title: { color: colors.foreground, fontSize: 15 },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
 }));

@@ -704,9 +704,9 @@ export default function TasksScreen() {
 const styles = createThemedStyleSheet((colors) => ({
   head: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 22, paddingBottom: 12, paddingHorizontal: 4 },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  group: { color: colors.foreground, fontSize: 17, fontWeight: "800", flex: 1, letterSpacing: -0.2 },
+  group: { color: colors.foreground, fontSize: 17, fontWeight: "600", flex: 1, letterSpacing: -0.2 },
   groupCount: { minWidth: 26, height: 26, paddingHorizontal: 7, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.muted },
-  count: { color: colors.mutedForeground, fontSize: 12, fontWeight: "700" },
+  count: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   bulk: {
     flexDirection: "row",
     alignItems: "center",
@@ -716,13 +716,13 @@ const styles = createThemedStyleSheet((colors) => ({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  bulkCount: { color: colors.foreground, fontSize: 12, fontWeight: "800", flexShrink: 0 },
+  bulkCount: { color: colors.foreground, fontSize: 12, fontWeight: "600", flexShrink: 0 },
   bulkScroll: { flex: 1, minWidth: 0 },
   bulkActions: { gap: 7, alignItems: "center" },
   bulkButton: { minHeight: 36, paddingHorizontal: 10, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
-  bulkAction: { color: colors.primary, fontSize: 12, fontWeight: "700" },
+  bulkAction: { color: colors.primary, fontSize: 12, fontWeight: "600" },
   projectCard: {
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -731,7 +731,7 @@ const styles = createThemedStyleSheet((colors) => ({
     marginBottom: 10,
   },
   cardWrap: { marginBottom: 10 },
-  projectTitle: { color: colors.foreground, fontSize: 17, fontWeight: "700" },
+  projectTitle: { color: colors.foreground, fontSize: 17, fontWeight: "600" },
   filterBtn: {
     flexDirection: "row",
     alignItems: "center",

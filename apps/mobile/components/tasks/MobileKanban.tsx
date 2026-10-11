@@ -161,7 +161,7 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingVertical: 10,
   },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  title: { color: colors.foreground, fontSize: 13, fontWeight: "700", flex: 1 },
+  title: { color: colors.foreground, fontSize: 13, fontWeight: "600", flex: 1 },
   count: { color: colors.mutedForeground, fontSize: 12 },
   list: { flex: 1 },
   cards: { paddingHorizontal: 8, paddingBottom: 110 },

@@ -108,7 +108,7 @@ export function HabitsCard({ settings, today, onSettings }: { settings: Record<s
             <View style={{ flex: 1 }} />
             <View style={styles.dots}>
               {days.map((day) => (
-                <Text key={day} style={[styles.dayLetter, day === today && { color: colors.foreground, fontWeight: "700" }]}>
+                <Text key={day} style={[styles.dayLetter, day === today && { color: colors.foreground, fontWeight: "600" }]}>
                   {weekdayLetter(day)}
                 </Text>
               ))}
@@ -149,7 +149,7 @@ export function HabitsCard({ settings, today, onSettings }: { settings: Record<s
                         onPress={() => toggle(habit.id, day)}
                         style={[styles.dayDot, done && styles.dayDotOn, day === today && !done && styles.dayDotToday]}
                       >
-                        {done ? <Check size={12} color="#fff" strokeWidth={3} /> : null}
+                        {done ? <Check size={12} color={colors.background} strokeWidth={3} /> : null}
                       </AnimatedPressable>
                     );
                   })}
@@ -384,7 +384,7 @@ export function ClockCard({ cardId, title, settings, onSettings }: { cardId: str
         </View>
       )}
       {state.mode === "timer" ? (
-        <Text style={[styles.small, { textAlign: "center" }, state.done && { color: colors.success, fontWeight: "700", fontSize: 14 }]}>
+        <Text style={[styles.small, { textAlign: "center" }, state.done && { color: colors.success, fontWeight: "600", fontSize: 14 }]}>
           {state.done ? "Time's up" : `${state.minutes} min timer`}
         </Text>
       ) : null}
@@ -547,13 +547,13 @@ const styles = createThemedStyleSheet((colors) => ({
   tabOn: { backgroundColor: colors.accent },
   tabText: { color: colors.mutedForeground, fontSize: 13 },
   tabTextOn: { color: colors.accentForeground, fontWeight: "600" },
-  clock: { color: colors.foreground, fontSize: 42, fontWeight: "700", fontVariant: ["tabular-nums"], textAlign: "center" },
+  clock: { color: colors.foreground, fontSize: 42, fontWeight: "600", fontVariant: ["tabular-nums"], textAlign: "center" },
   timerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 14 },
   step: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
   controls: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 14 },
-  round: { padding: 10, borderRadius: 22 },
+  round: { padding: 10, borderRadius: 16 },
   roundSpacer: { width: 38, height: 38 },
-  primaryPill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 22, backgroundColor: colors.primary },
+  primaryPill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 16, backgroundColor: colors.primary },
   lapRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border },
   lapValue: { color: colors.foreground, fontSize: 14, fontVariant: ["tabular-nums"] },
   prompt: { color: colors.foreground, fontSize: 15, fontStyle: "italic", lineHeight: 21 },

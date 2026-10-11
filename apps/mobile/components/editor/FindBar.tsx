@@ -82,7 +82,7 @@ const styles = createThemedStyleSheet((colors) => ({
   count: { minWidth: 40, textAlign: "center", color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },
   icon: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: 8 },
   iconOn: { backgroundColor: colors.accent },
-  aa: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  aa: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   button: { height: 36, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1, borderColor: colors.border },
   buttonText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   disabled: { opacity: 0.4 },

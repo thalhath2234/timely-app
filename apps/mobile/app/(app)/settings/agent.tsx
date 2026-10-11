@@ -1320,14 +1320,14 @@ export default function AgentSettings() {
 const styles = createThemedStyleSheet((colors) => ({
   card: {
     backgroundColor: colors.card,
-    borderRadius: 24,
+    borderRadius: 16,
     padding: 16,
     gap: 10,
     borderWidth: 1,
     borderColor: colors.border,
   },
   cardDefault: { borderColor: `${colors.primary}66` },
-  title: { color: colors.foreground, fontSize: 17, fontWeight: "700" },
+  title: { color: colors.foreground, fontSize: 17, fontWeight: "600" },
   label: {
     color: colors.mutedForeground,
     fontSize: 12,
@@ -1388,7 +1388,7 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   group: {
     backgroundColor: colors.card,
-    borderRadius: 24,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: "hidden",
@@ -1408,7 +1408,7 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  groupTitle: { color: colors.foreground, fontSize: 16, fontWeight: "700" },
+  groupTitle: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
   groupMeta: { color: colors.mutedForeground, fontSize: 12, marginTop: 1 },
   groupBody: {
     borderTopWidth: 1,

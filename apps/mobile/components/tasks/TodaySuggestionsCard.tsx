@@ -149,7 +149,7 @@ export default function TodaySuggestionsCard({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  card: { gap: 8, marginBottom: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
+  card: { gap: 8, marginBottom: 8, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
   header: { flexDirection: "row", alignItems: "center", gap: 6 },
   label: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   row: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -159,6 +159,6 @@ const styles = createThemedStyleSheet((colors) => ({
   goalRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 },
   goal: { color: colors.primary, fontSize: 12 },
   button: { minHeight: 32, flexDirection: "row", gap: 4, borderRadius: 10, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.secondary },
-  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "700" },
+  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
   dismiss: { padding: 4 },
 }));

@@ -316,7 +316,7 @@ const styles = createThemedStyleSheet(() => ({
     right: 16,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -337,6 +337,6 @@ const styles = createThemedStyleSheet(() => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  hintTitle: { fontSize: 14, fontWeight: "700", color: colors.foreground },
+  hintTitle: { fontSize: 14, fontWeight: "600", color: colors.foreground },
   hintText: { fontSize: 12, lineHeight: 17, color: colors.mutedForeground },
 }));

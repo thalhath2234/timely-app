@@ -35,11 +35,11 @@ const styles = createThemedStyleSheet((colors) => ({
   row: { flexDirection: "row", alignItems: "flex-start", gap: 10, minWidth: 0 },
   icon: { width: 34, height: 34, borderRadius: 12, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   copy: { flex: 1, minWidth: 0, paddingTop: 1 },
-  title: { color: colors.foreground, fontSize: 15, fontWeight: "800", lineHeight: 20 },
+  title: { color: colors.foreground, fontSize: 15, fontWeight: "600", lineHeight: 20 },
   subtitle: { color: colors.mutedForeground, fontSize: 11, lineHeight: 15, marginTop: 1 },
   badge: { maxWidth: 108, minHeight: 28, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 14, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center", flexShrink: 1 },
   badgeSuccess: { backgroundColor: `${colors.success}20` },
   badgeMuted: { backgroundColor: colors.muted },
-  badgeText: { color: colors.accentForeground, fontSize: 10, lineHeight: 13, fontWeight: "800", textAlign: "center" },
+  badgeText: { color: colors.accentForeground, fontSize: 10, lineHeight: 13, fontWeight: "600", textAlign: "center" },
   badgeTextSuccess: { color: colors.success },
 }));

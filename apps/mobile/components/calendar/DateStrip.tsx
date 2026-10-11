@@ -113,7 +113,7 @@ const styles = createThemedStyleSheet((colors) => ({
   numWrap: { width: 40, height: 40, borderRadius: 20, overflow: "hidden", alignItems: "center", justifyContent: "center" },
   on: { backgroundColor: colors.primary },
   wd: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600" },
-  num: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
+  num: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
   onText: { color: colors.primary },
   numOnText: { color: colors.primaryForeground },
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.mutedForeground },
