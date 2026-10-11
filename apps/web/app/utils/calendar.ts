@@ -62,6 +62,8 @@ export type CalendarEvent = {
   completedAt: Date | null;
   item: CalendarItem;
   reminder: boolean;
+  /** Placed Work whose deadline date has gone by (set by markDeadlinePassed). */
+  deadlinePassed?: boolean;
 };
 
 export function isTaskKind(kind: CalendarItemKind) {

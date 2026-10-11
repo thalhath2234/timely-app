@@ -29,7 +29,9 @@ import {
   updateWorkingHours,
   type AddBlockPayload,
   type PlanRequest,
+  type RankedTask,
 } from "@/app/utils/api/schedule";
+import { hasUpcomingBlock } from "@timely/contract/workStatus";
 import { CalendarRange, Task } from "@/app/_types/types";
 import { optimisticMoveCalendarItems } from "@/app/utils/calendar";
 import { taskKey, tasksKey, todayKey } from "@/app/utils/hooks/tasks";
@@ -70,6 +72,25 @@ export function useRank() {
     queryKey: rankKey,
     queryFn: getRank,
     staleTime: 15_000,
+  });
+}
+
+function waitingForSlot(rows: RankedTask[]): RankedTask[] {
+  const now = new Date();
+  return rows.filter((row) => !hasUpcomingBlock(row.task, now));
+}
+
+/**
+ * The calendar's "Waiting for a slot": ranked Work with no Block still ahead.
+ * The rank list itself also keeps Overdue Work and Work with nothing today,
+ * even when it is already placed on a later day.
+ */
+export function useWaitingForSlot() {
+  return useQuery({
+    queryKey: rankKey,
+    queryFn: getRank,
+    staleTime: 15_000,
+    select: waitingForSlot,
   });
 }
 

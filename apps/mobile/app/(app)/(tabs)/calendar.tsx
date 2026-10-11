@@ -18,6 +18,7 @@ import CalendarItemSheet from "../../../components/calendar/CalendarItemSheet";
 import AutoScheduleSheet from "../../../components/calendar/AutoScheduleSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import { hasUpcomingBlock } from "@timely/contract/workStatus";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import {
@@ -122,6 +123,8 @@ export default function CalendarScreen() {
       (rankQ.data ?? [])
         .map((row) => row.task)
         .filter((task) => {
+          // Already placed on a later day: it has a slot, so it isn't waiting.
+          if (hasUpcomingBlock(task)) return false;
           if (workspaceId && (task.workspace?.id || task.workspaceId) !== workspaceId) return false;
           if (projectId && (task.project?.id || task.projectId) !== projectId) return false;
           return true;
