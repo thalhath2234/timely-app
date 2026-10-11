@@ -127,7 +127,7 @@ export default function CustomFieldControl({
         }
         placeholder="Empty"
         aria-label={field.name}
-        className="border-0 bg-transparent px-0 shadow-none"
+        variant="bare"
         options={[
           { value: "", label: "Empty" },
           ...options.map((option) => ({

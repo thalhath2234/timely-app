@@ -18,6 +18,7 @@ import CalendarItemSheet from "../../../components/calendar/CalendarItemSheet";
 import AutoScheduleSheet from "../../../components/calendar/AutoScheduleSheet";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import { hasUpcomingBlock } from "@timely/contract/workStatus";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import {
@@ -122,6 +123,8 @@ export default function CalendarScreen() {
       (rankQ.data ?? [])
         .map((row) => row.task)
         .filter((task) => {
+          // Already placed on a later day: it has a slot, so it isn't waiting.
+          if (hasUpcomingBlock(task)) return false;
           if (workspaceId && (task.workspace?.id || task.workspaceId) !== workspaceId) return false;
           if (projectId && (task.project?.id || task.projectId) !== projectId) return false;
           return true;
@@ -173,7 +176,11 @@ export default function CalendarScreen() {
         newEnd: end.toISOString(),
       });
     } else if (item.kind === "task" && item.blockId) {
-      void moveBlk.mutateAsync({ id: item.blockId, start: start.toISOString(), end: end.toISOString() });
+      void moveBlk
+        .mutateAsync({ id: item.blockId, start: start.toISOString(), end: end.toISOString() })
+        .catch((error: unknown) => {
+          Alert.alert("Could not move", error instanceof Error ? error.message : "Try again.");
+        });
     } else if ((item.kind === "event" || item.kind === "eventOccurrence") && item.eventId) {
       void moveEvt.mutateAsync({
         id: item.eventId,
@@ -406,19 +413,19 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
   },
   todayDisabled: { opacity: 0.5 },
-  todayText: { color: colors.accentForeground, fontSize: 13, fontWeight: "700" },
+  todayText: { color: colors.accentForeground, fontSize: 13, fontWeight: "600" },
   waiting: {
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 10,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.muted,
     padding: 16,
     gap: 8,
   },
   waitingHead: { flexDirection: "row", alignItems: "center" },
-  waitingTitle: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "700" },
-  waitingCount: { color: colors.primary, fontSize: 11, fontWeight: "700", borderRadius: 10, backgroundColor: colors.accent, paddingHorizontal: 7, paddingVertical: 3 },
+  waitingTitle: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  waitingCount: { color: colors.primary, fontSize: 11, fontWeight: "600", borderRadius: 10, backgroundColor: colors.accent, paddingHorizontal: 7, paddingVertical: 3 },
   waitingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   waitingName: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
   waitingDone: { color: colors.mutedForeground, textDecorationLine: "line-through" },

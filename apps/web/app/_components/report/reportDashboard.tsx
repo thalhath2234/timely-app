@@ -33,6 +33,8 @@ import type { CalendarItem, Doc, Project, Sheet, Task } from "@/app/_types/types
 import { mentionHref } from "@/app/_components/editor/mention";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
+import Button from "@/app/_components/_ui/button";
+import PageHeader from "@/app/_components/_ui/pageHeader";
 import { openContextMenu, tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { requestConfirm } from "@/app/_store/confirmStore";
@@ -177,7 +179,7 @@ export default function ReportDashboard() {
       openMenu(
         event,
         tidyEntries([
-          { kind: "action", label: "Open", icon: ExternalLink, shortcut: "Enter", onSelect: () => openRow(row) },
+          { kind: "action", label: "Open", icon: ExternalLink, onSelect: () => openRow(row) },
           row.entity !== "event" && {
             kind: "action",
             label: "Copy link",
@@ -438,35 +440,23 @@ export default function ReportDashboard() {
 
   return (
     <div ref={scrollRef} className="report-dashboard h-full overflow-y-auto">
-      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-8">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-3xl font-semibold text-foreground">Dashboard</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Drag a card by its title to move it, drag its edge or corner to resize.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+      <PageHeader
+        className="mx-auto max-w-[1600px]"
+        title="Dashboard"
+        description="Drag a card by its title to move it, drag its edge or corner to resize."
+        actions={
+          <>
             <SaveStatusBadge status={saveState} />
-            <button
-              type="button"
-              onClick={() => setAdding(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-            >
-              <Plus className="size-4" />
+            <Button variant="ghost" icon onClick={boardMenu} aria-label="Dashboard options">
+              <MoreHorizontal />
+            </Button>
+            <Button leading={<Plus />} onClick={() => setAdding(true)}>
               Add card
-            </button>
-            <button
-              type="button"
-              onClick={boardMenu}
-              className="rounded-lg border border-border p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-label="Dashboard options"
-            >
-              <MoreHorizontal className="size-4" />
-            </button>
-          </div>
-        </div>
-
+            </Button>
+          </>
+        }
+      />
+      <div className="mx-auto max-w-[1600px] px-6 pb-6">
         {failures.length > 0 ? (
           <div className="mb-4 flex flex-col gap-2">
             {failures.map(({ what, query }) => (
@@ -476,23 +466,19 @@ export default function ReportDashboard() {
         ) : null}
 
         {cards.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border px-6 py-20 text-center">
+          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 py-20 text-center">
             <LayoutGrid className="size-8 text-muted-foreground" />
             <div>
               <p className="text-sm font-medium text-foreground">Your dashboard is empty</p>
               <p className="mt-1 text-sm text-muted-foreground">Add a productivity tool, a ready-made chart, or build your own card.</p>
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setAdding(true)} className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
-                Add card
-              </button>
-              <button
-                type="button"
-                onClick={() => update(() => defaultDashboard())}
-                className="rounded-lg border border-border px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-              >
+              <Button variant="outline" onClick={() => update(() => defaultDashboard())}>
                 Use the default layout
-              </button>
+              </Button>
+              <Button leading={<Plus />} onClick={() => setAdding(true)}>
+                Add card
+              </Button>
             </div>
           </div>
         ) : (

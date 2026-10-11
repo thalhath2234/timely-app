@@ -3,11 +3,12 @@
 import ColorPicker from "@/app/_components/_ui/colorPicker";
 import { usePreferences } from "@/app/_components/_layout/clientRuntime";
 import { cn } from "@/app/utils/cn";
+import { Monitor, Moon, Sun } from "lucide-react";
+import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import {
   ACCENT_PRESETS,
   DEFAULT_ACCENT_HEX,
   normalizeHex,
-  type ThemePreference,
 } from "@/app/utils/theme";
 
 export default function AppearanceSettings() {
@@ -37,16 +38,17 @@ export default function AppearanceSettings() {
         <p className="mt-1 text-xs text-muted-foreground">
           Use your device setting or choose a light or dark theme.
         </p>
-        <div className="mt-3 flex gap-2" role="group" aria-label="Color theme">
-          {(["system", "light", "dark"] as const).map((option) => (
-            <ThemeOption
-              key={option}
-              option={option}
-              selected={theme === option}
-              onSelect={() => setTheme(option)}
-            />
-          ))}
-        </div>
+        <SegmentedControl
+          className="mt-3"
+          aria-label="Color theme"
+          value={theme}
+          onChange={setTheme}
+          options={[
+            { value: "system", label: "System", icon: <Monitor /> },
+            { value: "light", label: "Light", icon: <Sun /> },
+            { value: "dark", label: "Dark", icon: <Moon /> },
+          ]}
+        />
       </section>
 
       <section>
@@ -91,7 +93,7 @@ export default function AppearanceSettings() {
             Reset to default violet
           </button>
         ) : null}
-        <div className="mt-4 overflow-hidden rounded-xl border border-border">
+        <div className="mt-4 overflow-hidden rounded-lg border border-border">
           <div className="flex h-14">
             <div className="flex flex-1 items-end p-2 text-[11px] font-medium text-primary-foreground" style={{ backgroundColor: "var(--primary)" }}>
               Primary
@@ -111,7 +113,7 @@ export default function AppearanceSettings() {
         <p className="mt-1 text-xs text-muted-foreground">
           Applies to this device. Your system&apos;s reduced-motion setting is always honored.
         </p>
-        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-border px-3 py-3">
+        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-border px-3 py-3">
           <input
             type="checkbox"
             autoComplete="off"
@@ -133,7 +135,7 @@ export default function AppearanceSettings() {
         <p className="mt-1 text-xs text-muted-foreground">
           Keep more room for work by hiding the navigation rail until you need it.
         </p>
-        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-xl border border-border px-3 py-3">
+        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-border px-3 py-3">
           <input
             type="checkbox"
             autoComplete="off"
@@ -150,31 +152,5 @@ export default function AppearanceSettings() {
         </label>
       </section>
     </div>
-  );
-}
-
-function ThemeOption({
-  option,
-  selected,
-  onSelect,
-}: {
-  option: ThemePreference;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      className={cn(
-        "min-w-20 rounded-lg border px-3 py-2 text-sm",
-        selected
-          ? "border-primary/40 bg-primary/12 text-foreground"
-          : "border-border hover:bg-accent",
-      )}
-    >
-      {option === "system" ? "System" : option === "light" ? "Light" : "Dark"}
-    </button>
   );
 }

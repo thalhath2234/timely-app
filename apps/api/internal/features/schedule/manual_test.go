@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"timely-api/internal/features/event"
+	"timely-api/internal/features/placement"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 )
@@ -110,5 +111,24 @@ func TestIncludeManualKeepsPastAndLockedBlocks(t *testing.T) {
 	}
 	if len(replace) != 0 {
 		t.Fatalf("replace %v without IncludeManual", replace)
+	}
+}
+
+type oneTask struct {
+	task.TaskRepository
+	row models.Task
+}
+
+func (o oneTask) GetTaskByIdForUser(string, string) (*models.Task, error) { return &o.row, nil }
+
+// Dropping work on a day or hour that is over is refused before anything is
+// written (the nil Placement would panic if it got that far).
+func TestAddBlockRefusesThePast(t *testing.T) {
+	for _, row := range []models.Task{manualTask("work"), {ID: "ping", Kind: models.KindReminder}} {
+		s := &service{tasks: oneTask{row: row}}
+		start := time.Now().Add(-time.Hour).Format(time.RFC3339)
+		if _, _, err := s.AddBlock("usr", row.ID, BlockInput{Start: start}); !errors.Is(err, placement.ErrPastTime) {
+			t.Fatalf("%s: err = %v, want ErrPastTime", row.ID, err)
+		}
 	}
 }

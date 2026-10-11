@@ -23,7 +23,7 @@ import { formatDuration, formatShortDate, formatTime, PRIORITY_META, PRIORITY_OR
 import type { CustomFieldValueInput } from "../../lib/types";
 import type { QuickAddPreset } from "../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
-import { ENTITY_COLORS } from "../../lib/entityColor";
+import { ENTITY_COLORS, colorName } from "../../lib/entityColor";
 import { expandEntering, listLayout, pageDuration } from "../../lib/motion";
 
 function runWhenIdle(callback: () => void, timeout: number) {
@@ -713,7 +713,7 @@ export default function QuickAddSheet({
               <PropertyRow
                 icon={<Palette size={16} color={eventColor || colors.mutedForeground} />}
                 label="Color"
-                value={eventColor ? "Custom" : "Auto"}
+                value={colorName(eventColor)}
                 swatch={eventColor || undefined}
                 onPress={() => setPicking("eventColor")}
               />
@@ -923,7 +923,7 @@ export default function QuickAddSheet({
               setPicking(null);
             }}
           >
-            {color}
+            {colorName(color)}
           </SheetOption>
         ))}
       </BottomSheet>
@@ -976,10 +976,10 @@ export default function QuickAddSheet({
 
 const styles = createThemedStyleSheet((colors) => ({
   fields: { gap: 16 },
-  objectiveCard: { borderRadius: 20, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 8 },
-  descriptionCard: { borderRadius: 20, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 10 },
+  objectiveCard: { borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 8 },
+  descriptionCard: { borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 10 },
   descriptionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  cardEyebrow: { color: colors.mutedForeground, fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
+  cardEyebrow: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", letterSpacing: 0.5 },
   markdownLabel: { color: colors.mutedForeground, fontSize: 11 },
   kinds: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 8 },
   kind: {
@@ -989,20 +989,20 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
     gap: 8,
     minHeight: 108,
-    borderRadius: 24,
+    borderRadius: 16,
     backgroundColor: colors.muted,
     paddingVertical: 12,
   },
   kindSelected: { backgroundColor: colors.accent },
   kindIcon: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.card },
   kindIconSelected: { backgroundColor: colors.popover },
-  kindText: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
-  kindTextSelected: { color: colors.primary, fontWeight: "800" },
+  kindText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
+  kindTextSelected: { color: colors.primary, fontWeight: "600" },
   changeType: { alignSelf: "flex-start", paddingVertical: 8, paddingRight: 12 },
-  changeTypeText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
-  metaPanel: { borderRadius: 24, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16 },
-  scheduleCard: { gap: 12, borderRadius: 24, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16 },
-  section: { color: colors.foreground, fontSize: 16, fontWeight: "800", marginTop: 8 },
+  changeTypeText: { color: colors.primary, fontSize: 14, fontWeight: "600" },
+  metaPanel: { borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16 },
+  scheduleCard: { gap: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16 },
+  section: { color: colors.foreground, fontSize: 16, fontWeight: "600", marginTop: 8 },
   hintRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 10 },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18 },
 }));

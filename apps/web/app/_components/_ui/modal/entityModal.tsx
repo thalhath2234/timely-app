@@ -17,7 +17,6 @@ export function EntityModalShell({
   headerRight,
   footer,
   size = "md",
-  closeWithKbd = false,
   onClose,
   children,
 }: {
@@ -27,7 +26,6 @@ export function EntityModalShell({
   headerRight?: ReactNode;
   footer?: ReactNode;
   size?: "md" | "xl";
-  closeWithKbd?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -82,15 +80,12 @@ export function EntityModalShell({
               className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <X className="size-3.5" />
-              {closeWithKbd ? (
-                <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
-                  ESC
-                </kbd>
-              ) : null}
             </button>
           </header>
 
-          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">{children}</div>
+          {/* Below lg the two columns stack and scroll together; side by side
+              each column scrolls on its own. */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">{children}</div>
           {footer}
         </OverlayPanel>
       </OverlayFrame>
@@ -106,7 +101,7 @@ export function ModalMain({
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-1 flex-col overflow-y-auto px-7 py-6",
+        "flex shrink-0 flex-col px-7 py-6 lg:min-h-0 lg:flex-1 lg:shrink lg:overflow-y-auto",
         className,
       )}
       {...rest}
@@ -118,7 +113,7 @@ export function ModalMain({
 
 export function ModalSidebar({ children }: { children: ReactNode }) {
   return (
-    <aside className="flex w-full shrink-0 flex-col overflow-y-auto border-t border-border bg-muted/10 px-5 py-5 lg:w-[360px] lg:border-l lg:border-t-0">
+    <aside className="flex w-full shrink-0 flex-col border-t border-border bg-muted/10 px-5 py-5 lg:w-[360px] lg:overflow-y-auto lg:border-l lg:border-t-0">
       {children}
     </aside>
   );

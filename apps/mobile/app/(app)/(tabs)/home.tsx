@@ -29,12 +29,13 @@ import {
   useTasksQuery,
   useTodayQuery,
 } from "../../../lib/hooks";
-import { addCalendarDays } from "../../../lib/format";
+import { addCalendarDays, formatTime } from "../../../lib/format";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
 import { showUndoToast } from "../../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { taskEntityColor } from "../../../lib/entityColor";
+import { normalizePriority } from "../../../lib/priority";
 import TimelyLogo from "../../../components/ui/TimelyLogo";
 import TodaySuggestionsCard from "../../../components/tasks/TodaySuggestionsCard";
 import HabitsGoalsCard from "../../../components/tasks/HabitsGoalsCard";
@@ -91,7 +92,7 @@ function TaskRow({
           hitSlop={8}
           style={[styles.checkRing, danger && styles.checkRingDanger, active && styles.checkRingActive, done && styles.checkRingDone]}
         >
-          {done ? <Check size={12} color="#fff" /> : null}
+          {done ? <Check size={12} color={colors.background} /> : null}
         </Pressable>
       ) : null}
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -113,13 +114,8 @@ function overdueLabel(deadline?: string | null) {
   return days === 1 ? "Yesterday" : `${days}d ago`;
 }
 
-function formatClock(iso: string) {
-  return new Date(iso).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
+// Same clock format as the desktop agenda and the rest of the phone app.
+const formatClock = formatTime;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -329,7 +325,7 @@ export default function HomeScreen() {
                 <TaskRow
                   key={task.id}
                   title={task.name}
-                  meta={task.priorityLevel ?? undefined}
+                  meta={normalizePriority(task.priorityLevel) || undefined}
                   onPress={() => openTask(task.id)}
                   accent={taskEntityColor(task)}
                   active={focusSession?.id === task.id}
@@ -502,7 +498,7 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     gap: 14,
     backgroundColor: colors.card,
-    borderRadius: 18,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     padding: 13,
@@ -527,10 +523,10 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
   },
   countPill: { borderRadius: 12, paddingHorizontal: 9, paddingVertical: 4, backgroundColor: colors.card },
-  countPillText: { color: colors.primary, fontSize: 11, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  countPillText: { color: colors.primary, fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
   focusCard: {
     backgroundColor: colors.accent,
-    borderRadius: 24,
+    borderRadius: 16,
     padding: 20,
     gap: 10,
     marginBottom: 12,
@@ -538,15 +534,15 @@ const styles = createThemedStyleSheet((colors) => ({
   focusTopline: { flexDirection: "row", alignItems: "center", gap: 7 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.primary },
   pausedDot: { opacity: 0.45 },
-  focusEyebrow: { color: colors.primary, fontSize: 10, fontWeight: "700", letterSpacing: 1, flex: 1 },
-  focusTimer: { color: colors.primary, fontSize: 16, fontFamily: "SpaceMono", fontWeight: "700", fontVariant: ["tabular-nums"] },
-  focusTitle: { color: colors.foreground, fontSize: 21, fontWeight: "800", lineHeight: 27 },
+  focusEyebrow: { color: colors.primary, fontSize: 10, fontWeight: "600", letterSpacing: 1, flex: 1 },
+  focusTimer: { color: colors.primary, fontSize: 16, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  focusTitle: { color: colors.foreground, fontSize: 21, fontWeight: "600", lineHeight: 27 },
   sectionHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 12 },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
-  sectionHeading: { color: colors.foreground, fontSize: 19, fontWeight: "800", letterSpacing: -0.3 },
+  sectionHeading: { color: colors.foreground, fontSize: 19, fontWeight: "600", letterSpacing: -0.3 },
   endOfDayHeading: { color: colors.mutedForeground, marginTop: 22, marginBottom: -4 },
   sectionCopy: { color: colors.mutedForeground, fontSize: 13, lineHeight: 19, marginBottom: 6 },
-  metric: { color: colors.mutedForeground, fontSize: 12, fontFamily: "SpaceMono", fontVariant: ["tabular-nums"] },
+  metric: { color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },
   sectionCount: {
     minWidth: 24,
     height: 24,
@@ -558,9 +554,9 @@ const styles = createThemedStyleSheet((colors) => ({
     borderColor: colors.border,
     backgroundColor: colors.muted,
   },
-  sectionCountText: { color: colors.mutedForeground, fontSize: 11, fontFamily: "SpaceMono" },
+  sectionCountText: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
   timelineLink: { flexDirection: "row", alignItems: "center", gap: 3, minHeight: 36 },
-  timelineText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
+  timelineText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
   row: {
     backgroundColor: colors.card,
     borderRadius: 16,
@@ -577,8 +573,8 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   timelineList: { gap: 0 },
   timelineRow: { flexDirection: "row", gap: 10, alignItems: "stretch", paddingBottom: 8 },
-  timelineTime: { width: 56, alignItems: "flex-end", justifyContent: "flex-start", paddingTop: 13, borderRightWidth: 1, borderRightColor: colors.border, paddingRight: 11 },
-  timelineClock: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", lineHeight: 15 },
+  timelineTime: { width: 68, alignItems: "flex-end", justifyContent: "flex-start", paddingTop: 13, borderRightWidth: 1, borderRightColor: colors.border, paddingRight: 11 },
+  timelineClock: { color: colors.mutedForeground, fontSize: 11, lineHeight: 15, fontVariant: ["tabular-nums"] },
   timelineDot: { position: "absolute", width: 8, height: 8, borderRadius: 4, right: -4, top: 18 },
   timelineCard: { flex: 1, minWidth: 0 },
   rowDone: { opacity: 0.78 },
@@ -591,14 +587,14 @@ const styles = createThemedStyleSheet((colors) => ({
   checkRingActive: { borderWidth: 2, borderColor: colors.primary, backgroundColor: colors.accent },
   checkRingDone: { backgroundColor: colors.success, borderColor: colors.success },
   checkRingDanger: { width: 18, height: 18, borderColor: "rgba(244,63,94,0.55)" },
-  title: { color: colors.foreground, fontSize: 14, lineHeight: 19, fontWeight: "700" },
+  title: { color: colors.foreground, fontSize: 14, lineHeight: 19, fontWeight: "600" },
   titleDone: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 3 },
-  metaActive: { color: colors.primary, fontFamily: "SpaceMono", fontWeight: "700" },
-  metaDanger: { color: "#F43F5E", fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700", textTransform: "uppercase" },
+  metaActive: { color: colors.primary, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  metaDanger: { color: colors.destructive, fontSize: 11, fontWeight: "600", textTransform: "uppercase", fontVariant: ["tabular-nums"] },
   actions: { flexDirection: "row", gap: 8 },
   chip: { backgroundColor: colors.card, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 5 },
-  chipText: { color: colors.foreground, fontSize: 11, fontWeight: "700" },
+  chipText: { color: colors.foreground, fontSize: 11, fontWeight: "600" },
   iconChip: {
     width: 32,
     height: 32,
@@ -613,19 +609,19 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    borderRadius: 18,
+    borderRadius: 14,
     backgroundColor: colors.accent,
     marginBottom: 18,
   },
-  addFocusText: { color: colors.primary, fontSize: 13, fontWeight: "700" },
-  dangerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#F43F5E" },
-  overdueHeading: { color: "#F43F5E", fontSize: 12, fontWeight: "800", letterSpacing: 0.7, textTransform: "uppercase" },
+  addFocusText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  dangerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.destructive },
+  overdueHeading: { color: colors.destructive, fontSize: 12, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase" },
   overdueCount: { borderRadius: 10, borderWidth: 1, borderColor: "rgba(244,63,94,0.25)", backgroundColor: "rgba(244,63,94,0.1)", paddingHorizontal: 8, paddingVertical: 4 },
-  overdueCountText: { color: "#F43F5E", fontSize: 10, fontFamily: "SpaceMono", fontWeight: "700" },
+  overdueCountText: { color: colors.destructive, fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
   reschedule: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", paddingVertical: 10 },
   shutdownButton: {
     height: 52,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.primary,
     flexDirection: "row",
     alignItems: "center",
@@ -633,22 +629,22 @@ const styles = createThemedStyleSheet((colors) => ({
     gap: 9,
     marginTop: 6,
   },
-  shutdownText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "700" },
+  shutdownText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
   pickerHint: { color: colors.mutedForeground, fontSize: 12, marginBottom: 15 },
   pickerGroup: { gap: 6, marginBottom: 16 },
   pickerGroupHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 3 },
-  pickerGroupTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, fontWeight: "800" },
-  pickerGroupCount: { color: colors.mutedForeground, fontSize: 11, fontFamily: "SpaceMono" },
+  pickerGroupTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, fontWeight: "600" },
+  pickerGroupCount: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
   pickerRow: { flexDirection: "row", alignItems: "center", minHeight: 62, gap: 11, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 15, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
   pickerRowSelected: { backgroundColor: colors.accent, borderColor: colors.primary },
   pickerCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: colors.mutedForeground, alignItems: "center", justifyContent: "center" },
   pickerCheckSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
   pickerCopy: { flex: 1, minWidth: 0, gap: 2 },
-  pickerTaskTitle: { color: colors.foreground, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  pickerTaskTitle: { color: colors.foreground, fontSize: 13, fontWeight: "600", lineHeight: 18 },
   pickerTaskMeta: { color: colors.mutedForeground, fontSize: 11 },
   pickerFooter: { gap: 8 },
   pickerFooterCount: { color: colors.mutedForeground, fontSize: 11, textAlign: "center" },
   pickerSubmit: { minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: colors.primary },
   pickerSubmitDisabled: { opacity: 0.4 },
-  pickerSubmitText: { color: colors.primaryForeground, fontSize: 14, fontWeight: "800" },
+  pickerSubmitText: { color: colors.primaryForeground, fontSize: 14, fontWeight: "600" },
 }));

@@ -21,6 +21,7 @@ import {
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
+import { controlClass } from "@/app/_components/_ui/field";
 
 const failed = (fallback: string) => (error: unknown) => {
   useToastStore.getState().show(error instanceof Error ? error.message : fallback);
@@ -41,7 +42,7 @@ const heading = "flex items-center gap-1.5 text-xs font-bold uppercase tracking-
 const label = "text-xs font-medium text-muted-foreground";
 const linkButton = "font-medium text-primary hover:underline disabled:opacity-50";
 const input =
-  "min-w-0 flex-1 rounded-md border border-border bg-input/30 px-2 py-1 text-sm outline-none focus:border-primary/60";
+  controlClass("md", "min-w-0 flex-1");
 const iconButton =
   "shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 

@@ -1,16 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Search } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
+import { controlClass, menuItemClass, popoverSurface, type ControlSize } from "@/app/_components/_ui/field";
 
 export type SelectOption = {
   value: string;
   label: string;
   color?: string;
   disabled?: boolean;
+  /** Options sharing a group are listed under that heading, in the order given. */
+  group?: string;
 };
 
 type SelectProps = {
@@ -20,15 +23,24 @@ type SelectProps = {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
-  /** Visual size of the trigger. */
-  size?: "sm" | "md";
+  /** Trigger height: sm 28px, md 32px, lg 36px (same scale as Input and Button). */
+  size?: ControlSize;
+  /** "bare" drops the box, for a value inside a property row. */
+  variant?: "default" | "bare";
+  /** Adds a filter box at the top of the menu, for long lists (timezones). */
+  searchable?: boolean;
   "aria-label"?: string;
 };
 
 type PanelPos = { top: number; left: number; width: number; openUp: boolean };
 
-const triggerBase =
-  "flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-input/30 text-left text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60";
+const bareBase =
+  "rounded-md text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50";
+const bareTrigger: Record<ControlSize, string> = {
+  sm: `${bareBase} h-7 text-xs`,
+  md: `${bareBase} h-8 text-sm`,
+  lg: `${bareBase} h-9 text-sm`,
+};
 
 export default function Select({
   value,
@@ -38,6 +50,8 @@ export default function Select({
   className,
   disabled,
   size = "md",
+  variant = "default",
+  searchable = false,
   "aria-label": ariaLabel,
 }: SelectProps) {
   const listId = useId();
@@ -46,10 +60,21 @@ export default function Select({
   const [open, setOpen] = useViewOpen();
   const [pos, setPos] = useState<PanelPos | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [query, setQuery] = useState("");
   const mounted = useClientGate();
 
   const selected = options.find((option) => option.value === value);
-  const enabledOptions = options.filter((option) => !option.disabled);
+  const needle = query.trim().toLowerCase();
+  const visible = useMemo(
+    () =>
+      needle
+        ? options.filter((option) =>
+            `${option.label} ${option.value} ${option.group ?? ""}`.toLowerCase().includes(needle),
+          )
+        : options,
+    [options, needle],
+  );
+  const enabledOptions = useMemo(() => visible.filter((option) => !option.disabled), [visible]);
 
   const measure = useCallback((panelHeight = 240): PanelPos | null => {
     const trigger = triggerRef.current;
@@ -73,7 +98,8 @@ export default function Select({
       (option) => option.value === value,
     );
     setActiveIndex(selectedIndex >= 0 ? selectedIndex : 0);
-    setPos(measure());
+    setQuery("");
+    setPos(measure(searchable ? 300 : 240));
     setOpen(true);
   };
 
@@ -117,7 +143,8 @@ export default function Select({
         return;
       }
 
-      if (event.key === "Enter" || event.key === " ") {
+      // In a searchable menu the space bar types into the filter box.
+      if (event.key === "Enter" || (event.key === " " && !searchable)) {
         event.preventDefault();
         const option = enabledOptions[activeIndex];
         if (option) {
@@ -145,7 +172,15 @@ export default function Select({
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open, activeIndex, enabledOptions, onChange, measure, setOpen]);
+  }, [open, activeIndex, enabledOptions, onChange, measure, setOpen, searchable]);
+
+  // Keep the highlighted row visible while moving through a long list.
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current
+      ?.querySelector<HTMLElement>('[data-active="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [open, activeIndex, pos]);
 
   const pick = (next: string) => {
     onChange(next);
@@ -166,8 +201,8 @@ export default function Select({
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => (open ? setOpen(false) : openMenu())}
         className={cn(
-          triggerBase,
-          size === "sm" ? "px-2 py-1 text-xs" : "px-3 py-2 text-sm",
+          "flex w-full items-center justify-between gap-2 text-left",
+          variant === "bare" ? bareTrigger[size] : controlClass(size),
           className,
         )}
       >
@@ -207,67 +242,97 @@ export default function Select({
               >
                 <div
                   ref={panelRef}
-                  id={listId}
-                  role="listbox"
                   data-select-portal="true"
-                  aria-label={ariaLabel ?? placeholder}
-                  className="max-h-60 overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl ring-1 ring-foreground/10"
+                  className={cn(popoverSurface, "flex flex-col p-1")}
                   onMouseDown={(event) => event.stopPropagation()}
                   onPointerDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                 >
-            {options.length === 0 ? (
-              <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                No options
-              </p>
-            ) : (
-              options.map((option) => {
-                const enabledIndex = enabledOptions.findIndex(
-                  (item) => item.value === option.value,
-                );
-                const active = enabledIndex === activeIndex;
-                const isSelected = option.value === value;
-
-                return (
-                  <button
-                    key={option.value || "__empty"}
-                    type="button"
-                    role="option"
-                    aria-selected={isSelected}
-                    disabled={option.disabled}
-                    onMouseEnter={() => {
-                      if (!option.disabled && enabledIndex >= 0) {
-                        setActiveIndex(enabledIndex);
-                      }
-                    }}
-                    onClick={() => {
-                      if (!option.disabled) pick(option.value);
-                    }}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
-                      option.disabled && "cursor-not-allowed opacity-50",
-                      !option.disabled &&
-                        (active || isSelected
-                          ? "bg-accent text-accent-foreground"
-                          : "hover:bg-muted/70"),
-                    )}
-                  >
-                    {option.color ? (
-                      <span
-                        className="size-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: option.color }}
+                  {searchable ? (
+                    <div className="relative mb-1 shrink-0">
+                      <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        autoFocus
+                        value={query}
+                        onChange={(event) => {
+                          setQuery(event.target.value);
+                          setActiveIndex(0);
+                        }}
+                        placeholder="Search…"
+                        aria-label={`Search ${ariaLabel ?? "options"}`}
+                        aria-controls={listId}
+                        className="h-8 w-full rounded-md bg-muted/60 pl-7 pr-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
                       />
-                    ) : null}
-                    <span className="min-w-0 flex-1 truncate">
-                      {option.label}
-                    </span>
-                    {isSelected && (
-                      <Check className="size-3.5 shrink-0 text-primary" />
+                    </div>
+                  ) : null}
+                  <div
+                    id={listId}
+                    role="listbox"
+                    aria-label={ariaLabel ?? placeholder}
+                    className="max-h-60 overflow-y-auto"
+                  >
+                    {visible.length === 0 ? (
+                      <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                        {needle ? "No matches" : "No options"}
+                      </p>
+                    ) : (
+                      visible.map((option, index) => {
+                        const enabledIndex = enabledOptions.findIndex(
+                          (item) => item.value === option.value,
+                        );
+                        const active = enabledIndex === activeIndex;
+                        const isSelected = option.value === value;
+                        const heading =
+                          option.group && option.group !== visible[index - 1]?.group ? option.group : null;
+
+                        return (
+                          <div key={option.value || "__empty"} role="presentation">
+                            {heading ? (
+                              <p className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+                                {heading}
+                              </p>
+                            ) : null}
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={isSelected}
+                              data-active={active || undefined}
+                              disabled={option.disabled}
+                              onMouseEnter={() => {
+                                if (!option.disabled && enabledIndex >= 0) {
+                                  setActiveIndex(enabledIndex);
+                                }
+                              }}
+                              onClick={() => {
+                                if (!option.disabled) pick(option.value);
+                              }}
+                              className={cn(
+                                menuItemClass,
+                                option.disabled && "cursor-not-allowed opacity-50",
+                                !option.disabled &&
+                                  (active || isSelected
+                                    ? "bg-accent text-accent-foreground"
+                                    : "hover:bg-muted/70"),
+                              )}
+                            >
+                              {option.color ? (
+                                <span
+                                  className="size-2 shrink-0 rounded-full"
+                                  style={{ backgroundColor: option.color }}
+                                />
+                              ) : null}
+                              <span className="min-w-0 flex-1 truncate">
+                                {option.label}
+                              </span>
+                              {isSelected && (
+                                <Check className="size-3.5 shrink-0 text-primary" />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })
                     )}
-                  </button>
-                );
-              })
-            )}
+                  </div>
                 </div>
               </div>
             </PopoverView>

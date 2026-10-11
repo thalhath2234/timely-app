@@ -244,7 +244,7 @@ const styles = createThemedStyleSheet(() => ({
   },
   notesTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
   summary: {
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -262,7 +262,7 @@ const styles = createThemedStyleSheet(() => ({
   heading: {
     color: colors.foreground,
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "600",
     letterSpacing: -0.3,
   },
   track: {
@@ -277,7 +277,7 @@ const styles = createThemedStyleSheet(() => ({
   sectionLabel: {
     color: colors.foreground,
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "600",
     letterSpacing: -0.2,
     marginTop: 4,
   },

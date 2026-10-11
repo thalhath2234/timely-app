@@ -124,8 +124,8 @@ type Service interface {
 	Capacity(userID string, from, to time.Time, timezone string) ([]DayCapacity, error)
 	PinTask(userID, taskID string, locked bool) (*models.Task, error)
 	PinBlock(userID, blockID string, locked bool) (*models.ScheduledBlock, error)
-	AddBlock(userID, taskID string, input BlockInput) (*models.Task, error)
-	MoveBlock(userID, blockID string, start string, end *string) (*models.ScheduledBlock, error)
+	AddBlock(userID, taskID string, input BlockInput) (*models.Task, []string, error)
+	MoveBlock(userID, blockID string, start string, end *string) (*models.ScheduledBlock, []string, error)
 	DeleteBlock(userID, blockID string) error
 	ClearBlocks(userID, taskID string) (*models.Task, error)
 	FreeTime(userID string, from, to time.Time, timezone string) ([]Interval, error)
@@ -600,38 +600,47 @@ func (s *service) horizon(req PlanRequest, tasks []models.Task, loc *time.Locati
 	return from, to, nil
 }
 
-func (s *service) AddBlock(userID, taskID string, input BlockInput) (*models.Task, error) {
+// AddBlock places Work (or a Reminder's ping) by hand. Time that has already
+// gone by is refused. It returns the task and the other tasks whose Blocks
+// the new one pushed aside.
+func (s *service) AddBlock(userID, taskID string, input BlockInput) (*models.Task, []string, error) {
 	t, err := s.tasks.GetTaskByIdForUser(userID, taskID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if t.IsInbox() {
-		return nil, errors.New("clarify this inbox item before scheduling")
+		return nil, nil, errors.New("clarify this inbox item before scheduling")
 	}
 	if t.IsRecurring() {
-		return nil, errors.New("recurring tasks are placed by their recurrence; move an occurrence instead")
+		return nil, nil, errors.New("recurring tasks are placed by their recurrence; move an occurrence instead")
 	}
 	start, err := recurrence.ParseTime(input.Start)
 	if err != nil {
-		return nil, errors.New("invalid start")
+		return nil, nil, errors.New("invalid start")
+	}
+	if placement.InPast(start, time.Now()) {
+		return nil, nil, placement.ErrPastTime
 	}
 	if t.IsReminder() {
 		if err := s.placement.PlacePing(userID, t, start); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return s.tasks.GetTaskByIdForUser(userID, taskID)
+		t, err = s.tasks.GetTaskByIdForUser(userID, taskID)
+		return t, nil, err
 	}
 	end, err := placement.ResolveEnd(start, input.End, input.DurationMinutes, t.Duration)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := s.placement.PlaceByHand(userID, t, start, end, input.Replace); err != nil {
-		return nil, err
+	displaced, err := s.placement.PlaceByHand(userID, t, start, end, input.Replace)
+	if err != nil {
+		return nil, nil, err
 	}
-	return s.tasks.GetTaskByIdForUser(userID, taskID)
+	t, err = s.tasks.GetTaskByIdForUser(userID, taskID)
+	return t, displaced, err
 }
 
-func (s *service) MoveBlock(userID, blockID string, start string, end *string) (*models.ScheduledBlock, error) {
+func (s *service) MoveBlock(userID, blockID string, start string, end *string) (*models.ScheduledBlock, []string, error) {
 	return s.placement.MoveByHand(userID, blockID, start, end)
 }
 

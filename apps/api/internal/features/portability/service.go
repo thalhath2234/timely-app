@@ -153,6 +153,14 @@ func (s *Service) CreateEncrypted(userID string) (*models.BackupFile, error) {
 	return row, nil
 }
 
+// RemoveAccount deletes every backup file kept for a deleted account.
+func (s *Service) RemoveAccount(userID string) error {
+	if userID == "" {
+		return nil
+	}
+	return os.RemoveAll(filepath.Join(s.dir, safeAccountDirectory(userID)))
+}
+
 func safeAccountDirectory(userID string) string {
 	sum := sha256.Sum256([]byte(userID))
 	return fmt.Sprintf("account-%x", sum[:12])

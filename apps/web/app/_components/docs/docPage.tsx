@@ -34,6 +34,7 @@ import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { downloadPortable } from "@/app/utils/api/portability";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const ICON_CHOICES = [
   "📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯",
@@ -95,7 +96,7 @@ export default function DocPage({ id }: { id: string }) {
         </p>
         <Link
           href={FILES_PATH}
-          className="rounded-lg bg-secondary px-4 py-2 text-sm text-secondary-foreground transition-colors hover:bg-accent"
+          className={buttonClass({ variant: "secondary", size: "lg" })}
         >
           Back to files
         </Link>
@@ -418,7 +419,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
                 <button
                   type="button"
                   onClick={() => setIsConfirmingDelete(false)}
-                  className="cursor-pointer rounded-md bg-secondary px-2 py-1 text-secondary-foreground transition-colors hover:bg-accent"
+                  className={buttonClass({ variant: "secondary", size: "sm" })}
                 >
                   Cancel
                 </button>
@@ -471,7 +472,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
                     schedule({ icon: "" });
                     setIsIconPickerOpen(false);
                   }}
-                  className="mt-2 w-full cursor-pointer rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition-colors hover:bg-accent"
+                  className={buttonClass({ variant: "secondary", size: "sm", className: "mt-2 w-full" })}
                 >
                   Remove icon
                 </button>

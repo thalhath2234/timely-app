@@ -190,3 +190,34 @@ export function deviceTimezone() {
     return "UTC";
   }
 }
+
+// Used when the runtime cannot list its zones (older Hermes builds).
+const COMMON_TIMEZONES = [
+  "UTC", "Africa/Cairo", "Africa/Johannesburg", "Africa/Lagos", "Africa/Nairobi",
+  "America/Anchorage", "America/Argentina/Buenos_Aires", "America/Bogota", "America/Chicago",
+  "America/Denver", "America/Halifax", "America/Los_Angeles", "America/Mexico_City",
+  "America/New_York", "America/Phoenix", "America/Sao_Paulo", "America/Toronto",
+  "Asia/Bangkok", "Asia/Dhaka", "Asia/Dubai", "Asia/Hong_Kong", "Asia/Jakarta",
+  "Asia/Karachi", "Asia/Kolkata", "Asia/Manila", "Asia/Riyadh", "Asia/Seoul",
+  "Asia/Shanghai", "Asia/Singapore", "Asia/Tokyo", "Atlantic/Reykjavik",
+  "Australia/Adelaide", "Australia/Brisbane", "Australia/Perth", "Australia/Sydney",
+  "Europe/Amsterdam", "Europe/Athens", "Europe/Berlin", "Europe/Istanbul", "Europe/Lisbon",
+  "Europe/London", "Europe/Madrid", "Europe/Moscow", "Europe/Paris", "Europe/Rome",
+  "Europe/Stockholm", "Europe/Warsaw", "Pacific/Auckland", "Pacific/Honolulu",
+];
+
+/** IANA zones for a timezone picker, always including the device's and `current`. */
+export function listTimezones(current?: string): string[] {
+  let zones: string[] = [];
+  try {
+    const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.("timeZone");
+    if (supported?.length) zones = [...supported];
+  } catch {
+    // Fall through to the short list.
+  }
+  if (zones.length === 0) zones = [...COMMON_TIMEZONES];
+  for (const zone of [deviceTimezone(), current, "UTC"]) {
+    if (zone && !zones.includes(zone)) zones.push(zone);
+  }
+  return zones.sort((a, b) => a.localeCompare(b));
+}

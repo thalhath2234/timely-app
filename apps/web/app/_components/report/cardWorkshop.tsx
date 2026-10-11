@@ -52,6 +52,8 @@ import { cn } from "@/app/utils/cn";
 import CustomCardView from "./customCardView";
 import { seriesColor } from "./charts";
 import { ROW_HEIGHT, GRID_GAP } from "./dashboardGrid";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const SOURCE_ICON: Record<CardSource, typeof ListTodo> = {
   tasks: ListTodo,
@@ -557,7 +559,7 @@ export default function CardWorkshop({
             <button
               type="button"
               onClick={save}
-              className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+              className={buttonClass()}
             >
               {initial ? <Check className="size-4" /> : <Plus className="size-4" />}
               {initial ? "Save changes" : "Add to dashboard"}
@@ -583,7 +585,7 @@ function matchSummary(result: ReturnType<typeof computeCard>) {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-border bg-input/30 px-2.5 py-1.5 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring/40";
+  controlClass("md", "w-full");
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (

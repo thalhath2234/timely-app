@@ -119,5 +119,5 @@ const styles = createThemedStyleSheet((colors) => ({
   actions: { flexDirection: "row", alignItems: "center", gap: 4 },
   icon: { padding: 4 },
   button: { minHeight: 32, borderRadius: 10, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.secondary },
-  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "700" },
+  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
 }));

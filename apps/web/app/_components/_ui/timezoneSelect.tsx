@@ -2,40 +2,44 @@
 
 import { useMemo } from "react";
 import { groupTimezones, listTimezones } from "@/app/utils/timezones";
-import { cn } from "@/app/utils/cn";
+import Select, { type SelectOption } from "@/app/_components/_ui/select";
+import type { ControlSize } from "@/app/_components/_ui/field";
 
-const fieldClass =
-  "rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40";
-
+/** Timezone picker: the shared Select, grouped by region, with a search box. */
 export default function TimezoneSelect({
   value,
   onChange,
   className,
-  id,
+  size = "md",
+  "aria-label": ariaLabel = "Timezone",
 }: {
   value: string;
   onChange: (value: string) => void;
   className?: string;
-  id?: string;
+  size?: ControlSize;
+  "aria-label"?: string;
 }) {
-  const groups = useMemo(() => groupTimezones(listTimezones(value)), [value]);
+  const options = useMemo<SelectOption[]>(
+    () =>
+      groupTimezones(listTimezones(value)).flatMap((group) =>
+        group.zones.map((zone) => ({
+          value: zone.value,
+          label: zone.label === zone.value ? zone.label : `${zone.label} (${zone.value})`,
+          group: group.region,
+        })),
+      ),
+    [value],
+  );
 
   return (
-    <select
-      id={id}
+    <Select
       value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className={cn(fieldClass, className)}
-    >
-      {groups.map((group) => (
-        <optgroup key={group.region} label={group.region}>
-          {group.zones.map((zone) => (
-            <option key={zone.value} value={zone.value}>
-              {zone.label === zone.value ? zone.label : `${zone.label} (${zone.value})`}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+      onChange={onChange}
+      options={options}
+      size={size}
+      searchable
+      className={className}
+      aria-label={ariaLabel}
+    />
   );
 }

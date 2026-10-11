@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Bell, ChevronLeft, Settings } from "lucide-react-native";
 import { useUnreadNotificationCount } from "../../lib/hooks";
-import { colors, createThemedStyleSheet, radius } from "../../lib/theme";
+import { colors, controlRadius, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "./AnimatedPressable";
 
 export function HeaderIconButton({
@@ -56,7 +56,7 @@ export default function MobileHeader({
   title,
   subtitle,
   statusDot,
-  large = true,
+  large,
   back,
   actions,
   accountActions,
@@ -65,6 +65,8 @@ export default function MobileHeader({
   title: string;
   subtitle?: string;
   statusDot?: boolean;
+  /** Large title for tab roots, compact for pushed screens. Defaults to `!back`
+   * (docs/design-system.md#page-header). */
   large?: boolean;
   back?: boolean | string;
   actions?: ReactNode;
@@ -73,9 +75,10 @@ export default function MobileHeader({
 }) {
   const router = useRouter();
   const showAccountActions = accountActions === true;
+  const isLarge = large ?? !back;
   return (
     <View style={styles.wrap}>
-      <View style={[styles.row, !large && styles.rowCompact]}>
+      <View style={[styles.row, !isLarge && styles.rowCompact]}>
         {back ? (
           <AnimatedPressable
             accessibilityRole="button"
@@ -88,7 +91,7 @@ export default function MobileHeader({
         ) : null}
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={styles.titleRow}>
-            <Text numberOfLines={1} style={[styles.title, !large && styles.titleCompact]}>
+            <Text numberOfLines={1} style={[styles.title, !isLarge && styles.titleCompact]}>
               {title}
             </Text>
             {statusDot ? <View style={styles.statusDot} /> : null}
@@ -121,8 +124,8 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   rowCompact: { minHeight: 56 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
-  title: { color: colors.foreground, fontSize: 30, fontWeight: "800", letterSpacing: -0.7 },
-  titleCompact: { fontSize: 18, fontWeight: "600", letterSpacing: -0.2 },
+  title: { color: colors.foreground, fontSize: 28, fontWeight: "700", letterSpacing: -0.5 },
+  titleCompact: { fontSize: 17, fontWeight: "600", letterSpacing: -0.2 },
   sub: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   statusDot: {
     width: 9,
@@ -138,7 +141,7 @@ const styles = createThemedStyleSheet((colors) => ({
   iconBtn: {
     width: 40,
     height: 40,
-    borderRadius: radius,
+    borderRadius: controlRadius + 2,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.card,
@@ -157,5 +160,5 @@ const styles = createThemedStyleSheet((colors) => ({
     justifyContent: "center",
     paddingHorizontal: 3,
   },
-  badgeText: { color: colors.primaryForeground, fontSize: 9, fontWeight: "700" },
+  badgeText: { color: colors.primaryForeground, fontSize: 9, fontWeight: "600" },
 }));

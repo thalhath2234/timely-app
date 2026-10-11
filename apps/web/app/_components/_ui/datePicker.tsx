@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, X } from "lucide-react";
 import { cn } from "@/app/utils/cn";
+import { controlClass, popoverSurface, type ControlSize } from "@/app/_components/_ui/field";
 import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
 import {
   fromDatetimeLocalValue,
@@ -22,16 +23,13 @@ type DatePickerProps = {
   className?: string;
   disabled?: boolean;
   clearable?: boolean;
-  size?: "sm" | "md";
+  size?: ControlSize;
   "aria-label"?: string;
 };
 
 type PanelPos = { top: number; left: number };
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-
-const triggerClass =
-  "flex w-full items-center gap-2 rounded-lg border border-border bg-input/30 text-left text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60";
 
 function parseLocalDate(value: string): Date | null {
   if (!value) return null;
@@ -400,11 +398,7 @@ export default function DatePicker({
         aria-label={ariaLabel}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => (open ? setOpen(false) : openPanel())}
-        className={cn(
-          triggerClass,
-          size === "sm" ? "px-2 py-1 text-xs" : "px-2 py-1.5 text-sm",
-          className,
-        )}
+        className={cn("flex w-full items-center gap-2 text-left", controlClass(size), className)}
       >
         <TriggerIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span
@@ -441,7 +435,8 @@ export default function DatePicker({
                 role="dialog"
                 aria-label={ariaLabel ?? (mode === "time" ? "Choose time" : "Choose date")}
                 className={cn(
-                  "fixed z-[100] max-h-[calc(100vh-16px)] overflow-y-auto rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl ring-1 ring-foreground/10",
+                  popoverSurface,
+                  "fixed z-[100] max-h-[calc(100vh-16px)] overflow-y-auto p-3",
                   mode === "datetime"
                     ? "w-[300px]"
                     : mode === "time"
@@ -606,7 +601,7 @@ export function DateField({
   onChange: (value: string) => void;
   className?: string;
   clearable?: boolean;
-  size?: "sm" | "md";
+  size?: ControlSize;
 }) {
   return (
     <DatePicker

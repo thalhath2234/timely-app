@@ -1,5 +1,6 @@
 "use client";
 
+import { requestConfirm } from "@/app/_store/confirmStore";
 import { useMemo, useState } from "react";
 import { GripVertical, ListTodo, Pencil, Plus, Trash2 } from "lucide-react";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
@@ -14,6 +15,8 @@ import {
 } from "@/app/utils/hooks/projects";
 import { colorForIndex, progressStyle, resolvedColor } from "@/app/utils/entityColor";
 import { sortedStages, stageCode } from "@/app/utils/stages";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 function stageProgress(tasks: Task[], stageId: string) {
   const items = tasks.filter((task) => task.stageId === stageId);
@@ -97,7 +100,7 @@ export default function StageCatalog({
             <button
               type="button"
               onClick={() => void enable.mutateAsync({ id: projectId, doesHaveStages: true })}
-              className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+              className={buttonClass({ size: "sm" })}
             >
               Enable stages
             </button>
@@ -106,7 +109,7 @@ export default function StageCatalog({
               <button
                 type="button"
                 onClick={() => void enable.mutateAsync({ id: projectId, doesHaveStages: false })}
-                className="rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs text-secondary-foreground"
+                className={buttonClass({ variant: "secondary", size: "sm" })}
               >
                 Disable
               </button>
@@ -166,7 +169,7 @@ export default function StageCatalog({
                       if (event.key === "Enter") event.currentTarget.blur();
                       if (event.key === "Escape") setEditingId(null);
                     }}
-                    className="min-w-0 flex-1 rounded-md border border-border bg-input/30 px-2 py-1 text-sm outline-none"
+                    className={controlClass("md", "min-w-0 flex-1")}
                   />
                 ) : (
                   <span className="min-w-0 flex-1 truncate text-sm text-foreground">
@@ -209,12 +212,14 @@ export default function StageCatalog({
                 <button
                   type="button"
                   title="Delete"
-                  onClick={() => {
-                    if (!window.confirm(`Delete stage “${stage.name}”? Tasks in it become unstaged.`)) {
-                      return;
-                    }
-                    void removeStage.mutateAsync(stage.id);
-                  }}
+                  onClick={() =>
+                    requestConfirm({
+                      title: `Delete stage “${stage.name}”?`,
+                      description: "Tasks in it become unstaged.",
+                      confirmLabel: "Delete stage",
+                      onConfirm: () => removeStage.mutateAsync(stage.id).then(() => undefined),
+                    })
+                  }
                   className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 >
                   <Trash2 className="size-3.5" />
@@ -244,12 +249,12 @@ export default function StageCatalog({
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Create new release stage (e.g. R6 — Polish & Billing)…"
-              className="min-w-0 flex-1 rounded-lg border border-border bg-input/30 px-3 py-1.5 text-sm outline-none focus:border-ring"
+              className={controlClass("md", "min-w-0 flex-1")}
             />
             <button
               type="submit"
               disabled={!name.trim() || createStage.isPending}
-              className="inline-flex items-center gap-1 rounded-lg bg-secondary px-3 py-1.5 text-sm text-secondary-foreground disabled:opacity-50"
+              className={buttonClass({ variant: "secondary" })}
             >
               <Plus className="size-3.5" />
               Add Stage

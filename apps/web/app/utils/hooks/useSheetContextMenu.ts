@@ -60,7 +60,6 @@ export function useSheetContextMenu() {
           kind: "action",
           label: "Open",
           icon: SheetIcon,
-          shortcut: "Enter",
           onSelect: () => router.push(fileHref(sheet.id)),
         },
         {
@@ -80,14 +79,12 @@ export function useSheetContextMenu() {
           kind: "action",
           label: "Rename",
           icon: Pencil,
-          shortcut: "F2",
           onSelect: () => options.onRename?.(),
         },
         {
           kind: "action",
           label: "Duplicate",
           icon: Copy,
-          shortcut: "mod+D",
           onSelect: () => {
             void duplicateSheet
               .mutateAsync(sheet.id)
@@ -141,7 +138,6 @@ export function useSheetContextMenu() {
           kind: "action",
           label: "Copy link",
           icon: Link2,
-          shortcut: "mod+shift+C",
           onSelect: () =>
             copyText(
               new URL(fileHref(sheet.id), window.location.origin).toString(),
@@ -166,7 +162,6 @@ export function useSheetContextMenu() {
           label: "Delete",
           icon: Trash2,
           danger: true,
-          shortcut: "mod+Backspace",
           onSelect: () =>
             requestConfirm({
               title: `Delete “${title}”?`,

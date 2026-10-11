@@ -95,7 +95,7 @@ const styles = createThemedStyleSheet(() => ({
   title: {
     color: colors.foreground,
     fontSize: 17,
-    fontWeight: "700",
+    fontWeight: "600",
     letterSpacing: -0.2,
   },
   sub: { color: colors.mutedForeground, fontSize: 12 },

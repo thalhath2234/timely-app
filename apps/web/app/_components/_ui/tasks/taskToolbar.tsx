@@ -1,10 +1,11 @@
 "use client";
 
+import { buttonClass } from "@/app/_components/_ui/button";
+import { controlClass, popoverSurface } from "@/app/_components/_ui/field";
+import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, GripVertical, List, X } from "lucide-react";
-import { motion } from "motion/react";
 import Select from "@/app/_components/_ui/select";
-import { springSoft } from "@/app/_components/_ui/motion";
 import type {
   CustomField,
   Project,
@@ -17,6 +18,7 @@ import type {
   Workspace,
 } from "@/app/_types/types";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { useModKey } from "@/app/utils/hooks/useModKey";
 import { mergeStatusesByName, statusNameKey } from "@/app/utils/status";
 
 export type TaskListScope = "global" | "project";
@@ -277,22 +279,24 @@ export function TaskToolbar({
   ];
 
   return (
-    <div className="flex min-h-11 flex-wrap items-center justify-between gap-y-2 border-b border-border bg-muted/20 px-5 py-2 text-xs">
+    <div className="flex min-h-11 flex-wrap items-center justify-between gap-y-2 border-b border-border px-6 py-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative" ref={groupPanelRef}>
           <button
-            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+            type="button"
+            className={buttonClass({ variant: "outline", size: "sm", className: "font-normal" })}
+            aria-expanded={groupPanelOpen}
             onClick={() => setGroupPanelOpen((prev) => !prev)}
           >
-            <span className="font-medium text-primary/80">Group by:</span>
-            <span className="font-semibold text-foreground">
-              {currentGroups.length ? currentGroups.map(groupLabel).join(" > ") : "None"}
+            <span className="text-muted-foreground">Group</span>
+            <span className="font-medium text-foreground">
+              {currentGroups.length ? currentGroups.map(groupLabel).join(" › ") : "None"}
             </span>
-            <ChevronDown size={14} />
+            <ChevronDown className="text-muted-foreground" />
           </button>
 
           {groupPanelOpen && (
-            <div className="absolute top-9 left-0 z-40 w-[320px] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl">
+            <div className="absolute top-9 left-0 z-40 w-[320px] rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg">
               <div className="mb-2 flex items-center justify-between">
                 <h4 className="text-sm font-semibold text-foreground">Groups</h4>
                 <button className="text-xs text-muted-foreground hover:text-foreground" onClick={resetGroups}>
@@ -351,7 +355,7 @@ export function TaskToolbar({
 
               <div className="mt-2 flex items-center justify-between">
                 <button
-                  className="rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                  className={buttonClass({ variant: "secondary", size: "sm" })}
                   disabled={currentGroups.length >= 3}
                   onClick={addGroupField}
                 >
@@ -359,7 +363,7 @@ export function TaskToolbar({
                 </button>
 
                 <button
-                  className="rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  className={buttonClass({ variant: "secondary", size: "sm" })}
                   onClick={() => setGroupSortDirection(groupSortDirection === "asc" ? "desc" : "asc")}
                 >
                   Sort {groupSortDirection === "asc" ? "Asc" : "Desc"}
@@ -389,14 +393,16 @@ export function TaskToolbar({
 
         <div className="relative" ref={groupSortPanelRef}>
           <button
-            className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            type="button"
+            className={buttonClass({ variant: "ghost", size: "sm" })}
+            aria-expanded={groupSortPanelOpen}
             onClick={() => setGroupSortPanelOpen((prev) => !prev)}
           >
-            Sort Groups
+            Order groups
           </button>
 
           {groupSortPanelOpen && (
-            <div className="absolute top-9 left-0 z-40 overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl">
+            <div className="absolute top-9 left-0 z-40 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg">
               <div className="flex">
                 {currentGroups.map((field) => {
                   const values = groupValueOrders[field] ?? groupOptionsByField[field] ?? [];
@@ -441,47 +447,20 @@ export function TaskToolbar({
           )}
         </div>
 
-        <div className="inline-flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
-          {(
-            [
-              { id: "list", label: "List", icon: List },
-              { id: "kanban", label: "Kanban" },
-              { id: "gantt", label: "Gantt" },
-            ] as const
-          ).map((option) => {
-            const active = viewMode === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                className={`relative inline-flex min-w-16 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition ${
-                  active
-                    ? "font-medium text-foreground"
-                    : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-                }`}
-                onClick={() => {
-                  if (option.id === "kanban" && groupFields[0]?.startsWith("cf:")) setGroupFields(["status"]);
-                  setViewMode(option.id);
-                }}
-                aria-pressed={active}
-              >
-                {active ? (
-                  <motion.span
-                    layoutId="task-view-pill"
-                    transition={springSoft}
-                    className="absolute inset-0 rounded-md bg-background shadow-xs"
-                  />
-                ) : null}
-                <span className="relative z-10 inline-flex items-center gap-1">
-                  {"icon" in option ? (
-                    <option.icon size={12} className={active ? "text-primary" : ""} />
-                  ) : null}
-                  {option.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedControl
+          size="sm"
+          aria-label="Layout"
+          value={viewMode}
+          onChange={(next) => {
+            if (next === "kanban" && groupFields[0]?.startsWith("cf:")) setGroupFields(["status"]);
+            setViewMode(next);
+          }}
+          options={[
+            { value: "list", label: "List", icon: <List /> },
+            { value: "kanban", label: "Kanban" },
+            { value: "gantt", label: "Gantt" },
+          ]}
+        />
 
         <div className="inline-flex items-center gap-1.5">
           <span className="text-muted-foreground">Sort</span>
@@ -495,10 +474,12 @@ export function TaskToolbar({
             />
           </div>
           <button
-            className="rounded-md border border-border bg-muted/40 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            type="button"
+            className={buttonClass({ variant: "outline", size: "sm", className: "font-normal" })}
+            title="Sort direction"
             onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
           >
-            {sortDirection === "asc" ? "Asc" : "Desc"}
+            {sortDirection === "asc" ? "Ascending" : "Descending"}
           </button>
         </div>
       </div>
@@ -506,10 +487,12 @@ export function TaskToolbar({
       <div className="flex items-center gap-3">
         <div className="relative" ref={statusPanelRef}>
           <button
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            type="button"
+            className={buttonClass({ variant: "outline", size: "sm", className: "font-normal" })}
+            aria-expanded={statusPanelOpen}
             onClick={() => setStatusPanelOpen((prev) => !prev)}
           >
-            <span>Status:</span>
+            <span className="text-muted-foreground">Status</span>
               <span className="font-medium text-foreground">
               {selectedStatusIds.length === 0
                 ? "All"
@@ -522,11 +505,11 @@ export function TaskToolbar({
                       : `${selectedGroups.length} selected`;
                   })()}
             </span>
-            <ChevronDown size={12} />
+            <ChevronDown className="text-muted-foreground" />
           </button>
 
           {statusPanelOpen && (
-            <div className="absolute top-9 right-0 z-40 w-64 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl">
+            <div className="absolute top-9 right-0 z-40 w-64 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg">
               <div className="mb-2 flex items-center justify-between">
                 <h4 className="text-sm font-semibold text-foreground">Statuses</h4>
                 <button
@@ -574,10 +557,12 @@ export function TaskToolbar({
         {!isProjectScope ? (
           <div className="relative" ref={workspacePanelRef}>
             <button
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              type="button"
+              className={buttonClass({ variant: "outline", size: "sm", className: "font-normal" })}
+              aria-expanded={workspacePanelOpen}
               onClick={() => setWorkspacePanelOpen((prev) => !prev)}
             >
-              <span>Workspace:</span>
+              <span className="text-muted-foreground">Workspace</span>
               <span className="font-medium text-foreground">
                 {selectedWorkspaceIds.length === 0
                   ? "All"
@@ -585,11 +570,11 @@ export function TaskToolbar({
                     ? (workspaces.find((item) => item.id === selectedWorkspaceIds[0])?.name ?? "Selected")
                     : `${selectedWorkspaceIds.length} selected`}
               </span>
-              <ChevronDown size={12} />
+              <ChevronDown className="text-muted-foreground" />
             </button>
 
             {workspacePanelOpen && (
-              <div className="absolute top-9 right-0 z-40 w-64 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl">
+              <div className="absolute top-9 right-0 z-40 w-64 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg">
                 <div className="mb-2 flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-foreground">Workspaces</h4>
                   <button
@@ -634,8 +619,8 @@ export function TaskToolbar({
           </div>
         ) : null}
 
-        <span className="rounded border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-primary">
-          {dataMode === "task" ? (showReminders ? "Reminders" : "Tasks") : "Projects"}: {dataCount}
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {dataCount} {dataMode === "task" ? (showReminders ? "reminders" : "tasks") : "projects"}
         </span>
       </div>
     </div>
@@ -698,7 +683,7 @@ export function TaskOptionsBar({
   );
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-2 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-6 py-2 text-xs text-muted-foreground">
       <div className="flex flex-wrap items-center gap-4">
       <label className="flex items-center gap-1.5">
         <input
@@ -711,12 +696,12 @@ export function TaskOptionsBar({
       </label>
       <label
         className={`flex items-center gap-1.5 ${
-          showCompleted ? "font-medium text-success" : ""
+          showCompleted ? "text-foreground" : ""
         }`}
       >
         <input
           type="checkbox"
-          className="size-3.5 rounded border-border accent-success"
+          className="size-3.5 rounded border-border accent-primary"
           checked={showCompleted}
           onChange={(event) => setShowCompleted(event.target.checked)}
         />
@@ -773,11 +758,11 @@ export function TaskOptionsBar({
         </div>
       ) : null}
       <details className="relative w-36">
-        <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg border border-border bg-input/30 px-2 py-1 text-foreground">
+        <summary className={controlClass("sm", "flex cursor-pointer list-none items-center justify-between gap-2")}>
           <span className="truncate">{selectedPriorityLevels.length === 0 ? "All priorities" : selectedPriorityLevels.length === 1 ? selectedPriorityLevels[0] : `${selectedPriorityLevels.length} priorities`}</span>
-          <ChevronDown size={12} />
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
         </summary>
-        <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-xl">
+        <div className={`${popoverSurface} absolute right-0 top-full z-40 mt-1 w-44 p-1`}>
           <button type="button" onClick={() => setSelectedPriorityLevels([])} className="mb-1 w-full rounded px-2 py-1 text-left hover:bg-accent">All priorities</button>
           {PRIORITY_OPTIONS.map((option) => (
             <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-accent">
@@ -835,8 +820,9 @@ export function TaskListStatusBar({
   synced?: boolean;
   noun?: string;
 }) {
+  const modKey = useModKey();
   return (
-    <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/20 px-5 py-2 text-[11px] text-muted-foreground">
+    <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/20 px-6 py-2 text-[11px] text-muted-foreground">
       <div className="flex flex-wrap items-center gap-3">
         <span className="inline-flex items-center gap-1.5">
           <span className={`size-2 rounded-full ${synced ? "bg-success" : "bg-warning"}`} />
@@ -851,16 +837,9 @@ export function TaskListStatusBar({
       <div className="hidden items-center gap-3 sm:flex">
         <span className="inline-flex items-center gap-1.5">
           <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px] text-foreground">
-            ⌘K
+            {modKey}+K
           </kbd>
           Quick search
-        </span>
-        <span className="text-border">·</span>
-        <span className="inline-flex items-center gap-1.5">
-          <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px] text-foreground">
-            C
-          </kbd>
-          New task
         </span>
       </div>
     </footer>

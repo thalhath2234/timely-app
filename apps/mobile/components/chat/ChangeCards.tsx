@@ -180,7 +180,7 @@ export default function ChangeCards({
 
 const styles = createThemedStyleSheet(() => ({
   card: {
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -217,7 +217,7 @@ const styles = createThemedStyleSheet(() => ({
   number: {
     color: colors.mutedForeground,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 21,
     fontVariant: ["tabular-nums"],
   },
@@ -225,7 +225,7 @@ const styles = createThemedStyleSheet(() => ({
     flex: 1,
     color: colors.foreground,
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 21,
   },
   discarded: {
@@ -240,7 +240,7 @@ const styles = createThemedStyleSheet(() => ({
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  removesText: { color: colors.destructive, fontSize: 11, fontWeight: "700" },
+  removesText: { color: colors.destructive, fontSize: 11, fontWeight: "600" },
   errorBox: {
     marginTop: 4,
     borderRadius: 10,
@@ -264,7 +264,7 @@ const styles = createThemedStyleSheet(() => ({
   linkText: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
     flexShrink: 1,
   },
   linkTitle: { fontWeight: "500" },

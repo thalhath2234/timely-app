@@ -1,6 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Appearance, Platform, StyleSheet } from "react-native";
 import * as SecureStore from "./secureStore";
+import {
+  ACCENT_PRESETS as SHARED_ACCENT_PRESETS,
+  DEFAULT_ACCENT_HEX,
+  darkColors,
+  lightColors,
+  radii,
+  type ColorTokens,
+} from "@timely/contract/designTokens";
 
 export type ThemeMode = "light" | "dark";
 export type ThemePreference = "system" | "light" | "dark";
@@ -14,72 +22,57 @@ export type AppearanceConfig = {
 const APPEARANCE_CACHE_KEY = "timely.appearance";
 const THEME_PREFERENCE_KEY = "timely.theme.preference";
 
-export const DEFAULT_ACCENT_HEX = "#6366F1";
+export { DEFAULT_ACCENT_HEX } from "@timely/contract/designTokens";
 
-export const ACCENT_PRESETS: { id: AccentPreference; label: string; hex: string }[] = [
-  { id: "default", label: "Default violet", hex: DEFAULT_ACCENT_HEX },
-  { id: "#6E56CF", label: "Violet", hex: "#6E56CF" },
-  { id: "#3E63DD", label: "Indigo", hex: "#3E63DD" },
-  { id: "#0090FF", label: "Blue", hex: "#0090FF" },
-  { id: "#12A594", label: "Teal", hex: "#12A594" },
-  { id: "#30A66D", label: "Green", hex: "#30A66D" },
-  { id: "#F76808", label: "Orange", hex: "#F76808" },
-  { id: "#E5484D", label: "Red", hex: "#E5484D" },
-  { id: "#E93D82", label: "Pink", hex: "#E93D82" },
-];
+/** Same swatches as the desktop app (packages/contract/src/designTokens.ts). */
+export const ACCENT_PRESETS: { id: AccentPreference; label: string; hex: string }[] = [...SHARED_ACCENT_PRESETS];
 
-const darkNeutral = {
-  background: "#111319",
-  foreground: "#F1F5F9",
-  card: "#191B22",
-  cardForeground: "#F8FAFC",
-  popover: "#1D2029",
-  secondary: "#242834",
-  muted: "#242834",
-  mutedForeground: "#8B99B0",
-  destructive: "#F43F5E",
-  success: "#10B981",
-  warning: "#F59E0B",
-  border: "rgba(255,255,255,0.08)",
-  input: "rgba(255,255,255,0.12)",
-} as const;
+// The phone uses the desktop palette. `muted`/`secondary` are filled control
+// surfaces here (chips, select triggers, segmented tracks), which sit on cards,
+// so they take the shared `fill` token; on desktop dark `muted` equals `card`.
+function neutralsFrom(tokens: ColorTokens) {
+  return {
+    background: tokens.background,
+    foreground: tokens.foreground,
+    card: tokens.card,
+    cardForeground: tokens.cardForeground,
+    popover: tokens.popover,
+    secondary: tokens.fill,
+    muted: tokens.fill,
+    mutedForeground: tokens.mutedForeground,
+    destructive: tokens.destructive,
+    destructiveForeground: tokens.destructiveForeground,
+    destructiveContainer: tokens.destructiveContainer,
+    success: tokens.success,
+    warning: tokens.warning,
+    border: tokens.border,
+    input: tokens.input,
+  };
+}
 
-const lightNeutral = {
-  background: "#f4f4f8",
-  foreground: "#1b1c24",
-  card: "#ffffff",
-  cardForeground: "#1b1c24",
-  popover: "#ffffff",
-  secondary: "#ececf3",
-  muted: "#ececf3",
-  mutedForeground: "#5c5c6b",
-  destructive: "#c63f35",
-  success: "#0f8f66",
-  warning: "#ca8100",
-  border: "rgba(27,28,36,0.10)",
-  input: "rgba(27,28,36,0.14)",
-} as const;
+function accentFrom(tokens: ColorTokens) {
+  return {
+    primary: tokens.primary,
+    primaryForeground: tokens.primaryForeground,
+    accent: tokens.accent,
+    accentForeground: tokens.accentForeground,
+    ring: tokens.ring,
+  };
+}
 
-const darkDefaultAccent = {
-  primary: "#818CF8",
-  primaryForeground: "#FFFFFF",
-  accent: "#242834",
-  accentForeground: "#A5B4FC",
-  ring: "#6366F1",
-} as const;
-
-const lightDefaultAccent = {
-  primary: "#6657d9",
-  primaryForeground: "#ffffff",
-  accent: "#e9e6fb",
-  accentForeground: "#5143b6",
-  ring: "#6657d9",
-} as const;
+const darkNeutral = neutralsFrom(darkColors);
+const lightNeutral = neutralsFrom(lightColors);
+const darkDefaultAccent = accentFrom(darkColors);
+const lightDefaultAccent = accentFrom(lightColors);
 
 export type ThemeColors = Record<keyof typeof darkNeutral | keyof typeof darkDefaultAccent, string>;
 
-/** Shared corner radius for cards, bars, buttons, and sheets. */
-export const radius = 16;
+/** Corner radius for cards, list rows and bars (desktop rounded-lg). */
+export const radius = radii.card;
+/** Corner radius for buttons, inputs, selects and segmented controls. */
+export const controlRadius = radii.control;
+/** Corner radius for bottom sheets and dialogs. */
+export const sheetRadius = radii.sheet;
 
 let activeTheme: ThemeMode = Appearance.getColorScheme() === "light" ? "light" : "dark";
 let themePreference: ThemePreference = "system";

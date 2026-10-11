@@ -9,12 +9,16 @@ import { DateField } from "@/app/_components/_ui/datePicker";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
 import ColorChip from "@/app/_components/_ui/colorChip";
 import Select from "@/app/_components/_ui/select";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
+import { requestConfirm } from "@/app/_store/confirmStore";
 import StageBoard from "@/app/_components/projects/stageBoard";
 import StageCatalog from "@/app/_components/projects/stageCatalog";
 import ProjectInsights from "@/app/_components/projects/projectInsights";
 import ProjectTaskList from "@/app/_components/_ui/tasks/projectTaskList";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
-import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { PRIORITY_OPTIONS, normalizePriority, priorityRank } from "@/app/utils/priority";
+import { dateFromDateInput } from "@/app/utils/calendar";
+import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { formatShortDate, projectStats, tasksForProject } from "@/app/utils/projectStats";
 import {
   useDeleteProject,
@@ -49,10 +53,7 @@ export default function ProjectDetailPage() {
           title="Project not found"
           description="It may have been deleted, or you don't have access."
           action={
-            <Link
-              href="/projects"
-              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
-            >
+            <Link href="/projects" className={buttonClass()}>
               Back to projects
             </Link>
           }
@@ -110,7 +111,7 @@ function ProjectHub({ project }: { project: Project }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <header
-        className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3"
+        className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-3"
         onContextMenu={(event) => {
           if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
           openMenu(event, projectMenu(project, { omit: ["open"] }), {
@@ -118,11 +119,8 @@ function ProjectHub({ project }: { project: Project }) {
           });
         }}
       >
-        <Link
-          href="/projects"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
+        <Link href="/projects" className={buttonClass({ variant: "ghost", size: "sm", className: "-ml-2" })}>
+          <ArrowLeft />
           Projects
         </Link>
         {workspace ? (
@@ -150,8 +148,41 @@ function ProjectHub({ project }: { project: Project }) {
           </span>
         ) : null}
         <SaveStatusBadge status={status} onRetry={() => void flush()} />
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          leading={<Copy />}
+          loading={duplicateProject.isPending}
+          onClick={() =>
+            void duplicateProject.mutateAsync(project.id).then((copy) => {
+              router.push(`/projects/${copy.id}`);
+            })
+          }
+        >
+          Duplicate
+        </Button>
+        <Button
+          variant="ghost"
+          icon
+          aria-label="Delete project"
+          title="Delete project"
+          className="hover:text-destructive"
+          onClick={() =>
+            requestConfirm({
+              title: "Delete this project?",
+              description: "Its stages are deleted too.",
+              confirmLabel: "Delete project",
+              onConfirm: async () => {
+                await deleteProject.mutateAsync(project.id);
+                router.push("/projects");
+              },
+            })
+          }
+        >
+          <Trash2 />
+        </Button>
+        <Button
+          variant={project.completedAt ? "soft" : "primary"}
+          leading={<Check />}
           onClick={() => {
             const completing = !project.completedAt;
             schedule({
@@ -159,41 +190,12 @@ function ProjectHub({ project }: { project: Project }) {
             });
             void flush();
           }}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium ${
-            project.completedAt
-              ? "bg-success/15 text-success"
-              : "bg-primary text-primary-foreground hover:bg-primary/90"
-          }`}
         >
-          <Check className="size-4" />
           {project.completedAt ? "Completed" : "Mark complete"}
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            void duplicateProject.mutateAsync(project.id).then((copy) => {
-              router.push(`/projects/${copy.id}`);
-            })
-          }
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:border-primary/30"
-        >
-          <Copy className="size-4" />
-          Duplicate
-        </button>
-        <button
-          type="button"
-          onClick={async () => {
-            if (!window.confirm("Delete this project and its stages?")) return;
-            await deleteProject.mutateAsync(project.id);
-            router.push("/projects");
-          }}
-          className="rounded-lg px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-        >
-          <Trash2 className="size-4" />
-        </button>
+        </Button>
       </header>
 
-      <div className="flex gap-1 border-b border-border px-5">
+      <div className="flex gap-1 border-b border-border px-6">
         {tabs.map((item) => (
           <button
             key={item.id}
@@ -220,7 +222,7 @@ function ProjectHub({ project }: { project: Project }) {
         ))}
       </div>
 
-      <div className={`flex-1 ${tab === "tasks" ? "min-h-0 overflow-hidden" : "overflow-y-auto p-5"}`}>
+      <div className={`flex-1 ${tab === "tasks" ? "min-h-0 overflow-hidden" : "overflow-y-auto px-6 py-5"}`}>
         {tab === "overview" ? (
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="space-y-4">
@@ -238,6 +240,14 @@ function ProjectHub({ project }: { project: Project }) {
                 <Fact label="Next deadline" value={formatShortDate(stats.nextDeadline)} />
               </div>
               <ProjectInsights project={project} />
+              <div className="grid gap-4 xl:grid-cols-2">
+                <UpNext
+                  tasks={projectTasks}
+                  statuses={statuses}
+                  onSeeAll={() => setTab("tasks")}
+                />
+                <RecentChanges project={project} onSeeAll={() => setTab("activity")} />
+              </div>
             </div>
             <aside className="space-y-3 rounded-2xl border border-border bg-card p-4">
               <label className="block text-xs text-muted-foreground">Status</label>
@@ -257,7 +267,7 @@ function ProjectHub({ project }: { project: Project }) {
               <label className="block text-xs text-muted-foreground">Priority</label>
               <Select
                 size="sm"
-                value={project.priorityLevel ?? ""}
+                value={normalizePriority(project.priorityLevel)}
                 onChange={(priorityLevel) => schedule({ priorityLevel })}
                 options={[{ value: "", label: "No priority" }, ...PRIORITY_OPTIONS]}
               />
@@ -438,6 +448,140 @@ function ProjectActivityFeed({ project, recent }: { project: Project; recent: Ta
         </section>
       ) : null}
     </div>
+  );
+}
+
+function OverviewCard({
+  title,
+  action,
+  onAction,
+  children,
+}: {
+  title: string;
+  action: string;
+  onAction: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col rounded-2xl border border-border bg-card">
+      <div className="flex items-center justify-between gap-3 px-4 pb-1 pt-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
+        <Button variant="link" size="sm" onClick={onAction}>
+          {action}
+        </Button>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** The project's open work in the order it is due, so the overview answers
+ * "what's next here?" without switching to the Tasks tab. */
+function UpNext({
+  tasks,
+  statuses,
+  onSeeAll,
+}: {
+  tasks: Task[];
+  statuses: Status[];
+  onSeeAll: () => void;
+}) {
+  const openTask = useEntityDetailStore((state) => state.openTask);
+  const open = tasks
+    .filter((task) => !task.completedAt && (task.duration ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        (a.deadline || "9999").localeCompare(b.deadline || "9999") ||
+        priorityRank(a.priorityLevel) - priorityRank(b.priorityLevel),
+    );
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return (
+    <OverviewCard title="Up next" action={`All ${tasks.length} tasks`} onAction={onSeeAll}>
+      {open.length === 0 ? (
+        <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">Nothing open. Add work from the Tasks tab.</p>
+      ) : (
+        <ul className="divide-y divide-border px-1 pb-1">
+          {open.slice(0, 6).map((task) => {
+            const status = task.status ?? statuses.find((item) => item.id === task.statusId);
+            const priority = normalizePriority(task.priorityLevel);
+            const overdue = task.deadline ? dateFromDateInput(task.deadline) < today : false;
+            return (
+              <li key={task.id}>
+                <button
+                  type="button"
+                  onClick={() => openTask(task.id)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-accent/50"
+                >
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: status?.color || "var(--muted-foreground)" }}
+                    title={status?.name}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-foreground">{task.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[status?.name, priority].filter(Boolean).join(" · ") || "No status"}
+                    </span>
+                  </span>
+                  <span
+                    className={`shrink-0 text-xs tabular-nums ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}
+                  >
+                    {task.deadline
+                      ? `${overdue ? "Overdue" : "Due"} ${dateFromDateInput(task.deadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                      : "No deadline"}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </OverviewCard>
+  );
+}
+
+/** The newest few entries of the project's activity, with the full feed one
+ * click away on the Activity tab. */
+function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () => void }) {
+  const activity = useProjectActivity(project.id);
+  const openTask = useEntityDetailStore((state) => state.openTask);
+  const entries = (activity.data ?? []).slice(0, 6);
+
+  return (
+    <OverviewCard title="Recent changes" action="All activity" onAction={onSeeAll}>
+      {activity.isLoading ? (
+        <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">
+          No changes yet. Status, priority, schedule and completion changes on this project&apos;s tasks show up here.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border px-1 pb-1">
+          {entries.map((entry) => (
+            <li key={entry.id}>
+              <button
+                type="button"
+                disabled={!entry.taskId}
+                onClick={() => entry.taskId && openTask(entry.taskId)}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left enabled:hover:bg-accent/50"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-foreground">{entry.message || entry.action}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {entry.taskId ? entry.taskName || "Task" : "Project"}
+                  </span>
+                </span>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {formatActivityStamp(entry.createdAt)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </OverviewCard>
   );
 }
 

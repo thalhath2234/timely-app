@@ -1,5 +1,6 @@
 "use client";
 
+import { requestConfirm } from "@/app/_store/confirmStore";
 import { FormEvent, useMemo, useState, useSyncExternalStore } from "react";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import {
@@ -10,6 +11,9 @@ import {
 import { useDesktopInstance } from "@/app/utils/hooks/desktop";
 import { API_BASE } from "@/app/utils/api/client";
 import { mcpUrls } from "@/app/utils/mcpUrl";
+import { controlClass } from "@/app/_components/_ui/field";
+import Button from "@/app/_components/_ui/button";
+import { settingsColumns } from "./layout";
 
 const noopSubscribe = () => () => {};
 
@@ -73,113 +77,114 @@ export default function ApiKeysSettings() {
     }
   };
 
-  const onRevoke = async (id: string) => {
-    if (!window.confirm("Revoke this API key? Hermes will stop working until you create a new one.")) {
-      return;
-    }
-    setError(null);
-    try {
-      await revokeKey.mutateAsync(id);
-      if (revealed) setRevealed(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not revoke key.");
-    }
-  };
+  const onRevoke = (id: string) =>
+    requestConfirm({
+      title: "Revoke this API key?",
+      description: "Hermes will stop working until you create a new one.",
+      confirmLabel: "Revoke key",
+      onConfirm: async () => {
+        setError(null);
+        try {
+          await revokeKey.mutateAsync(id);
+          if (revealed) setRevealed(null);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not revoke key.");
+        }
+      },
+    });
 
   return (
-    <div className="flex max-w-2xl flex-col gap-6">
-      <div>
-        <h2 className="text-base font-semibold text-foreground">Integrations</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Personal API keys let Hermes (and other MCP clients) read and edit your
-          Timely data. The full key is shown only once.
-        </p>
+    <div className={settingsColumns}>
+      <div className="flex max-w-2xl flex-col gap-6">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Integrations</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Personal API keys let Hermes (and other MCP clients) read and edit your
+            Timely data. The full key is shown only once.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">MCP server address</span>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-md bg-muted/40 px-2 py-1.5 text-xs text-foreground">
+              {urls?.local ?? "…"}
+            </code>
+            <Button
+              variant="outline"
+              size="sm"
+              leading={<Copy />}
+              onClick={() => onCopy("url")}
+              disabled={!urls}
+            >
+              {copied === "url" ? "Copied" : "Copy"}
+            </Button>
+          </div>
+          {desktop && (
+            <p className="text-[11px] text-muted-foreground">
+              Works while Timely is running on this computer.
+            </p>
+          )}
+          {urls && urls.remote.length > 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              From your other devices on Tailscale:{" "}
+              {urls.remote.map((url, index) => (
+                <span key={url}>
+                  {index > 0 && ", "}
+                  <code className="break-all">{url}</code>
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+
+        <form onSubmit={onCreate} className="flex items-end gap-2">
+          <label className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="text-xs text-muted-foreground">Key name</span>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Hermes"
+              className={controlClass("md", "w-full")}
+            />
+          </label>
+          <Button type="submit" loading={createKey.isPending} leading={<Plus />}>
+            Create key
+          </Button>
+        </form>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        {revealed && (
+          <div className="rounded-lg border border-border bg-muted/40 p-4">
+            <p className="text-sm font-medium text-foreground">
+              Copy this key now. You will not see it again.
+            </p>
+            <code className="mt-2 block break-all rounded-md bg-background px-2 py-1.5 text-xs text-foreground">
+              {revealed}
+            </code>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Paste this into <code>~/.hermes/config.yaml</code>:
+            </p>
+            <pre className="mt-2 overflow-x-auto rounded-md bg-background px-3 py-2 text-xs text-foreground">
+              {snippet}
+            </pre>
+            <Button
+              variant="outline"
+              size="sm"
+              leading={<Copy />}
+              className="mt-3"
+              onClick={() => onCopy("snippet")}
+              disabled={!urls}
+            >
+              {copied === "snippet" ? "Copied" : "Copy Hermes snippet"}
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">MCP server address</span>
-        <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-md bg-muted/40 px-2 py-1.5 text-xs text-foreground">
-            {urls?.local ?? "…"}
-          </code>
-          <button
-            type="button"
-            onClick={() => onCopy("url")}
-            disabled={!urls}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60 disabled:opacity-60"
-          >
-            <Copy className="size-3.5" />
-            {copied === "url" ? "Copied" : "Copy"}
-          </button>
-        </div>
-        {desktop && (
-          <p className="text-[11px] text-muted-foreground">
-            Works while Timely is running on this computer.
-          </p>
-        )}
-        {urls && urls.remote.length > 0 && (
-          <p className="text-[11px] text-muted-foreground">
-            From your other devices on Tailscale:{" "}
-            {urls.remote.map((url, index) => (
-              <span key={url}>
-                {index > 0 && ", "}
-                <code className="break-all">{url}</code>
-              </span>
-            ))}
-          </p>
-        )}
-      </div>
-
-      <form onSubmit={onCreate} className="flex items-end gap-2">
-        <label className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Key name</span>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Hermes"
-            className="w-full rounded-lg border border-border bg-input/30 px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={createKey.isPending}
-          className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-foreground px-3 text-sm font-medium text-background hover:opacity-90 disabled:opacity-60"
-        >
-          <Plus className="size-4" />
-          Create key
-        </button>
-      </form>
-
-      {error && <p className="text-sm text-destructive">{error}</p>}
-
-      {revealed && (
-        <div className="rounded-lg border border-border bg-muted/40 p-4">
-          <p className="text-sm font-medium text-foreground">
-            Copy this key now. You will not see it again.
-          </p>
-          <code className="mt-2 block break-all rounded-md bg-background px-2 py-1.5 text-xs text-foreground">
-            {revealed}
-          </code>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Paste this into <code>~/.hermes/config.yaml</code>:
-          </p>
-          <pre className="mt-2 overflow-x-auto rounded-md bg-background px-3 py-2 text-xs text-foreground">
-            {snippet}
-          </pre>
-          <button
-            type="button"
-            onClick={() => onCopy("snippet")}
-            disabled={!urls}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60"
-          >
-            <Copy className="size-3.5" />
-            {copied === "snippet" ? "Copied" : "Copy Hermes snippet"}
-          </button>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium text-foreground">Active keys</h3>
+      <div className="flex max-w-2xl flex-col gap-2">
+        <h3 className="text-base font-semibold text-foreground">Active keys</h3>
         {isLoading && (
           <p className="text-sm text-muted-foreground">Loading keys…</p>
         )}
@@ -200,14 +205,14 @@ export default function ApiKeysSettings() {
                 {formatWhen(key.lastUsedAt)}
               </p>
             </div>
-            <button
-              type="button"
+            <Button
+              variant="destructive-ghost"
+              size="sm"
+              leading={<Trash2 />}
               onClick={() => onRevoke(key.id)}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
             >
-              <Trash2 className="size-3.5" />
               Revoke
-            </button>
+            </Button>
           </div>
         ))}
       </div>

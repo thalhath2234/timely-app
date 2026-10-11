@@ -1,5 +1,6 @@
 "use client";
 
+import { requestConfirm } from "@/app/_store/confirmStore";
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Label, Project, Task, Workspace } from "@/app/_types/types";
@@ -12,6 +13,7 @@ import Select from "@/app/_components/_ui/select";
 import DatePicker from "@/app/_components/_ui/datePicker";
 import { AnimatePresence, motion } from "motion/react";
 import { springSoft } from "@/app/_components/_ui/motion";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 type UndoableField = keyof Pick<
   UpdateTaskPayload,
@@ -206,7 +208,7 @@ export default function BulkActionBar({
         type="button"
         disabled={busy}
         onClick={() => void apply({ completedAt: "" }, ["completedAt", "statusId"], "Reopened")}
-        className="rounded-md bg-secondary px-2 py-1 text-xs"
+        className={buttonClass({ variant: "secondary", size: "sm" })}
       >
         Reopen
       </button>
@@ -282,18 +284,24 @@ export default function BulkActionBar({
       <button
         type="button"
         disabled={busy}
-        onClick={async () => {
-          if (!window.confirm(`Delete ${ids.length} task${ids.length === 1 ? "" : "s"}?`)) return;
-          setBusy(true);
-          try {
-            for (const id of ids) {
-              await remove.mutateAsync(id);
-            }
-            onClear();
-          } finally {
-            setBusy(false);
-          }
-        }}
+        onClick={() =>
+          requestConfirm({
+            title: `Delete ${ids.length} task${ids.length === 1 ? "" : "s"}?`,
+            confirmLabel: "Delete",
+            pendingLabel: "Deleting…",
+            onConfirm: async () => {
+              setBusy(true);
+              try {
+                for (const id of ids) {
+                  await remove.mutateAsync(id);
+                }
+                onClear();
+              } finally {
+                setBusy(false);
+              }
+            },
+          })
+        }
         className="rounded-md px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
       >
         Delete

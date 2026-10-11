@@ -249,7 +249,7 @@ export function FocusTimeCard({
                     }}
                   />
                 </View>
-                <Text style={[styles.tiny, isToday && { color: colors.primary, fontWeight: "700" }]}>{WEEKDAY_LETTERS[index]}</Text>
+                <Text style={[styles.tiny, isToday && { color: colors.primary, fontWeight: "600" }]}>{WEEKDAY_LETTERS[index]}</Text>
               </AnimatedPressable>
             );
           })}
@@ -452,7 +452,7 @@ export function GoalCard({
         </AnimatedPressable>
       </View>
       {reached ? (
-        <Text style={[styles.centerText, { color: colors.success, fontWeight: "700" }]}>Goal reached</Text>
+        <Text style={[styles.centerText, { color: colors.success, fontWeight: "600" }]}>Goal reached</Text>
       ) : (
         <Text style={[styles.small, { textAlign: "center" }]}>
           {goal.metric === "tasks"
@@ -756,9 +756,9 @@ const styles = createThemedStyleSheet((colors) => ({
   muted: { color: colors.mutedForeground, fontSize: 13 },
   small: { color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },
   tiny: { color: colors.mutedForeground, fontSize: 10 },
-  strong: { color: colors.foreground, fontSize: 17, fontWeight: "700", fontVariant: ["tabular-nums"] },
-  big: { color: colors.foreground, fontSize: 22, fontWeight: "700", fontVariant: ["tabular-nums"] },
-  huge: { color: colors.foreground, fontSize: 34, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  strong: { color: colors.foreground, fontSize: 17, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  big: { color: colors.foreground, fontSize: 22, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  huge: { color: colors.foreground, fontSize: 34, fontWeight: "600", fontVariant: ["tabular-nums"] },
   label: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 4 },
   link: { color: colors.primary, fontSize: 13, fontWeight: "600", paddingVertical: 6 },
   centerText: { textAlign: "center", fontSize: 14 },
@@ -798,7 +798,7 @@ const styles = createThemedStyleSheet((colors) => ({
     borderRadius: 10,
     backgroundColor: colors.accent,
   },
-  nextTitle: { color: colors.foreground, fontSize: 19, fontWeight: "700" },
+  nextTitle: { color: colors.foreground, fontSize: 19, fontWeight: "600" },
   goalRow: { alignItems: "center" },
   cornerButton: { position: "absolute", top: 0, right: 0 },
   ringCenter: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
@@ -809,7 +809,7 @@ const styles = createThemedStyleSheet((colors) => ({
   tileOn: { backgroundColor: colors.accent, borderColor: colors.accentForeground },
   zero: { alignItems: "center", gap: 6, paddingVertical: 12 },
   zeroBadge: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: colors.muted },
-  zeroTitle: { color: colors.foreground, fontSize: 19, fontWeight: "700" },
+  zeroTitle: { color: colors.foreground, fontSize: 19, fontWeight: "600" },
   oldest: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background, padding: 12, gap: 4 },
   oldestTitle: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
   actions: { flexDirection: "row", gap: 8 },

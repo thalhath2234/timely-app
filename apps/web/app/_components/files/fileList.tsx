@@ -45,6 +45,8 @@ import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
 import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
 import { newSheetMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
+import { buttonClass } from "@/app/_components/_ui/button";
+import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 
 interface DocNode extends Doc {
   children: DocNode[];
@@ -467,7 +469,7 @@ export default function FileList() {
               <button
                 type="button"
                 onClick={() => setPendingDeleteId(null)}
-                className="cursor-pointer rounded-md bg-secondary px-2 py-1 text-secondary-foreground transition-colors hover:bg-accent"
+                className={buttonClass({ variant: "secondary", size: "sm" })}
               >
                 Cancel
               </button>
@@ -564,7 +566,7 @@ export default function FileList() {
               <button
                 type="button"
                 onClick={() => setPendingDeleteId(null)}
-                className="cursor-pointer rounded-md bg-secondary px-2 py-1 text-secondary-foreground transition-colors hover:bg-accent"
+                className={buttonClass({ variant: "secondary", size: "sm" })}
               >
                 Cancel
               </button>
@@ -700,7 +702,7 @@ export default function FileList() {
             />
           </label>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-muted px-2 py-1.5 transition focus-within:border-ring focus-within:ring-1 focus-within:ring-ring">
+        <div className="flex h-8 items-center gap-2 rounded-md border border-input bg-card px-2.5 shadow-xs transition focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
           <input
             value={search}
@@ -710,28 +712,11 @@ export default function FileList() {
           />
         </div>
         <div className="mt-2 flex items-center justify-between gap-2">
-          <div role="radiogroup" aria-label="Show" className="flex rounded-md bg-muted p-0.5">
-            {KIND_FILTERS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={kindFilter === option.value}
-                onClick={() => setKindFilter(option.value)}
-                className={`rounded px-2 py-0.5 text-xs transition-colors ${
-                  kindFilter === option.value
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl size="sm" aria-label="Show" value={kindFilter} onChange={setKindFilter} options={KIND_FILTERS} />
           <button
             type="button"
             onClick={() => setShowArchived((previous) => !previous)}
-            className="text-xs text-muted-foreground hover:text-foreground"
+            className={buttonClass({ variant: "ghost", size: "sm" })}
           >
             {showArchived ? "Show active" : "Show archived"}
           </button>

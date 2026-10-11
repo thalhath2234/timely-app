@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 import Animated from "react-native-reanimated";
-import { createThemedStyleSheet, radius } from "../../lib/theme";
+import { controlRadius, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "./AnimatedPressable";
 import { useSlidingPill } from "./useSlidingPill";
 
@@ -38,13 +38,13 @@ export default function SegmentedControl<T extends string>({
   );
 }
 
+// Same look as the desktop SegmentedControl: a filled track with the active
+// segment raised on a card (docs/design-system.md#segmented-control).
 const styles = createThemedStyleSheet((colors) => ({
   wrap: {
     backgroundColor: colors.muted,
-    borderRadius: radius,
+    borderRadius: controlRadius,
     padding: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
     overflow: "hidden",
   },
   row: {
@@ -55,12 +55,16 @@ const styles = createThemedStyleSheet((colors) => ({
     position: "absolute",
     top: 0,
     bottom: 0,
-    borderRadius: radius - 4,
-    backgroundColor: colors.primary,
+    borderRadius: controlRadius - 3,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: colors.ring,
+    borderColor: colors.border,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
   },
-  item: { flex: 1, height: 32, borderRadius: radius - 4, alignItems: "center", justifyContent: "center" },
-  text: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
-  onText: { color: colors.primaryForeground, fontWeight: "700" },
+  item: { flex: 1, height: 32, borderRadius: controlRadius - 3, alignItems: "center", justifyContent: "center" },
+  text: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
+  onText: { color: colors.foreground, fontWeight: "600" },
 }));

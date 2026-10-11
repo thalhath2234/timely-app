@@ -20,6 +20,7 @@
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
+  --color-fill: var(--fill);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -49,33 +50,33 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* The landing page (`.landing`) carries its own light/dark choice, independent of
-   the account theme on <html>, so it re-declares the same tokens on its root. */
-:root,
-[data-landing-theme="light"] .landing {
+/* The public site (landing page and help center, `.site`) is always dark,
+   whatever the account theme on <html>, so it re-declares the dark tokens. */
+:root {
   color-scheme: light;
-  --background: oklch(0.985 0.002 264);
-  --foreground: oklch(0.22 0.02 270);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.02 270);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.02 270);
-  --primary: oklch(0.51 0.23 277);
-  --primary-foreground: oklch(0.985 0.005 277);
-  --secondary: oklch(0.955 0.005 270);
-  --secondary-foreground: oklch(0.28 0.02 270);
-  --muted: oklch(0.955 0.005 270);
-  --muted-foreground: oklch(0.52 0.015 270);
-  --accent: oklch(0.945 0.02 277);
-  --accent-foreground: oklch(0.4 0.15 277);
-  --destructive: oklch(0.577 0.215 27);
-  --destructive-foreground: oklch(0.985 0 0);
-  --destructive-container: var(--destructive);
-  --success: oklch(0.6 0.13 160);
-  --warning: oklch(0.72 0.15 70);
-  --border: oklch(0.912 0.006 270);
-  --input: oklch(0.912 0.006 270);
-  --ring: oklch(0.51 0.23 277);
+  --background: #f9fafb;
+  --foreground: #171a24;
+  --card: #ffffff;
+  --card-foreground: #171a24;
+  --popover: #ffffff;
+  --popover-foreground: #171a24;
+  --primary: #4f46e5;
+  --primary-foreground: #f9fafe;
+  --secondary: #eff0f4;
+  --secondary-foreground: #252933;
+  --muted: #eff0f4;
+  --muted-foreground: #656972;
+  --accent: #e9ecfb;
+  --accent-foreground: #373896;
+  --destructive: #dc2627;
+  --destructive-foreground: #fafafa;
+  --destructive-container: #dc2627;
+  --success: #179765;
+  --warning: #df911a;
+  --border: #e0e2e6;
+  --input: #e0e2e6;
+  --ring: #4f46e5;
+  --fill: #eff0f4;
   --chart-1: oklch(0.51 0.23 277);
   --chart-2: oklch(0.62 0.16 255);
   --chart-3: oklch(0.72 0.1 285);
@@ -93,7 +94,7 @@
 }
 
 .dark,
-.landing {
+.site {
   color-scheme: dark;
   --background: #111319;
   --foreground: #e2e2eb;
@@ -114,9 +115,10 @@
   --destructive-container: #93000a;
   --success: #4edea3;
   --warning: #ffb95f;
-  --border: rgb(255 255 255 / 8%);
-  --input: rgb(255 255 255 / 12%);
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.12);
   --ring: #c0c1ff;
+  --fill: #24262e;
   --chart-1: #c0c1ff;
   --chart-2: #4edea3;
   --chart-3: #8083ff;
@@ -167,6 +169,12 @@ html.dark.theme-custom {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
+  /* Native checkboxes and radios take the brand colour instead of the
+     browser's blue, so they sit with the kit's switches and buttons. */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--primary);
+  }
 }
 
 /* `.reduce-motion` is the in-app "Reduce motion" toggle (Settings → Appearance). */
@@ -186,9 +194,12 @@ html.dark.theme-custom {
     transition-delay: 0s !important;
   }
 }
-html.reduce-motion *:not(.doc-mermaid-render, .doc-mermaid-render *),
-html.reduce-motion *::before,
-html.reduce-motion *::after {
+/* The public site (landing page, help center) follows only the visitor's OS
+   setting: the in-app toggle is on by default, so it would freeze the site for
+   every first-time visitor. Those pages set data-public-site on <html>. */
+html.reduce-motion:not([data-public-site]) *:not(.doc-mermaid-render, .doc-mermaid-render *),
+html.reduce-motion:not([data-public-site]) *::before,
+html.reduce-motion:not([data-public-site]) *::after {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   scroll-behavior: auto !important;
@@ -956,7 +967,7 @@ html.reduce-motion::view-transition-group(*) {
     animation: none;
   }
 }
-html.reduce-motion .tl-bar {
+html.reduce-motion:not([data-public-site]) .tl-bar {
   animation: none;
 }
 

@@ -364,12 +364,21 @@ function AddItemModalInner() {
   const taskScheduledOn = useWatch({ control: taskControl, name: "scheduledOn" }) ?? "";
   // A quick-add draft that asks for a Reminder switches the kind as soon as the
   // task form is shown; the effect below consumes the rest of the draft.
+  // This component mounts only while the modal is open, so the draft is often
+  // already there on the first render: start from "nothing seen" so that
+  // render still switches the kind.
   const draftKindForTaskForm =
     isAddItemModalOpen && addNewMode === "task" ? createTaskDraft?.kind : undefined;
-  const [seenDraftKind, setSeenDraftKind] = useState(draftKindForTaskForm);
+  const [seenDraftKind, setSeenDraftKind] = useState<typeof draftKindForTaskForm>(undefined);
+  // The person picked Work or Reminder themselves (in the form, or with the
+  // Inbox's "Make it a task" / "Remind me"); a suggested kind never overrides that.
+  const [kindTouched, setKindTouched] = useState(false);
   if (seenDraftKind !== draftKindForTaskForm) {
     setSeenDraftKind(draftKindForTaskForm);
-    if (draftKindForTaskForm === "reminder") setTaskKind("reminder");
+    if (draftKindForTaskForm) {
+      setTaskKind(draftKindForTaskForm);
+      setKindTouched(true);
+    }
   }
   const taskIsReminder = taskKind === "reminder";
   const taskName = useWatch({ control: taskControl, name: "name" }) ?? "";
@@ -511,11 +520,31 @@ function AddItemModalInner() {
     });
   };
 
+  // What Schedule held before the person picked Reminder, so going back to
+  // Work does not keep the ping time as a scheduled block.
+  const [workSchedule, setWorkSchedule] = useState<string | null>(null);
   const makeTaskReminder = () => {
     setTaskKind("reminder");
+    setWorkSchedule(taskScheduledOn);
     setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
-    if (!taskScheduledOn) {
+    // A time the suggestions read from the words ("Tuesday afternoon") is
+    // the ping; one that has already passed pings at the next hour.
+    if (suggestions?.date && (suggestions.dateRole === "reminder" || suggestions.time)) {
+      const at = applyClockToDate(dateFromDateInput(suggestions.date), suggestions.time || "09:00");
+      setValueTask("scheduledOn", toDatetimeLocalValue(at < new Date() ? nextRoundHour() : at), {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    } else if (!taskScheduledOn) {
       setTaskClock(toTimeInputValue(nextRoundHour()));
+    }
+  };
+  const makeTaskWork = () => {
+    setTaskKind("task");
+    setValueTask("duration", 30, { shouldValidate: true, shouldDirty: true });
+    if (workSchedule !== null) {
+      setValueTask("scheduledOn", workSchedule, { shouldValidate: true, shouldDirty: true });
+      setWorkSchedule(null);
     }
   };
 
@@ -739,9 +768,19 @@ function AddItemModalInner() {
       }
       let nextDraft = createTaskDraft;
       let draftUsed = false;
-      if (nextDraft?.kind === "reminder") {
-        // taskKind itself follows the draft during render (see above).
-        setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
+      if (nextDraft?.kind) {
+        // taskKind itself follows the draft during render (see above); a
+        // Reminder gets what picking it in the form gives: no length, and the
+        // next hour until a time is set.
+        if (nextDraft.kind === "reminder") {
+          setValueTask("duration", 0, { shouldValidate: true, shouldDirty: true });
+          if (!getTaskValue("scheduledOn")) {
+            setValueTask("scheduledOn", toDatetimeLocalValue(nextRoundHour()), {
+              shouldValidate: true,
+              shouldDirty: true,
+            });
+          }
+        }
         nextDraft = { ...nextDraft, kind: undefined };
         draftUsed = true;
       }
@@ -760,6 +799,7 @@ function AddItemModalInner() {
     typedWorkspaces,
     selectedTaskWorkspaceId,
     setValueTask,
+    getTaskValue,
     setCreateTaskDraft,
     createTaskDraft,
   ]);
@@ -792,12 +832,11 @@ function AddItemModalInner() {
   const clarifyInboxId =
     isAddItemModalOpen && addNewMode === "task" ? createTaskDraft?.inboxId : undefined;
   const decisionsOn = useDecisions().data?.available === true;
-  const suggestionsQuery = useClarifySuggestions(clarifyInboxId, decisionsOn);
+  // Asked even with smart suggestions off: the server still reads "Remind
+  // me…" and a date or time in the words, which needs no model.
+  const suggestionsQuery = useClarifySuggestions(clarifyInboxId);
   const suggestions = suggestionsQuery.data?.available ? suggestionsQuery.data : undefined;
   const decisionFeedback = useDecisionFeedback();
-  // The person picked Work or Reminder themselves; a suggested kind never
-  // overrides that.
-  const [kindTouched, setKindTouched] = useState(false);
   // The suggestions (by logId) that filled at least one field, so the note
   // above the form only says so when something was filled.
   const [filledFor, setFilledFor] = useState<string>();
@@ -808,7 +847,11 @@ function AddItemModalInner() {
   const [suggestedKindFor, setSuggestedKindFor] = useState<string>();
   if (suggestions?.kind === "reminder" && suggestions.logId && suggestedKindFor !== suggestions.logId) {
     setSuggestedKindFor(suggestions.logId);
-    const workTouched = kindTouched || WORK_FIELDS.some((name) => getTaskFieldState(name).isDirty);
+    // A draft that names the kind counts as chosen even in the render that
+    // reads it, before the kindTouched update above has landed (the answer is
+    // often cached already, from the Inbox card).
+    const workTouched =
+      kindTouched || Boolean(draftKindForTaskForm) || WORK_FIELDS.some((name) => getTaskFieldState(name).isDirty);
     if (taskKind === "task" && !workTouched) {
       setTaskKind("reminder");
       setFilledFor(suggestions.logId);
@@ -1157,7 +1200,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="Select workspace"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={typedWorkspaces.map((workspace) => ({
                     value: workspace.id,
                     label: workspace.name,
@@ -1177,7 +1220,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="Select status"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={(selectedWorkspace?.status ?? []).map(
                     (status: Status) => ({
                       value: status.id,
@@ -1198,7 +1241,7 @@ function AddItemModalInner() {
                       shouldDirty: true,
                     })
                   }
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={PRIORITY_OPTIONS}
                 />
               </PropertyRow>
@@ -1325,7 +1368,7 @@ function AddItemModalInner() {
 
             {isClarify && (
               <ClarifyHints
-                loading={suggestionsQuery.isFetching && !suggestionsQuery.data}
+                loading={decisionsOn && suggestionsQuery.isFetching && !suggestionsQuery.data}
                 suggestions={suggestions}
                 filled={Boolean(suggestions?.logId) && filledFor === suggestions?.logId}
                 dateFilled={
@@ -1377,11 +1420,7 @@ function AddItemModalInner() {
                       makeTaskReminder();
                       return;
                     }
-                    setTaskKind("task");
-                    setValueTask("duration", 30, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    });
+                    makeTaskWork();
                   }}
                 />
                 <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
@@ -1403,7 +1442,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="Select workspace"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={typedWorkspaces.map((workspace) => ({
                     value: workspace.id,
                     label: workspace.name,
@@ -1424,7 +1463,7 @@ function AddItemModalInner() {
                     setValueTask("stageId", "", { shouldDirty: true });
                   }}
                   placeholder="No project"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={[
                     { value: "", label: "No project" },
                     ...availableTaskProjects.map((project) => ({
@@ -1448,7 +1487,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="No stage"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={[
                     { value: "", label: "No stage" },
                     ...availableTaskStages.map((stage) => ({
@@ -1472,7 +1511,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="Select status"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={(selectedTaskWorkspace?.status ?? []).map(
                     (status: Status) => ({
                       value: status.id,
@@ -1495,7 +1534,7 @@ function AddItemModalInner() {
                       shouldDirty: true,
                     })
                   }
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={PRIORITY_OPTIONS}
                 />
               </PropertyRow>
@@ -1800,7 +1839,7 @@ function AddItemModalInner() {
                   value={eventWorkspaceId}
                   onChange={setEventWorkspaceId}
                   placeholder="None"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={[
                     { value: "", label: "None" },
                     ...typedWorkspaces.map((workspace) => ({
@@ -1877,7 +1916,7 @@ function AddItemModalInner() {
                   })
                 }
                 placeholder="Select workspace"
-                className="border-0 bg-transparent px-0 shadow-none"
+                variant="bare"
                 options={typedWorkspaces.map((workspace) => ({
                   value: workspace.id,
                   label: workspace.name,
@@ -1896,7 +1935,7 @@ function AddItemModalInner() {
                     setSheetTemplateId(id);
                   }}
                   placeholder="Blank sheet"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={[
                     { value: "", label: "Blank sheet" },
                     ...(templatesQuery.data ?? []).map((template) => ({

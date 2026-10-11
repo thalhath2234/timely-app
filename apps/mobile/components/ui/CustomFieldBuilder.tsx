@@ -168,8 +168,8 @@ const styles = createThemedStyleSheet((colors) => ({
   colors: { flexDirection: "row", gap: 12, paddingVertical: 6 },
   swatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 3 },
   options: { gap: 12 },
-  optionHint: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  optionHint: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   optionRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   optionDot: { width: 28, height: 28, borderRadius: 14 },
-  addOption: { color: colors.primary, fontSize: 14, fontWeight: "700", paddingVertical: 8 },
+  addOption: { color: colors.primary, fontSize: 14, fontWeight: "600", paddingVertical: 8 },
 }));

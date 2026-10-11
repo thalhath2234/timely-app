@@ -186,6 +186,14 @@ func main() {
 	chatService.SetEstimates(suggestions.EstimateMany)
 
 	authHandler := auth.NewHandler(authService, userRepo)
+	// Chat images need no step here: the image sweep removes every upload
+	// file within 24 hours of its upload.
+	authHandler.SetAfterDelete(func(userID string) {
+		indexer.Invalidate(userID)
+		if err := portabilityService.RemoveAccount(userID); err != nil {
+			log.Printf("delete account: remove backups: %v", err)
+		}
+	})
 	port, bind := listenConfig()
 	instanceHandler := instance.NewHandler(instance.Config{
 		Port:              port,

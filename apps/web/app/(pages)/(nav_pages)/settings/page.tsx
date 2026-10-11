@@ -13,6 +13,7 @@ import AppearanceSettings from "@/app/_components/settings/appearanceSettings";
 import ServerSettings from "@/app/_components/settings/serverSettings";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import { cn } from "@/app/utils/cn";
+import PageHeader from "@/app/_components/_ui/pageHeader";
 import { AnimatePresence, motion } from "motion/react";
 import { fadeTransition, springSoft } from "@/app/_components/_ui/motion";
 
@@ -109,12 +110,11 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
 
   return (
     <main className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="border-b border-border px-6 py-5">
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage your account and per-workspace configuration.
-        </p>
-      </div>
+      <PageHeader
+        bordered
+        title="Settings"
+        description="Manage your account and per-workspace configuration."
+      />
 
       <div className="flex min-h-0 flex-1">
         <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border bg-background p-3">

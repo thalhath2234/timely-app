@@ -298,7 +298,7 @@ const styles = createThemedStyleSheet((colors) => ({
   bar: { height: 8, borderTopRightRadius: 4, borderBottomRightRadius: 4 },
   donutRow: { flexDirection: "row", alignItems: "center", gap: 16 },
   donutCenter: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
-  donutTotal: { color: colors.foreground, fontSize: 20, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  donutTotal: { color: colors.foreground, fontSize: 20, fontWeight: "600", fontVariant: ["tabular-nums"] },
   muted: { color: colors.mutedForeground, fontSize: 11 },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   swatch: { width: 10, height: 10, borderRadius: 3 },

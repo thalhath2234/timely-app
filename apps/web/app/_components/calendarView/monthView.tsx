@@ -2,15 +2,16 @@
 
 import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import {
+  dayDropAt,
   eventsForDay,
   eventStyle,
   isSameDay,
   monthGrid,
-  slotAt,
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
 import { dragHasTask, readTaskDragId } from "@/app/utils/taskDrag";
+import DeadlinePassedDot from "@/app/_components/calendarView/deadlinePassedDot";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MAX_CHIPS_PER_DAY = 3;
@@ -79,7 +80,7 @@ export default function MonthView({
                 if (!onDropTask) return;
                 event.preventDefault();
                 const taskId = readTaskDragId(event);
-                if (taskId) onDropTask(slotAt(day, 9), taskId);
+                if (taskId) onDropTask(dayDropAt(day, new Date()), taskId);
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
@@ -126,12 +127,14 @@ export default function MonthView({
                     }}
                     onContextMenu={(mouse) => onEventContextMenu?.(mouse, event)}
                     style={eventStyle(event.color)}
+                    title={event.deadlinePassed ? `${event.title} · overdue` : undefined}
                     className={cn(
                       "truncate rounded border px-1.5 py-0.5 text-left text-[10px] leading-tight text-foreground transition-all hover:brightness-110",
                       !inMonth && "opacity-60",
                       event.completedAt && "text-muted-foreground line-through",
                     )}
                   >
+                    {event.deadlinePassed ? <DeadlinePassedDot /> : null}
                     {event.title}
                   </button>
                 ))}

@@ -1,8 +1,8 @@
 import { Text, View } from "react-native";
 import { Trash2 } from "lucide-react-native";
 import BottomSheet from "./BottomSheet";
-import AnimatedPressable from "./AnimatedPressable";
-import { createThemedStyleSheet } from "../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { Button } from "./primitives";
 
 export type ConfirmRequest = {
   title: string;
@@ -35,20 +35,22 @@ export default function ConfirmSheet({
       title={title}
       footer={
         <View style={styles.row}>
-          <AnimatedPressable accessibilityRole="button" onPress={onClose} style={styles.cancel}>
-            <Text style={styles.cancelText}>{cancelLabel}</Text>
-          </AnimatedPressable>
-          <AnimatedPressable
-            accessibilityRole="button"
-            onPress={() => {
-              onClose();
-              onConfirm();
-            }}
-            style={styles.confirm}
-          >
-            {/delete|remove|revoke|clear/.test(confirmLabel.toLowerCase()) ? <Trash2 size={16} color="#fff" /> : null}
-            <Text style={styles.confirmText}>{confirmLabel}</Text>
-          </AnimatedPressable>
+          <View style={styles.cell}>
+            <Button label={cancelLabel} variant="secondary" size="lg" stretch onPress={onClose} />
+          </View>
+          <View style={styles.cell}>
+            <Button
+              label={confirmLabel}
+              variant="destructive"
+              size="lg"
+              stretch
+              icon={/delete|remove|revoke|clear/.test(confirmLabel.toLowerCase()) ? <Trash2 size={16} color={colors.destructiveForeground} /> : undefined}
+              onPress={() => {
+                onClose();
+                onConfirm();
+              }}
+            />
+          </View>
         </View>
       }
     >
@@ -60,24 +62,5 @@ export default function ConfirmSheet({
 const styles = createThemedStyleSheet((colors) => ({
   message: { color: colors.mutedForeground, fontSize: 15, lineHeight: 22, paddingBottom: 16 },
   row: { flexDirection: "row", gap: 10 },
-  cancel: {
-    flex: 1,
-    height: 56,
-    borderRadius: 20,
-    backgroundColor: colors.muted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelText: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
-  confirm: {
-    flex: 1,
-    height: 56,
-    borderRadius: 20,
-    backgroundColor: colors.destructive,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  confirmText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  cell: { flex: 1 },
 }));

@@ -114,14 +114,14 @@ export default function StaleWorkCard() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  card: { gap: 8, marginTop: 8, marginBottom: 4, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
+  card: { gap: 8, marginTop: 8, marginBottom: 4, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
   header: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { flex: 1, flexDirection: "row", alignItems: "center", gap: 4 },
   titleText: { flexShrink: 1, color: colors.foreground, fontSize: 13 },
-  review: { color: colors.primary, fontSize: 13, fontWeight: "700" },
+  review: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   row: { flexDirection: "row", alignItems: "center", gap: 6 },
   name: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 12 },
   button: { minHeight: 32, borderRadius: 10, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.secondary },
-  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "700" },
+  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
 }));

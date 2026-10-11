@@ -94,7 +94,6 @@ export function useProjectContextMenu() {
           kind: "action",
           label: "Open details",
           icon: SquarePen,
-          shortcut: "Enter",
           onSelect: () =>
             openTasksEntity(
               { kind: "project", id: project.id },
@@ -218,7 +217,6 @@ export function useProjectContextMenu() {
           kind: "action",
           label: "Duplicate project",
           icon: Copy,
-          shortcut: "mod+D",
           onSelect: () => {
             void duplicateProject
               .mutateAsync(project.id)
@@ -236,7 +234,6 @@ export function useProjectContextMenu() {
           kind: "action",
           label: "Copy link",
           icon: Link2,
-          shortcut: "mod+shift+C",
           onSelect: () =>
             copyText(
               new URL(`/projects/${project.id}`, window.location.origin).toString(),
@@ -250,7 +247,6 @@ export function useProjectContextMenu() {
           label: "Delete project",
           icon: Trash2,
           danger: true,
-          shortcut: "mod+Backspace",
           onSelect: () =>
             requestConfirm({
               title: `Delete “${name}”?`,

@@ -1,40 +1,29 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque } from "next/font/google";
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpRight, MousePointerClick } from "lucide-react";
-import FeatureIndex from "@/app/_components/landing/featureIndex";
-import GitHubMark from "@/app/_components/landing/githubMark";
-import Header from "@/app/_components/landing/header";
-import { hueStyle } from "@/app/_components/landing/hue";
-import InlineScript from "@/app/_components/landing/inlineScript";
-import { landingThemeScript } from "@/app/_components/landing/landingTheme";
-import { LOOP_STEPS } from "@/app/_components/landing/loopSteps";
-import QuickStart from "@/app/_components/landing/quickStart";
-import { MCP_TOOL_COUNT, REPO_URL } from "@/app/_components/landing/sampleData";
-import { ReducedMotionGate } from "@/app/_components/landing/scene";
-import AssistantScene from "@/app/_components/landing/scenes/assistantScene";
-import AutoScheduleScene from "@/app/_components/landing/scenes/autoScheduleScene";
-import CaptureScene from "@/app/_components/landing/scenes/captureScene";
-import ClarifyScene from "@/app/_components/landing/scenes/clarifyScene";
-import DocsSheetsScene from "@/app/_components/landing/scenes/docsSheetsScene";
-import EverywhereScene from "@/app/_components/landing/scenes/everywhereScene";
-import FocusScene from "@/app/_components/landing/scenes/focusScene";
-import HeroScene from "@/app/_components/landing/scenes/heroScene";
-import ReviewScene from "@/app/_components/landing/scenes/reviewScene";
-import SearchScene from "@/app/_components/landing/scenes/searchScene";
-import { Section, Stage } from "@/app/_components/landing/section";
-import { Shape, Sticker } from "@/app/_components/landing/stickers";
-import "@/app/_components/landing/landing.css";
+import { ArrowRight, ArrowUpRight } from "lucide-react";
+import packageJson from "@/package.json";
+import AiShowcase from "@/app/_components/landing/aiShowcase";
+import DocsSheetsShowcase from "@/app/_components/landing/docsSheetsShowcase";
+import Downloads from "@/app/_components/landing/downloads";
+import { DashboardGraphic, HabitsGraphic, ScheduleGraphic, SearchGraphic } from "@/app/_components/landing/featureGraphics";
+import HeroFlow from "@/app/_components/landing/heroFlow";
+import LoopStory from "@/app/_components/landing/loopStory";
+import NowMarker from "@/app/_components/landing/nowMarker";
+import { FeatureBlock, Reveal } from "@/app/_components/landing/reveal";
+import SyncDiagram from "@/app/_components/landing/syncDiagram";
+import { LATEST_RELEASE_URL, REPO_URL } from "@/app/_components/site/links";
+import { GitHubMark } from "@/app/_components/site/marks";
+import { displayFont } from "@/app/_components/site/displayFont";
+import { SiteMotion } from "@/app/_components/site/motion";
+import SiteFooter from "@/app/_components/site/siteFooter";
+import SiteHeader from "@/app/_components/site/siteHeader";
+import { cn } from "@/app/utils/cn";
+import "@/app/_components/site/site.css";
 
-const display = Bricolage_Grotesque({
-  variable: "--font-landing-display",
-  subsets: ["latin"],
-  axes: ["opsz"],
-});
-
-const TITLE = "Timely — From loose thoughts to a planned week";
+const TITLE = "Timely: write it down, Timely finds the time";
 const DESCRIPTION =
-  "Capture a thought, decide what it is, and let Timely place it on your calendar. A private, single-user planner with tasks, docs, sheets and an assistant. Open source, for desktop and Android.";
+  "A private planner with an AI assistant that runs on the Claude or ChatGPT subscription you already have. Capture a thought and Timely places it on your week, with smart suggestions, docs, sheets and an MCP server for your own agents. Open source, for Windows, Linux and Android.";
 
 export const metadata: Metadata = {
   title: TITLE,
@@ -43,318 +32,270 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
 };
 
-/** The anchor, colour, label and number of one step of the loop, for its section. */
-function loopStep(id: (typeof LOOP_STEPS)[number]["id"]) {
-  const index = LOOP_STEPS.findIndex((step) => step.id === id);
-  return { ...LOOP_STEPS[index], step: index + 1 };
-}
-
-function GetTheCode({ className = "" }: { className?: string }) {
+/**
+ * One block of the day. It starts at `time` on the hour gutter, carries a
+ * calendar-block label in its project colour, and holds one part of the page.
+ */
+function Hour({
+  id,
+  time,
+  end,
+  color,
+  label,
+  title,
+  body,
+  children,
+}: {
+  id?: string;
+  time: string;
+  end: string;
+  color: string;
+  label: string;
+  title: ReactNode;
+  body?: ReactNode;
+  children?: ReactNode;
+}) {
   return (
-    <a
-      href={REPO_URL}
-      className={`l-button inline-flex h-12 items-center gap-2.5 rounded-full px-6 text-base font-semibold ${className}`}
-    >
-      <GitHubMark className="size-5" />
-      Get the code
-    </a>
+    <section id={id} data-hour={time} className="relative grid border-t border-[var(--lp-line)] lg:grid-cols-[104px_minmax(0,1fr)]">
+      <p data-hour-label className="lp-mono hidden pt-4 text-sm text-[var(--lp-faint)] transition-opacity duration-200 lg:block">
+        {time}
+      </p>
+      <div className="min-w-0 pt-6 pb-24 lg:pt-4 lg:pb-32">
+        <Reveal>
+          <p className="lp-block inline-flex items-center gap-2 py-1 pr-2.5 pl-2 text-xs" style={{ "--c": color } as React.CSSProperties}>
+            <span className="lp-mono text-[var(--lp-soft)]">
+              {time}–{end}
+            </span>
+            <span className="font-semibold text-[var(--lp-ink)]">{label}</span>
+          </p>
+          <h2 className="lp-display mt-5 max-w-[16ch] text-[2.6rem] leading-[0.95] sm:text-6xl lg:text-[4.5rem]">{title}</h2>
+          {body ? <p className="mt-5 max-w-[52ch] text-base leading-relaxed text-[var(--lp-soft)] sm:text-lg">{body}</p> : null}
+        </Reveal>
+        {children}
+      </div>
+    </section>
   );
 }
 
-function TryIt({ children }: { children: string }) {
+function Cta({ className }: { className?: string }) {
   return (
-    <p className="l-label mt-6 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium">
-      <MousePointerClick className="size-4 shrink-0" />
-      {children}
-    </p>
+    <div className={cn("flex flex-wrap items-center gap-2.5", className)}>
+      <Link href="/signup" className="lp-btn lp-btn-primary">
+        Register
+        <ArrowRight className="size-4" />
+      </Link>
+      <Link href="/login" className="lp-btn lp-btn-ghost">
+        Log in
+      </Link>
+      <a href={REPO_URL} className="lp-btn lp-btn-ghost">
+        <GitHubMark className="size-4" />
+        GitHub
+      </a>
+    </div>
   );
 }
 
 export default function Home() {
   return (
-    <div className={`landing ${display.variable}`}>
-      <InlineScript html={landingThemeScript} />
-      <ReducedMotionGate />
-      <Header />
+    <div className={cn("site lp", displayFont.variable)}>
+      <SiteMotion>
+        <SiteHeader />
 
-      <main id="main-content">
-        <section className="l-hue relative overflow-x-clip" style={hueStyle("#6E56CF")}>
-          <div className="mx-auto grid max-w-6xl items-center gap-14 px-5 pt-12 pb-16 sm:px-8 lg:grid-cols-[1.05fr_1fr] lg:pt-20 lg:pb-24">
-            <div>
-              <p className="l-label inline-flex rounded-full px-3 py-1 text-xs font-semibold tracking-wide">
-                An open-source personal planner
+        <main id="main-content">
+          {/* Hero: the first thing in the day view is the date. */}
+          <section className="mx-auto max-w-6xl px-4 pt-10 pb-16 sm:px-8 sm:pt-16 lg:pt-20">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--lp-line)] pb-3">
+              <p className="lp-mono text-xs tracking-wide text-[var(--lp-faint)] uppercase">Mon 12 Oct · Week 42</p>
+              <a
+                href={LATEST_RELEASE_URL}
+                className="lp-mono flex items-center gap-1.5 text-xs text-[var(--lp-soft)] transition-colors hover:text-[var(--lp-ink)]"
+              >
+                <span className="size-1.5 rounded-full bg-[var(--lp-green)]" />
+                v{packageJson.version} · Windows, Linux, Android
+                <ArrowUpRight className="size-3.5" />
+              </a>
+            </div>
+
+            <h1 className="lp-display mt-10 text-[3.4rem] leading-[0.92] sm:text-[6rem] lg:text-[8.25rem]">
+              Write it down.
+              <br />
+              Timely finds{" "}
+              <span className="lp-hero-block">
+                <small>10:00–11:30</small>
+                the time.
+              </span>
+            </h1>
+
+            <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+              <p className="max-w-[46ch] text-lg leading-relaxed text-[var(--lp-soft)]">
+                Capture a thought and Timely places it on your week, around your meetings and inside your working
+                hours. The assistant runs on the <span className="text-[var(--lp-ink)]">Claude or ChatGPT subscription</span>{" "}
+                you already pay for, and everything stays on your own computer.
               </p>
-              <h1 className="l-display mt-5 text-[2.75rem] leading-[1.02] font-extrabold text-balance sm:text-6xl lg:text-[4.25rem]">
-                From loose thoughts to a planned week.
-              </h1>
-              <p className="l-soft mt-6 max-w-lg text-lg leading-relaxed">
-                Capture a thought, decide what it is, and let Timely place it on your calendar. Private,
-                single-user, open source.
-              </p>
-              <div className="mt-9 flex flex-wrap items-center gap-x-5 gap-y-4">
-                <GetTheCode />
-                <span className="l-soft text-sm">Desktop and Android, built from source.</span>
+              <Cta />
+            </div>
+
+            <Reveal delay={0.2} className="mt-14">
+              <HeroFlow />
+            </Reveal>
+          </section>
+
+          {/* The day: hour gutter, a now marker, and one block per part of the page. */}
+          <div className="relative mx-auto max-w-6xl px-4 sm:px-8">
+            <div aria-hidden className="lp-ticks pointer-events-none absolute top-0 bottom-0 left-4 hidden w-[88px] opacity-60 sm:left-8 lg:block" />
+            <div aria-hidden className="pointer-events-none absolute top-0 bottom-0 left-4 hidden w-[100px] sm:left-8 lg:block">
+              <NowMarker />
+            </div>
+
+            <Hour
+              id="how-it-works"
+              time="09:00"
+              end="10:30"
+              color="var(--lp-violet)"
+              label="How it works"
+              title="One loop, from the first thought to done."
+              body="Timely is built around four steps. You decide what matters and how long it takes. Timely does the arranging."
+            >
+              <LoopStory />
+            </Hour>
+
+            <Hour
+              id="ai"
+              time="11:00"
+              end="12:30"
+              color="var(--lp-pink)"
+              label="AI, your way"
+              title="Bring the AI you already pay for."
+              body="Sign in with your Claude or ChatGPT subscription, or pick any model with your own key. The assistant plans, smart suggestions fill in the details, and your own agents plug straight in."
+            >
+              <AiShowcase />
+            </Hour>
+
+            <Hour
+              id="docs-and-sheets"
+              time="13:30"
+              end="14:45"
+              color="var(--lp-amber)"
+              label="Docs and sheets"
+              title="Notes and numbers, next to the work."
+              body="Every project can hold its own docs and sheets. Search finds them, the assistant writes and fills them, and nothing lives in a separate app."
+            >
+              <DocsSheetsShowcase />
+            </Hour>
+
+            <Hour
+              id="features"
+              time="15:00"
+              end="16:00"
+              color="var(--lp-blue)"
+              label="The rest of your day"
+              title="Plan, focus and keep track in one place."
+            >
+              <div className="mt-14 grid gap-x-8 gap-y-14 md:grid-cols-2">
+                <FeatureBlock
+                  color="var(--lp-violet)"
+                  title="Your calendar rearranges itself"
+                  body="Work lands in free time inside your working hours. When a meeting appears, the next run moves what it overlaps. Pins and manual blocks stay put."
+                  graphic={<ScheduleGraphic />}
+                  href="/help/plan/auto-schedule"
+                />
+                <FeatureBlock
+                  delay={0.06}
+                  color="var(--lp-cyan)"
+                  title="Find anything, run any command"
+                  body="Press Ctrl/Cmd+K to search tasks, projects, docs, sheets and events, or create something new from the same box."
+                  graphic={<SearchGraphic />}
+                  href="/help/notes/search"
+                />
+                <FeatureBlock
+                  color="var(--lp-orange)"
+                  title="A dashboard you arrange yourself"
+                  body="Drag and resize cards for focus time, deadlines, a Pomodoro timer, a journal and more. Your layout is saved."
+                  graphic={<DashboardGraphic />}
+                  href="/help/notes/dashboard"
+                />
+                <FeatureBlock
+                  delay={0.06}
+                  color="var(--lp-green)"
+                  title="Habits and goals, kept in view"
+                  body="Tick habits on Today or on your phone's Home screen and watch the streak grow next to your goals."
+                  graphic={<HabitsGraphic />}
+                  graphicClassName="flex items-center"
+                  href="/help/plan/today"
+                />
               </div>
-            </div>
-            <Stage
-              sticker="sparkle"
-              shapes={[
-                { name: "blob", hue: "#E93D82", className: "-left-8 -top-8 size-24 sm:-left-12 sm:size-32", tilt: 12 },
-                { name: "squiggle", hue: "#FFB224", className: "-bottom-7 right-8 w-28 sm:w-36" },
-                { name: "plus", hue: "#30A66D", className: "-bottom-4 -left-3 size-9 sm:size-11", tilt: 14 },
-              ]}
+            </Hour>
+
+            <Hour
+              id="private"
+              time="16:30"
+              end="17:00"
+              color="var(--lp-green)"
+              label="Private by design"
+              title="Runs on your computer. Reaches your phone."
+              body="The desktop app brings its own server and database. Your phone pairs with it by QR code and connects over your own Tailscale network. Nothing goes to someone else's cloud."
             >
-              <HeroScene />
-            </Stage>
-          </div>
-        </section>
+              <Reveal className="mt-14">
+                <SyncDiagram />
+              </Reveal>
+              <dl className="mt-14 grid gap-x-8 gap-y-6 sm:grid-cols-3">
+                {[
+                  {
+                    title: "Your data stays home",
+                    body: "The database lives in your app data folder. The server listens on this computer only unless you turn on Tailscale access.",
+                  },
+                  {
+                    title: "Your own AI account",
+                    body: "The assistant runs on your Claude or ChatGPT sign-in, or your own API key, stored encrypted. Without one, everything else still works.",
+                  },
+                  {
+                    title: "Backups built in",
+                    body: "Encrypted account backups on a schedule, a full JSON export, and an automatic copy before every upgrade.",
+                  },
+                ].map((point) => (
+                  <div key={point.title} className="border-t border-[var(--lp-line)] pt-4">
+                    <dt className="font-semibold">{point.title}</dt>
+                    <dd className="mt-1.5 text-sm leading-relaxed text-[var(--lp-soft)]">{point.body}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Hour>
 
-        <section className="mx-auto max-w-3xl px-5 pt-10 pb-2 text-center sm:px-8 lg:pt-16">
-          <h2 className="l-display text-3xl font-bold text-balance sm:text-4xl">One loop, five steps.</h2>
-          <p className="l-soft mt-4 text-base leading-relaxed sm:text-lg">
-            Timely is built around a single habit. Each step has its own screen, shown below with the same
-            sample project all the way through.
-          </p>
-          <ol className="mt-7 flex flex-wrap justify-center gap-2">
-            {LOOP_STEPS.map((step, index) => (
-              <li key={step.id}>
-                <a
-                  href={`#${step.id}`}
-                  style={hueStyle(step.hue)}
-                  className="l-hue l-label flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold"
-                >
-                  <span className="font-mono tabular-nums opacity-70">{index + 1}</span>
-                  {step.label}
-                </a>
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        <Section
-          {...loopStep("capture")}
-          headline="Get it out of your head in one line."
-          body="The Inbox takes a title and nothing else. No project, no date, no decisions. Those come later, when you have a minute to think."
-          points={[
-            "Type it on the desktop, or tap + on the phone.",
-            "Inbox items are never placed on your calendar by accident.",
-          ]}
-          sticker="tray"
-          shapes={[
-            { name: "ring", hue: "#0090FF", className: "-bottom-6 -left-5 size-14 sm:size-20" },
-            { name: "pill", hue: "#E93D82", className: "-top-5 left-10 w-16 sm:w-24", tilt: -8 },
-          ]}
-        >
-          <CaptureScene />
-        </Section>
-
-        <Section
-          {...loopStep("clarify")}
-          headline="Decide what it is: work to do, or a nudge at the right time."
-          body="Clarify replaces an Inbox item with Work, which has a duration and a workspace, or with a Reminder, which has a time. Work can be placed on your calendar. A Reminder just pings you and takes up no time."
-          flip
-          sticker="bell"
-          shapes={[
-            { name: "dots", hue: "#6E56CF", className: "-right-5 -bottom-6 size-16 sm:size-20" },
-            { name: "squiggle", hue: "#30A66D", className: "-top-6 right-10 w-24 sm:w-32", tilt: 6 },
-          ]}
-        >
-          <ClarifyScene />
-        </Section>
-
-        <Section
-          {...loopStep("schedule")}
-          headline="Let Timely find the time."
-          body="Auto-schedule places your Work inside your Working hours, around the Events you already have. Preview what would change, apply it, and undo it if you disagree."
-          points={[
-            "Orders work by deadline, priority and what is blocking what.",
-            "Says in plain language why something could not be placed.",
-            "Events and blocks you placed yourself stay where they are.",
-          ]}
-          extra={<TryIt>Press Auto-schedule in the demo.</TryIt>}
-          sticker="calendar"
-          shapes={[
-            { name: "blob", hue: "#FFB224", className: "-bottom-8 -left-8 size-20 sm:size-28", tilt: -20 },
-            { name: "plus", hue: "#E93D82", className: "-top-5 left-12 size-8 sm:size-10", tilt: 20 },
-          ]}
-        >
-          <AutoScheduleScene />
-        </Section>
-
-        <Section
-          {...loopStep("focus")}
-          label="Focus and Today"
-          headline="One list for today. One thing at a time."
-          body="Today shows what is on your calendar, what you chose to focus on and what is still waiting. Start a focus session and Timely counts the real minutes against your estimate."
-          flip
-          sticker="stopwatch"
-          shapes={[
-            { name: "ring", hue: "#FFB224", className: "-right-6 -bottom-6 size-16 sm:size-20" },
-            { name: "pill", hue: "#0090FF", className: "-top-5 right-12 w-16 sm:w-24", tilt: 10 },
-          ]}
-        >
-          <FocusScene />
-        </Section>
-
-        <Section
-          {...loopStep("review")}
-          headline="See how the week actually went."
-          body="The report is worked out from your live data: what got done, what is still open by priority, what is due in the next two weeks and what is overdue. Overdue means the deadline has passed; a block that merely ended does not count."
-          sticker="chart"
-          shapes={[
-            { name: "squiggle", hue: "#E93D82", className: "-bottom-7 left-8 w-24 sm:w-32", tilt: -4 },
-            { name: "dots", hue: "#30A66D", className: "-top-6 -left-5 size-14 sm:size-16" },
-          ]}
-        >
-          <ReviewScene />
-        </Section>
-
-        <section className="mx-auto max-w-3xl px-5 pt-10 pb-2 text-center sm:px-8 lg:pt-16">
-          <h2 className="l-display text-3xl font-bold text-balance sm:text-4xl">And around the loop.</h2>
-          <p className="l-soft mt-4 text-base leading-relaxed sm:text-lg">
-            An assistant, a place to write, a place to calculate, and one shortcut that finds all of it.
-          </p>
-        </section>
-
-        <Section
-          id="assistant"
-          hue="#AB4ABA"
-          label="Ask the assistant"
-          headline="Ask in plain words. Review bigger changes before they apply."
-          body="The assistant reads your workspace and answers with a proposal: a list of changes you can inspect, apply or discard. A simple one-step change is applied directly; anything bigger waits for your approval."
-          points={[
-            "Photograph a receipt and it becomes rows in an expense sheet.",
-            "Bring your own model: OpenRouter, Claude Code or Codex.",
-            "A run keeps going on the server if you leave the chat.",
-          ]}
-          extra={<TryIt>Press Apply changes in the demo.</TryIt>}
-          flip
-          sticker="chat"
-          shapes={[
-            { name: "blob", hue: "#12A594", className: "-right-8 -bottom-8 size-20 sm:size-28", tilt: 30 },
-            { name: "plus", hue: "#FFB224", className: "-top-5 right-12 size-8 sm:size-10", tilt: 12 },
-          ]}
-        >
-          <AssistantScene />
-        </Section>
-
-        <Section
-          id="docs-and-sheets"
-          hue="#12A594"
-          label="Docs and Sheets"
-          headline="Notes and numbers live next to the work."
-          body="Nested docs with a slash menu and @ mentions that link to tasks, projects and sheets. Multi-tab sheets with formulas, formatting and reusable templates."
-          sticker="pencil"
-          shapes={[
-            { name: "ring", hue: "#E93D82", className: "-bottom-6 -left-6 size-16 sm:size-20" },
-            { name: "pill", hue: "#FFB224", className: "-top-5 left-10 w-16 sm:w-24", tilt: 6 },
-          ]}
-        >
-          <DocsSheetsScene />
-        </Section>
-
-        <Section
-          id="search"
-          hue="#F76808"
-          label="Find anything"
-          headline="One shortcut to everything."
-          body="Ctrl or ⌘ K searches sheets, docs, tasks, projects and events, and runs commands such as “create task”. Keyword search works out of the box. Add an OpenRouter key and it also searches by meaning."
-          extra={
-            <Link
-              href="/demo/command-palette"
-              className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold underline decoration-2 underline-offset-4"
-              style={{ color: "var(--l-hue-ink)" }}
+            <Hour
+              id="download"
+              time="17:00"
+              end="17:30"
+              color="var(--lp-cyan)"
+              label="Install"
+              title="Set it up before the end of the day."
+              body="Every release ships a Windows installer, a Linux AppImage and an Android app. The help center walks through each one."
             >
-              Try the real command palette
-              <ArrowUpRight className="size-4" />
-            </Link>
-          }
-          flip
-          sticker="magnifier"
-          shapes={[
-            { name: "dots", hue: "#0090FF", className: "-right-5 -bottom-6 size-16 sm:size-20" },
-            { name: "squiggle", hue: "#6E56CF", className: "-top-6 right-10 w-24 sm:w-32" },
-          ]}
-        >
-          <SearchScene />
-        </Section>
+              <Downloads />
+            </Hour>
 
-        <Section
-          id="everywhere"
-          hue="#3E63DD"
-          label="Everywhere"
-          headline="On your desk, in your pocket, in your agent’s hands."
-          body={`Desktop and Android apps, built from source, share one account. Any MCP agent can work with the same data through ${MCP_TOOL_COUNT} tools, using a personal API key you can revoke.`}
-          sticker="phone"
-          shapes={[
-            { name: "blob", hue: "#30A66D", className: "-bottom-8 -left-8 size-20 sm:size-28", tilt: 50 },
-            { name: "plus", hue: "#E93D82", className: "-top-5 left-12 size-8 sm:size-10", tilt: 20 },
-          ]}
-        >
-          <EverywhereScene />
-        </Section>
-
-        <section id="everything-else" className="l-hue relative overflow-x-clip" style={hueStyle("#99D52A")}>
-          <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 lg:py-24">
-            <div className="relative mx-auto max-w-2xl text-center">
-              <Sticker name="star" tilt={-10} className="-top-10 left-2 size-14 sm:left-0 sm:size-16" />
-              <Shape name="squiggle" className="-top-6 right-0 w-20 sm:w-28" style={hueStyle("#0090FF")} tilt={8} />
-              <Shape name="plus" className="right-6 -bottom-9 size-7 sm:size-9" style={hueStyle("#E93D82")} tilt={16} />
-              <p className="l-label relative inline-flex rounded-full px-3 py-1 text-xs font-semibold tracking-wide">
-                Everything else
-              </p>
-              <h2 className="l-display relative mt-4 text-3xl leading-[1.08] font-bold text-balance sm:text-4xl lg:text-[2.75rem]">
-                The rest of what is in the box.
-              </h2>
-            </div>
-            <div className="mt-10">
-              <FeatureIndex />
-            </div>
+            <Hour
+              time="18:00"
+              end="18:15"
+              color="var(--lp-now)"
+              label="Plan tomorrow"
+              title="Close the laptop. Tomorrow is already planned."
+            >
+              <Reveal className="mt-10">
+                <Cta />
+                <p className="mt-6 text-sm text-[var(--lp-soft)]">
+                  New here? Start with{" "}
+                  <Link href="/help/start/what-is-timely" className="text-[var(--lp-now)] underline-offset-4 hover:underline">
+                    What is Timely?
+                  </Link>{" "}
+                  in the help center.
+                </p>
+              </Reveal>
+            </Hour>
           </div>
-        </section>
+        </main>
 
-        <section id="get-the-code" className="l-hue relative overflow-x-clip" style={hueStyle("#6E56CF")}>
-          <div className="relative mx-auto max-w-3xl px-5 pt-6 pb-20 text-center sm:px-8 lg:pb-28">
-            <Shape name="blob" className="-top-2 left-2 size-16 sm:left-0 sm:size-24" style={hueStyle("#FFB224")} tilt={18} />
-            <Shape name="ring" className="top-10 right-3 size-12 sm:right-0 sm:size-16" style={hueStyle("#30A66D")} />
-            <Sticker name="sparkle" tilt={12} className="top-0 right-16 size-14 sm:right-24 sm:size-16" style={hueStyle("#E93D82")} />
-            <h2 className="l-display relative pt-16 text-4xl leading-[1.05] font-extrabold text-balance sm:text-5xl">
-              Run it yourself.
-            </h2>
-            <p className="l-soft relative mx-auto mt-4 max-w-xl text-base leading-relaxed sm:text-lg">
-              Timely is a personal project you host on your own machine. Three commands start it. You need
-              Node 22, Go 1.25 and PostgreSQL with pgvector; the README has the details.
-            </p>
-            <div className="relative mt-8">
-              <QuickStart />
-            </div>
-            <div className="relative mt-9 flex flex-col items-center gap-5">
-              <GetTheCode />
-              <p className="l-soft text-sm">
-                Already running it?{" "}
-                <Link href="/login" className="font-semibold text-[var(--l-ink)] underline underline-offset-4">
-                  Sign In
-                </Link>{" "}
-                or{" "}
-                <Link href="/signup" className="font-semibold text-[var(--l-ink)] underline underline-offset-4">
-                  Register
-                </Link>
-                .
-              </p>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <footer className="border-t" style={{ borderColor: "var(--l-line)" }}>
-        <div className="l-soft mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 py-8 text-sm sm:flex-row sm:px-8">
-          <span>An open-source personal project.</span>
-          <a href={REPO_URL} className="inline-flex items-center gap-2 font-medium hover:text-[var(--l-ink)]">
-            <GitHubMark className="size-4" />
-            thalhath2234/timely-app
-          </a>
-        </div>
-      </footer>
+        <SiteFooter />
+      </SiteMotion>
     </div>
   );
 }

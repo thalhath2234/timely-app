@@ -1,6 +1,6 @@
 import { dateInZone, isOverdue, todayInZone } from "@timely/contract/workStatus";
 import type { CalendarItem, Task } from "@/app/_types/types";
-import { dateFromDateInput } from "@/app/utils/calendar";
+import { dateFromDateInput, type CalendarEvent } from "@/app/utils/calendar";
 import { taskEntityColor } from "@/app/utils/entityColor";
 
 export function latestTaskSchedule(
@@ -44,6 +44,23 @@ export function overdueAgendaTasks(tasks: Task[], timeZone?: string | null, now 
       const bTime = latestTaskSchedule(b)?.end.getTime() ?? 0;
       return aTime - bTime;
     });
+}
+
+/**
+ * Flags placed Work whose deadline date is already behind today, so the
+ * calendar can tag the block instead of listing it as waiting for a slot.
+ */
+export function markDeadlinePassed(
+  events: CalendarEvent[],
+  timeZone?: string | null,
+  now = new Date(),
+): CalendarEvent[] {
+  const today = todayInZone(timeZone, now);
+  return events.map((event) =>
+    event.task && !event.completedAt && isOverdue(event.task, today)
+      ? { ...event, deadlinePassed: true }
+      : event,
+  );
 }
 
 export function taskToCalendarItem(task: Task): CalendarItem {

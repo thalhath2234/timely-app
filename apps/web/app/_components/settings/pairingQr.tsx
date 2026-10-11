@@ -6,11 +6,11 @@ import { Check, Copy } from "lucide-react";
 import type { DesktopInstance } from "@/electron-env";
 import { pairingPayload, pairingUrls, primaryAddress } from "@/app/utils/desktopInstance";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const QR_SIZE = 220;
 
-const secondaryButton =
-  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium text-foreground hover:bg-muted/60 disabled:opacity-60";
+const secondaryButton = buttonClass({ variant: "outline" });
 
 /** The QR code the phone scans, plus the first address for typing by hand.
  * Encodes `JSON.stringify(instance.pairing)` exactly (docs/desktop/README.md). */

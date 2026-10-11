@@ -29,13 +29,12 @@ import {
 import { useDesktopAction, useDesktopInstance, useDesktopSetting } from "@/app/utils/hooks/desktop";
 import { Badge } from "@/app/_components/settings/agentSettings";
 import PairingQr from "@/app/_components/settings/pairingQr";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 export const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
 
-const primaryButton =
-  "inline-flex h-9 items-center gap-1.5 rounded-lg bg-foreground px-3 text-sm font-medium text-background hover:opacity-90 disabled:opacity-60";
-const secondaryButton =
-  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium text-foreground hover:bg-muted/60 disabled:opacity-60";
+const primaryButton = buttonClass();
+const secondaryButton = buttonClass({ variant: "outline" });
 
 export function StatusBadge({ summary }: { summary: StatusSummary }) {
   return <Badge tone={summary.tone}>{summary.label}</Badge>;
@@ -53,7 +52,7 @@ function StatusCard({
   rows: { label: string; value: ReactNode }[];
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border p-4">
+    <div className="flex flex-col gap-2 rounded-lg border border-border p-4">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Icon className="size-4 text-primary" />
@@ -100,7 +99,7 @@ export function Toggle({
 }) {
   const id = useId();
   return (
-    <div className="flex items-start justify-between gap-4 rounded-xl border border-border p-4">
+    <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
       <div className="min-w-0">
         <span id={`${id}-label`} className="block text-sm font-medium text-foreground">
           {label}
@@ -252,7 +251,7 @@ function ApiReachability() {
   const error = health.error ?? details.error;
 
   return (
-    <section className="flex flex-col gap-3 rounded-xl border border-border p-4">
+    <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Globe className="size-4 text-primary" />
@@ -395,12 +394,12 @@ export default function ServerSettings() {
 
       <ApiReachability />
 
-      <section className="flex flex-col gap-3 rounded-xl border border-border p-4">
+      <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
         <h3 className="text-sm font-semibold text-foreground">Addresses</h3>
         <AddressList instance={instance} />
       </section>
 
-      <section className="flex flex-col gap-3 rounded-xl border border-border p-4">
+      <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
         <h3 className="text-sm font-semibold text-foreground">Pair your phone</h3>
         <p className="text-xs text-muted-foreground">
           Install Timely on your phone and scan this code. To reach this computer from anywhere,
@@ -444,7 +443,7 @@ export default function ServerSettings() {
           <ActionButton action="openLogs" icon={ScrollText} label="Open logs" run={actions.run} pending={actions.pending} />
           <ActionButton action="restartApi" icon={RefreshCw} label="Restart server" run={actions.run} pending={actions.pending} />
         </div>
-        <div className="flex flex-col gap-2 rounded-xl border border-border p-4">
+        <div className="flex flex-col gap-2 rounded-lg border border-border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-foreground">Updates</span>

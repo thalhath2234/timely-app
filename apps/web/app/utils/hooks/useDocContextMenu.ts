@@ -83,7 +83,6 @@ export function useDocContextMenu() {
           kind: "action",
           label: "Open",
           icon: FileText,
-          shortcut: "Enter",
           onSelect: () => router.push(fileHref(doc.id)),
         },
         {
@@ -120,7 +119,6 @@ export function useDocContextMenu() {
           kind: "action",
           label: "Rename",
           icon: Pencil,
-          shortcut: "F2",
           onSelect: () => options.onRename?.(),
         },
         {
@@ -167,7 +165,6 @@ export function useDocContextMenu() {
           kind: "action",
           label: "Copy link",
           icon: Link2,
-          shortcut: "mod+shift+C",
           onSelect: () =>
             copyText(new URL(fileHref(doc.id), window.location.origin).toString(), "Link copied"),
         },
@@ -189,7 +186,6 @@ export function useDocContextMenu() {
           label: "Delete",
           icon: Trash2,
           danger: true,
-          shortcut: "mod+Backspace",
           onSelect: () =>
             requestConfirm({
               title: `Delete “${title}”?`,

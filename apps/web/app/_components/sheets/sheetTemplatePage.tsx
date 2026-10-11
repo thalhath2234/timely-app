@@ -19,6 +19,7 @@ import { useToastStore } from "@/app/_store/toastStore";
 import { addWorkbookTab, tabsFromSheet, workbookPayload } from "@/app/utils/sheetWorkbook";
 import { SHEET_ICON_CHOICES } from "@/app/_components/sheets/sheetIcons";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 export default function TemplatePage({ id }: { id: string }) {
   const templatesQuery = useSheetTemplates();
@@ -31,7 +32,7 @@ export default function TemplatePage({ id }: { id: string }) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
         <p className="text-sm text-muted-foreground">{templatesQuery.isError ? "Could not load templates." : "Template not found."}</p>
-        <Link href={FILES_PATH} className="rounded-lg bg-secondary px-4 py-2 text-sm text-secondary-foreground">Back to files</Link>
+        <Link href={FILES_PATH} className={buttonClass({ variant: "secondary", size: "lg" })}>Back to files</Link>
       </div>
     );
   }
@@ -147,7 +148,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
                   schedule({ icon: "" });
                   setIsIconPickerOpen(false);
                 }}
-                className="mt-2 w-full rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground hover:bg-accent"
+                className={buttonClass({ variant: "secondary", size: "sm", className: "mt-2 w-full" })}
               >
                 Remove icon
               </button>
@@ -186,7 +187,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
                 <button
                   type="button"
                   onClick={() => setIsConfirmingDelete(false)}
-                  className="cursor-pointer rounded-md bg-secondary px-2 py-1 text-secondary-foreground transition-colors hover:bg-accent"
+                  className={buttonClass({ variant: "secondary", size: "sm" })}
                 >
                   Cancel
                 </button>
@@ -207,7 +208,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
           type="button"
           onClick={() => void createFromTemplate()}
           disabled={createSheet.isPending}
-          className="ml-1 flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+          className={buttonClass({ size: "sm", className: "ml-1 shrink-0" })}
         >
           <Plus className="size-3.5" />New sheet from template
         </button>

@@ -204,7 +204,7 @@ export default function ModelMenu({
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder={`Search ${label(shown)} models…`}
                     aria-label="Search models"
-                    className="w-full rounded-lg border border-border bg-input/30 py-1.5 pl-8 pr-3 text-sm outline-none focus:border-ring"
+                    className="h-8 w-full rounded-md border border-input bg-card pl-8 pr-2.5 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20"
                   />
                 </div>
               </div>

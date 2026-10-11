@@ -2072,7 +2072,7 @@ function renderCell({
             styles.cellText,
             result.type === "number" && styles.numText,
             result.type === "error" && { color: colors.destructive },
-            format?.bold && { fontWeight: "700" },
+            format?.bold && { fontWeight: "600" },
             format?.italic && { fontStyle: "italic" },
             (format?.underline || format?.strikethrough) && {
               textDecorationLine: format.underline && format.strikethrough
@@ -2140,7 +2140,7 @@ const styles = createThemedStyleSheet((colors) => ({
     borderTopWidth: 1,
     borderTopColor: colors.warning,
   },
-  fitAddr: { color: colors.warning, fontSize: 12, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  fitAddr: { color: colors.warning, fontSize: 12, fontWeight: "600", fontVariant: ["tabular-nums"] },
   fitText: { flex: 1, color: colors.warning, fontSize: 12 },
   fitClose: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
   fitCloseText: { color: colors.mutedForeground, fontSize: 18 },
@@ -2166,10 +2166,10 @@ const styles = createThemedStyleSheet((colors) => ({
     color: KINETIC.text,
     backgroundColor: KINETIC.accent,
     fontSize: 10,
-    fontWeight: "700",
+    fontWeight: "600",
     fontVariant: ["tabular-nums"],
   },
-  fx: { color: KINETIC.secondary, fontSize: 12, fontStyle: "italic", fontWeight: "700" },
+  fx: { color: KINETIC.secondary, fontSize: 12, fontStyle: "italic", fontWeight: "600" },
   formula: {
     flex: 1,
     minHeight: 30,
@@ -2248,7 +2248,7 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  typeText: { color: colors.mutedForeground, fontSize: 9, fontWeight: "700" },
+  typeText: { color: colors.mutedForeground, fontSize: 9, fontWeight: "600" },
   rowNum: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
   cell: {
     height: CELL_H,
@@ -2306,7 +2306,7 @@ const styles = createThemedStyleSheet((colors) => ({
   drawerTabTextOn: { color: KINETIC.text },
   drawerBody: { flex: 1 },
   drawerContent: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12, gap: 8, flexGrow: 0 },
-  sectionLabel: { color: KINETIC.muted, fontSize: 9, fontWeight: "700", letterSpacing: 0.8 },
+  sectionLabel: { color: KINETIC.muted, fontSize: 9, fontWeight: "600", letterSpacing: 0.8 },
   actionStrip: { flexDirection: "row", gap: 7 },
   controlRow: { flexDirection: "row", gap: 6, alignItems: "center" },
   wideControl: { flex: 1, height: 40, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
@@ -2316,5 +2316,5 @@ const styles = createThemedStyleSheet((colors) => ({
   controlText: { color: KINETIC.text, fontSize: 11, fontFamily: "monospace" },
   functionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   functionButton: { width: "31%", minHeight: 40, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card },
-  functionText: { color: KINETIC.text, fontSize: 10, fontWeight: "700", fontFamily: "monospace" },
+  functionText: { color: KINETIC.text, fontSize: 10, fontWeight: "600", fontFamily: "monospace" },
 }));

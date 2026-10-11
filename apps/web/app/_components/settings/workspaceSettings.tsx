@@ -22,6 +22,8 @@ import {
   useUpdateWorkspace,
   useWorkspaces,
 } from "@/app/utils/hooks/workspaces";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 type WorkspaceTab = "name" | "status" | "labels" | "customFields";
 
@@ -176,12 +178,12 @@ function WorkspaceEditor({ workspace }: { workspace: Workspace }) {
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                className="min-w-0 flex-1 rounded-lg border border-border bg-input/30 px-3 py-2 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/40"
+                className={controlClass("md", "min-w-0 flex-1")}
               />
               <button
                 type="submit"
                 disabled={updateWorkspace.isPending}
-                className="cursor-pointer rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                className={buttonClass()}
               >
                 {updateWorkspace.isPending ? "Saving…" : "Save"}
               </button>

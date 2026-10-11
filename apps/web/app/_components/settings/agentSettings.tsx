@@ -1,5 +1,6 @@
 "use client";
 
+import { requestConfirm } from "@/app/_store/confirmStore";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
@@ -54,6 +55,8 @@ import {
   type ModelOption,
   type ProviderId,
 } from "@/app/utils/api/agentProviders";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 export const CLI_INSTALL_URLS = {
   claude: "https://docs.anthropic.com/en/docs/claude-code/overview",
@@ -61,13 +64,10 @@ export const CLI_INSTALL_URLS = {
 } as const;
 
 const inputClass =
-  "w-full rounded-lg border border-border bg-input/30 px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:opacity-60";
-const primaryButton =
-  "inline-flex h-9 items-center gap-1.5 rounded-lg bg-foreground px-3 text-sm font-medium text-background hover:opacity-90 disabled:opacity-60";
-const secondaryButton =
-  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium text-foreground hover:bg-muted/60 disabled:opacity-60";
-const compactButton =
-  "inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-foreground hover:bg-muted/60 disabled:opacity-60";
+  controlClass("md", "w-full");
+const primaryButton = buttonClass();
+const secondaryButton = buttonClass({ variant: "outline" });
+const compactButton = buttonClass({ variant: "outline", size: "sm" });
 
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
@@ -284,7 +284,7 @@ function ProviderCard({
     <section
       data-provider={id}
       className={cn(
-        "flex flex-col gap-4 rounded-xl border p-4",
+        "flex flex-col gap-4 rounded-lg border p-4",
         isDefault ? "border-primary/40 bg-primary/[0.03]" : "border-border",
       )}
     >
@@ -381,15 +381,14 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
             {data.openrouter.keySet && (
               <button
                 type="button"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "Remove your OpenRouter key? OpenRouter chats and semantic search stop until you add one again.",
-                    )
-                  ) {
-                    removeKey.mutate();
-                  }
-                }}
+                onClick={() =>
+                  requestConfirm({
+                    title: "Remove your OpenRouter key?",
+                    description: "OpenRouter chats and semantic search stop until you add one again.",
+                    confirmLabel: "Remove key",
+                    onConfirm: () => removeKey.mutate(),
+                  })
+                }
                 disabled={removeKey.isPending}
                 className="inline-flex h-9 items-center rounded-lg px-2 text-sm text-destructive hover:bg-destructive/10"
               >
@@ -532,7 +531,7 @@ function MoreApiKeys({ data }: { data: AgentProviders }) {
     <section
       data-testid="more-api-keys"
       className={cn(
-        "rounded-xl border",
+        "rounded-lg border",
         defaultView ? "border-primary/40 bg-primary/[0.03]" : "border-border",
       )}
     >
@@ -540,7 +539,7 @@ function MoreApiKeys({ data }: { data: AgentProviders }) {
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-muted/40"
+        className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left hover:bg-muted/40"
       >
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
           <KeyRound className="size-4" />
@@ -690,18 +689,18 @@ function ApiProviderRow({
               <button
                 type="button"
                 onClick={() => {
-                  if (
-                    window.confirm(
-                      `Disconnect ${view.label}? The saved key is deleted.`,
-                    )
-                  ) {
-                    removeKey.mutate(view.id, {
-                      onSuccess: () => {
-                        setOpen(false);
-                        setEditingKey(true);
-                      },
-                    });
-                  }
+                  requestConfirm({
+                    title: `Disconnect ${view.label}?`,
+                    description: "The saved key is deleted.",
+                    confirmLabel: "Disconnect",
+                    onConfirm: () =>
+                      removeKey.mutate(view.id, {
+                        onSuccess: () => {
+                          setOpen(false);
+                          setEditingKey(true);
+                        },
+                      }),
+                  });
                 }}
                 disabled={removeKey.isPending}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-destructive hover:bg-destructive/10"
@@ -714,21 +713,16 @@ function ApiProviderRow({
               {showEndpoints && (
                 <label className="flex flex-col gap-1">
                   <span className="text-xs text-muted-foreground">Endpoint</span>
-                  <select
+                  <Select
+                    aria-label="Endpoint"
                     value={endpoint}
-                    onChange={(event) => setEndpoint(event.target.value)}
-                    className={inputClass}
+                    onChange={setEndpoint}
                     disabled={setKey.isPending}
-                  >
-                    {view.endpoints.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.label}
-                      </option>
-                    ))}
-                    {view.customUrl && (
-                      <option value={CUSTOM_ENDPOINT}>Another address…</option>
-                    )}
-                  </select>
+                    options={[
+                      ...view.endpoints.map((item) => ({ value: item.id, label: item.label })),
+                      ...(view.customUrl ? [{ value: CUSTOM_ENDPOINT, label: "Another address…" }] : []),
+                    ]}
+                  />
                 </label>
               )}
               {endpoint === CUSTOM_ENDPOINT && (
@@ -1110,7 +1104,7 @@ function DecisionsCard() {
   return (
     <section
       data-testid="decisions-card"
-      className="flex flex-col gap-4 rounded-xl border border-border p-4"
+      className="flex flex-col gap-4 rounded-lg border border-border p-4"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1120,6 +1114,8 @@ function DecisionsCard() {
             </h3>
             {data.available ? (
               <Badge tone="ok">On</Badge>
+            ) : data.enabled ? (
+              <Badge tone="warn">Needs a key</Badge>
             ) : (
               <Badge tone="muted">Off</Badge>
             )}
@@ -1233,17 +1229,16 @@ function DecisionsCard() {
             {ts.keySet && (
               <button
                 type="button"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      data.openrouterKeySet
-                        ? "Remove your TypeSafe key? Suggestions will use your OpenRouter key."
-                        : "Remove your TypeSafe key? Smart suggestions stop until you add a key again.",
-                    )
-                  ) {
-                    removeKey.mutate();
-                  }
-                }}
+                onClick={() =>
+                  requestConfirm({
+                    title: "Remove your TypeSafe key?",
+                    description: data.openrouterKeySet
+                      ? "Suggestions will use your OpenRouter key."
+                      : "Smart suggestions stop until you add a key again.",
+                    confirmLabel: "Remove key",
+                    onConfirm: () => removeKey.mutate(),
+                  })
+                }
                 disabled={removeKey.isPending}
                 className="inline-flex h-9 items-center rounded-lg px-2 text-sm text-destructive hover:bg-destructive/10"
               >

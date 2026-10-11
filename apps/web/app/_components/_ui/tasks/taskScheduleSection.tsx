@@ -36,6 +36,8 @@ import {
 } from "@/app/utils/hooks/calendar";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 type TaskScheduleSectionProps = {
   taskId: string;
@@ -58,8 +60,6 @@ type TaskScheduleSectionProps = {
   onScheduledOnChange?: (isoOrEmpty: string) => void;
 };
 
-const smallButton =
-  "inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-60";
 
 /**
  * Sidebar block for a task's time on the calendar: its repeat rule, the blocks
@@ -325,7 +325,7 @@ export default function TaskScheduleSection({
                     setPickAt("");
                   }, "Could not add block.")
                 }
-                className={cn(smallButton, "bg-primary text-primary-foreground hover:bg-primary/90")}
+                className={buttonClass({ size: "sm" })}
               >
                 Add
               </button>
@@ -349,7 +349,7 @@ export default function TaskScheduleSection({
                     }
                   }, "Could not auto-schedule.")
                 }
-                className={cn(smallButton, "bg-primary text-primary-foreground hover:bg-primary/90")}
+                className={buttonClass({ size: "sm" })}
               >
                 <Sparkles className="size-3" />
                 {applySchedule.isPending ? "Scheduling..." : "Auto-schedule"}
@@ -367,7 +367,7 @@ export default function TaskScheduleSection({
                     return true;
                   })
                 }
-                className={cn(smallButton, "bg-secondary text-secondary-foreground hover:bg-accent")}
+                className={buttonClass({ variant: "secondary", size: "sm" })}
               >
                 {adding ? <X className="size-3" /> : <Plus className="size-3" />}
                 {adding ? "Cancel" : "Pick a time"}
@@ -379,7 +379,7 @@ export default function TaskScheduleSection({
                   onClick={() =>
                     run(() => clearBlocks.mutateAsync(taskId), "Could not unschedule.")
                   }
-                  className={cn(smallButton, "text-destructive hover:bg-destructive/10")}
+                  className={buttonClass({ variant: "destructive-ghost", size: "sm" })}
                 >
                   <CalendarDays className="size-3" />
                   Unschedule
@@ -446,7 +446,7 @@ export default function TaskScheduleSection({
                         "Could not update min chunk.",
                       );
                     }}
-                    className="rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none"
+                    className={controlClass("sm")}
                   />
                 </label>
                 <label className="flex flex-col gap-1">
@@ -472,7 +472,7 @@ export default function TaskScheduleSection({
                         "Could not update preferred chunk.",
                       );
                     }}
-                    className="rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none"
+                    className={controlClass("sm")}
                   />
                 </label>
               </div>

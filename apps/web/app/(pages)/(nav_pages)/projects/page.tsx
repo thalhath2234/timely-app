@@ -15,6 +15,8 @@ import { resolvedColor } from "@/app/utils/entityColor";
 import { formatShortDate, projectStats } from "@/app/utils/projectStats";
 import type { Project, Task } from "@/app/_types/types";
 import { motion } from "motion/react";
+import Button from "@/app/_components/_ui/button";
+import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 import { hoverLift, listContainerVariants, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
 
 function ProgressBar({ value, color }: { value: number; color?: string | null }) {
@@ -73,20 +75,20 @@ function ProjectCard({
           </p>
         </div>
         {project.priorityLevel ? (
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize text-muted-foreground">
             {project.priorityLevel}
           </span>
         ) : null}
       </div>
-      <p className="line-clamp-2 min-h-8 text-xs text-muted-foreground">
-        {project.description?.trim() || "No description"}
-      </p>
+      {project.description?.trim() ? (
+        <p className="line-clamp-2 text-xs text-muted-foreground">{project.description.trim()}</p>
+      ) : null}
       <ProgressBar value={stats.progress} color={color} />
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span>{stats.open} open</span>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground">
         <span>{stats.completed}/{stats.total} done</span>
-        <span>Start {formatShortDate(project.startDate)}</span>
-        <span>Due {formatShortDate(project.deadline)}</span>
+        <span>{stats.open} open</span>
+        {project.startDate ? <span>Starts {formatShortDate(project.startDate)}</span> : null}
+        {project.deadline ? <span>Due {formatShortDate(project.deadline)}</span> : null}
       </div>
     </Link>
     </motion.div>
@@ -119,24 +121,17 @@ export default function ProjectsPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="flex min-h-full flex-col px-6 py-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground">Projects</h1>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Create a project, break it into stages, and work the tasks without leaving this area.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={openCreate}
-            disabled={!canCreate}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-          >
-            <Plus className="size-4" />
+      <PageHeader
+        title="Projects"
+        badge={list.length > 0 ? <PageBadge>{list.length}</PageBadge> : null}
+        description="Create a project, break it into stages, and work the tasks without leaving this area."
+        actions={
+          <Button onClick={openCreate} disabled={!canCreate} leading={<Plus />}>
             New project
-          </button>
-        </div>
+          </Button>
+        }
+      />
+      <div className="flex min-h-full flex-col px-6 pb-6">
 
         {tasksQuery.isError && (
           <LoadErrorBanner
@@ -149,9 +144,9 @@ export default function ProjectsPage() {
         )}
 
         {isLoading ? (
-          <p className="mt-6 text-sm text-muted-foreground">Loading projects…</p>
+          <p className="mt-2 text-sm text-muted-foreground">Loading projects…</p>
         ) : isError ? (
-          <div className="mt-6 flex flex-1 flex-col">
+          <div className="mt-2 flex flex-1 flex-col">
             <LoadError
               what="projects"
               error={projectsQuery.error}
@@ -160,25 +155,21 @@ export default function ProjectsPage() {
             />
           </div>
         ) : list.length === 0 ? (
-          <div className="mt-6">
+          <div className="mt-2">
             <EmptyState
               icon={FolderKanban}
               title="No projects yet"
               description="Create a project to group tasks, stages, and deadlines."
               action={
-                <button
-                  type="button"
-                  onClick={openCreate}
-                  className="mt-2 rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-foreground"
-                >
+                <Button onClick={openCreate} className="mt-2" leading={<Plus />}>
                   New project
-                </button>
+                </Button>
               }
             />
           </div>
         ) : (
           <motion.div
-            className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+            className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
             variants={listContainerVariants}
             initial="hidden"
             animate="visible"

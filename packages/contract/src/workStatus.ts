@@ -147,3 +147,16 @@ export function isUnscheduled(
   if (task.scheduledOn && timestampDate(task.scheduledOn, timeZone) === today) return false;
   return true;
 }
+
+/**
+ * Open Work with time still ahead: a Block that has not ended by `now`. The
+ * calendar's "Waiting for a slot" list leaves such Work out, even when it is
+ * Overdue or has nothing on today, since it already has a slot.
+ */
+export function hasUpcomingBlock(task: UnscheduledFields, now: Date = new Date()): boolean {
+  for (const block of task.blocks ?? []) {
+    const end = Date.parse(block.end);
+    if (!Number.isNaN(end) && end > now.getTime()) return true;
+  }
+  return false;
+}

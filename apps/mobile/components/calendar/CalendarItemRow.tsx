@@ -68,7 +68,7 @@ export default function CalendarItemRow({
   return (
     <AnimatedPressable onPress={() => onOpen(item)} style={[styles.row, timeline && styles.timelineRow]}>
       <View style={[styles.bar, { backgroundColor: itemColor(item) }]} />
-      {isTaskItem(item) ? <View style={[styles.check, overdue && styles.checkOverdue, done && styles.checkDone]}>{done ? <Check size={12} color="#fff" /> : null}</View> : null}
+      {isTaskItem(item) ? <View style={[styles.check, overdue && styles.checkOverdue, done && styles.checkDone]}>{done ? <Check size={12} color={colors.background} /> : null}</View> : null}
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text numberOfLines={2} style={[styles.title, done && styles.done]}>
           {item.title}
@@ -87,7 +87,7 @@ export default function CalendarItemRow({
 const styles = createThemedStyleSheet((colors) => ({
   row: {
     minHeight: 72,
-    borderRadius: 18,
+    borderRadius: 14,
     backgroundColor: colors.card,
     paddingVertical: 14,
     paddingRight: 15,
@@ -101,7 +101,7 @@ const styles = createThemedStyleSheet((colors) => ({
   check: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: colors.mutedForeground },
   checkDone: { backgroundColor: colors.success, borderColor: colors.success, alignItems: "center", justifyContent: "center" },
   checkOverdue: { borderColor: "rgba(244,63,94,0.65)" },
-  title: { color: colors.cardForeground, fontSize: 15, fontWeight: "700" },
+  title: { color: colors.cardForeground, fontSize: 15, fontWeight: "600" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },
   metaText: { color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },

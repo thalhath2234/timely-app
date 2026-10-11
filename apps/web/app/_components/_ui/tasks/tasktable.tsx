@@ -38,7 +38,7 @@ import { useTasks, useUpdateTask, patchTaskInCache } from "@/app/utils/hooks/tas
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/app/utils/cn";
 import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
-import { priorityColor } from "@/app/utils/priority";
+import { normalizePriority, priorityColor } from "@/app/utils/priority";
 import { filterTasks, type TaskListFilters } from "@/app/utils/taskFilters";
 import ColorChip from "@/app/_components/_ui/colorChip";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
@@ -232,20 +232,20 @@ function hasClockTime(value: string): boolean {
   return /T\d{2}:\d{2}/.test(value);
 }
 
+/** "Oct 13", plus the year when it isn't this year, as elsewhere in the app. */
 function formatDate(value?: string | null, includeTime = false): string {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
+  const day: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    ...(date.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}),
+  };
   if (includeTime && hasClockTime(value)) {
-    return date.toLocaleString(undefined, {
-      month: "numeric",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    return date.toLocaleString(undefined, { ...day, hour: "numeric", minute: "2-digit" });
   }
-  return date.toLocaleDateString();
+  return date.toLocaleDateString(undefined, day);
 }
 
 function scheduledStamp(task: Task): string | null | undefined {
@@ -316,7 +316,7 @@ function columnTextValue(
     case "blockedBy":
       return getBlockedByDisplayValue(task);
     case "priority":
-      return task.priorityLevel || "";
+      return normalizePriority(task.priorityLevel);
     case "stageId":
       return (task.stageId && stageNames[task.stageId]) || task.stage?.name || "";
     case "status":
@@ -350,7 +350,7 @@ function getGroupMeta(
     return { label: task.status?.name || "No status", color: task.status?.color ?? null };
   }
   if (groupBy === "priority") {
-    return { label: task.priorityLevel || "No priority", color: priorityColor(task.priorityLevel) };
+    return { label: normalizePriority(task.priorityLevel) || "No priority", color: priorityColor(task.priorityLevel) };
   }
   if (groupBy === "stage") {
     return {
@@ -979,6 +979,24 @@ export default function TasksTable({
 
   const headerOffset = 40;
 
+  // True while columns run past the right edge, so a fade shows that the
+  // table scrolls sideways instead of a header looking cut off.
+  const [moreRight, setMoreRight] = useState(false);
+  useEffect(() => {
+    const wrap = tableWrapRef.current;
+    if (!wrap) return;
+    const update = () => setMoreRight(wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 1);
+    update();
+    wrap.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(wrap);
+    if (wrap.firstElementChild) observer.observe(wrap.firstElementChild);
+    return () => {
+      wrap.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, [isLoading, status, sortedTasks.length]);
+
   if (isLoading) {
     return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
   }
@@ -998,7 +1016,7 @@ export default function TasksTable({
   const textCell = "px-3 py-2.5 text-foreground whitespace-nowrap align-middle";
   const primaryTextCell = "px-3 py-2.5 font-medium text-foreground whitespace-nowrap align-middle";
   const descriptionCell = "px-3 py-2.5 text-muted-foreground max-w-80 truncate align-middle";
-  const numericCell = "px-3 py-2.5 text-muted-foreground text-right font-mono text-[11px] tabular-nums whitespace-nowrap align-middle";
+  const numericCell = "px-3 py-2.5 text-muted-foreground text-right text-xs tabular-nums whitespace-nowrap align-middle";
   const dateCell = "px-3 py-2.5 text-muted-foreground tabular-nums whitespace-nowrap align-middle";
 
   const alignHeader = (align: ColumnAlign) =>
@@ -1195,7 +1213,7 @@ export default function TasksTable({
                 dot={false}
                 className="rounded px-2 py-0.5 text-[10px]"
               >
-                {task.priorityLevel}
+                {normalizePriority(task.priorityLevel) || task.priorityLevel}
               </ColorChip>
             ) : (
               "-"
@@ -1275,6 +1293,13 @@ export default function TasksTable({
   );
 
   return (
+    <div className="relative h-full w-full">
+    {moreRight ? (
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 right-0 z-40 w-12 bg-gradient-to-l from-background to-transparent"
+      />
+    ) : null}
     <div
       ref={tableWrapRef}
       className={cn(
@@ -1437,7 +1462,7 @@ export default function TasksTable({
                           </button>
 
                           {allDone ? (
-                            <span className="shrink-0 rounded-full border border-success/25 bg-success/10 px-2 py-0.5 font-mono text-[11px] text-success">
+                            <span className="shrink-0 rounded-full border border-success/25 bg-success/10 px-2 py-0.5 tabular-nums text-[11px] text-success">
                               100% DONE
                             </span>
                           ) : showProgress ? (
@@ -1499,6 +1524,7 @@ export default function TasksTable({
           </>,
           document.body,
         )}
+    </div>
     </div>
   );
 }
