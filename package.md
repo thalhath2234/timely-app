@@ -85,7 +85,7 @@ Arch Linux. Once the AppImage is on the release:
 3. Regenerate `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO`, or edit the
    same version, URL, file name and checksum fields by hand.
 4. Commit to `dev` and `main` via PRs, the same way as the version bump.
-5. Push the two files to the AUR git repository (`ssh://aur@aur.archlinux.org/timely-bin.git`).
+5. Push `PKGBUILD`, `.SRCINFO` and `timely-bin.install` to the AUR git repository (`ssh://aur@aur.archlinux.org/timely-bin.git`).
    That repository is separate from this one.
 
 ## Building locally

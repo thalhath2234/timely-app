@@ -310,3 +310,16 @@ attached by hand without the manifests is invisible to the updater. The `publish
 the updater reads at runtime; `releaseType: release` means electron-builder uploads to the
 published release rather than a draft. Releases have no macOS build, so a locally built mac
 app finds no `latest-mac.yml` to update from.
+
+The AUR package (`packaging/aur/timely-bin`) extracts the AppImage into `/opt/timely-bin`, so
+there is no `$APPIMAGE` and `electron-updater` cannot update it (it would answer "up to date"
+forever). Such an install shows "Updated by your package manager" in Settings → Server
+instead of the Check for updates button; it is updated with pacman or an AUR helper.
+
+A package upgrade replaces the files under a copy that is still running in the tray. That
+copy's Next server keeps the old build manifest in memory but serves `_next/static` from disk,
+so its pages point at CSS/JS chunks that no longer exist (an unstyled or white window).
+`main.ts` records an install fingerprint at boot (the Next `BUILD_ID` plus the executable's
+inode, size and mtime, `supervisor/install.ts`). When it changes, opening Timely (launcher,
+tray, a second instance) restarts into the new files, and a check every minute adds
+"Restart to finish updating" to the tray with one notification.

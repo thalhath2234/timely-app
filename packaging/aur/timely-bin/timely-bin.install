@@ -1,0 +1,10 @@
+# A copy started before the upgrade keeps running from memory (usually in the
+# tray), and opening Timely again only brings that old copy forward. Current
+# builds restart themselves into the new version when opened again; copies from
+# before that change have to be quit by hand once.
+post_upgrade() {
+  if pgrep -f '^/opt/timely-bin/Timely' >/dev/null 2>&1; then
+    echo "==> Timely is still running the previous version."
+    echo "==> Open Timely to restart it into the new one, or quit it from the tray (Quit Timely) and start it again."
+  fi
+}

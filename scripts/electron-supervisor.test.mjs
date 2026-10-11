@@ -16,6 +16,7 @@ import {
   saveConfig,
 } from "../apps/web/electron/supervisor/config.ts";
 import { checkPrivileges } from "../apps/web/electron/supervisor/guards.ts";
+import { installFingerprint, isPackageManaged } from "../apps/web/electron/supervisor/install.ts";
 import { pairingPayload, tailscaleUrls } from "../apps/web/electron/supervisor/index.ts";
 import { resolveResourceDirs, userPaths } from "../apps/web/electron/supervisor/paths.ts";
 import { findFreePort, isPortFree, listenPort, reconcilePorts } from "../apps/web/electron/supervisor/ports.ts";
@@ -550,5 +551,49 @@ test("only a postgres command counts as the orphaned postmaster", () => {
   }
   for (const comm of ["", "bash", "firefox", "/usr/bin/postgres-exporter"]) {
     assert.equal(isPostgresCommand(comm), false, comm);
+  }
+});
+
+test("install fingerprint changes when a package upgrade swaps the files", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const exec = path.join(dir, "Timely");
+    const nextRoot = path.join(dir, "resources", "next-server");
+    const web = path.join(nextRoot, "apps", "web");
+    mkdirSync(path.join(web, ".next"), { recursive: true });
+    writeFileSync(path.join(web, "server.js"), "");
+    writeFileSync(path.join(web, ".next", "BUILD_ID"), "build-a\n");
+    writeFileSync(exec, "old");
+    const before = installFingerprint({ execPath: exec, nextRoot });
+    assert.match(before, /^build-a\|/);
+    assert.equal(installFingerprint({ execPath: exec, nextRoot }), before);
+
+    // pacman unlinks and recreates each file: new BUILD_ID, new executable.
+    writeFileSync(path.join(web, ".next", "BUILD_ID"), "build-b\n");
+    assert.notEqual(installFingerprint({ execPath: exec, nextRoot }), before);
+
+    // Without a BUILD_ID the executable alone still tells.
+    rmSync(path.join(web, ".next", "BUILD_ID"));
+    const execOnly = installFingerprint({ execPath: exec, nextRoot });
+    rmSync(exec);
+    writeFileSync(exec, "newer binary");
+    assert.notEqual(installFingerprint({ execPath: exec, nextRoot }), execOnly);
+
+    assert.equal(installFingerprint({ execPath: path.join(dir, "missing"), nextRoot: path.join(dir, "none") }), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test("an AUR install (no $APPIMAGE, no package-type) is package-managed", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    assert.equal(isPackageManaged({ platform: "linux", env: {}, resourcesPath: dir }), true);
+    assert.equal(isPackageManaged({ platform: "linux", env: { APPIMAGE: "/home/me/Timely.AppImage" }, resourcesPath: dir }), false);
+    assert.equal(isPackageManaged({ platform: "win32", env: {}, resourcesPath: dir }), false);
+    writeFileSync(path.join(dir, "package-type"), "pacman\n");
+    assert.equal(isPackageManaged({ platform: "linux", env: {}, resourcesPath: dir }), false);
+  } finally {
+    cleanup();
   }
 });
