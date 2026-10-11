@@ -46,6 +46,7 @@ import {
   useSplitTaskSeries,
   useWorkingHoursZone,
   useWorkspacesQuery,
+  useInboxSuggestionsQuery,
 } from "../../../lib/hooks";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
@@ -109,6 +110,9 @@ export default function TaskDetailScreen() {
   const listed = tasks.find((t) => t.id === id);
   const fetched = useTaskQuery(id);
   const task = fetched.data ?? listed;
+  // The same answer the Suggestions card shows (cached): picking Reminder by
+  // hand pings at the time read from the words ("Tuesday afternoon").
+  const words = useInboxSuggestionsQuery(task?.kind === "inbox" ? task.id : undefined).data;
   const spaces = useWorkspacesQuery().data ?? [];
   const projects = useProjectsQuery().data ?? [];
   const workingHoursZone = useWorkingHoursZone();
@@ -330,10 +334,17 @@ export default function TaskDetailScreen() {
             value={isInbox ? null : isReminder ? "reminder" : "task"}
             onChange={(next) => {
               if (next === "reminder") {
+                let readAt = "";
+                if (words?.available && words.date && (words.dateRole === "reminder" || words.time)) {
+                  const [y, m, d] = words.date.split("-").map(Number);
+                  const [h, min] = (words.time || "09:00").split(":").map(Number);
+                  const at = new Date(y, m - 1, d, h, min);
+                  if (at > new Date()) readAt = at.toISOString();
+                }
                 persist({
                   kind: "reminder",
                   duration: 0,
-                  scheduledOn: task.scheduledOn || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+                  scheduledOn: readAt || task.scheduledOn || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
                 });
                 return;
               }

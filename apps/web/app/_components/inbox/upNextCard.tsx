@@ -37,7 +37,8 @@ export default function UpNextCard({
   onDelete: () => void;
 }) {
   const decisionsOn = useDecisions().data?.available === true;
-  const suggestions = useClarifySuggestions(task.id, decisionsOn);
+  // Asked with suggestions off too: plain code still reads "Remind me…" and dates.
+  const suggestions = useClarifySuggestions(task.id);
   const workspaces = useWorkspaces().data ?? [];
   const s = suggestions.data?.available ? suggestions.data : undefined;
   const summary = s
@@ -76,12 +77,12 @@ export default function UpNextCard({
           <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">{task.description}</p>
         ) : null}
       </div>
-      {decisionsOn && (suggestions.isLoading || summary?.line || summary?.note || duplicates.length > 0) ? (
+      {(decisionsOn && suggestions.isLoading) || summary?.line || summary?.note || duplicates.length > 0 ? (
         <div
           className="flex items-start gap-2.5 rounded-xl border border-primary/20 bg-primary/[0.05] px-3.5 py-2.5 text-sm"
           data-testid="inbox-up-next-suggestion"
         >
-          {suggestions.isLoading ? (
+          {suggestions.isLoading && decisionsOn ? (
             <>
               <LogoSpinner size={14} label="Getting a suggestion" />
               <span className="text-muted-foreground">Getting a suggestion…</span>

@@ -64,7 +64,7 @@ export default function InboxPage() {
 
   const review = useCallback(
     (task: Task, kind?: InboxDecision) => {
-      setCreateTaskDraft({ name: task.name, inboxId: task.id, ...(kind === "reminder" ? { kind } : {}) });
+      setCreateTaskDraft({ name: task.name, inboxId: task.id, ...(kind ? { kind } : {}) });
       setAddNewMode("task");
       setIsAddItemModalOpen(true);
     },

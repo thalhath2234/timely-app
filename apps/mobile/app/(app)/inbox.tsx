@@ -37,10 +37,11 @@ function upNextAge(age: InboxAge) {
 function Suggestion({ task, onOpenTask }: { task: Task; onOpenTask: (id: string) => void }) {
   const status = useDecisionsStatusQuery();
   const on = status.data?.available === true;
-  const suggestions = useInboxSuggestionsQuery(task.id, on);
+  // Asked with suggestions off too: plain code still reads "Remind me…" and dates.
+  const suggestions = useInboxSuggestionsQuery(task.id);
   const spaces = useWorkspacesQuery().data ?? [];
-  if (!on) return null;
   if (suggestions.isLoading) {
+    if (!on) return null;
     return (
       <View style={styles.suggestion}>
         <LogoSpinner size={14} />
