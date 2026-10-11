@@ -10,41 +10,43 @@ import {
 import { motion } from "motion/react";
 import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/app/utils/cn";
+import Button from "@/app/_components/_ui/button";
+import { Input } from "@/app/_components/_ui/field";
 
-type InputProps = InputHTMLAttributes<HTMLInputElement> & {
+type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
   id: string;
   label: ReactNode;
   hint?: ReactNode;
   error?: ReactNode;
 };
 
-/** A labelled text field in the sign-in style; `hint` and `error` sit under it. */
+// The shared Field look (docs/design-system.md#inputs) at the lg size that
+// sits beside an lg button.
+const labelClass = "mb-1.5 block text-xs font-medium text-muted-foreground";
+
+/** A labelled text field; `hint` and `error` sit under it. */
 export const AuthField = forwardRef<HTMLInputElement, InputProps>(
   function AuthField({ id, label, hint, error, className, ...input }, ref) {
     const note = error ?? hint;
     return (
-      <div className={className}>
-        <label
-          htmlFor={id}
-          className="mb-1.5 block text-[13px] font-medium text-[var(--lp-soft)]"
-        >
+      <div className={cn("lp-control", className)}>
+        <label htmlFor={id} className={labelClass}>
           {label}
         </label>
-        <div className="lp-field" data-invalid={error ? "" : undefined}>
-          <input
-            ref={ref}
-            id={id}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={note ? `${id}-note` : undefined}
-            {...input}
-          />
-        </div>
+        <Input
+          ref={ref}
+          id={id}
+          size="lg"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={note ? `${id}-note` : undefined}
+          {...input}
+        />
         {note ? (
           <p
             id={`${id}-note`}
             className={cn(
               "mt-1.5 text-xs",
-              error ? "text-[#ff8a80]" : "text-[var(--lp-soft)]",
+              error ? "text-destructive" : "text-muted-foreground",
             )}
           >
             {note}
@@ -61,43 +63,40 @@ export function PasswordField({
   label,
   hint,
   ...input
-}: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "size"> & {
   id: string;
   label: ReactNode;
   hint?: ReactNode;
 }) {
   const [shown, setShown] = useState(false);
   return (
-    <div>
-      <label
-        htmlFor={id}
-        className="mb-1.5 block text-[13px] font-medium text-[var(--lp-soft)]"
-      >
+    <div className="lp-control">
+      <label htmlFor={id} className={labelClass}>
         {label}
       </label>
-      <div className="lp-field">
-        <input
+      <div className="relative">
+        <Input
           id={id}
+          size="lg"
           type={shown ? "text" : "password"}
           aria-describedby={hint ? `${id}-note` : undefined}
+          className="pr-10"
           {...input}
         />
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
+          icon
           aria-label={shown ? "Hide password" : "Show password"}
           aria-pressed={shown}
           onClick={() => setShown((value) => !value)}
-          className="mr-1 flex size-9 shrink-0 items-center justify-center rounded-lg text-[var(--lp-soft)] transition-colors hover:text-[var(--lp-ink)]"
+          className="absolute top-1/2 right-1 -translate-y-1/2"
         >
-          {shown ? (
-            <EyeOff className="size-[18px]" />
-          ) : (
-            <Eye className="size-[18px]" />
-          )}
-        </button>
+          {shown ? <EyeOff /> : <Eye />}
+        </Button>
       </div>
       {hint ? (
-        <p id={`${id}-note`} className="mt-1.5 text-xs text-[var(--lp-soft)]">
+        <p id={`${id}-note`} className="mt-1.5 text-xs text-muted-foreground">
           {hint}
         </p>
       ) : null}

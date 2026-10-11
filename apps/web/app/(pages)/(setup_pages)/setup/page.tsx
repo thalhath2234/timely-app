@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { fadeTransition } from "@/app/_components/_ui/motion";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
 import AuthShell, { NowBlock } from "@/app/_components/auth/authShell";
 import DayPanel, { type DayBlock } from "@/app/_components/auth/dayPanel";
 import { describeTailscale } from "@/app/utils/desktopInstance";
@@ -43,9 +44,7 @@ import {
 } from "@/app/_components/settings/serverSettings";
 import PairingQr from "@/app/_components/settings/pairingQr";
 
-const primaryButton = "lp-btn lp-btn-primary disabled:opacity-60";
-const secondaryButton =
-  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium text-foreground hover:bg-muted/60 disabled:opacity-60";
+const secondaryButton = buttonClass({ variant: "outline", size: "lg" });
 
 const STEPS = [
   {
@@ -187,8 +186,8 @@ export default function SetupPage() {
             : "This setup guide is only used by the Timely desktop app, which runs its own server."
         }
       >
-        <Link href="/calendar" className={primaryButton}>
-          Go to the calendar <ArrowRight className="size-4" />
+        <Link href="/calendar" className={buttonClass({ size: "lg" })}>
+          Go to the calendar <ArrowRight />
         </Link>
       </AuthShell>
     );
@@ -368,19 +367,16 @@ export default function SetupPage() {
                 </p>
               )}
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="outline"
+                  size="lg"
                   onClick={() => rescan.mutate()}
-                  disabled={rescan.isPending || providers.isLoading}
-                  className={secondaryButton}
+                  disabled={providers.isLoading}
+                  loading={rescan.isPending}
+                  leading={<ScanSearch />}
                 >
-                  {rescan.isPending ? (
-                    <LogoSpinner size={14} label="Scanning" />
-                  ) : (
-                    <ScanSearch className="size-3.5" />
-                  )}
                   {rescan.isPending ? "Scanning…" : "Re-scan"}
-                </button>
+                </Button>
                 {rescan.error && (
                   <span className="text-xs text-destructive">
                     {errorMessage(rescan.error, "Could not re-scan.")}
@@ -420,41 +416,33 @@ export default function SetupPage() {
 
       <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-[var(--lp-line)] pt-5">
         {!isLast ? (
-          <button type="button" onClick={next} className={primaryButton}>
-            Next <ArrowRight className="size-4" />
-          </button>
+          <Button size="lg" onClick={next} trailing={<ArrowRight />}>
+            Next
+          </Button>
         ) : (
-          <button
-            type="button"
+          <Button
+            size="lg"
             onClick={() => void finish()}
-            disabled={finishing}
-            className={primaryButton}
+            loading={finishing}
+            leading={<Check />}
           >
-            {finishing ? (
-              <LogoSpinner size={14} tone="mono" label="Saving" />
-            ) : (
-              <Check className="size-4" />
-            )}
             Finish
-          </button>
+          </Button>
         )}
         {!isLast && (
-          <button
-            type="button"
-            onClick={next}
-            className="s-link rounded-lg px-3 py-2 text-sm"
-          >
+          <Button variant="ghost" size="lg" onClick={next}>
             Skip
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="lg"
           onClick={back}
           disabled={step === 0 || finishing}
-          className="s-link inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm disabled:opacity-40"
+          leading={<ArrowLeft />}
         >
-          <ArrowLeft className="size-3.5" /> Back
-        </button>
+          Back
+        </Button>
         {finishError && (
           <span className="text-xs text-destructive" role="alert">
             {finishError}

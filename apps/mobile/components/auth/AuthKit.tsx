@@ -8,11 +8,15 @@ import AnimatedPressable from "../ui/AnimatedPressable";
 import TimelyLogo, { LogoSpinner } from "../ui/TimelyLogo";
 import { blockStart, clock, dateLine, minuteOfDay, type DayBlock } from "../../lib/authDay";
 import { listEntering, pageEntering } from "../../lib/motion";
+import { controlRadius } from "../../lib/theme";
 
 /**
  * Sign-in, sign-up and onboarding continue the landing page, so they are
  * always dark, whatever the app theme. Values mirror the web's `.lp` tokens
- * in `apps/web/app/_components/site/site.css`.
+ * in `apps/web/app/_components/site/site.css`. The shared `Button` and
+ * `Field` in `components/ui/primitives.tsx` follow the app theme, so these
+ * keep their own dark colours but use the same sizes, corners and weights
+ * (docs/design-system.md).
  */
 export const AUTH = {
   bg: "#0d0e13",
@@ -349,28 +353,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "rgba(236,235,245,0.12)",
-    borderRadius: 10,
+    borderRadius: controlRadius + 2,
     backgroundColor: AUTH.surface,
   },
   fieldFocused: { borderColor: AUTH.now },
   fieldInvalid: { borderColor: AUTH.error },
-  input: { flex: 1, minHeight: 46, paddingHorizontal: 14, color: AUTH.ink, fontSize: 16 },
+  input: { flex: 1, minHeight: 46, paddingHorizontal: 16, color: AUTH.ink, fontSize: 16 },
   eye: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   hint: { color: AUTH.soft, fontSize: 12 },
   primary: {
     minHeight: 48,
-    borderRadius: 10,
+    borderRadius: controlRadius + 2,
     backgroundColor: AUTH.now,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
   },
-  primaryText: { color: AUTH.nowInk, fontSize: 16, fontWeight: "600" },
+  primaryText: { color: AUTH.nowInk, fontSize: 15, fontWeight: "600" },
   ghost: {
     minHeight: 48,
-    borderRadius: 10,
+    borderRadius: controlRadius + 2,
     borderWidth: 1,
     borderColor: AUTH.lineStrong,
     backgroundColor: AUTH.surface,
@@ -378,7 +382,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
   },
   ghostText: { color: AUTH.ink, fontSize: 15, fontWeight: "600" },
   link: { alignSelf: "center", paddingVertical: 10, paddingHorizontal: 12 },

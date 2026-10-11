@@ -427,49 +427,9 @@ html:has(.site)::-webkit-scrollbar-thumb {
    The same day as the landing page: the form is the block happening now,
    and a day view beside it fills in with what the person picks. */
 
-.lp-field {
-  display: flex;
-  height: 2.75rem;
-  width: 100%;
-  align-items: center;
-  border: 1px solid rgb(236 235 245 / 12%);
-  border-radius: 10px;
-  background: var(--lp-surface);
-  transition:
-    border-color 140ms ease-out,
-    box-shadow 140ms ease-out;
-}
-
-.lp-field:hover {
-  border-color: rgb(236 235 245 / 20%);
-}
-
-.lp-field:focus-within {
-  border-color: var(--lp-now);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--lp-now) 22%, transparent);
-}
-
-.lp-field[data-invalid] {
-  border-color: #ff8a80;
-}
-
-.lp-field > input {
-  height: 100%;
-  width: 100%;
-  min-width: 0;
-  background: transparent;
-  padding-inline: 0.875rem;
-  color: var(--lp-ink);
-  font-size: 0.9375rem;
+/* Sign-in fields are the shared kit's Input, which draws its own focus ring. */
+.site .lp-control input:focus-visible {
   outline: none;
-}
-
-.site .lp-field > input:focus-visible {
-  outline: none;
-}
-
-.lp-field > input::placeholder {
-  color: #85849a;
 }
 
 /* Choice chips: a picked chip turns into a small calendar block. */
