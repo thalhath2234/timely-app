@@ -35,7 +35,8 @@ const COLUMNS = [
   },
 ] as const;
 
-export default function SiteFooter() {
+/** `base` prefixes the landing and help-center links, as on SiteHeader. */
+export default function SiteFooter({ base = "" }: { base?: string }) {
   return (
     <footer className="border-t border-[var(--s-line)]">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:px-8 md:grid-cols-[1.4fr_repeat(3,1fr)]">
@@ -67,7 +68,7 @@ export default function SiteFooter() {
                       {link.label}
                     </a>
                   ) : (
-                    <Link href={link.href} className="s-link">
+                    <Link href={link.href === "/help" || link.href.startsWith("/#") ? `${base}${link.href}` : link.href} className="s-link">
                       {link.label}
                     </Link>
                   )}

@@ -18,7 +18,11 @@ const NAV = [
   { href: "/help", label: "Help" },
 ] as const;
 
-export default function SiteHeader() {
+/**
+ * `base` moves the landing and help links under a design variation (`/1`),
+ * so the pair can be browsed as one site while the root stays unchanged.
+ */
+export default function SiteHeader({ base = "" }: { base?: string }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -45,17 +49,17 @@ export default function SiteHeader() {
       )}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-8">
-        <Link href="/" className="flex items-center rounded-lg" aria-label="Timely home">
+        <Link href={base || "/"} className="flex items-center rounded-lg" aria-label="Timely home">
           <TimelyWordmark size={26} textClassName="text-[1.35rem]" />
         </Link>
 
         <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
           {NAV.map((item) => {
-            const active = item.href === "/help" && pathname.startsWith("/help");
+            const active = item.href === "/help" && pathname.startsWith(`${base}/help`);
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={`${base}${item.href}`}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "rounded-full px-3.5 py-2 text-sm font-medium transition-colors",
@@ -110,7 +114,7 @@ export default function SiteHeader() {
               {NAV.map((item) => (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  href={`${base}${item.href}`}
                   onClick={() => setOpen(false)}
                   className="s-link rounded-xl px-3 py-2.5 text-base font-medium hover:bg-white/5"
                 >
