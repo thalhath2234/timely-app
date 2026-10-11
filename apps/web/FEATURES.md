@@ -424,8 +424,6 @@ No persisted sheet views, charts, or database-style linked records. HTTP support
 - **Quick actions:** Create sheet/doc/task/project/event (opens the Add modal / Quick Add) and Go to sheets/docs/tasks/projects/calendar.
 - If search fails, commands still work (native offers Retry).
 
-A public demo of the palette with sample data lives at `/demo/command-palette`.
-
 **Backend**
 
 - Keyword: ILIKE across those five kinds.
@@ -677,7 +675,6 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 | `/login` | Email/password login |
 | `/signup` | Register (sends name) |
 | `/onboarding` | Create first workspace |
-| `/demo/command-palette` | Public command-palette demo with sample data |
 
 ### Desktop app
 

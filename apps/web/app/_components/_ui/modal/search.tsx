@@ -23,7 +23,6 @@ const categories = [
 ] as const;
 type Category = typeof categories[number]["id"];
 type PaletteItem = { id: string; title: string; description: string; kind: string; icon: LucideIcon; run: () => void; command?: boolean; section: "suggested" | "results" | "commands" };
-type DemoProps = { demoItems?: SearchHit[]; onDemoSelect?: (title: string) => void };
 
 function hrefFor(hit: SearchHit): string {
   switch (hit.kind) {
@@ -38,7 +37,7 @@ const nouns = { sheet: "sheet", doc: "document", task: "task", project: "project
 
 const selectSearchMode = (state: ReturnType<typeof useSidebarStore.getState>) => state.searchMode;
 
-export default function SearchModal(props: DemoProps) {
+export default function SearchModal() {
   const searchMode = useTransitionStore(useSidebarStore, selectSearchMode);
   const setSearchMode = useSidebarStore((state) => state.setSearchMode);
   const closeSearch = useCallback(() => setSearchMode(false), [setSearchMode]);
@@ -59,13 +58,13 @@ export default function SearchModal(props: DemoProps) {
     <>
       <OverlayScrim className="z-50 bg-black/35 supports-backdrop-filter:backdrop-blur-xs" onClick={closeSearch} />
       <OverlayFrame className="z-50 items-start justify-center px-3 pt-[12vh] sm:pt-[16vh]">
-        <SearchPanel onClose={closeSearch} {...props} />
+        <SearchPanel onClose={closeSearch} />
       </OverlayFrame>
     </>
   ) : null;
 }
 
-function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose: () => void }) {
+function SearchPanel({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const panel = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -75,24 +74,22 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
   // that arrive or reorder later never move the highlight to another item.
   const [selection, setSelection] = useState<{ index: number; id?: string }>({ index: 0 });
   const trimmed = query.trim();
-  const search = useSearch(demoItems ? "" : query);
+  const search = useSearch(query);
   // Never show cached results for the previous query during the debounce window.
   const matchesCurrentQuery = search.query === trimmed;
-  const hits = demoItems
-    ? demoItems.filter((hit) => `${hit.title} ${hit.snippet}`.toLowerCase().includes(trimmed.toLowerCase()))
-    : trimmed && matchesCurrentQuery ? search.data ?? [] : [];
+  const hits = trimmed && matchesCurrentQuery ? search.data ?? [] : [];
   // Smart suggestions reorder the results, set clear misses aside and may
   // read the query as a command. Plain results show first; this applies when
   // Jev answers, and only for the query on screen.
-  const smart = useSmartSearch(demoItems ? "" : search.query);
-  const smartData = !demoItems && trimmed && smart.query === trimmed && matchesCurrentQuery ? smart.data : undefined;
+  const smart = useSmartSearch(search.query);
+  const smartData = trimmed && smart.query === trimmed && matchesCurrentQuery ? smart.data : undefined;
   const [showHidden, setShowHidden] = useState(false);
   // Counted per tab: a weak doc match is not one of the Sheets tab's results.
   const hidden = smartData?.hits ? (smartData.hidden ?? []).filter((hit) => category === "all" || hit.kind === category) : [];
   const shownHits = smartData?.hits ? [...smartData.hits, ...(showHidden ? hidden : [])] : hits;
   const suggestedCategory = smartData?.category && category === "all" ? categories.find((tab) => tab.id === smartData.category) : undefined;
-  const pending = !demoItems && !!trimmed && (!matchesCurrentQuery || search.isFetching);
-  const failed = !demoItems && !!trimmed && matchesCurrentQuery && search.isError;
+  const pending = !!trimmed && (!matchesCurrentQuery || search.isFetching);
+  const failed = !!trimmed && matchesCurrentQuery && search.isError;
 
   useEffect(() => {
     const previous = document.activeElement;
@@ -107,7 +104,6 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
 
   function create(kind: Exclude<Category, "all">, title?: string) {
     onClose();
-    if (onDemoSelect) return onDemoSelect(`Create ${nouns[kind]}`);
     const store = useSidebarStore.getState();
     store.setCreateTaskDraft(title ? { name: title } : null);
     store.setAddNewMode(kind);
@@ -116,7 +112,6 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
 
   function openHit(hit: SearchHit) {
     onClose();
-    if (onDemoSelect) return onDemoSelect(hit.title);
     if (hit.kind === "task" || hit.kind === "project") {
       openTasksEntity({ kind: hit.kind, id: hit.id }, { navigate: (href) => router.push(href, { scroll: false }) });
     } else router.push(hrefFor(hit));
@@ -132,7 +127,6 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
       { id: `create-${kind}`, title: `Create ${noun}`, description: `Start a new ${noun}`, kind, icon: Plus, command: true, section: "commands" as const, run: () => create(kind) },
       { id: `goto-${kind}`, title: `Go to ${place}`, description: `Open your ${place}`, kind, icon: tab.icon, command: true, section: "commands" as const, run: () => {
         onClose();
-        if (onDemoSelect) return onDemoSelect(`Go to ${place}`);
         router.push(route);
       } },
     ];
@@ -153,7 +147,6 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
     id: `view-${viewPick.id}`, title: `Open view “${viewPick.name}”`, description: "Your saved view for this", kind: "view", icon: ListFilter, section: "suggested",
     run: () => {
       onClose();
-      if (onDemoSelect) return onDemoSelect(`Open view “${viewPick.name}”`);
       if (smartData?.logId) void sendDecisionFeedback(smartData.logId, true).catch(() => {});
       router.push(`/tasks?view=${encodeURIComponent(viewPick.id)}`);
     },
@@ -232,7 +225,7 @@ function SearchPanel({ onClose, demoItems, onDemoSelect }: DemoProps & { onClose
         </div>
         <div id="palette-results" role="listbox" aria-label={`${categories.find((tab) => tab.id === category)?.label} results and commands`} aria-busy={pending}>
           {items.map((item, index) => <div key={item.id}>
-            {(index === 0 || item.section !== items[index - 1].section) && <p role="presentation" className="px-3 pb-2 pt-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{item.section === "suggested" ? "Suggested" : item.section === "commands" ? "Quick actions" : demoItems && !trimmed ? "Explore the demo" : "Search results"}</p>}
+            {(index === 0 || item.section !== items[index - 1].section) && <p role="presentation" className="px-3 pb-2 pt-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{item.section === "suggested" ? "Suggested" : item.section === "commands" ? "Quick actions" : "Search results"}</p>}
             <div id={`palette-option-${index}`} role="option" aria-selected={active === index} onClick={item.run} onPointerMove={() => select(index)}
               className={cn("group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left", active === index ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-muted")}>
               <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg border", active === index ? "border-primary/20 bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground")}><item.icon size={17} aria-hidden="true" /></span>
