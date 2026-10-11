@@ -19,7 +19,8 @@ import {
   savePersonalUseCase,
 } from "@/app/utils/api/decisions";
 import { AnimatePresence, motion } from "motion/react";
-import { LogoLoader, LogoSpinner } from "@/app/_components/_ui/timelyLogo";
+import { LogoLoader } from "@/app/_components/_ui/timelyLogo";
+import Button from "@/app/_components/_ui/button";
 import AuthShell, { NowBlock } from "@/app/_components/auth/authShell";
 import DayPanel from "@/app/_components/auth/dayPanel";
 import { AuthField, ChoiceChip } from "@/app/_components/auth/fields";
@@ -209,13 +210,9 @@ export default function Onboarding() {
       <span>
         Signed in as <span className="text-[var(--lp-ink)]">{me.email}</span>
       </span>
-      <button
-        type="button"
-        onClick={() => void signOut()}
-        className="s-link underline-offset-4 hover:underline"
-      >
+      <Button variant="link" size="sm" onClick={() => void signOut()}>
         Sign out
-      </button>
+      </Button>
     </div>
   ) : null;
 
@@ -295,29 +292,28 @@ export default function Onboarding() {
           {chosenLabels.length > 0 ? preview(true) : null}
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
+            <Button
+              size="lg"
               disabled={uses.length === 0}
               onClick={() => {
                 if (!workspaceName && starterWorkspaces[0])
                   nameWorkspace(starterWorkspaces[0]);
                 setStep(2);
               }}
-              className="lp-btn lp-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+              trailing={<ArrowRight />}
             >
               Continue
-              <ArrowRight className="size-4" />
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="ghost"
+              size="lg"
               onClick={() => {
                 setUses([]);
                 setStep(2);
               }}
-              className="s-link rounded-lg px-3 py-2 text-sm"
             >
               Skip for now
-            </button>
+            </Button>
           </div>
           {signedIn}
         </div>
@@ -375,31 +371,24 @@ export default function Onboarding() {
           ) : null}
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <button
+            <Button
               type="submit"
-              disabled={!isValid || isPending}
-              className="lp-btn lp-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+              size="lg"
+              disabled={!isValid}
+              loading={isPending}
+              trailing={isPending ? null : <ArrowRight />}
             >
-              {isPending ? (
-                <>
-                  <LogoSpinner size={18} tone="mono" label="Creating" />
-                  Creating…
-                </>
-              ) : (
-                <>
-                  Create workspace
-                  <ArrowRight className="size-4" />
-                </>
-              )}
-            </button>
-            <button
-              type="button"
+              {isPending ? "Creating…" : "Create workspace"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="lg"
               onClick={() => setStep(1)}
               disabled={isPending}
-              className="s-link inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm"
+              leading={<ArrowLeft />}
             >
-              <ArrowLeft className="size-3.5" /> Back
-            </button>
+              Back
+            </Button>
           </div>
           {chosenLabels.length > 0 || extraWorkspaces.length > 0 ? (
             <p className="mt-3 text-xs text-[var(--lp-soft)]">

@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import packageJson from "@/package.json";
+import { buttonClass } from "@/app/_components/_ui/button";
 import { TimelyWordmark } from "@/app/_components/_ui/timelyLogo";
 import { REPO_URL } from "@/app/_components/site/links";
 import { GitHubMark } from "@/app/_components/site/marks";
@@ -80,7 +81,7 @@ export default function AuthShell({
             <TimelyWordmark size={24} textClassName="text-[1.25rem]" />
           </Link>
           <nav aria-label="Account" className="flex items-center gap-1">
-            <Link href="/help" className="s-link rounded-lg px-3 py-2 text-sm">
+            <Link href="/help" className={buttonClass({ variant: "ghost" })}>
               Help
             </Link>
             {headerAction}

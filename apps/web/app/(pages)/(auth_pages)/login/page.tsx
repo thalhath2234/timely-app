@@ -7,7 +7,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { getMe } from "@/app/utils/api/user";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
-import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
 import AuthShell, { NowBlock } from "@/app/_components/auth/authShell";
 import DayPanel from "@/app/_components/auth/dayPanel";
 import {
@@ -69,10 +69,7 @@ export default function LoginPage() {
       title="Pick up where you left off."
       lead="Your week is where you left it: tasks placed around your meetings, and the assistant ready when you are."
       headerAction={
-        <Link
-          href="/signup"
-          className="lp-btn lp-btn-ghost !h-9 !px-3.5 !text-sm"
-        >
+        <Link href="/signup" className={buttonClass({ variant: "outline" })}>
           Register
         </Link>
       }
@@ -100,23 +97,15 @@ export default function LoginPage() {
           autoComplete="current-password"
         />
 
-        <button
+        <Button
           type="submit"
-          disabled={loginMutation.isPending}
-          className="lp-btn lp-btn-primary mt-2 w-full justify-center disabled:opacity-60"
+          size="lg"
+          loading={loginMutation.isPending}
+          trailing={loginMutation.isPending ? null : <ArrowRight />}
+          className="mt-2 w-full"
         >
-          {loginMutation.isPending ? (
-            <>
-              <LogoSpinner size={18} tone="mono" label="Signing in" />
-              Signing in…
-            </>
-          ) : (
-            <>
-              Sign in
-              <ArrowRight className="size-4" />
-            </>
-          )}
-        </button>
+          {loginMutation.isPending ? "Signing in…" : "Sign in"}
+        </Button>
       </form>
 
       <p className="mt-6 text-sm text-[var(--lp-soft)]">

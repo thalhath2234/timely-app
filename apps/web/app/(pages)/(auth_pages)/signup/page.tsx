@@ -7,7 +7,7 @@ import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { apiFetch, setAccessToken } from "@/app/utils/api/client";
 import { getHealth } from "@/app/utils/api/instance";
-import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
 import AuthShell, { NowBlock } from "@/app/_components/auth/authShell";
 import DayPanel, { type DayBlock } from "@/app/_components/auth/dayPanel";
 import {
@@ -51,13 +51,13 @@ function SignupClosed() {
       }
     >
       <div className="flex flex-wrap gap-2.5">
-        <Link href="/login" className="lp-btn lp-btn-primary">
+        <Link href="/login" className={buttonClass({ size: "lg" })}>
           Sign in
-          <ArrowRight className="size-4" />
+          <ArrowRight />
         </Link>
         <Link
           href="/help/account/server#pairing-and-access"
-          className="lp-btn lp-btn-ghost"
+          className={buttonClass({ variant: "outline", size: "lg" })}
         >
           How accounts work
         </Link>
@@ -145,10 +145,7 @@ export default function SignupPage() {
       title="Start your first day."
       lead="One account owns this Timely. Your tasks, docs and keys stay on this server, and the assistant runs on the AI you already pay for."
       headerAction={
-        <Link
-          href="/login"
-          className="lp-btn lp-btn-ghost !h-9 !px-3.5 !text-sm"
-        >
+        <Link href="/login" className={buttonClass({ variant: "outline" })}>
           Log in
         </Link>
       }
@@ -201,23 +198,16 @@ export default function SignupPage() {
           hint="At least 8 characters."
         />
 
-        <button
+        <Button
           type="submit"
-          disabled={signupMutation.isPending || success}
-          className="lp-btn lp-btn-primary mt-2 w-full justify-center disabled:opacity-60"
+          size="lg"
+          disabled={success}
+          loading={signupMutation.isPending}
+          trailing={signupMutation.isPending ? null : <ArrowRight />}
+          className="mt-2 w-full"
         >
-          {signupMutation.isPending ? (
-            <>
-              <LogoSpinner size={18} tone="mono" label="Creating account" />
-              Creating account…
-            </>
-          ) : (
-            <>
-              Create account
-              <ArrowRight className="size-4" />
-            </>
-          )}
-        </button>
+          {signupMutation.isPending ? "Creating account…" : "Create account"}
+        </Button>
       </form>
 
       <p className="mt-6 text-sm text-[var(--lp-soft)]">
