@@ -10,16 +10,21 @@ import { cn } from "@/app/utils/cn";
 import { REPO_URL } from "./links";
 import { GitHubMark } from "./marks";
 
-const NAV = [
-  { href: "/#ai", label: "AI" },
-  { href: "/#how-it-works", label: "How it works" },
-  { href: "/#docs-and-sheets", label: "Docs and sheets" },
-  { href: "/#download", label: "Download" },
-  { href: "/help", label: "Help" },
-] as const;
+function navFor(base: string) {
+  const home = base || "/";
+  return [
+    { href: `${home}#ai`, label: "AI" },
+    { href: `${home}#how-it-works`, label: "How it works" },
+    { href: `${home}#docs-and-sheets`, label: "Docs and sheets" },
+    { href: `${home}#download`, label: "Download" },
+    { href: `${base}/help`, label: "Help" },
+  ];
+}
 
-export default function SiteHeader() {
+/** `base` is the design iteration the page belongs to ("/1" and so on), or "" for the main site. */
+export default function SiteHeader({ base = "" }: { base?: string }) {
   const pathname = usePathname();
+  const NAV = navFor(base);
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -45,13 +50,13 @@ export default function SiteHeader() {
       )}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-8">
-        <Link href="/" className="flex items-center rounded-lg" aria-label="Timely home">
+        <Link href={base || "/"} className="flex items-center rounded-lg" aria-label="Timely home">
           <TimelyWordmark size={26} textClassName="text-[1.35rem]" />
         </Link>
 
         <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
           {NAV.map((item) => {
-            const active = item.href === "/help" && pathname.startsWith("/help");
+            const active = item.label === "Help" && pathname.startsWith(`${base}/help`);
             return (
               <Link
                 key={item.href}
