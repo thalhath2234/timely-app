@@ -20,7 +20,6 @@ import {
   addWorkbookTab,
   normalizeSheet,
   tabsFromSheet,
-  workbookPayload,
 } from "../../lib/sheet";
 import { sheetToCsv } from "../../lib/sheetCsv";
 import { createSheetEvaluator } from "@timely/contract/sheetFormula";
@@ -78,9 +77,20 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   const [tabDraft, setTabDraft] = useState("");
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
 
-  const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateSheetPayload>((patch) =>
-    save.mutateAsync({ id: sheet.id, data: patch }),
+  // Only tabs changed here are sent (with the tab order), so a laptop editing
+  // one tab and this phone editing another never overwrite each other. A
+  // sheet saved before tabs existed sends every tab once.
+  const dirtyTabsRef = useRef<Set<string>>(
+    new Set(sheet.tabs && sheet.tabs.length > 0 ? [] : initialTabs.map((tab) => tab.id)),
   );
+  const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateSheetPayload>(async (patch) => {
+    const result = await save.mutateAsync({ id: sheet.id, data: patch });
+    // A tab is clean once the copy that was sent is still the current one.
+    for (const sent of patch.tabs ?? []) {
+      if (tabsRef.current.find((tab) => tab.id === sent.id) === sent) dirtyTabsRef.current.delete(sent.id);
+    }
+    return result;
+  });
   const gridRef = useRef<SheetGridHandle>(null);
   const tabInputRef = useRef<TextInput>(null);
   // Blur before the bottom sheet unmounts its input: Android otherwise moves
@@ -115,12 +125,21 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   ]);
 
   function persistTabs(nextTabs: SheetTab[]) {
+    const previous = tabsRef.current;
+    for (const tab of nextTabs) {
+      if (previous.find((item) => item.id === tab.id) !== tab) dirtyTabsRef.current.add(tab.id);
+    }
+    const ids = new Set(nextTabs.map((tab) => tab.id));
+    for (const id of [...dirtyTabsRef.current]) if (!ids.has(id)) dirtyTabsRef.current.delete(id);
     tabsRef.current = nextTabs;
     setTabs(nextTabs);
     if (!nextTabs.some((tab) => tab.id === activeTabId) && nextTabs[0]) {
       setActiveTabId(nextTabs[0].id);
     }
-    schedule(workbookPayload(nextTabs));
+    schedule({
+      tabs: nextTabs.filter((tab) => dirtyTabsRef.current.has(tab.id)),
+      tabOrder: nextTabs.map((tab) => tab.id),
+    });
   }
 
   function handleGridChange(next: Partial<Pick<SheetTab, "columns" | "rows" | "merges">>) {

@@ -58,6 +58,7 @@ export const EXPENSE_CATEGORIES = [
   "Personal care",
   "Education",
   "Entertainment",
+  "Subscriptions",
   "Travel",
   "Gifts",
   "Other",
@@ -85,8 +86,16 @@ export const EXPENSE_PAYMENTS = ["Cash", "Card", "Bank transfer", "Mobile wallet
 const TOTAL_FILL = "#1F2A24";
 const WARN_FILL = "#5C3A12";
 const OVER_FILL = "#5F2120";
+const WARN_TEXT = "#FCD9A8";
+const OVER_TEXT = "#FFD7D3";
 const GOOD_TEXT = "#81C995";
 const BAD_TEXT = "#F28B82";
+/** Zero months and categories fade back so the ones with spending stand out. */
+const ZERO_TEXT = "#5E6472";
+
+function fadeZeros(columns: SheetColumn[]): SheetConditionalFormat[] {
+  return columns.map((column) => ({ id: makeId("cf"), columnId: column.id, operator: "eq", value: "0", textColor: ZERO_TEXT }));
+}
 
 let activeCurrency = "";
 /** A currency column's format; no symbol when the person has not picked one. */
@@ -105,7 +114,7 @@ function boldAll(columns: SheetColumn[], fill: string, extra: Partial<SheetCellF
 
 function monthTab(name: string): SheetTab {
   const col = (_key: string, column: Omit<SheetColumn, "id">): SheetColumn => ({ id: makeId("col"), ...column });
-  const date = col("date", { name: "Date", width: 96, type: "date", format: { dateFormat: "ddd d mmm" } });
+  const date = col("date", { name: "Date", width: 112, type: "date", format: { dateFormat: "ddd d mmm" } });
   const item = col("item", { name: "Item", width: 200, type: "text" });
   const category = col("category", { name: "Category", width: 150, type: "select", options: EXPENSE_CATEGORIES });
   const store = col("store", { name: "Store / from", width: 150, type: "text" });
@@ -128,7 +137,7 @@ function monthTab(name: string): SheetTab {
   const totals = row(
     {
       [date.id]: "",
-      [item.id]: `="Month total · "&COUNTA(${L.item}2:${L.item})&" items"`,
+      [item.id]: `="Month total · "&COUNTA(${L.item}2:${L.item})&IF(COUNTA(${L.item}2:${L.item})=1," item"," items")`,
       [category.id]: "",
       [store.id]: "",
       [qty.id]: "",
@@ -156,6 +165,7 @@ function monthTab(name: string): SheetTab {
       columnId: total.id,
       operator: "aboveAverage",
       fillColor: WARN_FILL,
+      textColor: WARN_TEXT,
     },
   ];
 
@@ -240,9 +250,10 @@ function summaryTab(): SheetTab {
     frozenRows: 0,
     frozenCols: 1,
     conditionalFormats: [
-      { id: makeId("cf"), columnId: used.id, operator: "gt", value: "1", fillColor: OVER_FILL, wholeRow: false },
+      { id: makeId("cf"), columnId: used.id, operator: "gt", value: "1", fillColor: OVER_FILL, textColor: OVER_TEXT, wholeRow: false },
       { id: makeId("cf"), columnId: left.id, operator: "lt", value: "0", textColor: BAD_TEXT, bold: true },
       { id: makeId("cf"), columnId: left.id, operator: "gte", value: "0", textColor: GOOD_TEXT },
+      ...fadeZeros([spent, items, biggest]),
     ],
   };
 }
@@ -263,12 +274,19 @@ function categoriesTab(): SheetTab {
   const yearLetter = String.fromCharCode(65 + monthColumns.length + 1); // N
   const totalRow = EXPENSE_CATEGORIES.length + 1;
 
+  const otherRow = EXPENSE_CATEGORIES.length;
   const rows: SheetRow[] = EXPENSE_CATEGORIES.map((name, index) => {
     const r = index + 1;
-    const cells: Record<string, string> = { [category.id]: name };
+    const last = r === otherRow;
+    // "Other" also takes entries with no category or one typed outside the
+    // list, so the categories always add up to the month's spending.
+    const cells: Record<string, string> = { [category.id]: last ? "Other or none" : name };
     MONTH_NAMES.forEach((month, m) => {
       const tab = quote(month);
-      cells[monthColumns[m].id] = `=SUMIF(${tab}!C2:C,$A${r},${tab}!H2:H)`;
+      const letter = String.fromCharCode(66 + m);
+      cells[monthColumns[m].id] = last
+        ? `=ROUND(SUM(${tab}!H2:H)-SUM(${letter}1:${letter}${otherRow - 1}),2)`
+        : `=SUMIF(${tab}!C2:C,$A${r},${tab}!H2:H)`;
     });
     cells[year.id] = `=SUM(B${r}:${lastMonth}${r})`;
     cells[share.id] = `=IF($${yearLetter}$${totalRow}=0,"",${yearLetter}${r}/$${yearLetter}$${totalRow})`;
@@ -292,7 +310,8 @@ function categoriesTab(): SheetTab {
     frozenRows: 0,
     frozenCols: 1,
     conditionalFormats: [
-      { id: makeId("cf"), columnId: year.id, operator: "aboveAverage", fillColor: WARN_FILL },
+      { id: makeId("cf"), columnId: year.id, operator: "aboveAverage", fillColor: WARN_FILL, textColor: WARN_TEXT },
+      ...fadeZeros([...monthColumns, year]),
     ],
   };
 }

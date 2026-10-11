@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
@@ -85,6 +86,17 @@ type SheetService interface {
 type sheetService struct {
 	repo    SheetRepository
 	indexer embed.Indexer
+	// gridLocks holds one mutex per sheet so two saves of different tabs
+	// (laptop and phone at once) both land instead of the later one
+	// overwriting the tab the other just changed.
+	gridLocks sync.Map
+}
+
+func (s *sheetService) lockGrid(sheetID string) func() {
+	value, _ := s.gridLocks.LoadOrStore(sheetID, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func NewSheetService(repo SheetRepository, indexer embed.Indexer) SheetService {
@@ -165,6 +177,12 @@ func (s *sheetService) GetByID(userID string, sheetID string) (*models.Sheet, er
 }
 
 func (s *sheetService) Update(userID string, sheetID string, update SheetUpdate) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
+	return s.update(userID, sheetID, update)
+}
+
+// update applies a change; the caller holds the sheet's grid lock.
+func (s *sheetService) update(userID string, sheetID string, update SheetUpdate) (*models.Sheet, error) {
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
@@ -580,6 +598,7 @@ func (s *sheetService) indexSheet(sheet *models.Sheet) {
 }
 
 func (s *sheetService) AddRows(userID, sheetID string, count int) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
 	if count <= 0 {
 		count = 1
 	}
@@ -589,10 +608,11 @@ func (s *sheetService) AddRows(userID, sheetID string, count int) (*models.Sheet
 	}
 	rows := append(models.SheetRows{}, current.Rows...)
 	rows = append(rows, models.DefaultSheetRows(current.Columns, count)...)
-	return s.Update(userID, sheetID, SheetUpdate{Rows: &rows})
+	return s.update(userID, sheetID, SheetUpdate{Rows: &rows})
 }
 
 func (s *sheetService) UpdateCells(userID, sheetID, rowID string, cells map[string]string) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, err
@@ -625,10 +645,11 @@ func (s *sheetService) UpdateCells(userID, sheetID, rowID string, cells map[stri
 	if !found {
 		return nil, errors.New("row not found")
 	}
-	return s.Update(userID, sheetID, SheetUpdate{Rows: &rows})
+	return s.update(userID, sheetID, SheetUpdate{Rows: &rows})
 }
 
 func (s *sheetService) DeleteRows(userID, sheetID string, rowIDs []string) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, err
@@ -643,10 +664,11 @@ func (s *sheetService) DeleteRows(userID, sheetID string, rowIDs []string) (*mod
 			rows = append(rows, row)
 		}
 	}
-	return s.Update(userID, sheetID, SheetUpdate{Rows: &rows})
+	return s.update(userID, sheetID, SheetUpdate{Rows: &rows})
 }
 
 func (s *sheetService) AddColumn(userID, sheetID, name, colType string, options []string) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, err
@@ -677,10 +699,11 @@ func (s *sheetService) AddColumn(userID, sheetID, name, colType string, options 
 		}
 		rows[i].Cells[column.ID] = ""
 	}
-	return s.Update(userID, sheetID, SheetUpdate{Columns: &columns, Rows: &rows})
+	return s.update(userID, sheetID, SheetUpdate{Columns: &columns, Rows: &rows})
 }
 
 func (s *sheetService) UpdateColumn(userID, sheetID, columnID, name, colType string, width *int, options *[]string) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, err
@@ -712,7 +735,7 @@ func (s *sheetService) UpdateColumn(userID, sheetID, columnID, name, colType str
 	if !found {
 		return nil, errors.New("column not found")
 	}
-	return s.Update(userID, sheetID, SheetUpdate{Columns: &columns})
+	return s.update(userID, sheetID, SheetUpdate{Columns: &columns})
 }
 
 // workbookTabs returns a copy of the sheet's tabs. A sheet that still stores
@@ -777,6 +800,7 @@ func findTab(tabs models.SheetTabs, tabID string) (int, error) {
 }
 
 func (s *sheetService) AddTab(userID, sheetID, name string) (*models.Sheet, models.SheetTab, error) {
+	defer s.lockGrid(sheetID)()
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, models.SheetTab{}, err
@@ -798,7 +822,7 @@ func (s *sheetService) AddTab(userID, sheetID, name string) (*models.Sheet, mode
 		Merges:  models.SheetMerges{},
 	}
 	tabs = append(tabs, tab)
-	sh, err := s.Update(userID, sheetID, SheetUpdate{Tabs: &tabs})
+	sh, err := s.update(userID, sheetID, SheetUpdate{Tabs: &tabs})
 	if err != nil {
 		return nil, models.SheetTab{}, err
 	}
@@ -806,6 +830,7 @@ func (s *sheetService) AddTab(userID, sheetID, name string) (*models.Sheet, mode
 }
 
 func (s *sheetService) RenameTab(userID, sheetID, tabID, name string) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, err
@@ -820,10 +845,11 @@ func (s *sheetService) RenameTab(userID, sheetID, tabID, name string) (*models.S
 		return nil, err
 	}
 	tabs[idx].Name = name
-	return s.Update(userID, sheetID, SheetUpdate{Tabs: &tabs})
+	return s.update(userID, sheetID, SheetUpdate{Tabs: &tabs})
 }
 
 func (s *sheetService) DeleteTab(userID, sheetID, tabID string) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, err
@@ -840,10 +866,11 @@ func (s *sheetService) DeleteTab(userID, sheetID, tabID string) (*models.Sheet, 
 		return nil, err
 	}
 	tabs = append(tabs[:idx], tabs[idx+1:]...)
-	return s.Update(userID, sheetID, SheetUpdate{Tabs: &tabs})
+	return s.update(userID, sheetID, SheetUpdate{Tabs: &tabs})
 }
 
 func (s *sheetService) DeleteColumn(userID, sheetID, columnID string) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
 	current, err := s.repo.GetSheetByID(userID, sheetID)
 	if err != nil {
 		return nil, err
@@ -864,7 +891,7 @@ func (s *sheetService) DeleteColumn(userID, sheetID, columnID string) (*models.S
 	for i := range rows {
 		delete(rows[i].Cells, columnID)
 	}
-	return s.Update(userID, sheetID, SheetUpdate{Columns: &columns, Rows: &rows})
+	return s.update(userID, sheetID, SheetUpdate{Columns: &columns, Rows: &rows})
 }
 
 // assertProject rejects a project the user does not own, so a sheet cannot be

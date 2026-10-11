@@ -76,11 +76,25 @@ describe("yearly expenses template", () => {
     assert.deepEqual(categories.valueAt(13, 0), { type: "number", value: 2000 }, "groceries for the year");
     assert.deepEqual(categories.valueAt(13, 2), { type: "number", value: 80 }, "transport");
     assert.equal(Math.round(categories.valueAt(14, 0).value * 1000) / 1000, 0.962);
+    const other = tabs[1].rows.length - 2;
+    assert.deepEqual(categories.valueAt(0, other), { type: "text", value: "Other or none" });
+    assert.deepEqual(categories.valueAt(1, other), { type: "number", value: 0 });
 
     const used = conditionalStyles(tabs[0].conditionalFormats, tabs[0].columns, tabs[0].rows.length, summary.valueAt);
     assert.ok(used.get("4:0")?.fillColor, "over budget is coloured");
     assert.equal(used.get("3:0")?.bold, true, "negative left is bold red");
     assert.equal(used.get("3:1"), undefined, "a month without a budget stays plain");
+
+    // An entry with no category, and one outside the list, land in "Other or none".
+    fill(4, ["2026-01-06", "Gift wrap", "", "Bookshop", "", "", "50"]);
+    fill(5, ["2026-01-07", "Pet food", "Pets", "Pet shop", "", "", "70"]);
+    const withOther = evaluatorFor(tabs, tabs[1].id);
+    assert.deepEqual(withOther.valueAt(1, other), { type: "number", value: 120 });
+    assert.deepEqual(withOther.valueAt(1, other + 1), { type: "number", value: 2200 }, "categories add up to the month");
+
+    const faded = conditionalStyles(tabs[1].conditionalFormats, tabs[1].columns, tabs[1].rows.length, withOther.valueAt);
+    assert.ok(faded.get("2:1")?.textColor, "an empty month fades");
+    assert.equal(faded.get("1:0")?.textColor, undefined, "a month with spending does not");
 
     const big = conditionalStyles(january.conditionalFormats, january.columns, january.rows.length, jan.valueAt, january.frozenRows);
     assert.ok(big.get("7:1"), "above-average spend is marked");
@@ -142,5 +156,16 @@ describe("sheet display", () => {
       valueAt,
     );
     assert.deepEqual(both.get("0:1"), { fillColor: "#111111", bold: true }, "earlier rules win");
+
+    const withTotal = [...values.slice(0, 2), [{ type: "number", value: 55 }, { type: "empty" }]];
+    const above = conditionalStyles(
+      [{ id: "a", columnId: "a", operator: "aboveAverage", fillColor: "#333333" }],
+      columns,
+      withTotal.length,
+      (col, row) => withTotal[row][col],
+      0,
+      new Set([2]),
+    );
+    assert.deepEqual([...above.keys()], ["0:1"], "a total row is not counted in the average or marked");
   });
 });

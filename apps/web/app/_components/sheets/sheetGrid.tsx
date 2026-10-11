@@ -21,6 +21,7 @@ import ArrowDownAZ from "lucide-react/dist/esm/icons/arrow-down-a-z.mjs";
 import ArrowUpAZ from "lucide-react/dist/esm/icons/arrow-up-a-z.mjs";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3.mjs";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
+import ListIcon from "lucide-react/dist/esm/icons/list.mjs";
 import BetweenHorizontalEnd from "lucide-react/dist/esm/icons/between-horizontal-end.mjs";
 import BetweenHorizontalStart from "lucide-react/dist/esm/icons/between-horizontal-start.mjs";
 import BetweenVerticalEnd from "lucide-react/dist/esm/icons/between-vertical-end.mjs";
@@ -88,6 +89,7 @@ import {
 import { conditionalStyles, formatSheetCell } from "@timely/contract/sheetDisplay";
 import {
   applyStructureChange,
+  conditionalSummaryRows,
   parseClipboardTable,
   pasteTable as pasteIntoGrid,
   seriesValues,
@@ -388,6 +390,12 @@ export default function SheetGrid({
     editingRef.current = editing;
   }, [draft, editing]);
   const showContextMenu = useContextMenu();
+  const tabStripRef = useRef<HTMLDivElement>(null);
+
+  // A workbook with many tabs scrolls its tab strip: keep the open tab in view.
+  useEffect(() => {
+    tabStripRef.current?.querySelector("[data-active-tab]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeTabId, tabs?.length]);
   const [fitEdit, setFitEdit] = useState<CellFitEdit | null>(null);
   const [dismissedFit, setDismissedFit] = useState(0);
   const cellFit = useCellFit(fitEdit);
@@ -411,8 +419,16 @@ export default function SheetGrid({
   );
 
   const conditional = useMemo(
-    () => conditionalStyles(conditionalFormats, columns, rows.length, evaluator.valueAt, frozenRows),
-    [columns, conditionalFormats, evaluator, frozenRows, rows.length],
+    () =>
+      conditionalStyles(
+        conditionalFormats,
+        columns,
+        rows.length,
+        evaluator.valueAt,
+        frozenRows,
+        conditionalSummaryRows(conditionalFormats, rows, columns),
+      ),
+    [columns, conditionalFormats, evaluator, frozenRows, rows],
   );
 
   const snapshot = (): GridSnapshot => ({ columns, rows, merges, frozenRows, frozenCols, conditionalFormats });
@@ -2422,7 +2438,7 @@ export default function SheetGrid({
                 onChange={(event) => setFunctionQuery(event.target.value)}
                 placeholder="Search functions"
                 aria-label="Search functions"
-                className={controlClass("sm", "mb-1 w-full text-xs")}
+                className={controlClass("sm", "mb-1 w-full shrink-0 text-xs")}
               />
               <div className="min-h-0 flex-1 overflow-y-auto">
                 {FUNCTION_GROUPS.map((group) => {
@@ -2611,7 +2627,6 @@ export default function SheetGrid({
                   {name}
                 </button>
               ))}
-              <span className="shrink-0 text-muted-foreground/70">Tab picks the first</span>
             </>
           ) : currentHelp ? (
             <>
@@ -3378,116 +3393,148 @@ export default function SheetGrid({
       )}
 
       <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-[#191B22] px-3 text-[11px]">
-        <div className="flex min-w-0 items-end gap-1 overflow-x-auto pt-1 [scrollbar-width:none]">
-          {(tabs ?? []).map((tab, tabIndex) => {
-            const active = tab.id === activeTabId;
-            const openTabMenu = (event: ReactMouseEvent) => {
-              event.preventDefault();
-              showContextMenu(
-                event,
-                tidyEntries([
-                  { kind: "action", label: "Rename", icon: Pencil, onSelect: () => setRenamingTabId(tab.id) },
-                  onDuplicateTab && { kind: "action" as const, label: "Duplicate", icon: Copy, onSelect: () => onDuplicateTab(tab.id) },
-                  onColorTab && {
-                    kind: "submenu" as const,
-                    label: "Colour",
-                    icon: Palette,
-                    items: [
-                      { kind: "action" as const, label: "None", checked: !tab.color, onSelect: () => onColorTab(tab.id, undefined) },
-                      ...TAB_COLORS.map((choice) => ({
-                        kind: "action" as const,
-                        label: choice.label,
-                        checked: tab.color?.toUpperCase() === choice.value,
-                        onSelect: () => onColorTab(tab.id, choice.value),
-                      })),
-                    ],
-                  },
-                  { kind: "separator" },
-                  onMoveTab && {
+        <div className="flex min-w-0 items-end gap-1">
+          {(tabs?.length ?? 0) > 1 ? (
+            <button
+              type="button"
+              title="All tabs"
+              aria-label="All tabs"
+              onClick={(event) =>
+                showContextMenu(
+                  event,
+                  (tabs ?? []).map((tab) => ({
                     kind: "action" as const,
-                    label: "Move left",
-                    icon: ArrowLeft,
-                    disabled: tabIndex === 0,
-                    onSelect: () => onMoveTab(tab.id, -1),
-                  },
-                  onMoveTab && {
-                    kind: "action" as const,
-                    label: "Move right",
-                    icon: ArrowRight,
-                    disabled: tabIndex === (tabs?.length ?? 1) - 1,
-                    onSelect: () => onMoveTab(tab.id, 1),
-                  },
-                  { kind: "separator" },
-                  onDeleteTab && {
-                    kind: "action" as const,
-                    label: "Delete tab",
-                    icon: Trash2,
-                    danger: true,
-                    disabled: (tabs?.length ?? 0) <= 1,
-                    onSelect: () => onDeleteTab(tab.id),
-                  },
-                ]),
-                { title: tab.name },
+                    label: tab.name,
+                    checked: tab.id === activeTabId,
+                    onSelect: () => onSelectTab?.(tab.id),
+                  })),
+                  { title: "Tabs" },
+                )
+              }
+              className="mb-0.5 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ListIcon className="size-3.5" />
+            </button>
+          ) : null}
+          <div
+            ref={tabStripRef}
+            onWheel={(event) => {
+              // A mouse wheel scrolls the tab strip sideways.
+              if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) event.currentTarget.scrollLeft += event.deltaY;
+            }}
+            className="flex min-w-0 items-end gap-1 overflow-x-auto pt-1 [scrollbar-width:none]"
+          >
+            {(tabs ?? []).map((tab, tabIndex) => {
+              const active = tab.id === activeTabId;
+              const openTabMenu = (event: ReactMouseEvent) => {
+                event.preventDefault();
+                showContextMenu(
+                  event,
+                  tidyEntries([
+                    { kind: "action", label: "Rename", icon: Pencil, onSelect: () => setRenamingTabId(tab.id) },
+                    onDuplicateTab && { kind: "action" as const, label: "Duplicate", icon: Copy, onSelect: () => onDuplicateTab(tab.id) },
+                    onColorTab && {
+                      kind: "submenu" as const,
+                      label: "Colour",
+                      icon: Palette,
+                      items: [
+                        { kind: "action" as const, label: "None", checked: !tab.color, onSelect: () => onColorTab(tab.id, undefined) },
+                        ...TAB_COLORS.map((choice) => ({
+                          kind: "action" as const,
+                          label: choice.label,
+                          checked: tab.color?.toUpperCase() === choice.value,
+                          onSelect: () => onColorTab(tab.id, choice.value),
+                        })),
+                      ],
+                    },
+                    { kind: "separator" },
+                    onMoveTab && {
+                      kind: "action" as const,
+                      label: "Move left",
+                      icon: ArrowLeft,
+                      disabled: tabIndex === 0,
+                      onSelect: () => onMoveTab(tab.id, -1),
+                    },
+                    onMoveTab && {
+                      kind: "action" as const,
+                      label: "Move right",
+                      icon: ArrowRight,
+                      disabled: tabIndex === (tabs?.length ?? 1) - 1,
+                      onSelect: () => onMoveTab(tab.id, 1),
+                    },
+                    { kind: "separator" },
+                    onDeleteTab && {
+                      kind: "action" as const,
+                      label: "Delete tab",
+                      icon: Trash2,
+                      danger: true,
+                      disabled: (tabs?.length ?? 0) <= 1,
+                      onSelect: () => onDeleteTab(tab.id),
+                    },
+                  ]),
+                  { title: tab.name },
+                );
+              };
+              return (
+                <div
+                  key={tab.id}
+                  data-active-tab={active ? "" : undefined}
+                  onContextMenu={openTabMenu}
+                  className={`relative flex shrink-0 items-center gap-1 rounded-t border border-b-0 px-2 py-1 ${
+                    active
+                      ? "border-[#7C66DC] bg-[#1F222B] text-foreground"
+                      : "border-transparent text-muted-foreground hover:bg-accent/60"
+                  }`}
+                >
+                  {tab.color ? (
+                    <span aria-hidden className="absolute inset-x-1.5 bottom-0 h-0.5 rounded-full" style={{ background: tab.color }} />
+                  ) : null}
+                  {renamingTabId === tab.id ? (
+                    <input
+                      autoFocus
+                      defaultValue={tab.name}
+                      onBlur={(event) => {
+                        onRenameTab?.(tab.id, event.target.value.trim() || tab.name);
+                        setRenamingTabId(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                        if (event.key === "Escape") setRenamingTabId(null);
+                      }}
+                      className="w-24 rounded border border-ring bg-input/40 px-1 text-[11px] outline-none"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onSelectTab?.(tab.id)}
+                      onDoubleClick={() => setRenamingTabId(tab.id)}
+                      title={`${tab.name} · right-click for more`}
+                      className="max-w-28 truncate"
+                    >
+                      {tab.name}
+                    </button>
+                  )}
+                  {active ? (
+                    <button
+                      type="button"
+                      title="Tab options"
+                      aria-label="Tab options"
+                      onClick={openTabMenu}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <ChevronDown className="size-3" />
+                    </button>
+                  ) : null}
+                </div>
               );
-            };
-            return (
-              <div
-                key={tab.id}
-                onContextMenu={openTabMenu}
-                className={`relative flex shrink-0 items-center gap-1 rounded-t border border-b-0 px-2 py-1 ${
-                  active
-                    ? "border-[#7C66DC] bg-[#1F222B] text-foreground"
-                    : "border-transparent text-muted-foreground hover:bg-accent/60"
-                }`}
-              >
-                {tab.color ? (
-                  <span aria-hidden className="absolute inset-x-1.5 bottom-0 h-0.5 rounded-full" style={{ background: tab.color }} />
-                ) : null}
-                {renamingTabId === tab.id ? (
-                  <input
-                    autoFocus
-                    defaultValue={tab.name}
-                    onBlur={(event) => {
-                      onRenameTab?.(tab.id, event.target.value.trim() || tab.name);
-                      setRenamingTabId(null);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") event.currentTarget.blur();
-                      if (event.key === "Escape") setRenamingTabId(null);
-                    }}
-                    className="w-24 rounded border border-ring bg-input/40 px-1 text-[11px] outline-none"
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onSelectTab?.(tab.id)}
-                    onDoubleClick={() => setRenamingTabId(tab.id)}
-                    title={`${tab.name} · right-click for more`}
-                    className="max-w-28 truncate"
-                  >
-                    {tab.name}
-                  </button>
-                )}
-                {active ? (
-                  <button
-                    type="button"
-                    title="Tab options"
-                    aria-label="Tab options"
-                    onClick={openTabMenu}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <ChevronDown className="size-3" />
-                  </button>
-                ) : null}
-              </div>
-            );
-          })}
+            })}
+          </div>
           {onAddTab && (
             <button
               type="button"
               title="New Tab"
               onClick={onAddTab}
-              className="mb-0.5 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="mb-0.5 flex shrink-0 size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <Plus className="size-3.5" />
             </button>

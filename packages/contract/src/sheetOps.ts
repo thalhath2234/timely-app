@@ -301,6 +301,25 @@ function isBlankResult(result: CellResult) {
  * True for a summary row: it holds a formula that adds up a range of its
  * own column in this tab, like a total under a list. Sorting leaves it put.
  */
+/**
+ * Rows holding totals of the rows around them, for colour rules that compare a
+ * value with the rest of its column. Undefined when no rule needs them.
+ */
+export function conditionalSummaryRows(
+  rules: readonly SheetConditionalFormat[] | undefined,
+  rows: SheetRow[],
+  columns: SheetColumn[],
+): Set<number> | undefined {
+  if (!rules?.some((rule) => rule.operator === "aboveAverage" || rule.operator === "belowAverage" || rule.operator === "duplicate")) {
+    return undefined;
+  }
+  const found = new Set<number>();
+  rows.forEach((row, index) => {
+    if (isSummaryRow(row, index, columns)) found.add(index);
+  });
+  return found;
+}
+
 export function isSummaryRow(row: SheetRow, rowIndex: number, columns: SheetColumn[]): boolean {
   return columns.some((column, colIndex) => {
     const value = row.cells?.[column.id];

@@ -208,7 +208,7 @@ export default function FilesHome() {
               onClick={onNewSheetClick}
               loading={createSheet.isPending}
               leading={<Plus />}
-              trailing={templates.length > 0 ? <ChevronDown className="opacity-70" /> : undefined}
+              trailing={<ChevronDown className="opacity-70" />}
             >
               New sheet
             </Button>

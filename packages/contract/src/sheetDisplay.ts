@@ -155,12 +155,16 @@ function isBlank(cell: CellResult) {
  * property on a cell. Keys are `${col}:${row}`. Rows above `startRow` (the
  * frozen header or totals rows) are never tested or coloured.
  */
+const STATISTICAL = new Set<SheetConditionalFormat["operator"]>(["aboveAverage", "belowAverage", "duplicate"]);
+
 export function conditionalStyles(
   rules: readonly SheetConditionalFormat[] | undefined,
   columns: readonly Pick<SheetColumn, "id">[],
   rowCount: number,
   valueAt: (col: number, row: number) => CellResult,
   startRow = 0,
+  /** Total rows: left out of averages and duplicates so a total never skews them. */
+  summaryRows?: ReadonlySet<number>,
 ): Map<string, ConditionalStyle> {
   const styles = new Map<string, ConditionalStyle>();
   if (!rules?.length) return styles;
@@ -175,11 +179,13 @@ export function conditionalStyles(
     if (rule.bold) style.bold = true;
     if (!Object.keys(style).length) continue;
 
+    const statistical = STATISTICAL.has(rule.operator);
+    const counted = (row: number) => !(statistical && summaryRows?.has(row));
     const values: CellResult[] = [];
-    for (let row = startRow; row < rowCount; row += 1) values.push(valueAt(col, row));
+    for (let row = startRow; row < rowCount; row += 1) values.push(counted(row) ? valueAt(col, row) : { type: "empty" });
     const test = conditionTest(rule, values);
     for (let row = startRow; row < rowCount; row += 1) {
-      if (!test(values[row - startRow])) continue;
+      if (!counted(row) || !test(values[row - startRow])) continue;
       const from = rule.wholeRow ? 0 : col;
       const to = rule.wholeRow ? columnCount - 1 : col;
       for (let c = from; c <= to; c += 1) {

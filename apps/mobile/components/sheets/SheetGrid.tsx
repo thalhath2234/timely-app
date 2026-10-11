@@ -66,6 +66,7 @@ import {
 } from "@timely/contract/sheetRange";
 import { cellFitsType, editTextForCell, isFormulaValue, normalizeTypedCell, typedEntryForColumn } from "@timely/contract/sheetCell";
 import { conditionalStyles, formatSheetCell, type ConditionalStyle } from "@timely/contract/sheetDisplay";
+import { conditionalSummaryRows } from "@timely/contract/sheetOps";
 import {
   SHEET_COLUMN_TYPES,
   columnTypeBadge,
@@ -412,8 +413,16 @@ export default function SheetGrid({
     return createSheetEvaluator(columns, rows, { tabs, currentTabId });
   }, [columns, rows, workbookTabs, currentTabId]);
   const conditional = useMemo(
-    () => conditionalStyles(conditionalFormats, columns, rows.length, evaluator.valueAt, frozenRows),
-    [conditionalFormats, columns, rows.length, evaluator, frozenRows],
+    () =>
+      conditionalStyles(
+        conditionalFormats,
+        columns,
+        rows.length,
+        evaluator.valueAt,
+        frozenRows,
+        conditionalSummaryRows(conditionalFormats, rows, columns),
+      ),
+    [conditionalFormats, columns, rows, evaluator, frozenRows],
   );
   const hiddenCount = columns.filter((column) => column.hidden).length;
   const showFilter = filterOpen || filterQuery.length > 0;
@@ -2381,8 +2390,8 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  selectChipText: { color: colors.foreground, fontSize: 12, flexShrink: 1 },
-  selectChevron: { color: colors.mutedForeground, fontSize: 10 },
+  selectChipText: { color: KINETIC.text, fontSize: 12, flexShrink: 1 },
+  selectChevron: { color: KINETIC.secondary, fontSize: 10 },
   optionsInput: {
     minHeight: 120,
     maxHeight: 220,
