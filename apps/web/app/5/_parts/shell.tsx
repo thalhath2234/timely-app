@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { usePublicSite } from "@/app/_components/site/motion";
 import { MotionConfig, MotionGlobalConfig, useInView } from "motion/react";
 import { cn } from "@/app/utils/cn";
 import { sans, serif } from "./fonts";
@@ -58,6 +59,7 @@ export default function Shell({ children, className }: { children: ReactNode; cl
       MotionGlobalConfig.skipAnimations = false;
     };
   }, [calm]);
+  usePublicSite();
   return (
     <MotionConfig reducedMotion="user">
       <div className={cn("d5", sans.variable, serif.variable, className)}>{children}</div>

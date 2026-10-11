@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { usePublicSite } from "@/app/_components/site/motion";
 import { MotionConfig, useInView, useReducedMotion } from "motion/react";
 
 /** Root wrapper: motion follows the visitor's reduced-motion setting everywhere below. */
 export function DeskMotion({ children }: { children: React.ReactNode }) {
+  usePublicSite();
   return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
 }
 

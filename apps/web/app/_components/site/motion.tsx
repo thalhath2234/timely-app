@@ -28,12 +28,33 @@ export function usePrefersReducedMotion() {
 }
 
 /**
+ * Marks <html> as a public-site page while mounted, so the in-app "Reduce
+ * motion" toggle (on by default) stops freezing CSS animation here; globals.css
+ * then follows only the visitor's OS setting.
+ */
+export function usePublicSite() {
+  useInsertionEffect(() => {
+    document.documentElement.dataset.publicSite = "";
+    return () => {
+      delete document.documentElement.dataset.publicSite;
+    };
+  }, []);
+}
+
+/** Renders nothing; for public pages that bring their own motion wrapper. */
+export function PublicSiteMarker() {
+  usePublicSite();
+  return null;
+}
+
+/**
  * Wraps the public site. While the visitor asks for reduced motion every Motion
  * animation jumps straight to its end state (Motion's own "user" mode still
  * fades and moves); CSS loops stop in site.css. Leaving the site restores the
  * app's default.
  */
 export function SiteMotion({ children }: { children: ReactNode }) {
+  usePublicSite();
   const reduced = usePrefersReducedMotion();
   useInsertionEffect(() => {
     MotionGlobalConfig.skipAnimations = reduced;

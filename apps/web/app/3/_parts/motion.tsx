@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { usePublicSite } from "@/app/_components/site/motion";
 import { MotionConfig, motion, useInView } from "motion/react";
 
 const QUERY = "(prefers-reduced-motion: reduce)";
@@ -25,6 +26,7 @@ export function useReduced() {
  * turns motion on; the public page follows the visitor's OS setting instead.
  */
 export function D3Motion({ children }: { children: ReactNode }) {
+  usePublicSite();
   return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
 }
 

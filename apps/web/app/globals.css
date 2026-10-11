@@ -185,9 +185,12 @@ html.dark.theme-custom {
     transition-delay: 0s !important;
   }
 }
-html.reduce-motion *:not(.doc-mermaid-render, .doc-mermaid-render *),
-html.reduce-motion *::before,
-html.reduce-motion *::after {
+/* The public site (landing page, help center) follows only the visitor's OS
+   setting: the in-app toggle is on by default, so it would freeze the site for
+   every first-time visitor. Those pages set data-public-site on <html>. */
+html.reduce-motion:not([data-public-site]) *:not(.doc-mermaid-render, .doc-mermaid-render *),
+html.reduce-motion:not([data-public-site]) *::before,
+html.reduce-motion:not([data-public-site]) *::after {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   scroll-behavior: auto !important;
@@ -955,7 +958,7 @@ html.reduce-motion::view-transition-group(*) {
     animation: none;
   }
 }
-html.reduce-motion .tl-bar {
+html.reduce-motion:not([data-public-site]) .tl-bar {
   animation: none;
 }
 
