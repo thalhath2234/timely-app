@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Appearance, Platform, StyleSheet } from "react-native";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "./secureStore";
 
 export type ThemeMode = "light" | "dark";
 export type ThemePreference = "system" | "light" | "dark";

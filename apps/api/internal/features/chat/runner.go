@@ -778,12 +778,16 @@ func serializationFailure(err error) bool {
 	if err == nil {
 		return false
 	}
+	// 25P02 (transaction aborted) follows a conflict a step swallowed, such
+	// as the search index queue's insert that only logs its error; the
+	// whole save is retried the same way.
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		return pgErr.Code == "40001" || pgErr.Code == "40P01"
+		return pgErr.Code == "40001" || pgErr.Code == "40P01" || pgErr.Code == "25P02"
 	}
 	// Tool handlers sometimes flatten the driver error into text.
-	return strings.Contains(err.Error(), "SQLSTATE 40001") || strings.Contains(err.Error(), "SQLSTATE 40P01")
+	text := err.Error()
+	return strings.Contains(text, "SQLSTATE 40001") || strings.Contains(text, "SQLSTATE 40P01") || strings.Contains(text, "SQLSTATE 25P02")
 }
 
 // maxBatches bounds automatic continuation for one request.

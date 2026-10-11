@@ -98,6 +98,7 @@ export default function HabitsGoalsCard({
         <Flame size={16} color={colors.warning} />
         <View style={{ flex: 1 }}>
           <SectionLabel
+            compact
             action={
               <AnimatedPressable
                 accessibilityRole="button"
@@ -344,7 +345,8 @@ function EditRow({
       <TextInput
         value={draft}
         onChangeText={(next) => setDraft(next.slice(0, MAX_FOCUS_NAME))}
-        onEndEditing={save}
+        onBlur={save}
+        onSubmitEditing={save}
         returnKeyType="done"
         accessibilityLabel={`Rename ${what} ${name}`}
         placeholderTextColor={colors.mutedForeground}

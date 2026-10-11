@@ -148,7 +148,7 @@ func (r *projectRepository) GetAllProjectByUser(userID string) ([]models.Project
 	err := r.db.
 		Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
 		Where("workspaces.user_id = ?", userID).
-		Preload("Stages").
+		Preload("Stages", orderedStages).
 		Preload("Tasks").
 		Preload("Workspace").
 		Preload("CustomFieldValues.CustomField").
@@ -168,7 +168,7 @@ func (r *projectRepository) GetProjectById(projectId string) (*models.Project, e
 
 	err := r.db.
 		Where("id = ?", projectId).
-		Preload("Stages").
+		Preload("Stages", orderedStages).
 		Preload("Stages.Tasks").
 		Preload("Tasks", "stage_id IS NULL").
 		Preload("Workspace").
@@ -192,7 +192,7 @@ func (r *projectRepository) GetProjectByIdForUser(userID string, projectID strin
 		Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
 		Where("projects.id = ?", projectID).
 		Where("workspaces.user_id = ?", userID).
-		Preload("Stages").
+		Preload("Stages", orderedStages).
 		Preload("Stages.Tasks").
 		Preload("Tasks", "stage_id IS NULL").
 		Preload("Workspace").
@@ -346,4 +346,10 @@ func (r *projectRepository) enrichCustomFieldValuesForProject(project *models.Pr
 			}
 		}
 	}
+}
+
+// orderedStages loads a project's stages in board order, so lists and
+// copies (Duplicate, Start from) keep it.
+func orderedStages(db *gorm.DB) *gorm.DB {
+	return db.Order(`"order", id`)
 }

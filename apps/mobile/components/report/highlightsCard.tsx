@@ -72,6 +72,7 @@ function Groups({ title, groups, onOpenTask }: { title: string; groups: Highligh
                 </Text>
               </AnimatedPressable>
             ))}
+            {group.tasks.length > 3 ? <Text style={[styles.small, { alignSelf: "center" }]}>and {group.tasks.length - 3} more</Text> : null}
           </View>
         </View>
       ))}

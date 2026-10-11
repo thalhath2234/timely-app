@@ -96,8 +96,13 @@ func TestIntegrationStarterLeavesTakenNamesOut(t *testing.T) {
 	personalTables(t, w)
 	other := uuid.NewString()
 	must(t, w.db.Create(&models.Workspace{ID: other, Name: "Theirs"}).Error)
-	must(t, w.db.Create(&models.Lable{ID: "lbl_u", Name: "urgent", WorkspaceID: other}).Error)
+	must(t, w.db.Create(&models.Lable{ID: "lbl_u", Name: "urgent", WorkspaceID: w.ws}).Error)
 	must(t, w.db.Create(&models.Lable{ID: "lbl_b", Name: "Bill", WorkspaceID: w.ws}).Error)
+	// Names are unique per workspace: another workspace's label takes nothing.
+	must(t, w.db.Create(&models.Lable{ID: "lbl_s", Name: "Shopping", WorkspaceID: other}).Error)
+	if taken := (&Service{db: w.db}).takenStarter(context.Background(), w.ws); taken["shopping"] || !taken["urgent"] || !taken["bill"] {
+		t.Fatalf("taken %v", taken)
+	}
 
 	answers := map[string]any{}
 	for i := 1; i <= 26; i++ {
@@ -147,7 +152,9 @@ func TestIntegrationApplyStarterSkipsTakenNames(t *testing.T) {
 	w := newWorld(t)
 	other := uuid.NewString()
 	must(t, w.db.Create(&models.Workspace{ID: other, Name: "Theirs"}).Error)
-	must(t, w.db.Create(&models.Lable{ID: "lbl_u", Name: "Urgent", WorkspaceID: other}).Error)
+	must(t, w.db.Create(&models.Lable{ID: "lbl_u", Name: "Urgent", WorkspaceID: w.ws}).Error)
+	// The same name in another workspace doesn't stop this one.
+	must(t, w.db.Create(&models.Lable{ID: "lbl_d", Name: "Deep work", WorkspaceID: other}).Error)
 	s := New(w.db, (&jevStub{}).service(t), nil)
 
 	rec, err := call(t, s.applyStarter, w.user, http.MethodPost, "/suggestions/starter/apply", map[string]any{
@@ -264,13 +271,15 @@ func TestIntegrationTipForScreenDismissAndLearnedRaise(t *testing.T) {
 	}
 }
 
-func TestIntegrationPresetsLeaveTakenNamesOut(t *testing.T) {
+// Presets go into the new first workspace, so labels elsewhere (another
+// account's included) leave them all in.
+func TestIntegrationPresetsIgnoreOtherWorkspaces(t *testing.T) {
 	w := newWorld(t)
 	must(t, w.db.Create(&models.Lable{ID: "lbl_q", Name: "quick wins", WorkspaceID: w.ws}).Error)
 	s := New(w.db, (&jevStub{}).service(t), nil)
 	rec, err := call(t, s.starterPresets, w.user, http.MethodGet, "/suggestions/starter/presets?uses=home", nil)
 	must(t, err)
-	if strings.Contains(rec.Body.String(), "Quick win") || !strings.Contains(rec.Body.String(), "Errand") {
+	if !strings.Contains(rec.Body.String(), "Quick win") || !strings.Contains(rec.Body.String(), "Errand") {
 		t.Fatalf("%s", rec.Body.String())
 	}
 }

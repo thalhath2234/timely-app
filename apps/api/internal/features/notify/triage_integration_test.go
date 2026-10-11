@@ -243,3 +243,46 @@ func TestIntegrationMissedMoveKeepsHistoryAndRefusesLockedAndSeries(t *testing.T
 }
 
 func ptrTo(s string) *string { return &s }
+
+// Adding time to missed work keeps the missed block as it was: a block that
+// would now end in the future must not be stretched and then replanned away.
+func TestIntegrationMissedAddTimeKeepsHistory(t *testing.T) {
+	_, db := zoneService(t, models.NotificationSettings{Reminders: true})
+	tasks := task.NewTaskRepository(db)
+	sched := schedule.NewRepository(db)
+	place := placement.New(db, sched.GetWorkingHours)
+	indexer := embed.New(db)
+	taskService := task.NewTaskService(tasks, project.NewProjectRepository(db), workspace.NewWorkspaceRepository(db), recurrence.NewStore(db), place, indexer)
+	svc := NewService(db, jobs.NewQueue(db), nil, taskService, schedule.NewService(sched, tasks, event.NewEventRepository(db), place), indexer)
+
+	user := zoneTestUser
+	ws := models.Workspace{ID: "ws_addtime", Name: "Home", UserID: &user}
+	if err := db.Create(&ws).Error; err != nil {
+		t.Fatal(err)
+	}
+	item := models.Task{ID: "tsk_addtime", Name: "Draft the email", Kind: models.KindTask, Duration: 30, UserID: &user, WorkspaceID: &ws.ID}
+	if err := db.Create(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Ended five minutes ago; 45 minutes from its start would end in the future.
+	end := time.Now().Add(-5 * time.Minute).UTC().Truncate(time.Second)
+	block := models.ScheduledBlock{ID: "blk_addtime", TaskID: item.ID, UserID: user, StartAt: end.Add(-30 * time.Minute), EndAt: end, Source: models.BlockSourceManual}
+	if err := db.Create(&block).Error; err != nil {
+		t.Fatal(err)
+	}
+	ntf, err := svc.repo.Upsert(&models.Notification{UserID: user, Category: models.NotifyMissed, Title: item.Name, Body: "missed",
+		EntityType: ptrTo("task"), EntityID: &item.ID, Data: models.JobPayload{"taskId": item.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ApplyTriage(user, ntf.ID, "addtime"); err != nil && !errors.Is(err, errNoTime) {
+		t.Fatal(err)
+	}
+	var kept models.ScheduledBlock
+	if err := db.First(&kept, "id = ?", block.ID).Error; err != nil {
+		t.Fatalf("the missed block is gone: %v", err)
+	}
+	if !kept.EndAt.Equal(end) {
+		t.Fatalf("missed block ends %v, want %v", kept.EndAt, end)
+	}
+}

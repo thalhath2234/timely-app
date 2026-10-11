@@ -501,6 +501,12 @@ export default function TasksScreen() {
           </ScrollView>
         </View>
       ) : null}
+      {/* The list view shows it in its header; board and project views above. */}
+      {(boardMode || activeView?.dataMode === "project") && !routeProjectId && !networkCopy ? (
+        <View style={{ paddingHorizontal: 16 }}>
+          <StaleWorkCard />
+        </View>
+      ) : null}
       {boardMode && !networkCopy && visible.length > 0 ? (
         <MobileKanban
           columns={boardCols}

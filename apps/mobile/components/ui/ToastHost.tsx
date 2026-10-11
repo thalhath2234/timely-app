@@ -36,7 +36,7 @@ export default function ToastHost() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  wrap: { position: "absolute", left: 12, right: 12, bottom: 96 },
+  wrap: { position: "absolute", left: 12, right: 12, bottom: 96, zIndex: 1000, elevation: 1000 },
   card: {
     flexDirection: "row",
     alignItems: "center",

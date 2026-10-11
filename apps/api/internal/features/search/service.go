@@ -166,7 +166,7 @@ func (s *service) vector(ctx context.Context, userID, query string, limit int, k
 			Kind:    item.Kind,
 			ID:      item.EntityID,
 			Title:   item.Title,
-			Snippet: snippet(item.Content),
+			Snippet: snippet(item.Title, item.Content),
 			Score:   item.Score,
 			Content: item.Content,
 		})
@@ -412,7 +412,7 @@ func (s *service) keywordKind(query string, limit int, q kindQuery) []keywordHit
 			text = rest
 		}
 		out = append(out, keywordHit{
-			Hit:  Hit{Kind: q.kind, ID: r.ID, Title: r.Title, Snippet: snippet(text)},
+			Hit:  Hit{Kind: q.kind, ID: r.ID, Title: r.Title, Snippet: snippet(r.Title, text)},
 			Tier: r.Tier,
 		})
 	}
@@ -442,10 +442,16 @@ func allowedKinds(kinds []string) []string {
 	return out
 }
 
-func snippet(text string) string {
+// snippet is the start of an item's text for a result row. Indexed text
+// often begins with the title, which the row already shows, so that is left
+// off; the cut counts characters, not bytes.
+func snippet(title, text string) string {
 	text = strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
-	if len(text) > 160 {
-		return text[:157] + "..."
+	if t := strings.TrimSpace(title); t != "" && len(text) >= len(t) && strings.EqualFold(text[:len(t)], t) {
+		text = strings.TrimLeft(text[len(t):], " \t·:-—")
+	}
+	if r := []rune(text); len(r) > 160 {
+		return string(r[:157]) + "..."
 	}
 	return text
 }
