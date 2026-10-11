@@ -28,7 +28,7 @@ import {
   useUpdateStage,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { PRIORITIES } from "../../../lib/priority";
+import { PRIORITIES, normalizePriority } from "../../../lib/priority";
 import { showUndoToast } from "../../../lib/toast";
 import { formatShortDate, timeAgo, toDateInputValue } from "../../../lib/format";
 import { ENTITY_COLORS, resolvedColor } from "../../../lib/entityColor";
@@ -217,7 +217,7 @@ export default function ProjectDetailScreen() {
         </Pressable>
         <Pressable onPress={() => setPicker("priority")} style={styles.card}>
           <Text style={styles.label}>Priority</Text>
-          <Text style={styles.value}>{project.priorityLevel || "None"}</Text>
+          <Text style={styles.value}>{normalizePriority(project.priorityLevel) || "None"}</Text>
         </Pressable>
         {/* Under the brief and its fields, where web's Overview shows it. */}
         <ProjectInsightsCard project={project} />
@@ -424,7 +424,7 @@ export default function ProjectDetailScreen() {
       </BottomSheet>
       <BottomSheet open={picker === "priority"} onClose={() => setPicker(null)} title="Priority">
         <SheetOption
-          selected={!project.priorityLevel}
+          selected={!normalizePriority(project.priorityLevel)}
           onSelect={() => {
             persist({ priorityLevel: "" });
             setPicker(null);
@@ -435,7 +435,7 @@ export default function ProjectDetailScreen() {
         {PRIORITIES.map((priority) => (
           <SheetOption
             key={priority}
-            selected={project.priorityLevel === priority}
+            selected={normalizePriority(project.priorityLevel) === priority}
             onSelect={() => {
               persist({ priorityLevel: priority });
               setPicker(null);
