@@ -20,22 +20,6 @@ import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStor
 import { requestConfirm } from "@/app/_store/confirmStore";
 import ActivityIsland from "@/app/_components/_layout/activityIsland";
 
-const GO_SHORTCUTS: Record<string, string> = {
-  Dashboard: "G then D",
-  Chat: "G then A",
-  Today: "G then Y",
-  Inbox: "G then I",
-  Calendar: "G then C",
-  Tasks: "G then T",
-  Projects: "G then P",
-  Files: "G then F",
-  Notifications: "G then N",
-};
-
-const NEW_SHORTCUTS: Partial<Record<AddNewModeOptions, string>> = {
-  task: "C",
-};
-
 const addNewOptions: { lable: string; value: AddNewModeOptions }[] = [
   { lable: "Task", value: "task" },
   { lable: "Event", value: "event" },
@@ -104,7 +88,6 @@ export default function Sidebar() {
   const addMenuItems: ContextMenuEntry[] = addNewOptions.map((option) => ({
     kind: "action",
     label: `New ${option.lable.toLowerCase()}`,
-    shortcut: NEW_SHORTCUTS[option.value],
     onSelect: () => createItem(option.value),
   }));
 
@@ -112,7 +95,7 @@ export default function Sidebar() {
     {
       kind: "action",
       label: "Search",
-      shortcut: "/",
+      shortcut: "mod+K",
       onSelect: () => setSearchMode(true),
     },
     { kind: "separator" },
@@ -124,7 +107,6 @@ export default function Sidebar() {
       items: SIDEBAR_ITEMS.map((item) => ({
         kind: "action" as const,
         label: item.name,
-        shortcut: GO_SHORTCUTS[item.name],
         onSelect: () => {
           if (item.name === "Calendar") router.push("/calendar?view=month");
           else router.push(item.href);
@@ -210,7 +192,7 @@ export default function Sidebar() {
                 {
                   kind: "action",
                   label: "Search",
-                  shortcut: "/",
+                  shortcut: "mod+K",
                   onSelect: () => setSearchMode(true),
                 },
               ])
@@ -238,7 +220,6 @@ export default function Sidebar() {
                   {
                     kind: "action",
                     label: `Go to ${item.name}`,
-                    shortcut: GO_SHORTCUTS[item.name],
                     onSelect: () => {
                       if (item.name === "Calendar") router.push("/calendar?view=month");
                       else router.push(item.href);

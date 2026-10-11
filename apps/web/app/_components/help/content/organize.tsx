@@ -17,8 +17,8 @@ export const organize: HelpSection = {
       lead: (
         <p>
           A task in Timely is either <strong>Work</strong>, which takes time and gets scheduled, or a{" "}
-          <strong>Reminder</strong>, which is a ping at a set time. Create one with <kbd>c</kbd>, the{" "}
-          <strong>+</strong> in the sidebar, or search.
+          <strong>Reminder</strong>, which is a ping at a set time. Create one with the <strong>+</strong> in
+          the sidebar or from search.
         </p>
       ),
       sections: [

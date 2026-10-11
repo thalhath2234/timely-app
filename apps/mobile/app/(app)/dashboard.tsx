@@ -431,8 +431,8 @@ const styles = createThemedStyleSheet((colors) => ({
   bannerText: { color: colors.foreground, fontSize: 13 },
   link: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   empty: { alignItems: "center", gap: 8, paddingVertical: 48 },
-  emptyTitle: { color: colors.foreground, fontSize: 17, fontWeight: "700" },
-  primary: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 22, backgroundColor: colors.primary },
+  emptyTitle: { color: colors.foreground, fontSize: 17, fontWeight: "600" },
+  primary: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 16, backgroundColor: colors.primary },
   primaryText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
   secondary: {
     flexDirection: "row",

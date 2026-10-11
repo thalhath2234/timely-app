@@ -1136,7 +1136,7 @@ const styles = createThemedStyleSheet(() => ({
   badgeText: {
     color: colors.primaryForeground,
     fontSize: 9,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   inlineError: {
     flexDirection: "row",

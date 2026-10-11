@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -94,6 +94,7 @@ import {
   detachMorphTarget,
   entityTitleKey,
 } from "@/app/utils/titleMorph";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const PRIORITY_OPTIONS = ["Low", "Medium", "High", "Urgent"];
 const DURATION_PRESETS = [
@@ -767,17 +768,6 @@ function DetailBody({
       }}
       onToggleComplete={toggleComplete}
       onClose={closeWithMorph}
-      onSaveAndClose={() => {
-        void (async () => {
-          try {
-            await saveDescription();
-            const saved = await flush();
-            if (saved) closeWithMorph();
-          } catch {
-            // Keep the panel open so the save failure stays visible.
-          }
-        })();
-      }}
       onDelete={onDelete}
       onDuplicate={onDuplicate}
       onCopyLink={onCopyLink}
@@ -793,7 +783,7 @@ function DetailBody({
       <ModalMain>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           {stageName ? (
-            <span className="rounded border border-primary/20 bg-primary/10 px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-primary">
+            <span className="rounded border border-primary/20 bg-primary/10 px-2 py-0.5 tabular-nums text-[11px] font-semibold uppercase tracking-wider text-primary">
               {stageName}
             </span>
           ) : null}
@@ -810,7 +800,7 @@ function DetailBody({
           }}
           onBlur={() => void flush()}
           placeholder="Untitled"
-          className="w-full bg-transparent text-2xl font-bold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
+          className="w-full bg-transparent text-2xl font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
         />
 
         <div className="mt-4 flex min-h-52 shrink-0 flex-col">
@@ -834,7 +824,7 @@ function DetailBody({
                 type="button"
                 disabled={descriptionSaving}
                 onClick={() => void saveDescription()}
-                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                className={buttonClass({ size: "sm" })}
               >
                 {descriptionSaving ? "Saving..." : "Save"}
               </button>
@@ -954,7 +944,7 @@ function DetailBody({
                   value={view.workspaceId ?? ""}
                   onChange={onWorkspaceChange}
                   placeholder="Select workspace"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={typedWorkspaces.map((space) => ({
                     value: space.id,
                     label: space.name,
@@ -968,7 +958,7 @@ function DetailBody({
                   value={view.projectId ?? ""}
                   onChange={onProjectChange}
                   placeholder="No project"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={[
                     { value: "", label: "No project" },
                     ...projectsInWorkspace.map((project) => ({
@@ -1014,7 +1004,7 @@ function DetailBody({
                 });
               }}
               placeholder="No status"
-              className="border-0 bg-transparent px-0 shadow-none"
+              variant="bare"
               options={[
                 { value: "", label: "No status" },
                 ...statusOptions.map((option) => ({
@@ -1032,7 +1022,7 @@ function DetailBody({
               value={view.stageId ?? ""}
               onChange={(stageId) => schedule({ stageId })}
               placeholder="No stage"
-              className="border-0 bg-transparent px-0 shadow-none"
+              variant="bare"
               options={[
                 { value: "", label: "No stage" },
                 ...stageOptions.map((stage) => ({
@@ -1053,7 +1043,7 @@ function DetailBody({
               value={view.priorityLevel ?? ""}
               onChange={(priorityLevel) => schedule({ priorityLevel })}
               placeholder="No priority"
-              className="border-0 bg-transparent px-0 shadow-none"
+              variant="bare"
               options={[
                 { value: "", label: "No priority" },
                 ...PRIORITY_OPTIONS.map((option) => ({
@@ -1088,7 +1078,7 @@ function DetailBody({
                   key={preset.minutes}
                   type="button"
                   onClick={() => schedule({ duration: preset.minutes })}
-                  className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                  className={`rounded-md border px-1.5 py-0.5 tabular-nums text-[10px] transition-colors ${
                     (view.duration ?? 30) === preset.minutes
                       ? "border-primary/40 bg-primary/10 text-primary"
                       : "border-border text-muted-foreground hover:border-border hover:text-foreground"
@@ -1217,7 +1207,7 @@ function DetailBody({
                     value={view.blockedById ?? ""}
                     onChange={(blockedById) => schedule({ blockedById })}
                     placeholder="None"
-                    className="border-0 bg-transparent px-0 shadow-none"
+                    variant="bare"
                     options={[
                       { value: "", label: "None" },
                       ...otherTasks.map((task) => ({
@@ -1304,7 +1294,7 @@ function TaskActivityFeed({ taskId }: { taskId: string }) {
             type="button"
             onClick={submit}
             disabled={!comment.trim() || addComment.isPending}
-            className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-50"
+            className={buttonClass({ size: "sm" })}
           >
             {addComment.isPending ? "Sending..." : "Send"}
           </button>
@@ -1353,7 +1343,6 @@ function TaskActivityItem({ entry }: { entry: TaskActivity }) {
 function PanelShell({
   children,
   onClose,
-  onSaveAndClose,
   saveStatus,
   crumbs,
   kind = "task",
@@ -1367,7 +1356,6 @@ function PanelShell({
 }: {
   children: React.ReactNode;
   onClose: () => void;
-  onSaveAndClose?: () => void;
   saveStatus?: React.ReactNode;
   crumbs?: { workspace?: string; project?: string; stage?: string };
   kind?: "task" | "project";
@@ -1393,37 +1381,11 @@ function PanelShell({
     }
   };
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (confirmingDelete) return;
-      if (!(event.target instanceof HTMLElement)) return;
-      const typing =
-        event.target.tagName === "INPUT" ||
-        event.target.tagName === "TEXTAREA" ||
-        event.target.tagName === "SELECT" ||
-        event.target.isContentEditable;
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        if (event.target instanceof HTMLTextAreaElement) return;
-        event.preventDefault();
-        onSaveAndClose?.();
-        return;
-      }
-      if (typing) return;
-      if (event.key.toLowerCase() === "c" && onToggleComplete) {
-        event.preventDefault();
-        onToggleComplete();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [confirmingDelete, onSaveAndClose, onToggleComplete]);
-
   const crumbParts = [crumbs?.workspace, crumbs?.project, crumbs?.stage].filter(
     Boolean,
   ) as string[];
 
-  const iconButtonClass =
-    "inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border border-border bg-muted/40 text-muted-foreground transition-colors hover:border-border hover:text-foreground";
+  const iconButtonClass = buttonClass({ variant: "ghost", size: "sm", icon: true });
 
   return (
     <>
@@ -1451,13 +1413,9 @@ function PanelShell({
               <button
                 type="button"
                 onClick={onToggleComplete}
-                className={`inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors ${
-                  completed
-                    ? "border-success/30 bg-success/15 text-success hover:bg-success/25"
-                    : "border-transparent bg-foreground text-background hover:opacity-90"
-                }`}
+                className={buttonClass({ variant: completed ? "outline" : "primary", size: "sm" })}
               >
-                <Check className="size-3.5" />
+                <Check className={completed ? "text-success" : undefined} />
                 {completed ? "Completed" : "Mark complete"}
               </button>
             ) : null}
@@ -1489,38 +1447,12 @@ function PanelShell({
                 type="button"
                 onClick={() => runViewTransition(() => setConfirmingDelete(true))}
                 title="Delete"
-                className={`${iconButtonClass} hover:bg-destructive/10 hover:text-destructive`}
+                className={buttonClass({ variant: "destructive-ghost", size: "sm", icon: true })}
               >
                 <Trash2 className="size-3.5" />
               </button>
             ) : null}
           </>
-        }
-        footer={
-          <footer className="flex h-10 shrink-0 items-center border-t border-border bg-muted/20 px-5 text-[11px] text-muted-foreground">
-            <div className="flex items-center gap-4">
-              <span className="inline-flex items-center gap-1.5">
-                <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-                  ⌘↵
-                </kbd>
-                Save &amp; Close
-              </span>
-              <span className="hidden items-center gap-1.5 sm:inline-flex">
-                <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-                  Tab
-                </kbd>
-                Navigate
-              </span>
-              {onToggleComplete ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-                    C
-                  </kbd>
-                  Mark Complete
-                </span>
-              ) : null}
-            </div>
-          </footer>
         }
       >
         {children}

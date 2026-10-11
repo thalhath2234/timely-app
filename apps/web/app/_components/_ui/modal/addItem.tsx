@@ -1157,7 +1157,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="Select workspace"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={typedWorkspaces.map((workspace) => ({
                     value: workspace.id,
                     label: workspace.name,
@@ -1177,7 +1177,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="Select status"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={(selectedWorkspace?.status ?? []).map(
                     (status: Status) => ({
                       value: status.id,
@@ -1198,7 +1198,7 @@ function AddItemModalInner() {
                       shouldDirty: true,
                     })
                   }
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={PRIORITY_OPTIONS}
                 />
               </PropertyRow>
@@ -1403,7 +1403,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="Select workspace"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={typedWorkspaces.map((workspace) => ({
                     value: workspace.id,
                     label: workspace.name,
@@ -1424,7 +1424,7 @@ function AddItemModalInner() {
                     setValueTask("stageId", "", { shouldDirty: true });
                   }}
                   placeholder="No project"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={[
                     { value: "", label: "No project" },
                     ...availableTaskProjects.map((project) => ({
@@ -1448,7 +1448,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="No stage"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={[
                     { value: "", label: "No stage" },
                     ...availableTaskStages.map((stage) => ({
@@ -1472,7 +1472,7 @@ function AddItemModalInner() {
                     })
                   }
                   placeholder="Select status"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={(selectedTaskWorkspace?.status ?? []).map(
                     (status: Status) => ({
                       value: status.id,
@@ -1495,7 +1495,7 @@ function AddItemModalInner() {
                       shouldDirty: true,
                     })
                   }
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={PRIORITY_OPTIONS}
                 />
               </PropertyRow>
@@ -1800,7 +1800,7 @@ function AddItemModalInner() {
                   value={eventWorkspaceId}
                   onChange={setEventWorkspaceId}
                   placeholder="None"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={[
                     { value: "", label: "None" },
                     ...typedWorkspaces.map((workspace) => ({
@@ -1877,7 +1877,7 @@ function AddItemModalInner() {
                   })
                 }
                 placeholder="Select workspace"
-                className="border-0 bg-transparent px-0 shadow-none"
+                variant="bare"
                 options={typedWorkspaces.map((workspace) => ({
                   value: workspace.id,
                   label: workspace.name,
@@ -1896,7 +1896,7 @@ function AddItemModalInner() {
                     setSheetTemplateId(id);
                   }}
                   placeholder="Blank sheet"
-                  className="border-0 bg-transparent px-0 shadow-none"
+                  variant="bare"
                   options={[
                     { value: "", label: "Blank sheet" },
                     ...(templatesQuery.data ?? []).map((template) => ({

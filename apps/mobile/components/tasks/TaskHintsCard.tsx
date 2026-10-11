@@ -143,11 +143,11 @@ export default function TaskHintsCard({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  card: { gap: 10, borderRadius: 24, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16 },
+  card: { gap: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16 },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   text: { flex: 1, color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   actions: { flexDirection: "row", alignItems: "center", gap: 4 },
   button: { minHeight: 32, borderRadius: 10, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.secondary },
-  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "700" },
+  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
   dismiss: { padding: 4 },
 }));

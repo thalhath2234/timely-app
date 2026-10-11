@@ -3,7 +3,8 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-na
 import { Bell } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import { Chip, Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Chip, PrimaryButton } from "../../../components/ui/primitives";
+import { TimeField } from "../../../components/ui/DateTimeField";
 import {
   getNotificationPermission,
   notificationsSupported,
@@ -123,10 +124,22 @@ export default function NotificationSettingsScreen() {
                 Smart alerts: up to three a day, from the morning digest time, for work worth acting on now.
               </Text>
             ) : null}
-            <Field value={draft.morningDigestAt} onChangeText={(morningDigestAt) => setDraft({ ...draft, morningDigestAt })} placeholder="Morning HH:mm" />
-            <Field value={draft.eveningDigestAt} onChangeText={(eveningDigestAt) => setDraft({ ...draft, eveningDigestAt })} placeholder="Evening HH:mm" />
-            <Field value={draft.quietHoursStart} onChangeText={(quietHoursStart) => setDraft({ ...draft, quietHoursStart })} placeholder="Quiet start HH:mm" />
-            <Field value={draft.quietHoursEnd} onChangeText={(quietHoursEnd) => setDraft({ ...draft, quietHoursEnd })} placeholder="Quiet end HH:mm" />
+            <View style={styles.pair}>
+              <View style={styles.pairItem}>
+                <TimeField label="Morning digest" value={draft.morningDigestAt} onChange={(morningDigestAt) => setDraft({ ...draft, morningDigestAt })} />
+              </View>
+              <View style={styles.pairItem}>
+                <TimeField label="Evening recap" value={draft.eveningDigestAt} onChange={(eveningDigestAt) => setDraft({ ...draft, eveningDigestAt })} />
+              </View>
+            </View>
+            <View style={styles.pair}>
+              <View style={styles.pairItem}>
+                <TimeField label="Quiet hours start" value={draft.quietHoursStart} onChange={(quietHoursStart) => setDraft({ ...draft, quietHoursStart })} clearable />
+              </View>
+              <View style={styles.pairItem}>
+                <TimeField label="Quiet hours end" value={draft.quietHoursEnd} onChange={(quietHoursEnd) => setDraft({ ...draft, quietHoursEnd })} clearable />
+              </View>
+            </View>
             <PrimaryButton
               label={save.isPending ? "Saving…" : "Save preferences"}
               disabled={save.isPending}
@@ -163,6 +176,8 @@ export default function NotificationSettingsScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  pair: { flexDirection: "row", gap: 12 },
+  pairItem: { flex: 1, minWidth: 0 },
   card: {
     flexDirection: "row",
     alignItems: "center",

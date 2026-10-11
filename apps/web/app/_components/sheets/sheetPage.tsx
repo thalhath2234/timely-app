@@ -42,6 +42,7 @@ import { addTabMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
 import { registerSheetFlush } from "@/app/utils/sheetFlush";
 import { SHEET_ICON_CHOICES } from "@/app/_components/sheets/sheetIcons";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const KINETIC_THEME = {
   "--background": "#111319",
@@ -84,7 +85,7 @@ export default function SheetPage({ id }: { id: string }) {
         </p>
         <Link
           href={FILES_PATH}
-          className="rounded-lg bg-secondary px-4 py-2 text-sm text-secondary-foreground transition-colors hover:bg-accent"
+          className={buttonClass({ variant: "secondary", size: "lg" })}
         >
           Back to files
         </Link>
@@ -222,7 +223,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
                     schedule({ icon: "" });
                     setIsIconPickerOpen(false);
                   }}
-                  className="mt-2 w-full rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground hover:bg-accent"
+                  className={buttonClass({ variant: "secondary", size: "sm", className: "mt-2 w-full" })}
                 >
                   Remove icon
                 </button>
@@ -345,7 +346,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
                 <button
                   type="button"
                   onClick={() => setIsConfirmingDelete(false)}
-                  className="cursor-pointer rounded-md bg-secondary px-2 py-1 text-secondary-foreground transition-colors hover:bg-accent"
+                  className={buttonClass({ variant: "secondary", size: "sm" })}
                 >
                   Cancel
                 </button>
@@ -365,7 +366,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
         <button
           type="button"
           onClick={() => void handleShare()}
-          className="ml-1 flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+          className={buttonClass({ size: "sm", className: "ml-1" })}
         >
           <Share2 className="size-3.5" />
           Share

@@ -14,6 +14,8 @@ import {
 } from "@/app/utils/hooks/calendar";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { cn } from "@/app/utils/cn";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const DAYS: { key: WeekdayKey; label: string }[] = [
   { key: "mon", label: "Monday" },
@@ -28,7 +30,7 @@ const DAYS: { key: WeekdayKey; label: string }[] = [
 const DEFAULT_WINDOW: WorkingWindow = { start: "09:00", end: "17:00" };
 
 const fieldClass =
-  "rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40";
+  controlClass("md");
 
 /** Weekly availability the scheduling engine fills. */
 export default function WorkingHoursSettings() {
@@ -245,7 +247,7 @@ function WorkingHoursForm({ initial }: { initial: WorkingHoursResponse }) {
         <button
           type="submit"
           disabled={update.isPending || Boolean(validation)}
-          className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+          className={buttonClass()}
         >
           {update.isPending ? "Saving..." : "Save working hours"}
         </button>
@@ -404,7 +406,7 @@ function EngineSettingsForm({
         <button
           type="submit"
           disabled={update.isPending}
-          className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+          className={buttonClass()}
         >
           {update.isPending ? "Saving..." : "Save engine settings"}
         </button>

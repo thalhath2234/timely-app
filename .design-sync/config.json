@@ -227,9 +227,6 @@
     "ExpandCollapsedListButton": {
       "cardMode": "column"
     },
-    "KeyboardShortcuts": {
-      "cardMode": "column"
-    },
     "LoadError": {
       "cardMode": "column"
     },

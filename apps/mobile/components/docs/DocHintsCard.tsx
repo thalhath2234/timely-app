@@ -176,11 +176,11 @@ export default function DocHintsCard({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  card: { gap: 8, marginHorizontal: 16, marginBottom: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
+  card: { gap: 8, marginHorizontal: 16, marginBottom: 8, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
   header: { flexDirection: "row", alignItems: "center", gap: 6 },
   row: { flexDirection: "row", alignItems: "center", gap: 6 },
   text: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   button: { minHeight: 32, borderRadius: 10, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.secondary },
-  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "700" },
+  buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
   dismiss: { padding: 4 },
 }));

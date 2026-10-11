@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import { Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
+import { Button, Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
 import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import { useAuth } from "../../../lib/auth/AuthProvider";
 import { updateMe } from "../../../lib/api/auth";
@@ -51,18 +51,22 @@ export default function AccountSettings() {
   return (
     <Screen>
       <MobileHeader title="Account" back large={false} />
-      <View style={styles.wrap}>
-        <Field value={name} onChangeText={setName} placeholder="Name" autoCapitalize="words" />
-        <Field value={email} onChangeText={setEmail} placeholder="Email" />
-        <Field value={currentPassword} onChangeText={setCurrentPassword} placeholder="Current password" secure />
-        <Field value={newPassword} onChangeText={setNewPassword} placeholder="New password" secure />
+      <ScrollView contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
+        <Field label="Name" value={name} onChangeText={setName} placeholder="Your name" autoCapitalize="words" />
+        <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
+        <SectionLabel>Change password</SectionLabel>
+        <Field label="Current password" value={currentPassword} onChangeText={setCurrentPassword} secure />
+        <Field label="New password" value={newPassword} onChangeText={setNewPassword} secure hint="Leave both blank to keep your password." />
         {message ? <Text style={styles.msg}>{message}</Text> : null}
         <PrimaryButton label={pending ? "Saving…" : "Save account"} disabled={pending} onPress={() => void save()} />
 
         <SectionLabel>Devices</SectionLabel>
         <Text style={styles.msg}>Sign out a device if you no longer use it.</Text>
         {others > 0 ? (
-          <Pressable
+          <Button
+            label={`Sign out everywhere else (${others})`}
+            variant="outline"
+            loading={revokeOthers.isPending}
             onPress={() =>
               setConfirm({
                 title: "Sign out other devices?",
@@ -71,11 +75,7 @@ export default function AccountSettings() {
                 onConfirm: () => revokeOthers.mutate(),
               })
             }
-          >
-            <Text style={styles.destructive}>
-              {revokeOthers.isPending ? "Signing out…" : `Sign out everywhere else (${others})`}
-            </Text>
-          </Pressable>
+          />
         ) : null}
         {(sessions.data ?? []).map((session) => (
           <View key={session.id} style={[styles.device, session.current && styles.current]}>
@@ -86,7 +86,11 @@ export default function AccountSettings() {
               </Text>
               <Text style={styles.msg}>Last used {formatLastUsed(session.lastUsedAt)}</Text>
             </View>
-            <Pressable
+            <Button
+              label="Sign out"
+              variant="destructive-ghost"
+              size="sm"
+              disabled={revoke.isPending}
               onPress={() =>
                 setConfirm({
                   title: session.current ? "Sign out this device?" : "Sign out device?",
@@ -100,12 +104,10 @@ export default function AccountSettings() {
                   },
                 })
               }
-            >
-              <Text style={styles.destructive}>{revoke.isPending ? "…" : "Sign out"}</Text>
-            </Pressable>
+            />
           </View>
         ))}
-      </View>
+      </ScrollView>
       <ConfirmSheet
         open={confirm !== null}
         onClose={() => setConfirm(null)}
@@ -133,5 +135,4 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   current: { borderColor: colors.primary },
   deviceName: { color: colors.foreground, fontWeight: "600" },
-  destructive: { color: colors.destructive, fontWeight: "600", fontSize: 13 },
 }));

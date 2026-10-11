@@ -8,6 +8,8 @@ import {
   CustomField,
   CustomFieldType,
 } from "@/app/_types/types";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const FIELD_TYPES: { value: CustomFieldType; label: string }[] = [
   { value: "text", label: "Text" },
@@ -181,7 +183,7 @@ export default function CustomFieldEditor({
                       <input
                         value={editName}
                         onChange={(event) => setEditName(event.target.value)}
-                        className="rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/40"
+                        className={controlClass("md")}
                       />
                       <Select
                         size="sm"
@@ -203,14 +205,14 @@ export default function CustomFieldEditor({
                         type="button"
                         disabled={busyId === field.id}
                         onClick={() => handleUpdate(field.id)}
-                        className="cursor-pointer rounded-lg bg-primary px-2 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                        className={buttonClass({ size: "sm" })}
                       >
                         Save
                       </button>
                       <button
                         type="button"
                         onClick={() => setEditingId(null)}
-                        className="cursor-pointer rounded-lg bg-secondary px-2 py-1.5 text-xs text-secondary-foreground hover:bg-accent"
+                        className={buttonClass({ variant: "secondary", size: "sm" })}
                       >
                         Cancel
                       </button>
@@ -265,7 +267,7 @@ export default function CustomFieldEditor({
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Field name"
-            className="rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/40"
+            className={controlClass("md")}
           />
           <Select
             size="sm"
@@ -283,7 +285,7 @@ export default function CustomFieldEditor({
           type="button"
           disabled={creating}
           onClick={handleCreate}
-          className="mt-3 inline-flex cursor-pointer items-center gap-1 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-accent disabled:opacity-60"
+          className={buttonClass({ variant: "secondary", size: "sm", className: "mt-3" })}
         >
           <Plus className="size-3.5" />
           Add field
@@ -323,7 +325,7 @@ function OptionList({
               onChange(next);
             }}
             placeholder={`Option ${index + 1}`}
-            className="min-w-0 flex-1 rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/40"
+            className={controlClass("md", "min-w-0 flex-1")}
           />
           <button
             type="button"

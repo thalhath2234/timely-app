@@ -140,16 +140,6 @@ timelyDesktop.instance.action("restartApi" | "backupNow" | "openDataFolder" | "o
 `setSetting("tailscaleEnabled", …)` rebinds the API by restarting only the API sidecar.
 `setSetting("allowRegistration", …)` also restarts only the API sidecar.
 
-Doc and sheet tabs: while the tab strip is on screen the page calls
-`setPageTabsActive(true)`, and the main process then turns Ctrl/Cmd+T, Ctrl/Cmd+W,
-Ctrl+Tab, Ctrl+Shift+Tab and Alt+Left/Right (Cmd+[ and Cmd+] on macOS) into `onPageTabCommand` callbacks instead of
-the menu's own shortcuts. Elsewhere in the app those keys behave as before.
-
-```ts
-timelyDesktop.setPageTabsActive(active: boolean): void
-timelyDesktop.onPageTabCommand((command: "new" | "close" | "next" | "previous" | "back" | "forward") => void): () => void
-```
-
 Confirm dialogs move the mouse pointer onto their Cancel button when they open, like
 Windows' "Snap To" setting. The page passes the button's centre in CSS pixels; the main
 process converts it to screen coordinates and moves the pointer only while the window is

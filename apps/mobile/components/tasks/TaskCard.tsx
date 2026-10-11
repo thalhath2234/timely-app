@@ -51,7 +51,7 @@ function TaskCard({
         style={styles.check}
       >
         <View style={[styles.box, done && styles.boxOn]}>
-          {done ? <Check size={12} color="#fff" /> : null}
+          {done ? <Check size={12} color={colors.background} /> : null}
         </View>
       </Pressable>
       <AnimatedPressable
@@ -98,7 +98,7 @@ const styles = createThemedStyleSheet((colors) => ({
   card: {
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -118,12 +118,12 @@ const styles = createThemedStyleSheet((colors) => ({
   boxOn: { backgroundColor: colors.success, borderColor: colors.success },
   body: { flex: 1, minHeight: 76, justifyContent: "center", paddingVertical: 14, paddingRight: 14, gap: 7 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  name: { flex: 1, minWidth: 0, color: colors.cardForeground, fontSize: 15, fontWeight: "700", lineHeight: 21 },
-  duration: { color: colors.foreground, fontFamily: "SpaceMono", fontSize: 12, fontWeight: "700", marginTop: 1 },
+  name: { flex: 1, minWidth: 0, color: colors.cardForeground, fontSize: 15, fontWeight: "600", lineHeight: 21 },
+  duration: { color: colors.foreground, fontSize: 12, fontWeight: "600", marginTop: 1, fontVariant: ["tabular-nums"] },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" },
   metaText: { color: colors.mutedForeground, fontSize: 12, flexShrink: 1 },
   priorityPill: { borderRadius: 12, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
-  priorityText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  priorityText: { fontSize: 10, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.4 },
 }));

@@ -13,11 +13,10 @@ import type { Chat } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import ChangeCards from "./changeCards";
 import { isBusy, phaseLabel, reviewNotes, sharedTarget } from "./chatMeta";
+import { buttonClass } from "@/app/_components/_ui/button";
 
-const button =
-  "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
-const primary = `${button} bg-primary text-primary-foreground shadow-sm hover:bg-primary/90`;
-const secondary = `${button} border border-border bg-card text-foreground hover:border-primary/30 hover:bg-muted/50`;
+const primary = buttonClass({ size: "lg" });
+const secondary = buttonClass({ variant: "outline", size: "lg" });
 
 /**
  * The live plan: waiting for approval, being applied, finished, stopped or

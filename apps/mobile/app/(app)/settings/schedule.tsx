@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import { Chip, Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Button, Chip, Field, PrimaryButton, Select } from "../../../components/ui/primitives";
+import { Plus, Trash2 } from "lucide-react-native";
 import {
   useSaveScheduleSettings,
   useSaveWorkingHours,
@@ -10,7 +11,8 @@ import {
   useWorkspacesQuery,
   useWorkingHoursQuery,
 } from "../../../lib/hooks";
-import { deviceTimezone } from "../../../lib/format";
+import { deviceTimezone, listTimezones } from "../../../lib/format";
+import { TimeField } from "../../../components/ui/DateTimeField";
 import type { WeekdayKey, WorkingHours, WorkingWindow } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
@@ -69,7 +71,13 @@ export default function ScheduleSettings() {
         {hoursQ.isError ? (
           <Text style={styles.error}>Could not load working hours.</Text>
         ) : null}
-        <Field value={hours.timezone} onChangeText={(timezone) => setHours({ ...hours, timezone })} placeholder="Timezone (IANA)" />
+        <Select
+          label="Timezone"
+          searchable
+          value={hours.timezone}
+          onChange={(timezone) => setHours({ ...hours, timezone })}
+          options={listTimezones(hours.timezone).map((zone) => ({ value: zone, label: zone.replace(/_/g, " ") }))}
+        />
         {DAYS.map((d) => {
           const windows = hours.days[d.key] ?? [];
           const on = windows.length > 0;
@@ -80,9 +88,7 @@ export default function ScheduleSettings() {
                   <Text style={[styles.dayText, on && { color: colors.accentForeground }]}>{d.label}</Text>
                 </Pressable>
                 {on ? (
-                  <Pressable onPress={() => addWindow(d.key)}>
-                    <Text style={styles.link}>Add window</Text>
-                  </Pressable>
+                  <Button label="Add window" variant="ghost" size="sm" icon={<Plus size={16} color={colors.mutedForeground} />} onPress={() => addWindow(d.key)} />
                 ) : (
                   <Text style={styles.off}>Off</Text>
                 )}
@@ -90,14 +96,18 @@ export default function ScheduleSettings() {
               {windows.map((window, index) => (
                 <View key={`${d.key}-${index}`} style={styles.windowRow}>
                   <View style={{ flex: 1 }}>
-                    <Field value={window.start} onChangeText={(v) => setWindow(d.key, index, "start", v)} placeholder="09:00" />
+                    <TimeField value={window.start} onChange={(v) => setWindow(d.key, index, "start", v)} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Field value={window.end} onChangeText={(v) => setWindow(d.key, index, "end", v)} placeholder="17:00" />
+                    <TimeField value={window.end} onChange={(v) => setWindow(d.key, index, "end", v)} />
                   </View>
-                  <Pressable onPress={() => removeWindow(d.key, index)}>
-                    <Text style={styles.remove}>Remove</Text>
-                  </Pressable>
+                  <Button
+                    label={`Remove ${d.label} window`}
+                    variant="ghost"
+                    iconOnly
+                    icon={<Trash2 size={18} color={colors.destructive} />}
+                    onPress={() => removeWindow(d.key, index)}
+                  />
                 </View>
               ))}
             </View>
@@ -211,7 +221,7 @@ function EngineSettings() {
 const styles = createThemedStyleSheet((colors) => ({
   block: { gap: 8 },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
-  windowRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 66 },
+  windowRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   day: {
     width: 56,
     height: 48,

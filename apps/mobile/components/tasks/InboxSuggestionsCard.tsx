@@ -250,7 +250,7 @@ export default function InboxSuggestionsCard({
 
 const styles = createThemedStyleSheet((colors) => ({
   loading: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4 },
-  card: { gap: 10, borderRadius: 24, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16 },
+  card: { gap: 10, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16 },
   line: { color: colors.foreground, fontSize: 13, fontWeight: "600", lineHeight: 18 },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, flexShrink: 1 },
   link: { color: colors.primary, fontWeight: "600" },
@@ -258,6 +258,6 @@ const styles = createThemedStyleSheet((colors) => ({
   button: { flex: 1, minHeight: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
   primary: { backgroundColor: colors.primary },
   secondary: { backgroundColor: colors.secondary },
-  primaryText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "700" },
-  secondaryText: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  primaryText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "600" },
+  secondaryText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
 }));

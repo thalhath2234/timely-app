@@ -1,5 +1,6 @@
 "use client";
 
+import { requestConfirm } from "@/app/_store/confirmStore";
 import { FormEvent, useMemo, useState, useSyncExternalStore } from "react";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import {
@@ -10,6 +11,7 @@ import {
 import { useDesktopInstance } from "@/app/utils/hooks/desktop";
 import { API_BASE } from "@/app/utils/api/client";
 import { mcpUrls } from "@/app/utils/mcpUrl";
+import { controlClass } from "@/app/_components/_ui/field";
 
 const noopSubscribe = () => () => {};
 
@@ -73,18 +75,21 @@ export default function ApiKeysSettings() {
     }
   };
 
-  const onRevoke = async (id: string) => {
-    if (!window.confirm("Revoke this API key? Hermes will stop working until you create a new one.")) {
-      return;
-    }
-    setError(null);
-    try {
-      await revokeKey.mutateAsync(id);
-      if (revealed) setRevealed(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not revoke key.");
-    }
-  };
+  const onRevoke = (id: string) =>
+    requestConfirm({
+      title: "Revoke this API key?",
+      description: "Hermes will stop working until you create a new one.",
+      confirmLabel: "Revoke key",
+      onConfirm: async () => {
+        setError(null);
+        try {
+          await revokeKey.mutateAsync(id);
+          if (revealed) setRevealed(null);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not revoke key.");
+        }
+      },
+    });
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -137,7 +142,7 @@ export default function ApiKeysSettings() {
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Hermes"
-            className="w-full rounded-lg border border-border bg-input/30 px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40"
+            className={controlClass("md", "w-full")}
           />
         </label>
         <button

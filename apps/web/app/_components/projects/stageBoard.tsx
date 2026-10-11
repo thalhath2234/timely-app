@@ -235,7 +235,7 @@ export default function StageBoard({
                             ) : (
                               <Circle className="size-3.5 shrink-0 text-muted-foreground" />
                             )}
-                            <span className="truncate font-mono text-[11px] text-muted-foreground">
+                            <span className="truncate tabular-nums text-[11px] text-muted-foreground">
                               {task.id.slice(0, 8)}
                             </span>
                           </div>

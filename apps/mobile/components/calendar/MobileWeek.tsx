@@ -76,7 +76,7 @@ const styles = createThemedStyleSheet((colors) => ({
   dayOn: { borderLeftColor: colors.primary, backgroundColor: colors.accent },
   head: { flexDirection: "row", alignItems: "baseline", gap: 8 },
   wd: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase" },
-  num: { color: colors.foreground, fontSize: 16, fontWeight: "700" },
+  num: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
   empty: { color: colors.mutedForeground, fontSize: 11, textAlign: "center", paddingVertical: 10, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, borderRadius: 9 },
   more: { color: colors.mutedForeground, fontSize: 12 },
 }));

@@ -94,14 +94,14 @@ export default function MobileAgenda({
 
 const styles = createThemedStyleSheet((colors) => ({
   head: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 22, paddingBottom: 12, paddingHorizontal: 4 },
-  day: { color: colors.foreground, fontSize: 18, fontWeight: "800", letterSpacing: -0.3, flexShrink: 1 },
+  day: { color: colors.foreground, fontSize: 18, fontWeight: "600", letterSpacing: -0.3, flexShrink: 1 },
   meta: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", fontVariant: ["tabular-nums"], flexShrink: 0 },
   dangerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.destructive },
   countPill: { minWidth: 22, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(244,63,94,0.12)", borderWidth: 1, borderColor: "rgba(244,63,94,0.25)" },
-  countText: { color: colors.destructive, fontSize: 10, fontWeight: "700" },
+  countText: { color: colors.destructive, fontSize: 10, fontWeight: "600" },
   timelineRow: { flexDirection: "row", alignItems: "stretch", gap: 9, paddingBottom: 8 },
   timeRail: { width: 70, alignItems: "flex-end", justifyContent: "flex-start", paddingTop: 10, paddingRight: 10, borderRightWidth: 1, borderRightColor: colors.border },
-  timeText: { color: colors.foreground, fontSize: 10, fontFamily: "SpaceMono", lineHeight: 14, textAlign: "right" },
-  endText: { color: colors.mutedForeground, fontSize: 9, fontFamily: "SpaceMono", lineHeight: 13, textAlign: "right" },
+  timeText: { color: colors.foreground, fontSize: 11, lineHeight: 14, textAlign: "right", fontVariant: ["tabular-nums"] },
+  endText: { color: colors.mutedForeground, fontSize: 11, lineHeight: 13, textAlign: "right", fontVariant: ["tabular-nums"] },
   railDot: { position: "absolute", right: -4, top: 16, width: 8, height: 8, borderRadius: 4 },
 }));

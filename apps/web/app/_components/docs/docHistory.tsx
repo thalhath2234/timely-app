@@ -11,6 +11,7 @@ import { docKey } from "@/app/utils/hooks/docs";
 import { resolveDocContent } from "@/app/utils/markdown";
 import { useToastStore } from "@/app/_store/toastStore";
 import type { Doc } from "@/app/_types/types";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 function dayLabel(date: Date) {
   const today = new Date();
@@ -89,7 +90,7 @@ export default function DocHistory({
                 type="button"
                 disabled={!activeId || restoring || !version.data}
                 onClick={() => void restore()}
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                className={buttonClass({ size: "sm" })}
               >
                 <RotateCcw className="size-3.5" />
                 {restoring ? "Restoring…" : "Restore this version"}

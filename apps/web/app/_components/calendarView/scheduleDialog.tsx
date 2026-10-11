@@ -19,6 +19,8 @@ import { cn } from "@/app/utils/cn";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { isUnscheduled } from "@timely/contract/workStatus";
 import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 export type ScheduleSlot = {
   at: Date;
@@ -37,7 +39,7 @@ type ScheduleDialogProps = {
 };
 
 const fieldClass =
-  "w-full rounded-lg border border-border bg-input/30 px-2 py-1.5 text-sm outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40";
+  controlClass("md", "w-full");
 
 export default function ScheduleDialog({
   slot,
@@ -301,7 +303,7 @@ function ScheduleDialogPanel({
 
           {mode === "task" ? (
             <>
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-input/30 px-2 py-1.5">
+              <div className="flex items-center gap-2 rounded-md border border-input bg-card shadow-xs px-2 py-1.5">
                 <Search className="size-3.5 shrink-0 text-muted-foreground" />
                 <input
                   autoFocus
@@ -390,7 +392,7 @@ function ScheduleDialogPanel({
             <button
               type="button"
               onClick={onClose}
-              className="cursor-pointer rounded-lg bg-secondary px-3 py-1.5 font-medium text-secondary-foreground transition-colors hover:bg-accent"
+              className={buttonClass({ variant: "secondary" })}
             >
               Cancel
             </button>
@@ -398,7 +400,7 @@ function ScheduleDialogPanel({
               type="button"
               onClick={submit}
               disabled={pending || (mode === "task" ? !selectedTaskId : !title.trim())}
-              className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+              className={buttonClass()}
             >
               {pending ? "Saving..." : mode === "task" ? "Schedule" : "Create event"}
             </button>

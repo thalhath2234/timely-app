@@ -1,3 +1,5 @@
+import { ACCENT_PRESETS as SHARED_ACCENT_PRESETS } from "@timely/contract/designTokens";
+
 export type ThemePreference = "light" | "dark" | "system";
 export type AccentPreference = "default" | `#${string}`;
 
@@ -6,18 +8,10 @@ export const ACCENT_STORAGE_KEY = "timely.accent";
 export const SIDEBAR_AUTO_HIDE_STORAGE_KEY = "timely.sidebarAutoHide";
 export const REDUCED_MOTION_STORAGE_KEY = "timely.reducedMotion";
 
-export const DEFAULT_ACCENT_HEX = "#6E56CF";
+export { DEFAULT_ACCENT_HEX } from "@timely/contract/designTokens";
 
-export const ACCENT_PRESETS: { id: AccentPreference; label: string; hex: string }[] = [
-  { id: "default", label: "Violet", hex: DEFAULT_ACCENT_HEX },
-  { id: "#3E63DD", label: "Indigo", hex: "#3E63DD" },
-  { id: "#0090FF", label: "Blue", hex: "#0090FF" },
-  { id: "#12A594", label: "Teal", hex: "#12A594" },
-  { id: "#30A66D", label: "Green", hex: "#30A66D" },
-  { id: "#F76808", label: "Orange", hex: "#F76808" },
-  { id: "#E5484D", label: "Red", hex: "#E5484D" },
-  { id: "#E93D82", label: "Pink", hex: "#E93D82" },
-];
+/** Same swatches as the phone app (packages/contract/src/designTokens.ts). */
+export const ACCENT_PRESETS: { id: AccentPreference; label: string; hex: string }[] = [...SHARED_ACCENT_PRESETS];
 
 export function isThemePreference(value: string | null): value is ThemePreference {
   return value === "light" || value === "dark" || value === "system";

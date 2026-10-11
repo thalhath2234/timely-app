@@ -241,7 +241,7 @@ export const styles = createThemedStyleSheet(() => ({
   actionCompact: { minHeight: 40, paddingHorizontal: 14, borderRadius: 14 },
   actionDanger: { backgroundColor: `${colors.destructive}14` },
   primary: { backgroundColor: colors.primary },
-  actionText: { fontSize: 15, fontWeight: "700", color: colors.foreground },
+  actionText: { fontSize: 15, fontWeight: "600", color: colors.foreground },
   actionTextCompact: { fontSize: 14 },
   iconBtn: {
     width: 40,
@@ -263,7 +263,7 @@ export const styles = createThemedStyleSheet(() => ({
     paddingVertical: 3,
     alignSelf: "flex-start",
   },
-  pillText: { fontSize: 11, fontWeight: "700" },
+  pillText: { fontSize: 11, fontWeight: "600" },
   text: { color: colors.foreground, fontSize: 14, lineHeight: 22 },
   muted: { color: colors.mutedForeground, fontSize: 12, lineHeight: 19 },
   stack: { gap: 8 },
@@ -276,7 +276,7 @@ export const styles = createThemedStyleSheet(() => ({
   fieldLabel: {
     color: colors.mutedForeground,
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "600",
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
@@ -295,5 +295,5 @@ export const styles = createThemedStyleSheet(() => ({
     borderBottomWidth: 1,
     borderColor: colors.border,
   },
-  cellHead: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  cellHead: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
 }));

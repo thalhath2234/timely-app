@@ -9,6 +9,9 @@ import { formatLastUsed, humanizeDeviceLabel } from "@/app/utils/deviceLabel";
 import { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useRouter } from "next/navigation";
 import DeleteAccountSection from "@/app/_components/settings/deleteAccount";
+import { controlClass } from "@/app/_components/_ui/field";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
+import { PageBadge } from "@/app/_components/_ui/pageHeader";
 
 export default function AccountSettings() {
   const { data: user, isLoading } = useMe();
@@ -88,7 +91,7 @@ function AccountSettingsForm({
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Your name"
-          className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring"
+          className={controlClass("md", "w-full")}
         />
       </label>
 
@@ -99,7 +102,7 @@ function AccountSettingsForm({
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
-          className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring"
+          className={controlClass("md", "w-full")}
         />
       </label>
 
@@ -119,7 +122,7 @@ function AccountSettingsForm({
           value={currentPassword}
           onChange={(event) => setCurrentPassword(event.target.value)}
           autoComplete="current-password"
-          className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring"
+          className={controlClass("md", "w-full")}
         />
       </label>
 
@@ -130,7 +133,7 @@ function AccountSettingsForm({
           value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)}
           autoComplete="new-password"
-          className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring"
+          className={controlClass("md", "w-full")}
         />
       </label>
 
@@ -141,7 +144,7 @@ function AccountSettingsForm({
         <button
           type="submit"
           disabled={updateMe.isPending}
-          className="cursor-pointer rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+          className={buttonClass()}
         >
           {updateMe.isPending ? "Saving…" : "Save account"}
         </button>
@@ -186,14 +189,14 @@ function DeviceSessions() {
           <p className="text-xs text-muted-foreground">
             {otherActive} other {otherActive === 1 ? "session" : "sessions"} still signed in.
           </p>
-          <button
-            type="button"
-            disabled={revokeOthers.isPending}
+          <Button
+            variant="destructive-ghost"
+            size="sm"
+            loading={revokeOthers.isPending}
             onClick={() => revokeOthers.mutate()}
-            className="shrink-0 text-xs text-destructive hover:underline disabled:opacity-60"
           >
-            {revokeOthers.isPending ? "Signing out…" : "Sign out everywhere else"}
-          </button>
+            Sign out everywhere else
+          </Button>
         </div>
       ) : null}
       {sessions.isError ? (
@@ -209,16 +212,14 @@ function DeviceSessions() {
           <li
             key={session.id}
             className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 ${
-              session.current ? "border-primary/40 bg-primary/10" : "border-border bg-card"
+              session.current ? "border-primary/40 bg-card" : "border-border bg-card"
             }`}
           >
             <div className="min-w-0">
               <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
                 <span className="truncate">{humanizeDeviceLabel(session.deviceLabel)}</span>
                 {session.current ? (
-                  <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary-foreground">
-                    This device
-                  </span>
+                  <PageBadge tone="primary">This device</PageBadge>
                 ) : null}
               </p>
               <p className="text-xs text-muted-foreground" title={session.lastUsedAt}>
@@ -236,14 +237,14 @@ function DeviceSessions() {
                 </details>
               ) : null}
             </div>
-            <button
-              type="button"
+            <Button
+              variant="destructive-ghost"
+              size="sm"
               disabled={revoke.isPending}
               onClick={() => revoke.mutate(session.id)}
-              className="shrink-0 text-xs text-destructive hover:underline disabled:opacity-60"
             >
               Log out
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

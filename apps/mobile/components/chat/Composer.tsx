@@ -368,7 +368,7 @@ const styles = createThemedStyleSheet(() => ({
   chipText: {
     color: colors.accentForeground,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
     flexShrink: 1,
   },
   chipRemove: { padding: 4, borderRadius: 8 },
@@ -393,7 +393,7 @@ const styles = createThemedStyleSheet(() => ({
   },
   box: {
     marginHorizontal: 12,
-    borderRadius: 22,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -431,7 +431,7 @@ const styles = createThemedStyleSheet(() => ({
   searchText: {
     color: colors.mutedForeground,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   send: {
     width: 40,
@@ -452,7 +452,7 @@ const styles = createThemedStyleSheet(() => ({
   draftBanner: {
     marginHorizontal: 12,
     marginBottom: 8,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,

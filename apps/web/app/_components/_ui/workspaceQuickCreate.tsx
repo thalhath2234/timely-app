@@ -13,6 +13,8 @@ import {
   useCreateCustomField,
   useCreateLabel,
 } from "@/app/utils/hooks/workspaces";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const DEFAULT_COLOR = "#889096";
 
@@ -203,7 +205,7 @@ export function CreateCustomFieldInline({
             if (event.key === "Enter" && !needsOptions(type)) void submit();
           }}
           placeholder="Field name"
-          className="w-full rounded-md border border-border bg-input/30 px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring/40"
+          className={controlClass("md", "w-full")}
         />
         <Select
           size="sm"
@@ -233,7 +235,7 @@ export function CreateCustomFieldInline({
                   }}
                   onKeyDown={stopEnterSubmit}
                   placeholder={`Option ${index + 1}`}
-                  className="min-w-0 flex-1 rounded-md border border-border bg-input/30 px-2 py-1 text-sm outline-none placeholder:text-muted-foreground focus:border-ring"
+                  className={controlClass("md", "min-w-0 flex-1")}
                 />
                 <button
                   type="button"
@@ -270,7 +272,7 @@ export function CreateCustomFieldInline({
             type="button"
             disabled={createCustomField.isPending}
             onClick={() => void submit()}
-            className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground hover:bg-accent disabled:opacity-60"
+            className={buttonClass({ variant: "secondary", size: "sm" })}
           >
             <Plus className="size-3" />
             {createCustomField.isPending ? "Adding..." : "Add field"}

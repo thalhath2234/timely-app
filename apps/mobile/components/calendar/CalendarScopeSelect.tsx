@@ -56,7 +56,7 @@ export default function CalendarScopeSelect({
 const styles = createThemedStyleSheet((colors) => ({
   root: { width: "100%", minWidth: 0 },
   trigger: { minHeight: 46, borderRadius: 15, backgroundColor: colors.muted, borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 11 },
-  triggerText: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 12, fontWeight: "700" },
+  triggerText: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 12, fontWeight: "600" },
   dot: { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
   subtitle: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18, marginBottom: 12 },
   search: { flexDirection: "row", alignItems: "center", minHeight: 46, gap: 8, borderRadius: 15, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, marginBottom: 12 },
@@ -64,10 +64,10 @@ const styles = createThemedStyleSheet((colors) => ({
   option: { flexDirection: "row", alignItems: "center", minHeight: 50, gap: 10, borderRadius: 14, paddingHorizontal: 12, marginBottom: 4 },
   optionActive: { backgroundColor: colors.accent, borderWidth: 1, borderColor: colors.primary },
   allIcon: { width: 25, height: 25, borderRadius: 8, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
-  optionTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, lineHeight: 17, fontWeight: "700" },
-  count: { color: colors.mutedForeground, fontSize: 10, fontFamily: "SpaceMono", flexShrink: 0 },
+  optionTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, lineHeight: 17, fontWeight: "600" },
+  count: { color: colors.mutedForeground, fontSize: 11, flexShrink: 0, fontVariant: ["tabular-nums"] },
   selected: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 10, backgroundColor: colors.primary, paddingHorizontal: 7, paddingVertical: 4 },
-  selectedText: { color: colors.primaryForeground, fontSize: 10, fontWeight: "800" },
+  selectedText: { color: colors.primaryForeground, fontSize: 10, fontWeight: "600" },
   create: { flexDirection: "row", alignItems: "center", justifyContent: "center", minHeight: 48, gap: 7, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, marginTop: 10 },
-  createText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
+  createText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
 }));

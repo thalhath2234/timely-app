@@ -127,6 +127,8 @@ import {
   tidyEntries,
   type ContextMenuEntry,
 } from "@/app/_store/contextMenuStore";
+import { controlClass } from "@/app/_components/_ui/field";
+import { buttonClass } from "@/app/_components/_ui/button";
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 640;
@@ -1344,7 +1346,6 @@ export default function SheetGrid({
         kind: "action",
         label: "Rename column",
         icon: Pencil,
-        shortcut: "F2",
         onSelect: () => setRenamingColumnIndex(index),
       },
       {
@@ -1911,7 +1912,7 @@ export default function SheetGrid({
                     setOpenMenu(null);
                   }
                 }}
-                className="w-full rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none"
+                className={controlClass("sm", "w-full")}
               />
               <div className="mt-2 flex justify-end gap-1">
                 <button type="button" onClick={() => { applyFormat({ link: undefined }); setOpenMenu(null); }} className="rounded px-2 py-1 text-[11px] hover:bg-accent">
@@ -1926,7 +1927,7 @@ export default function SheetGrid({
                     applyFormat({ link: input?.value.trim() || undefined });
                     setOpenMenu(null);
                   }}
-                  className="rounded bg-secondary px-2 py-1 text-[11px] hover:bg-accent"
+                  className={buttonClass({ variant: "secondary", size: "sm" })}
                 >
                   Apply
                 </button>
@@ -1946,7 +1947,7 @@ export default function SheetGrid({
                 placeholder="Cell note"
                 rows={3}
                 onBlur={(event) => applyFormat({ note: event.currentTarget.value.trim() || undefined })}
-                className="w-full rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none"
+                className="w-full rounded-md border border-input bg-card px-2 py-1 text-xs shadow-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
               />
             </div>
           )}
@@ -1988,13 +1989,13 @@ export default function SheetGrid({
                 value={filterQuery}
                 onChange={(event) => setFilterQuery(event.target.value)}
                 placeholder="Filter rows..."
-                className="w-full rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none focus:border-ring"
+                className={controlClass("sm", "w-full")}
               />
               <div className="mt-2 flex gap-1">
-                <button type="button" onClick={() => sortByColumn(selected.col, "asc")} className="flex-1 rounded-md bg-secondary px-2 py-1 text-[11px] hover:bg-accent">
+                <button type="button" onClick={() => sortByColumn(selected.col, "asc")} className={buttonClass({ variant: "secondary", size: "sm", className: "flex-1" })}>
                   Sort A → Z
                 </button>
-                <button type="button" onClick={() => sortByColumn(selected.col, "desc")} className="flex-1 rounded-md bg-secondary px-2 py-1 text-[11px] hover:bg-accent">
+                <button type="button" onClick={() => sortByColumn(selected.col, "desc")} className={buttonClass({ variant: "secondary", size: "sm", className: "flex-1" })}>
                   Sort Z → A
                 </button>
               </div>
@@ -2045,7 +2046,7 @@ export default function SheetGrid({
         <span className="w-16 shrink-0 rounded-md border border-[#7C66DC] bg-[#6E56CF] px-2 py-1 text-center font-mono text-xs font-semibold text-white shadow-[0_0_12px_rgba(110,86,207,0.2)]">
           {selectedAddress}
         </span>
-        <div className="flex min-w-0 flex-1 items-center rounded-md border border-border bg-input/30 px-2 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
+        <div className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-card shadow-xs px-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
           <span className="mr-2 shrink-0 font-mono text-xs italic text-muted-foreground">fx</span>
           <span className="mr-2 h-3.5 w-px bg-border" />
           <input
@@ -2258,7 +2259,7 @@ export default function SheetGrid({
                             saveSelectOptions(index, event.currentTarget.value);
                           }
                         }}
-                        className="w-full resize-y rounded-md border border-border bg-input/30 px-2 py-1 text-xs outline-none focus:border-ring"
+                        className="w-full resize-y rounded-md border border-input bg-card shadow-xs px-2 py-1 text-xs outline-none focus:border-ring"
                       />
                       <p className="mt-1 text-[10px] text-muted-foreground">
                         Values already in the column stay listed.
@@ -2279,7 +2280,7 @@ export default function SheetGrid({
                               ?.querySelector("textarea");
                             saveSelectOptions(index, textarea?.value ?? "");
                           }}
-                          className="rounded bg-primary px-2 py-1 text-[11px] text-primary-foreground hover:bg-primary/90"
+                          className={buttonClass({ size: "sm" })}
                         >
                           Save
                         </button>

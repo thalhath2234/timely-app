@@ -163,17 +163,7 @@ export const TaskDetail = () => (
       </>
     }
     footer={
-      <footer className="flex h-10 shrink-0 items-center justify-between border-t border-border bg-muted/20 px-5 text-[11px] text-muted-foreground">
-        <div className="flex items-center gap-4">
-          <span className="inline-flex items-center gap-1.5">
-            <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">⌘↵</kbd>
-            Save &amp; Close
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">C</kbd>
-            Mark Complete
-          </span>
-        </div>
+      <footer className="flex h-10 shrink-0 items-center justify-end border-t border-border bg-muted/20 px-5 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <Cloud className="size-3.5" />
           Synced with Cloud

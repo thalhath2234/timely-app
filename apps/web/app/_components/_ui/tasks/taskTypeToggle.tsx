@@ -18,7 +18,7 @@ export default function TaskTypeToggle({
     <div
       role="radiogroup"
       aria-label="Item type"
-      className={cn("grid grid-cols-2 rounded-lg border border-border bg-muted/40 p-0.5", className)}
+      className={cn("grid h-8 grid-cols-2 rounded-md bg-muted p-0.5", className)}
     >
       {(["task", "reminder"] as const).map((option) => {
         const active = value === option;
@@ -30,9 +30,9 @@ export default function TaskTypeToggle({
             aria-checked={active}
             onClick={() => onChange(option)}
             className={cn(
-              "relative inline-flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+              "relative inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-[7px] px-2 text-xs font-medium transition-colors",
               active
-                ? "text-primary-foreground"
+                ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -40,7 +40,7 @@ export default function TaskTypeToggle({
               <motion.span
                 layoutId="task-type-pill"
                 transition={springSoft}
-                className="absolute inset-0 rounded-md bg-primary shadow-sm"
+                className="absolute inset-0 rounded-[7px] bg-card shadow-xs ring-1 ring-border"
               />
             ) : null}
             <span className="relative z-10 inline-flex items-center gap-1.5">

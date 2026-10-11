@@ -9,8 +9,7 @@ import { openBlockMenu } from "./blockMenu";
  * shown with a blue tint (Notion's block selection). Dragging a box from the
  * page margin selects every block it touches, like selecting files on a
  * desktop; the block grip selects its block. With blocks selected, Delete
- * removes them, Ctrl/Cmd+C or X copy or cut them, Ctrl/Cmd+D duplicates them,
- * Esc clears, and a right-click on one opens the block menu for all of them.
+ * removes them, Ctrl/Cmd+C or X copy or cut them, Esc clears, and a right-click on one opens the block menu for all of them.
  */
 
 export type BlockRange = { from: number; to: number };
@@ -140,10 +139,6 @@ export const BlockSelection = Extension.create({
             }
             if (event.key === "Backspace" || event.key === "Delete") {
               deleteBlocks(view, range);
-              return true;
-            }
-            if (mod && event.key.toLowerCase() === "d") {
-              duplicateBlocks(view, range);
               return true;
             }
             // Copy, cut, undo and the like go on as usual.

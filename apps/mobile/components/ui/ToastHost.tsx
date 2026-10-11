@@ -49,5 +49,5 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingVertical: 12,
   },
   message: { flex: 1, color: colors.foreground, fontSize: 14 },
-  action: { color: colors.primary, fontWeight: "700" },
+  action: { color: colors.primary, fontWeight: "600" },
 }));

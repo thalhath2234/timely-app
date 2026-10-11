@@ -22,8 +22,10 @@ import {
   receiptTabId,
   receiptTabs,
 } from "./receiptDestination";
-const fieldClass =
-  "w-full min-w-0 rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-60";
+import { buttonClass } from "@/app/_components/_ui/button";
+import Select from "@/app/_components/_ui/select";
+import { controlClass } from "@/app/_components/_ui/field";
+const fieldClass = controlClass("lg", "w-full");
 export function ReceiptSummary({ receipt }: { receipt: ReceiptDraft }) {
   return (
     <details className="mt-3 rounded-xl border border-border bg-muted/20 p-3 text-sm">
@@ -193,7 +195,7 @@ export default function ReceiptReview({
                     onChange={(value) => field("date", value)}
                     placeholder="Unknown / not printed"
                     aria-label={label}
-                    className="bg-background py-2"
+                    size="lg"
                   />
                 ) : (
                   <input
@@ -394,18 +396,17 @@ export default function ReceiptReview({
             </div>
             <label className="mt-3 block space-y-1 text-xs">
               Or update an existing receipt
-              <select
+              <Select
                 aria-label="Update existing receipt"
-                className={fieldClass}
+                size="lg"
+                placeholder="Choose a matching entry…"
                 value={
                   destination.duplicateAction === "update"
                     ? destination.duplicateRowId
                     : ""
                 }
-                onChange={(e) => {
-                  const match = duplicate.find(
-                    (x) => x.rowId === e.target.value,
-                  );
+                onChange={(rowId) => {
+                  const match = duplicate.find((x) => x.rowId === rowId);
                   if (match)
                     setDestination((d) => ({
                       ...d,
@@ -415,95 +416,72 @@ export default function ReceiptReview({
                       duplicateRowId: match.rowId,
                     }));
                 }}
-              >
-                <option value="">Choose a matching entry…</option>
-                {duplicate.map((x) => (
-                  <option key={x.rowId} value={x.rowId}>
-                    {x.sheetTitle} · {x.date} · {x.currency} {x.total}
-                    {x.itemMatch === "same"
+                options={duplicate.map((x) => ({
+                  value: x.rowId,
+                  label: `${x.sheetTitle} · ${x.date} · ${x.currency} ${x.total}${
+                    x.itemMatch === "same"
                       ? " · same items"
                       : x.itemMatch === "different"
                         ? " · items differ"
-                        : ""}
-                  </option>
-                ))}
-              </select>
+                        : ""
+                  }`,
+                }))}
+              />
             </label>
           </div>
         )}
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="space-y-1 text-xs text-muted-foreground">
             Expense sheet
-            <select
+            <Select
               aria-label="Expense sheet"
-              className={fieldClass}
+              size="lg"
               value={destination.sheetId}
-              onChange={(e) =>
+              onChange={(sheetId) =>
                 setDestination((d) => ({
                   ...d,
-                  sheetId: e.target.value,
+                  sheetId,
                   expenseTabId: "",
                   duplicateAction: "",
                   duplicateRowId: "",
                 }))
               }
-            >
-              <option value="">Create a new expense sheet</option>
-              {sheets
-                .filter((x) => !x.archivedAt)
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.title}
-                  </option>
-                ))}
-            </select>
+              options={[
+                { value: "", label: "Create a new expense sheet" },
+                ...sheets
+                  .filter((x) => !x.archivedAt)
+                  .map((x) => ({ value: x.id, label: x.title })),
+              ]}
+            />
           </label>
           {destination.sheetId ? (
             <label className="space-y-1 text-xs text-muted-foreground">
               Expense summary tab
-              <select
+              <Select
                 aria-label="Expense summary tab"
-                className={fieldClass}
+                size="lg"
+                placeholder="Choose summary tab…"
                 value={destination.expenseTabId}
-                onChange={(e) =>
-                  setDestination((d) => ({
-                    ...d,
-                    expenseTabId: e.target.value,
-                  }))
+                onChange={(expenseTabId) =>
+                  setDestination((d) => ({ ...d, expenseTabId }))
                 }
-              >
-                {!destination.expenseTabId && (
-                  <option value="">Choose summary tab…</option>
-                )}
-                {receiptTabs(sheet).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
+                options={receiptTabs(sheet).map((t) => ({ value: t.id, label: t.name }))}
+              />
             </label>
           ) : (
             <>
               <label className="space-y-1 text-xs text-muted-foreground">
                 Workspace
-                <select
+                <Select
                   aria-label="Receipt workspace"
-                  className={fieldClass}
+                  size="lg"
+                  placeholder="Choose workspace…"
                   value={destination.workspaceId}
-                  onChange={(e) =>
-                    setDestination((d) => ({
-                      ...d,
-                      workspaceId: e.target.value,
-                    }))
+                  onChange={(workspaceId) =>
+                    setDestination((d) => ({ ...d, workspaceId }))
                   }
-                >
-                  <option value="">Choose workspace…</option>
-                  {workspaces.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
+                  options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
+                />
               </label>
               <label className="space-y-1 text-xs text-muted-foreground">
                 New sheet name
@@ -542,7 +520,7 @@ export default function ReceiptReview({
                 reviewedIssues: reviewed,
               })
             }
-            className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+            className={buttonClass({ size: "lg" })}
           >
             Review sheet changes
             <ArrowRight className="size-4" />

@@ -28,7 +28,7 @@ export const notes: HelpSection = {
           body: (
             <>
               <p>
-                <strong>Files</strong> (<kbd>g</kbd> then <kbd>f</kbd>) shows recent docs and sheets, with a tree on
+                <strong>Files</strong> shows recent docs and sheets, with a tree on
                 the left. From the top of the tree you can open today&apos;s daily note, start from a template, import
                 Markdown, and show archived files.
               </p>
@@ -103,8 +103,8 @@ export const notes: HelpSection = {
           body: (
             <ul>
               <li>
-                In the desktop app, open several docs and sheets as tabs: <kbd>Ctrl</kbd> <kbd>T</kbd> for a new tab,{" "}
-                <kbd>Ctrl</kbd> <kbd>W</kbd> to close one.
+                Open several docs and sheets as tabs: <strong>+</strong> in the tab strip opens a new tab, and each
+                tab has its own close button.
               </li>
               <li>Open a doc&apos;s history to see earlier versions and restore one.</li>
               <li>A minimap of headings on the right jumps through long docs.</li>
@@ -206,7 +206,7 @@ export const notes: HelpSection = {
       keywords: ["search", "command palette", "ctrl k", "cmd k", "find", "semantic"],
       lead: (
         <p>
-          Press <kbd>Ctrl</kbd> <kbd>K</kbd> (or <kbd>/</kbd>) anywhere to search. On the phone, it is the{" "}
+          Press <kbd>Ctrl</kbd> <kbd>K</kbd> anywhere to search. On the phone, it is the{" "}
           <strong>Search</strong> tab.
         </p>
       ),
@@ -257,7 +257,7 @@ export const notes: HelpSection = {
       keywords: ["dashboard", "report", "cards", "pomodoro", "stopwatch", "journal", "stats", "widget"],
       lead: (
         <p>
-          The <strong>Dashboard</strong> (<kbd>g</kbd> then <kbd>d</kbd>) is the first item in the sidebar: a grid of
+          The <strong>Dashboard</strong> is the first item in the sidebar: a grid of
           cards you can drag, resize, add and remove. Your layout is saved.
         </p>
       ),

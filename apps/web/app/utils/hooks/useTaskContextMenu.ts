@@ -153,7 +153,6 @@ export function useTaskContextMenu() {
               kind: "action" as const,
               label: "Open details",
               icon: SquarePen,
-              shortcut: "Enter",
               onSelect: () =>
                 openTasksEntity(
                   { kind: "task", id: task.id },
@@ -164,7 +163,6 @@ export function useTaskContextMenu() {
               kind: "action" as const,
               label: completed ? `Reopen${suffix}` : `Mark complete${suffix}`,
               icon: completed ? RotateCcw : Check,
-              shortcut: "X",
               onSelect: () =>
                 apply(
                   { completedAt: completed ? "" : new Date().toISOString() },
@@ -187,7 +185,6 @@ export function useTaskContextMenu() {
                 kind: "action" as const,
                 label: focusing ? "Stop focus" : "Start focus",
                 icon: focusing ? Square : Play,
-                shortcut: "mod+F",
                 onSelect: () => {
                   void (focusing
                     ? stopFocus.mutateAsync(task.id)
@@ -411,7 +408,6 @@ export function useTaskContextMenu() {
               kind: "action" as const,
               label: "Find time on calendar",
               icon: CalendarPlus,
-              shortcut: "S",
               onSelect: () => router.push(`/calendar?taskId=${encodeURIComponent(task.id)}`),
             },
           ];
@@ -425,7 +421,6 @@ export function useTaskContextMenu() {
               kind: "action" as const,
               label: "Duplicate",
               icon: Copy,
-              shortcut: "mod+D",
               onSelect: () => {
                 void duplicateTask
                   .mutateAsync(task.id)
@@ -446,7 +441,6 @@ export function useTaskContextMenu() {
               kind: "action" as const,
               label: "Copy link",
               icon: Link2,
-              shortcut: "mod+shift+C",
               onSelect: () =>
                 copyText(
                   new URL(taskHref(task.id), window.location.origin).toString(),
@@ -465,7 +459,6 @@ export function useTaskContextMenu() {
               label: `Delete${suffix}`,
               icon: Trash2,
               danger: true,
-              shortcut: "mod+Backspace",
               onSelect: () =>
                 requestConfirm({
                   title: many

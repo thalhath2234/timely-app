@@ -36,9 +36,9 @@ export default function DescriptionCard({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  card: { gap: 14, borderRadius: 24, backgroundColor: colors.card, padding: 16 },
+  card: { gap: 14, borderRadius: 16, backgroundColor: colors.card, padding: 16 },
   heading: { flexDirection: "row", alignItems: "center", gap: 12 },
   icon: { width: 40, height: 40, borderRadius: 14, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
-  title: { color: colors.foreground, fontSize: 17, fontWeight: "700" },
+  title: { color: colors.foreground, fontSize: 17, fontWeight: "600" },
   caption: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
 }));

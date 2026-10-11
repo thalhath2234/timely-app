@@ -45,7 +45,7 @@ export default function AutoScheduleSheet({ open, onClose }: { open: boolean; on
           }}
           style={[styles.footerButton, styles.undoButton, busy && styles.disabled]}
         >
-          <RotateCcw size={16} color="#FFFFFF" />
+          <RotateCcw size={16} color={colors.primaryForeground} />
           <Text style={styles.footerPrimaryText}>{undo.isPending ? "Undoing…" : "Undo last apply"}</Text>
         </Pressable>
       ) : null}
@@ -76,7 +76,7 @@ export default function AutoScheduleSheet({ open, onClose }: { open: boolean; on
         }}
         style={[styles.previewButton, preview.isPending && styles.disabled]}
       >
-        <Eye size={16} color="#FFFFFF" />
+        <Eye size={16} color={colors.primaryForeground} />
         <Text style={styles.previewText}>{preview.isPending ? "Building plan…" : "Preview plan"}</Text>
       </Pressable>
 
@@ -204,50 +204,50 @@ function MetricChip({ color, label }: { color: string; label: string }) {
 
 const styles = createThemedStyleSheet((colors) => ({
   hint: { color: colors.mutedForeground, fontSize: 11, lineHeight: 16, marginBottom: 12 },
-  previewButton: { minHeight: 56, borderRadius: 20, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  previewText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
+  previewButton: { minHeight: 48, borderRadius: 12, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  previewText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
   disabled: { opacity: 0.55 },
   metrics: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 7, marginTop: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   metricChip: { height: 28, borderRadius: 14, borderWidth: 1, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 6 },
   metricDot: { width: 6, height: 6, borderRadius: 3 },
-  metricText: { fontFamily: "SpaceMono", fontSize: 10, fontWeight: "700" },
+  metricText: { fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
   minutesChip: { height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: "rgba(255,255,255,0.04)", paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 4 },
-  minutesStrong: { color: colors.foreground, fontFamily: "SpaceMono", fontSize: 10, fontWeight: "700" },
-  minutesText: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 9 },
-  matched: { marginLeft: "auto", color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 9 },
+  minutesStrong: { color: colors.foreground, fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  minutesText: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
+  matched: { marginLeft: "auto", color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
   riskPanel: { marginTop: 12, padding: 11, borderRadius: 12, borderWidth: 1, borderColor: "rgba(244,63,94,0.28)", backgroundColor: "rgba(244,63,94,0.08)", flexDirection: "row", alignItems: "flex-start", gap: 8 },
   riskText: { color: colors.destructive, fontSize: 11, lineHeight: 16 },
   sectionHeader: { marginTop: 16, marginBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  sectionTitle: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 9, fontWeight: "700", letterSpacing: 0.7, textTransform: "uppercase" },
-  lockText: { color: colors.success, fontFamily: "SpaceMono", fontSize: 8, fontWeight: "700", textTransform: "uppercase" },
-  policyText: { color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 8, textTransform: "uppercase" },
+  sectionTitle: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase", fontVariant: ["tabular-nums"] },
+  lockText: { color: colors.success, fontSize: 11, fontWeight: "600", textTransform: "uppercase", fontVariant: ["tabular-nums"] },
+  policyText: { color: colors.mutedForeground, fontSize: 11, textTransform: "uppercase", fontVariant: ["tabular-nums"] },
   list: { gap: 8 },
-  allocationCard: { padding: 16, borderRadius: 20, backgroundColor: colors.muted, gap: 8 },
+  allocationCard: { padding: 16, borderRadius: 16, backgroundColor: colors.muted, gap: 8 },
   cardTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
   cardTitleRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-start", gap: 8 },
   priorityDot: { width: 7, height: 7, borderRadius: 4, marginTop: 5 },
-  name: { flex: 1, color: colors.foreground, fontSize: 12, lineHeight: 17, fontWeight: "700" },
+  name: { flex: 1, color: colors.foreground, fontSize: 12, lineHeight: 17, fontWeight: "600" },
   priorityPill: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 3 },
-  priorityText: { fontSize: 8, fontWeight: "800", textTransform: "uppercase" },
+  priorityText: { fontSize: 8, fontWeight: "600", textTransform: "uppercase" },
   cardMetaRow: { paddingLeft: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   dateRow: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 },
-  dateText: { color: colors.foreground, fontFamily: "SpaceMono", fontSize: 9 },
+  dateText: { color: colors.foreground, fontSize: 11, fontVariant: ["tabular-nums"] },
   changeText: { maxWidth: "40%", color: colors.mutedForeground, fontSize: 9, textAlign: "right" },
-  lateText: { maxWidth: "40%", color: colors.destructive, fontSize: 9, fontWeight: "700", textAlign: "right" },
-  moreBlocks: { paddingLeft: 15, color: colors.mutedForeground, fontFamily: "SpaceMono", fontSize: 9 },
+  lateText: { maxWidth: "40%", color: colors.destructive, fontSize: 9, fontWeight: "600", textAlign: "right" },
+  moreBlocks: { paddingLeft: 15, color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
   changesPanel: { marginTop: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: "rgba(255,255,255,0.025)", padding: 10, gap: 5 },
   changeLine: { color: colors.mutedForeground, fontSize: 10, lineHeight: 15 },
   skippedTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   skipCard: { padding: 11, borderRadius: 12, borderWidth: 1, borderColor: "rgba(245,158,11,0.24)", backgroundColor: "rgba(245,158,11,0.06)", flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  skipName: { color: colors.foreground, fontSize: 11, fontWeight: "700" },
+  skipName: { color: colors.foreground, fontSize: 11, fontWeight: "600" },
   skipReason: { color: colors.warning, fontSize: 10, lineHeight: 15, marginTop: 2 },
   emptyState: { minHeight: 180, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, gap: 8 },
-  emptyTitle: { color: colors.foreground, fontSize: 14, fontWeight: "700" },
+  emptyTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
   emptyCopy: { color: colors.mutedForeground, fontSize: 11, lineHeight: 16, textAlign: "center" },
   footerActions: { gap: 8 },
-  footerButton: { height: 56, borderRadius: 20, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  footerButton: { height: 48, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   undoButton: { backgroundColor: colors.primary },
   applyButton: { backgroundColor: colors.muted },
-  footerPrimaryText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-  footerSecondaryText: { color: colors.foreground, fontSize: 13, fontWeight: "700" },
+  footerPrimaryText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "600" },
+  footerSecondaryText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
 }));

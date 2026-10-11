@@ -1,6 +1,8 @@
 "use client";
 
 import { Bell, Sparkles, X } from "lucide-react";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
+import PageHeader from "@/app/_components/_ui/pageHeader";
 import { useRouter } from "next/navigation";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
@@ -124,41 +126,39 @@ export default function NotificationsPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Notifications</h1>
-          <p className="text-sm text-muted-foreground">
-            Reminders, morning planning, and evening recap. Snooze updates the reminder itself.
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <button
-            type="button"
-            disabled={markAll.isPending || items.length === 0 || items.every((item) => item.readAt)}
-            onClick={() => void markAll.mutateAsync()}
-            className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:border-primary/30 disabled:opacity-50"
-          >
-            Mark all read
-          </button>
-          <button
-            type="button"
-            disabled={clearAll.isPending || items.length === 0}
-            onClick={() =>
-              requestConfirm({
-                title: "Clear all notifications?",
-                description: "This removes them from the list. It cannot be undone.",
-                confirmLabel: "Clear all",
-                pendingLabel: "Clearing…",
-                onConfirm: () => clearAll.mutateAsync(),
-              })
-            }
-            className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-destructive hover:border-destructive/40 disabled:opacity-50"
-          >
-            Clear all
-          </button>
-        </div>
-      </header>
-      <div className="flex-1 overflow-y-auto p-6">
+      <PageHeader
+        title="Notifications"
+        bordered
+        description="Reminders, morning planning, and evening recap. Snooze updates the reminder itself."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              disabled={markAll.isPending || items.length === 0 || items.every((item) => item.readAt)}
+              onClick={() => void markAll.mutateAsync()}
+            >
+              Mark all read
+            </Button>
+            <Button
+              variant="outline"
+              className="text-destructive"
+              disabled={clearAll.isPending || items.length === 0}
+              onClick={() =>
+                requestConfirm({
+                  title: "Clear all notifications?",
+                  description: "This removes them from the list. It cannot be undone.",
+                  confirmLabel: "Clear all",
+                  pendingLabel: "Clearing…",
+                  onConfirm: () => clearAll.mutateAsync(),
+                })
+              }
+            >
+              Clear all
+            </Button>
+          </>
+        }
+      />
+      <div className="flex-1 overflow-y-auto px-6 py-5">
         {list.isLoading ? (
           <p className="text-sm text-muted-foreground">Loading notifications…</p>
         ) : items.length === 0 ? (
@@ -183,7 +183,7 @@ export default function NotificationsPage() {
                   key={item.id}
                   variants={listItemVariants}
                   whileHover={hoverLift}
-                  className={`rounded-xl border border-border bg-card px-3 py-3 ${unread ? "border-l-2 border-l-primary bg-primary/10" : ""}`}
+                  className={`rounded-lg border bg-card px-3.5 py-3 ${unread ? "border-primary/30" : "border-border"}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <button
@@ -195,63 +195,57 @@ export default function NotificationsPage() {
                         else router.push(target.href);
                       }}
                     >
-                      <p className="truncate text-sm font-medium">{item.title}</p>
+                      <p className={`flex items-center gap-2 truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}>
+                        {unread ? <span aria-label="Unread" className="size-2 shrink-0 rounded-full bg-primary" /> : null}
+                        {item.title}
+                      </p>
                       {item.body ? (
                         <p className="mt-0.5 text-sm text-muted-foreground">{item.body}</p>
                       ) : null}
-                      <p className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground">
-                        {item.category} · {new Date(item.createdAt).toLocaleString()}
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        <span className="capitalize">{item.category}</span> ·{" "}
+                        {new Date(item.createdAt).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
                       </p>
                     </button>
                     <div className="flex shrink-0 items-center gap-2">
                       {unread ? (
-                        <button
-                          type="button"
-                          className="text-xs text-muted-foreground hover:text-foreground"
-                          onClick={() => void markRead.mutateAsync(item.id)}
-                        >
+                        <Button variant="ghost" size="sm" onClick={() => void markRead.mutateAsync(item.id)}>
                           Mark read
-                        </button>
+                        </Button>
                       ) : null}
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon
                         aria-label="Dismiss"
                         title="Dismiss"
                         disabled={remove.isPending}
-                        className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
                         onClick={() =>
                           void remove.mutateAsync(item.id).catch((error) => {
                             useToastStore.getState().show(error instanceof Error ? error.message : "Could not dismiss that");
                           })
                         }
                       >
-                        <X className="size-3.5" />
-                      </button>
+                        <X />
+                      </Button>
                     </div>
                   </div>
                   {item.category === "reminder" ? (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="rounded-md border border-border bg-muted px-2 py-1 text-xs hover:border-primary/30"
-                        onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 15 })}
-                      >
+                      <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 15 })}>
                         Snooze 15m
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md border border-border bg-muted px-2 py-1 text-xs hover:border-primary/30"
-                        onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 60 })}
-                      >
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 60 })}>
                         Snooze 1h
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md border border-border bg-muted px-2 py-1 text-xs hover:border-primary/30"
-                        onClick={() => void snooze.mutateAsync({ id: item.id, until: tomorrowNine() })}
-                      >
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, until: tomorrowNine() })}>
                         Tomorrow 9:00
-                      </button>
+                      </Button>
                     </div>
                   ) : null}
                   {item.category === "suggestion" ? (
@@ -283,7 +277,7 @@ export default function NotificationsPage() {
                             type="button"
                             disabled={triage.isPending}
                             title={suggested ? "Suggested for this task" : undefined}
-                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs disabled:opacity-50 ${suggested ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15" : "border-border bg-muted hover:border-primary/30"}`}
+                            className={buttonClass({ variant: suggested ? "soft" : "outline", size: "sm" })}
                             onClick={() =>
                               void triage
                                 .mutateAsync({ id: item.id, action: step })
@@ -357,7 +351,7 @@ function SmartAlert({
           type="button"
           disabled={pending}
           title="Suggested next step"
-          className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/15 disabled:opacity-50"
+          className={buttonClass({ variant: "soft", size: "sm" })}
           onClick={() => {
             if (step === "review" || step === "clarify") {
               if (projectId) onRoute(`/projects/${projectId}`);

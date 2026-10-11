@@ -18,6 +18,7 @@ import {
   type RecurrenceFreq,
   type RecurrencePreset,
 } from "@/app/utils/recurrence";
+import { controlClass } from "@/app/_components/_ui/field";
 
 type RecurrenceEditorProps = {
   value: RecurrenceDraft | null;
@@ -42,7 +43,7 @@ const FREQ_OPTIONS: { value: RecurrenceFreq; label: string }[] = [
 ];
 
 const inputClass =
-  "h-7 rounded-lg border border-border bg-input/30 px-2 text-xs text-foreground outline-none transition focus:border-ring focus:ring-1 focus:ring-ring/40 disabled:opacity-50";
+  controlClass("sm");
 
 const chipClass =
   "flex h-6 items-center justify-center rounded-md border text-[11px] font-medium tabular-nums transition-colors disabled:opacity-50";
@@ -96,7 +97,7 @@ export default function RecurrenceEditor({
         onChange(presetToDraft(preset as RecurrencePreset, anchor));
       }}
       options={presetOptions}
-      className={cn(label && "border-0 bg-transparent px-0 shadow-none")}
+      variant={label ? "bare" : "default"}
       aria-label={label ?? "Repeat"}
     />
   );
@@ -253,7 +254,8 @@ export default function RecurrenceEditor({
               clearable={false}
               placeholder="Pick a date"
               onChange={(date) => update({ end: { type: "until", date } })}
-              className="h-7 min-w-0 flex-1 py-0.5 text-xs"
+              size="sm"
+              className="min-w-0 flex-1"
             />
           </div>
 

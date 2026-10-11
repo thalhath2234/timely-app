@@ -322,7 +322,7 @@ function EditRow({
           }}
           style={[styles.smallButton, styles.dangerButton]}
         >
-          <Text style={[styles.smallButtonText, { color: "#fff" }]}>{what === "goal" ? "Remove" : "Delete"}</Text>
+          <Text style={[styles.smallButtonText, { color: colors.destructiveForeground }]}>{what === "goal" ? "Remove" : "Delete"}</Text>
         </AnimatedPressable>
       </View>
     );
@@ -405,12 +405,12 @@ function AddRow({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  card: { gap: 8, marginBottom: 4, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
+  card: { gap: 8, marginBottom: 4, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
   header: { flexDirection: "row", alignItems: "center", gap: 6 },
   emptyRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, paddingVertical: 2, marginBottom: 4 },
   inlineRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   meta: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17 },
-  link: { color: colors.primary, fontSize: 12, fontWeight: "700" },
+  link: { color: colors.primary, fontSize: 12, fontWeight: "600" },
   editButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 6, paddingVertical: 4 },
   editText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   chips: { gap: 6, paddingRight: 4 },
@@ -429,7 +429,7 @@ const styles = createThemedStyleSheet((colors) => ({
   checkCircle: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: colors.mutedForeground, alignItems: "center", justifyContent: "center" },
   checkCircleDone: { borderColor: colors.success },
   chipText: { color: colors.foreground, fontSize: 13, fontWeight: "600", maxWidth: 150 },
-  streak: { color: colors.mutedForeground, fontSize: 11, fontFamily: "SpaceMono", fontVariant: ["tabular-nums"], marginLeft: -3 },
+  streak: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"], marginLeft: -3 },
   addChip: { minHeight: 34, width: 34, borderRadius: 17, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, alignItems: "center", justifyContent: "center" },
   goalRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32 },
   goalTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, fontWeight: "600" },
@@ -437,7 +437,7 @@ const styles = createThemedStyleSheet((colors) => ({
   countText: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600" },
   itemRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32, marginLeft: 21, paddingLeft: 10, borderLeftWidth: 1, borderLeftColor: colors.border },
   itemText: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13 },
-  sheetLabel: { color: colors.mutedForeground, fontSize: 12, fontWeight: "700", marginBottom: 6 },
+  sheetLabel: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6 },
   editRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -457,7 +457,7 @@ const styles = createThemedStyleSheet((colors) => ({
   iconButton: { padding: 6 },
   addButton: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent },
   smallButton: { minHeight: 32, paddingHorizontal: 10, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.secondary },
-  smallButtonText: { color: colors.foreground, fontSize: 12, fontWeight: "700" },
-  dangerButton: { backgroundColor: colors.destructive },
+  smallButtonText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
+  dangerButton: { backgroundColor: colors.destructiveContainer },
   disabled: { opacity: 0.35 },
 }));

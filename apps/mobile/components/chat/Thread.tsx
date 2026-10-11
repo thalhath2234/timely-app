@@ -448,12 +448,12 @@ const styles = createThemedStyleSheet(() => ({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  badgeText: { color: colors.primary, fontSize: 12, fontWeight: "700" },
+  badgeText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
   hero: {
     color: colors.foreground,
     fontSize: 30,
     lineHeight: 36,
-    fontWeight: "800",
+    fontWeight: "600",
     letterSpacing: -0.7,
   },
   heroText: { color: colors.mutedForeground, fontSize: 14, lineHeight: 21 },
@@ -461,7 +461,7 @@ const styles = createThemedStyleSheet(() => ({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -478,7 +478,7 @@ const styles = createThemedStyleSheet(() => ({
   suggestionTitle: {
     color: colors.foreground,
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   dayRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   dayLine: {
@@ -489,7 +489,7 @@ const styles = createThemedStyleSheet(() => ({
   dayText: {
     color: colors.mutedForeground,
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "600",
     textTransform: "uppercase",
     letterSpacing: 0.8,
   },
@@ -551,7 +551,7 @@ const styles = createThemedStyleSheet(() => ({
   userWrap: { alignItems: "flex-end", gap: 4, paddingLeft: 40 },
   userBubble: {
     backgroundColor: colors.primary,
-    borderRadius: 22,
+    borderRadius: 16,
     borderBottomRightRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 11,
@@ -574,7 +574,7 @@ const styles = createThemedStyleSheet(() => ({
     marginTop: 2,
   },
   speakerRow: { flexDirection: "row", alignItems: "baseline", gap: 8 },
-  speaker: { color: colors.foreground, fontSize: 13, fontWeight: "800" },
+  speaker: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   imageRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   receipt: {
     borderRadius: 16,
@@ -596,7 +596,7 @@ const styles = createThemedStyleSheet(() => ({
     justifyContent: "space-between",
   },
   statusCard: {
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     padding: 14,
@@ -610,5 +610,5 @@ const styles = createThemedStyleSheet(() => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  statusTitle: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
+  statusTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
 }));
