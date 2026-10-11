@@ -1,3 +1,4 @@
+import { docTypePhrase } from "@timely/contract/documents";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { Sparkles, X } from "lucide-react-native";
@@ -106,7 +107,7 @@ export default function DocHintsCard({
   }
   if (onSetProperty && data.docType) {
     const docType = data.docType;
-    rows.push({ key: "type", text: `Reads like a ${docType}.`, label: "Set type", run: () => onSetProperty("type", docType) });
+    rows.push({ key: "type", text: `Reads like ${docTypePhrase(docType)}.`, label: "Set type", run: () => onSetProperty("type", docType) });
   }
   if (onSetProperty) {
     for (const p of data.properties ?? []) {
@@ -126,7 +127,8 @@ export default function DocHintsCard({
       run: () =>
         void createTask
           .mutateAsync({ name: line, kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId ?? undefined })
-          .then(() => useToastStore.getState().show(`Task added: ${line}`)),
+          .then(() => useToastStore.getState().show(`Task added: ${line}`))
+          .catch(() => useToastStore.getState().show("Could not add the task")),
     });
   }
   if (data.outdated) rows.push({ key: "outdated", text: "This doc may be out of date. It has not been edited in a while and talks about plans or dates that have likely passed." });
@@ -137,7 +139,7 @@ export default function DocHintsCard({
     <View style={styles.card} testID="doc-hints">
       <View style={styles.header}>
         <Sparkles size={16} color={colors.primary} />
-        <SectionLabel>Suggestions</SectionLabel>
+        <SectionLabel compact>Suggestions</SectionLabel>
       </View>
       {shown.map((row) => (
         <View key={row.key} style={styles.row}>

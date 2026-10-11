@@ -197,21 +197,21 @@ func Presets(uses []string, taken map[string]bool) []StarterLabel {
 }
 
 func (s *Service) starterPresets(c *echo.Context) error {
-	taken := s.takenStarter(c.Request().Context())
-	return c.JSON(200, map[string]any{"labels": Presets(strings.Split(c.QueryParam("uses"), ","), taken), "uses": starterUses})
+	// Presets go into a new workspace, so no name is taken yet.
+	return c.JSON(200, map[string]any{"labels": Presets(strings.Split(c.QueryParam("uses"), ","), nil), "uses": starterUses})
 }
 
-// takenStarter is the catalog names some label already uses, anywhere:
-// label names are unique across the whole app, so those cannot be created
-// again. Only catalog names (with or without a plural "s") are read.
-func (s *Service) takenStarter(ctx context.Context) map[string]bool {
+// takenStarter is the catalog names a label in the workspace already uses
+// (label names are unique within a workspace). Only catalog names, with or
+// without a plural "s", are read.
+func (s *Service) takenStarter(ctx context.Context, workspaceID string) map[string]bool {
 	var variants []string
 	for _, l := range starterCatalog {
 		k := strings.ToLower(l.Name)
 		variants = append(variants, k, k+"s", strings.TrimSuffix(k, "s"))
 	}
 	var names []string
-	s.db.WithContext(ctx).Table("lables").Where("lower(name) IN ?", variants).Pluck("name", &names)
+	s.db.WithContext(ctx).Table("lables").Where("workspace_id = ? AND lower(name) IN ?", workspaceID, variants).Pluck("name", &names)
 	out := map[string]bool{}
 	for _, n := range names {
 		out[labelKey(n)] = true
@@ -248,9 +248,8 @@ func (s *Service) Starter(ctx context.Context, userID, workspaceID string) (Star
 	if err := s.db.WithContext(ctx).Where("id = ? AND user_id = ?", workspaceID, userID).First(&ws).Error; err != nil {
 		return out, echo.NewHTTPError(404, "Workspace not found")
 	}
-	// Label names are unique across the whole app, so a catalog name used
-	// anywhere is left out, not just in this workspace.
-	have := s.takenStarter(ctx)
+	// A catalog name the workspace already uses is left out.
+	have := s.takenStarter(ctx, ws.ID)
 	var own []string
 	s.db.WithContext(ctx).Table("lables").Where("workspace_id = ?", ws.ID).Order("name").Limit(30).Pluck("name", &own)
 	var work []string
@@ -316,8 +315,8 @@ func labelKey(name string) string {
 	return k
 }
 
-// applyStarter creates the labels the person ticked. A name already used
-// anywhere is skipped and reported, since label names are unique.
+// applyStarter creates the labels the person ticked. A name the workspace
+// already uses is skipped and reported, since label names are unique there.
 func (s *Service) applyStarter(c *echo.Context) error {
 	var in struct {
 		WorkspaceID string `json:"workspaceId"`

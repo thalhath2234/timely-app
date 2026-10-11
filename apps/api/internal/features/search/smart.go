@@ -317,7 +317,7 @@ func (s *Smart) Related(ctx context.Context, userID, kind, id string) ([]Related
 		if yes, sure := answers.Yes(fmt.Sprintf("rel%d", i+1), decide.Prefill); !sure || !yes {
 			continue
 		}
-		out = append(out, RelatedItem{Kind: hit.Kind, ID: hit.EntityID, Title: titleOr(hit.Title), Snippet: snippet(hit.Content)})
+		out = append(out, RelatedItem{Kind: hit.Kind, ID: hit.EntityID, Title: titleOr(hit.Title), Snippet: snippet(hit.Title, hit.Content)})
 		if len(out) == relatedShown {
 			break
 		}

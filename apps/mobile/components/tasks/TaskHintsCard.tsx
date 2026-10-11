@@ -34,7 +34,10 @@ export default function TaskHintsCard({
   onField: (field: CustomField, next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">) => void;
   onPreferredWindow: (window: { start: string; end: string }) => void;
 }) {
-  const version = `${(task.description ?? "").length}:${task.completedAt ?? ""}:${task.blockedById ?? ""}:${task.stageId ?? ""}`;
+  // The same version as web: an edit, a new blocker or stage, or a new length
+  // asks again.
+  const description = task.description ?? "";
+  const version = `${description.length}:${description.slice(-40)}:${task.completedAt ?? ""}:${task.blockedById ?? ""}:${task.stageId ?? ""}:${task.duration ?? 0}`;
   const { data } = useTaskHintsQuery(task.id, version, task.kind === "task");
   const feedback = useDecisionFeedback();
   const [hidden, setHidden] = useState<Set<string>>(new Set());

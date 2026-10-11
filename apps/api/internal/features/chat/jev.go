@@ -188,14 +188,14 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 	if len(c.Messages) == 1 {
 		similar = s.recentChats(ctx, c)
 		if len(similar) > 0 {
-			opts := []decide.Option{{Name: "none", Description: "None of these chats is about the same request."}}
+			opts := []decide.Option{{Name: "none", Description: "None of these chats asks for the same thing about the same item."}}
 			for name := range similar {
 				opts = append(opts, decide.Option{Name: name})
 			}
-			questions["similar"] = decide.Choice("The person already has these chats with the assistant. Which one, if any, is about the same request as this message, so it could be continued there?", opts...).Twice()
+			questions["similar"] = decide.Choice("The person already has these chats with the assistant. Which one, if any, asks for the same thing about the same item as this message (not just the same kind of action, or another item in the same project), so it could be continued there?", opts...).Twice()
 			// With near-duplicate earlier chats the two option orders can pick
 			// different ones; a confident "there is a match" keeps the first pick.
-			questions["hasSimilar"] = decide.YesNo("Is one of the person's earlier chats about the same request as this message, so it could be continued there?",
+			questions["hasSimilar"] = decide.YesNo("Does one of the person's earlier chats ask for the same thing about the same item as this message (not just the same kind of action), so it could be continued there?",
 				"Yes, an earlier chat is about the same request", "No, this is a new request")
 		}
 	}
@@ -538,6 +538,10 @@ func (s *Service) similar(c *echo.Context) error {
 		// The request was written with this chat's web search switch and
 		// model; it runs with them there too.
 		target.WebSearch = row.WebSearch
+		// Its view tools act on the app that sent it (phone or web views).
+		if row.Client != "" {
+			target.Client = row.Client
+		}
 		if row.ChosenProvider != "" {
 			target.ChosenProvider, target.ChosenModel = row.ChosenProvider, row.ChosenModel
 		}

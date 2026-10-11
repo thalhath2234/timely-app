@@ -56,7 +56,9 @@ func ScoreTask(in ScoreInput) Rank {
 				boost = 0
 			}
 			score += boost
-			if boost > 0 {
+			if boost > 0 && slack == 1 {
+				reasons = append(reasons, "due tomorrow")
+			} else if boost > 0 {
 				reasons = append(reasons, fmt.Sprintf("due in %d days", slack))
 			}
 		}

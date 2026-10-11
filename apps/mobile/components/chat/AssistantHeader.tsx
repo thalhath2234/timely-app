@@ -25,6 +25,7 @@ export default function AssistantHeader({
   actions?: ReactNode;
 }) {
   const meta = status && status !== "idle" ? statusMeta(status) : null;
+  const pillLabel = !meta ? "" : status === "running" && phase === "apply" ? "Applying" : meta.label;
   return (
     <View style={styles.wrap}>
       <IconButton
@@ -50,19 +51,19 @@ export default function AssistantHeader({
         <View style={styles.subRow}>
           {meta ? (
             <Pill
-              label={
-                status === "running" && phase === "apply"
-                  ? "Applying"
-                  : meta.label
-              }
+              label={pillLabel}
               tone={meta.tone}
               icon={meta.icon}
               spin={meta.spin}
             />
           ) : null}
-          <Text numberOfLines={1} style={[styles.sub, { flexShrink: 1 }]}>
-            {subtitle}
-          </Text>
+          {/* A long status ("Choose where to continue") leaves no room for
+              the model line, which would clip to a letter or two. */}
+          {pillLabel.length <= 12 ? (
+            <Text numberOfLines={1} style={[styles.sub, { flexShrink: 1 }]}>
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
       </View>
       <View style={styles.actions}>{actions}</View>

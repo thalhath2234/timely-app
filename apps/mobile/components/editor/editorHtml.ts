@@ -1940,6 +1940,21 @@ export function buildEditorHtml(
           editor.view.dispatch(tr);
           return;
         }
+        // "Add link" on a Related doc: a mention at the end of the doc,
+        // unless the doc already mentions it; the caret stays put.
+        if (name === "appendMention") {
+          const attrs = payload && payload.attrs;
+          if (!attrs || !attrs.id) return;
+          let present = false;
+          editor.state.doc.descendants((node) => {
+            if (node.type.name === "mention" && node.attrs.id === attrs.id) present = true;
+            return !present;
+          });
+          if (!present) {
+            editor.chain().insertContentAt(editor.state.doc.content.size, { type: "paragraph", content: [{ type: "mention", attrs }] }).run();
+          }
+          return;
+        }
         // "Link to an item": report the selected phrase, then swap it for
         // the picked mention if the text is still the same.
         if (name === "linkSelection") {
@@ -1967,6 +1982,7 @@ export function buildEditorHtml(
               ...(mentionSpaceAfter(next) ? [{ type: "text", text: " " }] : []),
             ])
             .run();
+          send({ type: "linkDone" });
           requestAnimationFrame(scrollCaret);
           return;
         }

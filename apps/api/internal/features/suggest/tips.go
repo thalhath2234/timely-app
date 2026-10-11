@@ -60,7 +60,7 @@ func fixed(s string) func(tipFacts) string { return func(tipFacts) string { retu
 
 var tipCatalog = []screenTip{
 	{key: "today_focus", screen: "today", when: func(f tipFacts) bool { return f.Focus == 0 && f.Open > 0 },
-		text: fixed("Pick up to three tasks for today's Focus, so Today shows what matters first.")},
+		text: fixed("Star a few tasks for today's Focus, so Today shows what matters first.")},
 	{key: "today_overdue", screen: "today", when: func(f tipFacts) bool { return f.Overdue > 0 },
 		text: func(f tipFacts) string {
 			them := "them"

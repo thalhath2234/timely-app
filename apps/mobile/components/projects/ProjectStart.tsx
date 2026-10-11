@@ -77,7 +77,7 @@ export function ProjectStartChoices({
     <View style={styles.card} testID="project-start">
       <View style={styles.header}>
         <Sparkles size={14} color={colors.primary} />
-        <SectionLabel>Start from</SectionLabel>
+        <SectionLabel compact>Start from</SectionLabel>
       </View>
       {suggestion.copyProjectId
         ? row("copy", <Copy size={14} color={colors.mutedForeground} />, `Copy the stages and tasks of “${suggestion.copyTitle ?? ""}”`)

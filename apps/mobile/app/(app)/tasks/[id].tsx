@@ -715,7 +715,7 @@ export default function TaskDetailScreen() {
         </View>
         </> : null}
         <View style={styles.sectionCard}>
-        <TaskSectionHeader icon={<History size={18} color={colors.primary} />} title="Activity & Comments" subtitle="Latest system events" badge={`${(activity.data ?? []).length} events`} badgeTone="muted" />
+        <TaskSectionHeader icon={<History size={18} color={colors.primary} />} title="Activity & Comments" subtitle="Latest system events" badge={`${(activity.data ?? []).length} event${(activity.data ?? []).length === 1 ? "" : "s"}`} badgeTone="muted" />
         <ScrollView
           nestedScrollEnabled
           showsVerticalScrollIndicator={(activity.data ?? []).length > 4}

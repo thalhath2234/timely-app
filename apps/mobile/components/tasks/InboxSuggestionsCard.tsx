@@ -7,13 +7,14 @@ import { useDecisionFeedback, useDecisionsStatusQuery, useInboxSuggestionsQuery 
 import { formatDateAndTime, formatDuration, formatShortDate, formatTime, isSameDay, PRIORITY_META } from "../../lib/format";
 import { normalizePriority } from "../../lib/priority";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { LogoSpinner } from "../ui/TimelyLogo";
 import type { InboxSuggestions } from "../../lib/api/decisions";
 import type { UpdateTaskPayload } from "../../lib/api/tasks";
 import type { Project, Task, Workspace } from "../../lib/types";
 
 const MISSING: Record<NonNullable<InboxSuggestions["missing"]>, string> = {
   duration: "Missing: how long it takes",
-  place: "Missing: where it belongs",
+  place: "Missing: where it happens",
   date: "Missing: when it happens",
   scope: "Missing: what done looks like",
 };
@@ -63,10 +64,12 @@ function planSuggestions(
   projects: Project[],
   fallbackWorkspaceId: string,
 ): Plan {
-  // Only the model's own kind changes the item: a place or a length alone
-  // does not make it Work, and they only fit once it has a kind, the same as
-  // the screen's pickers.
-  const kind = s.kind;
+  // With no confident kind, a place, project or deadline still reads as Work,
+  // the web Clarify form's default; not when the item is not ready yet or
+  // looks like an event.
+  const workDate = Boolean(s.date) && (s.dateRole === "deadline" || s.dateRole === "start");
+  const kind =
+    s.kind ?? (!s.notReady && !s.looksLikeEvent && (s.workspaceId || s.projectId || workDate) ? "task" : undefined);
   const reminder = kind === "reminder";
   const space = kind ? spaces.find((w) => w.id === s.workspaceId) : undefined;
   const project = kind ? projects.find((p) => p.id === s.projectId && (!space || p.workspaceId === space.id)) : undefined;
@@ -111,10 +114,12 @@ function planSuggestions(
       }
     }
   }
-  if (place) {
-    lines.push(project && !reminder ? `${place.name} › ${project.title}` : place.name);
+  // A Reminder keeps a workspace only with labels (the API drops it
+  // otherwise), so the place line is left to the labels below.
+  if (place && !reminder) {
+    lines.push(project ? `In ${place.name} › ${project.title}` : `In ${place.name}`);
     update.workspaceId = place.id;
-    if (project && !reminder) {
+    if (project) {
       update.projectId = project.id;
       update.stageId = null;
     }
@@ -124,6 +129,7 @@ function planSuggestions(
     update.priorityLevel = priority;
   }
   if (labels.length > 0 && workspaceId) {
+    if (reminder) lines.push(`In ${labelSpace?.name ?? "its workspace"}`);
     lines.push(`Labels: ${labels.map((label) => label.name).join(", ")}`);
     update.labelIds = labels.map((label) => ({ id: label.id }));
     update.workspaceId = workspaceId;
@@ -142,8 +148,8 @@ function planSuggestions(
   return { lines, hints, similar, update: Object.keys(update).length > 0 ? update : null };
 }
 
-/** Suggested fields for an Inbox item. Renders nothing while loading or when
- * suggestions are off, so the screen behaves as without it; a failed call
+/** Suggested fields for an Inbox item. Shows a short line while loading and
+ * nothing when suggestions are off, so the screen behaves as without it; a failed call
  * shows its reason. */
 export default function InboxSuggestionsCard({
   task,
@@ -172,12 +178,21 @@ export default function InboxSuggestionsCard({
   );
 
   if (!isInbox || closed) return null;
+  // A short line while the model answers, as the web Clarify form shows, so
+  // the card doesn't pop in and push the page down.
+  if (suggestions.isLoading && status.data?.available === true)
+    return (
+      <View style={styles.loading} testID="inbox-suggestions-loading">
+        <LogoSpinner size={14} color={colors.mutedForeground} />
+        <Text style={styles.hint}>Getting suggestions…</Text>
+      </View>
+    );
   // A failed call names its reason, as the web Clarify form does.
   if (data?.error && (!plan || (plan.lines.length === 0 && plan.hints.length === 0 && plan.similar.length === 0)))
     return (
       <View style={styles.card} testID="inbox-suggestions-error">
         <TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title="Suggestions" />
-        <Text style={styles.hint}>{data.error}</Text>
+        <Text style={styles.hint}>{data.error} Check Settings → Agent → Smart suggestions.</Text>
       </View>
     );
   if (!plan) return null;
@@ -193,15 +208,15 @@ export default function InboxSuggestionsCard({
       <TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title="Suggestions" />
       {plan.lines.length > 0 ? (
         <View style={{ gap: 4 }}>
-          {plan.lines.map((line) => (
-            <Text key={line} style={styles.line}>{line}</Text>
+          {plan.lines.map((line, index) => (
+            <Text key={index} style={styles.line}>{line}</Text>
           ))}
         </View>
       ) : null}
       {plan.hints.length > 0 || plan.similar.length > 0 ? (
         <View style={{ gap: 4 }}>
-          {plan.hints.map((hint) => (
-            <Text key={hint} style={styles.hint}>{hint}</Text>
+          {plan.hints.map((hint, index) => (
+            <Text key={index} style={styles.hint}>{hint}</Text>
           ))}
           {plan.similar.map((item) => (
             <Pressable key={item.id} accessibilityRole="link" onPress={() => onOpenTask(item.id)} hitSlop={6}>
@@ -234,6 +249,7 @@ export default function InboxSuggestionsCard({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  loading: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4 },
   card: { gap: 10, borderRadius: 24, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16 },
   line: { color: colors.foreground, fontSize: 13, fontWeight: "600", lineHeight: 18 },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, flexShrink: 1 },

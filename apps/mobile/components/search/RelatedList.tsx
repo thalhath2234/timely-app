@@ -1,11 +1,11 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ScrollView, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { useRouter } from "expo-router";
-import { ArrowUpRight } from "lucide-react-native";
+import { ArrowUpRight, Check, Link2 } from "lucide-react-native";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { SectionLabel } from "../ui/primitives";
 import { useRelatedQuery } from "../../lib/hooks";
-import type { RelatedKind } from "../../lib/api/search";
+import type { RelatedItem, RelatedKind } from "../../lib/api/search";
 import { hrefFor } from "../../lib/searchRoutes";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { searchKindIcon } from "./kindIcon";
@@ -23,6 +23,7 @@ export default function RelatedList({
   heading,
   style,
   variant = "rows",
+  onLink,
 }: {
   kind: RelatedKind;
   id: string | undefined;
@@ -30,9 +31,12 @@ export default function RelatedList({
   heading?: ReactNode;
   style?: StyleProp<ViewStyle>;
   variant?: "rows" | "chips";
+  /** Shown on related docs as "Add link" (a mention in this doc), as on web. */
+  onLink?: (item: RelatedItem) => void;
 }) {
   const router = useRouter();
   const items = useRelatedQuery(kind, id).data ?? [];
+  const [linked, setLinked] = useState<Set<string>>(() => new Set());
   if (items.length === 0) return null;
 
   if (variant === "chips") {
@@ -43,11 +47,25 @@ export default function RelatedList({
           {items.map((item) => {
             const Icon = searchKindIcon(item.kind);
             return (
-              <AnimatedPressable key={`${item.kind}:${item.id}`} accessibilityRole="button" accessibilityLabel={`Open ${item.kind}: ${item.title || "Untitled"}`}
-                onPress={() => router.push(hrefFor(item.kind, item.id))} style={styles.chip}>
-                <Icon size={13} color={colors.primary} />
-                <Text numberOfLines={1} style={styles.chipText}>{item.title || "Untitled"}</Text>
-              </AnimatedPressable>
+              <View key={`${item.kind}:${item.id}`} style={styles.chipGroup}>
+                <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Open ${item.kind}: ${item.title || "Untitled"}`}
+                  onPress={() => router.push(hrefFor(item.kind, item.id))} style={styles.chip}>
+                  <Icon size={13} color={colors.primary} />
+                  <Text numberOfLines={1} style={styles.chipText}>{item.title || "Untitled"}</Text>
+                </AnimatedPressable>
+                {onLink && item.kind === "doc" ? (
+                  linked.has(item.id) ? (
+                    <View accessibilityLabel={`Linked ${item.title || "Untitled"}`} style={styles.chipLink}>
+                      <Check size={13} color={colors.mutedForeground} />
+                    </View>
+                  ) : (
+                    <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Add link to ${item.title || "Untitled"}`} hitSlop={6}
+                      onPress={() => { onLink(item); setLinked((prev) => new Set(prev).add(item.id)); }} style={styles.chipLink}>
+                      <Link2 size={13} color={colors.primary} />
+                    </AnimatedPressable>
+                  )
+                ) : null}
+              </View>
             );
           })}
         </ScrollView>
@@ -89,4 +107,6 @@ const styles = createThemedStyleSheet((colors) => ({
   chips: { gap: 6, paddingRight: 20 },
   chip: { maxWidth: 200, minHeight: 32, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, borderRadius: 16, backgroundColor: colors.card },
   chipText: { flexShrink: 1, color: colors.foreground, fontSize: 12, fontWeight: "600" },
+  chipGroup: { flexDirection: "row", alignItems: "center", gap: 2 },
+  chipLink: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.card },
 }));

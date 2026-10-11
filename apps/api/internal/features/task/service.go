@@ -725,7 +725,9 @@ func (s *taskService) syncCalendarPresence(userID string, task *models.Task, upd
 		return s.placement.ClearTask(task.ID)
 	case update.Duration != nil && task.Duration > 0 && len(task.Blocks) == 0 && task.ScheduledOn != nil && *task.ScheduledOn != "":
 		return s.placeSingleBlock(userID, task, *task.ScheduledOn, task.Duration)
-	case update.Duration != nil && len(task.Blocks) == 1 && task.Duration > 0:
+	// A block that has already ended is history: a new length doesn't stretch
+	// it (triage's "Add time" places the extra time on its own).
+	case update.Duration != nil && len(task.Blocks) == 1 && task.Duration > 0 && task.Blocks[0].EndAt.After(time.Now()):
 		block := task.Blocks[0]
 		return s.placement.ReplaceWork(task.ID, userID, []models.ScheduledBlock{{
 			StartAt: block.StartAt,

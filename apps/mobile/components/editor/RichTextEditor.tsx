@@ -233,6 +233,7 @@ export default function RichTextEditor({
   pdfRequest,
   linkDocId,
   propertyRequest,
+  mentionRequest,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
@@ -255,6 +256,8 @@ export default function RichTextEditor({
   linkDocId?: string;
   /** Set to a new object to set one doc property (from a suggestion). */
   propertyRequest?: { key: string; value: string } | null;
+  /** Adds a mention of this item at the end of the doc (Related "Add link"). */
+  mentionRequest?: { id: string; label: string; entityType: string } | null;
 }) {
   const [findResult, setFindResult] = useState({ current: -1, count: 0 });
   const [blockMenu, setBlockMenu] = useState<BlockInfo | null>(null);
@@ -273,6 +276,7 @@ export default function RichTextEditor({
   const [picker, setPicker] = useState<Picker>(null);
   const [inTable, setInTable] = useState(false);
   const [active, setActive] = useState<EditorActive>({});
+  const linkFeedback = useRef<{ logId: string; accepted: boolean } | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("https://");
   const [linkKind, setLinkKind] = useState<"link" | "embed" | "bookmark">("link");
@@ -331,6 +335,11 @@ export default function RichTextEditor({
   }, [propertyRequest, ready, run]);
 
   useEffect(() => {
+    if (!ready || !mentionRequest) return;
+    run("appendMention", { attrs: { ...mentionRequest, appearance: "mention" } });
+  }, [mentionRequest, ready, run]);
+
+  useEffect(() => {
     if (!ready) return;
     run("setChrome", { bottomPad: focused && keyboardHeight > 8 ? 12 : barHeight + 32 });
   }, [ready, barHeight, focused, keyboardHeight, run]);
@@ -380,7 +389,14 @@ export default function RichTextEditor({
           void findLinkTargets({ from: msg.from, to: msg.to, text: msg.text ?? "" });
         }
       }
-      if (msg.type === "linkStale") useToastStore.getState().show("The text changed. Select the phrase again.");
+      if (msg.type === "linkStale") {
+        linkFeedback.current = null;
+        useToastStore.getState().show("The text changed. Select the phrase again.");
+      }
+      if (msg.type === "linkDone" && linkFeedback.current) {
+        feedback.mutate(linkFeedback.current);
+        linkFeedback.current = null;
+      }
       if (msg.type === "exportHtml" && msg.html) {
         const name = `${(pdfTitleRef.current || "Untitled").replace(/[\\/:*?"<>|]+/g, " ").trim() || "Untitled"}.pdf`;
         void sharePdfFromHtml(name, msg.html).catch((error) =>
@@ -567,8 +583,10 @@ export default function RichTextEditor({
       text: linkPick.text,
       attrs: { id: target.id, label: target.title, entityType: target.kind, appearance: "mention" },
     });
+    // Feedback waits for the editor: a phrase that changed meanwhile links
+    // nothing, so it says nothing about the suggestion.
     const result = linkPick.result;
-    if (result?.logId) feedback.mutate({ logId: result.logId, accepted: result.match?.id === target.id });
+    linkFeedback.current = result?.logId ? { logId: result.logId, accepted: result.match?.id === target.id } : null;
     setLinkPick(null);
   }
 

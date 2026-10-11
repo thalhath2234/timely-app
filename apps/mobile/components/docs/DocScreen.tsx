@@ -106,6 +106,7 @@ function DocEditor({ docId }: { docId: string }) {
   const [findOpen, setFindOpen] = useState(false);
   const [pdfRequest, setPdfRequest] = useState<{ title: string } | null>(null);
   const [propertyRequest, setPropertyRequest] = useState<{ key: string; value: string } | null>(null);
+  const [mentionRequest, setMentionRequest] = useState<{ id: string; label: string; entityType: string } | null>(null);
 
   function openAfterMore(next: Menu) {
     setNextMenu(next);
@@ -218,7 +219,12 @@ function DocEditor({ docId }: { docId: string }) {
           </Pressable>
         ) : null}
       </View>
-      <RelatedList kind="doc" id={docId} variant="chips" />
+      <RelatedList
+        kind="doc"
+        id={docId}
+        variant="chips"
+        onLink={(item) => setMentionRequest({ id: item.id, label: item.title || "Untitled", entityType: "doc" })}
+      />
       <DocHintsCard
         doc={doc}
         version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
@@ -245,6 +251,7 @@ function DocEditor({ docId }: { docId: string }) {
         findOpen={findOpen}
         pdfRequest={pdfRequest}
         propertyRequest={propertyRequest}
+        mentionRequest={mentionRequest}
         linkDocId={docId}
         onFindClose={() => setFindOpen(false)}
         onFocusChange={(focused) => {

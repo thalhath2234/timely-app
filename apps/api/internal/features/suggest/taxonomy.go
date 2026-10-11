@@ -177,8 +177,10 @@ func (s *Service) taxonomy(ctx context.Context, userID, workspaceID string) []ta
 	}
 	groups := []taxonomyGroup{}
 
+	// created_at holds only a day, so items made the same day tie; id keeps
+	// the order stable, and a workspace's default status counts as oldest.
 	var labels []models.Lable
-	db.Where("workspace_id = ?", workspaceID).Order("created_at").Find(&labels)
+	db.Where("workspace_id = ?", workspaceID).Order("created_at, id").Find(&labels)
 	if len(labels) > 1 {
 		uses := count(`SELECT e->>'id' AS id, count(*) AS n FROM tasks, jsonb_array_elements(tasks.label_ids) e
 			WHERE tasks.user_id = ? AND jsonb_typeof(tasks.label_ids) = 'array' GROUP BY 1`, userID)
@@ -190,7 +192,7 @@ func (s *Service) taxonomy(ctx context.Context, userID, workspaceID string) []ta
 	}
 
 	var statuses []models.Status
-	db.Where("workspace_id = ?", workspaceID).Order("created_at").Find(&statuses)
+	db.Where("workspace_id = ?", workspaceID).Order("is_default DESC, created_at, id").Find(&statuses)
 	if len(statuses) > 1 {
 		uses := count(`SELECT status_id AS id, count(*) AS n FROM tasks WHERE user_id = ? AND status_id IS NOT NULL GROUP BY 1
 			UNION ALL SELECT status_id AS id, count(*) AS n FROM projects WHERE workspace_id = ? AND status_id IS NOT NULL GROUP BY 1`, userID, workspaceID)
@@ -204,7 +206,7 @@ func (s *Service) taxonomy(ctx context.Context, userID, workspaceID string) []ta
 
 	var fields []models.CustomField
 	db.Where("workspace_id = ? AND type IN ?", workspaceID,
-		[]string{string(models.CustomFieldTypeSelect), string(models.CustomFieldTypeMultiSelect)}).Order("created_at").Find(&fields)
+		[]string{string(models.CustomFieldTypeSelect), string(models.CustomFieldTypeMultiSelect)}).Order("created_at, id").Find(&fields)
 	for _, f := range fields {
 		if len(f.Options.Options) < 2 {
 			continue

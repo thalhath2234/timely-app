@@ -2233,10 +2233,10 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   letter: { color: KINETIC.muted, fontSize: 9, fontVariant: ["tabular-nums"] },
   headNameHit: { flex: 1, minWidth: 0 },
-  headName: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
+  headName: { color: KINETIC.text, fontSize: 12, fontWeight: "600" },
   rename: {
     flex: 1,
-    color: colors.foreground,
+    color: KINETIC.text,
     fontSize: 12,
     padding: 0,
   },

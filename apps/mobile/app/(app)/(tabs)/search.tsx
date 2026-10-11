@@ -100,15 +100,9 @@ export default function SearchTab() {
     ];
   }).filter((command) => (category === "all" || command.kind === category)
     && `${command.title} ${command.description}`.toLowerCase().includes(trimmed.toLowerCase()));
-  // A query that reads like a command ("make a budget sheet") leads the actions.
-  if (smartCreate && (category === "all" || category === smartCreate.kind)) {
-    const noun = nounFor(smartCreate.kind);
-    commands.unshift({
-      id: `smart-create-${smartCreate.kind}`, kind: smartCreate.kind, title: `Create ${noun} “${smartCreate.title}”`,
-      description: `Start a new ${noun} with this title`, icon: Plus,
-      run: () => create(smartCreate.kind, smartCreate.title),
-    });
-  }
+  // A query that reads like a command ("make a budget sheet") is suggested
+  // above the results, beside a saved view, as on web.
+  const createPick = smartCreate && (category === "all" || category === smartCreate.kind) ? smartCreate : null;
 
   function renderHit(hit: SearchHit) {
     const Icon = searchKindIcon(hit.kind);
@@ -126,14 +120,19 @@ export default function SearchTab() {
     );
   }
 
-  const hiddenToggle = hidden.length > 0 && !hiddenShown ? (
+  const weak = `${hidden.length} weak ${hidden.length === 1 ? "match" : "matches"}`;
+  // Stays while the weak matches show, so they read as set apart and can be
+  // hidden again.
+  const hiddenToggle = hidden.length > 0 ? (
     <View style={styles.hiddenRow}>
       <Text style={styles.hiddenText}>
-        {hits.length === 0 ? "No good matches." : `${hidden.length} weak ${hidden.length === 1 ? "match" : "matches"} hidden`}
+        {hiddenShown
+          ? `${weak} shown below`
+          : hits.length === 0 ? "No good matches." : `${weak} hidden`}
       </Text>
-      <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Show ${hidden.length} weak ${hidden.length === 1 ? "match" : "matches"}`}
-        onPress={() => setShowHidden(trimmed)} hitSlop={8} style={styles.hiddenShow}>
-        <Text style={styles.tabLabelSelected}>Show</Text>
+      <AnimatedPressable accessibilityRole="button" accessibilityLabel={`${hiddenShown ? "Hide" : "Show"} ${weak}`}
+        onPress={() => setShowHidden(hiddenShown ? null : trimmed)} hitSlop={8} style={styles.hiddenShow}>
+        <Text style={styles.tabLabelSelected}>{hiddenShown ? "Hide" : "Show"}</Text>
       </AnimatedPressable>
     </View>
   ) : null;
@@ -200,6 +199,17 @@ export default function SearchTab() {
             <ArrowUpRight size={16} color={colors.mutedForeground} />
           </AnimatedPressable>
         ) : null}
+        {createPick ? (
+          <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Create ${nounFor(createPick.kind)} ${createPick.title}`}
+            onPress={() => create(createPick.kind, createPick.title)} style={styles.viewRow}>
+            <View style={styles.viewIcon}><Plus size={16} color={colors.primary} /></View>
+            <View style={styles.resultContent}>
+              <Text numberOfLines={1} style={styles.viewTitle}>Create {nounFor(createPick.kind)} “{createPick.title}”</Text>
+              <Text numberOfLines={1} style={styles.viewHint}>Start a new {nounFor(createPick.kind)} with this title</Text>
+            </View>
+            <ArrowUpRight size={16} color={colors.mutedForeground} />
+          </AnimatedPressable>
+        ) : null}
         <View accessibilityLiveRegion="polite">
           {pending ? <Text style={styles.status}>Searching your workspace…</Text> : failed ? (
             <View style={styles.error}>
@@ -209,7 +219,7 @@ export default function SearchTab() {
               </AnimatedPressable>
             </View>
           ) : trimmed && hits.length === 0 && hidden.length > 0 ? (
-            hiddenToggle ?? <Text style={styles.status}>No good matches.</Text>
+            hiddenToggle
           ) : trimmed && hits.length === 0 ? (
             <EmptyState icon={SearchIcon} title="No matching items" description="Try another keyword or category." />
           ) : hits.length > 0 ? <Text style={styles.sectionHeading}>{hits.length} {hits.length === 1 ? "result" : "results"}</Text> : null}

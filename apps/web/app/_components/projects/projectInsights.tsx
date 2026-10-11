@@ -17,13 +17,15 @@ const health: Record<NonNullable<Insights["health"]>, { label: string; className
   blocked: { label: "Blocked", className: "bg-destructive/10 text-destructive" },
 };
 
+const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+
 function factLine(f: Insights["facts"]) {
   const parts = [`${f.open} open`, `${f.doneRecent} done in the last two weeks`];
   if (f.overdue) parts.push(`${f.overdue} overdue`);
   if (f.blocked) parts.push(`${f.blocked} waiting on other tasks`);
   if (f.idleDays >= 7) parts.push(`no activity for ${f.idleDays} days`);
   if (f.daysLeft !== undefined) {
-    parts.push(f.daysLeft < 0 ? `deadline passed ${-f.daysLeft} days ago` : f.daysLeft === 0 ? "due today" : `${f.daysLeft} days to the deadline`);
+    parts.push(f.daysLeft < 0 ? `deadline passed ${days(-f.daysLeft)} ago` : f.daysLeft === 0 ? "due today" : `${days(f.daysLeft)} to the deadline`);
   }
   return parts.join(" · ");
 }

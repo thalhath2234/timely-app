@@ -6,6 +6,7 @@ import AnimatedPressable from "../ui/AnimatedPressable";
 import { useDecisionFeedback, useKeepStaleTask, useSaveTask, useStaleWorkQuery } from "../../lib/hooks";
 import { showUndoToast } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { documentTextFile } from "../../lib/textFile";
 import type { StaleVerdict } from "../../lib/api/decisions";
 
 const VERDICT: Record<StaleVerdict, string> = {
@@ -15,14 +16,22 @@ const VERDICT: Record<StaleVerdict, string> = {
   obsolete: "Maybe no longer needed",
 };
 
-// Hidden until the app restarts; the web hides it for a week.
-let hiddenThisRun = false;
+// Hidden for a week, as on web; the time is kept on the device.
+const HIDE_MS = 7 * 24 * 60 * 60 * 1000;
+const hideFile = documentTextFile("timely-stale-work-hidden.txt");
+function hiddenNow() {
+  try {
+    return Date.now() < Number(hideFile.read() ?? 0);
+  } catch {
+    return false;
+  }
+}
 
 /** Open Work nobody has touched in three weeks, with smart suggestions' read
  * of what each one needs: Keep, Done or open each one. */
 export default function StaleWorkCard() {
   const router = useRouter();
-  const [hidden, setHidden] = useState(hiddenThisRun);
+  const [hidden, setHidden] = useState(hiddenNow);
   const { data } = useStaleWorkQuery(!hidden);
   const keep = useKeepStaleTask();
   const save = useSaveTask();
@@ -54,7 +63,11 @@ export default function StaleWorkCard() {
           accessibilityLabel="Hide"
           hitSlop={8}
           onPress={() => {
-            hiddenThisRun = true;
+            try {
+              hideFile.write(String(Date.now() + HIDE_MS));
+            } catch {
+              // Hidden for this visit only.
+            }
             setHidden(true);
           }}
         >
