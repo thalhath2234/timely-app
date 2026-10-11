@@ -14,6 +14,7 @@ pkgbase = timely-bin
 	depends = xdg-utils
 	provides = timely
 	conflicts = timely
+	install = timely-bin.install
 	noextract = Timely-0.3.0-linux-x86_64.AppImage
 	options = !strip
 	options = !debug

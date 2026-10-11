@@ -21,6 +21,8 @@ import { detectTailscale, urlFor, type TailscaleInfo } from "./tailscale.ts";
 export type UpdateStatus = DesktopInstance["update"];
 
 export type Updater = {
+  /** The status before any check (for example "managed"). */
+  current(): UpdateStatus;
   check(): Promise<void>;
   install(): Promise<void>;
   onStatus(callback: (status: UpdateStatus) => void): void;
@@ -161,6 +163,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     for (const sidecar of [this.postgresSidecar, this.apiSidecar, this.webSidecar]) {
       sidecar.on("change", () => this.emitChange());
     }
+    if (deps.updater) this.update = deps.updater.current();
     deps.updater?.onStatus((status) => {
       this.update = status;
       this.emitChange();

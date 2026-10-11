@@ -16,6 +16,7 @@ depends=('gtk3' 'nss' 'alsa-lib' 'libxss' 'libxtst' 'libnotify' 'xdg-utils')
 provides=('timely')
 conflicts=('timely')
 options=('!strip' '!debug')
+install="${pkgname}.install"
 _appimage="${_pkgname}-${_ver}-linux-x86_64.AppImage"
 _license_rev=84d57b740eb61625755d9be286a154528190808c  # commit that added LICENSE
 source=("${_appimage}::${url}/releases/download/${_tag}/${_appimage}"

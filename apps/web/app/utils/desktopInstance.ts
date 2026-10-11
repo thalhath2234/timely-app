@@ -109,6 +109,8 @@ export function describeUpdate(update: DesktopInstance["update"]): StatusSummary
       return { label: "You have the latest version", tone: "ok" };
     case "error":
       return { label: "Update check failed", tone: "danger", detail: update.error };
+    case "managed":
+      return { label: "Updated by your package manager", tone: "muted" };
     case "idle":
     default:
       return { label: "Not checked yet", tone: "muted" };

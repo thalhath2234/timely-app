@@ -45,7 +45,7 @@ export type DesktopInstance = {
   /** What the Settings → Server QR encodes; see "Pairing payload" in the contract. */
   pairing: { v: 1; name: string; urls: string[] };
   update: {
-    status: "idle" | "checking" | "available" | "downloading" | "ready" | "upToDate" | "error";
+    status: "idle" | "checking" | "available" | "downloading" | "ready" | "upToDate" | "error" | "managed";
     version?: string;
     error?: string;
   };

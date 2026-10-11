@@ -72,6 +72,7 @@ test("update status copy names the version when known", () => {
   const failed = describeUpdate({ status: "error", error: "offline" });
   assert.equal(failed.tone, "danger");
   assert.equal(failed.detail, "offline");
+  assert.equal(describeUpdate({ status: "managed" }).label, "Updated by your package manager");
 });
 
 test("onboarding goes to the wizard once inside the desktop app, otherwise to the calendar", () => {

@@ -451,13 +451,15 @@ export default function ServerSettings() {
               <StatusBadge summary={update} />
             </div>
             <div className="flex items-center gap-2">
-              <ActionButton
-                action="checkForUpdates"
-                icon={RefreshCw}
-                label="Check for updates"
-                run={actions.run}
-                pending={actions.pending}
-              />
+              {instance.update.status !== "managed" && (
+                <ActionButton
+                  action="checkForUpdates"
+                  icon={RefreshCw}
+                  label="Check for updates"
+                  run={actions.run}
+                  pending={actions.pending}
+                />
+              )}
               {instance.update.status === "ready" && (
                 <ActionButton
                   action="installUpdate"
@@ -477,6 +479,12 @@ export default function ServerSettings() {
               : ""}
             . Before any update, Timely backs up the database first.
           </p>
+          {instance.update.status === "managed" && (
+            <p className="text-xs text-muted-foreground">
+              This copy was installed by your package manager (for example the AUR package), so update it there. If
+              Timely was open during the update, it restarts into the new version the next time you open it.
+            </p>
+          )}
           {update.detail && <p className="text-xs text-destructive">{update.detail}</p>}
         </div>
         <p
