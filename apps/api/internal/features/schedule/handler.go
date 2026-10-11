@@ -280,7 +280,7 @@ func (h *Handler) AddBlock(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
 	}
-	task, err := h.service.AddBlock(uid, c.Param("id"), BlockInput{
+	task, displaced, err := h.service.AddBlock(uid, c.Param("id"), BlockInput{
 		Start:           req.Start,
 		End:             req.End,
 		DurationMinutes: req.DurationMinutes,
@@ -289,7 +289,7 @@ func (h *Handler) AddBlock(c *echo.Context) error {
 	if err != nil {
 		return scheduleError(err)
 	}
-	return c.JSON(http.StatusCreated, map[string]any{"message": "block created", "task": task})
+	return c.JSON(http.StatusCreated, map[string]any{"message": "block created", "task": task, "displacedTaskIds": displaced})
 }
 
 func (h *Handler) ClearBlocks(c *echo.Context) error {
@@ -313,11 +313,11 @@ func (h *Handler) MoveBlock(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
 	}
-	block, err := h.service.MoveBlock(uid, c.Param("id"), req.Start, req.End)
+	block, displaced, err := h.service.MoveBlock(uid, c.Param("id"), req.Start, req.End)
 	if err != nil {
 		return scheduleError(err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"message": "block moved", "block": block})
+	return c.JSON(http.StatusOK, map[string]any{"message": "block moved", "block": block, "displacedTaskIds": displaced})
 }
 
 func (h *Handler) DeleteBlock(c *echo.Context) error {

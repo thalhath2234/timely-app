@@ -2,11 +2,11 @@
 
 import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import {
+  dayDropAt,
   eventsForDay,
   eventStyle,
   isSameDay,
   monthGrid,
-  slotAt,
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
@@ -79,7 +79,7 @@ export default function MonthView({
                 if (!onDropTask) return;
                 event.preventDefault();
                 const taskId = readTaskDragId(event);
-                if (taskId) onDropTask(slotAt(day, 9), taskId);
+                if (taskId) onDropTask(dayDropAt(day, new Date()), taskId);
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {

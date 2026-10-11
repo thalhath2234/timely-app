@@ -369,7 +369,8 @@ func (s *taskService) placeByHand(userID string, task *models.Task, scheduledOn 
 		return s.placement.PlacePing(userID, task, start)
 	}
 	end := start.Add(time.Duration(task.Duration) * time.Minute)
-	return s.placement.PlaceByHand(userID, task, start, end, true)
+	_, err = s.placement.PlaceByHand(userID, task, start, end, true)
+	return err
 }
 
 func (s *taskService) GetAllTaskByUser(userID string) ([]models.Task, error) {

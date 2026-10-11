@@ -1,6 +1,7 @@
 package placement
 
 import (
+	"errors"
 	"net/url"
 	"os"
 	"strings"
@@ -77,6 +78,9 @@ type fixture struct {
 }
 
 func newFixture(t *testing.T) *fixture {
+	// The fixtures place work on at(...); keep that day in the future.
+	now = func() time.Time { return at(0, 0) }
+	t.Cleanup(func() { now = time.Now })
 	db, ws := placementDB(t)
 	return &fixture{t: t, db: db, workspace: ws, svc: New(db, nil)}
 }
@@ -166,7 +170,7 @@ func at(hour, minute int) time.Time {
 // placeByHand places a 30 minute Block for task starting at start.
 func (f *fixture) placeByHand(task *models.Task, start time.Time, replace bool) {
 	f.t.Helper()
-	if err := f.svc.PlaceByHand(testUser, task, start, start.Add(30*time.Minute), replace); err != nil {
+	if _, err := f.svc.PlaceByHand(testUser, task, start, start.Add(30*time.Minute), replace); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -309,7 +313,7 @@ func TestIntegrationPinBlockMakesItManualAndLocked(t *testing.T) {
 func TestIntegrationMoveByHandKeepsLengthAndPushesAsideWork(t *testing.T) {
 	f := newFixture(t)
 	mover := f.task(models.KindTask, 45)
-	if err := f.svc.PlaceByHand(testUser, mover, at(9, 0), at(9, 45), false); err != nil {
+	if _, err := f.svc.PlaceByHand(testUser, mover, at(9, 0), at(9, 45), false); err != nil {
 		t.Fatal(err)
 	}
 	loose := f.task(models.KindTask, 30)
@@ -321,9 +325,12 @@ func TestIntegrationMoveByHandKeepsLengthAndPushesAsideWork(t *testing.T) {
 	}
 
 	protectedBefore := f.spans("task_id = ?", protected.ID)
-	moved, err := f.svc.MoveByHand(testUser, f.blocks(mover.ID)[0].ID, at(12, 0).Format(time.RFC3339), nil)
+	moved, displaced, err := f.svc.MoveByHand(testUser, f.blocks(mover.ID)[0].ID, at(12, 0).Format(time.RFC3339), nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(displaced) != 1 || displaced[0] != loose.ID {
+		t.Fatalf("displaced %v, want only the pushed-aside task", displaced)
 	}
 	if !moved.StartAt.Equal(at(12, 0)) || !moved.EndAt.Equal(at(12, 45)) || moved.Source != models.BlockSourceManual {
 		t.Fatalf("moved to %+v", moved)
@@ -334,12 +341,36 @@ func TestIntegrationMoveByHandKeepsLengthAndPushesAsideWork(t *testing.T) {
 	if !sameSpans(protectedBefore, f.spans("task_id = ?", protected.ID)) || len(protectedBefore) != 1 {
 		t.Fatal("moving over a Pinned Block changed it")
 	}
-	if _, err := f.svc.MoveByHand(testUser, moved.ID, "not a time", nil); err == nil {
+	if _, _, err := f.svc.MoveByHand(testUser, moved.ID, "not a time", nil); err == nil {
 		t.Fatal("accepted an invalid start")
 	}
 	end := at(11, 0).Format(time.RFC3339)
-	if _, err := f.svc.MoveByHand(testUser, moved.ID, at(12, 0).Format(time.RFC3339), &end); err == nil {
+	if _, _, err := f.svc.MoveByHand(testUser, moved.ID, at(12, 0).Format(time.RFC3339), &end); err == nil {
 		t.Fatal("accepted an end before the start")
+	}
+}
+
+// A Block can't be moved onto time that has gone by, but one already under way
+// can still be stretched from its own start.
+func TestIntegrationMoveByHandRefusesThePast(t *testing.T) {
+	f := newFixture(t)
+	task := f.task(models.KindTask, 30)
+	f.placeByHand(task, at(9, 0), false)
+	block := f.blocks(task.ID)[0]
+
+	now = func() time.Time { return at(10, 0) }
+	if _, _, err := f.svc.MoveByHand(testUser, block.ID, at(8, 0).Format(time.RFC3339), nil); !errors.Is(err, ErrPastTime) {
+		t.Fatalf("moving onto past time: err = %v, want ErrPastTime", err)
+	}
+	if got := f.blocks(task.ID)[0]; !got.StartAt.Equal(at(9, 0)) {
+		t.Fatalf("refused move still moved the Block to %v", got.StartAt)
+	}
+	end := at(10, 30).Format(time.RFC3339)
+	if _, _, err := f.svc.MoveByHand(testUser, block.ID, at(9, 0).Format(time.RFC3339), &end); err != nil {
+		t.Fatalf("stretching a Block from its own start: %v", err)
+	}
+	if _, _, err := f.svc.MoveByHand(testUser, block.ID, at(9, 58).Format(time.RFC3339), nil); err != nil {
+		t.Fatalf("a start inside the grace window was refused: %v", err)
 	}
 }
 
@@ -595,7 +626,7 @@ func TestIntegrationAutoScheduleApplyIsAtomic(t *testing.T) {
 
 func TestIntegrationUnconfiguredPlacementFailsLoudly(t *testing.T) {
 	var s *Service
-	if err := s.PlaceByHand(testUser, &models.Task{}, at(9, 0), at(9, 30), false); err == nil {
+	if _, err := s.PlaceByHand(testUser, &models.Task{}, at(9, 0), at(9, 30), false); err == nil {
 		t.Fatal("PlaceByHand on a nil Service reported success")
 	}
 	if err := s.ApplyAutoSchedule(testUser, AutoScheduleApply{}); err == nil {

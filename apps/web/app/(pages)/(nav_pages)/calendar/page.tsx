@@ -21,14 +21,17 @@ import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { CALENDAR_VIEWS, CalendarView, Task } from "@/app/_types/types";
 import { useCalendarStore } from "@/app/_store/calendarStore";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
+import { useToastStore } from "@/app/_store/toastStore";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { runViewTransition } from "@/app/utils/viewTransition";
 import { useAddTaskBlock, useCalendarRange, useCommitCalendarBlock, useApplySchedule, useRank } from "@/app/utils/hooks/calendar";
 import {
+  dropStart,
   eventLegend,
   headerLabel,
   isSameDay,
+  pastDropMessage,
   shiftDate,
   slotAt,
   swatchColor,
@@ -139,11 +142,15 @@ function CalendarContent() {
     });
   };
 
-  const rerunAroundPins = useCallback(async () => {
+  // Re-places only the tasks a drop pushed aside. A full run would also place
+  // every other waiting task, so a same-named one looked like the dropped
+  // task landing twice.
+  const replaceDisplaced = useCallback(async (taskIds: string[]) => {
+    if (taskIds.length === 0) return;
     const activity = useScheduleActivityStore.getState();
     activity.start();
     try {
-      const plan = await applySchedule.mutateAsync({ includeManual: false });
+      const plan = await applySchedule.mutateAsync({ taskIds, includeManual: false });
       activity.finish(plan);
     } catch (err) {
       activity.fail(
@@ -154,17 +161,23 @@ function CalendarContent() {
 
   const dropTaskOnSlot = useCallback(
     (at: Date, taskId: string) => {
+      const now = new Date();
+      const start = dropStart(at, now);
+      if (!start) {
+        useToastStore.getState().show(pastDropMessage(at, now));
+        return;
+      }
       const task = typedTasks.find((item) => item.id === taskId);
       const minutes = Math.max(task?.duration || 0, 30);
       void (async () => {
         try {
-          await addBlock.mutateAsync({
+          const placed = await addBlock.mutateAsync({
             taskId,
-            start: at.toISOString(),
+            start: start.toISOString(),
             durationMinutes: minutes,
             replace: true,
           });
-          await rerunAroundPins();
+          await replaceDisplaced(placed.displacedTaskIds);
         } catch (err) {
           useScheduleActivityStore.getState().fail(
             err instanceof Error ? err.message : "Could not place task.",
@@ -172,12 +185,22 @@ function CalendarContent() {
         }
       })();
     },
-    [addBlock, rerunAroundPins, typedTasks],
+    [addBlock, replaceDisplaced, typedTasks],
   );
 
   const moveCalendarBlock = useCallback(
     (event: CalendarEvent, start: Date, end: Date) => {
       if (!event.blockId) return;
+      if (start.getTime() !== event.start.getTime()) {
+        const now = new Date();
+        const next = dropStart(start, now);
+        if (!next) {
+          useToastStore.getState().show(pastDropMessage(start, now));
+          return;
+        }
+        end = new Date(end.getTime() + (next.getTime() - start.getTime()));
+        start = next;
+      }
       void commitBlock.mutateAsync({
         blockId: event.blockId,
         extraBlockIds: event.blockIds ?? [],
