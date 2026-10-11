@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
   Bell,
   CalendarClock,
   Check,
@@ -37,7 +36,6 @@ import {
 import { cn } from "@/app/utils/cn";
 import { chipStyle, fillStyle, taskEntityColor } from "@/app/utils/entityColor";
 import { useToday } from "@/app/utils/hooks/calendar";
-import { useModKey } from "@/app/utils/hooks/useModKey";
 import {
   useInboxTasks,
   useSetTodayFocus,
@@ -613,7 +611,6 @@ function AgendaRow({
 }
 
 export default function TodayDashboard() {
-  const modKey = useModKey();
   const today = useToday();
   const inbox = useInboxTasks();
   const startFocus = useStartFocus();
@@ -846,7 +843,7 @@ export default function TodayDashboard() {
           }
         />
 
-        <div className={cn("mt-6 space-y-7 px-6", inboxCount > 0 ? "pb-28" : "pb-8")}>
+        <div className="mt-6 space-y-7 px-6 pb-8">
           {today.isError && data ? (
             <LoadErrorBanner
               what="today"
@@ -1124,27 +1121,6 @@ export default function TodayDashboard() {
         </div>
       </div>
 
-      {inboxCount > 0 ? (
-        <div className="pointer-events-none absolute inset-x-6 bottom-6 flex items-center justify-between gap-3 sm:inset-x-8">
-          <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border bg-card px-4 py-2.5 shadow-lg">
-            <span className="relative flex size-2.5">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-warning opacity-75" />
-              <span className="relative inline-flex size-2.5 rounded-full bg-warning" />
-            </span>
-            <span className="text-xs">
-              <span className="font-semibold">{inboxCount} inbox item{inboxCount === 1 ? "" : "s"}</span> waiting to be triaged
-            </span>
-            <Link href="/inbox" className="inline-flex items-center gap-1 pl-1 text-xs font-medium text-primary hover:underline">
-              Review inbox
-              <ArrowRight className="size-3" />
-            </Link>
-          </div>
-          <div className="pointer-events-auto hidden items-center gap-2 rounded-full border border-border bg-background/90 px-3.5 py-1.5 text-[11px] text-muted-foreground md:flex">
-            <span>Quick search</span>
-            <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">{modKey}+K</kbd>
-          </div>
-        </div>
-      ) : null}
 
       {pickerOpen ? (
         <div

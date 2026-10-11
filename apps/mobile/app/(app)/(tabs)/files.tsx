@@ -11,7 +11,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { Archive, ArchiveRestore, CalendarDays, ChevronRight, FilePlus, FileText, FolderUp, LayoutTemplate, MoreVertical, Sheet as SheetIcon, Star, Trash2, Upload } from "lucide-react-native";
+import { Archive, ArchiveRestore, CalendarDays, ChevronRight, FilePlus, FileText, FolderUp, LayoutTemplate, MoreHorizontal, MoreVertical, Sheet as SheetIcon, Star, Trash2, Upload } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -70,7 +70,7 @@ function DocsExpandButton({
 }
 
 type Filter = "all" | "docs" | "sheets";
-type PendingAction = FileKind | "markdown" | "csv" | null;
+type PendingAction = FileKind | "markdown" | "csv" | "import" | "today" | null;
 
 function FileGlyph({ icon, kind }: { icon?: string | null; kind: "doc" | "sheet" }) {
   // An item's own emoji wins; otherwise the type icon says what it is.
@@ -103,6 +103,7 @@ export default function FilesScreen() {
     if (requestedFilter === "all" || requestedFilter === "docs" || requestedFilter === "sheets") setFilter(requestedFilter);
   }, [requestedFilter]);
   const [showArchived, setShowArchived] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   useAssistantScreen([contextChip("file-view", "Files", { kind: filter, showArchived })]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [menuDoc, setMenuDoc] = useState<Doc | null>(null);
@@ -253,6 +254,8 @@ export default function FilesScreen() {
     if (action === "doc" || action === "sheet") setNewKind(action);
     else if (action === "markdown") void importMarkdown();
     else if (action === "csv") void importCsv();
+    else if (action === "import") onImport();
+    else if (action === "today") void openToday();
   }
 
   function onNew() {
@@ -467,16 +470,11 @@ export default function FilesScreen() {
         subtitle={subtitle}
         actions={
           <>
-            <HeaderIconButton
-              label={showArchived ? "Show active files" : "Show archived files"}
-              active={showArchived}
-              onPress={() => setShowArchived((previous) => !previous)}
-            >
-              {showArchived ? <ArchiveRestore size={20} color={colors.primary} /> : <Archive size={20} color={colors.foreground} />}
-            </HeaderIconButton>
-            {showDocs ? (
-              <HeaderIconButton label="Open today's daily note" onPress={() => void openToday()}>
-                <CalendarDays size={20} color={colors.foreground} />
+            {/* Archive view stays one tap from leaving while it is on;
+                the rarer actions live in the More sheet with labels. */}
+            {showArchived ? (
+              <HeaderIconButton label="Show active files" active onPress={() => setShowArchived(false)}>
+                <ArchiveRestore size={20} color={colors.primary} />
               </HeaderIconButton>
             ) : null}
             <HeaderIconButton
@@ -485,11 +483,8 @@ export default function FilesScreen() {
             >
               <FilePlus size={20} color={colors.foreground} />
             </HeaderIconButton>
-            <HeaderIconButton
-              label={filter === "docs" ? "Import Markdown" : filter === "sheets" ? "Import CSV" : "Import a file"}
-              onPress={onImport}
-            >
-              <Upload size={20} color={colors.foreground} />
+            <HeaderIconButton label="More file actions" onPress={() => setMoreOpen(true)}>
+              <MoreHorizontal size={20} color={colors.foreground} />
             </HeaderIconButton>
           </>
         }
@@ -542,6 +537,38 @@ export default function FilesScreen() {
           leading={<SheetIcon size={18} color={colors.mutedForeground} />}
         >
           New sheet
+        </SheetOption>
+      </BottomSheet>
+      <BottomSheet open={moreOpen} onClose={() => setMoreOpen(false)} onClosed={runPendingAction} title="Files">
+        {showDocs ? (
+          <SheetOption
+            onSelect={() => {
+              pendingAction.current = "today";
+              setMoreOpen(false);
+            }}
+            leading={<CalendarDays size={18} color={colors.mutedForeground} />}
+          >
+            Today&apos;s daily note
+          </SheetOption>
+        ) : null}
+        <SheetOption
+          onSelect={() => {
+            pendingAction.current = "import";
+            setMoreOpen(false);
+          }}
+          leading={<Upload size={18} color={colors.mutedForeground} />}
+        >
+          {filter === "docs" ? "Import Markdown" : filter === "sheets" ? "Import CSV" : "Import a file"}
+        </SheetOption>
+        <SheetOption
+          selected={showArchived}
+          onSelect={() => {
+            setShowArchived((previous) => !previous);
+            setMoreOpen(false);
+          }}
+          leading={<Archive size={18} color={colors.mutedForeground} />}
+        >
+          {showArchived ? "Show active files" : "Show archived files"}
         </SheetOption>
       </BottomSheet>
       <BottomSheet open={importOpen} onClose={() => setImportOpen(false)} onClosed={runPendingAction} title="Import">

@@ -16,6 +16,7 @@ import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { cn } from "@/app/utils/cn";
 import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
+import { settingsColumns } from "./layout";
 
 const DAYS: { key: WeekdayKey; label: string }[] = [
   { key: "mon", label: "Monday" },
@@ -45,7 +46,7 @@ export default function WorkingHoursSettings() {
 
   // Remount on server changes so the draft starts from what is saved.
   return (
-    <div className="flex flex-col gap-12">
+    <div className={settingsColumns}>
       <WorkingHoursForm key={JSON.stringify(hours)} initial={hours} />
       <EngineSettingsPanel />
     </div>
@@ -334,7 +335,7 @@ function EngineSettingsForm({
   };
 
   return (
-    <form onSubmit={onSubmit} className="flex max-w-2xl flex-col gap-5 border-t border-border pt-8">
+    <form onSubmit={onSubmit} className="flex max-w-2xl flex-col gap-5 border-t border-border pt-8 xl:border-t-0 xl:pt-0">
       <div>
         <h2 className="text-base font-semibold text-foreground">Auto-schedule engine</h2>
         <p className="mt-1 text-xs text-muted-foreground">

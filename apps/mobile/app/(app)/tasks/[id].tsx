@@ -318,8 +318,8 @@ export default function TaskDetailScreen() {
             onChange={({ content, plainText }) => {
               setNoteRich(content);
               setNote(plainText);
+              scheduleSave({ description: plainText, descriptionRich: content });
             }}
-            onSave={() => persist({ description: note, descriptionRich: noteRich })}
         />
         <View style={{ gap: 8 }}>
           <SegmentedControl
