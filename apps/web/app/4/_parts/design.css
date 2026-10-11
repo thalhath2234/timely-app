@@ -1,0 +1,492 @@
+/* ---- Design 4 · Swiss kinetic week ----
+   International Typographic Style on black: one tight grotesk, a visible
+   12-column grid, flat blocks in Timely's project colours. Everything is
+   scoped under `.d4`; the only global rule paints the canvas while a `.d4`
+   page is on screen. */
+
+html:has(.d4) {
+  background: #0a0a0a;
+  color-scheme: dark;
+  scrollbar-color: #3a3a37 #0a0a0a;
+  scroll-padding-top: 4.5rem;
+}
+
+html:has(.d4) body {
+  background: transparent;
+}
+
+.d4 {
+  --bg: #0a0a0a;
+  --panel: #121211;
+  --panel-2: #191917;
+  --ink: #f3f2ed;
+  --soft: #b4b3ac;
+  --faint: #8c8b84;
+  --line: rgb(243 242 237 / 15%);
+  --line-2: rgb(243 242 237 / 34%);
+  --grid: rgb(243 242 237 / 5.5%);
+
+  --green: #30a66d;
+  --violet: #6e56cf;
+  --amber: #ffb224;
+  --blue: #0090ff;
+  --pink: #e93d82;
+  --cyan: #00a2c7;
+  --orange: #f76808;
+
+  --pad: 16px;
+  --max: 1440px;
+  --head: 56px;
+
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  color-scheme: dark;
+  font-family: var(--d4-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11", "tnum";
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+
+@media (min-width: 768px) {
+  .d4 {
+    --pad: 32px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .d4 {
+    --pad: 48px;
+  }
+}
+
+.d4 ::selection {
+  background: var(--amber);
+  color: #0a0a0a;
+}
+
+@layer components {
+.d4 :focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+/* ---- The visible grid: 4 columns on phones, 12 from tablet up ---- */
+
+.d4-gridlines {
+  position: fixed;
+  inset-block: 0;
+  left: max(var(--pad), calc((100% - var(--max)) / 2 + var(--pad)));
+  right: max(var(--pad), calc((100% - var(--max)) / 2 + var(--pad)));
+  z-index: -1;
+  pointer-events: none;
+  background-image: linear-gradient(to right, var(--grid) 1px, transparent 1px);
+  background-size: calc(100% / 4) 100%;
+  border-right: 1px solid var(--grid);
+}
+
+@media (min-width: 768px) {
+  .d4-gridlines {
+    background-size: calc(100% / 12) 100%;
+  }
+}
+
+.d4-wrap {
+  width: 100%;
+  max-width: var(--max);
+  margin-inline: auto;
+  padding-inline: var(--pad);
+}
+
+.d4-cols {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (min-width: 768px) {
+  .d4-cols {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+}
+
+/* ---- Type ---- */
+
+.d4-mono {
+  font-family: var(--d4-mono), ui-monospace, monospace;
+  font-feature-settings: normal;
+}
+
+.d4-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.d4-display {
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 0.86;
+}
+
+.d4-h2 {
+  font-size: clamp(2.6rem, 6.4vw, 6.25rem);
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  font-weight: 760;
+  text-wrap: balance;
+}
+
+.d4-h3 {
+  font-size: clamp(1.5rem, 2.3vw, 2.125rem);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  font-weight: 700;
+}
+
+.d4-lead {
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: var(--soft);
+}
+
+@media (min-width: 768px) {
+  .d4-lead {
+    font-size: 1.1875rem;
+  }
+}
+
+.d4-body {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--soft);
+}
+
+.d4-soft {
+  color: var(--soft);
+}
+
+.d4-faint {
+  color: var(--faint);
+}
+
+.d4-num {
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 0.8;
+  font-feature-settings: "tnum";
+}
+
+/* ---- Rules ---- */
+
+.d4-rule {
+  border-top: 1px solid var(--line-2);
+}
+
+.d4-hair {
+  border-top: 1px solid var(--line);
+}
+
+/* ---- Buttons: flat blocks with square corners ---- */
+
+.d4-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0 1.125rem;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  border: 1px solid var(--line-2);
+  color: var(--ink);
+  background: transparent;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+  white-space: nowrap;
+}
+
+.d4-btn:hover {
+  border-color: var(--ink);
+  background: rgb(243 242 237 / 6%);
+}
+
+.d4-btn-solid {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #0a0a0a;
+}
+
+.d4-btn-solid:hover {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: #0a0a0a;
+}
+
+.d4-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+  transition: text-decoration-color 0.15s;
+}
+
+.d4-link:hover {
+  text-decoration-color: var(--amber);
+}
+
+.d4-navlink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding-inline: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 550;
+  color: var(--soft);
+  transition: color 0.15s;
+}
+
+.d4-navlink:hover,
+.d4-navlink[aria-current="page"] {
+  color: var(--ink);
+}
+
+/* ---- Header ---- */
+
+.d4-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+/* ---- Product-like surfaces in the graphics ---- */
+
+.d4-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.d4-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 22px;
+  padding: 0 0.5rem;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--line-2);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* Events the planner works around: outlined and hatched, never filled. */
+.d4-event {
+  background-color: rgb(243 242 237 / 4%);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(243 242 237 / 9%) 0 1px,
+    transparent 1px 7px
+  );
+  border: 1px solid var(--line-2);
+  color: var(--soft);
+}
+
+.d4-offhours {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(243 242 237 / 5%) 0 1px,
+    transparent 1px 9px
+  );
+}
+
+/* A typed caret for the looping graphics. */
+.d4-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: var(--amber);
+  animation: d4-blink 1s steps(1) infinite;
+}
+
+@keyframes d4-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Slow marching line for the MCP and sync diagrams. */
+.d4-march {
+  stroke-dasharray: 4 6;
+  animation: d4-march 1.2s linear infinite;
+}
+
+@keyframes d4-march {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* Packets on the Tailscale link: vertical on phones, sideways from tablet up. */
+.d4-packet {
+  top: 0;
+  left: calc(50% - 5px);
+  animation: d4-packet-v 2.6s linear infinite;
+}
+
+.d4-packet-back {
+  animation-direction: reverse;
+  animation-delay: -1.3s;
+}
+
+@keyframes d4-packet-v {
+  from {
+    top: 0;
+  }
+  to {
+    top: calc(100% - 10px);
+  }
+}
+
+@media (min-width: 768px) {
+  .d4-packet {
+    top: calc(50% - 5px);
+    left: 0;
+    animation-name: d4-packet-h;
+  }
+}
+
+@keyframes d4-packet-h {
+  from {
+    left: 0;
+  }
+  to {
+    left: calc(100% - 10px);
+  }
+}
+
+/* Marquee-free ticker of the week ruler in the footer. */
+.d4-tick {
+  animation: d4-tick 2s steps(2) infinite;
+}
+
+@keyframes d4-tick {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.d4 .d4-scroll-x {
+  scrollbar-width: none;
+}
+
+.d4 .d4-scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+.d4 kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6em;
+  height: 1.6em;
+  padding: 0 0.35em;
+  font-family: var(--d4-mono), ui-monospace, monospace;
+  font-size: 0.8em;
+  border: 1px solid var(--line-2);
+  color: var(--ink);
+}
+
+/* The search box and its results on the help home. */
+.d4-search {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 64px;
+  padding: 0 1rem;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  transition: border-color 0.15s;
+}
+
+.d4-search:focus-within {
+  border-color: var(--amber);
+}
+
+.d4-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1.125rem;
+  font-weight: 500;
+  outline: none;
+}
+
+.d4-search input::placeholder {
+  color: var(--faint);
+}
+
+.d4-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.d4 .d4-search input:focus-visible {
+  outline: none;
+}
+
+/* Index rows that light up their colour bar on hover. */
+.d4-row {
+  position: relative;
+  transition: background-color 0.15s;
+}
+
+.d4-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -1px;
+  bottom: -1px;
+  width: 4px;
+  background: var(--c, var(--amber));
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 0.2s ease;
+}
+
+.d4-row:hover::before,
+.d4-row:focus-visible::before {
+  transform: scaleY(1);
+}
+
+.d4-row:hover {
+  background: rgb(243 242 237 / 3%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .d4 *,
+  .d4 *::before,
+  .d4 *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .d4-caret {
+    animation: none;
+  }
+}
+}
