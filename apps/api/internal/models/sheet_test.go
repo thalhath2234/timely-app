@@ -15,13 +15,24 @@ func TestNormalizeTypedCell(t *testing.T) {
 		{"currency", "50,000.00", "50000"},
 		{"percent", "115%", "1.15"},
 		{"formula", "1.5", "1.5"},
-		{"number", "nope", ""},
+		{"number", "nope", "nope"},
+		{"currency", "$12.50", "12.5"},
+		{"currency", "Rs 1,250", "1250"},
+		{"currency", "LKR 500", "500"},
+		{"currency", "€9,99", "9.99"},
+		{"currency", "1.234,56", "1234.56"},
+		{"currency", "(45.00)", "-45"},
+		{"currency", "-$3", "-3"},
+		{"number", "½", "0.5"},
+		{"number", "1.5 kg", "1.5 kg"},
+		{"date", "11 Oct 2026", "2026-10-11"},
+		{"date", "2026/10/11", "2026-10-11"},
 		{"date", "2026-09-12", "2026-09-12"},
 		{"date", "2026-09-12T15:04:05Z", "2026-09-12"},
-		{"date", "not a date", ""},
+		{"date", "not a date", "not a date"},
 		{"boolean", "yes", "TRUE"},
 		{"boolean", "0", "FALSE"},
-		{"boolean", "maybe", ""},
+		{"boolean", "maybe", "maybe"},
 		{"number", "=A1+1", "=A1+1"},
 		{"text", "", ""},
 	}
@@ -196,5 +207,54 @@ func TestNormalizeSheetCellsSelect(t *testing.T) {
 	}
 	if rows[2].Cells["s"] != "" || rows[3].Cells["s"] != "=A1" {
 		t.Fatalf("empty/formula cells changed: %v %v", rows[2].Cells, rows[3].Cells)
+	}
+}
+
+func TestNormalizeSheetTabSettings(t *testing.T) {
+	columns := SheetColumns{
+		{ID: "amt", Name: "Amount", Type: "currency", Format: &SheetColumnFormat{Currency: " LKR ", DateFormat: "nope"}},
+		{ID: "d", Name: "Date", Type: "date", Format: &SheetColumnFormat{DateFormat: "d mmm yyyy"}},
+		{ID: "t", Name: "Text", Type: "text", Format: &SheetColumnFormat{}},
+	}
+	tab, err := NormalizeSheetTab(SheetTab{
+		Name:       "March",
+		Columns:    columns,
+		Rows:       DefaultSheetRows(columns, 3),
+		Color:      "#ABC",
+		FrozenRows: 99,
+		FrozenCols: 2,
+		ConditionalFormats: []SheetConditionalFormat{
+			{ColumnID: "amt", Operator: "gt", Value: "1000", FillColor: "#FF0000"},
+			{ColumnID: "missing", Operator: "gt"},
+			{ColumnID: "amt", Operator: "explode"},
+		},
+	}, "Sheet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tab.Columns[0].Format.Currency != "LKR" || tab.Columns[0].Format.DateFormat != "" {
+		t.Fatalf("currency format = %+v", tab.Columns[0].Format)
+	}
+	if tab.Columns[1].Format.DateFormat != "d mmm yyyy" || tab.Columns[2].Format != nil {
+		t.Fatalf("date format = %+v, empty format = %+v", tab.Columns[1].Format, tab.Columns[2].Format)
+	}
+	if tab.Color != "#aabbcc" || tab.FrozenRows != 3 || tab.FrozenCols != 2 {
+		t.Fatalf("settings = %q %d %d", tab.Color, tab.FrozenRows, tab.FrozenCols)
+	}
+	if len(tab.ConditionalFormats) != 1 || tab.ConditionalFormats[0].ID == "" || tab.ConditionalFormats[0].FillColor != "#ff0000" {
+		t.Fatalf("rules = %+v", tab.ConditionalFormats)
+	}
+}
+
+func TestCloneTabKeepsRulesOnTheirColumns(t *testing.T) {
+	columns := SheetColumns{{ID: "a", Name: "A", Type: "text"}, {ID: "b", Name: "B", Type: "number"}}
+	tab := SheetTab{ID: "t", Name: "Jan", Columns: columns, Rows: DefaultSheetRows(columns, 1), FrozenRows: 1, Color: "#112233",
+		ConditionalFormats: []SheetConditionalFormat{{ID: "r", ColumnID: "b", Operator: "gt", Value: "5"}}}
+	clone := CloneTab(tab)
+	if clone.Columns[1].ID == "b" || len(clone.ConditionalFormats) != 1 || clone.ConditionalFormats[0].ColumnID != clone.Columns[1].ID {
+		t.Fatalf("rule did not follow its column: %+v", clone.ConditionalFormats)
+	}
+	if clone.FrozenRows != 1 || clone.Color != "#112233" {
+		t.Fatalf("settings lost: %+v", clone)
 	}
 }

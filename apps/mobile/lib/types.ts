@@ -1,7 +1,13 @@
 import type { TaskKind } from "@timely/contract";
 
 export type { TaskKind };
-export type { SheetColumn, SheetColumnType, SheetMerge } from "@timely/contract/sheetTypes";
+export type {
+  SheetColumn,
+  SheetColumnFormat,
+  SheetColumnType,
+  SheetConditionalFormat,
+  SheetMerge,
+} from "@timely/contract/sheetTypes";
 export type {
   ApiKey,
   CreatedApiKey,

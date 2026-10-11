@@ -4,6 +4,7 @@ import {
   isFormulaValue,
   normalizeTypedCell,
 } from "../packages/contract/src/sheetCell.ts";
+import * as cell from "../packages/contract/src/sheetCell.ts";
 import {
   applyColumnTypes,
   columnSamples,
@@ -36,13 +37,13 @@ describe("normalizeTypedCell", () => {
       assert.equal(normalizeTypedCell(type, " 1,234.50 "), "1234.5");
     }
     assert.equal(normalizeTypedCell("percent", "50%"), "0.5");
-    assert.equal(normalizeTypedCell("number", "abc"), "");
+    assert.equal(normalizeTypedCell("number", "abc"), "abc");
   });
 
   test("dates keep ISO and reformat parseable text", () => {
     assert.equal(normalizeTypedCell("date", "2026-10-05"), "2026-10-05");
     assert.equal(normalizeTypedCell("date", "10/05/2026"), "2026-10-05");
-    assert.equal(normalizeTypedCell("date", "not a date"), "");
+    assert.equal(normalizeTypedCell("date", "not a date"), "not a date");
   });
 
   test("booleans and select", () => {
@@ -50,8 +51,48 @@ describe("normalizeTypedCell", () => {
       assert.equal(normalizeTypedCell("boolean", yes), "TRUE");
     for (const no of ["FALSE", "0", "no", "N"])
       assert.equal(normalizeTypedCell("boolean", no), "FALSE");
-    assert.equal(normalizeTypedCell("boolean", "maybe"), "");
+    assert.equal(normalizeTypedCell("boolean", "maybe"), "maybe");
     assert.equal(normalizeTypedCell("select", "  Open "), "Open");
+  });
+});
+
+describe("typed input people actually write", () => {
+  test("amounts with currency, codes, decimal commas and brackets", () => {
+    for (const [input, expected] of [
+      ["$12.50", "12.5"],
+      ["Rs 1,250", "1250"],
+      ["Rs. 99", "99"],
+      ["LKR 500", "500"],
+      ["500 LKR", "500"],
+      ["€9,99", "9.99"],
+      ["1.234,56", "1234.56"],
+      ["(45.00)", "-45"],
+      ["-$3", "-3"],
+      ["₹ 2,00,000", "200000"],
+      ["½", "0.5"],
+    ]) {
+      assert.equal(normalizeTypedCell("currency", input), expected, input);
+    }
+    assert.equal(normalizeTypedCell("number", "1.5 kg"), "1.5 kg");
+    assert.equal(cell.cellFitsType("number", "1.5 kg"), false);
+    assert.equal(cell.cellFitsType("number", "1.5"), true);
+  });
+
+  test("dates in the shapes people type", () => {
+    const today = new Date(2026, 9, 11);
+    const { parseDateInput } = cell;
+    assert.equal(parseDateInput("11/10/2026", { dayFirst: true }), "2026-10-11");
+    assert.equal(parseDateInput("11/10/2026", { dayFirst: false }), "2026-11-10");
+    assert.equal(parseDateInput("13/02/2026", { dayFirst: false }), "2026-02-13");
+    assert.equal(parseDateInput("11 Oct 2026"), "2026-10-11");
+    assert.equal(parseDateInput("11-Oct-26"), "2026-10-11");
+    assert.equal(parseDateInput("Oct 11, 2026"), "2026-10-11");
+    assert.equal(parseDateInput("3rd March", { today }), "2026-03-03");
+    assert.equal(parseDateInput("2026/10/11"), "2026-10-11");
+    assert.equal(parseDateInput("today", { today }), "2026-10-11");
+    assert.equal(parseDateInput("yesterday", { today }), "2026-10-10");
+    assert.equal(parseDateInput("31/02/2026", { dayFirst: true }), null);
+    assert.equal(parseDateInput("someday"), null);
   });
 });
 

@@ -24,8 +24,11 @@
     "./sheetCsv": "./src/sheetCsv.ts",
     "./sheetFormula": "./src/sheetFormula.ts",
     "./sheetFormulaInput": "./src/sheetFormulaInput.ts",
+    "./sheetFunctions": "./src/sheetFunctions.ts",
     "./sheetRange": "./src/sheetRange.ts",
+    "./sheetRefs": "./src/sheetRefs.ts",
     "./sheetTypes": "./src/sheetTypes.ts",
+    "./sheetValues": "./src/sheetValues.ts",
     "./templates": "./src/templates.ts",
     "./workStatus": "./src/workStatus.ts"
   },

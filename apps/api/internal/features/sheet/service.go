@@ -20,12 +20,17 @@ const (
 // SheetUpdate carries only the fields a client may change. Nil means
 // "leave untouched" so autosave can send partial payloads.
 type SheetUpdate struct {
-	Title      *string
-	Icon       *string
-	Columns    *models.SheetColumns
-	Rows       *models.SheetRows
-	Merges     *models.SheetMerges
-	Tabs       *models.SheetTabs
+	Title   *string
+	Icon    *string
+	Columns *models.SheetColumns
+	Rows    *models.SheetRows
+	Merges  *models.SheetMerges
+	Tabs    *models.SheetTabs
+	// TabOrder, when set, makes Tabs a partial list: only the tabs that changed.
+	// The saved workbook keeps every other tab as it is on the server, in this
+	// order, and drops tabs whose ids are missing. Two devices editing different
+	// tabs then never overwrite each other.
+	TabOrder   *[]string
 	ProjectID  *string
 	IsFavorite *bool
 	Archived   *bool
@@ -197,10 +202,19 @@ func (s *sheetService) Update(userID string, sheetID string, update SheetUpdate)
 	}
 
 	grid := gridUpdate{Columns: update.Columns, Rows: update.Rows, Merges: update.Merges, Tabs: update.Tabs}
-	if grid.changed() {
+	if grid.changed() || update.TabOrder != nil {
 		current, err := s.repo.GetSheetByID(userID, sheetID)
 		if err != nil {
 			return nil, err
+		}
+		if update.TabOrder != nil {
+			merged, err := mergeTabs(workbookTabs(current), update.Tabs, *update.TabOrder)
+			if err != nil {
+				return nil, err
+			}
+			grid.Tabs = &merged
+			// The primary grid follows the first tab of the merged workbook.
+			grid.Columns, grid.Rows, grid.Merges = nil, nil, nil
 		}
 		if err := grid.apply(current.Title, current.Columns, current.Rows, current.Merges, current.Tabs, updates); err != nil {
 			return nil, err
@@ -472,6 +486,7 @@ func prepareGrid(
 
 	fallback := normalizeTitle(title)
 	seen := make(map[string]bool, len(*tabs))
+	names := make(map[string]bool, len(*tabs))
 	for i := range *tabs {
 		tab, err := models.NormalizeSheetTab((*tabs)[i], fallback)
 		if err != nil {
@@ -481,6 +496,12 @@ func prepareGrid(
 			tab.ID = utils.PrefixedUUID("tab")
 		}
 		seen[tab.ID] = true
+		// Formulas address tabs by name, so names must be unique.
+		base := tab.Name
+		for n := 2; names[strings.ToLower(tab.Name)]; n++ {
+			tab.Name = fmt.Sprintf("%s (%d)", base, n)
+		}
+		names[strings.ToLower(tab.Name)] = true
 		if err := validateGrid(tab.Columns, tab.Rows); err != nil {
 			return err
 		}
@@ -708,6 +729,38 @@ func workbookTabs(current *models.Sheet) models.SheetTabs {
 		Rows:    current.Rows,
 		Merges:  current.Merges,
 	}}
+}
+
+// mergeTabs lays the changed tabs over the server's tabs in the given order.
+// A sheet stored before tabs existed has one wrapped tab whose id the client
+// cannot know, so the client must send every tab the first time.
+func mergeTabs(current models.SheetTabs, changed *models.SheetTabs, order []string) (models.SheetTabs, error) {
+	if len(order) == 0 {
+		return nil, errors.New("a workbook needs at least one tab")
+	}
+	byID := make(map[string]models.SheetTab, len(current))
+	for _, tab := range current {
+		byID[tab.ID] = tab
+	}
+	if changed != nil {
+		for _, tab := range *changed {
+			byID[tab.ID] = tab
+		}
+	}
+	merged := make(models.SheetTabs, 0, len(order))
+	seen := make(map[string]bool, len(order))
+	for _, id := range order {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		tab, ok := byID[id]
+		if !ok {
+			return nil, errors.New("unknown tab: " + id)
+		}
+		merged = append(merged, tab)
+	}
+	return merged, nil
 }
 
 // findTab resolves tabID to an index. An empty id means the first (primary) tab.
