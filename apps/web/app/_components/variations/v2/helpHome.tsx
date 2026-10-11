@@ -111,14 +111,16 @@ export default function HelpHome() {
                 ))}
               </ul>
               <ul className="mt-3 border-t border-[var(--v-line)] pt-2">
-                {INSTALL.articles.map((article) => (
+                {INSTALL.articles
+                  .filter((article) => !PLATFORMS.some((platform) => platform.guide === articleHref(INSTALL, article)))
+                  .map((article) => (
                   <li key={article.slug}>
                     <Link href={articleHref(INSTALL, article)} className="v2-article">
                       {article.title}
                       <ArrowRight className="size-4" />
                     </Link>
                   </li>
-                ))}
+                  ))}
               </ul>
             </div>
           </Turn>

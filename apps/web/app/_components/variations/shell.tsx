@@ -187,8 +187,8 @@ function VariantFooter({ base }: { base: string }) {
   ];
   return (
     <footer className="v-footer">
-      <div className="v-container grid gap-10 py-14 md:grid-cols-[1.4fr_repeat(3,1fr)]">
-        <div>
+      <div className="v-container grid grid-cols-2 gap-x-6 gap-y-10 py-14 md:grid-cols-[1.4fr_repeat(3,1fr)]">
+        <div className="col-span-2 md:col-span-1">
           <div className="flex items-center gap-2.5">
             <TimelyLogo size={24} />
             <span className="text-lg font-semibold tracking-[-0.03em]">Timely</span>

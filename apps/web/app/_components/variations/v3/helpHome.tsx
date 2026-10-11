@@ -67,7 +67,7 @@ export default function HelpHome() {
 
       {/* Lane 1: newcomers and install guides side by side. */}
       <section aria-label="Start here and install" className="pb-8">
-        <div className="v-container grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <div className="v-container grid items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           {start ? <StartLane section={start} /> : null}
           {install ? <InstallLane section={install} /> : null}
         </div>

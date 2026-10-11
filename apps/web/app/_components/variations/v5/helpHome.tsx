@@ -145,7 +145,7 @@ export default function HelpHome() {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-semibold">{platform.name}</span>
-                        <span className="block truncate text-xs text-[var(--v-soft)]">{platform.note}</span>
+                        <span className="block text-xs leading-snug text-[var(--v-soft)]">{platform.note}</span>
                       </span>
                       <ArrowRight className="size-4 shrink-0 text-[var(--v-faint)] transition-colors group-hover:text-[var(--v-primary)]" aria-hidden />
                     </Link>
@@ -158,7 +158,7 @@ export default function HelpHome() {
                   .map((article) => (
                     <ArticleLink key={article.slug} section={install} article={article}>
                       {article.title}
-                      <span className="ml-2 hidden text-xs text-[var(--v-faint)] sm:inline">{article.summary}</span>
+                      <span className="ml-2 hidden text-xs text-[var(--v-soft)] sm:inline">{article.summary}</span>
                     </ArticleLink>
                   ))}
               </ul>
