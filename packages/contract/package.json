@@ -13,6 +13,7 @@
     "./documents": "./src/documents.ts",
     "./embeds": "./src/embeds.ts",
     "./entities": "./src/entities.ts",
+    "./helpMeWrite": "./src/helpMeWrite.ts",
     "./importFormat": "./src/importFormat.ts",
     "./inbox": "./src/inbox.ts",
     "./markdown": "./src/markdown.ts",
