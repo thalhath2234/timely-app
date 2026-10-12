@@ -369,12 +369,42 @@ func firstLine(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// serverOnlyEnv is configuration only the API itself reads. Agent CLIs (and
+// whatever commands they run) never get it: it holds the JWT signing secret,
+// the database password and the backup key, and the CLIs reach Timely only
+// through tool calls the API runs for them.
+var serverOnlyEnv = []string{"JWT_", "DB_", "TIMELY_", "API_", "ALLOW_REGISTRATION=", "CORS_ORIGINS="}
+
+// cliEnv is the API's environment minus serverOnlyEnv, plus extra.
+func cliEnv(extra ...string) []string {
+	return append(withoutServerEnv(os.Environ()), extra...)
+}
+
+func withoutServerEnv(env []string) []string {
+	kept := make([]string, 0, len(env))
+	for _, entry := range env {
+		// Windows variable names are case-insensitive.
+		upper := strings.ToUpper(entry)
+		server := false
+		for _, prefix := range serverOnlyEnv {
+			if strings.HasPrefix(upper, prefix) {
+				server = true
+				break
+			}
+		}
+		if !server {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
 // run executes a CLI with stdin and returns stdout; stderr is folded into the
 // error. The child never inherits the API's working directory.
 func run(ctx context.Context, bin string, env []string, stdin string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = scratchDir()
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = cliEnv(env...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -403,6 +433,7 @@ func run(ctx context.Context, bin string, env []string, stdin string, args ...st
 func runCombined(ctx context.Context, bin string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = scratchDir()
+	cmd.Env = cliEnv()
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

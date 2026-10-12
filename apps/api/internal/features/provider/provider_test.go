@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -339,5 +340,33 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"{}","struc
 	got, err = (&Claude{Bin: bin, Model: "sonnet"}).Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, specs, false)
 	if err != nil || len(got.ToolCalls) != 0 || got.Content != "Hello" {
 		t.Fatalf("unknown native tools must not be run: %+v %v", got, err)
+	}
+}
+
+func TestAgentCLIsDoNotGetServerSecrets(t *testing.T) {
+	t.Setenv("JWT_SECRET", "jwt")
+	t.Setenv("DB_PASSWORD", "db")
+	t.Setenv("TIMELY_BACKUP_KEY", "backup")
+	t.Setenv("TIMELY_DATA_DIR", "/data")
+	t.Setenv("API_PORT", "48080")
+	t.Setenv("ALLOW_REGISTRATION", "false")
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("HOME", "/home/someone")
+	env := cliEnv("EXTRA=1")
+	for _, entry := range env {
+		for _, secret := range []string{"JWT_SECRET=", "DB_PASSWORD=", "TIMELY_BACKUP_KEY=", "TIMELY_DATA_DIR=", "API_PORT=", "ALLOW_REGISTRATION="} {
+			if strings.HasPrefix(entry, secret) {
+				t.Errorf("agent CLI environment carries %s", entry)
+			}
+		}
+	}
+	for _, want := range []string{"PATH=/usr/bin", "HOME=/home/someone", "EXTRA=1"} {
+		if !slices.Contains(env, want) {
+			t.Errorf("agent CLI environment lacks %s", want)
+		}
+	}
+	// Windows names are case-insensitive.
+	if got := withoutServerEnv([]string{"Jwt_Secret=x", "Path=C:\\"}); !slices.Equal(got, []string{"Path=C:\\"}) {
+		t.Errorf("withoutServerEnv kept %v", got)
 	}
 }

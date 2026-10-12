@@ -9,6 +9,7 @@ import type { DesktopAction, DesktopActionResult, DesktopInstance, DesktopSettin
 import { ApiManager, apiBinds, buildApiEnv } from "./api.ts";
 import { copyDataDir, manualBackupName, preUpgradeBackupName, pruneBackups, KEEP_PRE_UPGRADE_BACKUPS, PRE_UPGRADE_PREFIX } from "./backup.ts";
 import { ensureSecrets, loadConfig, saveConfig, type DesktopConfig, type Sealer, type Secrets } from "./config.ts";
+import { findOrphans, setprivPath, stopOrphans } from "./lifetime.ts";
 import { FileLog, createLogger, type Logger } from "./logger.ts";
 import { NextManager } from "./next.ts";
 import { userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
@@ -45,6 +46,8 @@ export type SupervisorDeps = {
   /** Echo sidecar output to this process's stdout/stderr (dev). */
   echo?: boolean;
   hostname?: () => string;
+  /** Stop sidecars an earlier run left behind (lifetime.ts); on unless a test turns it off. */
+  sweepOrphans?: boolean;
 };
 
 export type BootStep = "postgres" | "api" | "web";
@@ -73,6 +76,7 @@ export const ACTIONS: readonly DesktopAction[] = [
 ];
 
 const SHUTDOWN_CAP_MS = 15_000;
+const SWEEP_SCAN_CAP_MS = 3_000;
 const TAILSCALE_REFRESH_MS = 5_000;
 
 export type SupervisorEvents = {
@@ -113,6 +117,8 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   private update: UpdateStatus = { status: "idle" };
   private readonly platform: NodeJS.Platform;
   private readonly sidecarLogs: FileLog[] = [];
+  /** setpriv the sidecars run under for a death signal (lifetime.ts), or null. */
+  private setpriv: string | null = null;
 
   private postgres: PostgresManager | null = null;
   private api: ApiManager | null = null;
@@ -227,6 +233,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
 
     // ---- Postgres --------------------------------------------------------
     this.progress("postgres", "running");
+    await this.stopLeftovers();
     try {
       const postgres = new PostgresManager({
         binDir: path.join(this.deps.resources.postgres, "bin"),
@@ -236,6 +243,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         port: this.config.postgresPort,
         password: this.secrets.dbPassword,
         platform: this.platform,
+        setpriv: this.setpriv,
         log: this.log,
         output: this.sidecarLog("postgres"),
       });
@@ -273,6 +281,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         env: this.apiEnv(shell),
         port: this.config.apiPort,
         platform: this.platform,
+        setpriv: this.setpriv,
         log: this.log,
         output: this.sidecarLog("api"),
       });
@@ -298,6 +307,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         jwtSecret: this.secrets.jwtSecret,
         nodeBinary: this.deps.nodeBinary,
         runAsNode: this.deps.runAsNode,
+        setpriv: this.setpriv,
         output: this.sidecarLog("next"),
       });
       await this.webSidecar.start();
@@ -309,6 +319,31 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     }
     this.booted = true;
     this.emitChange();
+  }
+
+  /**
+   * Stops the API and web servers an earlier run left running (it crashed or
+   * was killed before it could stop them), before ports are checked: a
+   * leftover web server held its port and kept its memory forever. A
+   * leftover postmaster is handled by PostgresManager.reclaimDataDir.
+   */
+  private async stopLeftovers() {
+    this.setpriv = setprivPath(this.platform);
+    if (this.platform === "linux") this.log.info(`lifetime: ${this.setpriv ? `death signal via ${this.setpriv}` : "setpriv --pdeathsig not available; relying on the stdin lifeline"}`);
+    if (this.deps.sweepOrphans === false || !this.secrets) return;
+    try {
+      // Bounded: a /proc read can hang on a process stuck in the kernel.
+      const orphans = await Promise.race([
+        findOrphans({ secret: this.secrets.jwtSecret, dataDir: this.paths.dataDir, selfPid: process.pid }),
+        sleep(SWEEP_SCAN_CAP_MS).then(() => {
+          this.log.warn("orphans: scan timed out; skipping it");
+          return [];
+        }),
+      ]);
+      if (orphans.length) await stopOrphans(orphans, { log: this.log });
+    } catch (error) {
+      this.log.warn(`orphans: sweep failed: ${describe(error)}`);
+    }
   }
 
   private async allocatePorts() {
@@ -472,6 +507,18 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
 
   get isBooted() {
     return this.booted;
+  }
+
+  /**
+   * Last resort when the process is exiting without shutdown() having
+   * finished (Electron's process "exit"). Sync, so it cannot wait: each
+   * sidecar gets the signal that stops it on its own (PostgreSQL's fast
+   * shutdown carries on after we are gone).
+   */
+  killAllNow() {
+    this.webSidecar.signalNow("SIGKILL");
+    this.apiSidecar.signalNow("SIGTERM");
+    this.postgresSidecar.signalNow("SIGINT");
   }
 
   /** Next → API → Postgres, each awaited, capped at 15 s overall. */
