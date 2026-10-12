@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Keyboard, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Animated, {
   cancelAnimation,
   runOnJS,
@@ -14,6 +14,7 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { AccessoryLayer, overlayBottomPad } from "./SheetHost";
 import { easeOut, pageDuration, sheetExitDuration } from "../../lib/motion";
 import AnimatedPressable from "./AnimatedPressable";
+import { FocusGroupScrollView } from "./FocusGroup";
 
 export default function BottomSheet({
   open,
@@ -37,6 +38,9 @@ export default function BottomSheet({
   const [mounted, setMounted] = useState(open);
   const [sheetHeight, setSheetHeight] = useState(windowHeight);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  // An inline form (a new label) is being typed in: its own button, not the
+  // footer's, is the one to show above the keyboard.
+  const [groupActive, setGroupActive] = useState(false);
   const progress = useSharedValue(open && reduceMotion ? 1 : 0);
   const openRef = useRef(open);
   const onClosedRef = useRef(onClosed);
@@ -151,7 +155,8 @@ export default function BottomSheet({
                 </AnimatedPressable>
               </View>
             ) : null}
-            <ScrollView
+            <FocusGroupScrollView
+              onGroupChange={setGroupActive}
               keyboardShouldPersistTaps="always"
               keyboardDismissMode="on-drag"
               nestedScrollEnabled
@@ -160,8 +165,8 @@ export default function BottomSheet({
               contentContainerStyle={styles.bodyContent}
             >
               {presented.children}
-            </ScrollView>
-            {presented.footer ? <View style={styles.footer}>{presented.footer}</View> : null}
+            </FocusGroupScrollView>
+            {presented.footer && !(groupActive && keyboardTop !== null) ? <View style={styles.footer}>{presented.footer}</View> : null}
           </Animated.View>
         </View>
         <AccessoryLayer />

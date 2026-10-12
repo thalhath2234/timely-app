@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-inbox test-view-search test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-inbox test-view-search test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -269,11 +269,15 @@ format-chat: ## Format chat UI and its browser audit
 install-browser: ## Install Chromium for browser checks
 	@pnpm exec playwright install chromium
 
-.PHONY: test-sheet-formulas lint-sheet-formulas format-sheet-formulas
+.PHONY: test-sheet-formulas lint-sheet-formulas format-sheet-formulas gen-sheet-builtins gen-sheet-engine
+gen-sheet-engine: ## Bundle the shared formula engine for the API (agents read worked-out sheet values with it)
+	@node scripts/gen-sheet-engine.mjs
+gen-sheet-builtins: ## Write the built-in sheet templates as JSON for the API (agents create them from it)
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs scripts/gen-sheet-builtins.mjs
 test-sheet-formulas: ## Test the shared sheet logic (formulas, ranges, cells, CSV) and grid growth
-	@node --experimental-strip-types --test scripts/sheet-formulas.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs scripts/sheet-grid-grow.test.mjs
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/sheet-formulas.test.mjs scripts/sheet-refs.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs scripts/sheet-template-display.test.mjs scripts/sheet-ops.test.mjs scripts/sheet-grid-grow.test.mjs
 lint-sheet-formulas: ## Lint the shared sheet logic in packages/contract
-	@apps/web/node_modules/.bin/eslint -c apps/web/eslint.config.mjs packages/contract/src/sheetFormula.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts
+	@apps/web/node_modules/.bin/eslint -c apps/web/eslint.config.mjs packages/contract/src/sheetFormula.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts packages/contract/src/sheetDisplay.ts packages/contract/src/sheetTemplates.ts packages/contract/src/sheetRefs.ts packages/contract/src/sheetValues.ts packages/contract/src/sheetFunctions.ts packages/contract/src/sheetOps.ts packages/contract/src/sheetEngine.ts
 format-sheet-formulas: ## Format shared sheet logic and tests
 	@pnpm exec prettier --write packages/contract/src/sheetFormula.ts packages/contract/src/sheetFormulaInput.ts packages/contract/src/sheetRange.ts packages/contract/src/sheetCell.ts packages/contract/src/sheetCsv.ts packages/contract/src/sheetTypes.ts scripts/sheet-formulas.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs apps/mobile/lib/sheetGrow.ts scripts/sheet-grid-grow.test.mjs
 
@@ -328,6 +332,10 @@ test-mobile-file-templates: ## Test the mobile new doc and sheet template picker
 .PHONY: test-mobile-task-views
 test-mobile-task-views: ## Test how the phone's saved views merge with the server's copy (rebase, first sync, 20-view cap)
 	@node --experimental-strip-types --test scripts/mobile-task-views.test.mjs
+
+.PHONY: test-mobile-keyboard-taps
+test-mobile-keyboard-taps: ## Test that phone scrollers let a sheet's buttons work on the first tap while the keyboard is up
+	@node --test scripts/mobile-keyboard-taps.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing

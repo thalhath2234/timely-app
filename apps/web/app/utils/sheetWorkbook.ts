@@ -86,6 +86,26 @@ export function addWorkbookTab(tabs: SheetTab[], from?: SheetTab): SheetTab[] {
   ];
 }
 
+/** Copies a tab (with new row ids) right after it, named "Name copy". */
+export function duplicateWorkbookTab(tabs: SheetTab[], id: string): SheetTab[] {
+  const index = tabs.findIndex((tab) => tab.id === id);
+  const source = tabs[index];
+  if (!source || tabs.length >= 20) return tabs;
+  let name = `${source.name} copy`;
+  for (let n = 2; tabs.some((tab) => tab.name.toLowerCase() === name.toLowerCase()); n += 1) {
+    name = `${source.name} copy ${n}`;
+  }
+  const copy: SheetTab = {
+    ...structuredClone(source),
+    id: newTabId(),
+    name,
+    rows: source.rows.map((row) => ({ ...structuredClone(row), id: newRowId() })),
+  };
+  const next = [...tabs];
+  next.splice(index + 1, 0, copy);
+  return next;
+}
+
 export function templateTabChoices(template: {
   name: string;
   tabs?: SheetTab[] | null;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
@@ -10,6 +10,7 @@ import { updateMe } from "../../../lib/api/auth";
 import { useRevokeOtherSessions, useRevokeSession, useSessionsQuery } from "../../../lib/hooks";
 import { formatLastUsed, humanizeDeviceLabel } from "../../../lib/deviceLabel";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
 export default function AccountSettings() {
   const router = useRouter();
@@ -51,14 +52,16 @@ export default function AccountSettings() {
   return (
     <Screen>
       <MobileHeader title="Account" back large={false} />
-      <ScrollView contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
-        <Field label="Name" value={name} onChangeText={setName} placeholder="Your name" autoCapitalize="words" />
-        <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
-        <SectionLabel>Change password</SectionLabel>
-        <Field label="Current password" value={currentPassword} onChangeText={setCurrentPassword} secure />
-        <Field label="New password" value={newPassword} onChangeText={setNewPassword} secure hint="Leave both blank to keep your password." />
-        {message ? <Text style={styles.msg}>{message}</Text> : null}
-        <PrimaryButton label={pending ? "Saving…" : "Save account"} disabled={pending} onPress={() => void save()} />
+      <FocusGroupScrollView contentContainerStyle={styles.wrap}>
+        <FocusGroup style={{ gap: 12 }}>
+          <Field label="Name" value={name} onChangeText={setName} placeholder="Your name" autoCapitalize="words" />
+          <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
+          <SectionLabel>Change password</SectionLabel>
+          <Field label="Current password" value={currentPassword} onChangeText={setCurrentPassword} secure />
+          <Field label="New password" value={newPassword} onChangeText={setNewPassword} secure hint="Leave both blank to keep your password." />
+          {message ? <Text style={styles.msg}>{message}</Text> : null}
+          <PrimaryButton label={pending ? "Saving…" : "Save account"} disabled={pending} onPress={() => void save()} />
+        </FocusGroup>
 
         <SectionLabel>Devices</SectionLabel>
         <Text style={styles.msg}>Sign out a device if you no longer use it.</Text>
@@ -107,7 +110,7 @@ export default function AccountSettings() {
             />
           </View>
         ))}
-      </ScrollView>
+      </FocusGroupScrollView>
       <ConfirmSheet
         open={confirm !== null}
         onClose={() => setConfirm(null)}

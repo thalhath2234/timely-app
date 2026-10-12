@@ -1927,6 +1927,11 @@ export function buildEditorHtml(
           requestAnimationFrame(scrollCaret);
           return;
         }
+        if (name === "focus") {
+          editor.commands.focus("end");
+          requestAnimationFrame(scrollCaret);
+          return;
+        }
         // Find runs from the app's find bar, so it must not focus the editor.
         if (name === "exportHtml") {
           exportHtml(payload && payload.title);

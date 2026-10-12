@@ -501,7 +501,7 @@ export default function TasksScreen() {
       {selecting ? (
         <View style={styles.bulk}>
           <Text style={styles.bulkCount}>{selectedIds.length} selected</Text>
-          <ScrollView horizontal style={styles.bulkScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bulkActions}>
+          <ScrollView keyboardShouldPersistTaps="handled" horizontal style={styles.bulkScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bulkActions}>
           <AnimatedPressable
             style={styles.bulkButton}
             onPress={() => {
@@ -628,6 +628,7 @@ export default function TasksScreen() {
         />
       ) : (
         <SectionList
+          keyboardShouldPersistTaps="handled"
           sections={sections}
           keyExtractor={(item) => item.id}
           renderItem={renderTask}

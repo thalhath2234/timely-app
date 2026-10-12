@@ -44,7 +44,8 @@ import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
 import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
-import { newSheetMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
+import { newSheetMenuItems, sheetCreatePayload } from "@/app/_components/sheets/sheetTemplateMenu";
+import { BUILTIN_SHEET_TEMPLATES } from "@timely/contract/sheetTemplates";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
 import { buttonClass } from "@/app/_components/_ui/button";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
@@ -238,7 +239,7 @@ export default function FileList() {
   };
 
   const handleCreateSheet = async (templateId?: string) => {
-    const sheet = await createSheet.mutateAsync(templateId ? { templateId } : {});
+    const sheet = await createSheet.mutateAsync(sheetCreatePayload(templateId));
     router.push(fileHref(sheet.id));
   };
 
@@ -662,11 +663,27 @@ export default function FileList() {
                   <p className="px-2 pb-1 pt-1.5 text-[11px] leading-snug text-muted-foreground">
                     Turn any doc into a template from its header. Text like {"{{date}}"} is filled in.
                   </p>
+                  <p className="border-t border-border px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Sheets
+                  </p>
+                  {BUILTIN_SHEET_TEMPLATES.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      role="menuitem"
+                      title={template.description}
+                      onClick={() => {
+                        setIsTemplateMenuOpen(false);
+                        void handleCreateSheet(template.id);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                    >
+                      <span className="w-5 text-center">{template.icon}</span>
+                      <span className="min-w-0 flex-1 truncate">{template.name}</span>
+                    </button>
+                  ))}
                   {sheetTemplates.length > 0 && (
                     <>
-                      <p className="border-t border-border px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Sheets
-                      </p>
                       {sheetTemplates.map((template) => (
                         <button
                           key={template.id}

@@ -38,6 +38,7 @@ type updateSheetRequest struct {
 	Rows        *models.SheetRows    `json:"rows"`
 	Merges      *models.SheetMerges  `json:"merges"`
 	Tabs        *models.SheetTabs    `json:"tabs"`
+	TabOrder    *[]string            `json:"tabOrder"`
 	ProjectID   *string              `json:"projectId"`
 	IsFavorite  *bool                `json:"isFavorite"`
 	Archived    *bool                `json:"archived"`
@@ -161,6 +162,7 @@ func (h *Handler) Update(c *echo.Context) error {
 		Rows:       req.Rows,
 		Merges:     req.Merges,
 		Tabs:       req.Tabs,
+		TabOrder:   req.TabOrder,
 		ProjectID:  req.ProjectID,
 		IsFavorite: req.IsFavorite,
 		Archived:   req.Archived,

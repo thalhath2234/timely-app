@@ -23,7 +23,7 @@ import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedList
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
 import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
-import { newSheetMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
+import { newSheetMenuItems, sheetCreatePayload } from "@/app/_components/sheets/sheetTemplateMenu";
 import { DocCard } from "@/app/_components/docs/docCard";
 import { SheetCard, TemplateCard } from "@/app/_components/sheets/sheetCards";
 import { requestConfirm } from "@/app/_store/confirmStore";
@@ -71,15 +71,11 @@ export default function FilesHome() {
   };
 
   const createNewSheet = async (templateId?: string) => {
-    const sheet = await createSheet.mutateAsync(templateId ? { templateId } : {});
+    const sheet = await createSheet.mutateAsync(sheetCreatePayload(templateId));
     router.push(fileHref(sheet.id));
   };
 
   const onNewSheetClick = (event: ReactMouseEvent) => {
-    if (templates.length === 0) {
-      void createNewSheet();
-      return;
-    }
     openMenu(
       event,
       newSheetMenuItems({
@@ -212,7 +208,7 @@ export default function FilesHome() {
               onClick={onNewSheetClick}
               loading={createSheet.isPending}
               leading={<Plus />}
-              trailing={templates.length > 0 ? <ChevronDown className="opacity-70" /> : undefined}
+              trailing={<ChevronDown className="opacity-70" />}
             >
               New sheet
             </Button>

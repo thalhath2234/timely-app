@@ -64,12 +64,13 @@ import {
   unmergeRange,
   visitRange,
 } from "@timely/contract/sheetRange";
-import { isFormulaValue, normalizeTypedCell } from "@timely/contract/sheetCell";
+import { cellFitsType, editTextForCell, isFormulaValue, normalizeTypedCell, typedEntryForColumn } from "@timely/contract/sheetCell";
+import { conditionalStyles, formatSheetCell, type ConditionalStyle } from "@timely/contract/sheetDisplay";
+import { conditionalSummaryRows } from "@timely/contract/sheetOps";
 import {
   SHEET_COLUMN_TYPES,
   columnTypeBadge,
   emptySheetRow,
-  formatCellDisplay,
   newSheetId,
   parseSelectOptions,
   syncSelectOptions,
@@ -77,7 +78,7 @@ import {
 import { growGridTo, isPastGrid } from "../../lib/sheetGrow";
 import { cellFitEdit } from "../../lib/sheetCellFit";
 import { useCellFit, useDecisionFeedback, type CellFitEdit } from "../../lib/hooks";
-import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRow } from "../../lib/types";
+import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetConditionalFormat, SheetMerge, SheetRow, SheetTab } from "../../lib/types";
 
 const MIN_WIDTH = 82;
 const MAX_WIDTH = 240;
@@ -155,6 +156,11 @@ export type SheetGridProps = {
   columns: SheetColumn[];
   rows: SheetRow[];
   merges?: SheetMerge[];
+  /** Every tab of the workbook, so formulas like =SUM(January!H2:H) work. */
+  workbook?: { tabs: SheetTab[]; currentTabId?: string };
+  /** The tab's conditional formats, tested below its frozen rows. */
+  conditionalFormats?: SheetConditionalFormat[];
+  frozenRows?: number;
   onAssistantContext?: (value: { selection: string; filter: string; draft: string }) => void;
   onChange: (next: { columns?: SheetColumn[]; rows?: SheetRow[]; merges?: SheetMerge[] }) => void;
 };
@@ -165,7 +171,17 @@ export type SheetGridHandle = {
   commitActiveEdit: () => boolean;
 };
 
-export default function SheetGrid({ columns, rows, merges = [], onChange, onAssistantContext, ref }: SheetGridProps & { ref?: Ref<SheetGridHandle> }) {
+export default function SheetGrid({
+  columns,
+  rows,
+  merges = [],
+  workbook,
+  conditionalFormats,
+  frozenRows = 0,
+  onChange,
+  onAssistantContext,
+  ref,
+}: SheetGridProps & { ref?: Ref<SheetGridHandle> }) {
   const [range, setRange] = useState<CellRange>({
     anchor: { col: 0, row: 0 },
     focus: { col: 0, row: 0 },
@@ -388,7 +404,27 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     return Boolean(editingRef.current && isFormulaValue(draftRef.current));
   }
 
-  const evaluator = useMemo(() => createSheetEvaluator(columns, rows), [columns, rows]);
+  const workbookTabs = workbook?.tabs;
+  const currentTabId = workbook?.currentTabId;
+  const evaluator = useMemo(() => {
+    if (!workbookTabs?.length) return createSheetEvaluator(columns, rows);
+    // The grid's own columns/rows are the freshest copy of the current tab.
+    const tabs = workbookTabs.map((tab) => (tab.id === currentTabId ? { ...tab, columns, rows } : tab));
+    return createSheetEvaluator(columns, rows, { tabs, currentTabId });
+  }, [columns, rows, workbookTabs, currentTabId]);
+  const conditional = useMemo(
+    () =>
+      conditionalStyles(
+        conditionalFormats,
+        columns,
+        rows.length,
+        evaluator.valueAt,
+        frozenRows,
+        conditionalSummaryRows(conditionalFormats, rows, columns),
+      ),
+    [conditionalFormats, columns, rows, evaluator, frozenRows],
+  );
+  const hiddenCount = columns.filter((column) => column.hidden).length;
   const showFilter = filterOpen || filterQuery.length > 0;
   const visibleRowIndexes = useMemo(() => {
     const query = filterQuery.trim().toLowerCase();
@@ -402,8 +438,10 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     });
   }, [columns, evaluator, filterQuery, rows]);
 
+  // Hidden columns keep their index (letters, formulas, selection) but take
+  // no room, so every position computed from widths skips them.
   const colWidth = (column: SheetColumn) =>
-    Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, column.width || 140));
+    column.hidden ? 0 : Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, column.width || 140));
 
   const filtering = filterQuery.trim().length > 0;
   const ghostColCount = Math.max(
@@ -588,6 +626,29 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     commit({ columns: nextColumns });
   }
 
+  function setColumnHidden(index: number, hidden: boolean) {
+    commit({
+      columns: columns.map((column, i) => {
+        if (i !== index) return column;
+        const next: SheetColumn = { ...column };
+        if (hidden) next.hidden = true;
+        else delete next.hidden;
+        return next;
+      }),
+    });
+  }
+
+  function showHiddenColumns() {
+    commit({
+      columns: columns.map((column) => {
+        if (!column.hidden) return column;
+        const next: SheetColumn = { ...column };
+        delete next.hidden;
+        return next;
+      }),
+    });
+  }
+
   function openOptionsEditor(index: number) {
     setOptionsDraft((columns[index]?.options ?? []).join("\n"));
     setOptionsEditor(index);
@@ -634,7 +695,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     // doesn't, and setCellValue grows the grid if a value is committed.
     if (source === "cell") materialize(address);
     setSelection(address, false, { cols: address.col + 1, rows: address.row + 1 });
-    setDraft(initial ?? rawAt(address));
+    setDraft(initial ?? editTextForCell(columns[address.col]?.type, rawAt(address)));
     setEditing(address);
     setEditSource(source);
     formulaSpanRef.current = null;
@@ -646,7 +707,8 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
     const address = editingRef.current;
     if (!address) return;
     const raw = draftRef.current;
-    const value = isFormulaValue(raw) ? closeOpenParens(raw.trim()) : raw;
+    // Typed entries read like a spreadsheet: "25" in a percent column is 25%.
+    const value = isFormulaValue(raw) ? closeOpenParens(raw.trim()) : typedEntryForColumn(columns[address.col]?.type, raw);
     // Blur before the editor unmounts. Android otherwise hands focus to the
     // first TextInput on the screen (the sheet title) when a focused input
     // disappears, so the caret appeared in the title after tapping a cell.
@@ -1148,7 +1210,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
   ).current;
 
   const selectedFormat = formatAt(selected);
-  const selectedRaw = rawAt(selected);
+  const selectedRaw = editTextForCell(columns[selected.col]?.type, rawAt(selected));
   const contextCallback = useRef(onAssistantContext);
   contextCallback.current = onAssistantContext;
   const selectedValues = rows.slice(bounds.minRow, bounds.maxRow + 1).map((row) => ({ id: row.id, cells: Object.fromEntries(columns.slice(bounds.minCol, bounds.maxCol + 1).map((col) => [col.id, row.cells[col.id]])) }));
@@ -1304,6 +1366,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
                   <View style={[styles.rowHead, styles.headCell]} />
                   {Array.from({ length: displayCols }, (_, index) => {
                     const column = columns[index];
+                    if (column?.hidden) return null;
                     const width = column ? colWidth(column) : GHOST_COL_W;
                     return (
                       <Pressable
@@ -1464,6 +1527,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
                           colWidth,
                           rawAt,
                           filtering,
+                          conditional: conditional.get(`${colIndex}:${rowIndex}`),
                         }),
                       )}
                     </View>
@@ -1501,7 +1565,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
                     >
                       <Text style={styles.rowNum}>{rowIndex + 1}</Text>
                     </Pressable>
-                    {Array.from({ length: displayCols }, (_, colIndex) => (
+                    {Array.from({ length: displayCols }, (_, colIndex) => columns[colIndex]?.hidden ? null : (
                       <Pressable
                         key={`ghost-${rowIndex}-${colIndex}`}
                         onPressIn={(event) => onCellPressIn(colIndex, rowIndex, event)}
@@ -1561,6 +1625,7 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
           <View style={styles.drawerHandle} />
         </Pressable>
         <ScrollView
+          keyboardShouldPersistTaps="handled"
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.drawerTabsScroll}
@@ -1722,6 +1787,26 @@ export default function SheetGrid({ columns, rows, merges = [], onChange, onAssi
         >
           Insert column right
         </SheetOption>
+        {columns.length - hiddenCount > 1 ? (
+          <SheetOption
+            onSelect={() => {
+              if (columnMenu !== null) setColumnHidden(columnMenu, true);
+              setColumnMenu(null);
+            }}
+          >
+            Hide column
+          </SheetOption>
+        ) : null}
+        {hiddenCount > 0 ? (
+          <SheetOption
+            onSelect={() => {
+              showHiddenColumns();
+              setColumnMenu(null);
+            }}
+          >
+            {hiddenCount === 1 ? "Show 1 hidden column" : `Show ${hiddenCount} hidden columns`}
+          </SheetOption>
+        ) : null}
         <SheetOption
           onSelect={() => {
             if (columnMenu !== null) deleteColumn(columnMenu);
@@ -1919,6 +2004,7 @@ function renderCell({
   colWidth,
   rawAt,
   filtering,
+  conditional,
 }: {
   colIndex: number;
   rowIndex: number;
@@ -1943,9 +2029,11 @@ function renderCell({
   colWidth: (column: SheetColumn) => number;
   rawAt: (address: Address) => string;
   filtering: boolean;
+  conditional?: ConditionalStyle;
 }) {
   const column = columns[colIndex];
   const address = { col: colIndex, row: rowIndex };
+  if (column?.hidden) return null;
   if (!column) {
     return (
       <Pressable
@@ -2008,9 +2096,16 @@ function renderCell({
   const isEditing = editing?.col === colIndex && editing?.row === rowIndex;
   const result = evaluator.valueAt(colIndex, rowIndex);
   const format = row.formats?.[column.id];
-  const display = formatCellDisplay(evaluator.displayAt(colIndex, rowIndex), format, column.type);
-  const booleanCol = column.type === "boolean" && !rawAt(address).startsWith("=");
-  const selectCol = column.type === "select" && !rawAt(address).startsWith("=");
+  const raw = rawAt(address);
+  const display = formatSheetCell(result, column, raw, format);
+  // Conditional formats win over the cell's own colours, as in spreadsheets.
+  const fillColor = conditional?.fillColor ?? format?.fillColor;
+  const textColor = conditional?.textColor ?? format?.textColor;
+  const bold = conditional?.bold || format?.bold;
+  // A stored value that does not fit the column type is kept and flagged.
+  const misfit = !cellFitsType(column.type, raw);
+  const booleanCol = column.type === "boolean" && !raw.startsWith("=") && !misfit;
+  const selectCol = column.type === "select" && !raw.startsWith("=");
   const spanWidth = displayMerge
     ? columns.slice(displayMerge.startCol, displayMerge.startCol + displayMerge.colSpan).reduce((sum, item) => sum + colWidth(item), 0)
     : colWidth(column);
@@ -2037,8 +2132,8 @@ function renderCell({
         displayMerge && displayMerge.rowSpan > 1
           ? { position: "absolute", top: 0, left: 0, width: spanWidth, height: spanHeight, zIndex: 8 }
           : { width: spanWidth },
-        format?.fillColor ? { backgroundColor: format.fillColor } : null,
-        inRange && !format?.fillColor && styles.rangeCell,
+        fillColor ? { backgroundColor: fillColor } : null,
+        inRange && !fillColor && styles.rangeCell,
         isSelected && !multiCell && styles.selectedCell,
         mergeFullySelected && styles.rangeCell,
         inFormulaRange && styles.formulaCell,
@@ -2072,7 +2167,7 @@ function renderCell({
             styles.cellText,
             result.type === "number" && styles.numText,
             result.type === "error" && { color: colors.destructive },
-            format?.bold && { fontWeight: "600" },
+            bold && { fontWeight: "600" },
             format?.italic && { fontStyle: "italic" },
             (format?.underline || format?.strikethrough) && {
               textDecorationLine: format.underline && format.strikethrough
@@ -2081,7 +2176,7 @@ function renderCell({
                   ? "underline"
                   : "line-through",
             },
-            format?.textColor ? { color: format.textColor } : null,
+            textColor ? { color: textColor } : null,
             format?.fontSize ? { fontSize: format.fontSize } : null,
             format?.fontFamily === "mono" ? { fontFamily: "monospace" } : null,
             format?.fontFamily === "serif" ? { fontFamily: "serif" } : null,
@@ -2091,6 +2186,13 @@ function renderCell({
           {display}
         </Text>
       )}
+      {misfit && !(isEditing && editSource === "cell") ? (
+        <View
+          pointerEvents="none"
+          accessibilityLabel={`Does not fit the ${column.type} column`}
+          style={styles.misfitMark}
+        />
+      ) : null}
     </Pressable>
     </View>
   );
@@ -2261,6 +2363,18 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   selectedCell: { borderWidth: 2, borderColor: KINETIC.accentHover, backgroundColor: "#251F3E" },
   errorCell: { backgroundColor: "rgba(239,107,92,0.08)" },
+  // A corner tick, like a spreadsheet's note marker.
+  misfitMark: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 0,
+    height: 0,
+    borderTopWidth: 7,
+    borderLeftWidth: 7,
+    borderTopColor: colors.warning,
+    borderLeftColor: "transparent",
+  },
   cellText: { color: KINETIC.text, fontSize: 12 },
   numText: { textAlign: "right", fontVariant: ["tabular-nums"] },
   boolText: { textAlign: "center", fontSize: 16 },
@@ -2277,8 +2391,8 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  selectChipText: { color: colors.foreground, fontSize: 12, flexShrink: 1 },
-  selectChevron: { color: colors.mutedForeground, fontSize: 10 },
+  selectChipText: { color: KINETIC.text, fontSize: 12, flexShrink: 1 },
+  selectChevron: { color: KINETIC.secondary, fontSize: 10 },
   optionsInput: {
     minHeight: 120,
     maxHeight: 220,

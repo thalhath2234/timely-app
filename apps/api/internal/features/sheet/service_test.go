@@ -79,3 +79,40 @@ func TestSheetRejectsForeignProject(t *testing.T) {
 		t.Fatalf("create: expected project not found, got %v", err)
 	}
 }
+
+func TestMergeTabsKeepsTabsTheClientDidNotSend(t *testing.T) {
+	current := models.SheetTabs{{ID: "jan", Name: "January"}, {ID: "feb", Name: "February"}}
+	changed := models.SheetTabs{{ID: "feb", Name: "Feb edited"}, {ID: "mar", Name: "March"}}
+	merged, err := mergeTabs(current, &changed, []string{"jan", "feb", "mar"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merged) != 3 || merged[0].Name != "January" || merged[1].Name != "Feb edited" || merged[2].Name != "March" {
+		t.Fatalf("unexpected merge %+v", merged)
+	}
+	dropped, err := mergeTabs(current, nil, []string{"feb"})
+	if err != nil || len(dropped) != 1 || dropped[0].ID != "feb" {
+		t.Fatalf("tabs missing from the order should be removed, got %+v %v", dropped, err)
+	}
+	if _, err := mergeTabs(current, nil, []string{"jan", "nope"}); err == nil {
+		t.Fatal("an id the server does not know must be rejected, not dropped")
+	}
+}
+
+func TestPrepareGridMakesTabNamesUnique(t *testing.T) {
+	columns := models.DefaultSheetColumns()
+	tabs := models.SheetTabs{
+		{ID: "a", Name: "Food", Columns: columns, Rows: models.DefaultSheetRows(columns, 1)},
+		{ID: "b", Name: "food", Columns: columns, Rows: models.DefaultSheetRows(columns, 1)},
+		{ID: "c", Name: "Food", Columns: columns, Rows: models.DefaultSheetRows(columns, 1)},
+	}
+	var cols models.SheetColumns
+	var rows models.SheetRows
+	var merges models.SheetMerges
+	if err := prepareGrid("Budget", &cols, &rows, &merges, &tabs); err != nil {
+		t.Fatal(err)
+	}
+	if tabs[0].Name != "Food" || tabs[1].Name != "food (2)" || tabs[2].Name != "Food (3)" {
+		t.Fatalf("names = %q %q %q", tabs[0].Name, tabs[1].Name, tabs[2].Name)
+	}
+}
