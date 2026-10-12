@@ -59,7 +59,7 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
       );
     case "codeBlock":
       return (
-        <ScrollView horizontal style={styles.code} contentContainerStyle={styles.codeInner}>
+        <ScrollView keyboardShouldPersistTaps="handled" horizontal style={styles.code} contentContainerStyle={styles.codeInner}>
           <Text style={styles.codeText}>{plain(node)}</Text>
         </ScrollView>
       );
@@ -129,7 +129,7 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
     case "mathBlock":
       // Read-only text shows the TeX source as code.
       return (
-        <ScrollView horizontal style={styles.code} contentContainerStyle={styles.codeInner}>
+        <ScrollView keyboardShouldPersistTaps="handled" horizontal style={styles.code} contentContainerStyle={styles.codeInner}>
           <Text style={styles.codeText}>{plain(node)}</Text>
         </ScrollView>
       );
@@ -162,7 +162,7 @@ function Table({ rows }: { rows: Node[] }) {
   const width = Math.max(1, ...rows.map((row) => (row.content ?? []).length));
   const col = Math.max(96, Math.min(160, Math.floor(320 / Math.min(width, 3))));
   return (
-    <ScrollView horizontal style={styles.tableScroll}>
+    <ScrollView keyboardShouldPersistTaps="handled" horizontal style={styles.tableScroll}>
       <View>
         {rows.map((row, r) => (
           <View key={r} style={styles.tr}>

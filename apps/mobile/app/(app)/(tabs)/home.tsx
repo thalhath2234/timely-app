@@ -240,6 +240,7 @@ export default function HomeScreen() {
     <Screen>
       <MobileHeader title="Today" subtitle={dateLabel} statusDot accountActions />
       <ScrollView
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.body}
         refreshControl={
           <RefreshControl

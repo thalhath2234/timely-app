@@ -193,12 +193,15 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
             columns={activeTab.columns}
             rows={activeTab.rows}
             merges={activeTab.merges ?? []}
+            workbook={{ tabs, currentTabId: activeTab.id }}
+            conditionalFormats={activeTab.conditionalFormats}
+            frozenRows={activeTab.frozenRows ?? 0}
             onChange={handleGridChange}
           />
         ) : null}
       </View>
       <View style={[styles.tabBarWrap, { paddingBottom: systemBottomInset(insets.bottom) }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
+        <ScrollView keyboardShouldPersistTaps="handled" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
           {tabs.map((tab) => (
             <Pressable
               key={tab.id}
@@ -208,7 +211,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
                 setTabDraft(tab.name);
                 setMenu("tab");
               }}
-              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn]}
+              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn, tab.color ? { borderBottomColor: tab.color } : null]}
             >
               <Text style={[styles.tabLabel, tab.id === activeTab?.id && styles.tabLabelOn]}>{tab.name}</Text>
             </Pressable>

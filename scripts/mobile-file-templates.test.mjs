@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
 import {
+  builtinSheetTemplateChoices,
   docTemplateChoices,
   docTitleFromTemplate,
   oneLine,
@@ -12,6 +13,12 @@ import {
 } from "../apps/mobile/lib/fileTemplates.ts";
 import { cellFitEdit } from "../apps/mobile/lib/sheetCellFit.ts";
 import { growGridTo } from "../apps/mobile/lib/sheetGrow.ts";
+import { BUILTIN_SHEET_TEMPLATES } from "../packages/contract/src/sheetTemplates.ts";
+
+// lib/sheet.ts pulls in the formula engine, whose files import their
+// siblings without an extension; teach Node that before loading it.
+await import("./ts-siblings.mjs");
+const { normalizeSheet, normalizeTab, tabsFromSheet, workbookPayload } = await import("../apps/mobile/lib/sheet.ts");
 
 const builtins = [
   { id: "builtin:daily", title: "Daily note", icon: "📅" },
@@ -46,6 +53,64 @@ describe("sheetTemplateChoices", () => {
   test("falls back to the first tab's columns, then a count", () => {
     assert.equal(sheetTemplateChoices([{ id: "t", name: "X", icon: "💰", columns: [], tabs: [{ columns: [col("Item")] }] }])[0].description, "Item");
     assert.equal(sheetTemplateChoices([{ id: "t", name: "X", icon: null, columns: [col(" ")], tabs: [] }])[0].description, "1 column");
+  });
+});
+
+describe("builtinSheetTemplateChoices", () => {
+  test("offers Yearly expenses as a built-in, not as one of the person's own", () => {
+    const rows = builtinSheetTemplateChoices();
+    const yearly = rows.find((row) => row.id === "builtin:yearly-expenses");
+    assert.equal(yearly.name, "Yearly expenses");
+    assert.equal(yearly.mine, false);
+    assert.ok(yearly.description.length > 0);
+  });
+});
+
+describe("sheet normalizers keep desktop display settings", () => {
+  test("column format and hidden survive; absent ones add no keys", () => {
+    const [tab] = tabsFromSheet({
+      title: "S",
+      columns: [],
+      rows: [],
+      merges: [],
+      tabs: [
+        {
+          id: "t1",
+          name: "Summary",
+          color: "#6E56CF",
+          frozenRows: 1,
+          frozenCols: 2,
+          conditionalFormats: [{ id: "cf", columnId: "c1", operator: "gt", value: "1", fillColor: "#5F2120" }],
+          columns: [
+            { id: "c1", name: "Spent", width: 120, type: "currency", format: { currency: "LKR", decimals: 0 }, hidden: true },
+            { id: "c2", name: "Notes", width: 120, type: "text" },
+          ],
+          rows: [],
+          merges: [],
+        },
+      ],
+    });
+    assert.deepEqual(tab.columns[0].format, { currency: "LKR", decimals: 0 });
+    assert.equal(tab.columns[0].hidden, true);
+    assert.deepEqual(Object.keys(tab.columns[1]).sort(), ["id", "name", "type", "width"]);
+    assert.equal(tab.color, "#6E56CF");
+    assert.equal(tab.frozenRows, 1);
+    assert.equal(tab.frozenCols, 2);
+    assert.equal(tab.conditionalFormats.length, 1);
+    assert.deepEqual(workbookPayload([tab]).tabs[0], tab);
+  });
+
+  test("a plain tab gains no new keys", () => {
+    const tab = normalizeTab({ id: "t", name: "A", columns: [], rows: [], merges: [] });
+    assert.deepEqual(Object.keys(tab).sort(), ["columns", "id", "merges", "name", "rows"]);
+  });
+
+  test("the built-in Yearly expenses sheet round-trips through normalizeSheet", () => {
+    const payload = BUILTIN_SHEET_TEMPLATES[0].build({ year: 2026 });
+    const sheet = normalizeSheet({ id: "s", icon: null, workspaceId: "w", projectId: null, userId: "u", ...payload });
+    assert.equal(sheet.title, "Expenses 2026");
+    // As sent over the wire (undefined keys drop out either way).
+    assert.deepEqual(JSON.parse(JSON.stringify(sheet.tabs)), JSON.parse(JSON.stringify(payload.tabs)));
   });
 });
 

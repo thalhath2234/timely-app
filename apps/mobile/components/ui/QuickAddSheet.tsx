@@ -13,7 +13,7 @@ import { Dot, Field, PrimaryButton, PropertyGroup, PropertyRow } from "./primiti
 import RichTextEditor from "../editor/RichTextEditor";
 import AnimatedPressable from "./AnimatedPressable";
 import { emptyCustomFieldDrafts, filledCustomFieldValues } from "../../lib/customFields";
-import { isRichContentEmpty } from "../../lib/richText";
+import { isRichContentEmpty, toRichContent } from "../../lib/richText";
 import type { DocContent } from "../../lib/types";
 import { useCreateEvent, useCreateTask, useAddBlock, useEstimateQuery, useProjectsQuery, useWorkspacesQuery } from "../../lib/hooks";
 import { buildRecurrenceInput, type RecurrenceDraft } from "../../lib/recurrence";
@@ -41,6 +41,7 @@ const KINDS: { value: Kind; label: string; Icon: typeof ListTodo }[] = [
   { value: "sheet", label: "Sheet", Icon: SheetIcon },
 ];
 const PRIORITIES = ["Low", "Medium", "High", "Urgent"] as const;
+const EMPTY_DESCRIPTION: DocContent = { type: "doc", content: [{ type: "paragraph" }] };
 const DURATION_PRESETS = [0, 15, 30, 45, 60, 90, 120];
 
 function nextRoundHour() {
@@ -92,7 +93,7 @@ export default function QuickAddSheet({
   const [kind, setKind] = useState<Kind>("task");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [descriptionRich, setDescriptionRich] = useState<DocContent>({ type: "doc", content: [{ type: "paragraph" }] });
+  const [descriptionRich, setDescriptionRich] = useState<DocContent>(EMPTY_DESCRIPTION);
   const [noteSync, setNoteSync] = useState(0);
   const [workspaceId, setWorkspaceId] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -142,7 +143,11 @@ export default function QuickAddSheet({
   const suggested = estimate.data?.minutes;
   const [phase, setPhase] = useState<"menu" | "form">("menu");
   const [selectedKind, setSelectedKind] = useState<Kind | null>(null);
-  const [editorOpen, setEditorOpen] = useState(false);
+  // "opening": the rich editor is loading while the plain field it replaces
+  // keeps the keyboard; "open" once the editor has taken focus.
+  const [editor, setEditor] = useState<"closed" | "opening" | "open">("closed");
+  const editorOpen = editor !== "closed";
+  const [editorFocus, setEditorFocus] = useState(0);
   const [detailsReady, setDetailsReady] = useState(false);
 
   const list = workspaces.data ?? [];
@@ -215,7 +220,7 @@ export default function QuickAddSheet({
     if (!open) return;
     setPhase(preset?.kind ? "form" : "menu");
     setSelectedKind(null);
-    setEditorOpen(false);
+    setEditor("closed");
   }, [open, preset?.kind]);
 
   useEffect(() => {
@@ -234,7 +239,7 @@ export default function QuickAddSheet({
   function finishClose() {
     setPhase("menu");
     setSelectedKind(null);
-    setEditorOpen(false);
+    setEditor("closed");
     setDetailsReady(false);
   }
 
@@ -255,7 +260,7 @@ export default function QuickAddSheet({
   function reset() {
     setTitle("");
     setDescription("");
-    setDescriptionRich({ type: "doc", content: [{ type: "paragraph" }] });
+    setDescriptionRich(EMPTY_DESCRIPTION);
     setNoteSync((value) => value + 1);
     setProjectId("");
     setStageId("");
@@ -425,7 +430,7 @@ export default function QuickAddSheet({
         </Animated.View>
         ) : (
         <Animated.View key={`form-${kind}`} entering={expandEntering(Boolean(reduceMotion))} style={styles.fields}>
-        <AnimatedPressable onPress={() => { setSelectedKind(null); setPhase("menu"); setEditorOpen(false); }} style={styles.changeType}>
+        <AnimatedPressable onPress={() => { setSelectedKind(null); setPhase("menu"); setEditor("closed"); }} style={styles.changeType}>
           <Text style={styles.changeTypeText}>← Change type</Text>
         </AnimatedPressable>
         <View style={styles.objectiveCard}>
@@ -457,29 +462,48 @@ export default function QuickAddSheet({
               <Text style={styles.cardEyebrow}>DESCRIPTION</Text>
               {editorOpen ? <Text style={styles.markdownLabel}>Markdown enabled</Text> : null}
             </View>
-          {editorOpen ? (
-            <RichTextEditor
-              compact
-              content={descriptionRich}
-              syncKey={noteSync}
-              placeholder="Description. Type '/' for blocks, markdown welcome…"
-              writeContext={{ kind: "task", title }}
-              onChange={({ content, plainText }) => {
-                setDescriptionRich(content);
-                setDescription(plainText);
-              }}
-            />
-          ) : (
-            <Field
-              bare
-              multiline
-              value={description}
-              onChangeText={setDescription}
-              onFocus={() => setEditorOpen(true)}
-              autoCapitalize="sentences"
-              placeholder="Add a description…"
-            />
-          )}
+          <View>
+            {editorOpen ? (
+              <RichTextEditor
+                compact
+                content={descriptionRich}
+                syncKey={noteSync}
+                focusRequest={editorFocus}
+                placeholder="Description. Type '/' for blocks, markdown welcome…"
+                writeContext={{ kind: "task", title }}
+                onFocusChange={(focused) => {
+                  if (focused) setEditor("open");
+                }}
+                onChange={({ content, plainText }) => {
+                  setDescriptionRich(content);
+                  setDescription(plainText);
+                }}
+              />
+            ) : null}
+            {editor !== "open" ? (
+              // This field stays mounted (on top of the loading editor) until
+              // the editor has focus. Unmounting it while focused sends the
+              // focus to the title, so the first tap would land there.
+              <View style={editorOpen ? styles.descriptionBridge : undefined}>
+                <Field
+                  bare
+                  multiline
+                  value={description}
+                  onChangeText={(text) => {
+                    setDescription(text);
+                    setDescriptionRich(text.trim() ? toRichContent(null, text) : EMPTY_DESCRIPTION);
+                  }}
+                  onFocus={() => {
+                    setEditor((current) => (current === "closed" ? "opening" : current));
+                    setEditorFocus((count) => count + 1);
+                  }}
+                  onBlur={() => setEditorFocus(0)}
+                  autoCapitalize="sentences"
+                  placeholder="Add a description…"
+                />
+              </View>
+            ) : null}
+          </View>
           </View>
         ) : kind === "event" ? (
           <View style={styles.descriptionCard}>
@@ -979,6 +1003,7 @@ const styles = createThemedStyleSheet((colors) => ({
   fields: { gap: 16 },
   objectiveCard: { borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 8 },
   descriptionCard: { borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 10 },
+  descriptionBridge: { position: "absolute", top: 0, bottom: 0, left: -16, right: -16, paddingHorizontal: 16, backgroundColor: colors.card },
   descriptionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   cardEyebrow: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", letterSpacing: 0.5 },
   markdownLabel: { color: colors.mutedForeground, fontSize: 11 },

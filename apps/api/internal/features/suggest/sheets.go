@@ -193,7 +193,8 @@ func candidates(values []string) ([]string, []string) {
 		return true
 	}
 	isNumber := func(v string) bool {
-		return plainNumber.MatchString(v) && models.NormalizeTypedCell(models.SheetColumnTypeNumber, v) != ""
+		_, ok := models.ParseTypedCell(models.SheetColumnTypeNumber, v)
+		return plainNumber.MatchString(v) && ok
 	}
 	out := []string{}
 	// A percent column stores fractions (12% is 0.12), so only values written
@@ -202,7 +203,7 @@ func candidates(values []string) ([]string, []string) {
 		out = append(out, models.SheetColumnTypeNumber, models.SheetColumnTypeCurrency)
 	} else if fits(func(v string) bool {
 		return strings.HasSuffix(v, "%") && plainNumber.MatchString(strings.TrimSpace(strings.TrimSuffix(v, "%"))) &&
-			models.NormalizeTypedCell(models.SheetColumnTypePercent, v) != ""
+			typedFits(models.SheetColumnTypePercent, v)
 	}) {
 		out = append(out, models.SheetColumnTypePercent)
 	}
@@ -303,4 +304,9 @@ func (s *Service) ColumnTypes(ctx context.Context, userID string, columns []Impo
 		out.Columns[i] = t
 	}
 	return out, nil
+}
+
+func typedFits(colType, value string) bool {
+	_, ok := models.ParseTypedCell(colType, value)
+	return ok
 }

@@ -96,7 +96,7 @@ export function AuthScreen({
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <StatusBar style="light" />
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
             <View style={styles.wordmark}>

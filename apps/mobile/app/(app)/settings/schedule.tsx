@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { Button, Chip, Field, PrimaryButton, Select } from "../../../components/ui/primitives";
@@ -15,6 +15,7 @@ import { deviceTimezone, listTimezones } from "../../../lib/format";
 import { TimeField } from "../../../components/ui/DateTimeField";
 import type { WeekdayKey, WorkingHours, WorkingWindow } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
 const DAYS: { key: WeekdayKey; label: string }[] = [
   { key: "mon", label: "Mon" },
@@ -67,7 +68,7 @@ export default function ScheduleSettings() {
   return (
     <Screen>
       <MobileHeader title="Schedule" back large={false} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+      <FocusGroupScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         {hoursQ.isError ? (
           <Text style={styles.error}>Could not load working hours.</Text>
         ) : null}
@@ -126,7 +127,7 @@ export default function ScheduleSettings() {
           }}
         />
         <EngineSettings />
-      </ScrollView>
+      </FocusGroupScrollView>
     </Screen>
   );
 }
@@ -152,7 +153,7 @@ function EngineSettings() {
   }
 
   return (
-    <View style={{ gap: 12, marginTop: 20 }}>
+    <FocusGroup style={{ gap: 12, marginTop: 20 }}>
       <Text style={styles.heading}>Engine</Text>
       <Text style={styles.hint}>
         Buffer sits between placed blocks. Freeze keeps the next hours from being rewritten.
@@ -214,7 +215,7 @@ function EngineSettings() {
           );
         }}
       />
-    </View>
+    </FocusGroup>
   );
 }
 

@@ -239,3 +239,54 @@ export function insertFormulaRange(
   const nextSpan = { start: labelStart, end: labelStart + rangeLabel.length };
   return { value, caret: nextSpan.end, span: nextSpan };
 }
+
+export interface FormulaInputHint {
+  /** Function names that start with the word being typed (=SU → SUM, SUMIF…). */
+  suggestions: string[];
+  /** Where the word being typed starts and ends, for replacing it. */
+  word: { start: number; end: number } | null;
+  /** The innermost function the caret is inside, and which argument (0-based). */
+  current: { name: string; argument: number } | null;
+}
+
+/**
+ * What to show while someone types a formula: matching function names for a
+ * half-typed word, and the function (and argument) the caret sits in.
+ */
+export function formulaInputHint(formula: string, caret: number, functionNames: readonly string[]): FormulaInputHint {
+  const empty: FormulaInputHint = { suggestions: [], word: null, current: null };
+  if (!formula.trim().startsWith("=")) return empty;
+  const before = formula.slice(0, caret);
+  let inString = false;
+  const stack: { name: string; argument: number }[] = [];
+  for (let index = before.indexOf("=") + 1; index < before.length; index += 1) {
+    const char = before[index];
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "(") {
+      const name = /([A-Za-z][A-Za-z0-9.]*)\s*$/.exec(before.slice(0, index))?.[1]?.toUpperCase() ?? "";
+      stack.push({ name, argument: 0 });
+    } else if (char === ")") {
+      stack.pop();
+    } else if (char === "," && stack.length) {
+      stack[stack.length - 1].argument += 1;
+    }
+  }
+  if (inString) return { ...empty, current: [...stack].reverse().find((entry) => entry.name) ?? null };
+  const current = [...stack].reverse().find((entry) => entry.name) ?? null;
+  const match = /([A-Za-z][A-Za-z0-9.]*)$/.exec(before);
+  let suggestions: string[] = [];
+  let word: FormulaInputHint["word"] = null;
+  if (match && !/[A-Za-z0-9.!$']/.test(formula[caret] ?? "") && !/[!$']$/.test(before.slice(0, -match[1].length))) {
+    const typed = match[1].toUpperCase();
+    // A cell reference such as A1 or AB12 is not a function name.
+    if (!/^[A-Z]{1,3}\d+$/.test(typed)) {
+      suggestions = functionNames.filter((name) => name.startsWith(typed) && name !== typed).slice(0, 6);
+      if (suggestions.length) word = { start: caret - match[1].length, end: caret };
+    }
+  }
+  return { suggestions, word, current };
+}

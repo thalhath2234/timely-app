@@ -69,7 +69,7 @@ export default function NotificationSettingsScreen() {
   return (
     <Screen>
       <MobileHeader title="Notifications" back large={false} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 16 }}>
         <View style={styles.card}>
           <View style={styles.icon}>
             <Bell size={18} color={colors.mutedForeground} />

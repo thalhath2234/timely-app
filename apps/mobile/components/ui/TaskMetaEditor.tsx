@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Keyboard, Text, View } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { Braces, Tags, Plus, X } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -103,6 +103,7 @@ export default function TaskMetaEditor({
 
   function toggleAddingLabel() {
     setError(null);
+    if (addingLabel) Keyboard.dismiss();
     setAddingLabel((open) => {
       if (open) resetLabelDraft();
       return !open;
@@ -111,6 +112,7 @@ export default function TaskMetaEditor({
 
   function toggleAddingField() {
     setError(null);
+    if (addingField) Keyboard.dismiss();
     setAddingField((open) => {
       if (open) resetFieldDraft();
       return !open;
@@ -129,6 +131,9 @@ export default function TaskMetaEditor({
     try {
       const created = await createLabel(workspaceId, { name, color: labelColor });
       const id = entityId(created);
+      // Blur first: unmounting a focused input on Android moves focus to
+      // another field (the task title in Quick add).
+      Keyboard.dismiss();
       resetLabelDraft();
       setAddingLabel(false);
       await refresh();
@@ -157,6 +162,9 @@ export default function TaskMetaEditor({
         options: needsOptions(fieldType) ? cleaned : undefined,
       });
       const field = created as CustomField;
+      // Blur first: unmounting a focused input on Android moves focus to
+      // another field (the task title in Quick add).
+      Keyboard.dismiss();
       resetFieldDraft();
       setAddingField(false);
       await refresh();
