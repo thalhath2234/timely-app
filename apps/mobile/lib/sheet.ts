@@ -171,7 +171,7 @@ export function normalizeTab(tab: SheetTab, index = 0, fallbackName = "Sheet 1")
     rows: normalizeRows(tab?.rows),
     merges: tab?.merges ?? [],
   };
-  // Tab settings the phone does not edit are carried through untouched.
+  // Tab settings are carried through as stored.
   if (tab?.color) next.color = tab.color;
   if (typeof tab?.frozenRows === "number") next.frozenRows = tab.frozenRows;
   if (typeof tab?.frozenCols === "number") next.frozenCols = tab.frozenCols;
