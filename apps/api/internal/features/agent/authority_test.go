@@ -29,7 +29,7 @@ var expectedAuthority = []struct {
 	unread_notification_count what_next`},
 	// Applied directly when the plan is one clear step.
 	{Write, Applies, `
-	add_checklist_item add_sheet_column add_sheet_tab add_task_comment append_to_doc capture_inbox_item
+	add_checklist_item add_sheet_column add_sheet_row add_sheet_tab add_task_comment append_to_doc capture_inbox_item
 	clarify_inbox_item complete_project complete_task create_custom_field create_doc create_event create_label
 	create_project create_sheet_template create_stage create_status create_task create_workspace move_block
 	move_task_to_stage move_task_to_status pause_focus pin_block pin_task rename_sheet_tab rename_workspace
@@ -45,7 +45,7 @@ var expectedAuthority = []struct {
 	// Need an Agent proposal depending on their arguments (TestArgumentRules).
 	{Write, ReviewedWhen, `
 	add_3d_model create_sheet mark_notification_read update_doc update_event update_sheet update_sheet_cells
-	update_sheet_column update_task`},
+	update_sheet_column update_sheet_tab update_task`},
 	// External MCP clients only; chat never sees them.
 	{MCPOnly, Applies, `
 	archive_doc archive_sheet clear_notifications create_backup download_backup
@@ -166,6 +166,10 @@ func TestArgumentRules(t *testing.T) {
 		{"update_sheet_column", map[string]any{"name": "Cost", "width": 120}, false},
 		{"create_sheet", map[string]any{"templateId": ""}, false},
 		{"create_sheet", map[string]any{"templateId": "tst"}, true},
+		{"create_sheet", map[string]any{"templateId": "builtin:yearly-expenses"}, true},
+		{"update_sheet_column", map[string]any{"format": map[string]any{"currency": "LKR"}, "hidden": true}, false},
+		{"update_sheet_tab", map[string]any{"frozenRows": 1, "color": "#4F8BFF"}, false},
+		{"update_sheet_tab", map[string]any{"conditionalFormats": []any{}}, true},
 		{"update_doc", map[string]any{"markdown": ""}, true},
 		{"add_3d_model", map[string]any{"docId": "doc", "replace": false}, false},
 		{"add_3d_model", map[string]any{"docId": "doc", "replace": true}, true},

@@ -269,7 +269,9 @@ format-chat: ## Format chat UI and its browser audit
 install-browser: ## Install Chromium for browser checks
 	@pnpm exec playwright install chromium
 
-.PHONY: test-sheet-formulas lint-sheet-formulas format-sheet-formulas
+.PHONY: test-sheet-formulas lint-sheet-formulas format-sheet-formulas gen-sheet-builtins
+gen-sheet-builtins: ## Write the built-in sheet templates as JSON for the API (agents create them from it)
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs scripts/gen-sheet-builtins.mjs
 test-sheet-formulas: ## Test the shared sheet logic (formulas, ranges, cells, CSV) and grid growth
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/sheet-formulas.test.mjs scripts/sheet-refs.test.mjs scripts/sheet-range.test.mjs scripts/sheet-cell-csv.test.mjs scripts/sheet-template-display.test.mjs scripts/sheet-ops.test.mjs scripts/sheet-grid-grow.test.mjs
 lint-sheet-formulas: ## Lint the shared sheet logic in packages/contract

@@ -64,12 +64,15 @@ type SheetService interface {
 	Update(userID string, sheetID string, update SheetUpdate) (*models.Sheet, error)
 	Duplicate(userID, sheetID string) (*models.Sheet, error)
 	Delete(userID string, sheetID string) error
-	AddRows(userID, sheetID string, count int) (*models.Sheet, error)
-	UpdateCells(userID, sheetID, rowID string, cells map[string]string) (*models.Sheet, error)
-	DeleteRows(userID, sheetID string, rowIDs []string) (*models.Sheet, error)
-	AddColumn(userID, sheetID, name, colType string, options []string) (*models.Sheet, error)
-	UpdateColumn(userID, sheetID, columnID, name, colType string, width *int, options *[]string) (*models.Sheet, error)
-	DeleteColumn(userID, sheetID, columnID string) (*models.Sheet, error)
+	// The grid edits below take a tab id; an empty id is the first tab.
+	AddRows(userID, sheetID, tabID string, count int) (*models.Sheet, error)
+	AddRow(userID, sheetID, tabID string, cells map[string]string) (*models.Sheet, int, error)
+	UpdateCells(userID, sheetID, tabID, rowID string, cells map[string]string) (*models.Sheet, error)
+	DeleteRows(userID, sheetID, tabID string, rowIDs []string) (*models.Sheet, error)
+	AddColumn(userID, sheetID, tabID, name, colType string, options []string) (*models.Sheet, error)
+	UpdateColumn(userID, sheetID, tabID, columnID string, patch ColumnPatch) (*models.Sheet, error)
+	DeleteColumn(userID, sheetID, tabID, columnID string) (*models.Sheet, error)
+	UpdateTab(userID, sheetID, tabID string, patch TabPatch) (*models.Sheet, error)
 	AddTab(userID, sheetID, name string) (*models.Sheet, models.SheetTab, error)
 	RenameTab(userID, sheetID, tabID, name string) (*models.Sheet, error)
 	DeleteTab(userID, sheetID, tabID string) (*models.Sheet, error)
@@ -597,82 +600,127 @@ func (s *sheetService) indexSheet(sheet *models.Sheet) {
 	}
 }
 
-func (s *sheetService) AddRows(userID, sheetID string, count int) (*models.Sheet, error) {
+// editTab loads the sheet, applies change to one tab (an empty id is the first
+// tab) and saves the workbook. The caller holds the sheet's grid lock.
+func (s *sheetService) editTab(userID, sheetID, tabID string, change func(tab *models.SheetTab) error) (*models.Sheet, error) {
+	current, err := s.repo.GetSheetByID(userID, sheetID)
+	if err != nil {
+		return nil, err
+	}
+	tabs := workbookTabs(current)
+	idx, err := findTab(tabs, tabID)
+	if err != nil {
+		return nil, err
+	}
+	tab := tabs[idx]
+	tab.Columns = append(models.SheetColumns{}, tab.Columns...)
+	tab.Rows = cloneRows(tab.Rows)
+	if err := change(&tab); err != nil {
+		return nil, err
+	}
+	tabs[idx] = tab
+	return s.update(userID, sheetID, SheetUpdate{Tabs: &tabs})
+}
+
+func cloneRows(rows models.SheetRows) models.SheetRows {
+	out := make(models.SheetRows, len(rows))
+	for i, row := range rows {
+		cells := make(map[string]string, len(row.Cells))
+		for key, value := range row.Cells {
+			cells[key] = value
+		}
+		row.Cells = cells
+		out[i] = row
+	}
+	return out
+}
+
+// typedCells checks column ids and coerces each value to its column's type.
+func typedCells(columns models.SheetColumns, cells map[string]string) (map[string]string, error) {
+	types := make(map[string]string, len(columns))
+	for _, column := range columns {
+		types[column.ID] = column.Type
+	}
+	out := make(map[string]string, len(cells))
+	for colID, value := range cells {
+		colType, ok := types[colID]
+		if !ok {
+			return nil, errors.New("unknown column id: " + colID)
+		}
+		out[colID] = models.NormalizeTypedCell(colType, value)
+	}
+	return out, nil
+}
+
+func (s *sheetService) AddRows(userID, sheetID, tabID string, count int) (*models.Sheet, error) {
 	defer s.lockGrid(sheetID)()
 	if count <= 0 {
 		count = 1
 	}
-	current, err := s.repo.GetSheetByID(userID, sheetID)
-	if err != nil {
-		return nil, err
-	}
-	rows := append(models.SheetRows{}, current.Rows...)
-	rows = append(rows, models.DefaultSheetRows(current.Columns, count)...)
-	return s.update(userID, sheetID, SheetUpdate{Rows: &rows})
+	return s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
+		tab.Rows = append(tab.Rows, models.DefaultSheetRows(tab.Columns, count)...)
+		return nil
+	})
 }
 
-func (s *sheetService) UpdateCells(userID, sheetID, rowID string, cells map[string]string) (*models.Sheet, error) {
+// AddRow writes one entry into the next free row of a tab: blank rows and
+// rows that only hold their own row's formulas (a template's prepared rows)
+// are reused, and an entry goes above a closing totals row. It returns the
+// row's index.
+func (s *sheetService) AddRow(userID, sheetID, tabID string, cells map[string]string) (*models.Sheet, int, error) {
 	defer s.lockGrid(sheetID)()
-	current, err := s.repo.GetSheetByID(userID, sheetID)
-	if err != nil {
-		return nil, err
-	}
-	cols := map[string]bool{}
-	for _, column := range current.Columns {
-		cols[column.ID] = true
-	}
-	rows := append(models.SheetRows{}, current.Rows...)
-	found := false
-	for i := range rows {
-		if rows[i].ID != rowID {
-			continue
+	index := -1
+	sh, err := s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
+		values, err := typedCells(tab.Columns, cells)
+		if err != nil {
+			return err
 		}
-		found = true
-		if rows[i].Cells == nil {
-			rows[i].Cells = map[string]string{}
+		index = AppendRow(tab, models.SheetRow{ID: utils.PrefixedUUID("row"), Cells: values})
+		return nil
+	})
+	return sh, index, err
+}
+
+func (s *sheetService) UpdateCells(userID, sheetID, tabID, rowID string, cells map[string]string) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
+	return s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
+		values, err := typedCells(tab.Columns, cells)
+		if err != nil {
+			return err
 		}
-		types := map[string]string{}
-		for _, column := range current.Columns {
-			types[column.ID] = column.Type
-		}
-		for colID, value := range cells {
-			if !cols[colID] {
-				return nil, errors.New("unknown column id: " + colID)
+		for i := range tab.Rows {
+			if tab.Rows[i].ID != rowID {
+				continue
 			}
-			rows[i].Cells[colID] = models.NormalizeTypedCell(types[colID], value)
+			for colID, value := range values {
+				tab.Rows[i].Cells[colID] = value
+			}
+			return nil
 		}
-	}
-	if !found {
-		return nil, errors.New("row not found")
-	}
-	return s.update(userID, sheetID, SheetUpdate{Rows: &rows})
+		return errors.New("row not found")
+	})
 }
 
-func (s *sheetService) DeleteRows(userID, sheetID string, rowIDs []string) (*models.Sheet, error) {
+func (s *sheetService) DeleteRows(userID, sheetID, tabID string, rowIDs []string) (*models.Sheet, error) {
 	defer s.lockGrid(sheetID)()
-	current, err := s.repo.GetSheetByID(userID, sheetID)
-	if err != nil {
-		return nil, err
-	}
-	drop := map[string]bool{}
-	for _, id := range rowIDs {
-		drop[id] = true
-	}
-	var rows models.SheetRows
-	for _, row := range current.Rows {
-		if !drop[row.ID] {
-			rows = append(rows, row)
+	return s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
+		drop := map[string]bool{}
+		for _, id := range rowIDs {
+			drop[id] = true
 		}
-	}
-	return s.update(userID, sheetID, SheetUpdate{Rows: &rows})
+		var rows models.SheetRows
+		for _, row := range tab.Rows {
+			if !drop[row.ID] {
+				rows = append(rows, row)
+			}
+		}
+		tab.Rows = rows
+		return nil
+	})
 }
 
-func (s *sheetService) AddColumn(userID, sheetID, name, colType string, options []string) (*models.Sheet, error) {
+func (s *sheetService) AddColumn(userID, sheetID, tabID, name, colType string, options []string) (*models.Sheet, error) {
 	defer s.lockGrid(sheetID)()
-	current, err := s.repo.GetSheetByID(userID, sheetID)
-	if err != nil {
-		return nil, err
-	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "Column"
@@ -681,61 +729,127 @@ func (s *sheetService) AddColumn(userID, sheetID, name, colType string, options 
 	if err != nil {
 		return nil, err
 	}
-	column := models.SheetColumn{
-		ID:    utils.PrefixedUUID("col"),
-		Name:  name,
-		Width: 160,
-		Type:  normalizedType,
-	}
-	if normalizedType == models.SheetColumnTypeSelect {
-		column.Options = models.NormalizeSelectOptions(options)
-	}
-	columns := append(models.SheetColumns{}, current.Columns...)
-	columns = append(columns, column)
-	rows := append(models.SheetRows{}, current.Rows...)
-	for i := range rows {
-		if rows[i].Cells == nil {
-			rows[i].Cells = map[string]string{}
+	return s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
+		column := models.SheetColumn{
+			ID:    utils.PrefixedUUID("col"),
+			Name:  name,
+			Width: 160,
+			Type:  normalizedType,
 		}
-		rows[i].Cells[column.ID] = ""
-	}
-	return s.update(userID, sheetID, SheetUpdate{Columns: &columns, Rows: &rows})
+		if normalizedType == models.SheetColumnTypeSelect {
+			column.Options = models.NormalizeSelectOptions(options)
+		}
+		tab.Columns = append(tab.Columns, column)
+		for i := range tab.Rows {
+			tab.Rows[i].Cells[column.ID] = ""
+		}
+		return nil
+	})
 }
 
-func (s *sheetService) UpdateColumn(userID, sheetID, columnID, name, colType string, width *int, options *[]string) (*models.Sheet, error) {
+// ColumnPatch changes one column; nil and empty fields stay as they are.
+type ColumnPatch struct {
+	Name    string
+	Type    string
+	Width   *int
+	Options *[]string
+	// Format replaces the column's display format; an empty format clears it.
+	Format *models.SheetColumnFormat
+	Hidden *bool
+}
+
+func (s *sheetService) UpdateColumn(userID, sheetID, tabID, columnID string, patch ColumnPatch) (*models.Sheet, error) {
 	defer s.lockGrid(sheetID)()
-	current, err := s.repo.GetSheetByID(userID, sheetID)
-	if err != nil {
-		return nil, err
-	}
-	columns := append(models.SheetColumns{}, current.Columns...)
-	found := false
-	for i := range columns {
-		if columns[i].ID != columnID {
-			continue
-		}
-		found = true
-		if name != "" {
-			columns[i].Name = name
-		}
-		if colType != "" {
-			normalizedType, err := models.NormalizeSheetColumnType(colType)
-			if err != nil {
-				return nil, err
+	return s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
+		for i := range tab.Columns {
+			column := &tab.Columns[i]
+			if column.ID != columnID {
+				continue
 			}
-			columns[i].Type = normalizedType
+			if patch.Name != "" {
+				column.Name = patch.Name
+			}
+			if patch.Type != "" {
+				normalizedType, err := models.NormalizeSheetColumnType(patch.Type)
+				if err != nil {
+					return err
+				}
+				column.Type = normalizedType
+			}
+			if patch.Width != nil && *patch.Width > 0 {
+				column.Width = *patch.Width
+			}
+			if patch.Options != nil {
+				column.Options = models.NormalizeSelectOptions(*patch.Options)
+			}
+			if patch.Format != nil {
+				format := *patch.Format
+				column.Format = &format
+			}
+			if patch.Hidden != nil {
+				column.Hidden = *patch.Hidden
+			}
+			return nil
 		}
-		if width != nil && *width > 0 {
-			columns[i].Width = *width
+		return errors.New("column not found")
+	})
+}
+
+func (s *sheetService) DeleteColumn(userID, sheetID, tabID, columnID string) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
+	return s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
+		if len(tab.Columns) <= 1 {
+			return errors.New("a sheet needs at least one column")
 		}
-		if options != nil {
-			columns[i].Options = models.NormalizeSelectOptions(*options)
+		var columns models.SheetColumns
+		for _, column := range tab.Columns {
+			if column.ID != columnID {
+				columns = append(columns, column)
+			}
 		}
-	}
-	if !found {
-		return nil, errors.New("column not found")
-	}
-	return s.update(userID, sheetID, SheetUpdate{Columns: &columns})
+		if len(columns) == len(tab.Columns) {
+			return errors.New("column not found")
+		}
+		tab.Columns = columns
+		for i := range tab.Rows {
+			delete(tab.Rows[i].Cells, columnID)
+		}
+		return nil
+	})
+}
+
+// TabPatch changes a tab's look; nil fields stay as they are. Renames go
+// through RenameTab, which also rewrites the formulas that read the tab.
+type TabPatch struct {
+	Color              *string
+	FrozenRows         *int
+	FrozenCols         *int
+	ConditionalFormats *[]models.SheetConditionalFormat
+}
+
+func (s *sheetService) UpdateTab(userID, sheetID, tabID string, patch TabPatch) (*models.Sheet, error) {
+	defer s.lockGrid(sheetID)()
+	return s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
+		if patch.Color != nil {
+			tab.Color = *patch.Color
+		}
+		if patch.FrozenRows != nil {
+			tab.FrozenRows = *patch.FrozenRows
+		}
+		if patch.FrozenCols != nil {
+			tab.FrozenCols = *patch.FrozenCols
+		}
+		if patch.ConditionalFormats != nil {
+			rules := append([]models.SheetConditionalFormat{}, (*patch.ConditionalFormats)...)
+			for i := range rules {
+				if rules[i].ID == "" {
+					rules[i].ID = utils.PrefixedUUID("cf")
+				}
+			}
+			tab.ConditionalFormats = rules
+		}
+		return nil
+	})
 }
 
 // workbookTabs returns a copy of the sheet's tabs. A sheet that still stores
@@ -844,7 +958,9 @@ func (s *sheetService) RenameTab(userID, sheetID, tabID, name string) (*models.S
 	if err != nil {
 		return nil, err
 	}
-	tabs[idx].Name = name
+	if err := renameTab(tabs, idx, name); err != nil {
+		return nil, err
+	}
 	return s.update(userID, sheetID, SheetUpdate{Tabs: &tabs})
 }
 
@@ -867,31 +983,6 @@ func (s *sheetService) DeleteTab(userID, sheetID, tabID string) (*models.Sheet, 
 	}
 	tabs = append(tabs[:idx], tabs[idx+1:]...)
 	return s.update(userID, sheetID, SheetUpdate{Tabs: &tabs})
-}
-
-func (s *sheetService) DeleteColumn(userID, sheetID, columnID string) (*models.Sheet, error) {
-	defer s.lockGrid(sheetID)()
-	current, err := s.repo.GetSheetByID(userID, sheetID)
-	if err != nil {
-		return nil, err
-	}
-	if len(current.Columns) <= 1 {
-		return nil, errors.New("a sheet needs at least one column")
-	}
-	var columns models.SheetColumns
-	for _, column := range current.Columns {
-		if column.ID != columnID {
-			columns = append(columns, column)
-		}
-	}
-	if len(columns) == len(current.Columns) {
-		return nil, errors.New("column not found")
-	}
-	rows := append(models.SheetRows{}, current.Rows...)
-	for i := range rows {
-		delete(rows[i].Cells, columnID)
-	}
-	return s.update(userID, sheetID, SheetUpdate{Columns: &columns, Rows: &rows})
 }
 
 // assertProject rejects a project the user does not own, so a sheet cannot be

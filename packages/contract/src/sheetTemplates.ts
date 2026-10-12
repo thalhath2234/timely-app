@@ -345,3 +345,52 @@ export const BUILTIN_SHEET_TEMPLATES: BuiltinSheetTemplate[] = [
 export function builtinSheetTemplate(id: string) {
   return BUILTIN_SHEET_TEMPLATES.find((template) => template.id === id);
 }
+
+/**
+ * A built-in template with stable placeholder ids and no currency, as the API
+ * stores it for agents (apps/api/internal/features/sheet/builtin). The API
+ * gives every tab, column, row and rule a fresh id and applies the year and
+ * currency.
+ */
+export function builtinSheetSkeleton(id: string) {
+  const template = builtinSheetTemplate(id);
+  if (!template) throw new Error(`unknown built-in sheet template: ${id}`);
+  const built = template.build({ year: 2000 });
+  const ids = new Map<string, string>();
+  const stable = (value: string) => {
+    if (!ids.has(value)) ids.set(value, `${value.split("_")[0]}_${ids.size + 1}`);
+    return ids.get(value)!;
+  };
+  const tabs = (built.tabs ?? []).map((tab) => ({
+    ...tab,
+    id: stable(tab.id),
+    columns: tab.columns.map((column) => ({ ...column, id: stable(column.id) })),
+    rows: tab.rows.map((row) => ({
+      ...row,
+      id: stable(row.id),
+      // Blank cells are left out; the API fills them in.
+      cells: Object.fromEntries(
+        Object.entries(row.cells)
+          .filter(([, value]) => value !== "")
+          .map(([key, value]) => [stable(key), value]),
+      ),
+      ...(row.formats
+        ? { formats: Object.fromEntries(Object.entries(row.formats).map(([key, value]) => [stable(key), value])) }
+        : {}),
+    })),
+    conditionalFormats: (tab.conditionalFormats ?? []).map((rule) => ({
+      ...rule,
+      id: stable(rule.id),
+      columnId: stable(rule.columnId),
+    })),
+  }));
+  return {
+    id: template.id,
+    name: template.name,
+    description: template.description,
+    icon: built.icon ?? template.icon,
+    // "{year}" is replaced with the year the sheet is for.
+    title: (built.title ?? template.name).replace("2000", "{year}"),
+    tabs,
+  };
+}

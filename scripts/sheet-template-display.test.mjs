@@ -169,3 +169,17 @@ describe("sheet display", () => {
     assert.deepEqual([...above.keys()], ["0:1"], "a total row is not counted in the average or marked");
   });
 });
+
+test("the API's built-in template JSON matches the shared templates", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { builtinSheetSkeleton, BUILTIN_SHEET_TEMPLATES } = await import("../packages/contract/src/sheetTemplates.ts");
+  for (const template of BUILTIN_SHEET_TEMPLATES) {
+    const name = template.id.replace(/^builtin:/, "");
+    const file = new URL(`../apps/api/internal/features/sheet/builtin/${name}.json`, import.meta.url);
+    assert.deepEqual(
+      JSON.parse(readFileSync(file, "utf8")),
+      JSON.parse(JSON.stringify(builtinSheetSkeleton(template.id))),
+      `${name}.json is out of date: run make gen-sheet-builtins`,
+    );
+  }
+});
