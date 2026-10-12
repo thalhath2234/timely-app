@@ -42,10 +42,16 @@ var argumentCases = map[string][]struct {
 	"update_sheet_column": {
 		{`{"name":"Cost"}`, false}, {`{}`, false}, {`{"type":"number"}`, true}, {`{"type":null}`, true},
 		{`{"name":"Cost","options":["a"]}`, true}, {`{"options":[]}`, true}, {`{"name":"Cost","width":120}`, false},
+		{`{"format":{"currency":"LKR"},"hidden":true}`, false},
+	},
+	"update_sheet_tab": {
+		{`{"frozenRows":1}`, false}, {`{"color":"#4F8BFF"}`, false}, {`{}`, false},
+		{`{"conditionalFormats":[]}`, true}, {`{"frozenRows":1,"conditionalFormats":[{"operator":"gt"}]}`, true},
 	},
 	"create_sheet": {
 		{`{"title":"Expenses"}`, false}, {`{"templateId":""}`, false}, {`{"templateId":null}`, false}, {`{}`, false},
 		{`{"templateId":"tst"}`, true}, {`{"title":"Expenses","templateId":"tst"}`, true}, {`{"templateId":5}`, true},
+		{`{"templateId":"builtin:yearly-expenses","year":2026}`, true},
 	},
 	"update_doc": {
 		{`{"title":"Notes"}`, false}, {`{}`, false}, {`{"markdown":"replacement"}`, true}, {`{"markdown":""}`, true},

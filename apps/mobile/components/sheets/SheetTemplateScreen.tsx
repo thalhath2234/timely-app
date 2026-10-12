@@ -193,6 +193,9 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
             columns={activeTab.columns}
             rows={activeTab.rows}
             merges={activeTab.merges ?? []}
+            workbook={{ tabs, currentTabId: activeTab.id }}
+            conditionalFormats={activeTab.conditionalFormats}
+            frozenRows={activeTab.frozenRows ?? 0}
             onChange={handleGridChange}
           />
         ) : null}
@@ -208,7 +211,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
                 setTabDraft(tab.name);
                 setMenu("tab");
               }}
-              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn]}
+              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn, tab.color ? { borderBottomColor: tab.color } : null]}
             >
               <Text style={[styles.tabLabel, tab.id === activeTab?.id && styles.tabLabelOn]}>{tab.name}</Text>
             </Pressable>

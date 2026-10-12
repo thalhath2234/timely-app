@@ -1,4 +1,5 @@
 import type { DocTemplate } from "@timely/contract/templates";
+import { BUILTIN_SHEET_TEMPLATES, type BuiltinSheetTemplate } from "@timely/contract/sheetTemplates";
 import type { SheetTemplate } from "./types";
 
 /** One row of the new doc or sheet picker: an icon, a name and one line
@@ -48,6 +49,20 @@ export function sheetTemplateChoices(templates: Pick<SheetTemplate, "id" | "name
     if (tabs > 1) description += ` · ${tabs} tabs`;
     return { id: template.id, name: template.name || "Untitled", icon: template.icon || undefined, description, mine: true };
   });
+}
+
+/** The sheets that ship with Timely, as picker rows after the person's own
+ * templates. They are built on the phone, never sent as a templateId. */
+export function builtinSheetTemplateChoices(
+  templates: readonly Pick<BuiltinSheetTemplate, "id" | "name" | "icon" | "description">[] = BUILTIN_SHEET_TEMPLATES,
+): TemplateChoice[] {
+  return templates.map((template) => ({
+    id: template.id,
+    name: template.name,
+    icon: template.icon || undefined,
+    description: template.description,
+    mine: false,
+  }));
 }
 
 /** Puts the suggested template first, out of the list, when it is one of

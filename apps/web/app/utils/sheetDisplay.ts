@@ -1,12 +1,4 @@
-import type {
-  SheetAlign,
-  SheetCellFormat,
-  SheetColumnType,
-  SheetNumberFormat,
-} from "@/app/_types/types";
-import type { CellResult } from "@timely/contract/sheetFormula";
-import { formatCellResult } from "@timely/contract/sheetFormula";
-import { isFormulaValue } from "@timely/contract/sheetCell";
+import type { SheetAlign, SheetCellFormat, SheetColumnType } from "@/app/_types/types";
 
 export const SHEET_STATUS_CHIPS: Record<
   string,
@@ -58,84 +50,6 @@ export function defaultAlign(type: SheetColumnType | undefined): SheetAlign {
   }
   if (type === "boolean") return "center";
   return "left";
-}
-
-export function cycleAlign(current: SheetAlign | undefined): SheetAlign {
-  if (current === "left") return "center";
-  if (current === "center") return "right";
-  return "left";
-}
-
-export function numericColumnType(type: SheetColumnType | undefined) {
-  return (
-    type === "number" ||
-    type === "currency" ||
-    type === "percent" ||
-    type === "formula"
-  );
-}
-
-function formatNumber(
-  value: number,
-  format: SheetNumberFormat | undefined,
-  decimals?: number,
-) {
-  if (!Number.isFinite(value)) return "#NUM!";
-  const digits =
-    decimals ?? (format === "currency" ? 2 : format === "percent" ? 2 : undefined);
-  const options =
-    digits == null
-      ? { maximumFractionDigits: 10 }
-      : { minimumFractionDigits: digits, maximumFractionDigits: digits };
-  if (format === "currency") {
-    return value.toLocaleString(undefined, options);
-  }
-  if (format === "percent") {
-    return `${(value * 100).toLocaleString(undefined, options)}%`;
-  }
-  if (format === "scientific") {
-    return value.toExponential(digits ?? 2);
-  }
-  if (format === "plain") {
-    return String(value);
-  }
-  if (digits != null) {
-    return value.toLocaleString(undefined, options);
-  }
-  return formatCellResult({ type: "number", value });
-}
-
-export function resolveNumberFormat(
-  type: SheetColumnType | undefined,
-  cellFormat?: SheetCellFormat,
-): SheetNumberFormat | undefined {
-  if (cellFormat?.numberFormat) return cellFormat.numberFormat;
-  if (type === "currency") return "currency";
-  if (type === "percent") return undefined;
-  return undefined;
-}
-
-export function formatSheetDisplay(
-  result: CellResult,
-  type: SheetColumnType | undefined,
-  raw: string,
-  cellFormat?: SheetCellFormat,
-): string {
-  if (result.type === "error") return result.message;
-  if (result.type === "empty") return "";
-  if (result.type === "boolean") return result.value ? "TRUE" : "FALSE";
-  if (result.type === "number") {
-    return formatNumber(
-      result.value,
-      resolveNumberFormat(type, cellFormat),
-      cellFormat?.decimals,
-    );
-  }
-  if (type === "percent" && result.type === "text" && !isFormulaValue(raw)) {
-    const parsed = Number(result.value.replace(/,/g, ""));
-    if (Number.isFinite(parsed)) return formatNumber(parsed, undefined, cellFormat?.decimals);
-  }
-  return formatCellResult(result);
 }
 
 export function statusChip(text: string) {

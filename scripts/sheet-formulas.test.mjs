@@ -157,3 +157,121 @@ describe("sheetFormula", () => {
     assert.match(result.value, /^\d{4}-\d{2}-\d{2}$/);
   });
 });
+
+describe("sheetFormula functions and workbooks", () => {
+  const { createSheetEvaluator } = formula;
+  const letters = "ABCDEFGHIJ".split("");
+  const columns = letters.map((id) => ({ id, name: id, width: 100, type: "text" }));
+  // Date, Item, Category, Store, Qty, Unit, Price, Total
+  const data = [
+    ["2026-01-03", "Milk", "Groceries", "Keells", "2", "L", "450", "=E1*G1"],
+    ["2026-01-05", "Bus pass", "Transport", "SLTB", "1", "month", "3000", "=E2*G2"],
+    ["2026-01-09", "Rice", "Groceries", "Cargills", "5", "kg", "220", "=E3*G3"],
+    ["2026-01-15", "Movie", "Fun", "Scope", "2", "ticket", "1200", "=E4*G4"],
+  ];
+  const rows = data.map((cells, r) => ({
+    id: `r${r}`,
+    cells: Object.fromEntries(cells.map((value, c) => [letters[c], value])),
+  }));
+  const tabs = [
+    { id: "main", name: "Main", columns, rows },
+    {
+      id: "jan",
+      name: "January",
+      columns: [{ id: "a", name: "A", width: 1, type: "text" }],
+      rows: [{ id: "1", cells: { a: "1" } }, { id: "2", cells: { a: "2" } }, { id: "3", cells: { a: "=A2*2" } }],
+    },
+    {
+      id: "spend",
+      name: "Jan Spend",
+      columns: [{ id: "a", name: "A", width: 1, type: "text" }],
+      rows: [{ id: "1", cells: { a: "=SUM(Main!H1:H4)" } }],
+    },
+  ];
+  function ev(value) {
+    const grid = structuredClone(rows);
+    grid.push({ id: "x", cells: { J: value } });
+    return createSheetEvaluator(columns, grid, { tabs: tabs.map((tab) => (tab.id === "main" ? { ...tab, rows: grid } : tab)), currentTabId: "main" }).valueAt(9, grid.length - 1);
+  }
+  const value = (result) => (result.type === "error" ? result.message : result.value);
+
+  for (const [formulaText, expected] of [
+    ["=E2*$G$1", 450],
+    ["=G$1*2", 900],
+    ['=SUMIF(C1:C4,"Groceries",H1:H4)', 2000],
+    ['=SUMIF(C1:C4,"gro*",H1:H4)', 2000],
+    ['=SUMIFS(H1:H4,C1:C4,"Groceries",D1:D4,"Keells")', 900],
+    ['=COUNTIF(G1:G4,">1000")', 2],
+    ['=COUNTIFS(C1:C4,"Groceries",G1:G4,"<300")', 1],
+    ['=AVERAGEIF(C1:C4,"Groceries",H1:H4)', 1000],
+    ['=SUMIFS(H1:H4,A1:A4,">=2026-01-05",A1:A4,"<=2026-01-10")', 4100],
+    ['=MAXIFS(H1:H4,C1:C4,"Groceries")', 1100],
+    ['=VLOOKUP("Rice",B1:H4,6,FALSE)', 220],
+    ['=XLOOKUP("Movie",B1:B4,D1:D4)', "Scope"],
+    ['=XLOOKUP("Tea",B1:B4,D1:D4,"none")', "none"],
+    ['=INDEX(D1:D4,MATCH("Rice",B1:B4,0))', "Cargills"],
+    ['=IFERROR(1/0,"none")', "none"],
+    ['=IF("groceries"=C1,"same","different")', "same"],
+    ['="He said ""hi"""', 'He said "hi"'],
+    ['="a"&1+2', "a3"],
+    ["=1e3+1", 1001],
+    ["=A1+7", "2026-01-10"],
+    ["=A2-A1", 2],
+    ["=MAX(A1:A4)", "2026-01-15"],
+    ['=TEXT(A1,"mmmm")', "January"],
+    ["=ROUNDUP(2.341,1)", 2.4],
+    ["=ROUND(2.675,2)", 2.68],
+    ["=MOD(-3,5)", 2],
+    ["=MEDIAN(G1:G4)", 825],
+    ['=LEFT(B1,2)&RIGHT(B2,4)', "Mipass"],
+    ['=SUBSTITUTE(B2," ","-")', "Bus-pass"],
+    ['=PROPER("bus pass")', "Bus Pass"],
+    ['=TEXTJOIN(", ",TRUE,B1:B2,"",B3)', "Milk, Bus pass, Rice"],
+    ["=SUMPRODUCT(E1:E4,G1:G4)", 7400],
+    ['=SUMPRODUCT((C1:C4="Groceries")*H1:H4)', 2000],
+    ["=COUNTBLANK(I1:I4)", 4],
+    ["=ISBLANK(I1)", true],
+    ["=EOMONTH(A1,1)", "2026-02-28"],
+    ["=EDATE(\"2026-01-31\",1)", "2026-02-28"],
+    ['=DATEDIF("2026-01-15","2026-10-11","M")', 8],
+    ['=NETWORKDAYS("2026-10-05","2026-10-16")', 10],
+    ["=LARGE(G1:G4,2)", 1200],
+    ["=RANK(3000,G1:G4)", 1],
+    ['=SWITCH(C2,"Fun",1,"Transport",2,0)', 2],
+    ['=IFS(G1>1000,"big",G1>100,"mid")', "mid"],
+    ["=ROW()", 5],
+    ["=January!A2", 2],
+    ["=January!A3+1", 5],
+    ["=SUM(January!A1:A3)", 7],
+    ["=SUM(January!A:A)", 7],
+    ["='Jan Spend'!A1", 7400],
+    ["=Nope!A1", "#REF!"],
+    ["=#REF!+1", "#REF!"],
+    ["=ABC(1)", "#NAME?"],
+  ]) {
+    test(formulaText, () => {
+      const result = value(ev(formulaText));
+      if (typeof expected === "number") assert.ok(Math.abs(result - expected) < 1e-9, `${formulaText} → ${result}`);
+      else assert.equal(result, expected);
+    });
+  }
+
+  test("cycles across tabs are caught", () => {
+    const a = { id: "a", name: "A", columns: [{ id: "x", name: "X", width: 1, type: "text" }], rows: [{ id: "1", cells: { x: "=B!A1" } }] };
+    const b = { id: "b", name: "B", columns: [{ id: "x", name: "X", width: 1, type: "text" }], rows: [{ id: "1", cells: { x: "=A!A1" } }] };
+    const result = createSheetEvaluator(a.columns, a.rows, { tabs: [a, b], currentTabId: "a" }).valueAt(0, 0);
+    assert.equal(result.message, "#CYCLE!");
+  });
+
+  test("a 5000-row running balance can be read from the bottom", () => {
+    const grid = Array.from({ length: 5000 }, (_, r) => ({ id: `r${r}`, cells: { A: "1", B: r === 0 ? "=A1" : `=B${r}+A${r + 1}` } }));
+    assert.deepEqual(createSheetEvaluator(columns, grid).valueAt(1, 4999), { type: "number", value: 5000 });
+  });
+
+  test("a summary tab reads month totals that are deep chains", () => {
+    const month = { id: "m", name: "March", columns, rows: Array.from({ length: 3000 }, (_, r) => ({ id: `r${r}`, cells: { A: "2", B: r === 0 ? "=A1" : `=B${r}+A${r + 1}` } })) };
+    const summary = { id: "s", name: "Summary", columns, rows: [{ id: "1", cells: { A: "=March!B3000" } }] };
+    const result = createSheetEvaluator(summary.columns, summary.rows, { tabs: [summary, month], currentTabId: "s" }).valueAt(0, 0);
+    assert.deepEqual(result, { type: "number", value: 6000 });
+  });
+});
