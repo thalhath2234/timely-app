@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-inbox test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-inbox test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -328,6 +328,10 @@ test-mobile-file-templates: ## Test the mobile new doc and sheet template picker
 .PHONY: test-mobile-task-views
 test-mobile-task-views: ## Test how the phone's saved views merge with the server's copy (rebase, first sync, 20-view cap)
 	@node --experimental-strip-types --test scripts/mobile-task-views.test.mjs
+
+.PHONY: test-mobile-keyboard-taps
+test-mobile-keyboard-taps: ## Test that phone scrollers let a sheet's buttons work on the first tap while the keyboard is up
+	@node --test scripts/mobile-keyboard-taps.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing

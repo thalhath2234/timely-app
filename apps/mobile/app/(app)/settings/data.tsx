@@ -50,7 +50,7 @@ export default function DataSettingsScreen() {
   return (
     <Screen>
       <MobileHeader title="Data & backups" back large={false} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <SectionLabel>Portable exports</SectionLabel>
         <ExportRow Icon={Database} label="Full JSON backup" busy={busy === "json"} onPress={() => run("json", () => shareExport("/export/full", "timely-backup.json", "application/json"))} />
         <ExportRow Icon={FileSpreadsheet} label="Tasks CSV" busy={busy === "csv"} onPress={() => run("csv", () => shareExport("/export/tasks.csv", "timely-tasks.csv", "text/csv"))} />

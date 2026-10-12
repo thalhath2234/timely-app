@@ -245,7 +245,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
         ) : null}
       </View>
       <View style={[styles.tabBarWrap, { paddingBottom: systemBottomInset(insets.bottom) }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
+        <ScrollView keyboardShouldPersistTaps="handled" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
           {tabs.map((tab) => (
             <Pressable
               key={tab.id}

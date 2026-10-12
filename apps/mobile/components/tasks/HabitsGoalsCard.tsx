@@ -119,7 +119,7 @@ export default function HabitsGoalsCard({
       </View>
 
       {habitList.length ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+        <ScrollView keyboardShouldPersistTaps="handled" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
           {habitList.map((habit) => (
             <AnimatedPressable
               key={habit.id}
@@ -414,6 +414,7 @@ function AddRow({
         accessibilityLabel="Add"
         disabled={!draft.trim() || busy}
         onPress={submit}
+        hitSlop={6}
         style={[styles.addButton, (!draft.trim() || busy) && styles.disabled]}
       >
         <Plus size={16} color={colors.primary} />

@@ -1,7 +1,7 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Check, ChevronDown, ChevronUp, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -42,6 +42,7 @@ import RelatedList from "../../../components/search/RelatedList";
 import ProjectInsightsCard from "../../../components/projects/ProjectInsightsCard";
 import { isRichContentEmpty, toRichContent } from "../../../lib/richText";
 import type { DocContent, Stage, Task } from "../../../lib/types";
+import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -180,7 +181,7 @@ export default function ProjectDetailScreen() {
           </Pressable>
         }
       />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}>
+      <FocusGroupScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}>
         <Field
           value={title}
           onChangeText={(next) => {
@@ -238,25 +239,27 @@ export default function ProjectDetailScreen() {
           <Text style={styles.meta}>{projectTasks.length} tasks · same filters as Tasks</Text>
         </Pressable>
         <SectionLabel>New task</SectionLabel>
-        <Field value={taskTitle} onChangeText={setTaskTitle} placeholder="Task title" autoCapitalize="sentences" />
-        <PrimaryButton
-          label={createTask.isPending ? "Adding…" : "Add task"}
-          disabled={!taskTitle.trim() || createTask.isPending}
-          onPress={() => {
-            const name = taskTitle.trim();
-            if (!name) return;
-            void createTask
-              .mutateAsync({
-                name,
-                kind: "task",
-                duration: 30,
-                projectId: project.id,
-                workspaceId: project.workspaceId,
-                statusId: workspace?.status?.find((status) => status.isDefault)?.id ?? workspace?.status?.[0]?.id,
-              })
-              .then(() => setTaskTitle(""));
-          }}
-        />
+        <FocusGroup style={{ gap: 12 }}>
+          <Field value={taskTitle} onChangeText={setTaskTitle} placeholder="Task title" autoCapitalize="sentences" />
+          <PrimaryButton
+            label={createTask.isPending ? "Adding…" : "Add task"}
+            disabled={!taskTitle.trim() || createTask.isPending}
+            onPress={() => {
+              const name = taskTitle.trim();
+              if (!name) return;
+              void createTask
+                .mutateAsync({
+                  name,
+                  kind: "task",
+                  duration: 30,
+                  projectId: project.id,
+                  workspaceId: project.workspaceId,
+                  statusId: workspace?.status?.find((status) => status.isDefault)?.id ?? workspace?.status?.[0]?.id,
+                })
+                .then(() => setTaskTitle(""));
+            }}
+          />
+        </FocusGroup>
         <Pressable
           onPress={() =>
             requestQuickAdd({ kind: "task", projectId: project.id, workspaceId: project.workspaceId })
@@ -306,19 +309,21 @@ export default function ProjectDetailScreen() {
             </Pressable>
           </View>
         ))}
-        <Field value={stageName} onChangeText={setStageName} placeholder="New stage" autoCapitalize="words" />
-        <PrimaryButton
-          label={project.doesHaveStages ? "Add stage" : "Enable stages"}
-          disabled={project.doesHaveStages && !stageName.trim()}
-          onPress={() => {
-            if (!project.doesHaveStages) {
-              persist({ doesHaveStages: true });
-              return;
-            }
-            addStage.mutate({ projectId: project.id, name: stageName.trim() });
-            setStageName("");
-          }}
-        />
+        <FocusGroup style={{ gap: 12 }}>
+          <Field value={stageName} onChangeText={setStageName} placeholder="New stage" autoCapitalize="words" />
+          <PrimaryButton
+            label={project.doesHaveStages ? "Add stage" : "Enable stages"}
+            disabled={project.doesHaveStages && !stageName.trim()}
+            onPress={() => {
+              if (!project.doesHaveStages) {
+                persist({ doesHaveStages: true });
+                return;
+              }
+              addStage.mutate({ projectId: project.id, name: stageName.trim() });
+              setStageName("");
+            }}
+          />
+        </FocusGroup>
         <SectionLabel>Board</SectionLabel>
         {projectTasks.length === 0 ? (
           <EmptyState icon={ListTodo} title="No tasks" description="Add a task above or open the full composer." compact />
@@ -374,7 +379,7 @@ export default function ProjectDetailScreen() {
           <Trash2 size={16} color={colors.destructive} />
           <Text style={styles.deleteText}>Delete project</Text>
         </Pressable>
-      </ScrollView>
+      </FocusGroupScrollView>
       <BottomSheet open={picker === "color"} onClose={() => setPicker(null)} title="Color">
         <SheetOption
           selected={!project.color}

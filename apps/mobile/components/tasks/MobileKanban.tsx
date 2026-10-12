@@ -100,6 +100,7 @@ export default function MobileKanban({
   const targets = useRef<Record<string, View | null>>({});
   return (
     <ScrollView
+      keyboardShouldPersistTaps="handled"
       horizontal
       nestedScrollEnabled
       style={styles.scroller}
