@@ -71,14 +71,9 @@ function CalloutView({ node, editor, updateAttributes }: NodeViewProps) {
           className="doc-callout-kind"
           onChange={(next) => updateAttributes({ kind: next })}
         />
-        <input
-          className="doc-callout-title"
-          value={String(node.attrs.title ?? "")}
-          placeholder="Title (optional)"
-          aria-label="Callout title"
-          readOnly={!editor.isEditable}
-          onChange={(event) => updateAttributes({ title: event.target.value || null })}
-        />
+        {/* No title field: a title from imported Markdown ("> [!NOTE] Title")
+            is kept and shown as text so the .md round trip loses nothing. */}
+        {node.attrs.title ? <span className="doc-callout-title">{String(node.attrs.title)}</span> : null}
       </div>
       <NodeViewContent className="doc-callout-body" />
     </NodeViewWrapper>

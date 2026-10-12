@@ -1097,20 +1097,13 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
 }
 
 .doc-callout-title {
-  background: transparent;
-  border: 0;
   color: var(--foreground);
-  flex: 1;
-  font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
   min-width: 0;
-  outline: none;
-}
-
-.doc-callout-title::placeholder {
-  color: var(--muted-foreground);
-  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .doc-callout-body > :last-child {

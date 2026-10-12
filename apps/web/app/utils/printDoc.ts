@@ -31,7 +31,7 @@ export async function exportDocPdf(title: string, editorDom: HTMLElement) {
       canvas.remove();
     }
   });
-  // Form fields (a callout's title) print as their text; a copy
+  // Form fields print as their text; a copy
   // would lose what was picked.
   const sourceFields = editorDom.querySelectorAll("input, select, textarea");
   body.querySelectorAll("input, select, textarea").forEach((field, index) => {

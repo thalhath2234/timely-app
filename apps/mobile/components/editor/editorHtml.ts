@@ -139,7 +139,7 @@ export function buildEditorHtml(
     .callout-kind svg { width: 14px; height: 14px; opacity: 0.75; }
     .callout-icon { display: flex; flex-shrink: 0; }
     .callout-icon svg { width: 16px; height: 16px; }
-    .callout-head input { flex: 1; min-width: 0; background: transparent; border: 0; color: ${t.foreground}; font: inherit; font-size: 14px; font-weight: 600; outline: none; }
+    .callout-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: ${t.foreground}; font-size: 14px; font-weight: 600; }
     .callout-body > :last-child { margin-bottom: 0; }
     .footnote-ref { color: ${t.primary}; font-weight: 600; font-size: 0.7em; }
     .footnote { display: flex; gap: 8px; border-top: 1px solid ${t.border}; padding-top: 6px; margin: 6px 0 0; font-size: 14px; color: ${t.mutedForeground}; }
@@ -952,8 +952,9 @@ export function buildEditorHtml(
           kindButton.appendChild(kindLabel);
           kindButton.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>');
           let currentKind = node.attrs.kind || "note";
-          const title = document.createElement("input");
-          title.placeholder = "Title (optional)";
+          // No title field; a title from imported Markdown shows as text.
+          const title = document.createElement("span");
+          title.className = "callout-title";
           const body = document.createElement("div");
           body.className = "callout-body";
           const kindIcon = document.createElement("span");
@@ -963,16 +964,11 @@ export function buildEditorHtml(
           head.appendChild(title);
           dom.appendChild(head);
           dom.appendChild(body);
-          const setAttrs = (patch) => {
-            const pos = getPos();
-            editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...editor.state.doc.nodeAt(pos).attrs, ...patch }));
-          };
           kindButton.addEventListener("click", (event) => {
             event.preventDefault();
             if (!editor.isEditable) return;
             send({ type: "calloutKind", pos: getPos(), kind: currentKind });
           });
-          title.addEventListener("input", () => setAttrs({ title: title.value || null }));
           const apply = (current) => {
             const kind = current.attrs.kind || "note";
             dom.setAttribute("data-kind", kind);
@@ -981,7 +977,8 @@ export function buildEditorHtml(
             }
             currentKind = kind;
             kindLabel.textContent = CALLOUT_KINDS[kind] || kind;
-            if (title.value !== (current.attrs.title || "")) title.value = current.attrs.title || "";
+            title.textContent = current.attrs.title || "";
+            title.hidden = !current.attrs.title;
           };
           apply(node);
           return {
