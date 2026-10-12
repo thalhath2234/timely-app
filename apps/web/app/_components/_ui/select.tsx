@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { cn } from "@/app/utils/cn";
@@ -11,6 +11,8 @@ export type SelectOption = {
   value: string;
   label: string;
   color?: string;
+  /** Drawn before the label in the menu (a callout kind's icon). */
+  icon?: ReactNode;
   disabled?: boolean;
   /** Options sharing a group are listed under that heading, in the order given. */
   group?: string;
@@ -25,8 +27,12 @@ type SelectProps = {
   disabled?: boolean;
   /** Trigger height: sm 28px, md 32px, lg 36px (same scale as Input and Button). */
   size?: ControlSize;
-  /** "bare" drops the box, for a value inside a property row. */
-  variant?: "default" | "bare";
+  /**
+   * "bare" drops the box, for a value inside a property row. "inline" sizes
+   * to its label and takes the surrounding text colour, for a picker inside
+   * running content (a doc callout's kind, a code block's language).
+   */
+  variant?: "default" | "bare" | "inline";
   /** Adds a filter box at the top of the menu, for long lists (timezones). */
   searchable?: boolean;
   "aria-label"?: string;
@@ -41,6 +47,8 @@ const bareTrigger: Record<ControlSize, string> = {
   md: `${bareBase} h-8 text-sm`,
   lg: `${bareBase} h-9 text-sm`,
 };
+const inlineTrigger =
+  "inline-flex h-6 max-w-full cursor-pointer items-center gap-1 rounded-md px-1.5 text-left text-inherit outline-none transition-colors hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring/30 aria-expanded:bg-foreground/[0.06] disabled:cursor-default disabled:hover:bg-transparent";
 
 export default function Select({
   value,
@@ -201,8 +209,12 @@ export default function Select({
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => (open ? setOpen(false) : openMenu())}
         className={cn(
-          "flex w-full items-center justify-between gap-2 text-left",
-          variant === "bare" ? bareTrigger[size] : controlClass(size),
+          variant === "inline"
+            ? inlineTrigger
+            : cn(
+                "flex w-full items-center justify-between gap-2 text-left",
+                variant === "bare" ? bareTrigger[size] : controlClass(size),
+              ),
           className,
         )}
       >
@@ -219,12 +231,16 @@ export default function Select({
             {selected?.label ?? placeholder}
           </span>
         </span>
-        <ChevronDown
-          className={cn(
-            "size-3.5 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
-          )}
-        />
+        {variant === "inline" && disabled ? null : (
+          <ChevronDown
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0 transition-transform",
+              variant === "inline" ? "opacity-70" : "text-muted-foreground",
+              open && "rotate-180",
+            )}
+          />
+        )}
       </button>
 
       {mounted &&
@@ -315,7 +331,11 @@ export default function Select({
                                     : "hover:bg-muted/70"),
                               )}
                             >
-                              {option.color ? (
+                              {option.icon ? (
+                                <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4">
+                                  {option.icon}
+                                </span>
+                              ) : option.color ? (
                                 <span
                                   className="size-2 shrink-0 rounded-full"
                                   style={{ backgroundColor: option.color }}

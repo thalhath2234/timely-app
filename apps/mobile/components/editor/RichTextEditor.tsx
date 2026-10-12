@@ -17,6 +17,11 @@ import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTyp
 import {
   AtSign,
   Bold,
+  Check,
+  Lightbulb,
+  MessageSquareWarning,
+  OctagonAlert,
+  TriangleAlert,
   CheckSquare,
   Code,
   Code2,
@@ -73,6 +78,15 @@ import FindBar from "./FindBar";
 import BlockSheet, { type BlockInfo } from "./BlockSheet";
 import HelpMeWriteSheet, { useHelpMeWriteAvailable, type WriteContext, type WriteInfo } from "./HelpMeWriteSheet";
 import { writtenContent } from "@timely/contract/helpMeWrite";
+
+/** The five GitHub callout kinds, coloured as in the editor (editorHtml.ts). */
+const CALLOUT_KINDS: { kind: string; label: string; Icon: typeof Info; color?: string }[] = [
+  { kind: "note", label: "Note", Icon: Info },
+  { kind: "tip", label: "Tip", Icon: Lightbulb, color: "#2fa36b" },
+  { kind: "important", label: "Important", Icon: MessageSquareWarning, color: "#8957e5" },
+  { kind: "warning", label: "Warning", Icon: TriangleAlert, color: "#d29922" },
+  { kind: "caution", label: "Caution", Icon: OctagonAlert, color: "#e5484d" },
+];
 
 type Picker = { kind: "slash" | "mention"; query: string; from: number; to: number } | null;
 
@@ -299,6 +313,7 @@ export default function RichTextEditor({
   const [linkHref, setLinkHref] = useState("https://");
   const [linkKind, setLinkKind] = useState<"link" | "embed" | "bookmark">("link");
   const [mathEdit, setMathEdit] = useState<{ pos: number; latex: string } | null>(null);
+  const [calloutPick, setCalloutPick] = useState<{ pos: number; kind: string } | null>(null);
   const onWikiLinkRef = useRef(onWikiLink);
   onWikiLinkRef.current = onWikiLink;
   const [linkRange, setLinkRange] = useState<{ from: number; to: number } | null>(null);
@@ -393,6 +408,7 @@ export default function RichTextEditor({
         active?: EditorActive;
         pos?: number;
         latex?: string;
+        kind?: string;
         target?: string;
         href?: string;
         current?: number;
@@ -439,6 +455,9 @@ export default function RichTextEditor({
       if (msg.type === "openLink" && msg.href && /^https?:/i.test(msg.href)) void Linking.openURL(msg.href).catch(() => undefined);
       if (msg.type === "mathEdit" && typeof msg.pos === "number") {
         setMathEdit({ pos: msg.pos, latex: msg.latex ?? "" });
+      }
+      if (msg.type === "calloutKind" && typeof msg.pos === "number") {
+        setCalloutPick({ pos: msg.pos, kind: msg.kind ?? "note" });
       }
       if (msg.type === "wikilink") onWikiLinkRef.current?.(msg.target ?? "");
       if (msg.type === "change" && msg.content) {
@@ -923,6 +942,29 @@ export default function RichTextEditor({
         }}
       />
 
+      <BottomSheet open={calloutPick !== null} onClose={() => setCalloutPick(null)} title="Callout type">
+        {CALLOUT_KINDS.map(({ kind, label, Icon, color }) => {
+          const selected = calloutPick?.kind === kind;
+          return (
+            <Pressable
+              key={kind}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              onPress={() => {
+                const pick = calloutPick;
+                setCalloutPick(null);
+                if (pick && pick.kind !== kind) run("setCalloutKind", { pos: pick.pos, kind });
+              }}
+              style={[styles.pickerRow, selected && styles.pickerRowOn]}
+            >
+              <Icon size={18} color={color ?? colors.primary} />
+              <Text style={[styles.itemTitle, styles.pickerCopy]}>{label}</Text>
+              {selected ? <Check size={16} color={colors.primary} /> : null}
+            </Pressable>
+          );
+        })}
+      </BottomSheet>
+
       <BottomSheet open={mathEdit !== null} onClose={() => closeMath(true)} title="Formula">
         <Field
           value={mathEdit?.latex ?? ""}
@@ -1042,6 +1084,7 @@ const styles = createThemedStyleSheet((colors) => ({
     gap: 10,
   },
   pickerCopy: { flex: 1, minWidth: 0 },
+  pickerRowOn: { backgroundColor: colors.accent, borderRadius: 12 },
   itemTitle: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   itemMeta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   shortcut: {

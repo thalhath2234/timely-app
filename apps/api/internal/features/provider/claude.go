@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -51,7 +50,7 @@ func (p *Claude) Complete(ctx context.Context, messages []chat.WireMessage, tool
 	}
 	cmd := exec.CommandContext(ctx, p.Bin, args...)
 	cmd.Dir = scratchDir()
-	cmd.Env = append(os.Environ(), "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
+	cmd.Env = cliEnv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	cmd.Stdin = bytes.NewReader(append(input, '\n'))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

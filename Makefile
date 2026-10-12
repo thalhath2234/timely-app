@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-sheet-formulas test-work-status test-help-me-write test-inbox test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -280,6 +280,10 @@ format-sheet-formulas: ## Format shared sheet logic and tests
 .PHONY: test-markdown-parity
 test-markdown-parity: ## Test that the web/mobile Markdown importer reads the API's export back into the same doc
 	@node --experimental-strip-types --test scripts/markdown-parity.test.mjs
+
+.PHONY: test-doc-checklist
+test-doc-checklist: ## Test which doc checklist items are offered as tasks, and the task name and description they get
+	@node --experimental-strip-types --test scripts/doc-checklist.test.mjs
 
 .PHONY: test-work-status
 test-work-status: ## Test the shared Overdue and Unscheduled work status logic
@@ -366,14 +370,14 @@ test-electron-guards: ## Test the desktop shell's window-open origin policy
 	@node --experimental-strip-types --test scripts/electron-guards.test.mjs
 
 .PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance
-test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports, Tailscale detection, backoff, stale pid
-	@node --experimental-strip-types --test scripts/electron-supervisor.test.mjs
+test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports, Tailscale detection, backoff, stale pid, sidecar lifetime
+	@node --experimental-strip-types --test scripts/electron-supervisor.test.mjs scripts/electron-lifetime.test.mjs
 
 test-mobile-server-config: ## Test mobile pairing: QR payload parsing, server order, reachability probe
 	@node --experimental-strip-types --test scripts/mobile-server-config.test.mjs
 
-test-desktop-instance: ## Test the web Settings → Server helpers (pairing payload, status copy, MCP address)
-	@node --experimental-strip-types --test scripts/desktop-instance.test.mjs scripts/mcp-url.test.mjs
+test-desktop-instance: ## Test the web Settings → Server helpers (pairing payload, status copy, MCP address) and the retry through a server restart
+	@node --experimental-strip-types --test scripts/desktop-instance.test.mjs scripts/mcp-url.test.mjs scripts/api-retry.test.mjs
 
 format-qa: ## Format the 2026-10-01 QA scripts and evidence
 	@pnpm exec prettier --write 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'

@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Logger } from "./logger.ts";
 import { silentLogger } from "./logger.ts";
+import { withDeathSignal } from "./lifetime.ts";
 import { exe } from "./paths.ts";
 import { describe, sleep, waitForExit } from "./sidecar.ts";
 
@@ -144,6 +145,8 @@ export type PostgresOptions = {
   port: number;
   password: string;
   platform?: NodeJS.Platform;
+  /** setpriv to run the server under for a death signal (Linux; lifetime.ts setprivPath), or null. */
+  setpriv?: string | null;
   log?: Logger;
   /** Receives server stdout/stderr lines. */
   output?: (chunk: Buffer) => void;
@@ -367,7 +370,9 @@ export class PostgresManager {
       "-c",
       "log_timezone=UTC",
     ];
-    const child = spawn(this.bin("postgres"), args, {
+    // SIGINT is PostgreSQL's fast shutdown: sessions roll back, a checkpoint is written.
+    const command = withDeathSignal(this.bin("postgres"), args, "INT", this.options.setpriv ?? null);
+    const child = spawn(command.command, command.args, {
       env: this.env(),
       cwd: this.options.pgRoot,
       stdio: ["ignore", "pipe", "pipe"],
