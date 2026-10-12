@@ -253,6 +253,7 @@ function DocEditor({ docId }: { docId: string }) {
         propertyRequest={propertyRequest}
         mentionRequest={mentionRequest}
         linkDocId={docId}
+        writeContext={{ kind: "doc", title }}
         onFindClose={() => setFindOpen(false)}
         onFocusChange={(focused) => {
           editorFocusedRef.current = focused;

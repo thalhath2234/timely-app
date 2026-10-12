@@ -352,11 +352,15 @@ export function filterSlashItems(items: SlashCommandItem[], query: string) {
   const search = query.trim().toLowerCase();
   if (!search) return items;
 
-  return items.filter(
+  const hits = items.filter(
     (item) =>
       item.title.toLowerCase().includes(search) ||
       item.keywords.some((keyword) => keyword.includes(search)),
   );
+  // A title that starts with the query or an exact keyword ("/ai") goes first.
+  const strong = (item: SlashCommandItem) =>
+    item.title.toLowerCase().startsWith(search) || item.keywords.includes(search);
+  return [...hits.filter(strong), ...hits.filter((item) => !strong(item))];
 }
 
 export interface SlashMenuHandle {

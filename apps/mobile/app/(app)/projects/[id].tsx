@@ -203,6 +203,7 @@ export default function ProjectDetailScreen() {
           content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
           syncKey={noteSync}
           placeholder="Write a description. Type '/' for blocks…"
+          writeContext={{ kind: "project", title }}
           onChange={({ content, plainText }) => {
             setNoteRich(content);
             setNote(plainText);

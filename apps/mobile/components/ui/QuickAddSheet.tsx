@@ -463,6 +463,7 @@ export default function QuickAddSheet({
               content={descriptionRich}
               syncKey={noteSync}
               placeholder="Description. Type '/' for blocks, markdown welcome…"
+              writeContext={{ kind: "task", title }}
               onChange={({ content, plainText }) => {
                 setDescriptionRich(content);
                 setDescription(plainText);
