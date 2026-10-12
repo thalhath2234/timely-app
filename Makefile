@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-view-search test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -300,6 +300,10 @@ test-help-me-write: ## Test the shared Help me write starters and how answers be
 .PHONY: test-inbox
 test-inbox: ## Test the shared Inbox order (Up next, skips) and waiting-time labels
 	@node --experimental-strip-types --test scripts/inbox.test.mjs
+
+.PHONY: test-view-search
+test-view-search: ## Test how search finds a saved task view by its name ("show my deadline")
+	@node --experimental-strip-types --test scripts/view-search.test.mjs
 
 .PHONY: test-dashboard
 test-dashboard: ## Test the shared Report dashboard engine (card queries, layouts, built-in cards)

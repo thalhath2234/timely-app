@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ArrowUpRight, CalendarDays, CheckSquare, Command, FileText, Folder, LayoutGrid, ListFilter, Plus, Search, Sparkles, Table2, X, type LucideIcon } from "lucide-react";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useSearch, useSmartSearch } from "@/app/utils/hooks/search";
+import { useConfig } from "@/app/utils/hooks/workspaces";
+import type { Config } from "@/app/_types/types";
+import { matchViewByName } from "@timely/contract/viewSearch";
 import type { SearchHit } from "@/app/utils/api/search";
 import { sendDecisionFeedback } from "@/app/utils/api/decisions";
 import { cn } from "@/app/utils/cn";
@@ -90,6 +93,8 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   const suggestedCategory = smartData?.category && category === "all" ? categories.find((tab) => tab.id === smartData.category) : undefined;
   const pending = !!trimmed && (!matchesCurrentQuery || search.isFetching);
   const failed = !!trimmed && matchesCurrentQuery && search.isError;
+  const taskViews = (useConfig().data as Config | undefined)?.taskViews;
+  const savedViews = useMemo(() => taskViews ?? [], [taskViews]);
 
   useEffect(() => {
     const previous = document.activeElement;
@@ -141,13 +146,16 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
     id: `suggest-${suggestion.kind}`, title: `Create ${nouns[suggestion.kind]} “${suggestion.title}”`, description: "Looks like you want to make something new",
     kind: suggestion.kind, icon: Plus, command: true, section: "suggested", run: () => create(suggestion.kind, suggestion.title),
   }] : [];
-  // A search that reads as "show me what needs attention" can open a saved view.
-  const viewPick = smartData?.view;
+  // A search that names a saved view ("show my deadline") opens it straight
+  // away, with or without Smart suggestions; one that reads as "show me what
+  // needs attention" gets Smart suggestions' pick.
+  const namedView = trimmed ? matchViewByName(trimmed, savedViews) : undefined;
+  const viewPick = namedView ?? smartData?.view;
   const viewItems: PaletteItem[] = viewPick && (category === "all" || category === "task") ? [{
-    id: `view-${viewPick.id}`, title: `Open view “${viewPick.name}”`, description: "Your saved view for this", kind: "view", icon: ListFilter, section: "suggested",
+    id: `view-${viewPick.id}`, title: `Open view “${viewPick.name}”`, description: namedView ? "Your saved view in Tasks" : "Your saved view for this", kind: "view", icon: ListFilter, section: "suggested",
     run: () => {
       onClose();
-      if (smartData?.logId) void sendDecisionFeedback(smartData.logId, true).catch(() => {});
+      if (smartData?.logId && smartData.view?.id === viewPick.id) void sendDecisionFeedback(smartData.logId, true).catch(() => {});
       router.push(`/tasks?view=${encodeURIComponent(viewPick.id)}`);
     },
   }] : [];
@@ -206,7 +214,8 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
         <div role="status" className="px-3 text-xs text-muted-foreground">
           {pending && <p className="py-3">Searching your workspace…</p>}
           {failed && <p className="py-3 text-destructive">Couldn’t search your workspace. Try again; commands are still available.</p>}
-          {!pending && !failed && trimmed && !results.length && !hidden.length && <p className="py-3">No matching {category === "all" ? "items" : categories.find((tab) => tab.id === category)?.label.toLowerCase()}. Try another keyword or tab.</p>}
+          {!pending && !failed && trimmed && !results.length && !hidden.length && viewItems.length > 0 && <p className="py-3">No items match this search.</p>}
+          {!pending && !failed && trimmed && !results.length && !hidden.length && !viewItems.length && <p className="py-3">No matching {category === "all" ? "items" : categories.find((tab) => tab.id === category)?.label.toLowerCase()}. Try another keyword or tab.</p>}
           {!pending && !failed && hidden.length > 0 && (
             <p className="py-1" data-testid="smart-hidden">
               {results.length ? "" : "No good matches. "}
