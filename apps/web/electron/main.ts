@@ -659,6 +659,10 @@ if (!gotLock) {
     if (HOSTED) return;
     if (process.platform !== "darwin") app.quit();
   });
+  // Every quit path awaits supervisor.shutdown() before app.exit(); if the
+  // process ends some other way, signal the sidecars on the way out (crashes
+  // and SIGKILL are covered by the sidecars' own lifeline, lifetime.ts).
+  process.on("exit", () => supervisor?.killAllNow());
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(signal, () => {
       if (HOSTED) requestQuit();

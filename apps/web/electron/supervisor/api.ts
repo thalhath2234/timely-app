@@ -8,6 +8,7 @@ import { silentLogger } from "./logger.ts";
 import { exe } from "./paths.ts";
 import type { Secrets } from "./config.ts";
 import type { ShellEnv } from "./shellEnv.ts";
+import { LIFELINE_ENV, withDeathSignal } from "./lifetime.ts";
 import { sleep, waitForExit } from "./sidecar.ts";
 import { PG_DATABASE, PG_USER } from "./postgres.ts";
 
@@ -47,6 +48,8 @@ export function buildApiEnv(input: ApiEnvInput): NodeJS.ProcessEnv {
     TIMELY_BACKUP_KEY: input.secrets.backupKey,
     TIMELY_DATA_DIR: input.dataDir,
     ALLOW_REGISTRATION: input.allowRegistration ? "true" : "false",
+    // apps/api/internal/lifeline: exit when the app's stdin pipe closes.
+    [LIFELINE_ENV]: "stdin",
   };
 }
 
@@ -65,6 +68,8 @@ export type ApiOptions = {
   env: NodeJS.ProcessEnv;
   port: number;
   platform?: NodeJS.Platform;
+  /** Run under `setpriv --pdeathsig` (Linux; see lifetime.ts). */
+  deathSignal?: boolean;
   log?: Logger;
   output?: (chunk: Buffer) => void;
 };
@@ -97,12 +102,16 @@ export class ApiManager {
 
   launch(): ChildProcess {
     mkdirSync(this.options.dataDir, { recursive: true });
-    const child = spawn(this.binary, [], {
+    // SIGTERM: the API's own shutdown also stops the agent CLIs it started.
+    const { command, args } = withDeathSignal(this.binary, [], "TERM", this.options.deathSignal ?? false);
+    // stdin is the lifeline: never written, it closes when this process ends.
+    const child = spawn(command, args, {
       cwd: this.options.dataDir,
       env: this.options.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
+    child.stdin?.on("error", () => {});
     child.stdout?.on("data", (chunk: Buffer) => this.options.output?.(chunk));
     child.stderr?.on("data", (chunk: Buffer) => this.options.output?.(chunk));
     return child;
