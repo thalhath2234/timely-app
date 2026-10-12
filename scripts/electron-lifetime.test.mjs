@@ -255,6 +255,30 @@ test("next guard: past the memory limit the server exits with code 75 and says w
   assert.match(stderr, /limit 1 MB/);
 });
 
+test("next guard: past the limit it finishes the requests already running, refuses new ones, then exits", async () => {
+  // /slow answers after 1.5 s; the first memory check (limit 1 MB) lands while it runs.
+  const code = `
+    const http = require("node:http");
+    const server = http.createServer((req, res) => setTimeout(() => res.end("done"), req.url === "/slow" ? 1500 : 0));
+    server.listen(0, "127.0.0.1", () => console.log(server.address().port));
+  `;
+  const child = spawn(process.execPath, ["--require", guard, "-e", code], {
+    env: { ...process.env, TIMELY_WEB_RSS_LIMIT_MB: "1", TIMELY_WEB_RSS_CHECK_MS: "400" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const exit = exited(child, 8_000);
+  const port = await new Promise((resolve) => child.stdout.once("data", (chunk) => resolve(Number(String(chunk).trim()))));
+  const started = Date.now();
+  const slow = fetch(`http://127.0.0.1:${port}/slow`).then((response) => response.text());
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  await assert.rejects(fetch(`http://127.0.0.1:${port}/new`), "a new connection is refused while it drains");
+  assert.equal(await slow, "done");
+  const result = await exit;
+  if (!result) child.kill("SIGKILL");
+  assert.deepEqual(result, { code: 75, signal: null });
+  assert.ok(Date.now() - started >= 1_400, "it waited for the running request");
+});
+
 test("next guard: under the memory limit the server keeps running", async () => {
   const child = spawn(process.execPath, ["--require", guard, "-e", "setInterval(() => {}, 1000)"], {
     env: { ...process.env, TIMELY_WEB_RSS_LIMIT_MB: "4096", TIMELY_WEB_RSS_CHECK_MS: "50" },

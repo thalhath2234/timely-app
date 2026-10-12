@@ -57,8 +57,13 @@ release never touches its servers or the other way round.
 The Next server also has memory limits: `--max-old-space-size=1024` (Electron's default
 allows a 4 GB heap) and two checks every 30 s in `next-guard.cjs`: resident memory above
 1.5 GB, or the heap above 85 % of its cap on two checks in a row. Either makes it exit with
-code 75 ("timely-guard: …" in `next.log`), and the supervisor starts a fresh one; a page
-that fails to load meanwhile is retried. It normally uses 150-300 MB.
+code 75 ("timely-guard: …" in `next.log`), and the supervisor starts a fresh one. Before
+exiting it stops taking new connections and lets running requests finish (up to 10 s;
+event streams are not waited for). In the gap of a few seconds, the window retries a page
+that fails to load, and `apiFetch` retries GET, PUT and DELETE requests
+(`app/utils/api/retry.ts`); POST and PATCH (creating things, sending a chat message) are
+never repeated. Agent runs live in the API and are not affected. It normally uses
+150-300 MB.
 
 Guard rails before anything starts:
 - Windows: refuse to run elevated (Postgres refuses to start as Administrator).

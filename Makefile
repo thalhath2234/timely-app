@@ -368,8 +368,8 @@ test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports,
 test-mobile-server-config: ## Test mobile pairing: QR payload parsing, server order, reachability probe
 	@node --experimental-strip-types --test scripts/mobile-server-config.test.mjs
 
-test-desktop-instance: ## Test the web Settings → Server helpers (pairing payload, status copy, MCP address)
-	@node --experimental-strip-types --test scripts/desktop-instance.test.mjs scripts/mcp-url.test.mjs
+test-desktop-instance: ## Test the web Settings → Server helpers (pairing payload, status copy, MCP address) and the retry through a server restart
+	@node --experimental-strip-types --test scripts/desktop-instance.test.mjs scripts/mcp-url.test.mjs scripts/api-retry.test.mjs
 
 format-qa: ## Format the 2026-10-01 QA scripts and evidence
 	@pnpm exec prettier --write 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'
