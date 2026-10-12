@@ -19,6 +19,7 @@ import {
   useReorderHabits,
 } from "@/app/utils/hooks/focus";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
+import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { controlClass } from "@/app/_components/_ui/field";
@@ -195,6 +196,12 @@ function GoalRows({ goals, version, onAdd }: { goals: Goal[]; version: string; o
   const progress = useGoalProgress(`${version}|${goals.map((goal) => `${goal.id}:${goal.title}`).join(",")}`, goals.length > 0);
   const openTask = useEntityDetailStore((state) => state.openTask);
   const [open, setOpen] = useState<string | null>(null);
+  const addTask = () => {
+    const sidebar = useSidebarStore.getState();
+    sidebar.setCreateTaskDraft(null);
+    sidebar.setAddNewMode("task");
+    sidebar.setIsAddItemModalOpen(true);
+  };
   if (goals.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -211,45 +218,54 @@ function GoalRows({ goals, version, onAdd }: { goals: Goal[]; version: string; o
       <ul className="space-y-0.5" aria-label="Goals">
         {goals.map((goal) => {
           const work = progress.data?.available ? items.get(goal.id) : undefined;
-          const expanded = open === goal.id && Boolean(work?.length);
+          const expanded = open === goal.id && Boolean(work);
           return (
             <li key={goal.id}>
               <div className="flex items-center gap-2 rounded-lg px-1 py-1">
                 <Target className="size-3.5 shrink-0 text-primary" />
                 <span className="min-w-0 flex-1 truncate text-foreground">{goal.title}</span>
                 {work ? (
-                  work.length ? (
-                    <button
-                      type="button"
-                      aria-expanded={expanded}
-                      onClick={() => setOpen(expanded ? null : goal.id)}
-                      className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    >
-                      {work.length} item{work.length === 1 ? "" : "s"}
-                      <ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} />
-                    </button>
-                  ) : (
-                    <span className="shrink-0 text-[11px] text-muted-foreground/70">0 items</span>
-                  )
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    title={expanded ? "Hide its tasks" : "Show the open tasks that move this goal forward"}
+                    onClick={() => setOpen(expanded ? null : goal.id)}
+                    className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    {work.length} task{work.length === 1 ? "" : "s"}
+                    <ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} />
+                  </button>
                 ) : null}
               </div>
               {expanded && work ? (
-                <ul className="mb-1 ml-6 space-y-0.5 border-l border-border pl-3">
-                  {work.map((item) => (
-                    <li key={item.taskId}>
-                      <button
-                        type="button"
-                        onClick={() => openTask(item.taskId)}
-                        className="flex w-full items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-xs hover:bg-accent/40"
-                      >
-                        <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
-                        {item.deadline ? (
-                          <span className="shrink-0 text-muted-foreground">Due {shortDate(item.deadline)}</span>
-                        ) : null}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                work.length ? (
+                  <ul className="mb-1 ml-6 space-y-0.5 border-l border-border pl-3">
+                    {work.map((item) => (
+                      <li key={item.taskId}>
+                        <button
+                          type="button"
+                          onClick={() => openTask(item.taskId)}
+                          className="flex w-full items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-xs hover:bg-accent/40"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
+                          {item.deadline ? (
+                            <span className="shrink-0 text-muted-foreground">Due {shortDate(item.deadline)}</span>
+                          ) : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mb-1 ml-6 space-y-1 border-l border-border py-0.5 pl-3 text-xs">
+                    <p className="text-muted-foreground">
+                      No open tasks move this goal forward yet. Smart suggestions list them here as you add them.
+                    </p>
+                    <button type="button" onClick={addTask} className={cn(linkButton, "inline-flex items-center gap-1")}>
+                      <Plus className="size-3.5" />
+                      Add a task
+                    </button>
+                  </div>
+                )
               ) : null}
             </li>
           );
