@@ -1,23 +1,29 @@
 "use client";
 
 import { docTypePhrase } from "@timely/contract/documents";
-import { useState } from "react";
+import { checklistTaskDescription, openChecklistItems, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { useEffect, useMemo, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { Plus, Sparkles, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { FolderKanban, ListTodo, Plus, Sparkles, X } from "lucide-react";
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
-import type { Doc } from "@/app/_types/types";
+import type { Doc, Task } from "@/app/_types/types";
+import Button from "@/app/_components/_ui/button";
 import { getDoc } from "@/app/utils/api/docs";
-import { useDecisionFeedback, useDocHints } from "@/app/utils/hooks/decisions";
+import { useDecisionFeedback, useDocChecklist, useDocHints } from "@/app/utils/hooks/decisions";
 import { useUpdateDoc } from "@/app/utils/hooks/docs";
-import { useCreateTask } from "@/app/utils/hooks/tasks";
+import { useRelated } from "@/app/utils/hooks/search";
+import { openTasksEntity } from "@/app/utils/entityDetail";
+import { useCreateTask, useDeleteTask } from "@/app/utils/hooks/tasks";
 import { setDocProperty } from "@/app/_components/editor/frontmatter";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
 
 /** What smart suggestions read in a doc: a template for a near-empty page,
  * the project or page it may belong under, its type and properties, lines
- * that read like something to do, and whether it looks out of date. Nothing
- * shows while suggestions are off, and every row can be dismissed. */
+ * that read like something to do, and whether it looks out of date. Above
+ * them, the doc's unchecked checklist items that are not tasks yet, offered
+ * as tasks even while suggestions are off. Every row can be dismissed. */
 export default function DocHints({
   doc,
   editor,
@@ -32,30 +38,109 @@ export default function DocHints({
   nearEmpty: boolean;
   onApplyContent: (content: Doc["content"], plainText: string) => void;
 }) {
-  const { data } = useDocHints(doc.id, version, !doc.isTemplate && !doc.archivedAt);
+  const live = !doc.isTemplate && !doc.archivedAt;
+  const { data } = useDocHints(doc.id, version, live);
   const updateDoc = useUpdateDoc();
   const createTask = useCreateTask();
+  const deleteTask = useDeleteTask();
+  const queryClient = useQueryClient();
   const feedback = useDecisionFeedback();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [sent, setSent] = useState(false);
-  if (!data?.available) return null;
+  const [making, setMaking] = useState<string | null>(null);
+
+  // The checklist is read from the open editor, a moment after typing stops,
+  // so a ticked or deleted item leaves at once and a new one shows up.
+  const [content, setContent] = useState(() => editor?.getJSON() ?? doc.content);
+  useEffect(() => {
+    if (!editor) return;
+    setContent(editor.getJSON());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setContent(editor.getJSON()), 600);
+    };
+    editor.on("update", read);
+    return () => {
+      clearTimeout(timer);
+      editor.off("update", read);
+    };
+  }, [editor]);
+  const todos = useMemo(() => (live ? openChecklistItems(content) : []), [content, live]);
+  const names = useMemo(() => todos.map((todo) => todo.name), [todos]);
+  // New tasks go to the doc's project, else the one suggestions place the doc
+  // in, else the project it is most related to; the server checks the pick.
+  const related = useRelated("doc", doc.id).data;
+  const proposed = doc.projectId || data?.project?.id || related?.find((item) => item.kind === "project")?.id;
+  const checklist = useDocChecklist(doc.id, names, proposed ?? undefined);
+  const target = checklist.data?.project;
+  const taken = new Set((checklist.data?.existing ?? []).map((task) => task.name.toLowerCase()));
+  const checked = new Set((checklist.data?.names ?? []).map((name) => name.toLowerCase()));
+  const open = todos.filter((todo) => {
+    const key = todo.name.toLowerCase();
+    return checked.has(key) && !taken.has(key) && !hidden.has(`todo:${key}`);
+  });
+  // Items that are tasks already are named under the open ones, so it is
+  // clear why they are not offered; alone they are not worth a card.
+  const already = (checklist.data?.existing ?? []).filter((task) => todos.some((todo) => todo.name.toLowerCase() === task.name.toLowerCase()));
 
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
+  const make = async (list: ChecklistTodo[], key: string) => {
+    setMaking(key);
+    const made: Task[] = [];
+    for (const todo of list) {
+      try {
+        made.push(
+          await createTask.mutateAsync({
+            name: todo.name,
+            kind: "task",
+            duration: 30,
+            workspaceId: target?.workspaceId ?? doc.workspaceId,
+            projectId: target?.id,
+            ...checklistTaskDescription(todo.details, doc),
+          }),
+        );
+        hide(`todo:${todo.name.toLowerCase()}`);
+      } catch {
+        // Reported below with the count.
+      }
+    }
+    setMaking(null);
+    void queryClient.invalidateQueries({ queryKey: ["doc-checklist", doc.id] });
+    if (!made.length) {
+      useToastStore.getState().show("Could not add the task");
+      return;
+    }
+    const where = target ? ` to ${target.title}` : "";
+    const message =
+      made.length === 1 ? `Task added${where}: ${made[0].name}` : `${made.length} tasks added${where}${made.length < list.length ? `, ${list.length - made.length} failed` : ""}`;
+    showUndoToast(message, () => {
+      for (const task of made) deleteTask.mutate(task.id);
+      setHidden((prev) => {
+        const next = new Set(prev);
+        for (const task of made) next.delete(`todo:${task.name.toLowerCase()}`);
+        return next;
+      });
+      void queryClient.invalidateQueries({ queryKey: ["doc-checklist", doc.id] });
+    });
+  };
   const accept = () => {
-    if (data.logId && !sent) {
+    if (data?.logId && !sent) {
       setSent(true);
       feedback.mutate({ logId: data.logId, accepted: true });
     }
   };
 
-  const template = data.template && nearEmpty && !hidden.has("template") ? data.template : undefined;
-  const project = data.project && !doc.projectId && !hidden.has("project") ? data.project : undefined;
-  const parent = data.parent && !doc.parentId && !hidden.has("parent") ? data.parent : undefined;
-  const docType = data.docType && !hidden.has("type") ? data.docType : undefined;
-  const properties = (data.properties ?? []).filter((p) => !hidden.has(`prop:${p.key}`));
-  const work = (data.work ?? []).filter((line) => !hidden.has(`work:${line}`));
-  const outdated = data.outdated && !hidden.has("outdated");
-  if (!template && !project && !parent && !docType && !properties.length && !work.length && !outdated) return null;
+  const hints = data?.available ? data : undefined;
+  const template = hints?.template && nearEmpty && !hidden.has("template") ? hints.template : undefined;
+  const project = hints?.project && !doc.projectId && !hidden.has("project") ? hints.project : undefined;
+  const parent = hints?.parent && !doc.parentId && !hidden.has("parent") ? hints.parent : undefined;
+  const docType = hints?.docType && !hidden.has("type") ? hints.docType : undefined;
+  const properties = (hints?.properties ?? []).filter((p) => !hidden.has(`prop:${p.key}`));
+  const work = (hints?.work ?? []).filter((line) => !hidden.has(`work:${line}`));
+  const outdated = hints?.outdated && !hidden.has("outdated");
+  const suggestions = Boolean(template || project || parent || docType || properties.length || work.length || outdated);
+  if (!suggestions && !open.length) return null;
 
   const dismiss = (key: string) => (
     <button
@@ -72,6 +157,61 @@ export default function DocHints({
 
   return (
     <section className="mb-4 rounded-xl border border-border bg-card p-3" data-testid="doc-hints" aria-label="Doc suggestions">
+      {open.length > 0 && (
+        <div data-testid="doc-checklist-tasks">
+          <div className="flex items-center gap-2">
+            <h3 className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground">
+              <ListTodo className="size-4 shrink-0 text-primary" />
+              <span className="font-medium text-foreground">
+                {open.length === 1 ? "1 checklist item isn’t a task yet" : `${open.length} checklist items aren’t tasks yet`}
+              </span>
+              {target && (
+                <span className="inline-flex items-center gap-1">
+                  · goes to <FolderKanban className="size-3.5" /> <span className="font-medium text-foreground">{target.title}</span>
+                </span>
+              )}
+            </h3>
+            {open.length > 1 && (
+              <Button size="sm" variant="soft" loading={making === "all"} disabled={making !== null} leading={<Plus />} onClick={() => void make(open, "all")}>
+                Make {open.length} tasks
+              </Button>
+            )}
+          </div>
+          <ul className="mt-1.5 flex flex-col gap-0.5 text-sm text-muted-foreground">
+            {open.map((todo) => {
+              const key = `todo:${todo.name.toLowerCase()}`;
+              return (
+                <li key={key} className="flex items-center gap-2 rounded-md py-1 pl-6 pr-1">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-foreground" title={todo.text}>{todo.name}</span>
+                    {todo.details && <span className="block truncate text-xs">{todo.details}</span>}
+                  </span>
+                  <Button size="sm" variant="outline" loading={making === key} disabled={making !== null} leading={<Plus />} onClick={() => void make([todo], key)}>
+                    Make task
+                  </Button>
+                  {dismiss(key)}
+                </li>
+              );
+            })}
+          </ul>
+          {already.length > 0 && (
+            <p className="mt-1 pl-6 text-xs text-muted-foreground">
+              Already {already.length === 1 ? "a task" : "tasks"}:{" "}
+              {already.map((task, i) => (
+                <span key={task.taskId}>
+                  {i > 0 && ", "}
+                  <Button size="sm" variant="link" className="text-xs" onClick={() => openTasksEntity({ kind: "task", id: task.taskId })}>
+                    {todos.find((todo) => todo.name.toLowerCase() === task.name.toLowerCase())?.name ?? task.name}
+                  </Button>
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+      )}
+      {suggestions && open.length > 0 && <div className="my-2 border-t border-border" />}
+      {suggestions && (
+      <>
       <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         <Sparkles className="size-3.5" /> Suggestions
       </h3>
@@ -225,6 +365,8 @@ export default function DocHints({
           </li>
         )}
       </ul>
+      </>
+      )}
     </section>
   );
 }
