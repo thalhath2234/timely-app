@@ -551,6 +551,20 @@ export function createSheetEvaluator(
   return buildEvaluator(columns, rows, currentName, workbook, shared, workbook?.currentTabId);
 }
 
+/**
+ * Evaluators for every tab of a workbook that share one cache, so reading
+ * all tabs works each tab out once instead of once per reader.
+ */
+export function createWorkbookEvaluators(workbook: WorkbookContext): (tabId: string) => SheetEvaluator | null {
+  const shared: Shared = { registry: new Map(), depth: 0 };
+  return (tabId) => {
+    const existing = shared.registry.get(tabId);
+    if (existing) return existing;
+    const tab = workbook.tabs.find((candidate) => candidate.id === tabId);
+    return tab ? buildEvaluator(tab.columns, tab.rows, tab.name, workbook, shared, tab.id) : null;
+  };
+}
+
 function buildEvaluator(
   columns: SheetColumn[],
   rows: SheetRow[],

@@ -352,6 +352,8 @@ func (r *runner) exercise(email string) {
 	r.call("rename_sheet_tab", map[string]any{"sheetId": sheetID, "tabId": tabID, "name": "Stock 2"})
 	r.call("delete_sheet_tab", map[string]any{"sheetId": sheetID, "tabId": tabID})
 	expenses := r.call("create_sheet", map[string]any{"title": "Expenses", "workspaceId": wsID, "templateId": "builtin:yearly-expenses", "currency": "LKR"})
+	r.call("get_sheet_values", map[string]any{"sheetId": str(expenses, "sheet", "id")})
+	r.call("get_sheet_values", map[string]any{"sheetId": str(expenses, "sheet", "id"), "formula": "=SUM(January!H2:H)"})
 	r.call("delete_sheet", map[string]any{"sheetId": str(expenses, "sheet", "id")})
 	grown := r.call("get_sheet", map[string]any{"sheetId": sheetID})
 	lastRow := lastID(grown, "sheet", "rows")

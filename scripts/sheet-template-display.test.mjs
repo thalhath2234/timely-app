@@ -183,3 +183,42 @@ test("the API's built-in template JSON matches the shared templates", async () =
     );
   }
 });
+
+test("the API's bundled formula engine matches packages/contract", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { bundleSheetEngine } = await import("./gen-sheet-engine.mjs");
+  const file = new URL("../apps/api/internal/features/sheet/engine/sheet-engine.js", import.meta.url);
+  assert.ok(
+    readFileSync(file, "utf8") === (await bundleSheetEngine()),
+    "sheet-engine.js is out of date: run make gen-sheet-engine",
+  );
+});
+
+test("the engine bundle works out a workbook and a one-off formula", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../apps/api/internal/features/sheet/engine/sheet-engine.js", import.meta.url), "utf8");
+  const engine = new Function(`${source};return SheetEngine;`)();
+  const tabs = [
+    {
+      id: "jan",
+      name: "Jan Spend",
+      columns: [
+        { id: "d", name: "Date", type: "date" },
+        { id: "a", name: "Item", type: "text" },
+        { id: "b", name: "Cost", type: "currency" },
+      ],
+      rows: [
+        { id: "1", cells: { d: "2027-01-03", a: "Rice", b: "1250" } },
+        { id: "2", cells: { d: "", a: "Milk", b: "300" } },
+        { id: "3", cells: { d: "", a: "Total", b: "=SUM(C1:C2)" } },
+      ],
+    },
+    { id: "sum", name: "Summary", columns: [{ id: "x", name: "X", type: "number" }], rows: [{ id: "s", cells: { x: "='Jan Spend'!C3/0" } }] },
+  ];
+  const all = JSON.parse(engine.evaluate(JSON.stringify({ tabs })));
+  assert.deepEqual(all.tabs[0][0], ["2027-01-03", "Rice", 1250]);
+  assert.equal(all.tabs[0][2][2], 1550);
+  assert.deepEqual(all.tabs[1][0][0], { error: "#DIV/0!" });
+  const one = JSON.parse(engine.evaluate(JSON.stringify({ tabs, tabId: "jan", formula: '=SUMIF(B1:B2,"rice",C1:C)' })));
+  assert.equal(one.value, 1250);
+});

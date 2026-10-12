@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"timely-api/internal/features/doc"
@@ -848,4 +849,111 @@ func (s *Server) materializeSheetTemplateTab(ctx context.Context, req *mcp.CallT
 		return fail(err)
 	}
 	return reply("materialized tab "+tab.Name, map[string]any{"tab": tab})
+}
+
+type sheetValuesIn struct {
+	SheetID string `json:"sheetId"`
+	TabID   string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty shows every tab, or works the formula out on the first tab"`
+	Formula string `json:"formula,omitempty" jsonschema:"work out one formula without saving it, e.g. =SUMIF(C2:C,\"Groceries\",H2:H) or =SUM(January!H2:H); references without a tab read tabId's tab"`
+}
+
+// getSheetValues answers questions about a sheet's data with the values the
+// apps show. It only reads; get_sheet still returns the raw grid.
+func (s *Server) getSheetValues(ctx context.Context, req *mcp.CallToolRequest, in sheetValuesIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	sh, err := s.Sheets.GetByID(uid, in.SheetID)
+	if err != nil {
+		return fail(err)
+	}
+	if strings.TrimSpace(in.Formula) != "" {
+		value, err := sheet.EvaluateFormula(sh, in.TabID, in.Formula)
+		if err != nil {
+			return fail(err)
+		}
+		return reply(in.Formula+" = "+sheetValueText(value), map[string]any{"formula": in.Formula, "value": value})
+	}
+	values, err := sheet.SheetValues(sh)
+	if err != nil {
+		return fail(err)
+	}
+	tabs := sheet.WorkbookTabs(sh)
+	var md strings.Builder
+	out := make([]map[string]any, 0, len(tabs))
+	for t, tab := range tabs {
+		if in.TabID != "" && tab.ID != in.TabID {
+			continue
+		}
+		rows := make([]map[string]any, 0)
+		fmt.Fprintf(&md, "## %s (tabId %s)\n\n", tab.Name, tab.ID)
+		heads := make([]string, len(tab.Columns))
+		seps := make([]string, len(tab.Columns))
+		for c, column := range tab.Columns {
+			heads[c] = strings.ReplaceAll(columnLetters(c)+" "+column.Name+columnUnit(column), "|", "\\|")
+			seps[c] = "---"
+		}
+		fmt.Fprintf(&md, "| # | %s |\n| --- | %s |\n", strings.Join(heads, " | "), strings.Join(seps, " | "))
+		for r, row := range tab.Rows {
+			if sheet.EmptyEntryRow(row.Cells, r+1) {
+				continue
+			}
+			cells := make([]string, len(tab.Columns))
+			byName := make(map[string]any, len(tab.Columns))
+			for c, column := range tab.Columns {
+				var value sheet.CellValue
+				if t < len(values) && r < len(values[t]) && c < len(values[t][r]) {
+					value = values[t][r][c]
+				}
+				cells[c] = strings.ReplaceAll(strings.ReplaceAll(sheetValueText(value), "|", "\\|"), "\n", " ")
+				if value != nil && value != "" {
+					byName[column.Name] = value
+				}
+			}
+			fmt.Fprintf(&md, "| %d | %s |\n", r+1, strings.Join(cells, " | "))
+			rows = append(rows, map[string]any{"row": r + 1, "values": byName})
+		}
+		md.WriteString("\n")
+		out = append(out, map[string]any{"tabId": tab.ID, "name": tab.Name, "rows": rows})
+	}
+	if in.TabID != "" && len(out) == 0 {
+		return fail(fmt.Errorf("tab not found: %s", in.TabID))
+	}
+	return reply(sh.Title, map[string]any{"sheetId": sh.ID, "title": sh.Title, "markdown": strings.TrimSpace(md.String()), "tabs": out})
+}
+
+// columnUnit tells the reader how to read a column's numbers.
+func columnUnit(column models.SheetColumn) string {
+	switch column.Type {
+	case models.SheetColumnTypeCurrency:
+		if column.Format != nil && column.Format.Currency != "" {
+			return " (" + column.Format.Currency + ")"
+		}
+		return " (money)"
+	case "percent":
+		return " (fraction: 0.25 = 25%)"
+	}
+	return ""
+}
+
+func sheetValueText(value sheet.CellValue) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case bool:
+		if v {
+			return "TRUE"
+		}
+		return "FALSE"
+	case string:
+		return v
+	case map[string]any:
+		if message, ok := v["error"].(string); ok {
+			return message
+		}
+	}
+	return fmt.Sprint(value)
 }
