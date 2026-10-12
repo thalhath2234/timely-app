@@ -410,6 +410,7 @@ func TestIntegrationDocHints(t *testing.T) {
 		}},
 		map[string]any{"type": "taskList", "content": []any{
 			map[string]any{"type": "taskItem", "attrs": map[string]any{"checked": true}, "content": []any{para("Pick the dates")}},
+			map[string]any{"type": "taskItem", "attrs": map[string]any{"checked": false}, "content": []any{para("Call the hotel")}},
 		}},
 		map[string]any{"type": "codeBlock", "content": []any{map[string]any{"type": "text", "text": "echo not a task"}}},
 	)}
@@ -445,8 +446,9 @@ func TestIntegrationDocHints(t *testing.T) {
 	if _, ok := asked["prop2"]; !ok {
 		t.Fatalf("type values not asked: %v", asked)
 	}
-	// Book flights is open Work already; the checked item, the heading and
-	// the code are not candidates.
+	// Book flights is open Work already; the heading, the code and the
+	// checklist items are not candidates (an unchecked one is offered as a
+	// task without asking, see DocChecklist).
 	if _, ok := asked["w3"]; ok {
 		t.Fatalf("asked %v", asked)
 	}
@@ -508,5 +510,63 @@ func TestIntegrationMentionAndImportFormat(t *testing.T) {
 	f := s.ImportFormat(context.Background(), w.user, []string{"Groceries", "Milk", "", "Eggs"})
 	if !f.Available || len(f.Kinds) != 4 || f.Kinds[0] != "heading" || f.Kinds[1] != "bullet" || f.Kinds[2] != "paragraph" || f.Kinds[3] != "paragraph" {
 		t.Fatalf("%+v", f)
+	}
+}
+
+func TestIntegrationDocChecklist(t *testing.T) {
+	w := newWorld(t)
+	app := models.Project{ID: "pr_app", Title: "Timely", WorkspaceID: &w.ws}
+	done := models.Project{ID: "pr_done", Title: "Shipped", WorkspaceID: &w.ws, CompletedAt: ptr("2026-01-01T00:00:00Z")}
+	must(t, w.db.Create(&app).Error)
+	must(t, w.db.Create(&done).Error)
+	doc := models.Document{ID: "doc_ideas", Title: "Timely ideas", WorkspaceID: w.ws, UserID: w.user, CreatedAt: "2026-10-01T09:00:00Z"}
+	must(t, w.db.Create(&doc).Error)
+	back := w.task(t, "Add predictive back gesture", nil)
+	// Done before the doc existed: a fresh to-do with the same words.
+	w.task(t, "Buy milk", func(task *models.Task) {
+		task.CreatedAt = "2026-09-01"
+		task.CompletedAt = ptr("2026-09-02T00:00:00Z")
+	})
+	// Done after the doc was written: may well be this item, made a task.
+	shipped := w.task(t, "Ship the widget", func(task *models.Task) {
+		task.CreatedAt = "2026-10-05"
+		task.CompletedAt = ptr("2026-10-06T00:00:00Z")
+	})
+	s := New(w.db, nil, nil)
+	names := []string{"add predictive  back gesture", "Add android widgets same as in the dashboard", "Buy milk", "Ship the widget", ""}
+
+	out, err := s.DocChecklist(context.Background(), w.user, doc.ID, names, app.ID)
+	must(t, err)
+	if len(out.Existing) != 2 || out.Existing[0].TaskID != back.ID || out.Existing[1].TaskID != shipped.ID {
+		t.Fatalf("existing %+v", out.Existing)
+	}
+	if out.Existing[0].Name != "add predictive back gesture" {
+		t.Fatalf("name not as sent: %q", out.Existing[0].Name)
+	}
+	if out.Project == nil || out.Project.ID != app.ID || out.Project.WorkspaceID != w.ws || out.Project.Title != "Timely" {
+		t.Fatalf("project %+v", out.Project)
+	}
+
+	// A finished project, or one in another account, is not a place for new tasks.
+	if out, _ = s.DocChecklist(context.Background(), w.user, doc.ID, names, done.ID); out.Project != nil {
+		t.Fatalf("finished project offered: %+v", out.Project)
+	}
+	other := world{db: w.db, user: "usr_other_" + w.user, ws: "ws_other_" + w.ws}
+	must(t, w.db.Create(&models.User{ID: other.user, Email: other.user + "@test.local"}).Error)
+	must(t, w.db.Create(&models.Workspace{ID: other.ws, Name: "Theirs", UserID: &other.user}).Error)
+	foreign := models.Project{ID: "pr_foreign", Title: "Not yours", WorkspaceID: &other.ws}
+	must(t, w.db.Create(&foreign).Error)
+	if out, _ = s.DocChecklist(context.Background(), w.user, doc.ID, nil, foreign.ID); out.Project != nil || len(out.Existing) != 0 {
+		t.Fatalf("%+v", out)
+	}
+
+	// The doc's own project wins over the proposed one.
+	must(t, w.db.Model(&models.Document{}).Where("id = ?", doc.ID).Update("project_id", done.ID).Error)
+	must(t, w.db.Model(&models.Project{}).Where("id = ?", done.ID).Update("completed_at", nil).Error)
+	if out, _ = s.DocChecklist(context.Background(), w.user, doc.ID, nil, app.ID); out.Project == nil || out.Project.ID != done.ID {
+		t.Fatalf("doc project not used: %+v", out.Project)
+	}
+	if _, err := s.DocChecklist(context.Background(), other.user, doc.ID, names, ""); err == nil {
+		t.Fatal("read another account's doc")
 	}
 }

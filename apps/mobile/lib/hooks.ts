@@ -51,6 +51,7 @@ import {
   getDecisionsStatus,
   getInboxSuggestions,
   getDocHints,
+  getDocChecklist,
   getTodaySuggestions,
   getHighlights,
   runNotificationTriage,
@@ -145,6 +146,7 @@ export const keys = {
   staleWork: ["stale-work"] as const,
   projectInsights: (id: string, version: string) => ["project-insights", id, version] as const,
   docHints: (id: string, version: string) => ["doc-hints", id, version] as const,
+  docChecklist: (id: string, names: string[], projectId: string) => ["doc-checklist", id, names, projectId] as const,
   todaySuggestions: (timezone: string, version: string) => ["today-suggestions", timezone, version] as const,
   highlights: (factsKey: string) => ["highlights", factsKey] as const,
   screenTip: (screen: string) => ["screen-tip", screen] as const,
@@ -614,6 +616,20 @@ export function useDocHintsQuery(id: string | undefined, version: string, enable
     placeholderData: keepPreviousData,
     retry: false,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Which unchecked checklist items of a doc are already tasks, and where new
+ * ones go. Runs with suggestions off too: a checklist item needs no model. */
+export function useDocChecklistQuery(id: string | undefined, names: string[], projectId?: string) {
+  return useQuery({
+    queryKey: keys.docChecklist(id ?? "", names, projectId ?? ""),
+    // names says which items an answer covers while a newer one loads.
+    queryFn: async () => ({ ...(await getDocChecklist(id!, names, projectId)), names }),
+    enabled: !!id && names.length > 0,
+    placeholderData: keepPreviousData,
+    retry: false,
+    staleTime: 60 * 1000,
   });
 }
 

@@ -83,6 +83,14 @@ function DocEditor({ docId }: { docId: string }) {
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteContent, setRemoteContent] = useState<DocContent | null>(null);
   const [editorSync, setEditorSync] = useState(0);
+  // What the editor holds, a moment after typing stops, for the checklist
+  // items the suggestions card offers as tasks.
+  const [liveContent, setLiveContent] = useState<DocContent | null>(null);
+  const liveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(liveTimerRef.current), []);
+  useEffect(() => {
+    if (remoteContent) setLiveContent(remoteContent);
+  }, [remoteContent]);
   const lastSavedAtRef = useRef<string | null>(doc?.updatedAt ?? null);
   const editorFocusedRef = useRef(false);
   // Whether the page holds nothing at all, for the template suggestion.
@@ -227,6 +235,7 @@ function DocEditor({ docId }: { docId: string }) {
       />
       <DocHintsCard
         doc={doc}
+        content={liveContent ?? remoteContent ?? seedContent}
         version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
         nearEmpty={wordCount < 8}
         isEmpty={() => contentEmptyRef.current}
@@ -262,6 +271,8 @@ function DocEditor({ docId }: { docId: string }) {
           setAssistantText(plainText);
           setWordCount(countWords(plainText));
           schedule({ content, plainText });
+          clearTimeout(liveTimerRef.current);
+          liveTimerRef.current = setTimeout(() => setLiveContent(content), 600);
         }}
         onWikiLink={(target) => {
           // [[Page]] names a doc by title; open it when there is one.
