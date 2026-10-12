@@ -17,6 +17,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
+import Select, { type SelectOption } from "@/app/_components/_ui/select";
 
 /*
  * A callout is the "> [!NOTE]" quote GitHub and Obsidian draw as a coloured
@@ -41,35 +42,38 @@ declare module "@tiptap/core" {
   }
 }
 
-function CalloutView({ node, updateAttributes }: NodeViewProps) {
+function CalloutView({ node, editor, updateAttributes }: NodeViewProps) {
   const kind = String(node.attrs.kind || "note");
   const known = CALLOUT_KINDS[kind];
   const Icon = known?.icon ?? Info;
-  const options = known ? Object.keys(CALLOUT_KINDS) : [...Object.keys(CALLOUT_KINDS), kind];
+  const options: SelectOption[] = Object.entries(CALLOUT_KINDS).map(([value, item]) => ({
+    value,
+    label: item.label,
+    icon: (
+      <span className={`doc-callout-${value} doc-callout-swatch`}>
+        <item.icon aria-hidden />
+      </span>
+    ),
+  }));
+  // A kind written by Obsidian (or by hand) stays pickable as itself.
+  if (!known) options.push({ value: kind, label: kind, icon: <Info aria-hidden /> });
 
   return (
     <NodeViewWrapper className={`doc-callout doc-callout-${known ? kind : "other"}`} data-callout="">
       <div className="doc-callout-head" contentEditable={false}>
         <Icon className="doc-callout-icon size-4" aria-hidden />
-        <select
+        <Select
+          variant="inline"
           value={kind}
+          options={options}
           aria-label="Callout kind"
+          disabled={!editor.isEditable}
           className="doc-callout-kind"
-          onChange={(event) => updateAttributes({ kind: event.target.value })}
-        >
-          {options.map((item) => (
-            <option key={item} value={item}>
-              {CALLOUT_KINDS[item]?.label ?? item}
-            </option>
-          ))}
-        </select>
-        <input
-          className="doc-callout-title"
-          value={String(node.attrs.title ?? "")}
-          placeholder="Title (optional)"
-          aria-label="Callout title"
-          onChange={(event) => updateAttributes({ title: event.target.value || null })}
+          onChange={(next) => updateAttributes({ kind: next })}
         />
+        {/* No title field: a title from imported Markdown ("> [!NOTE] Title")
+            is kept and shown as text so the .md round trip loses nothing. */}
+        {node.attrs.title ? <span className="doc-callout-title">{String(node.attrs.title)}</span> : null}
       </div>
       <NodeViewContent className="doc-callout-body" />
     </NodeViewWrapper>

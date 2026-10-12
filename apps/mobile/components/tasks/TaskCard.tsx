@@ -39,7 +39,9 @@ function TaskCard({
   const timeLabel = overdue ? due : scheduledLabel ?? due;
   const durationLabel = !done && task.duration > 0 ? formatDuration(task.duration) : null;
   const priority = task.priorityLevel ? PRIORITY_META[task.priorityLevel] : null;
-  const accent = overdue ? colors.destructive : (priority?.color ?? taskEntityColor(task));
+  // The stripe is the project's colour, as on the desktop board and phone
+  // Today; priority has its own pill and overdue its red date.
+  const accent = taskEntityColor(task);
 
   return (
     <View style={[styles.card, selected && styles.selected]}>

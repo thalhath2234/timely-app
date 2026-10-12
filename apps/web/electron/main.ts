@@ -28,6 +28,8 @@ import type { DesktopAction, DesktopSettingKey } from "../electron-env";
 
 const DEFAULT_RENDERER_URL = "http://127.0.0.1:4001";
 const WAIT_TIMEOUT_MS = 120_000;
+const LOAD_RETRIES = 15;
+const LOAD_RETRY_MS = 1_000;
 
 /**
  * Hosted mode: the app supervises Postgres, the API and the Next server
@@ -293,6 +295,23 @@ async function createWindow(url: string) {
     event.preventDefault();
     win.hide();
   });
+  // Hosted: the web server restarts on a crash or past its memory limit
+  // (supervisor/next.ts). A page load during that second lands on Chromium's
+  // error page, so retry it for a little while.
+  if (HOSTED) {
+    let retries = 0;
+    win.webContents.on("did-finish-load", () => {
+      retries = 0;
+    });
+    win.webContents.on("did-fail-load", (_event, errorCode, _description, failedUrl, isMainFrame) => {
+      // -3 is ERR_ABORTED: a navigation replaced by another, not a failure.
+      if (!isMainFrame || errorCode === -3 || retries >= LOAD_RETRIES || !isSameOrigin(failedUrl, new URL(url).origin)) return;
+      retries += 1;
+      setTimeout(() => {
+        if (!win.isDestroyed()) void win.loadURL(failedUrl).catch(() => {});
+      }, LOAD_RETRY_MS);
+    });
+  }
   mainWindow = win;
   win.on("closed", () => {
     if (mainWindow === win) mainWindow = null;
@@ -659,6 +678,10 @@ if (!gotLock) {
     if (HOSTED) return;
     if (process.platform !== "darwin") app.quit();
   });
+  // Every quit path awaits supervisor.shutdown() before app.exit(); if the
+  // process ends some other way, signal the sidecars on the way out (crashes
+  // and SIGKILL are covered by the sidecars' own lifeline, lifetime.ts).
+  process.on("exit", () => supervisor?.killAllNow());
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(signal, () => {
       if (HOSTED) requestQuit();

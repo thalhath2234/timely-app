@@ -194,9 +194,12 @@ function applyAppearance(preference: ThemePreference, accent: AccentPreference, 
   themePreference = preference;
   accentPreference = accent === "default" ? "default" : (normalizeHex(accent) ?? "default");
   activeTheme = resolveMode(preference);
-  if (preference === "light" || preference === "dark") {
+  // react-native-web has no setColorScheme; calling it crashed Expo web as
+  // soon as the account had a light or dark theme saved.
+  const canSetScheme = typeof Appearance.setColorScheme === "function";
+  if (canSetScheme && (preference === "light" || preference === "dark")) {
     Appearance.setColorScheme(preference);
-  } else if (Platform.OS === "ios") {
+  } else if (canSetScheme && Platform.OS === "ios") {
     Appearance.setColorScheme(null as unknown as "light");
   }
   if (notify) notifyTheme();

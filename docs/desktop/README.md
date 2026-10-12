@@ -10,7 +10,7 @@ Tracking issue: #61.
 <resources>/
   api/timely-api[.exe]        Go API, cross-compiled per target (electron/stage-api.mjs)
   postgres/{bin,lib,share}    PostgreSQL 17 from zonky embedded-postgres (electron/stage-postgres.mjs)
-  next-server/                Next.js standalone output (electron/stage-next.mjs)
+  next-server/                Next.js standalone output (electron/stage-next.mjs), plus timely-guard.cjs (electron/next-guard.cjs)
 
 <userData>/                   app.getPath("userData"): ~/.config/Timely, ~/Library/Application Support/Timely, %APPDATA%\Timely ("Timely Dev" for local builds, see Local builds)
   config.json                 non-secret settings + sealed secrets (see Config)
@@ -30,6 +30,40 @@ running. "Quit Timely" in the tray stops Next, then the API, then Postgres.
 
 Each sidecar restarts on crash with exponential backoff (1 s → 30 s, 5 attempts, counter
 resets after 60 s of healthy running).
+
+### Sidecars never outlive the app
+
+A clean quit stops every sidecar, but the app can also die without one: a crash, an OOM
+kill, or the display server going away (a Hyprland/X crash or logout ends Electron without
+running its quit handlers). Up to v0.3.2 the Next server and PostgreSQL then kept running
+on their own, and each launch after that started another Next server on a new port. Four
+layers now stop that (`electron/supervisor/lifetime.ts`):
+
+| Layer | Covers | How |
+| --- | --- | --- |
+| Lifeline | API, Next; every OS | stdin is a pipe the app never writes to. When the app exits the OS closes it and the server exits on EOF (`TIMELY_LIFELINE=stdin`; `apps/api/internal/lifeline`, `electron/next-guard.cjs`). |
+| Death signal | all three; Linux | each sidecar runs under `setpriv --pdeathsig` (util-linux), so the kernel signals it when the app's process ends: Next `KILL`, API `TERM`, PostgreSQL `INT` (fast shutdown). Skipped, with a log line, when `setpriv` is missing. |
+| Job object | all three; Windows | libuv puts every child it spawns in a kill-on-close job, so Windows ends them with the app. Their own children (the API's agent CLIs) may break away from the job and are not covered. |
+| Boot sweep | API, Next; Linux | before ports are checked, servers left by an earlier run (any version) are found through `/proc` and stopped (SIGTERM, then SIGKILL after 5 s). A leftover postmaster is stopped through `postmaster.pid`. |
+
+The sweep matches the program and our identity together: the API is a `timely-api`
+executable carrying our `JWT_SECRET` or running in our data folder; Next names itself
+`next-server`, runs as Electron's Node with `API_ORIGIN` and `PORT`, and carries our
+`JWT_SECRET`. Agent CLIs inherit the API's environment, so the secret alone is not enough.
+The single-instance lock means no other live copy uses this user-data folder, so a match
+that is not our child is a leftover. "Timely Dev" has its own folder and secret, so the
+release never touches its servers or the other way round.
+
+The Next server also has memory limits: `--max-old-space-size=1024` (Electron's default
+allows a 4 GB heap) and two checks every 30 s in `next-guard.cjs`: resident memory above
+1.5 GB, or the heap above 85 % of its cap on two checks in a row. Either makes it exit with
+code 75 ("timely-guard: …" in `next.log`), and the supervisor starts a fresh one. Before
+exiting it stops taking new connections and lets running requests finish (up to 10 s;
+event streams are not waited for). In the gap of a few seconds, the window retries a page
+that fails to load, and `apiFetch` retries GET, PUT and DELETE requests
+(`app/utils/api/retry.ts`); POST and PATCH (creating things, sending a chat message) are
+never repeated. Agent runs live in the API and are not affected. It normally uses
+150-300 MB.
 
 Guard rails before anything starts:
 - Windows: refuse to run elevated (Postgres refuses to start as Administrator).
@@ -72,8 +106,15 @@ stored with the `plain:` prefix and the file is created with mode 0600.
 | `TIMELY_DATA_DIR` | `<userData>/data` |
 | `ALLOW_REGISTRATION` | `allowRegistration` |
 | `PATH`, `HOME` | login-shell PATH on macOS/Linux; process env on Windows |
+| `TIMELY_LIFELINE` | `stdin` (exit when the app's stdin pipe closes; see Boot order). The API unsets it at start so the programs it runs do not inherit it. |
 
-The Next sidecar gets `PORT=webPort`, `HOSTNAME=127.0.0.1`, `API_ORIGIN=http://127.0.0.1:<apiPort>`, `JWT_SECRET`.
+Agent CLIs the API starts (Claude Code, Codex and others) get this environment without the
+server's own settings (`JWT_*`, `DB_*`, `TIMELY_*`, `API_*`, `ALLOW_REGISTRATION`,
+`CORS_ORIGINS`): they reach Timely only through tool calls the API runs, so they never see
+the JWT secret, the database password or the backup key.
+
+The Next sidecar gets `PORT=webPort`, `HOSTNAME=127.0.0.1`, `API_ORIGIN=http://127.0.0.1:<apiPort>`, `JWT_SECRET`,
+`TIMELY_LIFELINE=stdin`, `TIMELY_WEB_RSS_LIMIT_MB` and `TIMELY_WEB_HEAP_LIMIT_MB`.
 
 ## API contract (Phase 1)
 

@@ -1,3 +1,5 @@
+import { isRepeatable, withRestartRetry } from "./retry";
+
 const TOKEN_KEY = "timely.accessToken";
 
 export const API_BASE =
@@ -57,11 +59,15 @@ export async function apiFetch(path: string, init: RequestInit = {}, retried = f
   }
   headers.set("ngrok-skip-browser-warning", "true");
 
-  const response = await fetch(apiUrl(path), {
-    ...init,
-    credentials: init.credentials ?? "include",
-    headers,
-  });
+  const send = () =>
+    fetch(apiUrl(path), {
+      ...init,
+      credentials: init.credentials ?? "include",
+      headers,
+    });
+  // Through a desktop server restart (retry.ts); requests that must not run
+  // twice go out once.
+  const response = isRepeatable(init) ? await withRestartRetry(send, { signal: init.signal }) : await send();
 
   if (
     response.status === 401 &&

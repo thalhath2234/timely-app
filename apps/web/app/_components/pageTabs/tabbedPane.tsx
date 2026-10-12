@@ -280,7 +280,7 @@ function PageTabStrip({
 
       <div
         ref={stripRef}
-        className="flex h-full min-w-0 flex-1 items-end overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex h-full min-w-0 flex-1 items-end overflow-x-auto overflow-y-hidden scrollbar-none"
         onDoubleClick={(event) => {
           if (event.target === event.currentTarget) newTab();
         }}
