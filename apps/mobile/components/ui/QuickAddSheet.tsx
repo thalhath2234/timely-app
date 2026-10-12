@@ -470,6 +470,7 @@ export default function QuickAddSheet({
                 syncKey={noteSync}
                 focusRequest={editorFocus}
                 placeholder="Description. Type '/' for blocks, markdown welcome…"
+                writeContext={{ kind: "task", title }}
                 onFocusChange={(focused) => {
                   if (focused) setEditor("open");
                 }}

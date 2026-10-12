@@ -320,6 +320,7 @@ export default function TaskDetailScreen() {
             content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
             syncKey={noteSync}
             placeholder="Add context, links, acceptance criteria, or notes…"
+            writeContext={{ kind: "task", title: name }}
             onChange={({ content, plainText }) => {
               setNoteRich(content);
               setNote(plainText);

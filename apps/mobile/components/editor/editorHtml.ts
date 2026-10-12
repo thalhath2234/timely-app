@@ -1917,6 +1917,57 @@ export function buildEditorHtml(
 
     const NEW_LINE_CMDS = { diagram: true, mathBlock: true, map: true, stl: true };
 
+    // A list answer for a line inside a list item replaces that item, so the
+    // new items sit beside it instead of nesting inside it.
+    function enclosingListItem(from, to) {
+      const doc = editor.state.doc;
+      const $from = doc.resolve(from);
+      if (!$from.sameParent(doc.resolve(to))) return null;
+      for (let depth = $from.depth; depth > 1; depth--) {
+        const name = $from.node(depth).type.name;
+        if (name === "listItem" || name === "taskItem") {
+          return { from: $from.before(depth), to: $from.after(depth), listType: $from.node(depth - 1).type.name };
+        }
+      }
+      return null;
+    }
+
+    function insertWritten(p) {
+      const blocks = Array.isArray(p.blocks) ? p.blocks : [];
+      const inline = Array.isArray(p.inline) ? p.inline : null;
+      if (!blocks.length) return;
+      const doc = editor.state.doc;
+      const size = doc.content.size;
+      const from = Number(p.from);
+      const to = Number(p.to);
+      const selection = typeof p.selection === "string" ? p.selection : "";
+      if (selection && (!Number.isInteger(from) || !Number.isInteger(to) || to > size || doc.textBetween(from, to, "\\n").trim() !== selection)) {
+        send({ type: "writeStale" });
+        return;
+      }
+      const chain = editor.chain().focus();
+      if (selection && p.mode === "replace") {
+        const item = inline ? null : enclosingListItem(from, to);
+        if (item && blocks.length === 1 && blocks[0].type === item.listType) {
+          chain.insertContentAt({ from: item.from, to: item.to }, blocks[0].content || []).run();
+        } else {
+          chain.insertContentAt({ from, to }, inline || blocks).run();
+        }
+      } else if (p.mode === "end") {
+        chain.insertContentAt(size, blocks).run();
+      } else {
+        const at = doc.resolve(Math.min(selection ? to : Math.max(0, from || 0), size));
+        const block = at.depth > 0 ? at.node(1) : null;
+        if (!selection && block && block.isTextblock && block.content.size === 0) {
+          chain.insertContentAt({ from: at.before(1), to: at.after(1) }, blocks).run();
+        } else if (at.depth > 0) {
+          chain.insertContentAt(at.after(1), blocks).run();
+        } else {
+          chain.insertContentAt(size, blocks).run();
+        }
+      }
+    }
+
     window.__timely = {
       set(content) { editor.commands.setContent(content, { emitUpdate: false }); },
       cmd(name, payload) {
@@ -1984,6 +2035,19 @@ export function buildEditorHtml(
           if (!present) {
             editor.chain().insertContentAt(editor.state.doc.content.size, { type: "paragraph", content: [{ type: "mention", attrs }] }).run();
           }
+          return;
+        }
+        // Help me write: report the selection and the doc's text, then put
+        // the draft in. Mirrors insert() in the web's helpMeWrite.tsx.
+        if (name === "writeInfo") {
+          const { from, to } = editor.state.selection;
+          const selection = from === to ? "" : editor.state.doc.textBetween(from, to, "\\n").trim();
+          send({ type: "writeInfo", from, to, selection, text: editor.getText({ blockSeparator: "\\n" }).trim() });
+          return;
+        }
+        if (name === "insertWritten") {
+          insertWritten(payload || {});
+          requestAnimationFrame(scrollCaret);
           return;
         }
         // "Link to an item": report the selected phrase, then swap it for

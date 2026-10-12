@@ -1,0 +1,60 @@
+import assert from "node:assert/strict";
+import { register } from "node:module";
+import test, { describe } from "node:test";
+
+// helpMeWrite.ts imports its siblings without an extension, as the apps'
+// bundlers allow; teach Node's loader the same.
+register(
+  "data:text/javascript," +
+    encodeURIComponent(
+      "export async function resolve(s,c,n){try{return await n(s,c)}catch(e){if(s.startsWith('.')&&!s.endsWith('.ts'))return n(s+'.ts',c);throw e}}",
+    ),
+);
+
+const { SELECTION_ACTIONS, writeStarters, writtenContent } = await import(
+  "../packages/contract/src/helpMeWrite.ts"
+);
+
+describe("writeStarters", () => {
+  test("an empty task offers a description from its title", () => {
+    const labels = writeStarters("task", false).map((s) => s.label);
+    assert.deepEqual(labels, ["Write a description", "Break into steps"]);
+  });
+  test("a task with notes can be rewritten or continued", () => {
+    const actions = writeStarters("project", true).map((s) => s.action);
+    assert.deepEqual(actions, ["describe", "write", "continue"]);
+  });
+  test("an empty doc never offers Continue or Summarize", () => {
+    const actions = writeStarters("doc", false).map((s) => s.action);
+    assert.ok(!actions.includes("continue") && !actions.includes("summarize"));
+  });
+  test("prompt starters carry their prompt", () => {
+    for (const s of [...writeStarters("doc", true), ...writeStarters("task", true)]) {
+      if (s.action === "write") assert.ok(s.prompt, s.label);
+    }
+  });
+  test("selection actions are the API's rewrite actions", () => {
+    assert.deepEqual(
+      SELECTION_ACTIONS.map((a) => a.action),
+      ["improve", "shorter", "longer", "fix", "steps", "summarize"],
+    );
+  });
+});
+
+describe("writtenContent", () => {
+  test("one paragraph comes back inline so it can replace words", () => {
+    const { blocks, inline } = writtenContent("Book the **cheapest** direct flight.");
+    assert.equal(blocks.length, 1);
+    assert.equal(inline?.[0]?.text, "Book the ");
+    assert.deepEqual(inline?.[1]?.marks, [{ type: "bold" }]);
+  });
+  test("headings and checklists become blocks", () => {
+    const { blocks, inline } = writtenContent("## Plan\n\n- [ ] Book flights\n- [x] Pick dates");
+    assert.equal(inline, null);
+    assert.deepEqual(
+      blocks.map((b) => b.type),
+      ["heading", "taskList"],
+    );
+    assert.equal(blocks[1].content.length, 2);
+  });
+});
