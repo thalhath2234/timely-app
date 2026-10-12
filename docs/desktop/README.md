@@ -103,6 +103,11 @@ stored with the `plain:` prefix and the file is created with mode 0600.
 | `PATH`, `HOME` | login-shell PATH on macOS/Linux; process env on Windows |
 | `TIMELY_LIFELINE` | `stdin` (exit when the app's stdin pipe closes; see Boot order). The API unsets it at start so the programs it runs do not inherit it. |
 
+Agent CLIs the API starts (Claude Code, Codex and others) get this environment without the
+server's own settings (`JWT_*`, `DB_*`, `TIMELY_*`, `API_*`, `ALLOW_REGISTRATION`,
+`CORS_ORIGINS`): they reach Timely only through tool calls the API runs, so they never see
+the JWT secret, the database password or the backup key.
+
 The Next sidecar gets `PORT=webPort`, `HOSTNAME=127.0.0.1`, `API_ORIGIN=http://127.0.0.1:<apiPort>`, `JWT_SECRET`,
 `TIMELY_LIFELINE=stdin`, `TIMELY_WEB_RSS_LIMIT_MB` and `TIMELY_WEB_HEAP_LIMIT_MB`.
 
