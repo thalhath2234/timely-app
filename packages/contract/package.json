@@ -27,6 +27,7 @@
     "./sheetRange": "./src/sheetRange.ts",
     "./sheetTypes": "./src/sheetTypes.ts",
     "./templates": "./src/templates.ts",
+    "./viewSearch": "./src/viewSearch.ts",
     "./workStatus": "./src/workStatus.ts"
   },
   "dependencies": {

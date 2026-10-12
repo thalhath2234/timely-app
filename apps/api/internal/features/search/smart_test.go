@@ -296,11 +296,20 @@ func TestSmartSearchPicksASavedView(t *testing.T) {
 
 	// "none" and an unsure pick both leave the view out.
 	unsure := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{
-		"view": map[string]any{"type": "choice", "choice": "view1", "confidence": 0.6},
+		"view": map[string]any{"type": "choice", "choice": "view1", "confidence": 0.5},
 	}, &calls))
 	unsure.SetViews(views)
 	if got, _ = unsure.Search(context.Background(), "u1", "show my stuff", nil); got.View != nil {
 		t.Fatalf("unsure: %+v", got.View)
+	}
+
+	// The pick is only offered, so a fairly sure answer is enough.
+	fair := NewSmart(fixedHits{}, nil, jevService(t, true, map[string]any{
+		"view": map[string]any{"type": "choice", "choice": "view1", "confidence": 0.65},
+	}, &calls))
+	fair.SetViews(views)
+	if got, _ = fair.Search(context.Background(), "u1", "show my stuff", nil); got.View == nil {
+		t.Fatal("fairly sure pick left out")
 	}
 }
 
@@ -310,6 +319,13 @@ func TestDescribeView(t *testing.T) {
 	got := describeView(v, []string{"Doing"}, []string{"Shop launch"}, []string{"Waiting"})
 	want := "lists work items; only overdue ones; hides finished ones; priority High or Urgent; status Doing; in Shop launch; labelled Waiting; sorted by deadline"
 	if got != want {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestDescribeViewLayout(t *testing.T) {
+	v := models.TaskViewConfig{RenderMode: models.RenderModeKanban, GroupFields: []string{"status"}}
+	if got, want := describeView(v, nil, nil, nil), "lists work items; shown as a board; grouped by status"; got != want {
 		t.Fatalf("got %q", got)
 	}
 }

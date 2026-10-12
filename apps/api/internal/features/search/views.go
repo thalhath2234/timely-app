@@ -116,6 +116,15 @@ func describeView(v models.TaskViewConfig, statuses, projects, labels []string) 
 	default:
 		parts = append(parts, "lists work items")
 	}
+	switch v.RenderMode {
+	case models.RenderModeKanban:
+		parts = append(parts, "shown as a board")
+	case models.RenderModeGantt:
+		parts = append(parts, "shown as a timeline")
+	}
+	if len(v.GroupFields) > 0 {
+		parts = append(parts, "grouped by "+strings.Join(v.GroupFields, ", "))
+	}
 	if v.OnlyOverdue {
 		parts = append(parts, "only overdue ones")
 	}
