@@ -19,6 +19,7 @@ import {
   useReorderGoals,
   useReorderHabits,
 } from "../../lib/focusHooks";
+import { requestQuickAdd } from "../../lib/quickAddIntent";
 import { useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
@@ -157,34 +158,51 @@ export default function HabitsGoalsCard({
       {goalList.length ? (
         goalList.map((goal) => {
           const work = progress.data?.available ? items.get(goal.id) : undefined;
-          const expanded = open === goal.id && Boolean(work?.length);
+          const expanded = open === goal.id && Boolean(work);
           return (
             <View key={goal.id}>
               <AnimatedPressable
                 accessibilityRole="button"
                 accessibilityState={{ expanded }}
-                disabled={!work?.length}
+                accessibilityHint={work ? (expanded ? "Hides its tasks" : "Shows the open tasks that move it forward") : undefined}
+                disabled={!work}
                 onPress={() => setOpen(expanded ? null : goal.id)}
                 onLongPress={() => setEditing("all")}
+                hitSlop={{ top: 4, bottom: 4 }}
                 style={styles.goalRow}
               >
                 <Target size={13} color={colors.primary} />
                 <Text style={styles.goalTitle} numberOfLines={1}>{goal.title}</Text>
                 {work ? (
                   <View style={styles.countPill}>
-                    <Text style={styles.countText}>{work.length} item{work.length === 1 ? "" : "s"}</Text>
-                    {work.length ? (expanded ? <ChevronUp size={12} color={colors.mutedForeground} /> : <ChevronDown size={12} color={colors.mutedForeground} />) : null}
+                    <Text style={styles.countText}>{work.length} task{work.length === 1 ? "" : "s"}</Text>
+                    {expanded ? <ChevronUp size={12} color={colors.mutedForeground} /> : <ChevronDown size={12} color={colors.mutedForeground} />}
                   </View>
                 ) : null}
               </AnimatedPressable>
-              {expanded && work
-                ? work.map((item) => (
+              {expanded && work ? (
+                work.length ? (
+                  work.map((item) => (
                     <AnimatedPressable key={item.taskId} onPress={() => onOpenTask(item.taskId)} style={styles.itemRow}>
                       <Text style={styles.itemText} numberOfLines={1}>{item.name}</Text>
                       {item.deadline ? <Text style={styles.meta}>Due {shortDate(item.deadline)}</Text> : null}
                     </AnimatedPressable>
                   ))
-                : null}
+                ) : (
+                  <View style={styles.emptyGoal}>
+                    <Text style={styles.meta}>No open tasks move this goal forward yet. Smart suggestions list them here as you add them.</Text>
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      onPress={() => requestQuickAdd({ kind: "task" })}
+                      hitSlop={8}
+                      style={styles.emptyGoalAction}
+                    >
+                      <Plus size={13} color={colors.primary} />
+                      <Text style={styles.link}>Add a task</Text>
+                    </AnimatedPressable>
+                  </View>
+                )
+              ) : null}
             </View>
           );
         })
@@ -432,11 +450,13 @@ const styles = createThemedStyleSheet((colors) => ({
   chipText: { color: colors.foreground, fontSize: 13, fontWeight: "600", maxWidth: 150 },
   streak: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"], marginLeft: -3 },
   addChip: { minHeight: 34, width: 34, borderRadius: 17, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, alignItems: "center", justifyContent: "center" },
-  goalRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32 },
+  goalRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 36 },
   goalTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, fontWeight: "600" },
   countPill: { flexDirection: "row", alignItems: "center", gap: 2, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: colors.muted },
   countText: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600" },
   itemRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 32, marginLeft: 21, paddingLeft: 10, borderLeftWidth: 1, borderLeftColor: colors.border },
+  emptyGoal: { gap: 6, marginLeft: 21, paddingLeft: 10, paddingVertical: 4, borderLeftWidth: 1, borderLeftColor: colors.border },
+  emptyGoalAction: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", minHeight: 28 },
   itemText: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13 },
   sheetLabel: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", marginBottom: 6 },
   editRow: {

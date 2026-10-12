@@ -220,6 +220,14 @@ export class Sidecar extends EventEmitter<SidecarEvents> {
     this.setState({ status: "stopped", pid: undefined });
   }
 
+  /** Sends `signal` to a live child without waiting (process-exit last resort); no restarts follow. */
+  signalNow(signal: NodeJS.Signals) {
+    this.stopping = true;
+    this.clearRetry();
+    const child = this.child;
+    if (child && child.exitCode === null && child.signalCode === null) child.kill(signal);
+  }
+
   /** Stops the child and suppresses restarts. Resolves once it has exited. */
   async stop(): Promise<void> {
     this.stopping = true;

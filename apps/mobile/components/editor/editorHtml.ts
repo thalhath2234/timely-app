@@ -134,8 +134,12 @@ export function buildEditorHtml(
     .callout[data-kind="warning"] { --callout: #d29922; }
     .callout[data-kind="caution"] { --callout: #e5484d; }
     .callout-head { display: flex; align-items: center; gap: 6px; color: var(--callout); font-weight: 600; margin-bottom: 4px; }
-    .callout-head select { background: transparent; border: 0; color: inherit; font: inherit; font-size: 14px; padding: 0; }
-    .callout-head input { flex: 1; min-width: 0; background: transparent; border: 0; color: ${t.foreground}; font: inherit; font-size: 14px; font-weight: 600; outline: none; }
+    .callout-kind { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; margin-left: -6px; padding: 0 6px; background: transparent; border: 0; border-radius: 8px; color: inherit; font: inherit; font-size: 14px; font-weight: 600; -webkit-tap-highlight-color: transparent; }
+    .callout-kind:active { background: color-mix(in oklab, var(--callout) 16%, transparent); }
+    .callout-kind svg { width: 14px; height: 14px; opacity: 0.75; }
+    .callout-icon { display: flex; flex-shrink: 0; }
+    .callout-icon svg { width: 16px; height: 16px; }
+    .callout-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: ${t.foreground}; font-size: 14px; font-weight: 600; }
     .callout-body > :last-child { margin-bottom: 0; }
     .footnote-ref { color: ${t.primary}; font-weight: 600; font-size: 0.7em; }
     .footnote { display: flex; gap: 8px; border-top: 1px solid ${t.border}; padding-top: 6px; margin: 6px 0 0; font-size: 14px; color: ${t.mutedForeground}; }
@@ -773,6 +777,14 @@ export function buildEditorHtml(
     });
 
     const CALLOUT_KINDS = { note: "Note", tip: "Tip", important: "Important", warning: "Warning", caution: "Caution" };
+    // Lucide icons, as the desktop callout draws them (apps/web/.../callout.tsx).
+    const CALLOUT_ICONS = {
+      note: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+      tip: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
+      important: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v2"/><path d="M12 13h.01"/>',
+      warning: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+      caution: '<path d="M12 16h.01"/><path d="M12 8v4"/><path d="M15.312 2a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586l-4.688-4.688A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2z"/>',
+    };
 
 
     // --- Toggle blocks: a plain-text summary that folds the blocks under it
@@ -930,34 +942,43 @@ export function buildEditorHtml(
           const head = document.createElement("div");
           head.className = "callout-head";
           head.setAttribute("contenteditable", "false");
-          const select = document.createElement("select");
-          const title = document.createElement("input");
-          title.placeholder = "Title (optional)";
+          // The kind opens the app's own sheet (calloutKind), not the
+          // system dropdown, which ignores the Timely theme.
+          const kindButton = document.createElement("button");
+          kindButton.type = "button";
+          kindButton.className = "callout-kind";
+          kindButton.setAttribute("aria-label", "Callout kind");
+          const kindLabel = document.createElement("span");
+          kindButton.appendChild(kindLabel);
+          kindButton.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>');
+          let currentKind = node.attrs.kind || "note";
+          // No title field; a title from imported Markdown shows as text.
+          const title = document.createElement("span");
+          title.className = "callout-title";
           const body = document.createElement("div");
           body.className = "callout-body";
-          head.appendChild(select);
+          const kindIcon = document.createElement("span");
+          kindIcon.className = "callout-icon";
+          head.appendChild(kindIcon);
+          head.appendChild(kindButton);
           head.appendChild(title);
           dom.appendChild(head);
           dom.appendChild(body);
-          const setAttrs = (patch) => {
-            const pos = getPos();
-            editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...editor.state.doc.nodeAt(pos).attrs, ...patch }));
-          };
-          select.addEventListener("change", () => setAttrs({ kind: select.value }));
-          title.addEventListener("input", () => setAttrs({ title: title.value || null }));
+          kindButton.addEventListener("click", (event) => {
+            event.preventDefault();
+            if (!editor.isEditable) return;
+            send({ type: "calloutKind", pos: getPos(), kind: currentKind });
+          });
           const apply = (current) => {
             const kind = current.attrs.kind || "note";
             dom.setAttribute("data-kind", kind);
-            const kinds = CALLOUT_KINDS[kind] ? Object.keys(CALLOUT_KINDS) : [...Object.keys(CALLOUT_KINDS), kind];
-            select.innerHTML = "";
-            for (const item of kinds) {
-              const option = document.createElement("option");
-              option.value = item;
-              option.textContent = CALLOUT_KINDS[item] || item;
-              select.appendChild(option);
+            if (kind !== currentKind || !kindIcon.firstChild) {
+              kindIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (CALLOUT_ICONS[kind] || CALLOUT_ICONS.note) + "</svg>";
             }
-            select.value = kind;
-            if (title.value !== (current.attrs.title || "")) title.value = current.attrs.title || "";
+            currentKind = kind;
+            kindLabel.textContent = CALLOUT_KINDS[kind] || kind;
+            title.textContent = current.attrs.title || "";
+            title.hidden = !current.attrs.title;
           };
           apply(node);
           return {
@@ -1783,6 +1804,8 @@ export function buildEditorHtml(
         field.replaceWith(span);
       });
       body.querySelectorAll(".doc-embed-frame, .doc-bookmark-open, .code-copy, .code-delete, .code-fold, .details-toggle, .ProseMirror-gapcursor, .ProseMirror-trailingBreak").forEach((el) => el.remove());
+      // A callout's kind button prints as its label, without the chevron.
+      body.querySelectorAll(".callout-kind svg").forEach((el) => el.remove());
       body.querySelectorAll(".is-folded").forEach((el) => el.classList.remove("is-folded"));
       body.querySelectorAll(".details").forEach((el) => el.setAttribute("data-open", ""));
       body.querySelectorAll("[contenteditable]").forEach((el) => el.removeAttribute("contenteditable"));
@@ -1992,6 +2015,16 @@ export function buildEditorHtml(
             .run();
           send({ type: "linkDone" });
           requestAnimationFrame(scrollCaret);
+          return;
+        }
+        // Picked in the app's callout sheet; no focus, so the keyboard
+        // stays down.
+        if (name === "setCalloutKind") {
+          const pos = Number(payload && payload.pos);
+          const target = editor.state.doc.nodeAt(pos);
+          if (target && target.type.name === "callout") {
+            editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...target.attrs, kind: String(payload.kind || "note") }));
+          }
           return;
         }
         const chain = editor.chain().focus();

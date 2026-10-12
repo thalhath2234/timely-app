@@ -6,6 +6,7 @@ import {
   type CellFitInput,
   getCleanupSuggestions,
   getDocHints,
+  getDocChecklist,
   getClarifySuggestions,
   getProjectInsights,
   getStaleWork,
@@ -182,6 +183,20 @@ export function useDocHints(docId: string | undefined, version = "", enabled = t
     staleTime: 5 * 60 * 1000,
     retry: false,
   }));
+}
+
+/** Which unchecked checklist items of a doc are already tasks, and where new
+ * ones go. Runs with suggestions off too: a checklist item needs no model. */
+export function useDocChecklist(docId: string | undefined, names: string[], projectId?: string) {
+  return useQuery({
+    queryKey: ["doc-checklist", docId, names, projectId ?? ""],
+    // names says which items an answer covers while a newer one loads.
+    queryFn: async () => ({ ...(await getDocChecklist(docId!, names, projectId)), names }),
+    enabled: Boolean(docId) && names.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 60 * 1000,
+    retry: false,
+  });
 }
 
 /** Today's focus picks and free-gap suggestion; empty while suggestions are off.

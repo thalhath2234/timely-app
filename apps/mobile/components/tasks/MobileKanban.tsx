@@ -5,6 +5,8 @@ import type { Task, TaskListGroupField } from "../../lib/types";
 import type { NamedStatusGroup } from "../../lib/status";
 import { statusNameKey } from "../../lib/status";
 import { PRIORITIES } from "../../lib/priority";
+import { PRIORITY_META } from "../../lib/format";
+import { resolvedColor } from "../../lib/entityColor";
 import { GripVertical } from "lucide-react-native";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import TaskCard from "./TaskCard";
@@ -23,15 +25,22 @@ export function kanbanColumns(tasks: Task[], statusGroups: NamedStatusGroup[], f
     title: group.name,
     color: group.color,
     tasks: [],
-  })) : field === "priority" ? (selectedPriorityLevels.length ? PRIORITIES.filter((level) => selectedPriorityLevels.includes(level)) : PRIORITIES).map((level) => ({ key: level, title: level, color: null, tasks: [] })) : [];
-  const none: KanbanColumn = { key: "none", title: field === "priority" ? "No priority" : field === "status" ? "No status" : "Other", color: null, tasks: [] };
+  })) : field === "priority" ? (selectedPriorityLevels.length ? PRIORITIES.filter((level) => selectedPriorityLevels.includes(level)) : PRIORITIES).map((level) => ({ key: level, title: level, color: PRIORITY_META[level]?.color ?? null, tasks: [] })) : [];
+  const noneTitle = { priority: "No priority", status: "No status", workspace: "No workspace", project: "No project", stage: "No stage" }[field as string] ?? "No value";
+  const none: KanbanColumn = { key: "none", title: noneTitle, color: null, tasks: [] };
   if (field !== "status" && field !== "priority") {
     for (const task of tasks) {
       const id = field === "workspace" ? task.workspaceId : field === "project" ? task.projectId : field === "stage" ? task.stageId : null;
-      const title = field === "workspace" ? task.workspace?.name : field === "project" ? task.project?.title : field === "stage" ? task.project?.stages?.find((stage) => stage.id === id)?.name : null;
+      const stage = field === "stage" ? task.stage ?? task.project?.stages?.find((item) => item.id === id) : null;
+      const title = field === "workspace" ? task.workspace?.name : field === "project" ? task.project?.title : stage?.name;
       if (!id) { none.tasks.push(task); continue; }
       let column = columns.find((item) => item.key === id);
-      if (!column) { column = { key: id, title: title || "Untitled", color: null, tasks: [] }; columns.push(column); }
+      if (!column) {
+        // Same colours as the desktop board: the entity's own, else its auto colour.
+        const own = field === "workspace" ? task.workspace?.color : field === "project" ? task.project?.color : stage?.color;
+        column = { key: id, title: title || "Untitled", color: resolvedColor(own, id), tasks: [] };
+        columns.push(column);
+      }
       column.tasks.push(task);
     }
     return none.tasks.length ? [...columns, none] : columns;

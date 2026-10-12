@@ -1,7 +1,7 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Platform, RefreshControl, ScrollView, SectionList, Text, View } from "react-native";
+import { Platform, RefreshControl, ScrollView, SectionList, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ListTodo, SlidersHorizontal } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -16,6 +16,7 @@ import TaskFiltersSheet from "../../../components/tasks/TaskFiltersSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
+import { Dot } from "../../../components/ui/primitives";
 import {
   useBulkUpdateTasks,
   useDeleteTask,
@@ -25,10 +26,10 @@ import {
   useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { addDays, startOfDay, toDateInputValue } from "../../../lib/format";
-import { PRIORITIES, priorityRank } from "../../../lib/priority";
+import { addDays, formatShortDate, PRIORITY_META, startOfDay, toDateInputValue } from "../../../lib/format";
+import { normalizePriority, PRIORITIES, priorityRank } from "../../../lib/priority";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
-import { taskEntityColor } from "../../../lib/entityColor";
+import { resolvedColor } from "../../../lib/entityColor";
 import {
   mergeStatusesByName,
   statusForWorkspace,
@@ -58,7 +59,7 @@ function groupField(view?: TaskViewConfig): TaskListGroupField | undefined {
 
 function groupValue(task: Task, field: TaskListGroupField, stageNames: Record<string, string>) {
   if (field === "status") return statusNameKey(task.status?.name) || "none";
-  if (field === "priority") return task.priorityLevel || "none";
+  if (field === "priority") return normalizePriority(task.priorityLevel) || "none";
   if (field === "workspace") return task.workspaceId || "none";
   if (field === "project") return task.projectId || "none";
   if (field === "stage") return task.stageId || "none";
@@ -71,7 +72,7 @@ function groupValue(task: Task, field: TaskListGroupField, stageNames: Record<st
 
 function groupValueTitle(task: Task, field: TaskListGroupField, stageNames: Record<string, string>) {
   if (field === "status") return task.status?.name ?? "No status";
-  if (field === "priority") return task.priorityLevel ?? "No priority";
+  if (field === "priority") return normalizePriority(task.priorityLevel) || "No priority";
   if (field === "workspace") return task.workspace?.name ?? "No workspace";
   if (field === "project") return task.project?.title ?? "No project";
   if (field === "stage") return (task.stageId && stageNames[task.stageId]) || "No stage";
@@ -92,12 +93,22 @@ function groupTitle(task: Task, view: TaskViewConfig | undefined, stageNames: Re
   return groupFields(view).map((field) => groupValueTitle(task, field, stageNames)).join(" › ");
 }
 
-function groupColor(task: Task, view?: TaskViewConfig) {
+/** The group's own colour, as the desktop list and board show it; groups
+ * like "No project" stay neutral (null). */
+function groupColor(task: Task, view: TaskViewConfig | undefined, stageColors: Record<string, string>) {
   const field = groupField(view);
   if (field === "status") return task.status?.color ?? null;
-  if (field === "workspace") return task.workspace?.color ?? null;
-  if (field === "project") return task.project?.color ?? null;
-  return taskEntityColor(task);
+  if (field === "priority") return PRIORITY_META[normalizePriority(task.priorityLevel)]?.color ?? null;
+  if (field === "workspace") {
+    const id = task.workspace?.id ?? task.workspaceId;
+    return id ? resolvedColor(task.workspace?.color, id) : null;
+  }
+  if (field === "project") {
+    const id = task.project?.id ?? task.projectId;
+    return id ? resolvedColor(task.project?.color, id) : null;
+  }
+  if (field === "stage") return task.stageId ? stageColors[task.stageId] ?? resolvedColor(task.stage?.color, task.stageId) : null;
+  return null;
 }
 
 function viewHasCustomFilters(view?: TaskViewConfig) {
@@ -215,6 +226,13 @@ export default function TasksScreen() {
     }
     return names;
   }, [projects]);
+  const stageColors = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const item of projects) {
+      for (const stage of item.stages ?? []) out[stage.id] = resolvedColor(stage.color, stage.id);
+    }
+    return out;
+  }, [projects]);
 
   const visible = useMemo(() => {
     if (!activeView || activeView.dataMode === "project") return [];
@@ -230,7 +248,7 @@ export default function TasksScreen() {
       if (!map.has(key)) {
         map.set(key, {
           title: groupTitle(task, activeView, stageNames),
-          color: groupColor(task, activeView),
+          color: groupColor(task, activeView, stageColors),
           tasks: [],
         });
       }
@@ -250,7 +268,7 @@ export default function TasksScreen() {
       return activeView?.groupSortDirection === "desc" ? -cmp : cmp;
     });
     return rows;
-  }, [visible, activeView, stageNames]);
+  }, [visible, activeView, stageNames, stageColors]);
 
   const sections = useMemo(
     () => groups.map((group) => ({ title: group.title, color: group.color, data: group.tasks })),
@@ -277,6 +295,31 @@ export default function TasksScreen() {
         };
       });
   }, [activeView, projects, projectId, tasks]);
+
+  // Project cards follow the view's workspace grouping, as on the desktop;
+  // the other group fields describe tasks, not projects.
+  const projectsByWorkspace = Boolean(activeView?.groupFields?.includes("workspace"));
+  const projectSections = useMemo(() => {
+    if (!projectsByWorkspace) return projectRows.length ? [{ key: "all", title: "", color: null as string | null, data: projectRows }] : [];
+    const byId = new Map(workspaces.map((space) => [space.id, space]));
+    const map = new Map<string, { key: string; title: string; color: string | null; data: typeof projectRows }>();
+    for (const row of projectRows) {
+      const space = row.workspaceId ? byId.get(row.workspaceId) : undefined;
+      const key = space?.id ?? "none";
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          title: space?.name || "No workspace",
+          color: space ? resolvedColor(space.color, space.id) : null,
+          data: [],
+        });
+      }
+      map.get(key)!.data.push(row);
+    }
+    const desc = activeView?.groupSortDirection === "desc";
+    return [...map.values()].sort((a, b) => (desc ? -1 : 1) * a.title.localeCompare(b.title));
+  }, [projectRows, projectsByWorkspace, workspaces, activeView?.groupSortDirection]);
+  const workspaceById = useMemo(() => new Map(workspaces.map((space) => [space.id, space])), [workspaces]);
 
   useAssistantScreen([
     contextChip("task-view", activeView?.name || "Task view", { filters: activeView ? filtersFromView(activeView) : {}, projectId, dataMode: activeView?.dataMode, scope: selectedIds.length ? "selected" : "all-filtered-matches", taskIds: selectedIds.length ? selectedIds : visible.map((task) => task.id), projectIds: activeView?.dataMode === "project" ? projectRows.map((project) => project.id) : undefined }),
@@ -406,7 +449,7 @@ export default function TasksScreen() {
   );
 
   const renderSectionHeader = useCallback(
-    ({ section }: { section: { title: string; color: string | null; data: Task[] } }) => (
+    ({ section }: { section: { title: string; color: string | null; data: readonly unknown[] } }) => (
       <View style={styles.head}>
         <View style={[styles.dot, { backgroundColor: section.color ?? colors.mutedForeground }]} />
         <Text numberOfLines={2} style={styles.group}>{section.title}</Text>
@@ -423,7 +466,9 @@ export default function TasksScreen() {
         subtitle={
           project
             ? "Filtered by project"
-            : overdueCount
+            : activeView?.dataMode === "project"
+              ? `${projectRows.length} ${projectRows.length === 1 ? "project" : "projects"}`
+              : overdueCount
               ? `${openCount} open · ${overdueCount} overdue`
               : `${openCount} open`
         }
@@ -528,34 +573,52 @@ export default function TasksScreen() {
       ) : networkCopy ? (
         <EmptyState icon={ListTodo} title="Couldn't load tasks" description={networkCopy} />
       ) : activeView?.dataMode === "project" ? (
-        <FlatList
+        <SectionList
           keyboardShouldPersistTaps="handled"
-          data={projectRows}
+          sections={projectSections}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: projectsByWorkspace ? 0 : 8, paddingBottom: 120 }}
           refreshControl={refreshControl}
+          stickySectionHeadersEnabled={false}
           initialNumToRender={8}
           windowSize={7}
           removeClippedSubviews={Platform.OS === "android"}
           ListEmptyComponent={
             <EmptyState icon={ListTodo} title="No projects in this view" description="Switch views or create a project." />
           }
-          renderItem={({ item }) => (
-            <AnimatedPressable
-              onPress={() => router.push(`/(app)/projects/${item.id}`)}
-              style={styles.projectCard}
-            >
-              <Text style={styles.projectTitle}>{item.title}</Text>
-              <Text style={styles.count}>
-                {item.scheduledCount > 0
-                  ? `${item.scheduledCount} scheduled`
-                  : "No scheduled tasks in this project."}
-              </Text>
-              {item.openCount > 0 ? (
-                <Text style={styles.count}>{item.openCount} open</Text>
-              ) : null}
-            </AnimatedPressable>
-          )}
+          renderSectionHeader={({ section }) =>
+            section.title ? renderSectionHeader({ section }) : null
+          }
+          renderItem={({ item }) => {
+            const space = projectsByWorkspace ? undefined : workspaceById.get(item.workspaceId);
+            const summary = [
+              item.openCount > 0 ? `${item.openCount} open` : "No open tasks",
+              item.scheduledCount > 0 ? `${item.scheduledCount} scheduled` : item.openCount > 0 ? "none scheduled" : "",
+              item.deadline ? `Due ${formatShortDate(`${item.deadline.slice(0, 10)}T12:00:00`)}` : "",
+            ].filter(Boolean).join(" · ");
+            return (
+              <AnimatedPressable
+                accessibilityRole="button"
+                accessibilityLabel={`${item.title || "Untitled project"}, ${summary}`}
+                onPress={() => router.push(`/(app)/projects/${item.id}`)}
+                style={styles.projectCard}
+              >
+                <View style={[styles.projectBar, { backgroundColor: resolvedColor(item.color, item.id) }]} />
+                <View style={styles.projectBody}>
+                  <Text numberOfLines={2} style={styles.projectTitle}>{item.title || "Untitled project"}</Text>
+                  <View style={styles.projectMeta}>
+                    {space ? (
+                      <View style={styles.projectChip}>
+                        <Dot color={resolvedColor(space.color, space.id)} />
+                        <Text numberOfLines={1} style={styles.projectChipText}>{space.name}</Text>
+                      </View>
+                    ) : null}
+                    <Text style={styles.projectSummary}>{summary}</Text>
+                  </View>
+                </View>
+              </AnimatedPressable>
+            );
+          }}
         />
       ) : boardMode ? (
         <EmptyState
@@ -723,17 +786,24 @@ const styles = createThemedStyleSheet((colors) => ({
   bulkActions: { gap: 7, alignItems: "center" },
   bulkButton: { minHeight: 36, paddingHorizontal: 10, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
   bulkAction: { color: colors.primary, fontSize: 12, fontWeight: "600" },
+  // The task card's shape (16px corners, inset 4px stripe) so both line up.
   projectCard: {
+    flexDirection: "row",
+    alignItems: "stretch",
     borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 18,
-    gap: 6,
     marginBottom: 10,
   },
+  projectBar: { width: 4, alignSelf: "stretch", borderRadius: 2, marginVertical: 12, marginLeft: 10 },
+  projectBody: { flex: 1, minWidth: 0, minHeight: 76, justifyContent: "center", paddingVertical: 14, paddingLeft: 14, paddingRight: 16, gap: 7 },
+  projectMeta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  projectChip: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "60%", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: colors.muted },
+  projectChipText: { color: colors.foreground, fontSize: 12, fontWeight: "500", flexShrink: 1 },
+  projectSummary: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500", fontVariant: ["tabular-nums"] },
   cardWrap: { marginBottom: 10 },
-  projectTitle: { color: colors.foreground, fontSize: 17, fontWeight: "600" },
+  projectTitle: { color: colors.foreground, fontSize: 16, fontWeight: "600", lineHeight: 21 },
   filterBtn: {
     flexDirection: "row",
     alignItems: "center",
