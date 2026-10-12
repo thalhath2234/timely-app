@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { normalizeCodeLanguage } from "@/app/utils/markdown";
+import Select from "@/app/_components/_ui/select";
 import MapPreview from "./mapPreview";
 import MermaidPreview from "./mermaidPreview";
 import StlPreview from "./stlPreview";
@@ -83,19 +84,16 @@ export default function CodeBlockView({ node, editor, updateAttributes, deleteNo
   return (
     <NodeViewWrapper ref={wrapRef} className="doc-code-wrap" data-language={language || "plain"}>
       <div className="doc-code-bar" contentEditable={false}>
-        <select
+        <Select
+          variant="inline"
+          searchable
           value={language}
+          options={options.map((item) => ({ value: item, label: item || "plain" }))}
           aria-label="Code language"
-          onChange={(event) => updateAttributes({ language: event.target.value || null })}
+          disabled={!editor.isEditable}
+          onChange={(next) => updateAttributes({ language: next || null })}
           className="doc-code-lang"
-        >
-          <option value="">plain</option>
-          {options.filter(Boolean).map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
+        />
         <button
           type="button"
           onMouseDown={(event) => event.preventDefault()}

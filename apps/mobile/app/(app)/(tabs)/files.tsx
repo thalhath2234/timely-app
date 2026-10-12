@@ -130,6 +130,9 @@ export default function FilesScreen() {
     [docsQ.data, showArchived],
   );
   const tree = useMemo(() => buildDocTree(docs), [docs]);
+  // The expand arrow's slot is kept only when some page has subpages, so a
+  // flat list does not start every card with an empty gap.
+  const hasNested = useMemo(() => tree.some((node) => node.children.length > 0), [tree]);
   const sheets = useMemo(
     () =>
       (sheetsQ.data ?? [])
@@ -293,7 +296,7 @@ export default function FilesScreen() {
   function renderSheetRow(sheet: Sheet, key: string, indent = false) {
     return (
       <AnimatedPressable key={key} onPress={() => openFile(sheet.id)} style={styles.card}>
-        {indent ? <View style={styles.chevron} /> : null}
+        {indent && hasNested ? <View style={styles.chevron} /> : null}
         <View style={styles.sheetBody}>
           <FileGlyph icon={sheet.icon} kind="sheet" />
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -317,11 +320,13 @@ export default function FilesScreen() {
     return (
       <Animated.View key={node.id} layout={listLayout(reduceMotion)} style={{ gap: 8 }}>
         <View style={[styles.card, { marginLeft: Math.min(depth, 3) * 12 }]}>
-          <DocsExpandButton
-            expanded={expanded}
-            hasChildren={hasChildren}
-            onPress={() => toggleExpanded(node.id)}
-          />
+          {hasNested ? (
+            <DocsExpandButton
+              expanded={expanded}
+              hasChildren={hasChildren}
+              onPress={() => toggleExpanded(node.id)}
+            />
+          ) : null}
           <AnimatedPressable
             onPress={() => openFile(node.id)}
             onLongPress={() => setMenuDoc(node)}
@@ -395,8 +400,9 @@ export default function FilesScreen() {
     </Pressable>
   ) : null;
 
-  const pageCount = `${docs.length} ${docs.length === 1 ? "page" : "pages"}`;
-  const tableCount = `${sheets.length} ${sheets.length === 1 ? "table" : "tables"}`;
+  // Same words as the All / Docs / Sheets filter.
+  const pageCount = `${docs.length} ${docs.length === 1 ? "doc" : "docs"}`;
+  const tableCount = `${sheets.length} ${sheets.length === 1 ? "sheet" : "sheets"}`;
   const subtitle =
     filter === "docs"
       ? pageCount

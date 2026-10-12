@@ -31,7 +31,7 @@ export async function exportDocPdf(title: string, editorDom: HTMLElement) {
       canvas.remove();
     }
   });
-  // Form fields (a callout's kind and title) print as their text; a copy
+  // Form fields (a callout's title) print as their text; a copy
   // would lose what was picked.
   const sourceFields = editorDom.querySelectorAll("input, select, textarea");
   body.querySelectorAll("input, select, textarea").forEach((field, index) => {
@@ -50,6 +50,13 @@ export async function exportDocPdf(title: string, editorDom: HTMLElement) {
     span.className = field.className;
     span.textContent = text;
     field.replaceWith(span);
+  });
+  // A callout's kind picker is a button with a chevron; print its label.
+  body.querySelectorAll(".doc-callout-kind").forEach((picker) => {
+    const span = document.createElement("span");
+    span.className = picker.className;
+    span.textContent = picker.textContent ?? "";
+    picker.replaceWith(span);
   });
   // An embedded player cannot print; leave its link.
   body.querySelectorAll(".doc-embed-frame").forEach((frame) => frame.remove());
