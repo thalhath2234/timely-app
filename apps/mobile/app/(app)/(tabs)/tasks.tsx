@@ -574,6 +574,7 @@ export default function TasksScreen() {
         <EmptyState icon={ListTodo} title="Couldn't load tasks" description={networkCopy} />
       ) : activeView?.dataMode === "project" ? (
         <SectionList
+          keyboardShouldPersistTaps="handled"
           sections={projectSections}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: projectsByWorkspace ? 0 : 8, paddingBottom: 120 }}
