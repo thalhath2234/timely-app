@@ -36,8 +36,8 @@ export type NextOptions = {
   /** Node-compatible binary (Electron's execPath) and whether it needs ELECTRON_RUN_AS_NODE. */
   nodeBinary: string;
   runAsNode: boolean;
-  /** Run under `setpriv --pdeathsig` (Linux; see lifetime.ts). */
-  deathSignal?: boolean;
+  /** setpriv to run under for a death signal (Linux; lifetime.ts setprivPath), or null. */
+  setpriv?: string | null;
   output?: (chunk: Buffer) => void;
 };
 
@@ -76,16 +76,15 @@ export class NextManager {
       JWT_SECRET: this.options.jwtSecret,
       [LIFELINE_ENV]: "stdin",
       TIMELY_WEB_RSS_LIMIT_MB: String(WEB_RSS_LIMIT_MB),
+      TIMELY_WEB_HEAP_LIMIT_MB: String(WEB_HEAP_LIMIT_MB),
     };
     if (this.options.runAsNode) env.ELECTRON_RUN_AS_NODE = "1";
     else delete env.ELECTRON_RUN_AS_NODE;
-    // A NODE_OPTIONS from the user's shell must not undo the limits above.
-    delete env.NODE_OPTIONS;
     const { command, args } = withDeathSignal(
       this.options.nodeBinary,
       nodeArgs(located.root, located.server),
       "KILL",
-      this.options.deathSignal ?? false,
+      this.options.setpriv ?? null,
     );
     // stdin is the lifeline: never written, it closes when this process ends.
     const child = spawn(command, args, {

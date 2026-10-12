@@ -40,6 +40,9 @@ func FromEnv() <-chan struct{} {
 	if !Enabled(os.Getenv) {
 		return nil
 	}
+	// Programs the API starts must not inherit it: a timely-api run by an
+	// agent would otherwise exit at once on its /dev/null stdin.
+	_ = os.Unsetenv(EnvVar)
 	ignoreBrokenPipe()
 	return Watch(os.Stdin)
 }

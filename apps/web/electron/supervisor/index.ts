@@ -9,7 +9,7 @@ import type { DesktopAction, DesktopActionResult, DesktopInstance, DesktopSettin
 import { ApiManager, apiBinds, buildApiEnv } from "./api.ts";
 import { copyDataDir, manualBackupName, preUpgradeBackupName, pruneBackups, KEEP_PRE_UPGRADE_BACKUPS, PRE_UPGRADE_PREFIX } from "./backup.ts";
 import { ensureSecrets, loadConfig, saveConfig, type DesktopConfig, type Sealer, type Secrets } from "./config.ts";
-import { findOrphans, hasSetpriv, stopOrphans } from "./lifetime.ts";
+import { findOrphans, setprivPath, stopOrphans } from "./lifetime.ts";
 import { FileLog, createLogger, type Logger } from "./logger.ts";
 import { NextManager } from "./next.ts";
 import { userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
@@ -76,6 +76,7 @@ export const ACTIONS: readonly DesktopAction[] = [
 ];
 
 const SHUTDOWN_CAP_MS = 15_000;
+const SWEEP_SCAN_CAP_MS = 3_000;
 const TAILSCALE_REFRESH_MS = 5_000;
 
 export type SupervisorEvents = {
@@ -116,8 +117,8 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   private update: UpdateStatus = { status: "idle" };
   private readonly platform: NodeJS.Platform;
   private readonly sidecarLogs: FileLog[] = [];
-  /** Whether the sidecars run under `setpriv --pdeathsig` (lifetime.ts). */
-  private deathSignal = false;
+  /** setpriv the sidecars run under for a death signal (lifetime.ts), or null. */
+  private setpriv: string | null = null;
 
   private postgres: PostgresManager | null = null;
   private api: ApiManager | null = null;
@@ -242,7 +243,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         port: this.config.postgresPort,
         password: this.secrets.dbPassword,
         platform: this.platform,
-        deathSignal: this.deathSignal,
+        setpriv: this.setpriv,
         log: this.log,
         output: this.sidecarLog("postgres"),
       });
@@ -280,7 +281,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         env: this.apiEnv(shell),
         port: this.config.apiPort,
         platform: this.platform,
-        deathSignal: this.deathSignal,
+        setpriv: this.setpriv,
         log: this.log,
         output: this.sidecarLog("api"),
       });
@@ -306,7 +307,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         jwtSecret: this.secrets.jwtSecret,
         nodeBinary: this.deps.nodeBinary,
         runAsNode: this.deps.runAsNode,
-        deathSignal: this.deathSignal,
+        setpriv: this.setpriv,
         output: this.sidecarLog("next"),
       });
       await this.webSidecar.start();
@@ -327,11 +328,18 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
    * leftover postmaster is handled by PostgresManager.reclaimDataDir.
    */
   private async stopLeftovers() {
-    this.deathSignal = hasSetpriv(this.platform);
-    if (this.platform === "linux") this.log.info(`lifetime: setpriv --pdeathsig ${this.deathSignal ? "available" : "not available; relying on the stdin lifeline"}`);
+    this.setpriv = setprivPath(this.platform);
+    if (this.platform === "linux") this.log.info(`lifetime: ${this.setpriv ? `death signal via ${this.setpriv}` : "setpriv --pdeathsig not available; relying on the stdin lifeline"}`);
     if (this.deps.sweepOrphans === false || !this.secrets) return;
     try {
-      const orphans = findOrphans({ secret: this.secrets.jwtSecret, selfPid: process.pid });
+      // Bounded: a /proc read can hang on a process stuck in the kernel.
+      const orphans = await Promise.race([
+        findOrphans({ secret: this.secrets.jwtSecret, dataDir: this.paths.dataDir, selfPid: process.pid }),
+        sleep(SWEEP_SCAN_CAP_MS).then(() => {
+          this.log.warn("orphans: scan timed out; skipping it");
+          return [];
+        }),
+      ]);
       if (orphans.length) await stopOrphans(orphans, { log: this.log });
     } catch (error) {
       this.log.warn(`orphans: sweep failed: ${describe(error)}`);

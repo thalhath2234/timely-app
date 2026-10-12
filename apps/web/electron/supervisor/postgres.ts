@@ -145,8 +145,8 @@ export type PostgresOptions = {
   port: number;
   password: string;
   platform?: NodeJS.Platform;
-  /** Run the server under `setpriv --pdeathsig` (Linux; see lifetime.ts). */
-  deathSignal?: boolean;
+  /** setpriv to run the server under for a death signal (Linux; lifetime.ts setprivPath), or null. */
+  setpriv?: string | null;
   log?: Logger;
   /** Receives server stdout/stderr lines. */
   output?: (chunk: Buffer) => void;
@@ -371,7 +371,7 @@ export class PostgresManager {
       "log_timezone=UTC",
     ];
     // SIGINT is PostgreSQL's fast shutdown: sessions roll back, a checkpoint is written.
-    const command = withDeathSignal(this.bin("postgres"), args, "INT", this.options.deathSignal ?? false);
+    const command = withDeathSignal(this.bin("postgres"), args, "INT", this.options.setpriv ?? null);
     const child = spawn(command.command, command.args, {
       env: this.env(),
       cwd: this.options.pgRoot,

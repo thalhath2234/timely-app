@@ -15,11 +15,12 @@
 // 3. Windows: libuv puts every child it spawns in a kill-on-close job object,
 //    so Windows already ends them with the app.
 // 4. Boot sweep (Linux): servers an earlier run left behind (including
-//    versions without layers 1-2) are found by our JWT secret in their
-//    environment and stopped before anything binds a port. A leftover
-//    postmaster is reclaimed through postmaster.pid (postgres.ts).
+//    versions without layers 1-2) are found through /proc and stopped before
+//    anything binds a port. A leftover postmaster is reclaimed through
+//    postmaster.pid (postgres.ts).
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import type { Logger } from "./logger.ts";
 import { silentLogger } from "./logger.ts";
@@ -30,84 +31,136 @@ export const LIFELINE_ENV = "TIMELY_LIFELINE";
 
 export type DeathSignal = "KILL" | "TERM" | "INT";
 
-let setprivChecked: boolean | null = null;
+let setprivChecked: { path: string | null } | null = null;
 
 /**
- * Whether `setpriv --pdeathsig` works here (util-linux 2.33+; on every
- * mainstream distro, but checked rather than assumed).
+ * Absolute path of a `setpriv` that supports --pdeathsig (util-linux 2.33+;
+ * on every mainstream distro, but checked rather than assumed), or null. The
+ * path is absolute because a sidecar is spawned with its own PATH (the API
+ * gets the login shell's), which may not find the same setpriv.
  */
-export function hasSetpriv(platform: NodeJS.Platform = process.platform): boolean {
-  if (platform !== "linux") return false;
+export function setprivPath(platform: NodeJS.Platform = process.platform, envPath: string = process.env.PATH ?? ""): string | null {
+  if (platform !== "linux") return null;
   if (setprivChecked === null) {
-    try {
-      execFileSync("setpriv", ["--pdeathsig", "TERM", "--", "true"], { stdio: "ignore", timeout: 5_000 });
-      setprivChecked = true;
-    } catch {
-      setprivChecked = false;
+    setprivChecked = { path: null };
+    const dirs = [...envPath.split(path.delimiter), "/usr/bin", "/bin"].filter((dir) => path.isAbsolute(dir));
+    for (const dir of new Set(dirs)) {
+      const candidate = path.join(dir, "setpriv");
+      if (!existsSync(candidate)) continue;
+      try {
+        execFileSync(candidate, ["--pdeathsig", "TERM", "--", "true"], { stdio: "ignore", timeout: 5_000 });
+        setprivChecked = { path: candidate };
+      } catch {
+        // busybox and old util-linux have no --pdeathsig; try the next one.
+        continue;
+      }
+      break;
     }
   }
-  return setprivChecked;
+  return setprivChecked.path;
 }
 
 /**
  * The command that runs `binary args` so the kernel sends it `signal` when
  * this process ends. setpriv sets the death signal and then execs the binary
  * in place (same pid), so stopping it by pid works as before. Without
- * setpriv, the command is returned unchanged.
+ * setpriv (null), the command is returned unchanged.
  */
 export function withDeathSignal(
   binary: string,
   args: string[],
   signal: DeathSignal,
-  available: boolean,
+  setpriv: string | null,
 ): { command: string; args: string[] } {
-  if (!available) return { command: binary, args };
-  return { command: "setpriv", args: ["--pdeathsig", signal, "--", binary, ...args] };
+  if (!setpriv) return { command: binary, args };
+  return { command: setpriv, args: ["--pdeathsig", signal, "--", binary, ...args] };
 }
 
 export type OrphanKind = "web" | "api";
 export type Orphan = { pid: number; kind: OrphanKind };
 
+/** What /proc says about one process; null fields could not be read. */
+export type ProcInfo = { env: string[]; exe: string | null; cwd: string | null; comm: string | null };
+
+/** readlink of /proc/<pid>/exe or cwd, without the " (deleted)" a replaced install adds. */
+function undeleted(link: string | null): string | null {
+  return link === null ? null : link.replace(/ \(deleted\)$/, "");
+}
+
 /**
- * Sidecars of this app that are not children of `selfPid`, found through
- * /proc (Linux; elsewhere the list is empty). A process is ours when its
- * environment carries JWT_SECRET=<our secret>: the secret is random per
- * user-data folder, and the single-instance lock means no other live copy of
- * this app uses that folder, so a match that is not our child is an orphan.
- * A local "Timely Dev" build has its own folder and secret and is never
- * matched by the release (or the other way round). /proc/<pid>/environ is
- * only readable for our own processes, so other users' are skipped.
+ * Which of this app's sidecars a process is, or null when it is not one.
+ * Both the program and our identity must match, so the processes the API
+ * starts for agent runs (they inherit its environment, secret included) and
+ * anything they leave running are never taken for a leftover server:
+ *
+ * - API: the program is timely-api, and it carries our JWT secret or runs in
+ *   our data folder (that one still matches after the secrets were
+ *   regenerated, e.g. when the keyring changed).
+ * - Web: Next names itself "next-server", runs as Electron's Node with an
+ *   API_ORIGIN and PORT, and carries our JWT secret.
+ *
+ * The secret is random per user-data folder, so "Timely Dev" and the release
+ * never match each other's servers.
  */
-export function findOrphans(input: { secret: string; selfPid: number; procRoot?: string }): Orphan[] {
+export function classifyProcess(info: ProcInfo, ours: { secret: string; dataDir: string }): OrphanKind | null {
+  const has = (entry: string) => info.env.includes(entry);
+  const hasKey = (key: string) => info.env.some((entry) => entry.startsWith(`${key}=`));
+  const secret = Boolean(ours.secret) && has(`JWT_SECRET=${ours.secret}`);
+  const exe = undeleted(info.exe);
+  if (exe && path.basename(exe) === "timely-api") {
+    return secret || (Boolean(ours.dataDir) && undeleted(info.cwd) === ours.dataDir) ? "api" : null;
+  }
+  if (secret && info.comm?.startsWith("next-server") && has("ELECTRON_RUN_AS_NODE=1") && hasKey("API_ORIGIN") && hasKey("PORT")) {
+    return "web";
+  }
+  return null;
+}
+
+async function readProc(procRoot: string, name: string): Promise<ProcInfo | null> {
+  const dir = path.join(procRoot, name);
+  let env: string[];
+  try {
+    env = (await readFile(path.join(dir, "environ"), "latin1")).split("\0");
+  } catch {
+    return null;
+  }
+  const quiet = <T>(promise: Promise<T>) => promise.catch(() => null);
+  const [exe, cwd, comm] = await Promise.all([
+    quiet(readlink(path.join(dir, "exe"))),
+    quiet(readlink(path.join(dir, "cwd"))),
+    quiet(readFile(path.join(dir, "comm"), "latin1")),
+  ]);
+  return { env, exe, cwd, comm: comm?.trim() ?? null };
+}
+
+/**
+ * This app's sidecars that are not children of `selfPid`, found through
+ * /proc (Linux; elsewhere the list is empty). The single-instance lock means
+ * no other live copy of this app uses our data folder, so a sidecar of ours
+ * that is not our child is a leftover. /proc/<pid>/environ is only readable
+ * for our own processes, so other users' are skipped. Async (the reads run
+ * off the main thread): the caller bounds it with a timeout.
+ */
+export async function findOrphans(input: { secret: string; dataDir: string; selfPid: number; procRoot?: string }): Promise<Orphan[]> {
   const procRoot = input.procRoot ?? "/proc";
-  if (!input.secret) return [];
+  if (!input.secret && !input.dataDir) return [];
   let entries: string[];
   try {
-    entries = readdirSync(procRoot);
+    entries = await readdir(procRoot);
   } catch {
     return [];
   }
-  const marker = `JWT_SECRET=${input.secret}`;
   const orphans: Orphan[] = [];
   for (const name of entries) {
     if (!/^\d+$/.test(name)) continue;
     const pid = Number(name);
     if (pid === input.selfPid) continue;
-    let env: string[];
-    try {
-      env = readFileSync(path.join(procRoot, name, "environ"), "latin1").split("\0");
-    } catch {
-      continue;
-    }
-    if (!env.includes(marker)) continue;
+    const info = await readProc(procRoot, name);
+    if (!info) continue;
+    const kind = classifyProcess(info, input);
+    if (!kind) continue;
     if (parentPid(procRoot, name) === input.selfPid) continue;
-    // The API is the one told where the data lives; Next is told where the API is.
-    const kind: OrphanKind | null = env.some((entry) => entry.startsWith("TIMELY_DATA_DIR="))
-      ? "api"
-      : env.some((entry) => entry.startsWith("API_ORIGIN="))
-        ? "web"
-        : null;
-    if (kind) orphans.push({ pid, kind });
+    orphans.push({ pid, kind });
   }
   return orphans;
 }
@@ -148,18 +201,30 @@ function alive(pid: number): boolean {
 }
 
 /**
- * SIGTERM, then SIGKILL for whatever is still running after `graceMs`.
- * Resolves once every pid is gone or the kill was sent.
+ * SIGTERM, then SIGKILL for whatever is still running after `graceMs`, then
+ * up to `killWaitMs` more so the ports are free before they are checked.
  */
 export async function stopOrphans(
   orphans: Orphan[],
-  options: { graceMs?: number; log?: Logger; kill?: (pid: number, signal: NodeJS.Signals) => void; isAlive?: (pid: number) => boolean } = {},
+  options: {
+    graceMs?: number;
+    killWaitMs?: number;
+    log?: Logger;
+    kill?: (pid: number, signal: NodeJS.Signals) => void;
+    isAlive?: (pid: number) => boolean;
+  } = {},
 ): Promise<void> {
   const log = options.log ?? silentLogger;
   const kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
   const isAlive = options.isAlive ?? alive;
-  const graceMs = options.graceMs ?? 5_000;
   const pending = new Set<number>();
+  const waitFor = async (ms: number) => {
+    const deadline = Date.now() + ms;
+    while (pending.size > 0 && Date.now() < deadline) {
+      for (const pid of pending) if (!isAlive(pid)) pending.delete(pid);
+      if (pending.size > 0) await sleep(100);
+    }
+  };
   for (const orphan of orphans) {
     log.warn(`orphans: ${orphan.kind === "api" ? "an API" : "a web"} server from an earlier run is still running (pid ${orphan.pid}); stopping it`);
     try {
@@ -169,17 +234,14 @@ export async function stopOrphans(
       // Already gone.
     }
   }
-  const deadline = Date.now() + graceMs;
-  while (pending.size > 0 && Date.now() < deadline) {
-    for (const pid of pending) if (!isAlive(pid)) pending.delete(pid);
-    if (pending.size > 0) await sleep(100);
-  }
+  await waitFor(options.graceMs ?? 5_000);
   for (const pid of pending) {
     log.warn(`orphans: pid ${pid} ignored SIGTERM; killing it`);
     try {
       kill(pid, "SIGKILL");
     } catch {
-      // Exited just now.
+      pending.delete(pid);
     }
   }
+  await waitFor(options.killWaitMs ?? 2_000);
 }

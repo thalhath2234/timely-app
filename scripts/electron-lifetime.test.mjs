@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildApiEnv } from "../apps/web/electron/supervisor/api.ts";
-import { findOrphans, parseStatParent, parseStatState, stopOrphans, withDeathSignal } from "../apps/web/electron/supervisor/lifetime.ts";
+import { classifyProcess, findOrphans, parseStatParent, parseStatState, setprivPath, stopOrphans, withDeathSignal } from "../apps/web/electron/supervisor/lifetime.ts";
 import { GUARD_FILE, WEB_HEAP_LIMIT_MB, nodeArgs } from "../apps/web/electron/supervisor/next.ts";
 
 const guard = path.join(import.meta.dirname, "..", "apps", "web", "electron", "next-guard.cjs");
@@ -45,14 +45,21 @@ function alive(pid) {
 }
 
 test("withDeathSignal wraps the command in setpriv only when available", () => {
-  assert.deepEqual(withDeathSignal("/opt/pg/bin/postgres", ["-D", "/data"], "INT", true), {
-    command: "setpriv",
+  assert.deepEqual(withDeathSignal("/opt/pg/bin/postgres", ["-D", "/data"], "INT", "/usr/bin/setpriv"), {
+    command: "/usr/bin/setpriv",
     args: ["--pdeathsig", "INT", "--", "/opt/pg/bin/postgres", "-D", "/data"],
   });
-  assert.deepEqual(withDeathSignal("/opt/pg/bin/postgres", ["-D", "/data"], "INT", false), {
+  assert.deepEqual(withDeathSignal("/opt/pg/bin/postgres", ["-D", "/data"], "INT", null), {
     command: "/opt/pg/bin/postgres",
     args: ["-D", "/data"],
   });
+});
+
+test("setprivPath is absolute on Linux and null elsewhere", () => {
+  assert.equal(setprivPath("win32"), null);
+  assert.equal(setprivPath("darwin"), null);
+  const found = setprivPath("linux");
+  if (found !== null) assert.ok(path.isAbsolute(found));
 });
 
 test("parseStatParent reads the parent pid past a command name with spaces and parentheses", () => {
@@ -63,31 +70,52 @@ test("parseStatParent reads the parent pid past a command name with spaces and p
   assert.equal(parseStatState("17 (timely-api) S 900 17"), "S");
 });
 
-test("findOrphans picks out this app's API and web servers that are not its children", () => {
+const NEXT_ENV = ["JWT_SECRET=ours", "API_ORIGIN=http://127.0.0.1:1", "PORT=44001", "HOSTNAME=127.0.0.1", "ELECTRON_RUN_AS_NODE=1"];
+const API_ENV = ["JWT_SECRET=ours", "TIMELY_DATA_DIR=/home/u/.config/Timely/data", "DB_PASSWORD=x"];
+const OURS = { secret: "ours", dataDir: "/home/u/.config/Timely/data" };
+
+test("classifyProcess needs both the program and our identity", () => {
+  const next = { env: NEXT_ENV, exe: "/opt/timely-bin/timely", cwd: "/opt/timely-bin/resources/next-server", comm: "next-server (v1" };
+  const api = { env: API_ENV, exe: "/opt/timely-bin/resources/api/timely-api", cwd: OURS.dataDir, comm: "timely-api" };
+  assert.equal(classifyProcess(next, OURS), "web");
+  assert.equal(classifyProcess(api, OURS), "api");
+  // A replaced install shows "(deleted)" on the links.
+  assert.equal(classifyProcess({ ...api, exe: `${api.exe} (deleted)` }, OURS), "api");
+  assert.equal(classifyProcess({ ...next, exe: `${next.exe} (deleted)` }, OURS), "web");
+  // Regenerated secret: the API still matches by its data folder; Next cannot be told apart, so it is left.
+  assert.equal(classifyProcess({ ...api, env: ["JWT_SECRET=old"] }, OURS), "api");
+  assert.equal(classifyProcess({ ...api, env: ["JWT_SECRET=old"], cwd: "/elsewhere" }, OURS), null);
+  assert.equal(classifyProcess({ ...next, env: NEXT_ENV.map((e) => (e.startsWith("JWT_SECRET=") ? "JWT_SECRET=old" : e)) }, OURS), null);
+  // Agent CLIs (and whatever they leave running) inherit the API's environment, secret included.
+  assert.equal(classifyProcess({ env: API_ENV, exe: "/usr/bin/firefox", cwd: OURS.dataDir, comm: "firefox" }, OURS), null);
+  assert.equal(classifyProcess({ env: API_ENV, exe: "/usr/bin/node", cwd: "/tmp", comm: "node" }, OURS), null);
+  // Next-like processes that are not ours.
+  assert.equal(classifyProcess({ ...next, env: NEXT_ENV.filter((e) => e !== "JWT_SECRET=ours") }, OURS), null);
+  assert.equal(classifyProcess({ ...next, comm: "node" }, OURS), null);
+  assert.equal(classifyProcess({ ...next, env: NEXT_ENV.filter((e) => !e.startsWith("ELECTRON_RUN_AS_NODE")) }, OURS), null);
+  // "Timely Dev" has its own secret and data folder.
+  assert.equal(classifyProcess({ ...api, env: ["JWT_SECRET=dev"], cwd: "/home/u/.config/Timely Dev/data" }, OURS), null);
+});
+
+test("findOrphans skips its own children and processes it cannot read", async () => {
   const { dir, cleanup } = tmpdir();
   try {
     const self = 500;
-    const proc = (pid, ppid, env) => {
+    const proc = (pid, ppid, env, comm) => {
       mkdirSync(path.join(dir, String(pid)));
       writeFileSync(path.join(dir, String(pid), "environ"), `${env.join("\0")}\0`);
-      writeFileSync(path.join(dir, String(pid), "stat"), `${pid} (some (name)) S ${ppid} 1 1 0`);
+      writeFileSync(path.join(dir, String(pid), "stat"), `${pid} (${comm}) S ${ppid} 1 1 0`);
+      writeFileSync(path.join(dir, String(pid), "comm"), `${comm}\n`);
     };
-    proc(self, 1, ["JWT_SECRET=ours"]);
-    proc(600, self, ["JWT_SECRET=ours", "API_ORIGIN=http://127.0.0.1:1"]); // live child: keep
-    proc(700, 1, ["JWT_SECRET=ours", "API_ORIGIN=http://127.0.0.1:1", "ELECTRON_RUN_AS_NODE=1"]); // orphan web
-    proc(701, 1, ["JWT_SECRET=ours", "TIMELY_DATA_DIR=/data", "API_ORIGIN=x"]); // orphan API
-    proc(702, 1, ["JWT_SECRET=theirs", "API_ORIGIN=http://127.0.0.1:1"]); // Timely Dev or another user: not ours
-    proc(703, 1, ["JWT_SECRET=ours-but-longer", "API_ORIGIN=x"]); // prefix only: not ours
-    proc(704, 1, ["JWT_SECRET=ours"]); // ours but neither kind: leave it
+    proc(self, 1, ["JWT_SECRET=ours"], "timely");
+    proc(600, self, NEXT_ENV, "next-server (v1"); // live child: keep
+    proc(700, 1, NEXT_ENV, "next-server (v1"); // leftover web server
+    proc(702, 1, NEXT_ENV.map((e) => (e === "JWT_SECRET=ours" ? "JWT_SECRET=ours-but-longer" : e)), "next-server (v1"); // prefix only
     mkdirSync(path.join(dir, "705")); // unreadable environ
     mkdirSync(path.join(dir, "self"));
-    const found = findOrphans({ secret: "ours", selfPid: self, procRoot: dir }).sort((a, b) => a.pid - b.pid);
-    assert.deepEqual(found, [
-      { pid: 700, kind: "web" },
-      { pid: 701, kind: "api" },
-    ]);
-    assert.deepEqual(findOrphans({ secret: "", selfPid: self, procRoot: dir }), []);
-    assert.deepEqual(findOrphans({ secret: "ours", selfPid: self, procRoot: path.join(dir, "missing") }), []);
+    assert.deepEqual(await findOrphans({ ...OURS, selfPid: self, procRoot: dir }), [{ pid: 700, kind: "web" }]);
+    assert.deepEqual(await findOrphans({ secret: "", dataDir: "", selfPid: self, procRoot: dir }), []);
+    assert.deepEqual(await findOrphans({ ...OURS, selfPid: self, procRoot: path.join(dir, "missing") }), []);
   } finally {
     cleanup();
   }
@@ -104,6 +132,7 @@ test("stopOrphans sends SIGTERM and SIGKILLs whatever is still running after the
     ],
     {
       graceMs: 300,
+      killWaitMs: 100,
       kill: (pid, signal) => {
         if (pid === 12) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
         sent.push([pid, signal]);
@@ -119,19 +148,21 @@ test("stopOrphans sends SIGTERM and SIGKILLs whatever is still running after the
   ]);
 });
 
-test("a real orphan carrying our secret is found and stopped (Linux)", { skip: process.platform !== "linux" }, async () => {
+test("a real leftover web server is found and stopped (Linux)", { skip: process.platform !== "linux" }, async () => {
   const secret = `test-${process.pid}-${Date.now()}`;
-  // The shell starts the server in the background and exits, so it is reparented: an orphan.
-  const shell = spawnSync("sh", ["-c", `"${process.execPath}" -e "setInterval(() => {}, 1000)" >/dev/null 2>&1 & echo $!`], {
-    env: { ...process.env, JWT_SECRET: secret, API_ORIGIN: "http://127.0.0.1:9" },
+  // The shell starts the "server" in the background and exits, so it is
+  // reparented: a leftover. It names itself the way Next does.
+  const script = "process.title = 'next-server (v16.3.8)'; setInterval(() => {}, 1000)";
+  const shell = spawnSync("sh", ["-c", `"${process.execPath}" -e "${script}" >/dev/null 2>&1 & echo $!`], {
+    env: { ...process.env, JWT_SECRET: secret, API_ORIGIN: "http://127.0.0.1:9", PORT: "1", ELECTRON_RUN_AS_NODE: "1" },
     encoding: "utf8",
   });
   const pid = Number(shell.stdout.trim());
   assert.ok(pid > 0 && alive(pid));
   try {
-    assert.deepEqual(findOrphans({ secret, selfPid: process.pid }), [{ pid, kind: "web" }]);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(await findOrphans({ secret, dataDir: "/nonexistent", selfPid: process.pid }), [{ pid, kind: "web" }]);
     await stopOrphans([{ pid, kind: "web" }], { graceMs: 3_000 });
-    await new Promise((resolve) => setTimeout(resolve, 200));
     assert.equal(alive(pid), false);
   } finally {
     if (alive(pid)) process.kill(pid, "SIGKILL");
@@ -176,6 +207,39 @@ test("next guard: without TIMELY_LIFELINE a closed stdin is ignored", async () =
   const result = await exited(child, 500);
   child.kill("SIGKILL");
   assert.equal(result, null);
+});
+
+test("next guard: worker threads are left alone", async () => {
+  const code = `
+    const { Worker } = require("node:worker_threads");
+    const w = new Worker("let n = 0; const t = setInterval(() => { if (++n === 5) { clearInterval(t); require('node:worker_threads').parentPort.postMessage(n); } }, 20);", { eval: true });
+    w.on("message", (n) => { console.log("ticks", n); process.exit(0); });
+    w.on("exit", (c) => { console.log("worker exited", c); process.exit(1); });`;
+  const child = spawn(process.execPath, ["--require", guard, "-e", code], {
+    env: { ...process.env, TIMELY_LIFELINE: "stdin", TIMELY_WEB_RSS_LIMIT_MB: "4096" },
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  let out = "";
+  child.stdout.on("data", (chunk) => (out += chunk));
+  const result = await exited(child, 5_000);
+  if (!result) child.kill("SIGKILL");
+  assert.equal(out.trim(), "ticks 5");
+});
+
+test("next guard: a heap that stays full exits with code 75", async () => {
+  // Leaks steadily. The guard is told the cap is 32 MB while V8's real cap is
+  // 256 MB, so it must act on its own reading, well before V8 would abort.
+  const code = "const keep = []; setInterval(() => { for (let i = 0; i < 400; i++) keep.push({ a: 'x'.repeat(64) + i }); }, 10)";
+  const child = spawn(process.execPath, ["--max-old-space-size=256", "--require", guard, "-e", code], {
+    env: { ...process.env, TIMELY_WEB_RSS_LIMIT_MB: "4096", TIMELY_WEB_HEAP_LIMIT_MB: "32", TIMELY_WEB_RSS_CHECK_MS: "100" },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => (stderr += chunk));
+  const result = await exited(child, 20_000);
+  if (!result) child.kill("SIGKILL");
+  assert.deepEqual(result, { code: 75, signal: null }, stderr);
+  assert.match(stderr, /heap is full/);
 });
 
 test("next guard: past the memory limit the server exits with code 75 and says why", async () => {

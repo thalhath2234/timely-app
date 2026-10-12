@@ -68,8 +68,8 @@ export type ApiOptions = {
   env: NodeJS.ProcessEnv;
   port: number;
   platform?: NodeJS.Platform;
-  /** Run under `setpriv --pdeathsig` (Linux; see lifetime.ts). */
-  deathSignal?: boolean;
+  /** setpriv to run under for a death signal (Linux; lifetime.ts setprivPath), or null. */
+  setpriv?: string | null;
   log?: Logger;
   output?: (chunk: Buffer) => void;
 };
@@ -103,7 +103,7 @@ export class ApiManager {
   launch(): ChildProcess {
     mkdirSync(this.options.dataDir, { recursive: true });
     // SIGTERM: the API's own shutdown also stops the agent CLIs it started.
-    const { command, args } = withDeathSignal(this.binary, [], "TERM", this.options.deathSignal ?? false);
+    const { command, args } = withDeathSignal(this.binary, [], "TERM", this.options.setpriv ?? null);
     // stdin is the lifeline: never written, it closes when this process ends.
     const child = spawn(command, args, {
       cwd: this.options.dataDir,

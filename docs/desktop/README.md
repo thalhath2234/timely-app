@@ -43,17 +43,22 @@ layers now stop that (`electron/supervisor/lifetime.ts`):
 | --- | --- | --- |
 | Lifeline | API, Next; every OS | stdin is a pipe the app never writes to. When the app exits the OS closes it and the server exits on EOF (`TIMELY_LIFELINE=stdin`; `apps/api/internal/lifeline`, `electron/next-guard.cjs`). |
 | Death signal | all three; Linux | each sidecar runs under `setpriv --pdeathsig` (util-linux), so the kernel signals it when the app's process ends: Next `KILL`, API `TERM`, PostgreSQL `INT` (fast shutdown). Skipped, with a log line, when `setpriv` is missing. |
-| Job object | all three; Windows | libuv puts every child it spawns in a kill-on-close job, so Windows ends them with the app. |
-| Boot sweep | API, Next; Linux | before ports are checked, servers left by an earlier run (any version) are found by `JWT_SECRET=<ours>` in `/proc/<pid>/environ` and stopped (SIGTERM, then SIGKILL after 5 s). A leftover postmaster is stopped through `postmaster.pid`. |
+| Job object | all three; Windows | libuv puts every child it spawns in a kill-on-close job, so Windows ends them with the app. Their own children (the API's agent CLIs) may break away from the job and are not covered. |
+| Boot sweep | API, Next; Linux | before ports are checked, servers left by an earlier run (any version) are found through `/proc` and stopped (SIGTERM, then SIGKILL after 5 s). A leftover postmaster is stopped through `postmaster.pid`. |
 
-The single-instance lock means no other live copy uses this user-data folder, so a process
-with our secret that is not our child is a leftover. "Timely Dev" has its own folder and
-secret, so the release never touches its servers or the other way round.
+The sweep matches the program and our identity together: the API is a `timely-api`
+executable carrying our `JWT_SECRET` or running in our data folder; Next names itself
+`next-server`, runs as Electron's Node with `API_ORIGIN` and `PORT`, and carries our
+`JWT_SECRET`. Agent CLIs inherit the API's environment, so the secret alone is not enough.
+The single-instance lock means no other live copy uses this user-data folder, so a match
+that is not our child is a leftover. "Timely Dev" has its own folder and secret, so the
+release never touches its servers or the other way round.
 
 The Next server also has memory limits: `--max-old-space-size=1024` (Electron's default
-allows a 4 GB heap) and a 1.5 GB resident-memory ceiling checked every 30 s by
-`next-guard.cjs`. Past either it exits and the supervisor starts a fresh one (exit code 75
-in `next.log`: "timely-guard: web server uses … MB"). It normally uses 150-300 MB.
+allows a 4 GB heap) and two checks every 30 s in `next-guard.cjs`: resident memory above
+1.5 GB, or the heap above 85 % of its cap on two checks in a row. Either makes it exit with
+code 75 ("timely-guard: …" in `next.log`), and the supervisor starts a fresh one; a page
+that fails to load meanwhile is retried. It normally uses 150-300 MB.
 
 Guard rails before anything starts:
 - Windows: refuse to run elevated (Postgres refuses to start as Administrator).
@@ -96,11 +101,10 @@ stored with the `plain:` prefix and the file is created with mode 0600.
 | `TIMELY_DATA_DIR` | `<userData>/data` |
 | `ALLOW_REGISTRATION` | `allowRegistration` |
 | `PATH`, `HOME` | login-shell PATH on macOS/Linux; process env on Windows |
-
-| `TIMELY_LIFELINE` | `stdin` (exit when the app's stdin pipe closes; see Boot order) |
+| `TIMELY_LIFELINE` | `stdin` (exit when the app's stdin pipe closes; see Boot order). The API unsets it at start so the programs it runs do not inherit it. |
 
 The Next sidecar gets `PORT=webPort`, `HOSTNAME=127.0.0.1`, `API_ORIGIN=http://127.0.0.1:<apiPort>`, `JWT_SECRET`,
-`TIMELY_LIFELINE=stdin` and `TIMELY_WEB_RSS_LIMIT_MB`.
+`TIMELY_LIFELINE=stdin`, `TIMELY_WEB_RSS_LIMIT_MB` and `TIMELY_WEB_HEAP_LIMIT_MB`.
 
 ## API contract (Phase 1)
 
