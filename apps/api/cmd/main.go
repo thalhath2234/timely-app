@@ -45,6 +45,7 @@ import (
 	"timely-api/internal/features/task"
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/jobs"
+	"timely-api/internal/lifeline"
 	"timely-api/internal/middleware"
 	"timely-api/internal/realtime"
 	"timely-api/internal/recurrence"
@@ -61,6 +62,22 @@ var version = "dev"
 
 func main() {
 	buildinfo.Set(version)
+	// Desktop sidecar: stop when the app that started us is gone, even if it
+	// died without stopping us (crash, OOM kill, lost session). Started first
+	// so a startup still waiting on the database also notices.
+	parentGone := lifeline.FromEnv()
+	if parentGone != nil {
+		go func() {
+			<-parentGone
+			log.Println("lifeline: the desktop app is gone; shutting down")
+			// The orderly shutdown below takes at most ~18 s; this also covers
+			// a startup that has not reached it yet.
+			time.AfterFunc(30*time.Second, func() {
+				log.Println("lifeline: shutdown did not finish; exiting")
+				os.Exit(1)
+			})
+		}()
+	}
 	// Load environment variables from the repo-root .env (the API runs from
 	// apps/api), or from a .env beside the binary when deployed outside the repo.
 	if godotenv.Load("../../.env") != nil && godotenv.Load() != nil {
@@ -268,6 +285,15 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	if parentGone != nil {
+		go func() {
+			select {
+			case <-parentGone:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	}
 
 	var background sync.WaitGroup
 	background.Add(1)

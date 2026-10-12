@@ -66,7 +66,7 @@ func (p *Codex) Complete(ctx context.Context, messages []chat.WireMessage, tools
 	prompt := system + "\n\n## Conversation\n\n" + transcript
 	cmd := exec.CommandContext(ctx, p.Bin, args...)
 	cmd.Dir = work
-	cmd.Env = os.Environ()
+	cmd.Env = cliEnv()
 	cmd.Stdin = strings.NewReader(prompt)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

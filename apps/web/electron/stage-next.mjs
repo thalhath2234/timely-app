@@ -163,6 +163,12 @@ copyTree(staticDir, path.join(stagedApp, ".next", "static"));
 if (existsSync(publicDir)) {
   copyTree(publicDir, path.join(stagedApp, "public"));
 }
+// The server's lifeline and memory guard (electron/next-guard.cjs), loaded with
+// --require by electron/supervisor/next.ts.
+cpSync(
+  path.join(import.meta.dirname, "next-guard.cjs"),
+  path.join(staged, "timely-guard.cjs"),
+);
 
 assertNoSymlinks(staged);
 console.log(`staged ${packageCount} packages into apps/web/node_modules`);
