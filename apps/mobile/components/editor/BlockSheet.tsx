@@ -221,7 +221,7 @@ export default function BlockSheet({
           {block.textual ? (
             <SheetOption leading={icon(Repeat2)} onSelect={() => setStep("turn")}>
               <View style={styles.row}>
-                <Text style={styles.label}>Turn into</Text>
+                <Text style={[styles.label, styles.grow]}>Turn into</Text>
                 <ChevronRight size={18} color={colors.mutedForeground} />
               </View>
             </SheetOption>
@@ -278,7 +278,10 @@ export default function BlockSheet({
 
 const styles = createThemedStyleSheet((colors) => ({
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
-  label: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  // No flex here: inside SheetOption's column wrapper a flex: 1 label stretched
+  // to the row's height and drew its text at the top, above the icon (Delete).
+  label: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  grow: { flex: 1 },
   emoji: { width: 18, textAlign: "center", fontSize: 15 },
   hint: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   empty: { color: colors.mutedForeground, fontSize: 14, paddingVertical: 10, paddingHorizontal: 4 },
