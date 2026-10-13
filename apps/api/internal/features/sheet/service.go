@@ -701,22 +701,38 @@ func (s *sheetService) UpdateCells(userID, sheetID, tabID, rowID string, cells m
 	})
 }
 
+// DeleteRows removes rows the way the apps do, so formulas on every tab keep
+// pointing at the same cells; a month tab's Totals below a deleted entry
+// still read their own row.
 func (s *sheetService) DeleteRows(userID, sheetID, tabID string, rowIDs []string) (*models.Sheet, error) {
 	defer s.lockGrid(sheetID)()
-	return s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
-		drop := map[string]bool{}
-		for _, id := range rowIDs {
-			drop[id] = true
+	current, err := s.repo.GetSheetByID(userID, sheetID)
+	if err != nil {
+		return nil, err
+	}
+	tabs := workbookTabs(current)
+	idx, err := findTab(tabs, tabID)
+	if err != nil {
+		return nil, err
+	}
+	drop := map[string]bool{}
+	for _, id := range rowIDs {
+		drop[id] = true
+	}
+	var indexes []int
+	for i, row := range tabs[idx].Rows {
+		if drop[row.ID] {
+			indexes = append(indexes, i)
 		}
-		var rows models.SheetRows
-		for _, row := range tab.Rows {
-			if !drop[row.ID] {
-				rows = append(rows, row)
-			}
-		}
-		tab.Rows = rows
-		return nil
-	})
+	}
+	if len(indexes) < len(drop) {
+		return nil, errors.New("row not found")
+	}
+	tabs, err = deleteFromTab(tabs, tabs[idx].ID, "row", indexes)
+	if err != nil {
+		return nil, err
+	}
+	return s.update(userID, sheetID, SheetUpdate{Tabs: &tabs})
 }
 
 func (s *sheetService) AddColumn(userID, sheetID, tabID, name, colType string, options []string) (*models.Sheet, error) {
@@ -795,27 +811,36 @@ func (s *sheetService) UpdateColumn(userID, sheetID, tabID, columnID string, pat
 	})
 }
 
+// DeleteColumn removes a column the way the apps do: formulas on every tab
+// keep pointing at the same cells, and ones that read the column get #REF!.
 func (s *sheetService) DeleteColumn(userID, sheetID, tabID, columnID string) (*models.Sheet, error) {
 	defer s.lockGrid(sheetID)()
-	return s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
-		if len(tab.Columns) <= 1 {
-			return errors.New("a sheet needs at least one column")
+	current, err := s.repo.GetSheetByID(userID, sheetID)
+	if err != nil {
+		return nil, err
+	}
+	tabs := workbookTabs(current)
+	idx, err := findTab(tabs, tabID)
+	if err != nil {
+		return nil, err
+	}
+	if len(tabs[idx].Columns) <= 1 {
+		return nil, errors.New("a sheet needs at least one column")
+	}
+	at := -1
+	for i, column := range tabs[idx].Columns {
+		if column.ID == columnID {
+			at = i
 		}
-		var columns models.SheetColumns
-		for _, column := range tab.Columns {
-			if column.ID != columnID {
-				columns = append(columns, column)
-			}
-		}
-		if len(columns) == len(tab.Columns) {
-			return errors.New("column not found")
-		}
-		tab.Columns = columns
-		for i := range tab.Rows {
-			delete(tab.Rows[i].Cells, columnID)
-		}
-		return nil
-	})
+	}
+	if at < 0 {
+		return nil, errors.New("column not found")
+	}
+	tabs, err = deleteFromTab(tabs, tabs[idx].ID, "col", []int{at})
+	if err != nil {
+		return nil, err
+	}
+	return s.update(userID, sheetID, SheetUpdate{Tabs: &tabs})
 }
 
 // TabPatch changes a tab's look; nil fields stay as they are. Renames go
