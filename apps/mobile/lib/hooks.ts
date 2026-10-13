@@ -52,6 +52,8 @@ import {
   getInboxSuggestions,
   getDocHints,
   getDocChecklist,
+  dismissDocHint,
+  type DocHintKind,
   getTodaySuggestions,
   getHighlights,
   runNotificationTriage,
@@ -616,6 +618,16 @@ export function useDocHintsQuery(id: string | undefined, version: string, enable
     placeholderData: keepPreviousData,
     retry: false,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Dismisses a doc suggestion for good. The doc's cached suggestions are
+ * read again afterwards, so the row stays gone when the doc reopens. */
+export function useDismissDocHint(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, value }: { kind: DocHintKind; value?: string }) => dismissDocHint(id, kind, value),
+    onSettled: () => client.invalidateQueries({ queryKey: ["doc-hints", id] }),
   });
 }
 

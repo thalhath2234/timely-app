@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { checklistTaskDescription, checklistTaskName, openChecklistItems } from "../packages/contract/src/docChecklist.ts";
+import { checklistTaskDescription, checklistTaskName, docWorkLines, openChecklistItems, workLineKey } from "../packages/contract/src/docChecklist.ts";
 
 const para = (...content) => ({ type: "paragraph", content: content.map((c) => (typeof c === "string" ? { type: "text", text: c } : c)) });
 const item = (checked, ...content) => ({ type: "taskItem", attrs: { checked }, content });
@@ -66,5 +66,34 @@ describe("checklistTaskDescription", () => {
     assert.equal(out.descriptionRich.content.length, 2);
     assert.deepEqual(out.descriptionRich.content[1].content[1], { type: "mention", attrs: { id: "doc_1", label: "Timely ideas", entityType: "doc" } });
     assert.equal(checklistTaskDescription("", { id: "d", title: " " }).description, "From Untitled");
+  });
+});
+
+describe("docWorkLines", () => {
+  const doc = {
+    type: "doc",
+    content: [
+      para("Setup live notifications ", { type: "text", text: "mobile", marks: [{ type: "bold" }] }, " for the  activity island"),
+      { type: "heading", content: [{ type: "text", text: "Ideas" }] },
+      list(item(false, para("Redesign the project settings page")), item(true, para("Pick the dates"))),
+      { type: "bulletList", content: [{ type: "listItem", content: [para("Renew the passport")] }] },
+      { type: "codeBlock", content: [{ type: "text", text: "echo no" }] },
+    ],
+  };
+
+  test("plain paragraphs and list items are lines; checklist items, headings and code are not", () => {
+    assert.deepEqual([...docWorkLines(doc)], ["setup live notifications mobile for the activity island", "renew the passport"]);
+  });
+
+  test("a suggestion read mid-typing or before the line became a checklist item no longer matches", () => {
+    const lines = docWorkLines(doc);
+    assert.ok(lines.has(workLineKey("Setup live notifications  mobile for the activity island")));
+    assert.ok(!lines.has(workLineKey("Setup live notifications mobile for")));
+    assert.ok(!lines.has(workLineKey("Redesign the project settings page")));
+  });
+
+  test("an empty or missing doc has none", () => {
+    assert.equal(docWorkLines(undefined).size, 0);
+    assert.equal(docWorkLines({ type: "doc" }).size, 0);
   });
 });
