@@ -1,4 +1,4 @@
-import type { ChatContext } from "./types";
+import type { AssistantDraft, ChatContext } from "./types";
 
 export function contextChip(
   kind: string,
@@ -88,4 +88,35 @@ export function routeContext(
   if (typeof projectId === "string")
     chips.push(contextChip("project", "Project", projectId));
   return chips;
+}
+
+const screenOf = (chips: ChatContext[]) =>
+  chips.find((c) => c.kind === "location")?.value;
+
+/**
+ * The draft a pinch opens. The pinch asks about the screen it was made on,
+ * so a new chat always carries that screen's context: a draft left empty on
+ * another screen (the assistant was opened and closed, or used to browse old
+ * chats) is replaced, and typed text from another screen moves to this one.
+ * A reply typed into an existing conversation, or a message already being
+ * sent (it has a request ID), reopens as it was. `screen` is only called
+ * when this screen's context is needed.
+ */
+export function draftForScreen(
+  draft: AssistantDraft | null,
+  screen: () => ChatContext[],
+): AssistantDraft {
+  const typed = !!draft && (!!draft.text || draft.images.length > 0);
+  if (draft && (draft.requestId || (typed && draft.conversationId)))
+    return draft;
+  const context = screen();
+  if (!draft) return { text: "", context, webSearch: false, images: [] };
+  if (typed && screenOf(draft.context) === screenOf(context)) return draft;
+  return {
+    ...draft,
+    text: typed ? draft.text : "",
+    images: typed ? draft.images : [],
+    context,
+    conversationId: undefined,
+  };
 }
