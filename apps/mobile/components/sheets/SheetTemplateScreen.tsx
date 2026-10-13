@@ -91,7 +91,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
     schedule(workbookPayload(nextTabs));
   }
 
-  function handleGridChange(next: Partial<Pick<SheetTab, "columns" | "rows" | "merges">>) {
+  function handleGridChange(next: Partial<Pick<SheetTab, "columns" | "rows" | "merges" | "frozenRows" | "frozenCols">>) {
     if (!activeTab) return;
     persistTabs(
       tabsRef.current.map((tab) =>
@@ -101,6 +101,8 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
               columns: next.columns ?? tab.columns,
               rows: next.rows ?? tab.rows,
               merges: next.merges ?? tab.merges,
+              frozenRows: next.frozenRows ?? tab.frozenRows,
+              frozenCols: next.frozenCols ?? tab.frozenCols,
             }
           : tab,
       ),
@@ -196,6 +198,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
             workbook={{ tabs, currentTabId: activeTab.id }}
             conditionalFormats={activeTab.conditionalFormats}
             frozenRows={activeTab.frozenRows ?? 0}
+            frozenCols={activeTab.frozenCols ?? 0}
             onChange={handleGridChange}
           />
         ) : null}

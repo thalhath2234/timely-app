@@ -12,6 +12,7 @@ import {
   type LayoutChangeEvent,
   type PanResponderGestureState,
 } from "react-native";
+import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import {
   AlignCenter,
   AlignLeft,
@@ -29,6 +30,7 @@ import {
   Plus,
   Redo2,
   Sigma,
+  Snowflake,
   Strikethrough,
   Trash2,
   Underline,
@@ -77,6 +79,7 @@ import {
 } from "../../lib/sheet";
 import { growGridTo, isPastGrid } from "../../lib/sheetGrow";
 import { cellFitEdit } from "../../lib/sheetCellFit";
+import { indexAtScreen, pinnedColumnWidths, pinnedRowCount, screenStart, type PinnedAxis } from "../../lib/sheetFreeze";
 import { useCellFit, useDecisionFeedback, type CellFitEdit } from "../../lib/hooks";
 import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetConditionalFormat, SheetMerge, SheetRow, SheetTab } from "../../lib/types";
 
@@ -86,6 +89,10 @@ const ROW_HEAD = 38;
 const CELL_H = 32;
 const HEADER_H = 34;
 const GHOST_COL_W = 104;
+// Pinned columns (row numbers included) and pinned rows (header included)
+// leave the rest of a phone screen free to scroll.
+const PIN_WIDTH_SHARE = 0.6;
+const PIN_HEIGHT_SHARE = 0.5;
 const FILL_SWATCHES = ["#3A3558", "#8B7CF7", "#3E63DD", "#12A594", "#E8B54A", "#EF6B5C", "#E93D82"];
 const KINETIC = {
   base: "#111319",
@@ -103,7 +110,8 @@ const KINETIC = {
 type DrawerTab = "format" | "numbers" | "insert" | "functions";
 type DragMode = "select" | "fill" | "formula" | "formula-col" | "formula-row";
 type Address = CellAddress;
-type GridSnapshot = { columns: SheetColumn[]; rows: SheetRow[]; merges: SheetMerge[] };
+type GridSnapshot = { columns: SheetColumn[]; rows: SheetRow[]; merges: SheetMerge[]; frozenRows: number; frozenCols: number };
+type GridChange = { columns?: SheetColumn[]; rows?: SheetRow[]; merges?: SheetMerge[]; frozenRows?: number; frozenCols?: number };
 type HitZone = { zone: "cell" | "col" | "row"; col: number; row: number };
 type FormulaInsert = { label: string; template: (range: string) => string };
 
@@ -160,9 +168,11 @@ export type SheetGridProps = {
   workbook?: { tabs: SheetTab[]; currentTabId?: string };
   /** The tab's conditional formats, tested below its frozen rows. */
   conditionalFormats?: SheetConditionalFormat[];
+  /** Rows and columns that stay in view while the rest of the tab scrolls. */
   frozenRows?: number;
+  frozenCols?: number;
   onAssistantContext?: (value: { selection: string; filter: string; draft: string }) => void;
-  onChange: (next: { columns?: SheetColumn[]; rows?: SheetRow[]; merges?: SheetMerge[] }) => void;
+  onChange: (next: GridChange) => void;
 };
 
 /** Lets the owning screen finish an in-progress cell edit before it leaves. */
@@ -178,6 +188,7 @@ export default function SheetGrid({
   workbook,
   conditionalFormats,
   frozenRows = 0,
+  frozenCols = 0,
   onChange,
   onAssistantContext,
   ref,
@@ -210,6 +221,22 @@ export default function SheetGrid({
   const [dismissedFit, setDismissedFit] = useState(0);
   const cellFit = useCellFit(fitEdit);
   const fitFeedback = useDecisionFeedback();
+
+  // The grid's scroll offsets, tracked on the UI thread. Pinned layers slide
+  // by the same amount in the same frame, so they never trail the grid.
+  const scrollX = useSharedValue(0);
+  const scrollY = useSharedValue(0);
+  const onScrollX = useAnimatedScrollHandler((event) => {
+    scrollX.value = event.contentOffset.x;
+  });
+  const onScrollY = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+  });
+  const pinX = useAnimatedStyle(() => ({ transform: [{ translateX: Math.max(0, scrollX.value) }] }));
+  const pinY = useAnimatedStyle(() => ({ transform: [{ translateY: Math.max(0, scrollY.value) }] }));
+  const pinXY = useAnimatedStyle(() => ({
+    transform: [{ translateX: Math.max(0, scrollX.value) }, { translateY: Math.max(0, scrollY.value) }],
+  }));
 
   const selected = activeCellInRange(range, merges);
   const bounds = normalizedRange(range);
@@ -328,25 +355,19 @@ export default function SheetGrid({
     return physical && ratio > 1 ? ratio : 1;
   }
 
-  function colFromDelta(originCol: number, locationX: number, dx: number) {
-    let x = locationX + dx;
-    let col = originCol;
-    const maxCol = Math.max(columns.length, 1);
-    if (x >= 0) {
-      while (col < maxCol) {
-        const width = columns[col] ? colWidth(columns[col]) : GHOST_COL_W;
-        if (x < width) break;
-        x -= width;
-        col += 1;
-      }
-    } else {
-      while (col > 0 && x < 0) {
-        col -= 1;
-        const width = columns[col] ? colWidth(columns[col]) : GHOST_COL_W;
-        x += width;
-      }
-    }
-    return Math.max(0, col);
+  // Drags are measured from where the touch started, on screen. Pinned rows
+  // and columns don't move with the scroll, so a drag from a pinned cell into
+  // the scrolled part has to add the scroll offset back in.
+  function pinnedAxes(): { x: PinnedAxis; y: PinnedAxis } {
+    return {
+      x: {
+        lead: ROW_HEAD,
+        sizeAt: (index) => (columns[index] ? colWidth(columns[index]) : GHOST_COL_W),
+        pinned: pinCols,
+        scroll: Math.max(0, scrollX.value),
+      },
+      y: { lead: HEADER_H, sizeAt: () => CELL_H, pinned: pinRows, scroll: Math.max(0, scrollY.value) },
+    };
   }
 
   function addressFromPage(pageX: number, pageY: number): HitZone | null {
@@ -355,9 +376,15 @@ export default function SheetGrid({
     const scale = dragScale(origin.pageX, origin.pageY, pageX, pageY);
     const dx = (pageX - origin.pageX) / scale;
     const dy = (pageY - origin.pageY) / scale;
-    const col = colFromDelta(origin.hit.col, origin.locationX, dx);
-    const rowStep = origin.hit.zone === "col" ? HEADER_H : CELL_H;
-    const row = Math.max(0, origin.hit.row + Math.floor((origin.locationY + dy) / rowStep));
+    const axes = pinnedAxes();
+    const x = screenStart(axes.x, origin.hit.col) + origin.locationX + dx;
+    const col = indexAtScreen(axes.x, x, Math.max(columns.length, 1));
+    if (origin.hit.zone === "col") {
+      const row = Math.max(0, origin.hit.row + Math.floor((origin.locationY + dy) / HEADER_H));
+      return { zone: origin.hit.zone, col, row };
+    }
+    const y = screenStart(axes.y, origin.hit.row) + origin.locationY + dy;
+    const row = indexAtScreen(axes.y, y, rows.length + ghostRowCount);
     return { zone: origin.hit.zone, col, row };
   }
 
@@ -438,10 +465,21 @@ export default function SheetGrid({
     });
   }, [columns, evaluator, filterQuery, rows]);
 
-  // Hidden columns keep their index (letters, formulas, selection) but take
-  // no room, so every position computed from widths skips them.
-  const colWidth = (column: SheetColumn) =>
-    column.hidden ? 0 : Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, column.width || 140));
+  // Frozen columns stay at the left while the rest scroll. A narrow screen
+  // draws them narrower, or pins fewer, so the rest of the tab still shows.
+  const pinnedWidthById = useMemo(() => {
+    if (viewport.width <= 0) return new Map<string, number>();
+    const widths = pinnedColumnWidths(
+      columns.map(naturalColWidth),
+      frozenCols,
+      viewport.width * PIN_WIDTH_SHARE - ROW_HEAD,
+      MIN_WIDTH,
+    );
+    return new Map(widths.map((width, index) => [columns[index].id, width]));
+  }, [columns, frozenCols, viewport.width]);
+  const pinCols = pinnedWidthById.size;
+  const pinRows = pinnedRowCount(frozenRows, rows.length, viewport.height, HEADER_H, CELL_H, PIN_HEIGHT_SHARE);
+  const colWidth = (column: SheetColumn) => pinnedWidthById.get(column.id) ?? naturalColWidth(column);
 
   const filtering = filterQuery.trim().length > 0;
   const ghostColCount = Math.max(
@@ -454,9 +492,9 @@ export default function SheetGrid({
   );
   const ghostRowCount = filtering ? 0 : Math.max(1, neededRows - visibleRowIndexes.length);
 
-  const snapshot = (): GridSnapshot => ({ columns, rows, merges });
+  const snapshot = (): GridSnapshot => ({ columns, rows, merges, frozenRows, frozenCols });
 
-  function commit(next: { columns?: SheetColumn[]; rows?: SheetRow[]; merges?: SheetMerge[] }) {
+  function commit(next: GridChange) {
     setPast((prev) => [...prev.slice(-29), snapshot()]);
     setFuture([]);
     if (next.rows) {
@@ -550,6 +588,8 @@ export default function SheetGrid({
     commit({
       columns: nextColumns,
       rows: rows.map((row) => ({ ...row, cells: { ...row.cells, [column.id]: "" } })),
+      // A column added inside the frozen ones is frozen too, as on desktop.
+      frozenCols: atIndex < frozenCols ? frozenCols + 1 : undefined,
     });
   }
 
@@ -558,6 +598,7 @@ export default function SheetGrid({
     const removed = columns[index];
     if (!removed) return;
     commit({
+      frozenCols: index < frozenCols ? frozenCols - 1 : undefined,
       columns: columns.filter((_, i) => i !== index),
       rows: rows.map((row) => {
         const cells = { ...row.cells };
@@ -574,12 +615,12 @@ export default function SheetGrid({
   function addRow(atIndex = rows.length) {
     const next = [...rows];
     next.splice(atIndex, 0, emptySheetRow(columns));
-    commit({ rows: next });
+    commit({ rows: next, frozenRows: atIndex < frozenRows ? frozenRows + 1 : undefined });
   }
 
   function deleteRow(index: number) {
     if (rows.length <= 1 || index >= rows.length) return;
-    commit({ rows: rows.filter((_, i) => i !== index) });
+    commit({ rows: rows.filter((_, i) => i !== index), frozenRows: index < frozenRows ? frozenRows - 1 : undefined });
     setSelection({
       col: selected.col,
       row: Math.max(0, Math.min(selected.row, rows.length - 2)),
@@ -647,6 +688,10 @@ export default function SheetGrid({
         return next;
       }),
     });
+  }
+
+  function setFrozen(patch: { frozenRows?: number; frozenCols?: number }) {
+    commit(patch);
   }
 
   function openOptionsEditor(index: number) {
@@ -1236,6 +1281,285 @@ export default function SheetGrid({
 
   const displayCols = columns.length + ghostColCount;
   const ghostRowIndexes = Array.from({ length: ghostRowCount }, (_, i) => rows.length + i);
+  const gridWidth = colLeft(displayCols);
+  const pinWidth = colLeft(pinCols);
+  const pinnedRowIndexes = visibleRowIndexes.filter((index) => index < pinRows);
+  const scrolledRowIndexes = visibleRowIndexes.filter((index) => index >= pinRows);
+  const pinHeight = HEADER_H + pinnedRowIndexes.length * CELL_H;
+  // The selection outline and fill handle ride in the layer that holds the
+  // selection's bottom-right cell, so they move with the cells they mark.
+  const selectionLayer =
+    bounds.maxRow < pinRows
+      ? bounds.maxCol < pinCols ? "corner" : "top"
+      : bounds.maxCol < pinCols ? "left" : "body";
+
+  function renderHeaderCells(from: number, to: number) {
+    return Array.from({ length: Math.max(0, to - from) }, (_, offset) => {
+      const index = from + offset;
+      const column = columns[index];
+      if (column?.hidden) return null;
+      const width = column ? colWidth(column) : GHOST_COL_W;
+      return (
+        <Pressable
+          key={column?.id ?? `ghost-col-${index}`}
+          onPressIn={(event) => {
+            noteTouch(
+              { zone: "col", col: index, row: 0 },
+              event.nativeEvent.pageX,
+              event.nativeEvent.pageY,
+              event.nativeEvent.locationX,
+              event.nativeEvent.locationY,
+            );
+            if (isEditingFormula()) {
+              beginFormulaFromHit({ zone: "col", col: index, row: 0 });
+              return;
+            }
+            if (column) setSelection({ col: index, row: selected.row });
+            else selectGrown({ col: index, row: Math.max(0, selected.row) });
+          }}
+          onPress={() => {
+            if (skipTapRef.current) {
+              skipTapRef.current = false;
+              if (dragModeRef.current?.startsWith("formula")) endDrag();
+            }
+          }}
+          onLongPress={() => {
+            if (column && !isEditingFormula()) setColumnMenu(index);
+          }}
+          delayLongPress={450}
+          style={[
+            styles.headCell,
+            { width },
+            index >= bounds.minCol && index <= bounds.maxCol && styles.selectedHead,
+            formulaRanges.some((picked) => rangeTouchesCol(picked, index)) && styles.formulaHead,
+          ]}
+        >
+          <Text style={styles.letter}>{columnIndexToLetter(index)}</Text>
+          {column && renaming === index && !formulaEditActive ? (
+            <TextInput
+              autoFocus
+              value={renameDraft}
+              onChangeText={setRenameDraft}
+              onBlur={() => {
+                renameColumn(index, renameDraft);
+                setRenaming(null);
+              }}
+              onSubmitEditing={() => {
+                renameColumn(index, renameDraft);
+                setRenaming(null);
+              }}
+              style={styles.rename}
+            />
+          ) : column ? (
+            formulaEditActive ? (
+              <Text numberOfLines={1} style={styles.headName}>{column.name}</Text>
+            ) : (
+              <Pressable
+                onPress={() => {
+                  setRenameDraft(column.name);
+                  setRenaming(index);
+                }}
+                style={styles.headNameHit}
+              >
+                <Text numberOfLines={1} style={styles.headName}>{column.name}</Text>
+              </Pressable>
+            )
+          ) : null}
+          {column && !formulaEditActive ? (
+            <Pressable onPress={() => setTypeMenu(index)} style={styles.typeBadge}>
+              <Text style={styles.typeText}>{columnTypeBadge(column.type)}</Text>
+            </Pressable>
+          ) : column ? (
+            <View style={styles.typeBadge}>
+              <Text style={styles.typeText}>{columnTypeBadge(column.type)}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+      );
+    });
+  }
+
+  /** One row's cells from column `from` up to `to`. Starting at 0 adds the row
+   * number; starting later leaves room for the pinned part drawn above it. */
+  function renderDataRow(rowIndex: number, from: number, to: number) {
+    const row = rows[rowIndex];
+    if (!row) return null;
+    const rowHasVerticalMerge = merges.some(
+      (item) => item.startRow === rowIndex && item.rowSpan > 1,
+    );
+    return (
+      <View
+        key={row.id}
+        style={[styles.tr, rowHasVerticalMerge && styles.mergeOriginRow]}
+        collapsable={false}
+      >
+        {from === 0 ? (
+          <Pressable
+            onPressIn={(event) => {
+              noteTouch(
+                { zone: "row", col: 0, row: rowIndex },
+                event.nativeEvent.pageX,
+                event.nativeEvent.pageY,
+                event.nativeEvent.locationX,
+                event.nativeEvent.locationY,
+              );
+              const current = rangeRef.current;
+              pressWasSelectedRef.current =
+                current.anchor.row === rowIndex && current.focus.row === rowIndex
+                && current.anchor.col === 0 && current.focus.col === Math.max(columns.length - 1, 0);
+              if (isEditingFormula()) {
+                beginFormulaFromHit({ zone: "row", col: 0, row: rowIndex });
+                return;
+              }
+              if (!pressWasSelectedRef.current) {
+                setSelection({ col: selected.col, row: rowIndex });
+              }
+            }}
+            onLongPress={() => {
+              if (isEditingFormula()) beginFormulaFromHit({ zone: "row", col: 0, row: rowIndex });
+              else beginSelectFromHit({ zone: "row", col: 0, row: rowIndex });
+            }}
+            delayLongPress={450}
+            onPress={() => {
+              if (skipTapRef.current) {
+                skipTapRef.current = false;
+                if (dragModeRef.current?.startsWith("formula")) endDrag();
+                return;
+              }
+              setSelection({ col: selected.col, row: rowIndex });
+            }}
+            style={[
+              styles.rowHead,
+              rowIndex >= bounds.minRow && rowIndex <= bounds.maxRow && styles.selectedHead,
+              formulaRanges.some((picked) => rangeTouchesRow(picked, rowIndex)) && styles.formulaHead,
+            ]}
+          >
+            <Text style={styles.rowNum}>{rowIndex + 1}</Text>
+          </Pressable>
+        ) : (
+          <View pointerEvents="none" style={{ width: pinWidth, height: CELL_H }} />
+        )}
+        {Array.from({ length: Math.max(0, to - from) }, (_, offset) =>
+          renderCell({
+            colIndex: from + offset,
+            rowIndex,
+            row,
+            selected,
+            range,
+            formulaRanges,
+            editing,
+            editSource,
+            draft,
+            setDraft,
+            commitEdit,
+            tapCell,
+            tapSelectCell,
+            cellInputRef,
+            onCellPressIn,
+            onCellLongPress,
+            toggleBoolean,
+            evaluator,
+            columns,
+            merges,
+            colWidth,
+            rawAt,
+            filtering,
+            pinEdge: pinCols,
+            conditional: conditional.get(`${from + offset}:${rowIndex}`),
+          }),
+        )}
+      </View>
+    );
+  }
+
+  function renderGhostRow(rowIndex: number, from: number, to: number) {
+    return (
+      <View key={`ghost-row-${rowIndex}`} style={styles.tr} collapsable={false}>
+        {from === 0 ? (
+          <Pressable
+            onPressIn={(event) => {
+              noteTouch(
+                { zone: "row", col: 0, row: rowIndex },
+                event.nativeEvent.pageX,
+                event.nativeEvent.pageY,
+                event.nativeEvent.locationX,
+                event.nativeEvent.locationY,
+              );
+              if (isEditingFormula()) {
+                beginFormulaFromHit({ zone: "row", col: 0, row: rowIndex });
+              }
+            }}
+            onPress={() => {
+              if (skipTapRef.current) {
+                skipTapRef.current = false;
+                if (dragModeRef.current?.startsWith("formula")) endDrag();
+                return;
+              }
+              if (isEditingFormula()) {
+                beginFormulaPick({ col: 0, row: rowIndex }, "formula-row");
+                return;
+              }
+              selectGrown({ col: Math.max(0, selected.col), row: rowIndex });
+            }}
+            style={styles.rowHead}
+          >
+            <Text style={styles.rowNum}>{rowIndex + 1}</Text>
+          </Pressable>
+        ) : (
+          <View pointerEvents="none" style={{ width: pinWidth, height: CELL_H }} />
+        )}
+        {Array.from({ length: Math.max(0, to - from) }, (_, offset) => {
+          const colIndex = from + offset;
+          return columns[colIndex]?.hidden ? null : (
+            <Pressable
+              key={`ghost-${rowIndex}-${colIndex}`}
+              onPressIn={(event) => onCellPressIn(colIndex, rowIndex, event)}
+              onLongPress={() => onCellLongPress(colIndex, rowIndex)}
+              delayLongPress={450}
+              onPress={() => tapCell({ col: colIndex, row: rowIndex })}
+              style={[
+                styles.cell,
+                { width: columns[colIndex] ? colWidth(columns[colIndex]) : GHOST_COL_W },
+                isInRange({ col: colIndex, row: rowIndex }, range) && styles.rangeCell,
+                selected.col === colIndex && selected.row === rowIndex && styles.selectedCell,
+              ]}
+            />
+          );
+        })}
+      </View>
+    );
+  }
+
+  const selectionDecor = (
+    <>
+      {!editing && !isEditingFormula() ? (
+        <Pressable
+          onPressIn={(event) => {
+            const box = fillHandleBox();
+            noteTouch(
+              { zone: "cell", col: bounds.maxCol, row: bounds.maxRow },
+              event.nativeEvent.pageX,
+              event.nativeEvent.pageY,
+              box.width,
+              CELL_H,
+            );
+            beginFill();
+          }}
+          hitSlop={8}
+          style={[
+            styles.fillHandle,
+            { left: fillHandleBox().x, top: fillHandleBox().y },
+          ]}
+        />
+      ) : null}
+      {bounds.minCol !== bounds.maxCol || bounds.minRow !== bounds.maxRow ? (
+        <View
+          pointerEvents="none"
+          style={[styles.selectionOverlay, selectionBox()]}
+        />
+      ) : null}
+    </>
+  );
 
   return (
     <View style={styles.root} collapsable={false}>
@@ -1339,7 +1663,7 @@ export default function SheetGrid({
             style={{ width: viewport.width, height: viewport.height }}
             {...gridPan.panHandlers}
           >
-          <ScrollView
+          <Animated.ScrollView
             style={{ width: viewport.width, height: viewport.height }}
             contentContainerStyle={{ minHeight: viewport.height }}
             nestedScrollEnabled
@@ -1348,8 +1672,10 @@ export default function SheetGrid({
             bounces={false}
             scrollEnabled={!gridLocked && !formulaEditActive}
             canCancelContentTouches={!gridLocked && !formulaEditActive}
+            onScroll={onScrollY}
+            scrollEventThrottle={16}
           >
-            <ScrollView
+            <Animated.ScrollView
               horizontal
               nestedScrollEnabled
               keyboardShouldPersistTaps="always"
@@ -1357,260 +1683,48 @@ export default function SheetGrid({
               bounces={false}
               scrollEnabled={!gridLocked && !formulaEditActive}
               canCancelContentTouches={!gridLocked && !formulaEditActive}
+              onScroll={onScrollX}
+              scrollEventThrottle={16}
             >
-              <View
-                collapsable={false}
-                style={{ position: "relative" }}
-              >
-                <View style={styles.tr} collapsable={false}>
-                  <View style={[styles.rowHead, styles.headCell]} />
-                  {Array.from({ length: displayCols }, (_, index) => {
-                    const column = columns[index];
-                    if (column?.hidden) return null;
-                    const width = column ? colWidth(column) : GHOST_COL_W;
-                    return (
-                      <Pressable
-                        key={column?.id ?? `ghost-col-${index}`}
-                        onPressIn={(event) => {
-                          noteTouch(
-                            { zone: "col", col: index, row: 0 },
-                            event.nativeEvent.pageX,
-                            event.nativeEvent.pageY,
-                            event.nativeEvent.locationX,
-                            event.nativeEvent.locationY,
-                          );
-                          if (isEditingFormula()) {
-                            beginFormulaFromHit({ zone: "col", col: index, row: 0 });
-                            return;
-                          }
-                          if (column) setSelection({ col: index, row: selected.row });
-                          else selectGrown({ col: index, row: Math.max(0, selected.row) });
-                        }}
-                        onPress={() => {
-                          if (skipTapRef.current) {
-                            skipTapRef.current = false;
-                            if (dragModeRef.current?.startsWith("formula")) endDrag();
-                          }
-                        }}
-                        onLongPress={() => {
-                          if (column && !isEditingFormula()) setColumnMenu(index);
-                        }}
-                        delayLongPress={450}
-                        style={[
-                          styles.headCell,
-                          { width },
-                          index >= bounds.minCol && index <= bounds.maxCol && styles.selectedHead,
-                          formulaRanges.some((picked) => rangeTouchesCol(picked, index)) && styles.formulaHead,
-                        ]}
-                      >
-                        <Text style={styles.letter}>{columnIndexToLetter(index)}</Text>
-                        {column && renaming === index && !formulaEditActive ? (
-                          <TextInput
-                            autoFocus
-                            value={renameDraft}
-                            onChangeText={setRenameDraft}
-                            onBlur={() => {
-                              renameColumn(index, renameDraft);
-                              setRenaming(null);
-                            }}
-                            onSubmitEditing={() => {
-                              renameColumn(index, renameDraft);
-                              setRenaming(null);
-                            }}
-                            style={styles.rename}
-                          />
-                        ) : column ? (
-                          formulaEditActive ? (
-                            <Text numberOfLines={1} style={styles.headName}>{column.name}</Text>
-                          ) : (
-                            <Pressable
-                              onPress={() => {
-                                setRenameDraft(column.name);
-                                setRenaming(index);
-                              }}
-                              style={styles.headNameHit}
-                            >
-                              <Text numberOfLines={1} style={styles.headName}>{column.name}</Text>
-                            </Pressable>
-                          )
-                        ) : null}
-                        {column && !formulaEditActive ? (
-                          <Pressable onPress={() => setTypeMenu(index)} style={styles.typeBadge}>
-                            <Text style={styles.typeText}>{columnTypeBadge(column.type)}</Text>
-                          </Pressable>
-                        ) : column ? (
-                          <View style={styles.typeBadge}>
-                            <Text style={styles.typeText}>{columnTypeBadge(column.type)}</Text>
-                          </View>
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
+              {/* Four layers share the content's top-left corner. The body
+                  scrolls; the pinned column, the pinned rows and their corner
+                  slide back by the scroll offset so they stay in view. */}
+              <View collapsable={false} style={{ position: "relative" }}>
+                <View collapsable={false} style={styles.bodyLayer}>
+                  <View style={{ width: gridWidth, height: pinHeight }} />
+                  {scrolledRowIndexes.map((rowIndex) => renderDataRow(rowIndex, pinCols, displayCols))}
+                  {ghostRowIndexes.map((rowIndex) => renderGhostRow(rowIndex, pinCols, displayCols))}
+                  {selectionLayer === "body" ? selectionDecor : null}
                 </View>
-
-                {visibleRowIndexes.map((rowIndex) => {
-                  const row = rows[rowIndex];
-                  if (!row) return null;
-                  const rowHasVerticalMerge = merges.some(
-                    (item) => item.startRow === rowIndex && item.rowSpan > 1,
-                  );
-                  return (
-                    <View
-                      key={row.id}
-                      style={[styles.tr, rowHasVerticalMerge && styles.mergeOriginRow]}
-                      collapsable={false}
-                    >
-                      <Pressable
-                        onPressIn={(event) => {
-                          noteTouch(
-                            { zone: "row", col: 0, row: rowIndex },
-                            event.nativeEvent.pageX,
-                            event.nativeEvent.pageY,
-                            event.nativeEvent.locationX,
-                            event.nativeEvent.locationY,
-                          );
-                          const current = rangeRef.current;
-                          pressWasSelectedRef.current =
-                            current.anchor.row === rowIndex && current.focus.row === rowIndex
-                            && current.anchor.col === 0 && current.focus.col === Math.max(columns.length - 1, 0);
-                          if (isEditingFormula()) {
-                            beginFormulaFromHit({ zone: "row", col: 0, row: rowIndex });
-                            return;
-                          }
-                          if (!pressWasSelectedRef.current) {
-                            setSelection({ col: selected.col, row: rowIndex });
-                          }
-                        }}
-                        onLongPress={() => {
-                          if (isEditingFormula()) beginFormulaFromHit({ zone: "row", col: 0, row: rowIndex });
-                          else beginSelectFromHit({ zone: "row", col: 0, row: rowIndex });
-                        }}
-                        delayLongPress={450}
-                        onPress={() => {
-                          if (skipTapRef.current) {
-                            skipTapRef.current = false;
-                            if (dragModeRef.current?.startsWith("formula")) endDrag();
-                            return;
-                          }
-                          setSelection({ col: selected.col, row: rowIndex });
-                        }}
-                        style={[
-                          styles.rowHead,
-                          rowIndex >= bounds.minRow && rowIndex <= bounds.maxRow && styles.selectedHead,
-                          formulaRanges.some((picked) => rangeTouchesRow(picked, rowIndex)) && styles.formulaHead,
-                        ]}
-                      >
-                        <Text style={styles.rowNum}>{rowIndex + 1}</Text>
-                      </Pressable>
-                      {Array.from({ length: displayCols }, (_, colIndex) =>
-                        renderCell({
-                          colIndex,
-                          rowIndex,
-                          row,
-                          selected,
-                          range,
-                          formulaRanges,
-                          editing,
-                          editSource,
-                          draft,
-                          setDraft,
-                          commitEdit,
-                          tapCell,
-                          tapSelectCell,
-                          cellInputRef,
-                          onCellPressIn,
-                          onCellLongPress,
-                          toggleBoolean,
-                          evaluator,
-                          columns,
-                          merges,
-                          colWidth,
-                          rawAt,
-                          filtering,
-                          conditional: conditional.get(`${colIndex}:${rowIndex}`),
-                        }),
-                      )}
-                    </View>
-                  );
-                })}
-
-                {ghostRowIndexes.map((rowIndex) => (
-                  <View key={`ghost-row-${rowIndex}`} style={styles.tr} collapsable={false}>
-                    <Pressable
-                      onPressIn={(event) => {
-                        noteTouch(
-                          { zone: "row", col: 0, row: rowIndex },
-                          event.nativeEvent.pageX,
-                          event.nativeEvent.pageY,
-                          event.nativeEvent.locationX,
-                          event.nativeEvent.locationY,
-                        );
-                        if (isEditingFormula()) {
-                          beginFormulaFromHit({ zone: "row", col: 0, row: rowIndex });
-                        }
-                      }}
-                      onPress={() => {
-                        if (skipTapRef.current) {
-                          skipTapRef.current = false;
-                          if (dragModeRef.current?.startsWith("formula")) endDrag();
-                          return;
-                        }
-                        if (isEditingFormula()) {
-                          beginFormulaPick({ col: 0, row: rowIndex }, "formula-row");
-                          return;
-                        }
-                        selectGrown({ col: Math.max(0, selected.col), row: rowIndex });
-                      }}
-                      style={styles.rowHead}
-                    >
-                      <Text style={styles.rowNum}>{rowIndex + 1}</Text>
-                    </Pressable>
-                    {Array.from({ length: displayCols }, (_, colIndex) => columns[colIndex]?.hidden ? null : (
-                      <Pressable
-                        key={`ghost-${rowIndex}-${colIndex}`}
-                        onPressIn={(event) => onCellPressIn(colIndex, rowIndex, event)}
-                        onLongPress={() => onCellLongPress(colIndex, rowIndex)}
-                        delayLongPress={450}
-                        onPress={() => tapCell({ col: colIndex, row: rowIndex })}
-                        style={[
-                          styles.cell,
-                          { width: columns[colIndex] ? colWidth(columns[colIndex]) : GHOST_COL_W },
-                          isInRange({ col: colIndex, row: rowIndex }, range) && styles.rangeCell,
-                          selected.col === colIndex && selected.row === rowIndex && styles.selectedCell,
-                        ]}
-                      />
-                    ))}
+                <Animated.View collapsable={false} pointerEvents="box-none" style={[styles.pinLayer, styles.pinLeft, pinX]}>
+                  <View pointerEvents="none" style={{ width: pinWidth, height: pinHeight }} />
+                  {scrolledRowIndexes.map((rowIndex) => renderDataRow(rowIndex, 0, pinCols))}
+                  {ghostRowIndexes.map((rowIndex) => renderGhostRow(rowIndex, 0, pinCols))}
+                  {pinCols > 0 ? <View pointerEvents="none" style={[styles.freezeEdgeCol, { left: pinWidth - 2 }]} /> : null}
+                  {selectionLayer === "left" ? selectionDecor : null}
+                </Animated.View>
+                <Animated.View collapsable={false} pointerEvents="box-none" style={[styles.pinLayer, styles.pinTop, pinY]}>
+                  <View style={styles.tr} collapsable={false}>
+                    <View pointerEvents="none" style={{ width: pinWidth, height: HEADER_H }} />
+                    {renderHeaderCells(pinCols, displayCols)}
                   </View>
-                ))}
-                {!editing && !isEditingFormula() ? (
-                  <Pressable
-                    onPressIn={(event) => {
-                      const box = fillHandleBox();
-                      noteTouch(
-                        { zone: "cell", col: bounds.maxCol, row: bounds.maxRow },
-                        event.nativeEvent.pageX,
-                        event.nativeEvent.pageY,
-                        box.width,
-                        CELL_H,
-                      );
-                      beginFill();
-                    }}
-                    hitSlop={8}
-                    style={[
-                      styles.fillHandle,
-                      { left: fillHandleBox().x, top: fillHandleBox().y },
-                    ]}
-                  />
-                ) : null}
-                {bounds.minCol !== bounds.maxCol || bounds.minRow !== bounds.maxRow ? (
-                  <View
-                    pointerEvents="none"
-                    style={[styles.selectionOverlay, selectionBox()]}
-                  />
-                ) : null}
+                  {pinnedRowIndexes.map((rowIndex) => renderDataRow(rowIndex, pinCols, displayCols))}
+                  {pinRows > 0 ? <View pointerEvents="none" style={[styles.freezeEdgeRow, { top: pinHeight - 2 }]} /> : null}
+                  {selectionLayer === "top" ? selectionDecor : null}
+                </Animated.View>
+                <Animated.View collapsable={false} pointerEvents="box-none" style={[styles.pinLayer, styles.pinCorner, pinXY]}>
+                  <View style={styles.tr} collapsable={false}>
+                    <View style={[styles.rowHead, styles.headCell]} />
+                    {renderHeaderCells(0, pinCols)}
+                  </View>
+                  {pinnedRowIndexes.map((rowIndex) => renderDataRow(rowIndex, 0, pinCols))}
+                  {pinCols > 0 ? <View pointerEvents="none" style={[styles.freezeEdgeCol, { left: pinWidth - 2 }]} /> : null}
+                  {pinRows > 0 ? <View pointerEvents="none" style={[styles.freezeEdgeRow, { top: pinHeight - 2 }]} /> : null}
+                  {selectionLayer === "corner" ? selectionDecor : null}
+                </Animated.View>
               </View>
-            </ScrollView>
-          </ScrollView>
+            </Animated.ScrollView>
+          </Animated.ScrollView>
           </View>
         ) : null}
       </View>
@@ -1710,6 +1824,28 @@ export default function SheetGrid({
                   <Tool icon={<Trash2 size={16} color="#EF6B5C" />} caption="Delete row" disabled={rows.length <= 1} onPress={() => deleteRow(selected.row)} />
                   <Tool icon={<Trash2 size={16} color="#EF6B5C" />} caption="Delete col" disabled={columns.length <= 1} onPress={() => deleteColumn(selected.col)} />
                 </View>
+                <Text style={styles.sectionLabel}>FREEZE</Text>
+                <FreezePicker
+                  label="Rows"
+                  value={frozenRows}
+                  upTo={selected.row + 1}
+                  name={(count) => String(count)}
+                  onPick={(count) => setFrozen({ frozenRows: count })}
+                />
+                <FreezePicker
+                  label="Columns"
+                  value={frozenCols}
+                  upTo={selected.col + 1}
+                  name={(count) => columnIndexToLetter(count - 1)}
+                  onPick={(count) => setFrozen({ frozenCols: count })}
+                />
+                {pinRows < Math.min(frozenRows, rows.length) || pinCols < Math.min(frozenCols, columns.length) ? (
+                  <Text style={styles.freezeNote}>
+                    {pinCols < Math.min(frozenCols, columns.length)
+                      ? `This screen pins the first ${pinCols === 1 ? "column" : `${pinCols} columns`} so there is room to scroll.`
+                      : `This screen pins the first ${pinRows === 1 ? "row" : `${pinRows} rows`} so there is room to scroll.`}
+                  </Text>
+                ) : null}
               </>
             ) : (
               <>
@@ -1805,6 +1941,16 @@ export default function SheetGrid({
             }}
           >
             {hiddenCount === 1 ? "Show 1 hidden column" : `Show ${hiddenCount} hidden columns`}
+          </SheetOption>
+        ) : null}
+        {columnMenu !== null ? (
+          <SheetOption
+            onSelect={() => {
+              setFrozen({ frozenCols: frozenCols === columnMenu + 1 ? 0 : columnMenu + 1 });
+              setColumnMenu(null);
+            }}
+          >
+            {frozenCols === columnMenu + 1 ? "Unfreeze columns" : `Freeze up to column ${columnIndexToLetter(columnMenu)}`}
           </SheetOption>
         ) : null}
         <SheetOption
@@ -1954,6 +2100,46 @@ function DrawerTabButton({
   );
 }
 
+/** None, 1, 2, or everything up to the selected cell, like the desktop freeze menu. */
+function FreezePicker({
+  label,
+  value,
+  upTo,
+  name,
+  onPick,
+}: {
+  label: string;
+  value: number;
+  upTo: number;
+  /** How the last frozen row or column reads ("5" or "C"). */
+  name: (count: number) => string;
+  onPick: (count: number) => void;
+}) {
+  const options = [0, 1, 2];
+  if (value > 2) options.push(value);
+  if (upTo > 2 && upTo !== value) options.push(upTo);
+  options.sort((a, b) => a - b);
+  return (
+    <View style={styles.freezeRow}>
+      <Text style={styles.freezeLabel}>{label}</Text>
+      {options.map((count) => (
+        <Pressable
+          key={count}
+          accessibilityRole="button"
+          accessibilityState={{ selected: value === count }}
+          accessibilityLabel={count === 0 ? `Freeze no ${label.toLowerCase()}` : `Freeze ${label.toLowerCase()} up to ${name(count)}`}
+          onPress={() => onPick(count)}
+          style={[styles.freezeChip, value === count && styles.controlOn]}
+        >
+          <Text style={styles.controlText} numberOfLines={1}>
+            {count === 0 ? "None" : count > 2 ? `To ${name(count)}` : String(count)}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 function Tool({
   icon,
   caption,
@@ -1980,6 +2166,12 @@ function Tool({
   );
 }
 
+// Hidden columns keep their index (letters, formulas, selection) but take
+// no room, so every position computed from widths skips them.
+function naturalColWidth(column: SheetColumn) {
+  return column.hidden ? 0 : Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, column.width || 140));
+}
+
 function renderCell({
   colIndex,
   rowIndex,
@@ -2004,6 +2196,7 @@ function renderCell({
   colWidth,
   rawAt,
   filtering,
+  pinEdge,
   conditional,
 }: {
   colIndex: number;
@@ -2029,6 +2222,8 @@ function renderCell({
   colWidth: (column: SheetColumn) => number;
   rawAt: (address: Address) => string;
   filtering: boolean;
+  /** First column past the pinned ones; merges reaching across it leave gaps to hold. */
+  pinEdge: number;
   conditional?: ConditionalStyle;
 }) {
   const column = columns[colIndex];
@@ -2058,6 +2253,11 @@ function renderCell({
       rowIndex >= item.startRow &&
       rowIndex < item.startRow + item.rowSpan,
   );
+  if (merge && merge.startCol < pinEdge && colIndex >= pinEdge) {
+    // The merged cell is drawn in the pinned layer; this part of the scrolled
+    // layer keeps its width so the cells after it stay in their columns.
+    return <View key={`pin-merge-${rowIndex}-${colIndex}`} pointerEvents="none" style={{ width: colWidth(column), height: CELL_H }} />;
+  }
   const collapseVertical = Boolean(filtering && merge && merge.rowSpan > 1);
   if (
     collapseVertical &&
@@ -2291,6 +2491,18 @@ const styles = createThemedStyleSheet((colors) => ({
   tr: { flexDirection: "row", overflow: "visible" },
   mergeOriginRow: { zIndex: 8, overflow: "visible" },
   mergeSpacer: { height: CELL_H },
+  // Pinned layers sit over the scrolled body: the frozen column under the
+  // frozen rows, and their shared corner on top of both.
+  // zIndex 0 keeps the body's own stacking (merged cells, the fill handle)
+  // under the pinned layers on web too.
+  bodyLayer: { zIndex: 0 },
+  pinLayer: { position: "absolute", top: 0, left: 0 },
+  pinLeft: { zIndex: 10 },
+  pinTop: { zIndex: 20 },
+  pinCorner: { zIndex: 30 },
+  // Same freeze line as the desktop grid.
+  freezeEdgeCol: { position: "absolute", top: 0, bottom: 0, width: 2, backgroundColor: "rgba(124,102,220,0.6)" },
+  freezeEdgeRow: { position: "absolute", left: 0, right: 0, height: 2, backgroundColor: "rgba(124,102,220,0.6)" },
   selectionOverlay: {
     position: "absolute",
     borderWidth: 2,
@@ -2323,7 +2535,9 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   selectedHead: { backgroundColor: KINETIC.card },
   formulaHead: { borderColor: KINETIC.accentHover },
-  rangeCell: { backgroundColor: "rgba(110,86,207,0.12)" },
+  // Solid tints (the accent at 12% over the base) so cells scrolling under a
+  // pinned one never show through it.
+  rangeCell: { backgroundColor: "#1C1B2F" },
   formulaCell: { borderWidth: 1, borderStyle: "dashed", borderColor: KINETIC.accentHover },
   fillHandle: {
     position: "absolute",
@@ -2362,7 +2576,7 @@ const styles = createThemedStyleSheet((colors) => ({
     borderColor: KINETIC.border,
   },
   selectedCell: { borderWidth: 2, borderColor: KINETIC.accentHover, backgroundColor: "#251F3E" },
-  errorCell: { backgroundColor: "rgba(239,107,92,0.08)" },
+  errorCell: { backgroundColor: "#231A1E" },
   // A corner tick, like a spreadsheet's note marker.
   misfitMark: {
     position: "absolute",
@@ -2428,6 +2642,10 @@ const styles = createThemedStyleSheet((colors) => ({
   sizeReadout: { width: 38, height: 34, alignItems: "center", justifyContent: "center", borderTopWidth: 1, borderBottomWidth: 1, borderColor: KINETIC.border },
   controlOn: { borderColor: KINETIC.accentHover, backgroundColor: "#2A2445" },
   controlText: { color: KINETIC.text, fontSize: 11, fontFamily: "monospace" },
+  freezeRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  freezeLabel: { width: 60, color: KINETIC.secondary, fontSize: 11 },
+  freezeChip: { flex: 1, height: 40, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  freezeNote: { color: KINETIC.secondary, fontSize: 11, lineHeight: 15 },
   functionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   functionButton: { width: "31%", minHeight: 40, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card },
   functionText: { color: KINETIC.text, fontSize: 10, fontWeight: "600", fontFamily: "monospace" },
