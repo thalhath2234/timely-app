@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Flame, GripVertical, Pencil, Plus, Target, Trash2 } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 import { MAX_FOCUS_NAME, MAX_GOALS, MAX_HABITS, type Goal, type Habit } from "@/app/utils/api/focus";
@@ -23,6 +23,7 @@ import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { controlClass } from "@/app/_components/_ui/field";
+import Button from "@/app/_components/_ui/button";
 
 const failed = (fallback: string) => (error: unknown) => {
   useToastStore.getState().show(error instanceof Error ? error.message : fallback);
@@ -276,7 +277,9 @@ function GoalRows({ goals, version, onAdd }: { goals: Goal[]; version: string; o
   );
 }
 
-/** One row of an edit list: drag handle, an inline name field and delete. */
+/** One row of an edit list: drag handle, an inline name field and delete.
+ * While the row has focus a tick saves the name (Enter and blur save too,
+ * Escape puts the old name back). */
 function EditRow({
   name,
   dragging,
@@ -296,12 +299,18 @@ function EditRow({
   what: string;
   children?: ReactNode;
 }) {
+  const field = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
   return (
     <li
       draggable
       onDragStart={onDragStart}
       onDragOver={(event) => event.preventDefault()}
       onDrop={onDrop}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+      }}
       className={cn(
         "flex items-center gap-2 rounded-lg border border-border bg-background px-2 py-1.5",
         dragging && "opacity-50",
@@ -310,6 +319,7 @@ function EditRow({
       <GripVertical className="size-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
       {children}
       <input
+        ref={field}
         key={name}
         defaultValue={name}
         maxLength={MAX_FOCUS_NAME}
@@ -328,6 +338,22 @@ function EditRow({
         }}
         className={input}
       />
+      {focused ? (
+        <Button
+          icon
+          size="sm"
+          aria-label={`Save ${what} name`}
+          title="Save"
+          // Keep the field focused until the click, so it saves exactly once.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            field.current?.blur();
+            event.currentTarget.blur();
+          }}
+        >
+          <Check />
+        </Button>
+      ) : null}
       <button type="button" aria-label={`Delete ${what} ${name}`} title="Delete" onClick={onDelete} className={iconButton}>
         <Trash2 className="size-3.5" />
       </button>
