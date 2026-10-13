@@ -527,6 +527,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             onChange={handleEditorChange}
             onCreateSubpage={handleCreateSubpage}
             docId={doc.id}
+            writeContext={{ kind: "doc", title }}
           />
         </div>
       </div>

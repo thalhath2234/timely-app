@@ -89,11 +89,13 @@ import {
   DIAGRAM_SAMPLE,
   MAP_SAMPLE,
   MODEL_SAMPLE,
+  OPEN_HELP_ME_WRITE_EVENT,
   OPEN_LINK_EDITOR_EVENT,
   createSlashItems,
   createSlashRenderer,
   filterSlashItems,
 } from "./slashMenu";
+import HelpMeWritePanel, { HelpMeWriteButton, useHelpMeWriteAvailable, type WriteContext } from "./helpMeWrite";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { controlClass } from "@/app/_components/_ui/field";
 
@@ -126,6 +128,9 @@ export interface RichTextEditorProps {
   editable?: boolean;
   /** The doc being edited, left out of "Link selection to an item" matches. */
   docId?: string;
+  /** Turns on Help me write (toolbar button and "/" entry) for this editor,
+   * shown only while an AI provider is set up. */
+  writeContext?: WriteContext;
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -206,6 +211,7 @@ export default function RichTextEditor({
   onCreateSubpage,
   editable = true,
   docId,
+  writeContext,
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -232,6 +238,15 @@ export default function RichTextEditor({
   // building the extension list never touches a ref during render.
   const [subpageBox] = useState(() => createHandlerBox(onCreateSubpage));
   const hasCreateSubpage = Boolean(onCreateSubpage);
+  // Help me write: the "/" entry reads availability through a box so the
+  // extension list is not rebuilt when the provider list loads.
+  const writeAvailable = useHelpMeWriteAvailable();
+  const writeOn = Boolean(writeContext) && writeAvailable && editable;
+  const [writeBox] = useState(() => createHandlerBox(writeOn));
+  const [writeAnchor, setWriteAnchor] = useState<FloatingPosition | null>(null);
+  useEffect(() => {
+    writeBox.set(writeOn);
+  }, [writeBox, writeOn]);
 
   const openLinkEditor = useCallback(() => {
     const editor = editorRef.current;
@@ -344,6 +359,7 @@ export default function RichTextEditor({
             items: ({ query }: { query: string }) =>
               filterSlashItems(
                 createSlashItems({
+                  helpMeWrite: writeBox.get(),
                   onCreateSubpage: hasCreateSubpage
                     ? (props) => {
                         void subpageBox.get()?.(props);
@@ -373,7 +389,7 @@ export default function RichTextEditor({
 
     return list;
     // The mention list is read through the stable box, so it must not rebuild here.
-  }, [enableMentions, enableSlashCommands, hasCreateSubpage, placeholder, variant, mentionBox, subpageBox]);
+  }, [enableMentions, enableSlashCommands, hasCreateSubpage, placeholder, variant, mentionBox, subpageBox, writeBox]);
 
   const editor = useEditor({
     // The editor is rendered inside a client page, and Tiptap requires this
@@ -552,6 +568,20 @@ export default function RichTextEditor({
     return () =>
       element.removeEventListener(OPEN_LINK_EDITOR_EVENT, handleOpenLinkEditor);
   }, [editor, openLinkEditor]);
+
+  // The "/" menu opens Help me write at the caret.
+  useEffect(() => {
+    if (!editor) return;
+
+    const element = editor.view.dom;
+    const handleOpen = () => {
+      const coords = editor.view.coordsAtPos(editor.state.selection.from);
+      setWriteAnchor({ top: coords.bottom + 8, left: coords.left });
+    };
+
+    element.addEventListener(OPEN_HELP_ME_WRITE_EVENT, handleOpen);
+    return () => element.removeEventListener(OPEN_HELP_ME_WRITE_EVENT, handleOpen);
+  }, [editor]);
 
   // Track the selection so the formatting and table toolbars can follow it.
   useEffect(() => {
@@ -961,6 +991,15 @@ export default function RichTextEditor({
             className="mb-3 flex shrink-0 flex-wrap items-center gap-0.5 rounded-lg border border-border bg-muted/20 p-1"
             onMouseDown={(event) => event.preventDefault()}
           >
+            {writeOn && (
+              <>
+                <HelpMeWriteButton
+                  active={Boolean(writeAnchor)}
+                  onClick={(rect) => setWriteAnchor({ top: rect.bottom + 6, left: rect.left })}
+                />
+                <span className="mx-1 h-5 w-px bg-border" />
+              </>
+            )}
             {toolbarButtons.map((button) => {
               const Icon = button.icon;
               return [
@@ -1102,6 +1141,15 @@ export default function RichTextEditor({
             <Trash2 className="size-4" />
           </button>
         </div>
+      )}
+
+      {writeAnchor && writeContext && (
+        <HelpMeWritePanel
+          editor={editor}
+          context={writeContext}
+          anchor={writeAnchor}
+          onClose={() => setWriteAnchor(null)}
+        />
       )}
 
       {linkPosition && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FolderKanban, Plus } from "lucide-react-native";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
 import Screen from "../../../components/ui/Screen";
@@ -16,6 +16,7 @@ import { resolvedColor } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { formatShortDate, toDateInputValue } from "../../../lib/format";
 import type { Project, Task } from "../../../lib/types";
+import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -71,13 +72,13 @@ export default function ProjectsScreen() {
           </HeaderIconButton>
         }
       />
-      <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40, gap: 10 }}>
+      <FocusGroupScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40, gap: 10 }}>
         {projectsQ.isError ? (
           <EmptyState icon={FolderKanban} title="Couldn't load projects" description="Check your connection and try again." />
         ) : (
           <>
             {showForm ? (
-              <View style={[styles.card, styles.form]}>
+              <FocusGroup style={[styles.card, styles.form]}>
                 <SectionLabel compact>New project</SectionLabel>
                 {spaces.length === 0 ? (
                   <Text style={styles.meta}>Create a workspace first, then add a project here.</Text>
@@ -140,7 +141,7 @@ export default function ProjectsScreen() {
                     ) : null}
                   </>
                 )}
-              </View>
+              </FocusGroup>
             ) : null}
             {visibleProjects.length === 0 ? (
               <EmptyState
@@ -181,7 +182,7 @@ export default function ProjectsScreen() {
             )}
           </>
         )}
-      </ScrollView>
+      </FocusGroupScrollView>
     </Screen>
   );
 }

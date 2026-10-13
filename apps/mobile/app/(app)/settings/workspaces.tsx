@@ -21,7 +21,7 @@ export default function WorkspacesSettings() {
   return (
     <Screen>
       <MobileHeader title="Workspaces" back />
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.body}>
         <Text style={styles.intro}>Organize work by space. Open one to manage its statuses, labels, fields, and projects.</Text>
         {spaces.map((w) => (
           <AnimatedPressable key={w.id} onPress={() => router.push(`/(app)/settings/workspace/${w.id}`)} style={styles.card}>

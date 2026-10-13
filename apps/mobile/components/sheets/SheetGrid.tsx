@@ -1739,6 +1739,7 @@ export default function SheetGrid({
           <View style={styles.drawerHandle} />
         </Pressable>
         <ScrollView
+          keyboardShouldPersistTaps="handled"
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.drawerTabsScroll}

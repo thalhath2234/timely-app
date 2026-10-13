@@ -502,6 +502,10 @@ Desktop `/notifications` (sidebar Bell) and native Notifications screen: in-app 
 
 ---
 
+### Help me write
+
+Docs and task/project descriptions (web, desktop and phone) get **Help me write** when a generative AI provider is ready (OpenRouter, a direct API key, Claude Code or Codex; TypeSafe alone does not count). Entry points: a labelled button first in the editor toolbar (phone: "Write" pinned at the start of the dock) and "Help me write" in the `/` menu; both are hidden without a provider. Without a selection it drafts from a prompt or a starter (doc: Continue writing, Outline, Meeting notes, Summarize; description: Write a description, Break into steps); with one it offers Improve, Shorter, Longer, Fix spelling, Make steps, Summarize or a free instruction. The draft shows as a preview with Ask for changes, Try again, Discard and Insert / Replace (Insert below for a selection); it goes in as one undo step. API: `POST /agent/write` (one-shot on the default provider, else the first ready one); shared starters and Markdown-to-editor in `@timely/contract/helpMeWrite`.
+
 ## 15. AI agent (in-app chat + Hermes via MCP)
 
 There are two agent surfaces over **one tool catalog**: the in-app chat (desktop `/chat` + overlay, native assistant) and external Hermes/MCP with an API key. MCP activity is attributed to `"Hermes"`; in-app chat activity to `"Timely AI"`.

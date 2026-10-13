@@ -812,6 +812,7 @@ function DetailBody({
               syncKey={view.id}
               content={toRichContent(view.descriptionRich, view.description)}
               placeholder="Description"
+              writeContext={{ kind: view.kind, title }}
               onChange={(draft) => {
                 descriptionDraftRef.current = draft;
                 setDescriptionDirty(true);

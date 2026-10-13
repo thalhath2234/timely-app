@@ -34,6 +34,7 @@ import {
   Table2,
   Workflow,
   Type,
+  Sparkles,
 } from "lucide-react";
 import {
   forwardRef,
@@ -56,6 +57,8 @@ const MENU_MAX_HEIGHT = 330;
 
 /** Emitted on the editor DOM node so the editor can open its link popover. */
 export const OPEN_LINK_EDITOR_EVENT = "timely:open-link-editor";
+/** Emitted on the editor DOM node so the editor can open Help me write. */
+export const OPEN_HELP_ME_WRITE_EVENT = "timely:open-help-me-write";
 
 function clampedRange(editor: Editor, range: Range): Range {
   const size = editor.state.doc.content.size;
@@ -74,6 +77,8 @@ function runSlash(
 
 export function createSlashItems(options?: {
   onCreateSubpage?: (props: { editor: Editor; range: Range }) => void;
+  /** Adds "Help me write" (only while an AI provider is set up). */
+  helpMeWrite?: boolean;
 }): SlashCommandItem[] {
   const items: SlashCommandItem[] = [
     {
@@ -327,6 +332,19 @@ export function createSlashItems(options?: {
     });
   }
 
+  if (options?.helpMeWrite) {
+    items.push({
+      title: "Help me write",
+      description: "Draft or rewrite text with AI",
+      icon: Sparkles,
+      keywords: ["ai", "write", "draft", "generate", "rewrite", "assistant", "summarize"],
+      run: ({ editor, range }) => {
+        runSlash(editor, range, (chain) => chain.run());
+        editor.view.dom.dispatchEvent(new CustomEvent(OPEN_HELP_ME_WRITE_EVENT));
+      },
+    });
+  }
+
   return items;
 }
 
@@ -334,11 +352,15 @@ export function filterSlashItems(items: SlashCommandItem[], query: string) {
   const search = query.trim().toLowerCase();
   if (!search) return items;
 
-  return items.filter(
+  const hits = items.filter(
     (item) =>
       item.title.toLowerCase().includes(search) ||
       item.keywords.some((keyword) => keyword.includes(search)),
   );
+  // A title that starts with the query or an exact keyword ("/ai") goes first.
+  const strong = (item: SlashCommandItem) =>
+    item.title.toLowerCase().startsWith(search) || item.keywords.includes(search);
+  return [...hits.filter(strong), ...hits.filter((item) => !strong(item))];
 }
 
 export interface SlashMenuHandle {

@@ -76,6 +76,8 @@ import { useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
 import FindBar from "./FindBar";
 import BlockSheet, { type BlockInfo } from "./BlockSheet";
+import HelpMeWriteSheet, { useHelpMeWriteAvailable, type WriteContext, type WriteInfo } from "./HelpMeWriteSheet";
+import { writtenContent } from "@timely/contract/helpMeWrite";
 
 /** The five GitHub callout kinds, coloured as in the editor (editorHtml.ts). */
 const CALLOUT_KINDS: { kind: string; label: string; Icon: typeof Info; color?: string }[] = [
@@ -121,6 +123,7 @@ const SLASH: {
   { title: "Link", description: "Add a URL to the selected text", cmd: "linkPrompt", shortcut: "[]", keywords: ["url", "href", "anchor"] },
   { title: "Mention", description: "Reference a doc, sheet, task or project", cmd: "mentionChar", shortcut: "@", keywords: ["@", "mention"] },
   { title: "Page", description: "Create a nested subpage", cmd: "page", keywords: ["subpage", "child", "nested"] },
+  { title: "Help me write", description: "Draft or rewrite text with AI", cmd: "helpMeWrite", keywords: ["ai", "write", "draft", "generate", "rewrite", "assistant", "summarize"] },
 ];
 
 const FORMAT_TOOLS = [
@@ -241,6 +244,7 @@ export default function RichTextEditor({
   onWikiLink,
   placeholder = "Start writing. Type '/' for blocks, '@' to mention…",
   syncKey = 0,
+  focusRequest = 0,
   compact = false,
   findOpen = false,
   onFindClose,
@@ -248,6 +252,7 @@ export default function RichTextEditor({
   linkDocId,
   propertyRequest,
   mentionRequest,
+  writeContext,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
@@ -259,6 +264,8 @@ export default function RichTextEditor({
   placeholder?: string;
   /** Increment when remote content should replace the local draft. */
   syncKey?: number;
+  /** Bump to put the caret in the editor (at the end) once it has loaded; 0 asks nothing. */
+  focusRequest?: number;
   compact?: boolean;
   /** Shows the find and replace bar over the editor. */
   findOpen?: boolean;
@@ -272,6 +279,9 @@ export default function RichTextEditor({
   propertyRequest?: { key: string; value: string } | null;
   /** Adds a mention of this item at the end of the doc (Related "Add link"). */
   mentionRequest?: { id: string; label: string; entityType: string } | null;
+  /** Turns on Help me write (dock button and "/" entry), shown only while an
+   * AI provider is set up. */
+  writeContext?: WriteContext;
 }) {
   const [findResult, setFindResult] = useState({ current: -1, count: 0 });
   const [blockMenu, setBlockMenu] = useState<BlockInfo | null>(null);
@@ -318,6 +328,8 @@ export default function RichTextEditor({
   const linkOn = useDecisionsStatusQuery(Boolean(linkDocId)).data?.available === true && Boolean(linkDocId);
   const feedback = useDecisionFeedback();
   const [hasSelection, setHasSelection] = useState(false);
+  const writeOn = useHelpMeWriteAvailable(Boolean(writeContext));
+  const [writeInfo, setWriteInfo] = useState<WriteInfo | null>(null);
   const [linkPick, setLinkPick] = useState<{ from: number; to: number; text: string; result: MentionMatch | null } | null>(null);
 
   useEffect(() => {
@@ -383,6 +395,14 @@ export default function RichTextEditor({
     applyRemoteIfIdle();
   }, [applyRemoteIfIdle, syncKey]);
 
+  // After the content sync above, so the caret lands after any text the
+  // screen handed over while the page was loading.
+  useEffect(() => {
+    if (!ready || !focusRequest) return;
+    webRef.current?.requestFocus();
+    run("focus");
+  }, [focusRequest, ready, run]);
+
   function onMessage(event: WebViewMessageEvent) {
     // Only the editor page itself may drive the document.
     if (!isEditorUrl(event.nativeEvent.url)) return;
@@ -408,6 +428,7 @@ export default function RichTextEditor({
         block?: BlockInfo | null;
         text?: string;
         ok?: boolean;
+        selection?: string;
       };
       if (msg.type === "linkSelection") {
         if (!msg.ok || typeof msg.from !== "number" || typeof msg.to !== "number") {
@@ -415,6 +436,13 @@ export default function RichTextEditor({
         } else {
           void findLinkTargets({ from: msg.from, to: msg.to, text: msg.text ?? "" });
         }
+      }
+      if (msg.type === "writeInfo") {
+        setPicker(null);
+        setWriteInfo({ from: msg.from ?? 0, to: msg.to ?? 0, selection: msg.selection ?? "", text: msg.text ?? "" });
+      }
+      if (msg.type === "writeStale") {
+        useToastStore.getState().show("The text changed while writing. Select it again.");
       }
       if (msg.type === "linkStale") {
         linkFeedback.current = null;
@@ -475,12 +503,17 @@ export default function RichTextEditor({
     }
   }
 
-  const slashItems = SLASH.filter((item) => {
+  const slashQuery = (picker?.kind === "slash" ? picker.query : "").toLowerCase();
+  const slashHits = SLASH.filter((item) => {
     if (item.cmd === "page" && !onCreateSubpage) return false;
-    const q = (picker?.kind === "slash" ? picker.query : "").toLowerCase();
-    if (!q) return true;
-    return item.title.toLowerCase().includes(q) || item.keywords.some((k) => k.includes(q));
+    if (item.cmd === "helpMeWrite" && !writeOn) return false;
+    if (!slashQuery) return true;
+    return item.title.toLowerCase().includes(slashQuery) || item.keywords.some((k) => k.includes(slashQuery));
   });
+  // A title that starts with the query or an exact keyword ("/ai") goes first.
+  const strongSlash = (item: (typeof SLASH)[number]) =>
+    Boolean(slashQuery) && (item.title.toLowerCase().startsWith(slashQuery) || item.keywords.includes(slashQuery));
+  const slashItems = [...slashHits.filter(strongSlash), ...slashHits.filter((item) => !strongSlash(item))];
 
   const localMentions = filterMentions(mentionItems, picker?.kind === "mention" ? picker.query : "");
   const remoteHits = (remoteMentions.data ?? [])
@@ -522,6 +555,11 @@ export default function RichTextEditor({
     if (item.cmd === "imagePick") {
       if (range) run("deleteRange", range);
       void pickImages();
+      return;
+    }
+    if (item.cmd === "helpMeWrite") {
+      if (range) run("deleteRange", range);
+      run("writeInfo");
       return;
     }
     if (item.cmd === "page") {
@@ -665,6 +703,19 @@ export default function RichTextEditor({
           ))}
         </ScrollView>
       ) : null}
+      <View style={styles.barRow}>
+      {writeOn ? (
+        // Pinned before the scrolling tools so it is always in reach.
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Help me write"
+          onPress={() => run("writeInfo")}
+          style={styles.writeTool}
+        >
+          <Sparkles size={16} color={colors.accentForeground} />
+          <Text style={styles.writeToolText}>Write</Text>
+        </Pressable>
+      ) : null}
       <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.barWrap}>
         {linkOn && hasSelection ? (
           <Pressable
@@ -697,6 +748,7 @@ export default function RichTextEditor({
           );
         })}
       </ScrollView>
+      </View>
     </View>
   );
 
@@ -762,7 +814,11 @@ export default function RichTextEditor({
                       }}
                       style={styles.pickerRow}
                     >
-                      <Type size={16} color={colors.mutedForeground} />
+                      {item.cmd === "helpMeWrite" ? (
+                        <Sparkles size={16} color={colors.primary} />
+                      ) : (
+                        <Type size={16} color={colors.mutedForeground} />
+                      )}
                       <View style={styles.pickerCopy}>
                         <Text style={styles.itemTitle}>{item.title}</Text>
                         <Text style={styles.itemMeta}>{item.description}</Text>
@@ -873,6 +929,21 @@ export default function RichTextEditor({
         )}
       </BottomSheet>
 
+      {writeContext ? (
+        <HelpMeWriteSheet
+          info={writeInfo}
+          context={writeContext}
+          onClose={() => setWriteInfo(null)}
+          onInsert={({ markdown, mode }) => {
+            const info = writeInfo;
+            setWriteInfo(null);
+            if (!info) return;
+            const { blocks, inline } = writtenContent(markdown);
+            run("insertWritten", { blocks, inline, from: info.from, to: info.to, selection: info.selection, mode });
+          }}
+        />
+      ) : null}
+
       <BlockSheet
         block={blockMenu}
         run={run}
@@ -940,6 +1011,19 @@ const styles = createThemedStyleSheet((colors) => ({
   toolOn: { backgroundColor: colors.accent },
   linkTool: { height: 40, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.accent },
   linkToolText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  barRow: { flexDirection: "row", alignItems: "center" },
+  writeTool: {
+    height: 36,
+    marginLeft: 8,
+    marginRight: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: colors.accent,
+  },
+  writeToolText: { color: colors.accentForeground, fontSize: 13, fontWeight: "600" },
   overlay: { ...StyleSheet.absoluteFill, justifyContent: "center", alignItems: "center", backgroundColor: colors.card },
   web: { flex: 1, backgroundColor: colors.background },
   webCompact: { backgroundColor: colors.card },
@@ -960,7 +1044,7 @@ const styles = createThemedStyleSheet((colors) => ({
     borderBottomColor: colors.border,
     backgroundColor: colors.popover,
   },
-  barWrap: { maxHeight: 52, backgroundColor: colors.card },
+  barWrap: { flex: 1, maxHeight: 52, backgroundColor: colors.card },
   bar: { alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 6 },
   tool: {
     width: 40,
