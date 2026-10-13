@@ -18,13 +18,12 @@ import { showUndoToast } from "../../lib/toast";
 import { shareLocalText } from "../../lib/api/portability";
 import {
   addWorkbookTab,
-  formatCellDisplay,
   normalizeSheet,
   tabsFromSheet,
-  workbookPayload,
 } from "../../lib/sheet";
 import { sheetToCsv } from "../../lib/sheetCsv";
 import { createSheetEvaluator } from "@timely/contract/sheetFormula";
+import { formatSheetCell } from "@timely/contract/sheetDisplay";
 import { timeAgo } from "../../lib/format";
 import type { UpdateSheetPayload } from "../../lib/api/sheets";
 import type { Sheet, SheetTab } from "../../lib/types";
@@ -78,9 +77,20 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   const [tabDraft, setTabDraft] = useState("");
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
 
-  const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateSheetPayload>((patch) =>
-    save.mutateAsync({ id: sheet.id, data: patch }),
+  // Only tabs changed here are sent (with the tab order), so a laptop editing
+  // one tab and this phone editing another never overwrite each other. A
+  // sheet saved before tabs existed sends every tab once.
+  const dirtyTabsRef = useRef<Set<string>>(
+    new Set(sheet.tabs && sheet.tabs.length > 0 ? [] : initialTabs.map((tab) => tab.id)),
   );
+  const { schedule, flush, status, hasUnsavedChanges } = useAutosave<UpdateSheetPayload>(async (patch) => {
+    const result = await save.mutateAsync({ id: sheet.id, data: patch });
+    // A tab is clean once the copy that was sent is still the current one.
+    for (const sent of patch.tabs ?? []) {
+      if (tabsRef.current.find((tab) => tab.id === sent.id) === sent) dirtyTabsRef.current.delete(sent.id);
+    }
+    return result;
+  });
   const gridRef = useRef<SheetGridHandle>(null);
   const tabInputRef = useRef<TextInput>(null);
   // Blur before the bottom sheet unmounts its input: Android otherwise moves
@@ -115,15 +125,24 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   ]);
 
   function persistTabs(nextTabs: SheetTab[]) {
+    const previous = tabsRef.current;
+    for (const tab of nextTabs) {
+      if (previous.find((item) => item.id === tab.id) !== tab) dirtyTabsRef.current.add(tab.id);
+    }
+    const ids = new Set(nextTabs.map((tab) => tab.id));
+    for (const id of [...dirtyTabsRef.current]) if (!ids.has(id)) dirtyTabsRef.current.delete(id);
     tabsRef.current = nextTabs;
     setTabs(nextTabs);
     if (!nextTabs.some((tab) => tab.id === activeTabId) && nextTabs[0]) {
       setActiveTabId(nextTabs[0].id);
     }
-    schedule(workbookPayload(nextTabs));
+    schedule({
+      tabs: nextTabs.filter((tab) => dirtyTabsRef.current.has(tab.id)),
+      tabOrder: nextTabs.map((tab) => tab.id),
+    });
   }
 
-  function handleGridChange(next: Partial<Pick<SheetTab, "columns" | "rows" | "merges">>) {
+  function handleGridChange(next: Partial<Pick<SheetTab, "columns" | "rows" | "merges" | "frozenRows" | "frozenCols">>) {
     if (!activeTab) return;
     persistTabs(
       tabs.map((tab) =>
@@ -133,6 +152,8 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
               columns: next.columns ?? tab.columns,
               rows: next.rows ?? tab.rows,
               merges: next.merges ?? tab.merges,
+              frozenRows: next.frozenRows ?? tab.frozenRows,
+              frozenCols: next.frozenCols ?? tab.frozenCols,
             }
           : tab,
       ),
@@ -142,11 +163,12 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
   async function exportCsv() {
     if (!activeTab) return;
     try {
-      const evaluator = createSheetEvaluator(activeTab.columns, activeTab.rows);
+      const evaluator = createSheetEvaluator(activeTab.columns, activeTab.rows, { tabs, currentTabId: activeTab.id });
       const csv = sheetToCsv(activeTab.columns, activeTab.rows, (col, row) => {
         const column = activeTab.columns[col];
         const format = column ? activeTab.rows[row]?.formats?.[column.id] : undefined;
-        return formatCellDisplay(evaluator.displayAt(col, row), format, column?.type);
+        const raw = column ? String(activeTab.rows[row]?.cells?.[column.id] ?? "") : "";
+        return formatSheetCell(evaluator.valueAt(col, row), column, raw, format);
       });
       const filename = `${(sheet.title || "sheet").replace(/[^\w.-]+/g, "_")}.csv`;
       await shareLocalText(filename, csv, "text/csv");
@@ -217,12 +239,16 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
             columns={activeTab.columns}
             rows={activeTab.rows}
             merges={activeTab.merges ?? []}
+            workbook={{ tabs, currentTabId: activeTab.id }}
+            conditionalFormats={activeTab.conditionalFormats}
+            frozenRows={activeTab.frozenRows ?? 0}
+            frozenCols={activeTab.frozenCols ?? 0}
             onChange={handleGridChange}
           />
         ) : null}
       </View>
       <View style={[styles.tabBarWrap, { paddingBottom: systemBottomInset(insets.bottom) }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
+        <ScrollView keyboardShouldPersistTaps="handled" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
           {tabs.map((tab) => (
             <Pressable
               key={tab.id}
@@ -232,7 +258,7 @@ function SheetEditor({ sheet }: { sheet: Sheet }) {
                 setTabDraft(tab.name);
                 setMenu("tab");
               }}
-              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn]}
+              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn, tab.color ? { borderBottomColor: tab.color } : null]}
             >
               <Text style={[styles.tabLabel, tab.id === activeTab?.id && styles.tabLabelOn]}>{tab.name}</Text>
             </Pressable>

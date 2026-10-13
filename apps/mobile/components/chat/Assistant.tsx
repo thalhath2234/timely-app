@@ -754,6 +754,7 @@ export default function Assistant() {
         {preview ? (
           <View style={styles.preview}>
             <ScrollView
+              keyboardShouldPersistTaps="handled"
               maximumZoomScale={4}
               minimumZoomScale={1}
               contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}

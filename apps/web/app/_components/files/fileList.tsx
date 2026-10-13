@@ -12,6 +12,7 @@ import { useParams, useRouter } from "next/navigation";
 import { availableTemplates, contentFromTemplate, dailyNoteTemplate, dateKey, templateVars, type DocTemplate } from "@timely/contract/templates";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Archive,
   CalendarDays,
   ChevronRight,
   FileText,
@@ -43,7 +44,8 @@ import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
 import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
-import { newSheetMenuItems } from "@/app/_components/sheets/sheetTemplateMenu";
+import { newSheetMenuItems, sheetCreatePayload } from "@/app/_components/sheets/sheetTemplateMenu";
+import { BUILTIN_SHEET_TEMPLATES } from "@timely/contract/sheetTemplates";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
 import { buttonClass } from "@/app/_components/_ui/button";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
@@ -237,7 +239,7 @@ export default function FileList() {
   };
 
   const handleCreateSheet = async (templateId?: string) => {
-    const sheet = await createSheet.mutateAsync(templateId ? { templateId } : {});
+    const sheet = await createSheet.mutateAsync(sheetCreatePayload(templateId));
     router.push(fileHref(sheet.id));
   };
 
@@ -589,11 +591,13 @@ export default function FileList() {
 
   const listFailed = (docsQuery.isError && !docs) || (sheetsQuery.isError && !sheets);
   const isEmpty = rootRows.length === 0;
-  const emptyLabel = {
-    all: "No docs or sheets yet.",
-    doc: "No docs yet. Create your first page.",
-    sheet: "No sheets yet.",
-  }[kindFilter];
+  const emptyLabel = showArchived
+    ? { all: "Nothing archived.", doc: "No archived docs.", sheet: "No archived sheets." }[kindFilter]
+    : {
+        all: "No docs or sheets yet.",
+        doc: "No docs yet. Create your first page.",
+        sheet: "No sheets yet.",
+      }[kindFilter];
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-background">
@@ -659,11 +663,27 @@ export default function FileList() {
                   <p className="px-2 pb-1 pt-1.5 text-[11px] leading-snug text-muted-foreground">
                     Turn any doc into a template from its header. Text like {"{{date}}"} is filled in.
                   </p>
+                  <p className="border-t border-border px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Sheets
+                  </p>
+                  {BUILTIN_SHEET_TEMPLATES.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      role="menuitem"
+                      title={template.description}
+                      onClick={() => {
+                        setIsTemplateMenuOpen(false);
+                        void handleCreateSheet(template.id);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                    >
+                      <span className="w-5 text-center">{template.icon}</span>
+                      <span className="min-w-0 flex-1 truncate">{template.name}</span>
+                    </button>
+                  ))}
                   {sheetTemplates.length > 0 && (
                     <>
-                      <p className="border-t border-border px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Sheets
-                      </p>
                       {sheetTemplates.map((template) => (
                         <button
                           key={template.id}
@@ -711,14 +731,21 @@ export default function FileList() {
             className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
         </div>
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <SegmentedControl size="sm" aria-label="Show" value={kindFilter} onChange={setKindFilter} options={KIND_FILTERS} />
+        {/* The sidebar is 256px: the kind filter takes the row and the
+            archive switch is an icon, so nothing spills past the edge. */}
+        <div className="mt-2 flex items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <SegmentedControl size="sm" fill aria-label="Show" value={kindFilter} onChange={setKindFilter} options={KIND_FILTERS} />
+          </div>
           <button
             type="button"
+            aria-pressed={showArchived}
+            aria-label={showArchived ? "Show active files" : "Show archived files"}
+            title={showArchived ? "Show active files" : "Show archived files"}
             onClick={() => setShowArchived((previous) => !previous)}
-            className={buttonClass({ variant: "ghost", size: "sm" })}
+            className={buttonClass({ variant: showArchived ? "soft" : "ghost", size: "sm", icon: true })}
           >
-            {showArchived ? "Show active" : "Show archived"}
+            <Archive />
           </button>
         </div>
       </div>

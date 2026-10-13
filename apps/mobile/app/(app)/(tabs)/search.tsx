@@ -1,6 +1,6 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Keyboard, ScrollView, Text, TextInput, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { ArrowUpRight, LayoutGrid, ListFilter, Plus, Search as SearchIcon, Sparkles, X } from "lucide-react-native";
@@ -8,12 +8,14 @@ import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
-import { useSearchQuery, useSmartSearchQuery } from "../../../lib/hooks";
+import { useConfigQuery, useSearchQuery, useSmartSearchQuery } from "../../../lib/hooks";
 import type { SearchHit, SmartCategory } from "../../../lib/api/search";
 import { sendDecisionFeedback } from "../../../lib/api/decisions";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import { FILES_TAB } from "../../../lib/fileRoutes";
 import { hrefFor } from "../../../lib/searchRoutes";
+import { defaultNativeTaskViews, normalizeViews } from "../../../lib/nativeTaskViewsMerge";
+import { matchViewByName } from "@timely/contract/viewSearch";
 import { SEARCH_KIND_ICONS, searchKindIcon } from "../../../components/search/kindIcon";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
@@ -61,11 +63,19 @@ export default function SearchTab() {
   const hiddenShown = hidden.length > 0 && showHidden === trimmed;
   const smartCategory = category === "all" && smartData?.category ? categories.find((tab) => tab.id === smartData.category) : undefined;
   const smartCreate = smartData?.create;
-  // A search that reads as "show me what needs attention" can open one of the
-  // phone's saved views (picked by Smart suggestions).
-  const viewPick = category === "all" || category === "task" ? smartData?.view : undefined;
   const pending = !!trimmed && (!current || results.isFetching);
   const failed = !!trimmed && current && results.isError;
+  // A search that names one of the phone's saved views ("show my deadline")
+  // opens it straight away, with or without Smart suggestions; one that reads
+  // as "show me what needs attention" gets Smart suggestions' pick.
+  const mobileTaskViews = useConfigQuery().data?.mobileTaskViews;
+  const savedViews = useMemo(() => {
+    const views = normalizeViews(mobileTaskViews);
+    return views.length ? views : defaultNativeTaskViews();
+  }, [mobileTaskViews]);
+  const namedView = trimmed ? matchViewByName(trimmed, savedViews) : undefined;
+  const smartView = !pending && !failed ? smartData?.view : undefined;
+  const viewPick = category === "all" || category === "task" ? namedView ?? smartView : undefined;
 
   function navigate(href: Href) {
     Keyboard.dismiss();
@@ -73,7 +83,7 @@ export default function SearchTab() {
   }
 
   function openView(view: { id: string; name: string }) {
-    if (smartData?.logId) void sendDecisionFeedback(smartData.logId, true).catch(() => {});
+    if (smartData?.logId && smartData.view?.id === view.id) void sendDecisionFeedback(smartData.logId, true).catch(() => {});
     navigate({ pathname: "/(app)/(tabs)/tasks", params: { view: view.id } });
   }
 
@@ -188,13 +198,13 @@ export default function SearchTab() {
             <Text style={styles.suggestText}>Looking for {smartCategory.label}?</Text>
           </AnimatedPressable>
         ) : null}
-        {!pending && !failed && viewPick ? (
+        {viewPick ? (
           <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Open your saved view ${viewPick.name}`}
             onPress={() => openView(viewPick)} style={styles.viewRow}>
             <View style={styles.viewIcon}><ListFilter size={16} color={colors.primary} /></View>
             <View style={styles.resultContent}>
               <Text numberOfLines={1} style={styles.viewTitle}>Open view “{viewPick.name}”</Text>
-              <Text numberOfLines={1} style={styles.viewHint}>Your saved view for this</Text>
+              <Text numberOfLines={1} style={styles.viewHint}>{viewPick === namedView ? "Your saved view in Tasks" : "Your saved view for this"}</Text>
             </View>
             <ArrowUpRight size={16} color={colors.mutedForeground} />
           </AnimatedPressable>
@@ -220,6 +230,9 @@ export default function SearchTab() {
             </View>
           ) : trimmed && hits.length === 0 && hidden.length > 0 ? (
             hiddenToggle
+          ) : trimmed && hits.length === 0 && viewPick ? (
+            // The view above answers the search; a full empty state would read as a miss.
+            <Text style={styles.status}>No items match this search.</Text>
           ) : trimmed && hits.length === 0 ? (
             <EmptyState icon={SearchIcon} title="No matching items" description="Try another keyword or category." />
           ) : hits.length > 0 ? <Text style={styles.sectionHeading}>{hits.length} {hits.length === 1 ? "result" : "results"}</Text> : null}

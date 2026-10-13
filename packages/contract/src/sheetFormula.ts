@@ -1,60 +1,22 @@
 import type { SheetColumn, SheetRow } from "./sheetTypes";
+import { columnIndexToLetter, columnLetterToIndex, shiftFormula } from "./sheetRefs";
+import {
+  callFunction,
+  EMPTY,
+  error,
+  isError,
+  isRange,
+  makeRange,
+  single,
+  toNumber,
+  toText,
+  type CellResult,
+  type EvalValue,
+} from "./sheetFunctions";
+import { compareValues, isoDateSerial, serialToIso } from "./sheetValues";
 
-export type CellResult =
-  | { type: "number"; value: number }
-  | { type: "text"; value: string }
-  | { type: "boolean"; value: boolean }
-  | { type: "empty" }
-  | { type: "error"; message: string };
-
-type EvalValue = CellResult | CellResult[];
-
-const EMPTY: CellResult = { type: "empty" };
-
-function error(message: string): CellResult {
-  return { type: "error", message };
-}
-
-function isError(
-  result: CellResult,
-): result is { type: "error"; message: string } {
-  return result.type === "error";
-}
-
-/** Coerces a cell to a number the way a spreadsheet does: blanks are zero. */
-function toNumber(result: CellResult): number | CellResult {
-  switch (result.type) {
-    case "number":
-      return result.value;
-    case "boolean":
-      return result.value ? 1 : 0;
-    case "empty":
-      return 0;
-    case "error":
-      return result;
-    case "text": {
-      const trimmed = result.value.trim();
-      if (trimmed === "") return 0;
-      const parsed = Number(trimmed);
-      return Number.isNaN(parsed) ? error("#VALUE!") : parsed;
-    }
-  }
-}
-
-function toText(result: CellResult): string {
-  switch (result.type) {
-    case "number":
-      return String(result.value);
-    case "boolean":
-      return result.value ? "TRUE" : "FALSE";
-    case "text":
-      return result.value;
-    case "error":
-      return result.message;
-    case "empty":
-      return "";
-  }
-}
+export type { CellResult, RangeValue } from "./sheetFunctions";
+export { columnIndexToLetter, columnLetterToIndex, shiftFormula };
 
 export function formatCellResult(result: CellResult): string {
   if (result.type === "number") {
@@ -65,116 +27,22 @@ export function formatCellResult(result: CellResult): string {
   return toText(result);
 }
 
-/** "A" -> 0, "Z" -> 25, "AA" -> 26 */
-export function columnLetterToIndex(letters: string): number {
-  let index = 0;
-  for (const char of letters.toUpperCase()) {
-    index = index * 26 + (char.charCodeAt(0) - 64);
-  }
-  return index - 1;
-}
-
-/** 0 -> "A", 25 -> "Z", 26 -> "AA" */
-export function columnIndexToLetter(index: number): string {
-  let result = "";
-  let current = index + 1;
-
-  while (current > 0) {
-    const remainder = (current - 1) % 26;
-    result = String.fromCharCode(65 + remainder) + result;
-    current = Math.floor((current - 1) / 26);
-  }
-
-  return result;
-}
-
-const A1_REF = /([A-Za-z]+)([0-9]+)/g;
-
-/** Shift relative A1 references when filling a formula down or across. */
-export function shiftFormula(
-  value: string,
-  deltaCol: number,
-  deltaRow: number,
-): string {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("=") || (deltaCol === 0 && deltaRow === 0))
-    return value;
-
-  let inString = false;
-  let output = "";
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index];
-    if (char === '"') {
-      inString = !inString;
-      output += char;
-      continue;
-    }
-    if (inString) {
-      output += char;
-      continue;
-    }
-    const range =
-      /^([A-Za-z]+[0-9]*|[0-9]+)\s*:\s*([A-Za-z]+[0-9]*|[0-9]+)(?![A-Za-z0-9_])/.exec(
-        value.slice(index),
-      );
-    if (range) {
-      const shiftEndpoint = (part: string) => {
-        const match = /^([A-Za-z]*)([0-9]*)$/.exec(part)!;
-        return (
-          (match[1]
-            ? columnIndexToLetter(
-                Math.max(0, columnLetterToIndex(match[1]) + deltaCol),
-              )
-            : "") +
-          (match[2] ? String(Math.max(1, Number(match[2]) + deltaRow)) : "")
-        );
-      };
-      output += `${shiftEndpoint(range[1])}:${shiftEndpoint(range[2])}`;
-      index += range[0].length - 1;
-      continue;
-    }
-    A1_REF.lastIndex = 0;
-    const slice = value.slice(index);
-    const match = A1_REF.exec(slice);
-    if (match && match.index === 0) {
-      const nextCol = Math.max(0, columnLetterToIndex(match[1]) + deltaCol);
-      const nextRow = Math.max(1, Number(match[2]) + deltaRow);
-      output += `${columnIndexToLetter(nextCol)}${nextRow}`;
-      index += match[0].length - 1;
-      continue;
-    }
-    output += char;
-  }
-  return output;
-}
-
 // ---- Tokenizer ----
 
 type Token =
   | { kind: "number"; value: number }
   | { kind: "string"; value: string }
+  | { kind: "error"; value: string }
   | { kind: "ref"; col: number; row: number }
+  | { kind: "sheet"; name: string }
   | { kind: "identifier"; value: string }
   | { kind: "operator"; value: string }
   | { kind: "paren"; value: "(" | ")" }
   | { kind: "comma" }
   | { kind: "colon" };
 
-const OPERATORS = [
-  "<>",
-  "<=",
-  ">=",
-  "+",
-  "-",
-  "*",
-  "/",
-  "^",
-  "&",
-  "=",
-  "<",
-  ">",
-  "%",
-];
+const OPERATORS = ["<>", "<=", ">=", "+", "-", "*", "/", "^", "&", "=", "<", ">", "%"];
+const ERROR_LITERALS = ["#DIV/0!", "#N/A", "#NAME?", "#NULL!", "#NUM!", "#REF!", "#VALUE!", "#CYCLE!"];
 
 function tokenize(input: string): Token[] | string {
   const tokens: Token[] = [];
@@ -183,7 +51,8 @@ function tokenize(input: string): Token[] | string {
   while (position < input.length) {
     const char = input[position];
 
-    if (/\s/.test(char)) {
+    if (/\s/.test(char) || char === "$") {
+      // `$` only marks absolute references; it does not change the value.
       position += 1;
       continue;
     }
@@ -191,39 +60,78 @@ function tokenize(input: string): Token[] | string {
     if (char === '"') {
       let value = "";
       position += 1;
-      while (position < input.length && input[position] !== '"') {
+      for (;;) {
+        if (position >= input.length) return "#PARSE!";
+        if (input[position] === '"') {
+          if (input[position + 1] === '"') {
+            value += '"';
+            position += 2;
+            continue;
+          }
+          break;
+        }
         value += input[position];
         position += 1;
       }
-      if (position >= input.length) return "#PARSE!";
       position += 1;
       tokens.push({ kind: "string", value });
       continue;
     }
 
-    if (
-      /[0-9]/.test(char) ||
-      (char === "." && /[0-9]/.test(input[position + 1] ?? ""))
-    ) {
-      let raw = "";
-      while (position < input.length && /[0-9.]/.test(input[position])) {
-        raw += input[position];
+    if (char === "'") {
+      let name = "";
+      position += 1;
+      for (;;) {
+        if (position >= input.length) return "#PARSE!";
+        if (input[position] === "'") {
+          if (input[position + 1] === "'") {
+            name += "'";
+            position += 2;
+            continue;
+          }
+          break;
+        }
+        name += input[position];
         position += 1;
       }
-      const value = Number(raw);
-      if (Number.isNaN(value)) return "#NUM!";
-      tokens.push({ kind: "number", value });
+      position += 1;
+      if (input[position] !== "!") return "#PARSE!";
+      position += 1;
+      tokens.push({ kind: "sheet", name });
       continue;
     }
 
-    if (/[A-Za-z_]/.test(char)) {
+    if (char === "#") {
+      const literal = ERROR_LITERALS.find((candidate) =>
+        input.toUpperCase().startsWith(candidate, position),
+      );
+      if (!literal) return "#PARSE!";
+      tokens.push({ kind: "error", value: literal });
+      position += literal.length;
+      continue;
+    }
+
+    if (/[0-9]/.test(char) || (char === "." && /[0-9]/.test(input[position + 1] ?? ""))) {
+      const match = /^(\d*\.?\d+|\d+\.)(e[-+]?\d+)?/i.exec(input.slice(position))!;
+      const value = Number(match[0]);
+      if (Number.isNaN(value)) return "#NUM!";
+      tokens.push({ kind: "number", value });
+      position += match[0].length;
+      continue;
+    }
+
+    if (/[\p{L}_]/u.test(char)) {
       let raw = "";
-      while (position < input.length && /[A-Za-z0-9_.]/.test(input[position])) {
-        raw += input[position];
+      while (position < input.length && /[\p{L}\p{N}_.$]/u.test(input[position])) {
+        if (input[position] !== "$") raw += input[position];
         position += 1;
       }
-
-      const refMatch = /^([A-Za-z]+)([0-9]+)$/.exec(raw);
+      if (input[position] === "!") {
+        position += 1;
+        tokens.push({ kind: "sheet", name: raw });
+        continue;
+      }
+      const refMatch = /^([A-Za-z]{1,3})([0-9]+)$/.exec(raw);
       if (refMatch) {
         tokens.push({
           kind: "ref",
@@ -254,9 +162,7 @@ function tokenize(input: string): Token[] | string {
       continue;
     }
 
-    const operator = OPERATORS.find((candidate) =>
-      input.startsWith(candidate, position),
-    );
+    const operator = OPERATORS.find((candidate) => input.startsWith(candidate, position));
     if (operator) {
       tokens.push({ kind: "operator", value: operator });
       position += operator.length;
@@ -269,450 +175,13 @@ function tokenize(input: string): Token[] | string {
   return tokens;
 }
 
-// ---- Evaluator ----
+// ---- Operators ----
 
-interface CellLookup {
-  (col: number, row: number): CellResult;
+function isDateText(result: CellResult) {
+  return result.type === "text" && isoDateSerial(result.value) !== null;
 }
 
-function flatten(values: EvalValue[]): CellResult[] {
-  return values.flatMap((value) => (Array.isArray(value) ? value : [value]));
-}
-
-function numericArgs(values: EvalValue[]): number[] | CellResult {
-  const numbers: number[] = [];
-
-  for (const cell of flatten(values)) {
-    if (isError(cell)) return cell;
-    // Ranges routinely contain blanks and labels; those are skipped rather
-    // than poisoning the aggregate.
-    if (cell.type === "empty") continue;
-    if (cell.type === "text" && cell.value.trim() === "") continue;
-
-    const numeric = toNumber(cell);
-    if (typeof numeric !== "number") {
-      if (cell.type === "text") continue;
-      return numeric;
-    }
-    numbers.push(numeric);
-  }
-
-  return numbers;
-}
-
-/* ------------------------------------------------------------------ */
-/* Dates                                                               */
-/* ------------------------------------------------------------------ */
-
-type CalendarDate = { year: number; month: number; day: number };
-
-const WEEKDAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-
-/** Excel's serial-date epoch (day 1 = 1900-01-01, with the Lotus leap bug). */
-const SERIAL_EPOCH_UTC = Date.UTC(1899, 11, 30);
-const DAY_MS = 86_400_000;
-
-function calendarFromUtc(ms: number): CalendarDate {
-  const date = new Date(ms);
-  return {
-    year: date.getUTCFullYear(),
-    month: date.getUTCMonth() + 1,
-    day: date.getUTCDate(),
-  };
-}
-
-function utcFromCalendar(date: CalendarDate): number {
-  return Date.UTC(date.year, date.month - 1, date.day);
-}
-
-function todayCalendar(): CalendarDate {
-  const now = new Date();
-  return {
-    year: now.getFullYear(),
-    month: now.getMonth() + 1,
-    day: now.getDate(),
-  };
-}
-
-/**
- * Reads a cell as a calendar date. Date columns store YYYY-MM-DD; typed text
- * may also be an ISO timestamp or anything Date.parse understands; numbers are
- * treated as spreadsheet serial dates.
- */
-function toCalendarDate(result: CellResult): CalendarDate | CellResult {
-  if (isError(result)) return result;
-  if (result.type === "empty") return error("#VALUE!");
-  if (result.type === "boolean") return error("#VALUE!");
-  if (result.type === "number") {
-    if (!Number.isFinite(result.value)) return error("#NUM!");
-    return calendarFromUtc(
-      SERIAL_EPOCH_UTC + Math.floor(result.value) * DAY_MS,
-    );
-  }
-  const trimmed = result.value.trim();
-  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(trimmed);
-  if (iso) {
-    const year = Number(iso[1]);
-    const month = Number(iso[2]);
-    const day = Number(iso[3]);
-    const probe = new Date(Date.UTC(year, month - 1, day));
-    if (
-      probe.getUTCFullYear() !== year ||
-      probe.getUTCMonth() !== month - 1 ||
-      probe.getUTCDate() !== day
-    ) {
-      return error("#VALUE!");
-    }
-    return { year, month, day };
-  }
-  if (trimmed === "") return error("#VALUE!");
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return error("#VALUE!");
-  return {
-    year: parsed.getFullYear(),
-    month: parsed.getMonth() + 1,
-    day: parsed.getDate(),
-  };
-}
-
-function isCalendarDate(
-  value: CalendarDate | CellResult,
-): value is CalendarDate {
-  return "year" in value;
-}
-
-function pad2(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-function isoDate(date: CalendarDate): string {
-  return `${date.year}-${pad2(date.month)}-${pad2(date.day)}`;
-}
-
-/** 0 = Sunday … 6 = Saturday, independent of the local time zone. */
-function weekdayIndex(date: CalendarDate): number {
-  return new Date(utcFromCalendar(date)).getUTCDay();
-}
-
-/** Excel WEEKDAY return types: 1 → Sun=1..Sat=7, 2 → Mon=1..Sun=7, 3 → Mon=0..Sun=6. */
-function weekdayNumber(date: CalendarDate, type: number): number | CellResult {
-  const sunday0 = weekdayIndex(date);
-  switch (type) {
-    case 1:
-      return sunday0 + 1;
-    case 2:
-      return ((sunday0 + 6) % 7) + 1;
-    case 3:
-      return (sunday0 + 6) % 7;
-    default:
-      return error("#NUM!");
-  }
-}
-
-const DATE_TOKEN_RE = /dddd|ddd|dd|d|mmmm|mmm|mm|m|yyyy|yy/gi;
-
-function looksLikeDateFormat(format: string) {
-  return /d|m|y/i.test(format) && !/[#0]/.test(format);
-}
-
-function formatDateText(date: CalendarDate, format: string): string {
-  return format.replace(DATE_TOKEN_RE, (token) => {
-    switch (token.toLowerCase()) {
-      case "dddd":
-        return WEEKDAY_NAMES[weekdayIndex(date)];
-      case "ddd":
-        return WEEKDAY_NAMES[weekdayIndex(date)].slice(0, 3);
-      case "dd":
-        return pad2(date.day);
-      case "d":
-        return String(date.day);
-      case "mmmm":
-        return MONTH_NAMES[date.month - 1];
-      case "mmm":
-        return MONTH_NAMES[date.month - 1].slice(0, 3);
-      case "mm":
-        return pad2(date.month);
-      case "m":
-        return String(date.month);
-      case "yyyy":
-        return String(date.year);
-      case "yy":
-        return pad2(date.year % 100);
-      default:
-        return token;
-    }
-  });
-}
-
-/** Number patterns: 0, 0.00, #,##0, #,##0.00, 0%, 0.0%. Anything else prints plainly. */
-function formatNumberText(value: number, format: string): string {
-  const percent = format.includes("%");
-  const scaled = percent ? value * 100 : value;
-  const decimalsMatch = /\.(0+)/.exec(format);
-  const decimals = decimalsMatch ? decimalsMatch[1].length : 0;
-  const grouped = format.includes(",");
-  const body = grouped
-    ? scaled.toLocaleString("en-US", {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
-      })
-    : scaled.toFixed(decimals);
-  return percent ? `${body}%` : body;
-}
-
-function textFunction(value: CellResult, format: string): CellResult {
-  if (isError(value)) return value;
-  if (looksLikeDateFormat(format)) {
-    const date = toCalendarDate(value);
-    if (!isCalendarDate(date)) return date;
-    return { type: "text", value: formatDateText(date, format) };
-  }
-  const numeric = toNumber(value);
-  if (typeof numeric !== "number") return numeric;
-  if (!/[#0]/.test(format)) return { type: "text", value: toText(value) };
-  return { type: "text", value: formatNumberText(numeric, format) };
-}
-
-function callFunction(name: string, args: EvalValue[]): CellResult {
-  const single = (index: number): CellResult => {
-    const value = args[index];
-    if (value === undefined) return EMPTY;
-    return Array.isArray(value) ? (value[0] ?? EMPTY) : value;
-  };
-
-  switch (name) {
-    case "SUM":
-    case "AVERAGE":
-    case "AVG":
-    case "MIN":
-    case "MAX":
-    case "PRODUCT": {
-      const numbers = numericArgs(args);
-      if (!Array.isArray(numbers)) return numbers;
-      if (numbers.length === 0) {
-        return name === "SUM" || name === "PRODUCT"
-          ? { type: "number", value: 0 }
-          : error("#DIV/0!");
-      }
-
-      switch (name) {
-        case "SUM":
-          return { type: "number", value: numbers.reduce((a, b) => a + b, 0) };
-        case "PRODUCT":
-          return { type: "number", value: numbers.reduce((a, b) => a * b, 1) };
-        case "MIN":
-          return { type: "number", value: Math.min(...numbers) };
-        case "MAX":
-          return { type: "number", value: Math.max(...numbers) };
-        default:
-          return {
-            type: "number",
-            value: numbers.reduce((a, b) => a + b, 0) / numbers.length,
-          };
-      }
-    }
-
-    case "COUNT": {
-      const numbers = numericArgs(args);
-      if (!Array.isArray(numbers)) return numbers;
-      return { type: "number", value: numbers.length };
-    }
-
-    case "COUNTA": {
-      const filled = flatten(args).filter(
-        (cell) =>
-          cell.type !== "empty" &&
-          !(cell.type === "text" && cell.value.trim() === ""),
-      );
-      return { type: "number", value: filled.length };
-    }
-
-    case "ABS":
-    case "SQRT":
-    case "ROUND":
-    case "FLOOR":
-    case "CEILING": {
-      const first = toNumber(single(0));
-      if (typeof first !== "number") return first;
-
-      if (name === "ABS") return { type: "number", value: Math.abs(first) };
-      if (name === "SQRT") {
-        return first < 0
-          ? error("#NUM!")
-          : { type: "number", value: Math.sqrt(first) };
-      }
-      if (name === "FLOOR") return { type: "number", value: Math.floor(first) };
-      if (name === "CEILING")
-        return { type: "number", value: Math.ceil(first) };
-
-      const digitsArg = args.length > 1 ? toNumber(single(1)) : 0;
-      if (typeof digitsArg !== "number") return digitsArg;
-      const factor = 10 ** digitsArg;
-      return { type: "number", value: Math.round(first * factor) / factor };
-    }
-
-    case "POWER": {
-      const base = toNumber(single(0));
-      const exponent = toNumber(single(1));
-      if (typeof base !== "number") return base;
-      if (typeof exponent !== "number") return exponent;
-      return { type: "number", value: base ** exponent };
-    }
-
-    case "IF": {
-      const condition = single(0);
-      if (isError(condition)) return condition;
-
-      const isTruthy =
-        condition.type === "boolean"
-          ? condition.value
-          : condition.type === "number"
-            ? condition.value !== 0
-            : condition.type === "text"
-              ? condition.value.trim() !== "" &&
-                condition.value.toUpperCase() !== "FALSE"
-              : false;
-
-      return isTruthy ? single(1) : args[2] === undefined ? EMPTY : single(2);
-    }
-
-    case "AND":
-    case "OR": {
-      const cells = flatten(args);
-      const flags: boolean[] = [];
-
-      for (const cell of cells) {
-        if (isError(cell)) return cell;
-        if (cell.type === "empty") continue;
-        flags.push(
-          cell.type === "boolean"
-            ? cell.value
-            : toText(cell).toUpperCase() !== "FALSE",
-        );
-      }
-
-      return {
-        type: "boolean",
-        value: name === "AND" ? flags.every(Boolean) : flags.some(Boolean),
-      };
-    }
-
-    case "NOT": {
-      const first = single(0);
-      if (isError(first)) return first;
-      return {
-        type: "boolean",
-        value: !(first.type === "boolean"
-          ? first.value
-          : toText(first).toUpperCase() !== "FALSE" && toText(first) !== ""),
-      };
-    }
-
-    case "CONCAT":
-    case "CONCATENATE":
-      return { type: "text", value: flatten(args).map(toText).join("") };
-
-    case "LEN":
-      return { type: "number", value: toText(single(0)).length };
-
-    case "UPPER":
-      return { type: "text", value: toText(single(0)).toUpperCase() };
-
-    case "LOWER":
-      return { type: "text", value: toText(single(0)).toLowerCase() };
-
-    case "TRIM":
-      return { type: "text", value: toText(single(0)).trim() };
-
-    case "TODAY":
-      return { type: "text", value: isoDate(todayCalendar()) };
-
-    case "DATE": {
-      const year = toNumber(single(0));
-      const month = toNumber(single(1));
-      const day = toNumber(single(2));
-      if (typeof year !== "number") return year;
-      if (typeof month !== "number") return month;
-      if (typeof day !== "number") return day;
-      const ms = Date.UTC(
-        Math.trunc(year),
-        Math.trunc(month) - 1,
-        Math.trunc(day),
-      );
-      if (!Number.isFinite(ms)) return error("#NUM!");
-      return { type: "text", value: isoDate(calendarFromUtc(ms)) };
-    }
-
-    case "YEAR":
-    case "MONTH":
-    case "DAY": {
-      const date = toCalendarDate(single(0));
-      if (!isCalendarDate(date)) return date;
-      const value =
-        name === "YEAR" ? date.year : name === "MONTH" ? date.month : date.day;
-      return { type: "number", value };
-    }
-
-    case "WEEKDAY": {
-      const date = toCalendarDate(single(0));
-      if (!isCalendarDate(date)) return date;
-      const typeArg = args.length > 1 ? toNumber(single(1)) : 1;
-      if (typeof typeArg !== "number") return typeArg;
-      const value = weekdayNumber(date, Math.trunc(typeArg) || 1);
-      return typeof value === "number" ? { type: "number", value } : value;
-    }
-
-    case "DAYS": {
-      const end = toCalendarDate(single(0));
-      if (!isCalendarDate(end)) return end;
-      const start = toCalendarDate(single(1));
-      if (!isCalendarDate(start)) return start;
-      return {
-        type: "number",
-        value: Math.round(
-          (utcFromCalendar(end) - utcFromCalendar(start)) / DAY_MS,
-        ),
-      };
-    }
-
-    case "TEXT": {
-      const format = single(1);
-      if (isError(format)) return format;
-      return textFunction(single(0), toText(format));
-    }
-
-    default:
-      return error("#NAME?");
-  }
-}
-
-function applyBinary(
-  operator: string,
-  left: CellResult,
-  right: CellResult,
-): CellResult {
+function applyScalar(operator: string, left: CellResult, right: CellResult): CellResult {
   if (isError(left)) return left;
   if (isError(right)) return right;
 
@@ -721,41 +190,20 @@ function applyBinary(
   }
 
   if (["=", "<>", "<", ">", "<=", ">="].includes(operator)) {
-    const leftNumber = toNumber(left);
-    const rightNumber = toNumber(right);
-
-    if (typeof leftNumber === "number" && typeof rightNumber === "number") {
-      switch (operator) {
-        case "=":
-          return { type: "boolean", value: leftNumber === rightNumber };
-        case "<>":
-          return { type: "boolean", value: leftNumber !== rightNumber };
-        case "<":
-          return { type: "boolean", value: leftNumber < rightNumber };
-        case ">":
-          return { type: "boolean", value: leftNumber > rightNumber };
-        case "<=":
-          return { type: "boolean", value: leftNumber <= rightNumber };
-        default:
-          return { type: "boolean", value: leftNumber >= rightNumber };
-      }
-    }
-
-    const leftText = toText(left);
-    const rightText = toText(right);
+    const order = compareValues(left, right);
     switch (operator) {
       case "=":
-        return { type: "boolean", value: leftText === rightText };
+        return { type: "boolean", value: order === 0 };
       case "<>":
-        return { type: "boolean", value: leftText !== rightText };
+        return { type: "boolean", value: order !== 0 };
       case "<":
-        return { type: "boolean", value: leftText < rightText };
+        return { type: "boolean", value: order < 0 };
       case ">":
-        return { type: "boolean", value: leftText > rightText };
+        return { type: "boolean", value: order > 0 };
       case "<=":
-        return { type: "boolean", value: leftText <= rightText };
+        return { type: "boolean", value: order <= 0 };
       default:
-        return { type: "boolean", value: leftText >= rightText };
+        return { type: "boolean", value: order >= 0 };
     }
   }
 
@@ -764,10 +212,19 @@ function applyBinary(
   const rightNumber = toNumber(right);
   if (typeof rightNumber !== "number") return rightNumber;
 
+  // Dates stay dates: a date plus days is a date, a date minus a date is days.
+  const leftDate = isDateText(left);
+  const rightDate = isDateText(right);
   switch (operator) {
     case "+":
+      if (leftDate !== rightDate) {
+        return { type: "text", value: serialToIso(leftNumber + rightNumber) };
+      }
       return { type: "number", value: leftNumber + rightNumber };
     case "-":
+      if (leftDate && !rightDate) {
+        return { type: "text", value: serialToIso(leftNumber - rightNumber) };
+      }
       return { type: "number", value: leftNumber - rightNumber };
     case "*":
       return { type: "number", value: leftNumber * rightNumber };
@@ -775,144 +232,155 @@ function applyBinary(
       return rightNumber === 0
         ? error("#DIV/0!")
         : { type: "number", value: leftNumber / rightNumber };
-    case "^":
-      return { type: "number", value: leftNumber ** rightNumber };
+    case "^": {
+      const value = leftNumber ** rightNumber;
+      return Number.isFinite(value) ? { type: "number", value } : error("#NUM!");
+    }
     default:
       return error("#PARSE!");
   }
 }
 
-function parseFormula(
-  tokens: Token[],
-  lookup: CellLookup,
-  columnCount: number,
-  rowCount: number,
-): CellResult {
+/** Arithmetic and comparisons work element by element on ranges, so
+ * SUMPRODUCT((C2:C9="Food")*D2:D9) does what it does in other spreadsheets. */
+function applyBinary(operator: string, left: EvalValue, right: EvalValue): EvalValue {
+  if (!isRange(left) && !isRange(right)) return applyScalar(operator, left, right);
+  const shape = isRange(left) ? left : (right as ReturnType<typeof makeRange>);
+  const at = (value: EvalValue, index: number) =>
+    isRange(value) ? (value[index] ?? EMPTY) : value;
+  const cells = shape.map((_, index) => applyScalar(operator, at(left, index), at(right, index)));
+  return makeRange(cells, shape.rows, shape.cols);
+}
+
+function mapRange(value: EvalValue, map: (cell: CellResult) => CellResult): EvalValue {
+  if (!isRange(value)) return map(value);
+  return makeRange(value.map(map), value.rows, value.cols);
+}
+
+// ---- Parser ----
+
+export interface FormulaContext {
+  /** Reads one cell; `sheet` is a tab name or undefined for this tab. */
+  lookup: (sheet: string | undefined, col: number, row: number) => CellResult;
+  /** Grid size of a tab, or null when no tab has that name. */
+  size: (sheet: string | undefined) => { columns: number; rows: number } | null;
+  /** The cell being evaluated, for ROW() and COLUMN(). */
+  row: number;
+  col: number;
+}
+
+function parseFormula(tokens: Token[], context: FormulaContext): CellResult {
   let position = 0;
 
   const peek = () => tokens[position];
   const next = () => tokens[position++];
-
-  const single = (value: EvalValue): CellResult =>
-    Array.isArray(value) ? (value[0] ?? EMPTY) : value;
+  const isOperator = (values: string[]) => {
+    const token = peek();
+    return token?.kind === "operator" && values.includes(token.value);
+  };
 
   function parseExpression(): EvalValue {
-    let left = parseAdditive();
-
-    while (
-      peek()?.kind === "operator" &&
-      ["=", "<>", "<", ">", "<=", ">="].includes(
-        (peek() as { value: string }).value,
-      )
-    ) {
+    let left = parseConcat();
+    while (isOperator(["=", "<>", "<", ">", "<=", ">="])) {
       const operator = (next() as { value: string }).value;
-      left = applyBinary(operator, single(left), single(parseAdditive()));
+      left = applyBinary(operator, left, parseConcat());
     }
+    return left;
+  }
 
+  function parseConcat(): EvalValue {
+    let left = parseAdditive();
+    while (isOperator(["&"])) {
+      next();
+      left = applyBinary("&", left, parseAdditive());
+    }
     return left;
   }
 
   function parseAdditive(): EvalValue {
     let left = parseMultiplicative();
-
-    while (
-      peek()?.kind === "operator" &&
-      ["+", "-", "&"].includes((peek() as { value: string }).value)
-    ) {
+    while (isOperator(["+", "-"])) {
       const operator = (next() as { value: string }).value;
-      left = applyBinary(operator, single(left), single(parseMultiplicative()));
+      left = applyBinary(operator, left, parseMultiplicative());
     }
-
     return left;
   }
 
   function parseMultiplicative(): EvalValue {
     let left = parsePower();
-
-    while (
-      peek()?.kind === "operator" &&
-      ["*", "/"].includes((peek() as { value: string }).value)
-    ) {
+    while (isOperator(["*", "/"])) {
       const operator = (next() as { value: string }).value;
-      left = applyBinary(operator, single(left), single(parsePower()));
+      left = applyBinary(operator, left, parsePower());
     }
-
     return left;
   }
 
   function parsePower(): EvalValue {
-    const left = parseUnary();
-
-    if (
-      peek()?.kind === "operator" &&
-      (peek() as { value: string }).value === "^"
-    ) {
+    let left = parseUnary();
+    // Spreadsheets evaluate ^ left to right: 2^3^2 is 64.
+    while (isOperator(["^"])) {
       next();
-      return applyBinary("^", single(left), single(parsePower()));
+      left = applyBinary("^", left, parseUnary());
     }
-
     return left;
   }
 
   function parseUnary(): EvalValue {
     const token = peek();
-
-    if (
-      token?.kind === "operator" &&
-      (token.value === "-" || token.value === "+")
-    ) {
+    if (token?.kind === "operator" && (token.value === "-" || token.value === "+")) {
       next();
-      const operand = single(parseUnary());
-      if (isError(operand)) return operand;
-      const numeric = toNumber(operand);
-      if (typeof numeric !== "number") return numeric;
-      return {
-        type: "number",
-        value: token.value === "-" ? -numeric : numeric,
-      };
+      const operand = parseUnary();
+      return mapRange(operand, (cell) => {
+        if (isError(cell)) return cell;
+        const numeric = toNumber(cell);
+        if (typeof numeric !== "number") return numeric;
+        return { type: "number", value: token.value === "-" ? -numeric : numeric };
+      });
     }
-
     return parsePostfix();
   }
 
-  /** Postfix percent, spreadsheet style: `50%` is 0.5, `A1%%` is A1/10000.
-   * Binds tighter than `^` and looser than unary minus, matching Excel. */
+  /** Postfix percent, spreadsheet style: `50%` is 0.5, `A1%%` is A1/10000. */
   function parsePostfix(): EvalValue {
     let value = parsePrimary();
-    while (
-      peek()?.kind === "operator" &&
-      (peek() as { value: string }).value === "%"
-    ) {
+    while (isOperator(["%"])) {
       next();
-      const operand = single(value);
-      if (isError(operand)) return operand;
-      const numeric = toNumber(operand);
-      if (typeof numeric !== "number") return numeric;
-      value = { type: "number", value: numeric / 100 };
+      value = mapRange(value, (cell) => {
+        if (isError(cell)) return cell;
+        const numeric = toNumber(cell);
+        if (typeof numeric !== "number") return numeric;
+        return { type: "number", value: numeric / 100 };
+      });
     }
     return value;
   }
 
-  function parsePrimary(): EvalValue {
-    const token = next();
-    if (!token) return error("#PARSE!");
+  function parseReference(first: Token, sheet: string | undefined): EvalValue {
+    const size = context.size(sheet);
+    if (!size) {
+      // Consume the rest of a range so parsing can continue.
+      if (peek()?.kind === "colon") {
+        next();
+        next();
+      }
+      return error("#REF!");
+    }
 
     if (peek()?.kind === "colon") {
       next();
-      const end = next();
+      let end = next();
+      if (end?.kind === "sheet") end = next();
       // Missing row/column coordinates expand to the current grid boundary.
       // Re-evaluation against a larger grid includes newly added rows/columns.
-      const endpoint = (
-        part: Token | undefined,
-      ): { col?: number; row?: number } | null => {
+      const endpoint = (part: Token | undefined): { col?: number; row?: number } | null => {
         if (part?.kind === "ref") return { col: part.col, row: part.row };
-        if (part?.kind === "identifier" && /^[A-Z]+$/.test(part.value))
+        if (part?.kind === "identifier" && /^[A-Z]{1,3}$/.test(part.value))
           return { col: columnLetterToIndex(part.value) };
         if (part?.kind === "number" && Number.isSafeInteger(part.value))
           return { row: part.value - 1 };
         return null;
       };
-      const start = endpoint(token);
+      const start = endpoint(first);
       const finish = endpoint(end);
       if (!start || !finish) return error("#PARSE!");
       if (
@@ -921,57 +389,68 @@ function parseFormula(
       )
         return error("#PARSE!");
       for (const coordinate of [start.col, start.row, finish.col, finish.row]) {
-        if (
-          coordinate !== undefined &&
-          (!Number.isSafeInteger(coordinate) || coordinate < 0)
-        )
+        if (coordinate !== undefined && (!Number.isSafeInteger(coordinate) || coordinate < 0))
           return error("#REF!");
       }
       const left = start.col ?? 0;
-      const right = finish.col ?? columnCount - 1;
+      const right = finish.col ?? size.columns - 1;
       const top = start.row ?? 0;
-      const bottom = finish.row ?? rowCount - 1;
-      const cells: CellResult[] = [];
+      const bottom = finish.row ?? size.rows - 1;
       // Only visit actual grid cells, even for very large explicit bounds.
       const startCol = Math.max(0, Math.min(left, right));
-      const endCol = Math.min(columnCount - 1, Math.max(left, right));
+      const endCol = Math.min(size.columns - 1, Math.max(left, right));
       const startRow = Math.max(0, Math.min(top, bottom));
-      const endRow = Math.min(rowCount - 1, Math.max(top, bottom));
+      const endRow = Math.min(size.rows - 1, Math.max(top, bottom));
       // An open range starting beyond the grid is empty, not reversed.
       if (
-        (finish.row === undefined && top >= rowCount) ||
-        (finish.col === undefined && left >= columnCount)
+        (finish.row === undefined && top >= size.rows) ||
+        (finish.col === undefined && left >= size.columns)
       )
-        return cells;
+        return makeRange([], 0, 0);
+      const cells: CellResult[] = [];
       for (let row = startRow; row <= endRow; row += 1) {
-        for (let col = startCol; col <= endCol; col += 1)
-          cells.push(lookup(col, row));
+        for (let col = startCol; col <= endCol; col += 1) cells.push(context.lookup(sheet, col, row));
       }
-      return cells;
+      return makeRange(cells, Math.max(0, endRow - startRow + 1), Math.max(0, endCol - startCol + 1));
     }
+
+    if (first.kind === "ref") return context.lookup(sheet, first.col, first.row);
+    return error("#PARSE!");
+  }
+
+  function parsePrimary(): EvalValue {
+    let token = next();
+    if (!token) return error("#PARSE!");
+
+    if (token.kind === "sheet") {
+      const sheet = token.name;
+      token = next();
+      if (!token) return error("#PARSE!");
+      return parseReference(token, sheet);
+    }
+
+    if (peek()?.kind === "colon") return parseReference(token, undefined);
 
     if (token.kind === "number") return { type: "number", value: token.value };
     if (token.kind === "string") return { type: "text", value: token.value };
-    if (token.kind === "ref") return lookup(token.col, token.row);
+    if (token.kind === "error") return error(token.value);
+    if (token.kind === "ref") return parseReference(token, undefined);
 
     if (token.kind === "identifier") {
-      if (token.value === "TRUE") return { type: "boolean", value: true };
-      if (token.value === "FALSE") return { type: "boolean", value: false };
-
-      if (peek()?.kind !== "paren") return error("#NAME?");
+      const open = peek();
+      if (open?.kind !== "paren" || open.value !== "(") {
+        if (token.value === "TRUE") return { type: "boolean", value: true };
+        if (token.value === "FALSE") return { type: "boolean", value: false };
+        return error("#NAME?");
+      }
       next();
 
       const args: EvalValue[] = [];
-      if (
-        !(
-          peek()?.kind === "paren" &&
-          (peek() as { value: string }).value === ")"
-        )
-      ) {
-        args.push(parseExpression());
+      if (!(peek()?.kind === "paren" && (peek() as { value: string }).value === ")")) {
+        args.push(parseArgument());
         while (peek()?.kind === "comma") {
           next();
-          args.push(parseExpression());
+          args.push(parseArgument());
         }
       }
 
@@ -980,7 +459,7 @@ function parseFormula(
         return error("#PARSE!");
       }
 
-      return callFunction(token.value, args);
+      return callFunction(token.value, args, context);
     }
 
     if (token.kind === "paren" && token.value === "(") {
@@ -993,6 +472,13 @@ function parseFormula(
     }
 
     return error("#PARSE!");
+  }
+
+  /** An omitted argument such as the middle of IF(A1,,"no") reads as empty. */
+  function parseArgument(): EvalValue {
+    const token = peek();
+    if (token?.kind === "comma" || (token?.kind === "paren" && token.value === ")")) return EMPTY;
+    return parseExpression();
   }
 
   const result = parseExpression();
@@ -1011,10 +497,7 @@ function parseLiteral(raw: string): CellResult {
   // Accept "1,234.5" and "42%" as numbers, everything else stays text.
   const numericCandidate = trimmed.replace(/,/g, "");
   if (/^-?\d*\.?\d+%$/.test(numericCandidate)) {
-    return {
-      type: "number",
-      value: Number(numericCandidate.slice(0, -1)) / 100,
-    };
+    return { type: "number", value: Number(numericCandidate.slice(0, -1)) / 100 };
   }
   if (/^-?\d*\.?\d+(e[-+]?\d+)?$/i.test(numericCandidate)) {
     return { type: "number", value: Number(numericCandidate) };
@@ -1023,14 +506,78 @@ function parseLiteral(raw: string): CellResult {
   return { type: "text", value: trimmed };
 }
 
+export interface WorkbookTab {
+  id: string;
+  name: string;
+  columns: SheetColumn[];
+  rows: SheetRow[];
+}
+
+export interface WorkbookContext {
+  /** Every tab of the workbook, including the one being evaluated. */
+  tabs: WorkbookTab[];
+  /** Id of the tab whose columns/rows are passed to createSheetEvaluator. */
+  currentTabId?: string;
+}
+
+export interface SheetEvaluator {
+  valueAt: (col: number, row: number) => CellResult;
+  displayAt: (col: number, row: number) => string;
+  isFormula: (col: number, row: number) => boolean;
+}
+
+type Registry = Map<string, SheetEvaluator & { name: string; warm: () => void }>;
+
+interface Shared {
+  registry: Registry;
+  /** Formula evaluations in progress across every tab of the workbook. */
+  depth: number;
+}
+
 /**
  * Builds a memoized evaluator over the grid. Formulas may reference other
- * cells by A1 notation; circular references resolve to #CYCLE! instead of
- * recursing forever.
+ * cells by A1 notation and other tabs of the workbook by name
+ * (`January!F2`, `'Jan 2026'!F2:F40`); circular references resolve to
+ * #CYCLE! instead of recursing forever.
  */
-export function createSheetEvaluator(columns: SheetColumn[], rows: SheetRow[]) {
-  const cache = new Map<string, CellResult>();
-  const visiting = new Set<string>();
+export function createSheetEvaluator(
+  columns: SheetColumn[],
+  rows: SheetRow[],
+  workbook?: WorkbookContext,
+): SheetEvaluator {
+  const shared: Shared = { registry: new Map(), depth: 0 };
+  const currentName =
+    workbook?.tabs.find((tab) => tab.id === workbook.currentTabId)?.name ?? "";
+  return buildEvaluator(columns, rows, currentName, workbook, shared, workbook?.currentTabId);
+}
+
+/**
+ * Evaluators for every tab of a workbook that share one cache, so reading
+ * all tabs works each tab out once instead of once per reader.
+ */
+export function createWorkbookEvaluators(workbook: WorkbookContext): (tabId: string) => SheetEvaluator | null {
+  const shared: Shared = { registry: new Map(), depth: 0 };
+  return (tabId) => {
+    const existing = shared.registry.get(tabId);
+    if (existing) return existing;
+    const tab = workbook.tabs.find((candidate) => candidate.id === tabId);
+    return tab ? buildEvaluator(tab.columns, tab.rows, tab.name, workbook, shared, tab.id) : null;
+  };
+}
+
+function buildEvaluator(
+  columns: SheetColumn[],
+  rows: SheetRow[],
+  name: string,
+  workbook: WorkbookContext | undefined,
+  shared: Shared,
+  id: string | undefined,
+): SheetEvaluator & { name: string; warm: () => void } {
+  const registry = shared.registry;
+  const cache = new Map<number, CellResult>();
+  const visiting = new Set<number>();
+  const width = Math.max(columns.length, 1);
+  let warmed = false;
 
   const rawAt = (col: number, row: number): string => {
     const column = columns[col];
@@ -1039,12 +586,32 @@ export function createSheetEvaluator(columns: SheetColumn[], rows: SheetRow[]) {
     return sheetRow.cells?.[column.id] ?? "";
   };
 
-  const valueAt: CellLookup = (col, row) => {
-    const key = `${col}:${row}`;
+  const resolveTab = (sheet: string | undefined) => {
+    if (sheet === undefined) return self;
+    const key = sheet.trim().toLowerCase();
+    if (name && key === name.trim().toLowerCase()) return self;
+    const tab = workbook?.tabs.find((candidate) => candidate.name.trim().toLowerCase() === key);
+    if (!tab) return null;
+    const existing = registry.get(tab.id);
+    if (existing) return existing;
+    const built = buildEvaluator(tab.columns, tab.rows, tab.name, workbook, shared, tab.id);
+    registry.set(tab.id, built);
+    return built;
+  };
 
+  const sizeOf = (sheet: string | undefined) => {
+    if (sheet === undefined) return { columns: columns.length, rows: rows.length };
+    const key = sheet.trim().toLowerCase();
+    if (name && key === name.trim().toLowerCase()) return { columns: columns.length, rows: rows.length };
+    const tab = workbook?.tabs.find((candidate) => candidate.name.trim().toLowerCase() === key);
+    return tab ? { columns: tab.columns.length, rows: tab.rows.length } : null;
+  };
+
+  const compute = (col: number, row: number): CellResult => {
+    const key = row * width + col;
     const cached = cache.get(key);
     if (cached) return cached;
-
+    if (col >= columns.length || row >= rows.length || col < 0 || row < 0) return EMPTY;
     if (visiting.has(key)) return error("#CYCLE!");
 
     const raw = rawAt(col, row).trim();
@@ -1055,22 +622,69 @@ export function createSheetEvaluator(columns: SheetColumn[], rows: SheetRow[]) {
     }
 
     visiting.add(key);
-    const tokens = tokenize(raw.slice(1));
-    const result =
-      typeof tokens === "string"
-        ? error(tokens)
-        : parseFormula(tokens, valueAt, columns.length, rows.length);
-    visiting.delete(key);
+    shared.depth += 1;
+    let result: CellResult;
+    try {
+      const tokens = tokenize(raw.slice(1));
+      result =
+        typeof tokens === "string"
+          ? error(tokens)
+          : parseFormula(tokens, {
+              lookup: (sheet, c, r) => {
+                const target = resolveTab(sheet);
+                return target ? target.valueAt(c, r) : error("#REF!");
+              },
+              size: sizeOf,
+              row,
+              col,
+            });
+    } catch (caught) {
+      if (!(caught instanceof RangeError)) throw caught;
+      result = error("#DEPTH!");
+    } finally {
+      shared.depth -= 1;
+      visiting.delete(key);
+    }
 
     cache.set(key, result);
     return result;
   };
 
-  return {
-    valueAt,
-    displayAt: (col: number, row: number) =>
-      formatCellResult(valueAt(col, row)),
-    isFormula: (col: number, row: number) =>
-      rawAt(col, row).trim().startsWith("="),
+  /** Long chains such as a running balance are evaluated top to bottom first,
+   * so reading the last row does not recurse through every row above it.
+   * Warming only starts when no formula anywhere is mid-evaluation, so a cell
+   * that is being computed is never mistaken for a cycle. */
+  const warm = () => {
+    if (warmed) return;
+    warmed = true;
+    for (let row = 0; row < rows.length; row += 1) {
+      for (let col = 0; col < columns.length; col += 1) {
+        if (rawAt(col, row).trim().startsWith("=")) compute(col, row);
+      }
+    }
   };
+
+  const valueAt = (col: number, row: number): CellResult => {
+    if (!warmed && shared.depth === 0 && rawAt(col, row).trim().startsWith("=")) {
+      const cached = cache.get(row * width + col);
+      if (cached) return cached;
+      // Other tabs first, so totals read from them are already known.
+      for (const tab of workbook?.tabs ?? []) {
+        if (tab.id === id) continue;
+        resolveTab(tab.name)?.warm();
+      }
+      warm();
+    }
+    return compute(col, row);
+  };
+
+  const self = {
+    name,
+    warm,
+    valueAt,
+    displayAt: (col: number, row: number) => formatCellResult(valueAt(col, row)),
+    isFormula: (col: number, row: number) => rawAt(col, row).trim().startsWith("="),
+  };
+  if (id) registry.set(id, self);
+  return self;
 }

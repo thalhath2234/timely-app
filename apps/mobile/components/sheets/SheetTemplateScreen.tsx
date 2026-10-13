@@ -91,7 +91,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
     schedule(workbookPayload(nextTabs));
   }
 
-  function handleGridChange(next: Partial<Pick<SheetTab, "columns" | "rows" | "merges">>) {
+  function handleGridChange(next: Partial<Pick<SheetTab, "columns" | "rows" | "merges" | "frozenRows" | "frozenCols">>) {
     if (!activeTab) return;
     persistTabs(
       tabsRef.current.map((tab) =>
@@ -101,6 +101,8 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
               columns: next.columns ?? tab.columns,
               rows: next.rows ?? tab.rows,
               merges: next.merges ?? tab.merges,
+              frozenRows: next.frozenRows ?? tab.frozenRows,
+              frozenCols: next.frozenCols ?? tab.frozenCols,
             }
           : tab,
       ),
@@ -193,12 +195,16 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
             columns={activeTab.columns}
             rows={activeTab.rows}
             merges={activeTab.merges ?? []}
+            workbook={{ tabs, currentTabId: activeTab.id }}
+            conditionalFormats={activeTab.conditionalFormats}
+            frozenRows={activeTab.frozenRows ?? 0}
+            frozenCols={activeTab.frozenCols ?? 0}
             onChange={handleGridChange}
           />
         ) : null}
       </View>
       <View style={[styles.tabBarWrap, { paddingBottom: systemBottomInset(insets.bottom) }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
+        <ScrollView keyboardShouldPersistTaps="handled" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
           {tabs.map((tab) => (
             <Pressable
               key={tab.id}
@@ -208,7 +214,7 @@ function TemplateEditor({ template }: { template: SheetTemplate }) {
                 setTabDraft(tab.name);
                 setMenu("tab");
               }}
-              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn]}
+              style={[styles.tab, tab.id === activeTab?.id && styles.tabOn, tab.color ? { borderBottomColor: tab.color } : null]}
             >
               <Text style={[styles.tabLabel, tab.id === activeTab?.id && styles.tabLabelOn]}>{tab.name}</Text>
             </Pressable>

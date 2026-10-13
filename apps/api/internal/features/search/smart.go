@@ -128,7 +128,9 @@ func (s *Smart) SearchFor(ctx context.Context, userID, query string, kinds []str
 	if kind, ok := answers.Choice("category", decide.Prefill); ok && kind != "any" {
 		out.Category = kind
 	}
-	if pick, ok := answers.Choice("view", decide.Route); ok && pick != "none" {
+	// Offering a view is a suggestion the person still taps, so it needs no
+	// more than a pre-filled field.
+	if pick, ok := answers.Choice("view", decide.Prefill); ok && pick != "none" {
 		var n int
 		if _, err := fmt.Sscanf(pick, "view%d", &n); err == nil && n >= 1 && n <= len(views) {
 			out.View = &ViewPick{ID: views[n-1].ID, Name: views[n-1].Name}

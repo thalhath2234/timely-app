@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Alert, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Keyboard, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronRight, Clock, Inbox, Sparkles, Trash2 } from "lucide-react-native";
@@ -97,6 +97,18 @@ export default function InboxScreen() {
   const remove = useDeleteTask();
   const zone = useWorkingHoursZone();
   const [title, setTitle] = useState("");
+  // Android draws edge to edge, so the window no longer shrinks for the
+  // keyboard: the composer has to lift itself, and drops the gesture-bar
+  // gap while the keyboard is up.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardOpen(true));
+    const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardOpen(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [deleteItem, setDeleteItem] = useState<{ id: string; name: string } | null>(null);
   const inputRef = useRef<TextInput>(null);
@@ -126,7 +138,7 @@ export default function InboxScreen() {
   return (
     <Screen>
       <MobileHeader title="Inbox" back subtitle={subtitle} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
@@ -237,7 +249,7 @@ export default function InboxScreen() {
             </>
           )}
         </ScrollView>
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 12) + 4 }]}>
+        <View style={[styles.composer, { paddingBottom: (keyboardOpen ? 12 : Math.max(insets.bottom, 12)) + 4 }]}>
           <Text style={styles.composerLabel}>What&apos;s on your mind?</Text>
           <TextInput
             ref={inputRef}

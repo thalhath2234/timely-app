@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { Field, PrimaryButton } from "../../../components/ui/primitives";
@@ -7,6 +7,7 @@ import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/Confir
 import { useApiKeysQuery, useCreateApiKey, useRevokeApiKey } from "../../../lib/hooks";
 import { timeAgo } from "../../../lib/format";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
 export default function ApiKeysSettings() {
   const keysQ = useApiKeysQuery();
@@ -19,7 +20,7 @@ export default function ApiKeysSettings() {
   return (
     <Screen>
       <MobileHeader title="API keys" back large={false} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
+      <FocusGroupScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
         <Text style={styles.hint}>Copy a new key immediately. It is only shown once.</Text>
         {secret ? (
           <View style={styles.secret}>
@@ -46,20 +47,22 @@ export default function ApiKeysSettings() {
             </Pressable>
           </View>
         ))}
-        <Field value={name} onChangeText={setName} placeholder="Key name" autoCapitalize="words" />
-        <PrimaryButton
-          label={create.isPending ? "Creating…" : "Create key"}
-          disabled={!name.trim() || create.isPending}
-          onPress={() =>
-            create.mutate(name.trim(), {
-              onSuccess: (created) => {
-                setSecret(created.key);
-                setName("");
-              },
-            })
-          }
-        />
-      </ScrollView>
+        <FocusGroup style={{ gap: 10 }}>
+          <Field value={name} onChangeText={setName} placeholder="Key name" autoCapitalize="words" />
+          <PrimaryButton
+            label={create.isPending ? "Creating…" : "Create key"}
+            disabled={!name.trim() || create.isPending}
+            onPress={() =>
+              create.mutate(name.trim(), {
+                onSuccess: (created) => {
+                  setSecret(created.key);
+                  setName("");
+                },
+              })
+            }
+          />
+        </FocusGroup>
+      </FocusGroupScrollView>
       <ConfirmSheet
         open={confirm !== null}
         onClose={() => setConfirm(null)}

@@ -1,5 +1,6 @@
 import type {
   SheetColumn,
+  SheetConditionalFormat,
   SheetMerge,
   SheetRow as SheetRowCells,
 } from "./sheetTypes";
@@ -48,6 +49,12 @@ export interface SheetTab {
   columns: SheetColumn[];
   rows: SheetRow[];
   merges?: SheetMerge[];
+  /** Tints the tab in the tab strip (#rrggbb). */
+  color?: string;
+  /** Rows/columns kept in view while scrolling. */
+  frozenRows?: number;
+  frozenCols?: number;
+  conditionalFormats?: SheetConditionalFormat[];
 }
 
 export interface Sheet {
@@ -110,6 +117,9 @@ export interface UpdateSheetPayload {
   rows?: SheetRow[];
   merges?: SheetMerge[];
   tabs?: SheetTab[];
+  /** With tabOrder, `tabs` holds only the changed tabs; the server keeps the
+   * rest as stored, in this order, and removes tabs missing from it. */
+  tabOrder?: string[];
   projectId?: string;
   isFavorite?: boolean;
   archived?: boolean;

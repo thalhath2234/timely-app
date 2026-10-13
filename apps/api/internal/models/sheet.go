@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +22,23 @@ type SheetColumn struct {
 	// Options lists the choices of a select (dropdown) column. Other column
 	// types keep it empty.
 	Options []string `json:"options,omitempty"`
+	// Format sets how the whole column displays: currency, date style, decimals.
+	Format *SheetColumnFormat `json:"format,omitempty"`
+	// Hidden columns keep their data but are not drawn.
+	Hidden bool `json:"hidden,omitempty"`
 }
+
+// SheetColumnFormat is the column-wide display style. Cell formats override it.
+type SheetColumnFormat struct {
+	// Currency is an ISO 4217 code such as LKR, or a short symbol such as Rs.
+	Currency string `json:"currency,omitempty"`
+	// DateFormat is one of SheetDateFormats.
+	DateFormat string `json:"dateFormat,omitempty"`
+	Decimals   *int   `json:"decimals,omitempty"`
+}
+
+// SheetDateFormats are the date styles a column can show.
+var SheetDateFormats = []string{"yyyy-mm-dd", "d mmm yyyy", "d mmm", "mmm d, yyyy", "dd/mm/yyyy", "mm/dd/yyyy", "ddd d mmm", "mmmm yyyy"}
 
 type SheetColumns []SheetColumn
 
@@ -114,7 +131,41 @@ type SheetTab struct {
 	Columns SheetColumns `json:"columns"`
 	Rows    SheetRows    `json:"rows"`
 	Merges  SheetMerges  `json:"merges,omitempty"`
+	// Color tints the tab in the tab strip.
+	Color string `json:"color,omitempty"`
+	// FrozenRows/FrozenCols keep the first rows/columns in view while scrolling.
+	FrozenRows int `json:"frozenRows,omitempty"`
+	FrozenCols int `json:"frozenCols,omitempty"`
+	// ConditionalFormats color cells (or their rows) whose value matches a rule.
+	ConditionalFormats []SheetConditionalFormat `json:"conditionalFormats,omitempty"`
 }
+
+// SheetConditionalFormat styles the cells of one column that match a test.
+type SheetConditionalFormat struct {
+	ID       string `json:"id"`
+	ColumnID string `json:"columnId"`
+	// Operator is one of SheetConditionOperators.
+	Operator  string `json:"operator"`
+	Value     string `json:"value,omitempty"`
+	Value2    string `json:"value2,omitempty"`
+	FillColor string `json:"fillColor,omitempty"`
+	TextColor string `json:"textColor,omitempty"`
+	Bold      bool   `json:"bold,omitempty"`
+	// WholeRow paints every cell of a matching row.
+	WholeRow bool `json:"wholeRow,omitempty"`
+}
+
+// SheetConditionOperators are the tests a conditional format can use.
+var SheetConditionOperators = []string{
+	"gt", "gte", "lt", "lte", "eq", "neq", "between", "contains", "notContains",
+	"empty", "notEmpty", "aboveAverage", "belowAverage", "duplicate",
+}
+
+const (
+	maxConditionalFormats = 50
+	maxFrozenRows         = 50
+	maxFrozenCols         = 10
+)
 
 type SheetTabs []SheetTab
 
@@ -337,69 +388,144 @@ func MatchSelectOption(options []string, value string) (string, bool) {
 	return trimmed, false
 }
 
-func normalizeNumberCell(value string) string {
-	trimmed := strings.TrimSpace(value)
-	hadPercent := strings.HasSuffix(trimmed, "%")
-	if hadPercent {
-		trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, "%"))
+var (
+	currencyAffix   = regexp.MustCompile(`^(?:[A-Z]{3}|(?i:rs\.?|r\$|kr|zł|fr\.?)|\p{Sc})\s*|\s*(?:[A-Z]{3}|(?i:rs\.?|kr|zł|fr\.?)|\p{Sc})$`)
+	plainNumberText = regexp.MustCompile(`^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$`)
+	unicodeFraction = map[string]float64{"½": 0.5, "¼": 0.25, "¾": 0.75, "⅓": 1.0 / 3, "⅔": 2.0 / 3, "⅛": 0.125}
+)
+
+// ParseNumberText reads a number the way people type amounts: "$12.50",
+// "Rs 1,250", "LKR 500", "1.234,56", "(45.00)" for a negative, "12%" and "½".
+func ParseNumberText(value string) (float64, bool) {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return 0, false
 	}
-	n, err := strconv.ParseFloat(strings.ReplaceAll(trimmed, ",", ""), 64)
+	if f, ok := unicodeFraction[text]; ok {
+		return f, true
+	}
+	negative := false
+	if strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
+		negative = true
+		text = strings.TrimSpace(text[1 : len(text)-1])
+	}
+	percent := strings.HasSuffix(text, "%")
+	if percent {
+		text = strings.TrimSpace(strings.TrimSuffix(text, "%"))
+	}
+	if strings.HasPrefix(text, "-") {
+		negative = !negative
+		text = strings.TrimSpace(text[1:])
+	}
+	for i := 0; i < 2; i++ {
+		text = strings.TrimSpace(currencyAffix.ReplaceAllString(text, ""))
+	}
+	if strings.HasPrefix(text, "-") {
+		negative = !negative
+		text = strings.TrimSpace(text[1:])
+	}
+	text = strings.NewReplacer(" ", "", "\u00a0", "", "\u202f", "", "'", "").Replace(text)
+	lastComma := strings.LastIndex(text, ",")
+	lastDot := strings.LastIndex(text, ".")
+	switch {
+	case lastComma >= 0 && lastDot >= 0 && lastComma > lastDot:
+		// 1.234,56 (decimal comma)
+		text = strings.ReplaceAll(text, ".", "")
+		text = strings.Replace(text, ",", ".", 1)
+	case lastComma >= 0 && lastDot < 0 && strings.Count(text, ",") == 1 && len(text)-lastComma-1 <= 2:
+		// 9,99 (decimal comma without thousands)
+		text = strings.Replace(text, ",", ".", 1)
+	default:
+		text = strings.ReplaceAll(text, ",", "")
+	}
+	if !plainNumberText.MatchString(text) {
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(text, 64)
 	if err != nil {
-		return ""
+		return 0, false
 	}
-	if hadPercent {
+	if negative {
+		n = -n
+	}
+	if percent {
 		n = n / 100
 	}
-	return strconv.FormatFloat(n, 'f', -1, 64)
+	return n, true
 }
 
-// NormalizeTypedCell coerces a cell to the column type. Formulas (leading =)
-// and empty values are left alone. Invalid number/date/boolean values become "".
-func NormalizeTypedCell(colType, value string) string {
+var dateLayouts = []string{
+	time.RFC3339,
+	"2006-01-02T15:04:05",
+	"2006-01-02 15:04:05",
+	"2006/01/02",
+	"2006.01.02",
+	"01/02/2006",
+	"1/2/2006",
+	"Jan 2, 2006",
+	"January 2, 2006",
+	"Jan 2 2006",
+	"January 2 2006",
+	"2 Jan 2006",
+	"02 Jan 2006",
+	"2 January 2006",
+	"2-Jan-2006",
+	"2-Jan-06",
+	"Mon, 2 Jan 2006",
+	"Monday, January 2, 2006",
+}
+
+// ParseTypedCell coerces a cell to the column type and reports whether the
+// value fits it. Formulas and blanks always fit.
+func ParseTypedCell(colType, value string) (string, bool) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" || strings.HasPrefix(trimmed, "=") {
-		return value
+		return value, true
 	}
 	kind, err := NormalizeSheetColumnType(colType)
 	if err != nil || kind == SheetColumnTypeText {
-		return value
+		return value, true
 	}
 	switch kind {
 	case SheetColumnTypeNumber, SheetColumnTypeCurrency, SheetColumnTypePercent, SheetColumnTypeFormula:
-		return normalizeNumberCell(trimmed)
+		n, ok := ParseNumberText(trimmed)
+		if !ok {
+			return value, false
+		}
+		return strconv.FormatFloat(n, 'f', -1, 64), true
 	case SheetColumnTypeDate:
 		if len(trimmed) == 10 && trimmed[4] == '-' && trimmed[7] == '-' {
 			if _, err := time.Parse("2006-01-02", trimmed); err == nil {
-				return trimmed
+				return trimmed, true
 			}
 		}
-		for _, layout := range []string{
-			time.RFC3339,
-			"2006-01-02T15:04:05",
-			"2006-01-02 15:04:05",
-			"01/02/2006",
-			"1/2/2006",
-			"Jan 2, 2006",
-			"January 2, 2006",
-		} {
+		for _, layout := range dateLayouts {
 			if parsed, err := time.Parse(layout, trimmed); err == nil {
-				return parsed.Format("2006-01-02")
+				return parsed.Format("2006-01-02"), true
 			}
 		}
-		return ""
+		return value, false
 	case SheetColumnTypeBoolean:
 		switch strings.ToUpper(trimmed) {
-		case "TRUE", "1", "YES", "Y":
-			return "TRUE"
-		case "FALSE", "0", "NO", "N":
-			return "FALSE"
+		case "TRUE", "1", "YES", "Y", "ON", "✓", "✔", "X":
+			return "TRUE", true
+		case "FALSE", "0", "NO", "N", "OFF":
+			return "FALSE", true
 		default:
-			return ""
+			return value, false
 		}
 	case SheetColumnTypeSelect:
-		return trimmed
+		return trimmed, true
 	}
-	return value
+	return value, true
+}
+
+// NormalizeTypedCell coerces a cell to the column type. Formulas and empty
+// values are left alone. A value that does not fit the type is kept as typed
+// (the apps flag it) rather than erased, so nothing a person enters is lost.
+func NormalizeTypedCell(colType, value string) string {
+	next, _ := ParseTypedCell(colType, value)
+	return next
 }
 
 // NormalizeSheetCells rewrites every cell according to its column type. Select
@@ -640,7 +766,77 @@ func NormalizeSheetTab(tab SheetTab, fallbackName string) (SheetTab, error) {
 	}
 	NormalizeSheetCells(tab.Columns, tab.Rows)
 	tab.Merges = NormalizeMerges(tab.Merges, len(tab.Columns), len(tab.Rows))
+	tab.Color = normalizeHexColor(tab.Color)
+	tab.FrozenRows = clampInt(tab.FrozenRows, 0, min(maxFrozenRows, len(tab.Rows)))
+	tab.FrozenCols = clampInt(tab.FrozenCols, 0, min(maxFrozenCols, len(tab.Columns)))
+	tab.ConditionalFormats = NormalizeConditionalFormats(tab.ConditionalFormats, tab.Columns)
 	return tab, nil
+}
+
+func clampInt(value, low, high int) int {
+	if high < low {
+		high = low
+	}
+	return max(low, min(high, value))
+}
+
+// NormalizeConditionalFormats drops rules for unknown columns or operators
+// and caps their number and text.
+func NormalizeConditionalFormats(rules []SheetConditionalFormat, columns SheetColumns) []SheetConditionalFormat {
+	if len(rules) == 0 {
+		return nil
+	}
+	known := make(map[string]bool, len(columns))
+	for _, column := range columns {
+		known[column.ID] = true
+	}
+	operators := make(map[string]bool, len(SheetConditionOperators))
+	for _, operator := range SheetConditionOperators {
+		operators[operator] = true
+	}
+	out := make([]SheetConditionalFormat, 0, len(rules))
+	for _, rule := range rules {
+		if !known[rule.ColumnID] || !operators[rule.Operator] {
+			continue
+		}
+		if rule.ID == "" {
+			rule.ID = utils.PrefixedUUID("cf")
+		}
+		rule.Value = truncateUTF8Bytes(strings.TrimSpace(rule.Value), 200)
+		rule.Value2 = truncateUTF8Bytes(strings.TrimSpace(rule.Value2), 200)
+		rule.FillColor = normalizeHexColor(rule.FillColor)
+		rule.TextColor = normalizeHexColor(rule.TextColor)
+		out = append(out, rule)
+		if len(out) >= maxConditionalFormats {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeColumnFormat(format *SheetColumnFormat) *SheetColumnFormat {
+	if format == nil {
+		return nil
+	}
+	next := SheetColumnFormat{
+		Currency: truncateUTF8Bytes(strings.TrimSpace(format.Currency), 8),
+	}
+	for _, allowed := range SheetDateFormats {
+		if format.DateFormat == allowed {
+			next.DateFormat = allowed
+		}
+	}
+	if format.Decimals != nil {
+		decimals := clampInt(*format.Decimals, 0, 8)
+		next.Decimals = &decimals
+	}
+	if next.Currency == "" && next.DateFormat == "" && next.Decimals == nil {
+		return nil
+	}
+	return &next
 }
 
 func NormalizeSheetColumns(columns SheetColumns) error {
@@ -658,6 +854,7 @@ func NormalizeSheetColumns(columns SheetColumns) error {
 		} else {
 			columns[i].Options = nil
 		}
+		columns[i].Format = normalizeColumnFormat(columns[i].Format)
 	}
 	return nil
 }
@@ -724,13 +921,42 @@ func CloneTabs(tabs SheetTabs) SheetTabs {
 
 func CloneTab(tab SheetTab) SheetTab {
 	columns, rows := CloneGrid(tab.Columns, tab.Rows)
-	return SheetTab{
+	return withTabSettings(SheetTab{
 		ID:      utils.PrefixedUUID("tab"),
 		Name:    tab.Name,
 		Columns: columns,
 		Rows:    rows,
 		Merges:  CloneMerges(tab.Merges),
+	}, tab)
+}
+
+func tabHasSettings(tab SheetTab) bool {
+	return tab.Color != "" || tab.FrozenRows > 0 || tab.FrozenCols > 0 || len(tab.ConditionalFormats) > 0
+}
+
+// withTabSettings copies src's color, frozen panes and rules onto tab. Rules
+// follow their column by position, so a clone with fresh column ids keeps them.
+func withTabSettings(tab SheetTab, src SheetTab) SheetTab {
+	tab.Color = src.Color
+	tab.FrozenRows = src.FrozenRows
+	tab.FrozenCols = src.FrozenCols
+	if len(src.ConditionalFormats) == 0 {
+		return tab
 	}
+	idMap := make(map[string]string, len(src.Columns))
+	for i, column := range src.Columns {
+		if i < len(tab.Columns) {
+			idMap[column.ID] = tab.Columns[i].ID
+		}
+	}
+	tab.ConditionalFormats = make([]SheetConditionalFormat, 0, len(src.ConditionalFormats))
+	for _, rule := range src.ConditionalFormats {
+		if next, ok := idMap[rule.ColumnID]; ok {
+			rule.ColumnID = next
+			tab.ConditionalFormats = append(tab.ConditionalFormats, rule)
+		}
+	}
+	return tab
 }
 
 // CloneSheetContents copies grid data with new ids so a duplicate is independent.
@@ -805,7 +1031,12 @@ func SnapshotSheet(src *Sheet, tabID string) (SheetColumns, SheetRows, SheetMerg
 		for _, tab := range src.Tabs {
 			if tab.ID == tabID {
 				columns, rows := CopyGrid(tab.Columns, tab.Rows)
-				return columns, rows, CloneMerges(tab.Merges), SheetTabs{}, nil
+				if !tabHasSettings(tab) {
+					return columns, rows, CloneMerges(tab.Merges), SheetTabs{}, nil
+				}
+				// Keep frozen panes and rules by saving the tab itself.
+				single := withTabSettings(SheetTab{ID: tab.ID, Name: tab.Name, Columns: columns, Rows: rows, Merges: CloneMerges(tab.Merges)}, tab)
+				return columns, rows, CloneMerges(tab.Merges), SheetTabs{single}, nil
 			}
 		}
 		if len(src.Tabs) == 0 && tabID != "" {
@@ -818,13 +1049,13 @@ func SnapshotSheet(src *Sheet, tabID string) (SheetColumns, SheetRows, SheetMerg
 	tabs := make(SheetTabs, len(src.Tabs))
 	for i, tab := range src.Tabs {
 		tabColumns, tabRows := CopyGrid(tab.Columns, tab.Rows)
-		tabs[i] = SheetTab{
+		tabs[i] = withTabSettings(SheetTab{
 			ID:      tab.ID,
 			Name:    tab.Name,
 			Columns: tabColumns,
 			Rows:    tabRows,
 			Merges:  CloneMerges(tab.Merges),
-		}
+		}, tab)
 	}
 	return columns, rows, CloneMerges(src.Merges), tabs, nil
 }

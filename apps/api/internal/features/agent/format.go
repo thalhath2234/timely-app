@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"strings"
+	"timely-api/internal/features/sheet"
 	"timely-api/internal/models"
 	"timely-api/internal/richtext"
 	"timely-api/internal/utils"
@@ -99,35 +100,82 @@ func docPayload(d *models.Document) map[string]any {
 	return payload
 }
 
+// sheetMarkdown shows every tab as a table with its id, A1 column letters and
+// row numbers, so formulas and tabId can be written from it. Rows without an
+// entry are left out; the row numbers keep their place.
 func sheetMarkdown(sh *models.Sheet) string {
 	if sh == nil {
 		return ""
 	}
-	if len(sh.Columns) == 0 {
-		return ""
+	tabs := sh.Tabs
+	if len(tabs) == 0 {
+		if len(sh.Columns) == 0 {
+			return ""
+		}
+		return gridMarkdown(sh.Columns, sh.Rows)
 	}
 	var b strings.Builder
-	heads := make([]string, len(sh.Columns))
-	seps := make([]string, len(sh.Columns))
-	for i, col := range sh.Columns {
-		heads[i] = strings.ReplaceAll(col.Name, "|", "\\|")
-		seps[i] = "---"
-	}
-	b.WriteString("| ")
-	b.WriteString(strings.Join(heads, " | "))
-	b.WriteString(" |\n| ")
-	b.WriteString(strings.Join(seps, " | "))
-	b.WriteString(" |\n")
-	for _, row := range sh.Rows {
-		cells := make([]string, len(sh.Columns))
-		for i, col := range sh.Columns {
-			cells[i] = strings.ReplaceAll(row.Cells[col.ID], "|", "\\|")
+	for _, tab := range tabs {
+		if len(tab.Columns) == 0 {
+			continue
 		}
-		b.WriteString("| ")
-		b.WriteString(strings.Join(cells, " | "))
-		b.WriteString(" |\n")
+		fmt.Fprintf(&b, "## %s (tabId %s)\n", tab.Name, tab.ID)
+		if tab.FrozenRows > 0 || tab.FrozenCols > 0 {
+			fmt.Fprintf(&b, "Frozen rows: %d, columns: %d.\n", tab.FrozenRows, tab.FrozenCols)
+		}
+		if n := len(tab.ConditionalFormats); n > 0 {
+			fmt.Fprintf(&b, "%d colour rules.\n", n)
+		}
+		b.WriteString("\n")
+		b.WriteString(gridMarkdown(tab.Columns, tab.Rows))
+		b.WriteString("\n\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func gridMarkdown(columns models.SheetColumns, rows models.SheetRows) string {
+	var b strings.Builder
+	heads := make([]string, len(columns))
+	seps := make([]string, len(columns))
+	for i, col := range columns {
+		head := columnLetters(i) + " " + col.Name
+		if col.Hidden {
+			head += " (hidden)"
+		}
+		heads[i] = strings.ReplaceAll(head, "|", "\\|")
+		seps[i] = "---"
+	}
+	b.WriteString("| # | ")
+	b.WriteString(strings.Join(heads, " | "))
+	b.WriteString(" |\n| --- | ")
+	b.WriteString(strings.Join(seps, " | "))
+	b.WriteString(" |\n")
+	blank := 0
+	for r, row := range rows {
+		if sheet.EmptyEntryRow(row.Cells, r+1) {
+			blank++
+			continue
+		}
+		cells := make([]string, len(columns))
+		for i, col := range columns {
+			cells[i] = strings.ReplaceAll(strings.ReplaceAll(row.Cells[col.ID], "|", "\\|"), "\n", " ")
+		}
+		fmt.Fprintf(&b, "| %d | %s |\n", r+1, strings.Join(cells, " | "))
+	}
+	if blank > 0 {
+		fmt.Fprintf(&b, "\n%d empty rows not shown (blank, or only formulas reading their own row, which add_sheet_row fills).", blank)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// columnLetters turns a zero-based index into spreadsheet letters (0 → A).
+func columnLetters(index int) string {
+	letters := ""
+	for index >= 0 {
+		letters = string(rune('A'+index%26)) + letters
+		index = index/26 - 1
+	}
+	return letters
 }
 
 func sheetPayload(sh *models.Sheet) map[string]any {

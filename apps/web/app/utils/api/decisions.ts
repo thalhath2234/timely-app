@@ -243,6 +243,16 @@ export type DocHints = {
 
 export const getDocHints = (docId: string) => request<DocHints>(`/suggestions/doc/${encodeURIComponent(docId)}`);
 
+/** Which of a doc's checklist task names are already tasks, and the project
+ * new ones go to. Plain code on the server: it answers with no keys. */
+export type DocChecklist = {
+  existing: { name: string; taskId: string }[];
+  project?: { id: string; title: string; workspaceId: string };
+};
+
+export const getDocChecklist = (docId: string, names: string[], projectId?: string) =>
+  request<DocChecklist>(`/suggestions/doc/${encodeURIComponent(docId)}/checklist`, "POST", { names, projectId: projectId ?? "" });
+
 export type MentionTarget = { kind: "task" | "project" | "doc" | "sheet"; id: string; title: string };
 /** What a selected phrase may refer to: Jev's match when sure, and the
  * closest items to pick from. */

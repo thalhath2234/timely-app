@@ -502,6 +502,10 @@ Desktop `/notifications` (sidebar Bell) and native Notifications screen: in-app 
 
 ---
 
+### Help me write
+
+Docs and task/project descriptions (web, desktop and phone) get **Help me write** when a generative AI provider is ready (OpenRouter, a direct API key, Claude Code or Codex; TypeSafe alone does not count). Entry points: a labelled button first in the editor toolbar (phone: "Write" pinned at the start of the dock) and "Help me write" in the `/` menu; both are hidden without a provider. Without a selection it drafts from a prompt or a starter (doc: Continue writing, Outline, Meeting notes, Summarize; description: Write a description, Break into steps); with one it offers Improve, Shorter, Longer, Fix spelling, Make steps, Summarize or a free instruction. The draft shows as a preview with Ask for changes, Try again, Discard and Insert / Replace (Insert below for a selection); it goes in as one undo step. API: `POST /agent/write` (one-shot on the default provider, else the first ready one); shared starters and Markdown-to-editor in `@timely/contract/helpMeWrite`.
+
 ## 15. AI agent (in-app chat + Hermes via MCP)
 
 There are two agent surfaces over **one tool catalog**: the in-app chat (desktop `/chat` + overlay, native assistant) and external Hermes/MCP with an API key. MCP activity is attributed to `"Hermes"`; in-app chat activity to `"Timely AI"`.
@@ -585,7 +589,7 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 
 **Docs (7):** `list_docs`, `get_doc`, `create_doc`, `update_doc`, `append_to_doc`, `archive_doc`, `delete_doc`
 
-**Sheets (19):** `list_sheets`, `get_sheet`, `create_sheet` (optional `templateId`), `update_sheet`, `archive_sheet`, `add_sheet_column`, `update_sheet_column`, `delete_sheet_column`, `add_sheet_rows`, `update_sheet_cells`, `delete_sheet_rows`, `duplicate_sheet`, `delete_sheet`, `list_sheet_templates`, `get_sheet_template`, `create_sheet_template`, `update_sheet_template`, `delete_sheet_template`, `materialize_sheet_template_tab`
+**Sheets (25):** `list_sheets`, `get_sheet` (every tab as markdown with tab ids, column letters and row numbers), `get_sheet_values` (read-only: worked-out values from the apps' own formula engine, or one formula worked out without saving it), `create_sheet` (optional `templateId`; `builtin:yearly-expenses` with `year` and `currency` makes the Yearly expenses workbook), `update_sheet` (optional `tabOrder` for partial tab saves), `archive_sheet`, `add_sheet_column`, `update_sheet_column` (also `format` and `hidden`), `delete_sheet_column`, `add_sheet_rows`, `add_sheet_row` (one entry by column name into the next free row), `update_sheet_cells`, `delete_sheet_rows`, `add_sheet_tab`, `rename_sheet_tab` (rewrites formulas that read the tab), `update_sheet_tab` (colour, frozen rows/columns, colour rules), `delete_sheet_tab`, `duplicate_sheet`, `delete_sheet`, `list_sheet_templates` (includes built-ins), `get_sheet_template`, `create_sheet_template`, `update_sheet_template`, `delete_sheet_template`, `materialize_sheet_template_tab`. Cell, row and column tools take an optional `tabId` (empty = first tab).
 
 **Saved views / profile / config (10):** `list_task_views`, `create_task_view`, `update_task_view`, `delete_task_view`, `set_active_task_view`, `set_project_task_view`, `get_profile`, `update_profile`, `get_config`, `update_account_config` (onboarding flag, theme, accent)
 

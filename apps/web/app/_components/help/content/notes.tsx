@@ -90,6 +90,14 @@ export const notes: HelpSection = {
                 away; replacing its text waits for your review.
               </p>
               <p>
+                <strong>Help me write</strong> drafts right in the editor. Once an AI provider is set up in Settings
+                &rarr; Agent keys, it is the first button in the toolbar of every doc and task or project description
+                (on the phone, <strong>Write</strong> at the start of the toolbar), and it is in the{" "}
+                <code>/</code> menu too. Ask for anything or tap a starter such as Outline or Write a description; with
+                text selected it offers Improve, Shorter, Longer, Fix spelling, Make steps and Summarize. You see the
+                draft first and choose Insert or Replace, and Undo takes it back in one step.
+              </p>
+              <p>
                 With <Link href="/help/assistant/smart-suggestions">smart suggestions</Link> on, a card at the top of
                 a doc can offer a template for a new page, the project it seems to belong to, or a page to move it
                 under. Each one is a click to accept, with Undo.

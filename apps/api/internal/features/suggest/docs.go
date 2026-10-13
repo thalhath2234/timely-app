@@ -51,6 +51,7 @@ var docTypes = []decide.Option{
 
 func (s *Service) docRoutes(g *echo.Group) {
 	g.GET("/suggestions/doc/:id", s.docHints)
+	g.POST("/suggestions/doc/:id/checklist", s.docChecklist)
 	g.POST("/suggestions/mention", s.mention)
 	g.POST("/suggestions/import-format", s.importFormat)
 	g.GET("/suggestions/doc-template", s.docTemplate)
@@ -449,8 +450,10 @@ func (s *Service) usedKeys(ctx context.Context, userID, docID string, has map[st
 }
 
 // workLines are the doc's paragraphs and list items short enough to be one
-// piece of Work, leaving out headings, code, checked items and lines that
-// are already the name of open Work.
+// piece of Work, leaving out headings, code, checklist items and lines that
+// are already the name of open Work. An unchecked checklist item is a to-do
+// by its own say-so, so the clients offer it without asking Jev
+// (docChecklist).
 func (s *Service) workLines(ctx context.Context, userID string, content map[string]any) []string {
 	var lines []string
 	seen := map[string]bool{}
@@ -460,12 +463,8 @@ func (s *Service) workLines(ctx context.Context, userID string, content map[stri
 			return
 		}
 		switch node["type"] {
-		case "frontmatter", "codeBlock", "heading", "table", "mermaid", "details":
+		case "frontmatter", "codeBlock", "heading", "table", "mermaid", "details", "taskItem":
 			return
-		case "taskItem":
-			if attrs, _ := node["attrs"].(map[string]any); attrs != nil && attrs["checked"] == true {
-				return
-			}
 		case "paragraph":
 			t := strings.Join(strings.Fields(nodeText(node)), " ")
 			n := len([]rune(t))

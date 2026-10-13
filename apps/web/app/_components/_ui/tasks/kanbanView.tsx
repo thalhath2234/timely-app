@@ -40,6 +40,14 @@ function formatTimeOfDay(date: Date) {
   return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
+const UNCATEGORIZED_NAMES: Record<string, string> = {
+  status: "No status",
+  priority: "No priority",
+  workspace: "No workspace",
+  project: "No project",
+  stage: "No stage",
+};
+
 /** Cards say when the work happens: deadline first, otherwise the next
  * reserved block, so scheduled tasks never read as "No date". Overdue cards
  * use the Dashboard's red treatment and include time of day when a block exists. */
@@ -138,7 +146,8 @@ export default function KanbanView({
         const id = groupField === "stage" ? row.stageId : value?.id;
         const name = groupField === "stage" ? stage?.name : groupField === "project" ? row.project?.title : row.workspace?.name;
         if (!id) { missing.push(row); continue; }
-        const existing = byValue.get(id) ?? { key: id, name: name || "Untitled", color: value?.color ?? null, items: [], statuses: [] };
+        // The entity's own colour, else the same auto colour its cards use.
+        const existing = byValue.get(id) ?? { key: id, name: name || "Untitled", color: resolvedColor(value?.color, id), items: [], statuses: [] };
         existing.items.push(row);
         byValue.set(id, existing);
       }
@@ -277,7 +286,7 @@ export default function KanbanView({
       ? [
           {
             key: "none",
-            name: "No status",
+            name: UNCATEGORIZED_NAMES[groupField] ?? "No value",
             color: undefined as string | undefined,
             items: columns.uncategorized,
             group: null as NamedStatusGroup | null,

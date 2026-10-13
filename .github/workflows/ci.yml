@@ -53,6 +53,7 @@ jobs:
       - run: make test-mobile-assistant
       - run: make test-mobile-offline
       - run: make test-mobile-server-config
+      - run: make test-mobile-keyboard-taps
       - run: make test-electron-guards
       - run: make test-electron-supervisor
       - run: make test-desktop-instance

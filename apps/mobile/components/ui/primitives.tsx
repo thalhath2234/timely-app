@@ -5,6 +5,7 @@ import { colors, controlRadius, createThemedStyleSheet, radius } from "../../lib
 import { LogoSpinner } from "./TimelyLogo";
 import AnimatedPressable from "./AnimatedPressable";
 import BottomSheet, { SheetOption } from "./BottomSheet";
+import { useFocusGroup } from "./FocusGroup";
 
 /**
  * Timely's one button on the phone, matching the desktop Button
@@ -143,14 +144,15 @@ export function Field({
 }) {
   const [focused, setFocused] = useState(false);
   const [contentHeight, setContentHeight] = useState(0);
+  const group = useFocusGroup();
   const input = (
     <TextInput
       testID={testID}
       accessibilityLabel={label ?? placeholder}
       value={value}
       onChangeText={onChangeText}
-      onFocus={() => { setFocused(true); onFocus?.(); }}
-      onBlur={() => { setFocused(false); onBlur?.(); }}
+      onFocus={() => { setFocused(true); group?.onFocus(); onFocus?.(); }}
+      onBlur={() => { setFocused(false); group?.onBlur(); onBlur?.(); }}
       placeholder={placeholder}
       placeholderTextColor={colors.mutedForeground}
       secureTextEntry={secure}

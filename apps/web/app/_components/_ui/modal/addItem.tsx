@@ -1173,6 +1173,7 @@ function AddItemModalInner() {
                   toolbar="fixed"
                   content={projectDescription.content}
                   placeholder="Description. Type '/' for blocks, '@' to mention docs, sheets, tasks..."
+                  writeContext={{ kind: "project", title: projectTitle }}
                   onChange={({ content, plainText }) =>
                     setProjectDescription({ content, plainText })
                   }
@@ -1401,6 +1402,7 @@ function AddItemModalInner() {
                   toolbar="fixed"
                   content={taskDescription.content}
                   placeholder="Description. Type '/' for blocks, '@' to mention docs, sheets, projects..."
+                  writeContext={{ kind: "task", title: taskName }}
                   onChange={({ content, plainText }) =>
                     setTaskDescription({ content, plainText })
                   }

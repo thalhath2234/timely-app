@@ -44,6 +44,42 @@ func IsTotalsRow(columns models.SheetColumns, row, added models.SheetRow, number
 	return false
 }
 
+// openRange finds whole and open-ended ranges (H:H, H2:H, 2:2), which read
+// other rows.
+var openRange = regexp.MustCompile(`(?:^|[^A-Za-z0-9$])\$?[A-Za-z]+:|:\$?[A-Za-z]+(?:[^A-Za-z0-9$]|$)|\d+:\$?\d+(?:[^A-Za-z0-9$]|$)`)
+
+// ownRowFormula reports whether value is a formula that only reads its own
+// row (row is 1-based), like a template's prepared =IF(G2="","",E2*G2). Such
+// rows wait for an entry and count as free. A formula reading other rows or
+// tabs, like a total, does not.
+func ownRowFormula(value string, row int) bool {
+	if !strings.HasPrefix(value, "=") || strings.Contains(value, "!") || openRange.MatchString(value) {
+		return false
+	}
+	refs := cellReference.FindAllStringSubmatch(value, -1)
+	if len(refs) == 0 {
+		return false
+	}
+	for _, ref := range refs {
+		if number, err := strconv.Atoi(ref[3]); err != nil || number != row {
+			return false
+		}
+	}
+	return true
+}
+
+// EmptyEntryRow reports whether a row (1-based) holds no entry: every cell is
+// blank or a formula that only reads its own row, like a template's
+// prepared rows.
+func EmptyEntryRow(cells map[string]string, row int) bool {
+	for _, value := range cells {
+		if value != "" && !ownRowFormula(value, row) {
+			return false
+		}
+	}
+	return true
+}
+
 // columnIndex turns spreadsheet letters into a zero-based index (A → 0).
 func columnIndex(letters string) int {
 	index := 0
@@ -112,7 +148,7 @@ func AppendRow(tab *models.SheetTab, added models.SheetRow) int {
 	last := -1
 	for i, row := range tab.Rows {
 		for _, value := range row.Cells {
-			if value != "" {
+			if value != "" && !ownRowFormula(value, i+1) {
 				last = i
 				break
 			}

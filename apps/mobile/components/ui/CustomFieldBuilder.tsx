@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { X } from "lucide-react-native";
 import { Field, PrimaryButton, Select } from "./primitives";
+import { FocusGroup } from "./FocusGroup";
 import type { CustomFieldType } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
@@ -123,7 +124,7 @@ export default function CustomFieldBuilder({
   disabled?: boolean;
 }) {
   return (
-    <View style={styles.root}>
+    <FocusGroup style={styles.root}>
       <Field value={name} onChangeText={onName} placeholder="Field name" autoCapitalize="words" />
       <Select
         value={type}
@@ -133,7 +134,7 @@ export default function CustomFieldBuilder({
       />
       {needsOptions(type) ? <OptionList options={options} onChange={onOptions} /> : null}
       <PrimaryButton label={submitLabel} disabled={disabled} onPress={onSubmit} />
-    </View>
+    </FocusGroup>
   );
 }
 
@@ -155,11 +156,11 @@ export function LabelComposer({
   submitLabel?: string;
 }) {
   return (
-    <View style={styles.root}>
+    <FocusGroup style={styles.root}>
       <Field value={name} onChangeText={onName} placeholder="New label" autoCapitalize="words" />
       <ColorRow value={color} onChange={onColor} />
       <PrimaryButton label={submitLabel} disabled={disabled} onPress={onSubmit} />
-    </View>
+    </FocusGroup>
   );
 }
 

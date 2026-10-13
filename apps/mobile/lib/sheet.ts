@@ -1,4 +1,4 @@
-import type { Sheet, SheetCellFormat, SheetColumn, SheetColumnType, SheetMerge, SheetRow, SheetTab } from "./types";
+import type { Sheet, SheetColumn, SheetColumnType, SheetMerge, SheetRow, SheetTab } from "./types";
 import { isFormulaValue } from "@timely/contract/sheetCell";
 import { columnIndexToLetter } from "@timely/contract/sheetFormula";
 
@@ -140,6 +140,9 @@ export function normalizeColumns(columns: SheetColumn[] | null | undefined): She
       type,
     };
     if (type === "select") next.options = normalizeSelectOptions(column?.options);
+    // Display settings made on the desktop must survive a save from the phone.
+    if (column?.format && typeof column.format === "object") next.format = column.format;
+    if (column?.hidden) next.hidden = true;
     return next;
   });
 }
@@ -161,13 +164,19 @@ export function normalizeRows(rows: SheetRow[] | null | undefined): SheetRow[] {
 }
 
 export function normalizeTab(tab: SheetTab, index = 0, fallbackName = "Sheet 1"): SheetTab {
-  return {
+  const next: SheetTab = {
     id: tab?.id || newSheetId("tab"),
     name: tab?.name?.trim() || (index === 0 ? fallbackName : `Sheet ${index + 1}`),
     columns: normalizeColumns(tab?.columns),
     rows: normalizeRows(tab?.rows),
     merges: tab?.merges ?? [],
   };
+  // Tab settings are carried through as stored.
+  if (tab?.color) next.color = tab.color;
+  if (typeof tab?.frozenRows === "number") next.frozenRows = tab.frozenRows;
+  if (typeof tab?.frozenCols === "number") next.frozenCols = tab.frozenCols;
+  if (Array.isArray(tab?.conditionalFormats)) next.conditionalFormats = tab.conditionalFormats;
+  return next;
 }
 
 export function normalizeSheet(sheet: Sheet): Sheet {
@@ -259,26 +268,4 @@ export function addWorkbookTab(tabs: SheetTab[], from?: SheetTab): SheetTab[] {
       merges: [] as SheetMerge[],
     },
   ];
-}
-
-export function formatCellDisplay(
-  display: string,
-  format: SheetCellFormat | undefined,
-  columnType?: SheetColumnType,
-): string {
-  if (!format && columnType !== "currency" && columnType !== "percent") return display;
-  const parsed = Number(String(display).replace(/,/g, "").replace(/%/g, "").trim());
-  if (!Number.isFinite(parsed)) return display;
-  const kind = format?.numberFormat ?? (columnType === "currency" ? "currency" : columnType === "percent" ? "percent" : undefined);
-  const digits = format?.decimals;
-  if (kind === "currency") {
-    return parsed.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: digits ?? 2, maximumFractionDigits: digits ?? 2 });
-  }
-  if (kind === "percent") {
-    return parsed.toLocaleString(undefined, { style: "percent", minimumFractionDigits: digits ?? 0, maximumFractionDigits: digits ?? 0 });
-  }
-  if (kind === "number" || digits != null) {
-    return parsed.toLocaleString(undefined, { minimumFractionDigits: digits ?? 0, maximumFractionDigits: digits ?? 2 });
-  }
-  return display;
 }

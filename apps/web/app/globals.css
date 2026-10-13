@@ -207,45 +207,50 @@ html.reduce-motion:not([data-public-site]) *::after {
   transition-delay: 0s !important;
 }
 
-html,
-body,
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--muted-foreground) var(--muted);
-}
+/* The app-wide scrollbar look sits in the base layer so utilities such as
+   scrollbar-none and [scrollbar-width:none] can still hide one (unlayered
+   rules beat every layer, which left a stray bar on the page tab strip). */
+@layer base {
+  html,
+  body,
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted-foreground) var(--muted);
+  }
 
-html::-webkit-scrollbar,
-body::-webkit-scrollbar,
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
 
-html::-webkit-scrollbar-track,
-body::-webkit-scrollbar-track,
-*::-webkit-scrollbar-track {
-  background: var(--muted);
-  border: 0;
-}
+  html::-webkit-scrollbar-track,
+  body::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-track {
+    background: var(--muted);
+    border: 0;
+  }
 
-html::-webkit-scrollbar-thumb,
-body::-webkit-scrollbar-thumb,
-*::-webkit-scrollbar-thumb {
-  background: var(--muted-foreground);
-  border: 0;
-  border-radius: 9999px;
-}
+  html::-webkit-scrollbar-thumb,
+  body::-webkit-scrollbar-thumb,
+  *::-webkit-scrollbar-thumb {
+    background: var(--muted-foreground);
+    border: 0;
+    border-radius: 9999px;
+  }
 
-html::-webkit-scrollbar-thumb:hover,
-body::-webkit-scrollbar-thumb:hover,
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-foreground);
-}
+  html::-webkit-scrollbar-thumb:hover,
+  body::-webkit-scrollbar-thumb:hover,
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-foreground);
+  }
 
-html::-webkit-scrollbar-corner,
-body::-webkit-scrollbar-corner,
-*::-webkit-scrollbar-corner {
-  background: var(--muted);
+  html::-webkit-scrollbar-corner,
+  body::-webkit-scrollbar-corner,
+  *::-webkit-scrollbar-corner {
+    background: var(--muted);
+  }
 }
 
 /* ---- Mobile prototype (/m) utilities ---- */
@@ -454,9 +459,6 @@ body::-webkit-scrollbar-corner,
   transition: background-color 0.15s, color 0.15s;
 }
 
-.doc-code-lang {
-  padding: 3px 4px;
-}
 
 .doc-code-copy {
   align-items: center;
@@ -1080,31 +1082,28 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
   margin-bottom: 0.25rem;
 }
 
+/* The kind picker is the kit Select (variant "inline"); it keeps the
+   callout's colour and lines its label up with the icon's gap. */
 .doc-callout-kind {
-  background: transparent;
-  border: 0;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
   font-size: 0.875rem;
-  padding: 0;
+  font-weight: 600;
+  margin-left: -0.25rem;
+}
+
+/* A kind's icon in the picker menu, which renders outside the callout. */
+.doc-callout-swatch {
+  color: var(--callout, var(--primary));
+  display: flex;
 }
 
 .doc-callout-title {
-  background: transparent;
-  border: 0;
   color: var(--foreground);
-  flex: 1;
-  font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
   min-width: 0;
-  outline: none;
-}
-
-.doc-callout-title::placeholder {
-  color: var(--muted-foreground);
-  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .doc-callout-body > :last-child {

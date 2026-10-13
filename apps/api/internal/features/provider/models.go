@@ -238,6 +238,7 @@ func codexAppServerModels(ctx context.Context, bin string) ([]ModelOption, error
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "app-server")
 	cmd.Dir = scratchDir()
+	cmd.Env = cliEnv()
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
