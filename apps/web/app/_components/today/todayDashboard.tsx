@@ -1,22 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Bell,
-  CalendarClock,
-  Check,
-  Clock,
-  Moon,
-  Plus,
-  Star,
-  Sun,
-} from "lucide-react";
+import { Bell, CalendarClock, Check, Clock, Moon, Plus, Star, Sun } from "lucide-react";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
-import ColorChip from "@/app/_components/_ui/colorChip";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import EventDialog from "@/app/_components/calendarView/eventDialog";
 import { useCalendarStore } from "@/app/_store/calendarStore";
@@ -34,7 +24,7 @@ import {
   type CalendarEvent,
 } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
-import { chipStyle, fillStyle, taskEntityColor } from "@/app/utils/entityColor";
+import { chipStyle, taskEntityColor } from "@/app/utils/entityColor";
 import { useToday } from "@/app/utils/hooks/calendar";
 import {
   useInboxTasks,
@@ -52,10 +42,11 @@ import type { CalendarItem, Task } from "@/app/_types/types";
 import { entityTitleKey } from "@/app/utils/titleMorph";
 import TodaySuggestions from "@/app/_components/today/todaySuggestions";
 import HabitsGoals from "@/app/_components/today/habitsGoals";
+import DayTimeline from "@/app/_components/today/dayTimeline";
+import TodayPanel from "@/app/_components/today/todayPanel";
 import ScreenTip from "@/app/_components/_ui/screenTip";
-import Button from "@/app/_components/_ui/button";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
-import { buttonClass } from "@/app/_components/_ui/button";
 
 const MAX_TODAY_FOCUS = 7;
 const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
@@ -102,24 +93,25 @@ function parseDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function minutesOfDay(date: Date) {
-  return date.getHours() * 60 + date.getMinutes();
+function deadlineStamp(deadline: string) {
+  return /^\d{4}-\d{2}-\d{2}/.test(deadline) ? deadline.slice(0, 10) : localDateStamp(new Date(deadline));
+}
+
+function shortDay(stamp: string) {
+  return dateFromDateInput(stamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function dueLabel(task: Task, day: string) {
   if (!task.deadline) return null;
-  const stamp = /^\d{4}-\d{2}-\d{2}/.test(task.deadline)
-    ? task.deadline.slice(0, 10)
-    : localDateStamp(new Date(task.deadline));
+  const stamp = deadlineStamp(task.deadline);
   if (!stamp) return null;
-  const shortDay = dateFromDateInput(stamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  if (stamp < day) return `Overdue ${shortDay}`;
-  if (stamp > day) return `Due ${shortDay}`;
+  if (stamp < day) return `Overdue ${shortDay(stamp)}`;
+  if (stamp > day) return `Due ${shortDay(stamp)}`;
   const timed = parseDate(task.deadline);
   if (timed && !/^\d{4}-\d{2}-\d{2}$/.test(task.deadline) && (timed.getHours() !== 0 || timed.getMinutes() !== 0)) {
     return `Due today ${formatTime(timed)}`;
   }
-  return "Due End of Day";
+  return "Due today";
 }
 
 function progressLabel(task: Task) {
@@ -138,67 +130,6 @@ function itemAccent(item: CalendarItem) {
   if (item.task) return taskEntityColor(item.task);
   if (item.color) return item.color;
   return "var(--primary)";
-}
-
-function packAgendaLanes(items: CalendarItem[]) {
-  const sorted = [...items].sort((a, b) => a.start.localeCompare(b.start));
-  const lanes: CalendarItem[][] = [];
-  for (const item of sorted) {
-    const start = parseDate(item.start)?.getTime() ?? 0;
-    const lane = lanes.find((row) => {
-      const last = row[row.length - 1];
-      return (parseDate(last.end)?.getTime() ?? 0) <= start;
-    });
-    if (lane) lane.push(item);
-    else lanes.push([item]);
-  }
-  return lanes;
-}
-
-function agendaRange(items: CalendarItem[]) {
-  const minutes = items.flatMap((item) => {
-    const start = parseDate(item.start);
-    const end = parseDate(item.end);
-    if (!start || !end) return [];
-    return [minutesOfDay(start), minutesOfDay(end)];
-  });
-  if (minutes.length === 0) return { from: 8 * 60, to: 18 * 60 };
-  const from = Math.max(0, Math.min(8 * 60, Math.floor(Math.min(...minutes) / 60) * 60));
-  const to = Math.min(24 * 60, Math.max(18 * 60, Math.ceil(Math.max(...minutes) / 60) * 60));
-  return { from, to: Math.max(to, from + 60) };
-}
-
-function SectionHeading({
-  icon,
-  title,
-  hint,
-  extra,
-}: {
-  icon: ReactNode;
-  title: string;
-  hint?: string;
-  extra?: ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex min-w-0 flex-wrap items-baseline gap-2.5">
-        <h2 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          {icon}
-          {title}
-        </h2>
-        {hint ? <span className="text-xs text-muted-foreground/70">{hint}</span> : null}
-      </div>
-      {extra}
-    </div>
-  );
-}
-
-function StarGlyph({ filled, className }: { filled: boolean; className?: string }) {
-  return (
-    <Star
-      className={cn("size-4", filled ? "fill-warning text-warning" : "text-muted-foreground", className)}
-    />
-  );
 }
 
 function StarPicker({
@@ -275,6 +206,27 @@ function StarPicker({
   );
 }
 
+/** Today focus has seven slots: done, still open, and free. */
+function SlotMeter({ done, open }: { done: number; open: number }) {
+  return (
+    <span
+      className="flex gap-0.5"
+      role="img"
+      aria-label={`${done} done, ${open} open, ${Math.max(0, MAX_TODAY_FOCUS - done - open)} free of ${MAX_TODAY_FOCUS} slots`}
+    >
+      {Array.from({ length: MAX_TODAY_FOCUS }, (_, i) => (
+        <span
+          key={i}
+          className={cn(
+            "h-1.5 w-3 rounded-full",
+            i < done ? "bg-success" : i < done + open ? "bg-primary" : "bg-muted-foreground/20",
+          )}
+        />
+      ))}
+    </span>
+  );
+}
+
 function FocusTaskRow({
   task,
   day,
@@ -306,307 +258,136 @@ function FocusTaskRow({
   const totalMinutes = priorMinutes + Math.floor(elapsed / 60);
   const overEstimate = focusing && estimate != null && totalMinutes > estimate;
   const due = dueLabel(task, day);
+  const overdue = due?.startsWith("Overdue");
   const progress = progressLabel(task);
   const priority = normalizePriority(task.priorityLevel);
+  const place = task.project?.title || task.workspace?.name;
 
   return (
-    <div
+    <li
       className={cn(
-        "group relative flex items-center justify-between gap-3 overflow-hidden rounded-xl border p-3.5 transition-colors",
-        completed && "border-border/80 bg-muted/20 opacity-60 hover:opacity-90",
-        focusing && "border-primary/40 bg-primary/5",
-        !completed && !focusing && "border-border bg-card hover:bg-accent/30",
+        "flex items-center gap-3 border-t border-border px-1 py-2.5 first:border-t-0",
+        focusing && "-mx-2 rounded-md border-t-0 bg-primary/5 px-3",
       )}
       onContextMenu={onContextMenu}
     >
-      {focusing ? (
-        <span className="absolute inset-y-0 left-0 w-1 bg-primary" />
-      ) : (
-        <span
-          className="absolute inset-y-0 left-0 w-1"
-          style={{ backgroundColor: taskEntityColor(task) }}
-        />
-      )}
-      <div className={cn("flex min-w-0 items-start gap-3.5", focusing && "pl-2")}>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onComplete}
-          aria-label={completed ? `Reopen ${task.name}` : `Complete ${task.name}`}
-          className={cn(
-            "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors",
-            completed
-              ? "border-success bg-success/20 text-success"
-              : focusing
-                ? "border-primary/50 hover:border-primary"
-                : "border-muted-foreground/40 hover:border-primary",
-          )}
-        >
-          {completed ? <Check className="size-3.5 stroke-[2.5]" /> : null}
-        </button>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={onOpen}
-              data-entity-title={entityTitleKey("task", task.id)}
-              className={cn(
-                "truncate text-left text-sm font-medium",
-                completed ? "text-muted-foreground line-through" : "text-foreground hover:text-primary",
-              )}
+      <span
+        aria-hidden
+        className="w-[3px] self-stretch rounded-full"
+        style={{ backgroundColor: focusing ? "var(--primary)" : taskEntityColor(task) }}
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onComplete}
+        aria-label={completed ? `Reopen ${task.name}` : `Complete ${task.name}`}
+        className={cn(
+          "flex size-[18px] shrink-0 items-center justify-center rounded-md border-2 transition-colors",
+          completed
+            ? "border-success bg-success/20 text-success"
+            : focusing
+              ? "border-primary/60 hover:border-primary"
+              : "border-muted-foreground/40 hover:border-primary",
+        )}
+      >
+        {completed ? <Check className="size-3 stroke-[3]" /> : null}
+      </button>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpen}
+            data-entity-title={entityTitleKey("task", task.id)}
+            className={cn(
+              "min-w-0 truncate text-left text-sm font-medium",
+              completed ? "text-muted-foreground line-through" : "text-foreground hover:text-primary",
+            )}
+          >
+            {task.name}
+          </button>
+          {!completed && (priority === "High" || priority === "Urgent") ? (
+            <span
+              className="shrink-0 rounded-full border px-2 py-px text-[10px] font-medium"
+              style={chipStyle(priority === "Urgent" ? "#E5484D" : "#F76808")}
             >
-              {task.name}
-            </button>
-            {task.project?.title ? (
-              <ColorChip color={taskEntityColor(task)} className="text-[10px]" dot={false}>
-                {task.project.title}
-              </ColorChip>
-            ) : task.workspace?.name ? (
-              <ColorChip color={taskEntityColor(task)} className="text-[10px]" dot={false}>
-                {task.workspace.name}
-              </ColorChip>
-            ) : null}
-            {priority === "High" || priority === "Urgent" ? (
-              <span
-                className="rounded border px-2 py-0.5 text-[10px] font-semibold"
-                style={chipStyle(priority === "Urgent" ? "#E5484D" : "#F76808")}
-              >
-                {priority} Priority
+              {priority}
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 text-xs text-muted-foreground">
+          {focusing ? (
+            <span className="inline-flex items-center gap-1.5 text-primary">
+              <span className="relative flex size-1.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
               </span>
-            ) : null}
-            {(task.labels ?? []).slice(0, 2).map((label) => (
-              <ColorChip key={label.id} color={label.color} className="text-[10px]" dot={false}>
-                {label.name}
-              </ColorChip>
-            ))}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {focusing ? (
-              <span className="inline-flex items-center gap-1.5 text-primary">
-                <span className="relative flex size-1.5">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
-                  <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
-                </span>
-                Focusing now
-              </span>
-            ) : null}
-            {completed && task.completedAt ? (
-              <span>
-                Completed
-                {priorMinutes > 0 ? ` in ${formatDuration(priorMinutes)}` : ""}
-                {" · "}
-                {formatTime(new Date(task.completedAt))}
-              </span>
-            ) : null}
-            {!completed && due ? <span>{due}</span> : null}
-            {!completed && estimate != null ? <span>Estimate: {formatDuration(estimate)}</span> : null}
-            {!completed && progress ? <span>Checklist: {progress}</span> : null}
-          </div>
+              Focusing now
+            </span>
+          ) : null}
+          {completed && task.completedAt ? (
+            <span>
+              Done
+              {priorMinutes > 0 ? ` in ${formatDuration(priorMinutes)}` : ""}
+              {" · "}
+              {formatTime(new Date(task.completedAt))}
+            </span>
+          ) : null}
+          {!completed && due ? <span className={cn(overdue && "text-destructive")}>{due}</span> : null}
+          {!completed && estimate != null ? <span>{formatDuration(estimate)}</span> : null}
+          {!completed && progress ? <span>Checklist {progress}</span> : null}
+          {place && !completed ? (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: taskEntityColor(task) }} />
+              <span className="truncate">{place}</span>
+            </span>
+          ) : null}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5">
         {focusing ? (
           <>
-            <div
+            <span
               className={cn(
-                "inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-1.5 tabular-nums text-xs",
+                "inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs tabular-nums",
                 overEstimate ? "text-destructive" : "text-primary",
               )}
               title="Elapsed in this session"
             >
-              <LogoSpinner size={14} tone="mono" label="Focusing" />
+              <LogoSpinner size={12} tone="mono" label="Focusing" />
               {formatElapsed(elapsed)}
-            </div>
+            </span>
             <Link
               href={`/calendar?taskId=${encodeURIComponent(task.id)}`}
-              className="hidden items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/40 sm:inline-flex"
+              className={buttonClass({ variant: "ghost", size: "sm", className: "hidden 2xl:inline-flex" })}
             >
-              <CalendarClock className="size-3.5" />
+              <CalendarClock />
               Reschedule
             </Link>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onStop}
-              className={buttonClass({ size: "sm" })}
-            >
+            <Button variant="outline" size="sm" disabled={busy} onClick={onStop}>
               Stop
-            </button>
+            </Button>
           </>
         ) : completed ? null : (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onStart}
-            className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-accent/40 disabled:opacity-60"
-          >
-            Start Focus
-          </button>
+          <Button variant="outline" size="sm" disabled={busy} onClick={onStart}>
+            Start focus
+          </Button>
         )}
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
+          icon
           onClick={onUnstar}
           title="Remove from today focus"
           aria-label={`Remove ${task.name} from today focus`}
-          className="rounded-md p-1 text-warning hover:bg-accent/40"
         >
-          <StarGlyph filled={!completed} className={completed ? "fill-muted-foreground text-muted-foreground" : undefined} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function AgendaTimeline({
-  items,
-  now,
-  onOpen,
-  onContextMenu,
-}: {
-  items: CalendarItem[];
-  now: number;
-  onOpen: (item: CalendarItem) => void;
-  onContextMenu?: (event: React.MouseEvent, item: CalendarItem) => void;
-}) {
-  const { from, to } = agendaRange(items);
-  const span = Math.max(to - from, 60);
-  const hours = Array.from({ length: Math.floor(span / 60) + 1 }, (_, i) => from / 60 + i);
-  const nowDate = new Date(now);
-  const nowMinutes = minutesOfDay(nowDate);
-  const showNow = nowMinutes >= from && nowMinutes <= to;
-  const nowLeft = ((nowMinutes - from) / span) * 100;
-  const lanes = packAgendaLanes(items);
-  const laneHeight = 32;
-  const trackHeight = Math.max(lanes.length, 1) * (laneHeight + 6) + 8;
-
-  return (
-    <div className="space-y-2">
-      <div className="relative rounded-lg bg-background/60" style={{ height: trackHeight }}>
-        {lanes.flatMap((lane, laneIndex) =>
-          lane.map((item) => {
-            const start = parseDate(item.start);
-            const end = parseDate(item.end);
-            if (!start || !end) return null;
-            const left = ((Math.max(minutesOfDay(start), from) - from) / span) * 100;
-            const right = ((Math.min(minutesOfDay(end), to) - from) / span) * 100;
-            const width = Math.max(right - left, 1.5);
-            // A short block would only show "T…"; its title is in the tooltip
-            // and the list below.
-            return (
-              <button
-                key={item.id}
-                type="button"
-                title={`${item.title} · ${formatTime(start)} – ${formatTime(end)}`}
-                onClick={() => onOpen(item)}
-                onContextMenu={(event) => onContextMenu?.(event, item)}
-                className="absolute overflow-hidden rounded-md px-2 text-left text-[11px] font-medium"
-                style={{
-                  top: 6 + laneIndex * (laneHeight + 6),
-                  height: laneHeight,
-                  left: `${left}%`,
-                  width: `${width}%`,
-                  // A 15-minute block is a few pixels wide; keep enough room to read the first word.
-                  minWidth: 72,
-                  ...fillStyle(itemAccent(item)),
-                }}
-              >
-                <span className="block truncate leading-8">{item.title}</span>
-              </button>
-            );
-          }),
-        )}
-        {showNow ? (
-          <span
-            className="pointer-events-none absolute top-0 z-10 h-full w-px bg-foreground"
-            style={{ left: `${nowLeft}%` }}
-            title="Now"
-          />
-        ) : null}
-      </div>
-      <div className="relative h-4 whitespace-nowrap text-[10px] tabular-nums text-muted-foreground">
-        {hours.map((hour, index) => (
-          <span
-            key={hour}
+          <Star
             className={cn(
-              "absolute",
-              index === 0 ? "translate-x-0" : index === hours.length - 1 ? "-translate-x-full" : "-translate-x-1/2",
+              completed ? "fill-muted-foreground/60 text-muted-foreground/60" : "fill-warning text-warning",
             )}
-            style={{ left: `${((hour * 60 - from) / span) * 100}%` }}
-          >
-            {formatTime(new Date(2000, 0, 1, hour))}
-          </span>
-        ))}
+          />
+        </Button>
       </div>
-    </div>
-  );
-}
-
-function AgendaRow({
-  item,
-  onOpen,
-  onContextMenu,
-}: {
-  item: CalendarItem;
-  onOpen: () => void;
-  onContextMenu?: (event: React.MouseEvent) => void;
-}) {
-  const start = parseDate(item.start);
-  const end = parseDate(item.end);
-  const accent = itemAccent(item);
-  const meet = meetingUrl(item);
-  const isTask = Boolean(item.taskId);
-  const durationMin =
-    start && end ? Math.max(0, Math.round((end.getTime() - start.getTime()) / 60_000)) : 0;
-  const badge = item.allDay ? "All day" : isTask ? "Focus block" : "Event";
-
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      onContextMenu={onContextMenu}
-      className="flex w-full items-stretch gap-0 overflow-hidden rounded-xl border border-border bg-card text-left transition-colors hover:bg-accent/30"
-    >
-      <span className="w-1 shrink-0" style={{ backgroundColor: accent }} />
-      <div className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3.5 py-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="tabular-nums text-[11px] font-medium" style={{ color: accent }}>
-              {item.allDay || !start || !end
-                ? "All day"
-                : `${formatTime(start)} – ${formatTime(end)}`}
-            </span>
-            <span
-              className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
-              style={chipStyle(accent)}
-            >
-              {badge}
-            </span>
-          </div>
-          <h3 className="mt-1 truncate text-sm font-semibold text-foreground">{item.title}</h3>
-          {item.task?.project?.title || item.event?.description ? (
-            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-              {item.event?.description?.trim() || item.task?.project?.title}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1 text-xs">
-          <span className="text-muted-foreground">{durationMin > 0 ? formatDuration(durationMin) : null}</span>
-          {meet ? (
-            <a
-              href={meet}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => event.stopPropagation()}
-              className="font-medium text-primary hover:underline"
-            >
-              Join call →
-            </a>
-          ) : (
-            <span className="font-medium text-primary">Open →</span>
-          )}
-        </div>
-      </div>
-    </button>
+    </li>
   );
 }
 
@@ -637,7 +418,10 @@ export default function TodayDashboard() {
 
   const items = useMemo(() => data?.items ?? [], [data?.items]);
   const scheduled = useMemo(() => items.filter((item) => !item.reminder), [items]);
-  const reminders = useMemo(() => items.filter((item) => item.reminder), [items]);
+  const reminders = useMemo(
+    () => items.filter((item) => item.reminder).sort((a, b) => a.start.localeCompare(b.start)),
+    [items],
+  );
   const timedScheduled = useMemo(
     () => scheduled.filter((item) => !item.allDay).sort((a, b) => a.start.localeCompare(b.start)),
     [scheduled],
@@ -817,7 +601,7 @@ export default function TodayDashboard() {
                 <>
                   <span aria-hidden className="size-1 rounded-full bg-border" />
                   <Link href="/inbox" className="font-medium text-warning hover:underline">
-                    {inboxCount} item{inboxCount === 1 ? "" : "s"} in inbox
+                    {inboxCount} in inbox
                   </Link>
                 </>
               ) : null}
@@ -843,14 +627,16 @@ export default function TodayDashboard() {
           }
         />
 
-        <div className="mt-6 space-y-7 px-6 pb-8">
+        <div className="flex-1 px-6 py-5">
           {today.isError && data ? (
-            <LoadErrorBanner
-              what="today"
-              error={today.error}
-              onRetry={() => today.refetch()}
-              retrying={today.isFetching}
-            />
+            <div className="mb-4">
+              <LoadErrorBanner
+                what="today"
+                error={today.error}
+                onRetry={() => today.refetch()}
+                retrying={today.isFetching}
+              />
+            </div>
           ) : null}
 
           {today.isLoading ? (
@@ -867,260 +653,261 @@ export default function TodayDashboard() {
               <EmptyState icon={Sun} title="Nothing to show" description="Today has no data yet." />
             )
           ) : (
-            <>
-              <HabitsGoals today={data.date} version={String(today.dataUpdatedAt)} />
-
-              <section className="space-y-3">
-                <SectionHeading
-                  icon={<Star className="size-3.5 fill-primary text-primary" />}
+            // The day board: what to do (focus, suggestions), when it happens
+            // (the day's clock) and the small things (habits, goals,
+            // reminders, overdue, wrap-up). Three columns from 1280px, the
+            // last two stacked from 1024px, one column below that.
+            <div
+              data-testid="today-board"
+              className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]"
+            >
+              <div className="flex min-w-0 flex-col gap-4">
+                <TodayPanel
                   title="Today focus"
-                  hint="Up to 7 tasks to finish today, whatever their deadlines."
-                  extra={
+                  icon={<Star className="size-3.5 fill-warning text-warning" />}
+                  data-testid="today-focus"
+                  meta={
                     focusTotal > 0 ? (
-                      <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                        <span>Progress:</span>
-                        <span className="text-primary">
-                          {focusCompleteCount}/{focusTotal} completed
+                      <span className="flex items-center gap-2.5">
+                        <span className="tabular-nums">
+                          {focusCompleteCount} of {focusTotal} done
+                          {remainingEstimate > 0 ? ` · ${formatDuration(remainingEstimate)} left` : ""}
                         </span>
-                        {remainingEstimate > 0 ? (
-                          <>
-                            <span className="text-border">•</span>
-                            <span>{formatDuration(remainingEstimate)} remaining</span>
-                          </>
-                        ) : null}
-                      </div>
-                    ) : null
+                        <SlotMeter done={focusCompleteCount} open={focusTotal - focusCompleteCount} />
+                      </span>
+                    ) : (
+                      <span>Up to {MAX_TODAY_FOCUS} tasks, whatever their deadlines</span>
+                    )
                   }
-                />
-                <div className="space-y-2.5 rounded-2xl border border-border bg-muted/20 p-4">
+                >
                   {focusRows.length === 0 ? (
-                    <p className="px-1 py-3 text-sm text-muted-foreground">
+                    <p className="pb-2 text-sm text-muted-foreground">
                       Nothing starred yet. Star a task here or from its detail panel.
                     </p>
                   ) : (
-                    focusRows.map((task) => (
-                      <FocusTaskRow
-                        key={task.id}
-                        task={task}
-                        day={data.date}
-                        focusing={data.focusing?.id === task.id}
-                        elapsed={data.focusing?.id === task.id ? elapsed : 0}
-                        busy={mutating}
-                        onOpen={() => openTask(task.id)}
-                        onComplete={() => {
-                          if (data.focusing?.id === task.id) stopAndComplete(task);
-                          else completeTask(task);
-                        }}
-                        onStart={() => runMutation(startFocus.mutateAsync(task.id), "Could not start focus")}
-                        onStop={() => runMutation(stopFocus.mutateAsync(task.id), "Could not stop focus")}
-                        onUnstar={() => unstar(task)}
-                        onContextMenu={(event) =>
-                          openMenu(event, taskMenu(task), { title: task.name })
-                        }
-                      />
-                    ))
+                    <ul>
+                      {focusRows.map((task) => (
+                        <FocusTaskRow
+                          key={task.id}
+                          task={task}
+                          day={data.date}
+                          focusing={data.focusing?.id === task.id}
+                          elapsed={data.focusing?.id === task.id ? elapsed : 0}
+                          busy={mutating}
+                          onOpen={() => openTask(task.id)}
+                          onComplete={() => {
+                            if (data.focusing?.id === task.id) stopAndComplete(task);
+                            else completeTask(task);
+                          }}
+                          onStart={() => runMutation(startFocus.mutateAsync(task.id), "Could not start focus")}
+                          onStop={() => runMutation(stopFocus.mutateAsync(task.id), "Could not stop focus")}
+                          onUnstar={() => unstar(task)}
+                          onContextMenu={(event) => openMenu(event, taskMenu(task), { title: task.name })}
+                        />
+                      ))}
+                    </ul>
                   )}
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={remainingSlots <= 0}
                     onClick={() => setPickerOpen(true)}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-4 py-2.5 text-xs font-medium text-muted-foreground transition hover:border-primary/50 hover:bg-accent/30 hover:text-primary disabled:opacity-50"
+                    leading={<Plus />}
+                    className="mt-1"
                   >
-                    <Plus className="size-4" />
                     {remainingSlots > 0
-                      ? `Assign task to Today’s Focus list (${remainingSlots} slot${remainingSlots === 1 ? "" : "s"} available)`
-                      : "Today’s Focus is full (7/7)"}
-                  </button>
-                </div>
-              </section>
+                      ? `Add a task · ${remainingSlots} slot${remainingSlots === 1 ? "" : "s"} left`
+                      : `Today focus is full (${MAX_TODAY_FOCUS} of ${MAX_TODAY_FOCUS})`}
+                  </Button>
+                </TodayPanel>
 
-              <ScreenTip screen="today" />
+                <ScreenTip screen="today" />
 
-              <TodaySuggestions
-                date={data.date}
-                slotsLeft={remainingSlots}
-                version={`${data.todayFocus.map((task) => task.id).join(",")}|${scheduled.map((item) => item.id).join(",")}`}
-              />
+                <TodaySuggestions
+                  date={data.date}
+                  slotsLeft={remainingSlots}
+                  version={`${data.todayFocus.map((task) => task.id).join(",")}|${scheduled.map((item) => item.id).join(",")}`}
+                />
+              </div>
 
-              <section className="space-y-3">
-                <SectionHeading
+              <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+                <TodayPanel
+                  title="Schedule"
                   icon={<Clock className="size-3.5 text-primary" />}
-                  title="Scheduled"
-                  hint="Reserved blocks and events, placed on today’s clock"
-                  extra={
+                  data-testid="today-schedule"
+                  meta={
                     nextEvent ? (
-                      <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="size-2 rounded-full bg-success" />
-                        Next: {nextEvent.item.title} in {formatCountdown(nextEvent.start.getTime() - now)}
+                      <span
+                        className="inline-flex min-w-0 items-center gap-1.5"
+                        title={`Next: ${nextEvent.item.title} at ${formatTime(nextEvent.start)}`}
+                      >
+                        <span className="size-1.5 shrink-0 rounded-full bg-success" />
+                        <span className="shrink-0">Next in {formatCountdown(nextEvent.start.getTime() - now)}</span>
+                        <span className="hidden truncate 2xl:inline">· {nextEvent.item.title}</span>
                       </span>
                     ) : null
                   }
-                />
-                {scheduled.length === 0 ? (
-                  <p className="rounded-2xl border border-border bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
-                    Nothing on the calendar today.
-                  </p>
-                ) : (
-                  <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-4">
-                    {timedScheduled.length > 0 ? (
-                      <AgendaTimeline
-                        items={timedScheduled}
-                        now={now}
-                        onOpen={openItem}
-                        onContextMenu={onItemContextMenu}
-                      />
-                    ) : null}
-                    {allDayScheduled.length > 0 ? (
-                      <ul className="flex flex-wrap gap-2">
-                        {allDayScheduled.map((item) => (
-                          <li key={item.id}>
+                >
+                  {allDayScheduled.length > 0 ? (
+                    <ul className="mb-3 flex flex-wrap gap-1.5">
+                      {allDayScheduled.map((item) => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() => openItem(item)}
+                            onContextMenu={(event) => onItemContextMenu(event, item)}
+                            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+                            style={chipStyle(itemAccent(item))}
+                          >
+                            {item.title}
+                            <span className="text-[10px] opacity-80">All day</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <DayTimeline
+                    items={timedScheduled}
+                    reminders={reminders}
+                    now={now}
+                    accent={itemAccent}
+                    meetingUrl={meetingUrl}
+                    onOpen={openItem}
+                    onContextMenu={onItemContextMenu}
+                  />
+                  {scheduled.length === 0 ? (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Nothing on the calendar today.{" "}
+                      <Link href="/calendar" className="font-medium text-primary hover:underline">
+                        Open Calendar
+                      </Link>
+                    </p>
+                  ) : null}
+                </TodayPanel>
+
+                <div className="flex min-w-0 flex-col gap-4">
+                  <HabitsGoals today={data.date} version={String(today.dataUpdatedAt)} />
+
+                  <TodayPanel
+                    title="Reminders"
+                    icon={<Bell className="size-3.5 text-warning" />}
+                    data-testid="today-reminders"
+                    action={
+                      <Button variant="ghost" size="sm" leading={<Plus />} onClick={openReminder}>
+                        New
+                      </Button>
+                    }
+                  >
+                    {reminders.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No reminders today.</p>
+                    ) : (
+                      <ul>
+                        {reminders.map((item) => (
+                          <li key={item.id} className="border-t border-border first:border-t-0">
                             <button
                               type="button"
                               onClick={() => openItem(item)}
                               onContextMenu={(event) => onItemContextMenu(event, item)}
-                              className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs hover:bg-accent/40"
+                              className="flex w-full items-center gap-3 rounded-md py-1.5 text-left hover:bg-muted/60"
                             >
-                              {item.title}
-                              <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-                                All day
+                              <span className="w-16 shrink-0 text-xs tabular-nums text-muted-foreground">
+                                {formatTime(new Date(item.start))}
+                              </span>
+                              <span
+                                className={cn(
+                                  "min-w-0 flex-1 truncate text-sm",
+                                  (item.completedAt || item.task?.completedAt) && "text-muted-foreground line-through",
+                                )}
+                              >
+                                {item.title}
                               </span>
                             </button>
                           </li>
                         ))}
                       </ul>
-                    ) : null}
-                    <div className="space-y-2">
-                      {timedScheduled.map((item) => (
-                        <AgendaRow
-                          key={item.id}
-                          item={item}
-                          onOpen={() => openItem(item)}
-                          onContextMenu={(event) => onItemContextMenu(event, item)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </section>
+                    )}
+                  </TodayPanel>
 
-              <section className="space-y-3">
-                <SectionHeading
-                  icon={<Bell className="size-3.5 text-warning" />}
-                  title="Reminders"
-                  extra={
-                    <button
-                      type="button"
-                      onClick={openReminder}
-                      className="text-xs font-medium text-primary hover:underline"
+                  {data.overdue.length > 0 ? (
+                    <TodayPanel
+                      title="Overdue"
+                      icon={<CalendarClock className="size-3.5 text-destructive" />}
+                      titleClassName="text-destructive"
+                      data-testid="today-overdue"
+                      meta={`${data.overdue.length} task${data.overdue.length === 1 ? "" : "s"}`}
                     >
-                      + New Reminder
-                    </button>
-                  }
-                />
-                {reminders.length === 0 ? (
-                  <p className="rounded-2xl border border-border bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
-                    No reminders today.
-                  </p>
-                ) : (
-                  <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-muted/20">
-                    {reminders.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => openItem(item)}
-                        onContextMenu={(event) => onItemContextMenu(event, item)}
-                        className="flex w-full items-center justify-between gap-3 px-3.5 py-3.5 text-left hover:bg-accent/30"
-                      >
-                        <span className="min-w-0 truncate text-sm font-medium">{item.title}</span>
-                        <span className="rounded-md border border-border bg-background px-2 py-0.5 tabular-nums text-xs text-muted-foreground">
-                          {formatTime(new Date(item.start))}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              {data.overdue.length > 0 ? (
-                <section className="space-y-3">
-                  <SectionHeading
-                    icon={<CalendarClock className="size-3.5 text-destructive" />}
-                    title="Overdue"
-                    hint="Past the deadline or last reserved block"
-                  />
-                  <ul className="space-y-2 rounded-2xl border border-border bg-muted/20 p-4">
-                    {data.overdue.map((task) => (
-                      <li key={task.id} className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openTask(task.id)}
-                          onContextMenu={(event) =>
-                            openMenu(event, taskMenu(task), { title: task.name })
-                          }
-                          className="min-w-0 flex-1 truncate rounded-xl border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent/40"
-                        >
-                          <span
-                            data-entity-title={entityTitleKey("task", task.id)}
-                            className="inline-block max-w-full truncate align-bottom"
+                      <ul>
+                        {data.overdue.map((task) => (
+                          <li
+                            key={task.id}
+                            className="flex items-center gap-2 border-t border-border py-1.5 first:border-t-0"
                           >
-                            {task.name}
-                          </span>
-                          {task.deadline ? (
-                            <span className="ml-2 text-xs text-destructive">{task.deadline}</span>
-                          ) : null}
-                        </button>
-                        <Link
-                          href={`/calendar?taskId=${encodeURIComponent(task.id)}`}
-                          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/40"
-                        >
-                          Reschedule
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
+                            <button
+                              type="button"
+                              onClick={() => openTask(task.id)}
+                              onContextMenu={(event) => openMenu(event, taskMenu(task), { title: task.name })}
+                              className="min-w-0 flex-1 text-left"
+                            >
+                              <span
+                                data-entity-title={entityTitleKey("task", task.id)}
+                                className="block truncate text-sm hover:text-primary"
+                              >
+                                {task.name}
+                              </span>
+                              {task.deadline ? (
+                                <span className="block text-xs text-destructive">
+                                  Due {shortDay(deadlineStamp(task.deadline))}
+                                </span>
+                              ) : null}
+                            </button>
+                            <Link
+                              href={`/calendar?taskId=${encodeURIComponent(task.id)}`}
+                              className={buttonClass({ variant: "outline", size: "sm" })}
+                            >
+                              Reschedule
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </TodayPanel>
+                  ) : null}
 
-              <section className="space-y-3">
-                <SectionHeading
-                  icon={<Moon className="size-3.5 text-chart-3" />}
-                  title="End Of Day Shutdown & Reflection"
-                />
-                <div className="flex flex-col items-stretch justify-between gap-5 rounded-2xl border border-border bg-gradient-to-r from-muted/40 via-card to-primary/5 p-5 md:flex-row md:items-center">
-                  <div className="grid w-full grid-cols-3 gap-6 md:w-auto">
-                    <Metric
-                      label="Completed"
-                      value={data.completedToday.length}
-                      hint={focusTotal > 0 ? `/ ${focusTotal} tasks` : undefined}
-                      tone="success"
-                    />
-                    <Metric label="Unfinished" value={data.unfinished.length} tone="warning" />
-                    <Metric label="Scheduled Tomorrow" value={data.tomorrowFocus.length} tone="primary" />
-                  </div>
-                  <div className="flex items-center justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={planTomorrow}
-                      className="rounded-xl border border-border bg-muted/40 px-3.5 py-2 text-xs font-semibold hover:bg-accent/40"
-                    >
-                      Plan Tomorrow
-                    </button>
-                    <button
-                      type="button"
-                      onClick={eveningShutdown}
-                      className="inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/15 px-4 py-2 text-xs font-semibold text-primary"
-                    >
-                      <Check className="size-3.5" />
-                      Start Evening Shutdown
-                    </button>
-                  </div>
+                  <TodayPanel
+                    title="End of day"
+                    icon={<Moon className="size-3.5 text-chart-3" />}
+                    data-testid="today-shutdown"
+                  >
+                    <div className="mb-3 grid grid-cols-3 gap-2">
+                      <Metric
+                        label="Done"
+                        value={data.completedToday.length}
+                        hint={focusTotal > 0 ? `of ${focusTotal}` : undefined}
+                        tone="success"
+                      />
+                      <Metric label="Unfinished" value={data.unfinished.length} tone="warning" />
+                      <Metric label="Tomorrow" value={data.tomorrowFocus.length} tone="primary" />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={planTomorrow}>
+                        Plan tomorrow
+                      </Button>
+                      <Button
+                        variant="soft"
+                        size="sm"
+                        leading={<Moon />}
+                        onClick={eveningShutdown}
+                        title="Move unfinished focus tasks to tomorrow"
+                      >
+                        Shut down day
+                      </Button>
+                    </div>
+                  </TodayPanel>
                 </div>
-              </section>
-            </>
+              </div>
+            </div>
           )}
         </div>
       </div>
-
 
       {pickerOpen ? (
         <div
@@ -1159,15 +946,14 @@ function Metric({
   hint?: string;
   tone: "success" | "warning" | "primary";
 }) {
-  const color =
-    tone === "success" ? "text-success" : tone === "warning" ? "text-warning" : "text-primary";
+  const color = tone === "success" ? "text-success" : tone === "warning" ? "text-warning" : "text-primary";
   return (
-    <div className="flex flex-col border-border md:border-l md:pl-6 md:first:border-0 md:first:pl-0">
-      <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
-      <span className={cn("mt-0.5 flex items-baseline gap-1 text-xl font-bold", color)}>
+    <div className="min-w-0 rounded-md bg-muted/60 px-2.5 py-2">
+      <span className={cn("flex items-baseline gap-1 text-lg font-semibold tabular-nums leading-6", color)}>
         {value}
         {hint ? <span className="text-xs font-normal text-muted-foreground">{hint}</span> : null}
       </span>
+      <span className="block truncate text-[11px] text-muted-foreground">{label}</span>
     </div>
   );
 }
