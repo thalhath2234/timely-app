@@ -10,6 +10,7 @@ import {
   View,
   Dimensions,
 } from "react-native";
+import { useRouter } from "expo-router";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -69,6 +70,7 @@ import { Field, PrimaryButton } from "../ui/primitives";
 import { useKeyboardAccessory } from "../ui/SheetHost";
 import { buildEditorHtml } from "./editorHtml";
 import { getApiUrlSync } from "../../lib/api/client";
+import { hrefFor } from "../../lib/searchRoutes";
 import { getLinkPreview, uploadDocFile } from "../../lib/api/docs";
 import { sharePdfFromHtml } from "../../lib/api/portability";
 import { isEmbedUrl } from "@timely/contract/markdown";
@@ -253,6 +255,7 @@ export default function RichTextEditor({
   propertyRequest,
   mentionRequest,
   writeContext,
+  openMentions = true,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
@@ -282,11 +285,16 @@ export default function RichTextEditor({
   /** Turns on Help me write (dock button and "/" entry), shown only while an
    * AI provider is set up. */
   writeContext?: WriteContext;
+  /** A tap on a mention chip opens the doc, sheet, task or project it names
+   * (a long press selects it for editing). Off inside sheets, where the
+   * opened screen would sit behind the sheet. */
+  openMentions?: boolean;
 }) {
   const [findResult, setFindResult] = useState({ current: -1, count: 0 });
   const [blockMenu, setBlockMenu] = useState<BlockInfo | null>(null);
   const pdfTitleRef = useRef("");
   const webRef = useRef<WebView>(null);
+  const router = useRouter();
   const themeKey = `${getThemeMode()}:${resolvedAccentHex()}`;
   // A compact editor sits inside a card, so its page takes the card colour.
   const html = useMemo(
@@ -296,9 +304,9 @@ export default function RichTextEditor({
         placeholder,
         compact ? { ...editorThemeVars(), background: colors.card } : editorThemeVars(),
         getApiUrlSync(),
-        { compact },
+        { compact, openMentions },
       ),
-    [themeKey],
+    [themeKey, openMentions],
   );
   const focusedRef = useRef(false);
   const appliedRef = useRef(JSON.stringify(content));
@@ -429,6 +437,8 @@ export default function RichTextEditor({
         text?: string;
         ok?: boolean;
         selection?: string;
+        id?: string;
+        entityType?: string;
       };
       if (msg.type === "linkSelection") {
         if (!msg.ok || typeof msg.from !== "number" || typeof msg.to !== "number") {
@@ -471,6 +481,10 @@ export default function RichTextEditor({
         setCalloutPick({ pos: msg.pos, kind: msg.kind ?? "note" });
       }
       if (msg.type === "wikilink") onWikiLinkRef.current?.(msg.target ?? "");
+      if (msg.type === "openMention" && msg.id) {
+        Keyboard.dismiss();
+        router.push(hrefFor(msg.entityType || "doc", msg.id));
+      }
       if (msg.type === "change" && msg.content) {
         appliedRef.current = JSON.stringify(msg.content);
         onChange({ content: msg.content, plainText: msg.plainText ?? "" });
