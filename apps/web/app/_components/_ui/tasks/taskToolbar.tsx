@@ -1,7 +1,6 @@
 "use client";
 
 import { buttonClass } from "@/app/_components/_ui/button";
-import { controlClass, popoverSurface } from "@/app/_components/_ui/field";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, GripVertical, List, X } from "lucide-react";
@@ -17,10 +16,10 @@ import type {
   TaskRenderMode,
   Workspace,
 } from "@/app/_types/types";
-import { PRIORITY_OPTIONS } from "@/app/utils/priority";
-import { plural, pluralWord } from "@/app/utils/plural";
+import { PRIORITY_OPTIONS, priorityColor } from "@/app/utils/priority";
 import { useModKey } from "@/app/utils/hooks/useModKey";
 import { mergeStatusesByName, statusNameKey } from "@/app/utils/status";
+import { plural, pluralWord } from "@/app/utils/plural";
 
 export type TaskListScope = "global" | "project";
 
@@ -334,6 +333,7 @@ export function TaskToolbar({
                     <div className="flex-1">
                       <Select
                         size="sm"
+                        aria-label={`Group level ${index + 1}`}
                         value={value}
                         onChange={(next) => updateGroupField(index, next as TaskListGroupField | "none")}
                         options={availableGroups.map((option) => ({
@@ -345,10 +345,13 @@ export function TaskToolbar({
                     </div>
 
                     <button
+                      type="button"
+                      aria-label={`Remove ${groupLabel(value)} grouping`}
+                      title={`Remove ${groupLabel(value)} grouping`}
                       className="p-1 text-muted-foreground hover:text-foreground"
                       onClick={() => updateGroupField(index, "none")}
                     >
-                      <X size={14} />
+                      <X size={14} aria-hidden />
                     </button>
                   </div>
                 ))}
@@ -758,21 +761,26 @@ export function TaskOptionsBar({
           />
         </div>
       ) : null}
-      <details className="relative w-36">
-        <summary className={controlClass("sm", "flex cursor-pointer list-none items-center justify-between gap-2")}>
-          <span className="truncate">{selectedPriorityLevels.length === 0 ? "All priorities" : selectedPriorityLevels.length === 1 ? selectedPriorityLevels[0] : `${selectedPriorityLevels.length} priorities`}</span>
-          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-        </summary>
-        <div className={`${popoverSurface} absolute right-0 top-full z-40 mt-1 w-44 p-1`}>
-          <button type="button" onClick={() => setSelectedPriorityLevels([])} className="mb-1 w-full rounded px-2 py-1 text-left hover:bg-accent">All priorities</button>
-          {PRIORITY_OPTIONS.map((option) => (
-            <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-accent">
-              <input type="checkbox" checked={selectedPriorityLevels.includes(option.value)} onChange={() => setSelectedPriorityLevels(selectedPriorityLevels.includes(option.value) ? selectedPriorityLevels.filter((value) => value !== option.value) : [...selectedPriorityLevels, option.value])} className="accent-primary" />
-              {option.label}
-            </label>
-          ))}
-        </div>
-      </details>
+      <div className="w-36">
+        {/* The kit Select, like the Project, Label and Stage filters beside it,
+            so it closes on an outside click or Escape and when the view changes.
+            A saved view may still hold several levels; the trigger counts them. */}
+        <Select
+          size="sm"
+          aria-label="Priority"
+          value={selectedPriorityLevels.length === 1 ? selectedPriorityLevels[0] : selectedPriorityLevels.length === 0 ? "" : "__several"}
+          placeholder={selectedPriorityLevels.length > 1 ? `${selectedPriorityLevels.length} priorities` : "Priority"}
+          onChange={(level) => setSelectedPriorityLevels(level ? [level] : [])}
+          options={[
+            { value: "", label: "All priorities" },
+            ...PRIORITY_OPTIONS.map((option) => ({
+              value: option.value,
+              label: option.label,
+              color: priorityColor(option.value) ?? undefined,
+            })),
+          ]}
+        />
+      </div>
       {labels.length > 0 ? (
         <div className="w-36">
           <Select
