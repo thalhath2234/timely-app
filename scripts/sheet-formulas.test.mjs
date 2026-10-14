@@ -248,11 +248,31 @@ describe("sheetFormula functions and workbooks", () => {
     ["=Nope!A1", "#REF!"],
     ["=#REF!+1", "#REF!"],
     ["=ABC(1)", "#NAME?"],
+    ["=SUM()", "#N/A"],
+    ["=AVERAGE()", "#N/A"],
+    ["=IF()", "#N/A"],
+    ["=ABC()", "#NAME?"],
+    ["=PI()", Math.PI],
   ]) {
     test(formulaText, () => {
       const result = value(ev(formulaText));
       if (typeof expected === "number") assert.ok(Math.abs(result - expected) < 1e-9, `${formulaText} → ${result}`);
       else assert.equal(result, expected);
+    });
+  }
+
+  // What the grid stores when a formula is committed half-typed: open
+  // parentheses are closed first, as in other spreadsheets.
+  for (const [typed, expected] of [
+    ["=SUM(", "#N/A"],
+    ["=SUM(H1:", "#PARSE!"],
+    ["=1+", "#PARSE!"],
+    ["=SUM(H1:H4", 7400],
+    // `H1:H` is an open range (H1 to the end of column H), not a typo.
+    ["=SUM(H1:H", 7400],
+  ]) {
+    test(`committing ${typed}`, () => {
+      assert.equal(value(ev(input.closeOpenParens(typed))), expected);
     });
   }
 
