@@ -119,14 +119,10 @@ export default function DateTimeSheet({
     }
   }
 
+  // The wheels only move the preview; Done saves once and closing discards.
   function commitTime(nextHours: number, nextMinutes: number) {
     setHour(nextHours);
     setMinute(nextMinutes);
-    if (mode === "time") {
-      const next = new Date(value ?? new Date());
-      next.setHours(nextHours, nextMinutes, 0, 0);
-      onChange(next);
-    }
   }
 
   function apply() {
@@ -157,13 +153,7 @@ export default function DateTimeSheet({
       onClose();
       return;
     }
-    if (mode === "time") {
-      const next = new Date(value ?? now);
-      next.setHours(now.getHours(), snapped, 0, 0);
-      onChange(next);
-      return;
-    }
-    // datetime: keep the local preview; Done is the commit.
+    // time and datetime: keep the local preview; Done is the commit.
   }
 
   const heading =
