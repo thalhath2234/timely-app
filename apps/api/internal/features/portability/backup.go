@@ -232,8 +232,11 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 // restoreDefaults fills NOT NULL columns added after older backups were
 // made; a missing key would otherwise insert NULL instead of the default.
 var restoreDefaults = map[string]map[string]any{
-	"documents": {"is_template": false},
-	"configs":   {"mobile_task_views": []any{}, "mobile_active_task_view_id": ""},
+	"documents":     {"is_template": false},
+	"statuses":      {"position": 0},
+	"lables":        {"position": 0},
+	"custom_fields": {"position": 0},
+	"configs":       {"mobile_task_views": []any{}, "mobile_active_task_view_id": ""},
 }
 
 type parentRef struct {

@@ -42,8 +42,11 @@ func (r *workspaceRepository) CreateWorkspace(workspace *models.Workspace, defau
 		if err := tx.Create(workspace).Error; err != nil {
 			return err
 		}
+		// One INSERT writes them all, so each BeforeCreate would read the
+		// same next position; number them here in the order given.
 		for i := range defaultStatuses {
 			defaultStatuses[i].WorkspaceID = workspace.ID
+			defaultStatuses[i].Position = int64(i + 1)
 		}
 		return tx.Create(&defaultStatuses).Error
 	})
@@ -55,9 +58,9 @@ func (r *workspaceRepository) GetAllWorkspaceByUser(userID string) ([]models.Wor
 	err := r.db.
 		Where("user_id = ?", userID).
 		Preload("Projects").
-		Preload("Status").
-		Preload("CustomFields").
-		Preload("Lables").
+		Preload("Status", models.OrderWorkspaceItems).
+		Preload("CustomFields", models.OrderWorkspaceItems).
+		Preload("Lables", models.OrderWorkspaceItems).
 		Find(&workspaces).Error
 
 	if err != nil {
@@ -74,9 +77,9 @@ func (r *workspaceRepository) GetWorkspaceById(userID string, workspaceID string
 		Where("user_id = ?", userID).
 		Where("id = ?", workspaceID).
 		Preload("Projects").
-		Preload("Status").
-		Preload("CustomFields").
-		Preload("Lables").
+		Preload("Status", models.OrderWorkspaceItems).
+		Preload("CustomFields", models.OrderWorkspaceItems).
+		Preload("Lables", models.OrderWorkspaceItems).
 		First(&workspace).Error
 	if err != nil {
 		return nil, err
@@ -288,6 +291,7 @@ func (r *workspaceRepository) GetAllCustomFields(userID string) ([]models.Custom
 
 	err = r.db.
 		Where("workspace_id IN ?", ids).
+		Order("workspace_id, " + models.WorkspaceItemOrder).
 		Find(&customFields).Error
 	if err != nil {
 		return nil, err
