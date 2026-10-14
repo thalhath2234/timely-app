@@ -142,7 +142,12 @@ export default function HelpMeWriteSheet({
         </View>
       ) : result ? (
         <View style={styles.gap}>
-          <ScrollView style={styles.preview} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+          <ScrollView
+            style={styles.preview}
+            contentContainerStyle={styles.previewContent}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+          >
             <RichDoc content={fromMarkdown(result.text, { breaks: true }).content} />
           </ScrollView>
           <View style={styles.row}>
@@ -221,9 +226,10 @@ const styles = createThemedStyleSheet((colors) => ({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     backgroundColor: colors.background,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
   },
+  // Padding goes on the content, not the ScrollView: on Android a ScrollView's
+  // own padding is not part of what scrolls, so it clipped the draft's last line.
+  previewContent: { paddingHorizontal: 14, paddingVertical: 10 },
   footer: { flexDirection: "row", alignItems: "center", gap: 4 },
   error: {
     marginTop: 12,
