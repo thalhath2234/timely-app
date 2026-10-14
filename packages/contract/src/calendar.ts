@@ -36,6 +36,15 @@ export interface CalendarItem {
   reminder?: boolean;
 }
 
+/**
+ * Whether a calendar entry is finished. The API sets `completedAt` on the
+ * item only for repeating occurrences; a one-off task's blocks carry it on
+ * `item.task`.
+ */
+export function calendarItemDone(item: Pick<CalendarItem, "kind" | "completedAt" | "task">): boolean {
+  return Boolean(item.completedAt || (item.kind === "task" && item.task?.completedAt));
+}
+
 export interface CalendarRange {
   from: string;
   to: string;

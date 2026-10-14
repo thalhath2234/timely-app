@@ -16,6 +16,7 @@ import {
   type MatrixQuadrant,
 } from "@timely/contract/dashboard";
 import { addDaysToDate, todayInZone } from "@timely/contract/workStatus";
+import { calendarItemDone } from "@timely/contract/calendar";
 import type { CalendarItem, Task, TodayResponse, WorkingHours } from "@/app/_types/types";
 import { useCaptureInbox } from "@/app/utils/hooks/tasks";
 import { formatTime } from "@/app/utils/calendar";
@@ -55,7 +56,7 @@ export function TodayCard({
   const doneCount = doneIds.size;
   const share = planned.size ? doneCount / planned.size : 0;
   const upNext = today.items
-    .filter((item) => new Date(item.end).getTime() >= now.getTime() && !item.completedAt)
+    .filter((item) => new Date(item.end).getTime() >= now.getTime() && !calendarItemDone(item))
     .sort((a, b) => a.start.localeCompare(b.start));
   const focusing = today.focusing ?? today.pausedFocus;
 

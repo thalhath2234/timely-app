@@ -1,6 +1,7 @@
 import { Text, View } from "react-native";
 import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
+import { calendarItemDone } from "@timely/contract/calendar";
 import { formatRelativeDay, formatTime, formatTimeRange } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { taskEntityColor } from "../../lib/entityColor";
@@ -15,10 +16,7 @@ export function isTaskItem(item: CalendarItem) {
   return item.kind === "task" || item.kind === "taskOccurrence";
 }
 
-/** One-off task blocks carry the done state on their task; occurrences carry their own. */
-export function isItemDone(item: CalendarItem) {
-  return Boolean(item.completedAt || (item.kind === "task" && item.task?.completedAt));
-}
+export const isItemDone = calendarItemDone;
 
 export function isReminderItem(item: CalendarItem) {
   return Boolean(
