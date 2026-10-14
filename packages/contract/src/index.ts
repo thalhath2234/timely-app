@@ -15,6 +15,8 @@
  *   account        User, ApiKey, DeviceSession
  *   config         Config and saved task views
  *   dashboard      Dashboard layout, card queries and the card engine
+ *   taskQuery      view rules and the shared filter, sort and group engine
+ *   viewLanguage   plain words read into a task view, and views read back as words
  *   viewSearch     search finding a saved task view by its name
  */
 

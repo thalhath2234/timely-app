@@ -34,7 +34,9 @@
     "./sheetTemplates": "./src/sheetTemplates.ts",
     "./sheetTypes": "./src/sheetTypes.ts",
     "./sheetValues": "./src/sheetValues.ts",
+    "./taskQuery": "./src/taskQuery.ts",
     "./templates": "./src/templates.ts",
+    "./viewLanguage": "./src/viewLanguage.ts",
     "./viewSearch": "./src/viewSearch.ts",
     "./workStatus": "./src/workStatus.ts"
   },
