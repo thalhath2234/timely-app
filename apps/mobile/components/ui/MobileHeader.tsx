@@ -1,6 +1,6 @@
-import { type ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { usePathname, useRouter } from "expo-router";
+import { useCallback, type ReactNode } from "react";
+import { BackHandler, StyleSheet, Text, View } from "react-native";
+import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import { Bell, ChevronLeft, Settings } from "lucide-react-native";
 import { useUnreadNotificationCount } from "../../lib/hooks";
 import { backFallback } from "../../lib/backFallback";
@@ -78,6 +78,19 @@ export default function MobileHeader({
   const pathname = usePathname();
   const showAccountActions = accountActions === true;
   const isLarge = large ?? !back;
+  // Android Back on a screen opened from a link or a notification has nothing
+  // to pop and would close the app; go where the header Back goes instead.
+  useFocusEffect(
+    useCallback(() => {
+      if (!back) return;
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (router.canGoBack()) return false;
+        router.replace((typeof back === "string" ? back : backFallback(pathname)) as never);
+        return true;
+      });
+      return () => sub.remove();
+    }, [back, pathname, router]),
+  );
   return (
     <View style={styles.wrap}>
       <View style={[styles.row, !isLarge && styles.rowCompact]}>
