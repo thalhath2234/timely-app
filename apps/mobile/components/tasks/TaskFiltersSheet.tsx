@@ -70,6 +70,20 @@ function FilterChip({
 }
 
 const BASE_GROUP_FIELDS: TaskListGroupField[] = ["workspace", "project", "stage", "status", "priority"];
+// Grouped into buckets (Overdue, Today, This week, ...) by the shared engine;
+// the list only, the board keeps one column per value it can move cards to.
+const BUCKET_GROUP_FIELDS: TaskListGroupField[] = [
+  "label",
+  "deadline",
+  "planned",
+  "startDate",
+  "createdAt",
+  "updatedAt",
+  "completedAt",
+  "effort",
+  "done",
+  "recurring",
+];
 
 export default function TaskFiltersSheet({
   open,
@@ -108,6 +122,7 @@ export default function TaskFiltersSheet({
   const groupFields = (view.groupFields ?? []).slice(0, 3);
   const availableGroups: TaskListGroupField[] = [
     ...BASE_GROUP_FIELDS,
+    ...(view.renderMode === "kanban" ? [] : BUCKET_GROUP_FIELDS),
     ...(view.renderMode === "kanban" ? [] : customFields.map((field) => `cf:${field.id}` as TaskListGroupField)),
   ];
   const dataValue = view.showReminders ? "reminder" : view.dataMode === "project" ? "project" : "task";
@@ -192,7 +207,7 @@ export default function TaskFiltersSheet({
               key={option.value}
               label={option.label}
               active={renderMode === option.value}
-              onPress={() => onPatch({ renderMode: option.value, groupFields: option.value === "kanban" && view.groupFields?.[0]?.startsWith("cf:") ? ["status"] : view.groupFields, dataMode: option.value === "kanban" ? "task" : view.dataMode, showReminders: option.value === "kanban" ? false : view.showReminders })}
+              onPress={() => onPatch({ renderMode: option.value, groupFields: option.value === "kanban" && !BASE_GROUP_FIELDS.includes(view.groupFields?.[0] ?? "status") ? ["status"] : view.groupFields, dataMode: option.value === "kanban" ? "task" : view.dataMode, showReminders: option.value === "kanban" ? false : view.showReminders })}
             />
           ))}
         </View>

@@ -180,7 +180,10 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   }] : [];
   const listingItem = listing && (category === "all" || category === "task") ? listing.item(onClose, router.push) : undefined;
   const listingItems: PaletteItem[] = listingItem && listingItem.section !== "commands" ? [listingItem] : [];
-  const items = [...viewItems, ...listingItems, ...suggested, ...results, ...(listingItem?.section === "commands" ? [listingItem] : []), ...commands];
+  // A saved view named outright comes first; Smart suggestions' looser pick
+  // follows the listing the words themselves describe.
+  const viewsFirst = namedView ? [...viewItems, ...listingItems] : [...listingItems, ...viewItems];
+  const items = [...viewsFirst, ...suggested, ...results, ...(listingItem?.section === "commands" ? [listingItem] : []), ...commands];
   // The AI offer turns into the card it read, so the highlight follows it.
   const pinnedId = selection.id === "listing-ai" && listing?.fromAi ? "listing" : selection.id;
   const pinned = pinnedId ? items.findIndex((item) => item.id === pinnedId) : -1;
