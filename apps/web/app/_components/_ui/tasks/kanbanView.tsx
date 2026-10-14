@@ -28,6 +28,7 @@ import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
 import { formatTaskDatePoint, nextTaskSlot, taskDateSourceLabel, taskNextDate } from "@/app/utils/taskDates";
 import { motion } from "motion/react";
 import { hoverLift, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
+import { plural } from "@/app/utils/plural";
 
 function formatDateLabel(value?: string | null) {
   if (!value) return "No date";
@@ -51,7 +52,7 @@ const UNCATEGORIZED_NAMES: Record<string, string> = {
 /** Cards say when the work happens: deadline first, otherwise the next
  * reserved block, so scheduled tasks never read as "No date". Overdue cards
  * use the Dashboard's red treatment and include time of day when a block exists. */
-function cardDateMeta(
+export function cardDateMeta(
   item: Task,
   dataMode: "task" | "project",
   today: string,
@@ -264,7 +265,7 @@ export default function KanbanView({
             void navigator.clipboard
               .writeText(column.items.map((item) => item.name).join("\n"))
               .then(() =>
-                useToastStore.getState().show(`Copied ${column.items.length} names`),
+                useToastStore.getState().show(`Copied ${plural(column.items.length, "name")}`),
               )
               .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
           },

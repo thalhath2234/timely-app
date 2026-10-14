@@ -45,8 +45,9 @@ import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
-import { useToastStore } from "@/app/_store/toastStore";
+import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { entityTitleKey } from "@/app/utils/titleMorph";
+import { plural } from "@/app/utils/plural";
 
 type TasksTableProps = {
   config: Config;
@@ -758,7 +759,7 @@ export default function TasksTable({
           onSelect: () => {
             void navigator.clipboard
               .writeText(node.rows.map((task) => task.name).join("\n"))
-              .then(() => useToastStore.getState().show(`Copied ${groupIds.length} names`))
+              .then(() => useToastStore.getState().show(`Copied ${plural(groupIds.length, "name")}`))
               .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
           },
         },
@@ -1086,11 +1087,26 @@ export default function TasksTable({
                   onClick={(event) => {
                     event.stopPropagation();
                     const next = completed ? "" : new Date().toISOString();
+                    const previous = {
+                      completedAt: task.completedAt ?? "",
+                      statusId: task.status?.id ?? task.statusId ?? "",
+                    };
                     patchTaskInCache(queryClient, task.id, { completedAt: next || null });
-                    void updateTask.mutateAsync({ id: task.id, completedAt: next }).catch(() => {
-                      patchTaskInCache(queryClient, task.id, { completedAt: task.completedAt });
-                      useToastStore.getState().show("Could not update task");
-                    });
+                    void updateTask
+                      .mutateAsync({ id: task.id, completedAt: next })
+                      .then(() => {
+                        // Same toast as the context menu, detail panel and Today.
+                        showUndoToast(completed ? "Reopened" : "Marked complete", () => {
+                          patchTaskInCache(queryClient, task.id, { completedAt: previous.completedAt || null });
+                          void updateTask.mutateAsync({ id: task.id, ...previous }).catch(() => {
+                            useToastStore.getState().show("Could not undo");
+                          });
+                        });
+                      })
+                      .catch(() => {
+                        patchTaskInCache(queryClient, task.id, { completedAt: task.completedAt });
+                        useToastStore.getState().show("Could not update task");
+                      });
                   }}
                   className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", completed ? "border-success bg-success text-white" : "border-muted-foreground hover:border-primary")}
                 >
