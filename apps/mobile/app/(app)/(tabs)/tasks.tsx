@@ -29,6 +29,7 @@ import {
 import { addDays, formatShortDate, PRIORITY_META, startOfDay, toDateInputValue } from "../../../lib/format";
 import { normalizePriority, PRIORITIES, priorityRank } from "../../../lib/priority";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
+import { bulkUndoSnapshot, labelIdsWithNamed, mergeLabelsByName, type BulkUndoField, type NamedLabelGroup } from "@timely/contract/bulkEdit";
 import { resolvedColor } from "../../../lib/entityColor";
 import {
   mergeStatusesByName,
@@ -343,6 +344,7 @@ export default function TasksScreen() {
         .flatMap((space) => space.lables ?? []),
     [workspaces, workspaceFilter],
   );
+  const labelGroups = useMemo(() => mergeLabelsByName(labels), [labels]);
   const stages = useMemo(
     () =>
       projects
@@ -359,10 +361,38 @@ export default function TasksScreen() {
     );
   }, []);
 
-  function applyBulk(update: UpdateTaskPayload, undo: UpdateTaskPayload, message: string) {
+  // Undo puts back each task's own previous value rather than blanking the
+  // selection.
+  function applyBulk(update: UpdateTaskPayload, fields: BulkUndoField[], message: string) {
     const ids = selectedIds;
+    const before = bulkUndoSnapshot(tasks.filter((task) => ids.includes(task.id)), fields);
     bulk.mutate({ ids, update });
-    showUndoToast(message, () => bulk.mutate({ ids, update: undo }));
+    showUndoToast(message, () => {
+      before.forEach((previous, id) => save.mutate({ id, data: previous }));
+    });
+    setSelectedIds([]);
+    setBulkPicker(null);
+  }
+
+  // Adds the label to each task's own labels, using the label of that name in
+  // the task's workspace; tasks whose workspace has none are skipped.
+  function applyLabel(group: NamedLabelGroup) {
+    const selected = tasks.filter((task) => selectedIds.includes(task.id));
+    const before = bulkUndoSnapshot(selected, ["labelIds"]);
+    let skipped = 0;
+    selected.forEach((task) => {
+      const labelIds = labelIdsWithNamed(task, group);
+      if (!labelIds) {
+        skipped += 1;
+        before.delete(task.id);
+        return;
+      }
+      save.mutate({ id: task.id, data: { labelIds } });
+    });
+    showUndoToast(
+      skipped ? `Labeled ${group.name} · skipped ${skipped} without that label` : `Labeled ${group.name}`,
+      () => before.forEach((previous, id) => save.mutate({ id, data: previous })),
+    );
     setSelectedIds([]);
     setBulkPicker(null);
   }
@@ -504,27 +534,13 @@ export default function TasksScreen() {
           <ScrollView keyboardShouldPersistTaps="handled" horizontal style={styles.bulkScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bulkActions}>
           <AnimatedPressable
             style={styles.bulkButton}
-            onPress={() => {
-              const ids = selectedIds;
-              bulk.mutate({ ids, update: { completedAt: new Date().toISOString() } });
-              showUndoToast("Completed", () => bulk.mutate({ ids, update: { completedAt: "" } }));
-              setSelectedIds([]);
-              setBulkPicker(null);
-            }}
+            onPress={() => applyBulk({ completedAt: new Date().toISOString() }, ["completedAt", "statusId"], "Completed")}
           >
             <Text style={styles.bulkAction}>Complete</Text>
           </AnimatedPressable>
           <AnimatedPressable
             style={styles.bulkButton}
-            onPress={() => {
-              const ids = selectedIds;
-              bulk.mutate({ ids, update: { completedAt: "" } });
-              showUndoToast("Reopened", () =>
-                bulk.mutate({ ids, update: { completedAt: new Date().toISOString() } }),
-              );
-              setSelectedIds([]);
-              setBulkPicker(null);
-            }}
+            onPress={() => applyBulk({ completedAt: "" }, ["completedAt", "statusId"], "Reopened")}
           >
             <Text style={styles.bulkAction}>Reopen</Text>
           </AnimatedPressable>
@@ -691,39 +707,36 @@ export default function TasksScreen() {
         {PRIORITIES.map((priority) => (
           <SheetOption
             key={priority}
-            onSelect={() => applyBulk({ priorityLevel: priority }, { priorityLevel: null }, "Priority updated")}
+            onSelect={() => applyBulk({ priorityLevel: priority }, ["priorityLevel"], "Priority updated")}
           >
             {priority}
           </SheetOption>
         ))}
       </BottomSheet>
       <BottomSheet open={bulkPicker === "project"} onClose={() => setBulkPicker(null)} title="Project">
-        <SheetOption onSelect={() => applyBulk({ projectId: null }, { projectId: null }, "Project cleared")}>
+        <SheetOption onSelect={() => applyBulk({ projectId: null }, ["projectId"], "Project cleared")}>
           No project
         </SheetOption>
         {projects.map((item) => (
           <SheetOption
             key={item.id}
-            onSelect={() => applyBulk({ projectId: item.id }, { projectId: null }, "Project updated")}
+            onSelect={() => applyBulk({ projectId: item.id }, ["projectId"], "Project updated")}
           >
             {item.title}
           </SheetOption>
         ))}
       </BottomSheet>
       <BottomSheet open={bulkPicker === "label"} onClose={() => setBulkPicker(null)} title="Set label">
-        {labels.map((label) => (
-          <SheetOption
-            key={label.id}
-            onSelect={() => applyBulk({ labelIds: [{ id: label.id }] }, { labelIds: [] }, `Labeled ${label.name}`)}
-          >
-            {label.name}
+        {labelGroups.map((group) => (
+          <SheetOption key={group.key} onSelect={() => applyLabel(group)}>
+            {group.name}
           </SheetOption>
         ))}
       </BottomSheet>
       <BottomSheet open={bulkPicker === "deadline"} onClose={() => setBulkPicker(null)} title="Deadline">
         <SheetOption
           onSelect={() =>
-            applyBulk({ deadline: toDateInputValue(new Date()) }, { deadline: null }, "Deadline set")
+            applyBulk({ deadline: toDateInputValue(new Date()) }, ["deadline"], "Deadline set")
           }
         >
           Today
@@ -732,14 +745,14 @@ export default function TasksScreen() {
           onSelect={() =>
             applyBulk(
               { deadline: toDateInputValue(addDays(startOfDay(new Date()), 1)) },
-              { deadline: null },
+              ["deadline"],
               "Deadline set",
             )
           }
         >
           Tomorrow
         </SheetOption>
-        <SheetOption onSelect={() => applyBulk({ deadline: null }, { deadline: null }, "Deadline cleared")}>
+        <SheetOption onSelect={() => applyBulk({ deadline: null }, ["deadline"], "Deadline cleared")}>
           Clear deadline
         </SheetOption>
       </BottomSheet>
