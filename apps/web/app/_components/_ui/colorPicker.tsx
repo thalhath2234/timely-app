@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Pipette } from "lucide-react";
 import { cn } from "@/app/utils/cn";
+import { propertyChipClass } from "@/app/_components/_ui/propertyChip";
 import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
 import { controlClass } from "@/app/_components/_ui/field";
 
@@ -32,6 +33,9 @@ type ColorPickerProps = {
   className?: string;
   disabled?: boolean;
   size?: "sm" | "md";
+  /** "chip": a property chip in a create form, the colour dot and `chipLabel`. */
+  variant?: "swatch" | "chip";
+  chipLabel?: string;
   "aria-label"?: string;
 };
 
@@ -54,6 +58,8 @@ export default function ColorPicker({
   className,
   disabled,
   size = "md",
+  variant = "swatch",
+  chipLabel = "Colour",
   "aria-label": ariaLabel,
 }: ColorPickerProps) {
   const panelId = useId();
@@ -163,19 +169,24 @@ export default function ColorPicker({
         aria-controls={panelId}
         aria-label={ariaLabel ?? "Choose color"}
         onClick={() => (open ? setOpen(false) : openPanel())}
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center rounded-md border border-input bg-card shadow-xs transition focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60",
-          size === "sm" ? "size-7" : "h-8 w-10",
-          className,
-        )}
+        className={
+          variant === "chip"
+            ? propertyChipClass({ className })
+            : cn(
+                "inline-flex shrink-0 items-center justify-center rounded-md border border-input bg-card shadow-xs transition focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60",
+                size === "sm" ? "size-7" : "h-8 w-10",
+                className,
+              )
+        }
       >
         <span
           className={cn(
-            "rounded-md ring-1 ring-foreground/15",
-            size === "sm" ? "size-4" : "size-5",
+            "ring-1 ring-foreground/15",
+            variant === "chip" ? "size-2.5 rounded-full" : cn("rounded-md", size === "sm" ? "size-4" : "size-5"),
           )}
           style={{ backgroundColor: current }}
         />
+        {variant === "chip" ? <span className="truncate">{chipLabel}</span> : null}
       </button>
 
       {mounted &&
