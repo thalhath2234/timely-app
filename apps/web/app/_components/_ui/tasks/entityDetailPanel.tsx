@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -73,6 +73,7 @@ import { useMe } from "@/app/utils/hooks/user";
 import {
   applyClockToDate,
   dateFromDateInput,
+  localDateStamp,
   nextRoundHour,
   toDateInputValue,
   toTimeInputValue,
@@ -96,6 +97,7 @@ import {
 } from "@/app/utils/titleMorph";
 import { buttonClass } from "@/app/_components/_ui/button";
 import { PRIORITY_OPTIONS, normalizePriority } from "@/app/utils/priority";
+import { isOverdue } from "@timely/contract/workStatus";
 
 const DURATION_PRESETS = [
   { minutes: 15, label: "15m" },
@@ -663,6 +665,33 @@ function DetailBody({
     return work;
   };
 
+  // Closing the panel or switching to another item keeps unsaved description
+  // text: it saves on the way out, unless the item is being deleted.
+  const descriptionDirtyRef = useRef(false);
+  const saveDescriptionRef = useRef(saveDescription);
+  const deletingRef = useRef(false);
+  useEffect(() => {
+    descriptionDirtyRef.current = descriptionDirty;
+    saveDescriptionRef.current = saveDescription;
+  });
+  useEffect(
+    () => () => {
+      if (descriptionDirtyRef.current && !deletingRef.current) void saveDescriptionRef.current();
+    },
+    [],
+  );
+  const deleteItem = onDelete
+    ? async () => {
+        deletingRef.current = true;
+        try {
+          await onDelete();
+        } catch (err) {
+          deletingRef.current = false;
+          throw err;
+        }
+      }
+    : undefined;
+
   const isInbox = view.taskKind === "inbox" || view.facts.some((fact) => fact.label === "Inbox");
   const isReminder =
     view.kind === "task" &&
@@ -752,6 +781,10 @@ function DetailBody({
     return () => detachMorphTarget(input);
   }, []);
   const closeWithMorph = () => {
+    if (descriptionDirtyRef.current) {
+      descriptionDirtyRef.current = false;
+      void saveDescription();
+    }
     beginCloseMorph(titleRef.current, morphKey);
     onClose();
   };
@@ -768,7 +801,7 @@ function DetailBody({
       }}
       onToggleComplete={toggleComplete}
       onClose={closeWithMorph}
-      onDelete={onDelete}
+      onDelete={deleteItem}
       onDuplicate={onDuplicate}
       onCopyLink={onCopyLink}
       deleteTitle={`Delete “${title.trim() || "Untitled"}”?`}
@@ -1092,6 +1125,13 @@ function DetailBody({
               size="sm"
               value={toDateInputValue(view.startDate)}
               onChange={(startDate) => {
+                const deadline = toDateInputValue(view.deadline);
+                if (startDate && deadline && startDate > deadline) {
+                  useToastStore
+                    .getState()
+                    .show(`Start date can’t be after the deadline (${shortDay(deadline)}).`);
+                  return;
+                }
                 const timeOnly =
                   view.kind === "task" &&
                   (view.duration ?? 0) <= 0 &&
@@ -1116,12 +1156,24 @@ function DetailBody({
               mode="date"
               size="sm"
               className={
-                view.deadline
+                isOverdue(
+                  { deadline: view.deadline, completedAt: view.completedAt, kind: view.taskKind },
+                  localDateStamp(),
+                )
                   ? "border-destructive/30 bg-destructive/5 text-destructive"
                   : undefined
               }
               value={toDateInputValue(view.deadline)}
-              onChange={(deadline) => schedule({ deadline })}
+              onChange={(deadline) => {
+                const startDate = toDateInputValue(view.startDate);
+                if (deadline && startDate && deadline < startDate) {
+                  useToastStore
+                    .getState()
+                    .show(`Deadline can’t be before the start date (${shortDay(startDate)}).`);
+                  return;
+                }
+                schedule({ deadline });
+              }}
             />
           </PropertyRow>
 
@@ -1460,4 +1512,13 @@ function PanelShell({
       ) : null}
     </>
   );
+}
+
+/** "Fri 16 Oct" for a YYYY-MM-DD date, in the person's own calendar day. */
+function shortDay(value: string) {
+  return dateFromDateInput(value).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }

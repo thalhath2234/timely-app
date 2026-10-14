@@ -30,6 +30,7 @@ import {
 import LoadError from "@/app/_components/_ui/loadError";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
+import { projectDeleteCopy } from "@timely/contract/projectDelete";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
@@ -168,9 +169,7 @@ function ProjectHub({ project }: { project: Project }) {
           className="hover:text-destructive"
           onClick={() =>
             requestConfirm({
-              title: "Delete this project?",
-              description: "Its stages are deleted too.",
-              confirmLabel: "Delete project",
+              ...projectDeleteCopy(title, projectTasks.length, project.stages?.length ?? 0),
               onConfirm: async () => {
                 await deleteProject.mutateAsync(project.id);
                 router.push("/projects");
