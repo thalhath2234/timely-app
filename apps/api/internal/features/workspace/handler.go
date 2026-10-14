@@ -541,6 +541,12 @@ func childError(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return workspaceError(err)
 	}
+	if errors.Is(err, ErrLabelTaken) {
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	if errors.Is(err, ErrLabelName) {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
 	return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 }
 
