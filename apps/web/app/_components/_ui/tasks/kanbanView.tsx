@@ -52,7 +52,7 @@ const UNCATEGORIZED_NAMES: Record<string, string> = {
 /** Cards say when the work happens: deadline first, otherwise the next
  * reserved block, so scheduled tasks never read as "No date". Overdue cards
  * use the Dashboard's red treatment and include time of day when a block exists. */
-function cardDateMeta(
+export function cardDateMeta(
   item: Task,
   dataMode: "task" | "project",
   today: string,
