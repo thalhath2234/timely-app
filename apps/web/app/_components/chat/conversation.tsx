@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
@@ -30,6 +31,8 @@ import {
   type ProviderId,
 } from "@/app/utils/api/agentProviders";
 import { buttonClass } from "@/app/_components/_ui/button";
+import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
+import { readyProviders } from "./modelMenu";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -111,6 +114,8 @@ export default function Conversation({
   // once the first message creates it.
   const bar = compact && !id;
   const query = useChat(id);
+  const providers = useAgentProviders();
+  const needsProvider = Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const cache = useQueryClient();
   const chat = query.data;
   const [draft, setDraft] = useState("");
@@ -511,10 +516,19 @@ export default function Conversation({
                 className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"
               >
                 <p className="font-medium text-destructive">
-                  Something went wrong
+                  {needsProvider
+                    ? "Connect an AI provider to chat"
+                    : "Something went wrong"}
                 </p>
                 <p className="mt-1 text-sm leading-6">{chat.error}</p>
-                {["failed", "stopped"].includes(chat.status) && (
+                {needsProvider ? (
+                  <Link
+                    href="/settings?tab=agent"
+                    className={buttonClass({ size: "sm", className: "mt-3" })}
+                  >
+                    Open Agent settings
+                  </Link>
+                ) : ["failed", "stopped"].includes(chat.status) && (
                   <button
                     type="button"
                     disabled={mutation.isPending}

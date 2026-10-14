@@ -860,6 +860,7 @@ export default function Assistant() {
                       disabled={otherDraft}
                       projectId={contextProjectId(context)}
                       onPick={editText}
+                      onOpenSettings={() => assistant.openResult("/(app)/settings/agent")}
                     />
                   ) : null}
                   {chat ? (
@@ -966,6 +967,7 @@ export default function Assistant() {
                       chat={chat}
                       locked={locked}
                       onRetry={() => act("/retry")}
+                      onOpenSettings={() => assistant.openResult("/(app)/settings/agent")}
                     />
                   ) : null}
                 </>
