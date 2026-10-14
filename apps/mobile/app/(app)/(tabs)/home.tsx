@@ -21,6 +21,7 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet from "../../../components/ui/BottomSheet";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
+import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import {
   useSaveTask,
   useSetTodayFocus,
@@ -277,12 +278,18 @@ export default function HomeScreen() {
                   </View>
                 </View>
                 <Text style={styles.meta}>
-                  {data.inboxCount === 0 ? "Clear — capture from Quick Add" : `${data.inboxCount} waiting to triage`}
+                  {data.inboxCount === 0 ? "Clear — tap + to capture a thought" : `${data.inboxCount} waiting to triage`}
                 </Text>
               </View>
-              <View style={styles.inboxAdd}>
+              <AnimatedPressable
+                accessibilityRole="button"
+                accessibilityLabel="Capture to Inbox"
+                hitSlop={8}
+                onPress={() => requestQuickAdd({ kind: "inbox" })}
+                style={styles.inboxAdd}
+              >
                 <Plus size={22} color={colors.mutedForeground} />
-              </View>
+              </AnimatedPressable>
             </AnimatedPressable>
 
             {focusSession ? (

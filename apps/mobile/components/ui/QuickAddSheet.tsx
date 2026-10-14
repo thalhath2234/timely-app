@@ -2,6 +2,7 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import { Alert, Text, View } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useRouter } from "expo-router";
+import InboxCapture from "../inbox/InboxCapture";
 import { Bell, CalendarClock, CalendarDays, Check, CircleDot, Clock, FileText, Flag, FolderKanban, Inbox, ListTodo, Palette, Sheet as SheetIcon, Sparkles } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "./BottomSheet";
 import DateTimeSheet from "./DateTimeSheet";
@@ -25,6 +26,7 @@ import type { QuickAddPreset } from "../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { ENTITY_COLORS, colorName } from "../../lib/entityColor";
 import { expandEntering, listLayout, pageDuration } from "../../lib/motion";
+import { useToastStore } from "../../lib/toast";
 
 function runWhenIdle(callback: () => void, timeout: number) {
   const timer = setTimeout(callback, timeout);
@@ -293,11 +295,6 @@ export default function QuickAddSheet({
   async function submit() {
     const name = title.trim();
     if (!name || pending) return;
-    if (kind === "inbox") {
-      await createTask.mutateAsync({ name, kind: "inbox", priorityLevel: priority });
-      finish("/(app)/inbox");
-      return;
-    }
     if (kind === "task" || kind === "reminder") {
       if (!isReminder && !activeWorkspaceId) return;
       if (!isReminder && (Boolean(preferFrom) !== Boolean(preferTo) ||
@@ -363,6 +360,17 @@ export default function QuickAddSheet({
     router.push(fileHref(fileId));
   }
 
+  // The Inbox form is the Inbox screen's own capture box: it saves itself,
+  // so the sheet only closes and says where the thought went.
+  function captured() {
+    reset();
+    onClose();
+    useToastStore.getState().show("Captured to Inbox", {
+      label: "Open",
+      onAction: () => router.push("/(app)/inbox"),
+    });
+  }
+
   function finish(href: string) {
     reset();
     onClose();
@@ -392,9 +400,9 @@ export default function QuickAddSheet({
         open={open}
         onClose={closeSheet}
         onClosed={finishClose}
-        title={phase === "menu" ? "New" : `New ${kind}`}
+        title={phase === "menu" ? "New" : kind === "inbox" ? "Capture to Inbox" : `New ${kind}`}
         footer={
-          phase === "form" ? (
+          phase === "form" && kind !== "inbox" ? (
           <View style={{ gap: 8 }}>
             <PrimaryButton
               label={pending ? "Saving…" : kind === "reminder" ? "Add reminder" : `Add ${kind}`}
@@ -433,6 +441,11 @@ export default function QuickAddSheet({
         <AnimatedPressable onPress={() => { setSelectedKind(null); setPhase("menu"); setEditor("closed"); }} style={styles.changeType}>
           <Text style={styles.changeTypeText}>← Change type</Text>
         </AnimatedPressable>
+        {kind === "inbox" ? (
+          <View style={styles.objectiveCard}>
+            <InboxCapture autoFocus initialTitle={title} onCaptured={captured} />
+          </View>
+        ) : (
         <View style={styles.objectiveCard}>
           <Text style={styles.cardEyebrow}>
             {kind === "task" ? "TASK OBJECTIVE" : kind === "event" ? "EVENT TITLE" : kind === "reminder" ? "REMINDER" : `${kind.toUpperCase()} TITLE`}
@@ -455,6 +468,7 @@ export default function QuickAddSheet({
             }
           />
         </View>
+        )}
 
         {kind === "task" || kind === "reminder" ? (
           <View style={styles.descriptionCard}>
