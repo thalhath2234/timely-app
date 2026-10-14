@@ -1,8 +1,9 @@
 import { type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import { Bell, ChevronLeft, Settings } from "lucide-react-native";
 import { useUnreadNotificationCount } from "../../lib/hooks";
+import { backFallback } from "../../lib/backFallback";
 import { colors, controlRadius, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "./AnimatedPressable";
 
@@ -74,6 +75,7 @@ export default function MobileHeader({
   children?: ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const showAccountActions = accountActions === true;
   const isLarge = large ?? !back;
   return (
@@ -82,7 +84,12 @@ export default function MobileHeader({
         {back ? (
           <AnimatedPressable
             accessibilityRole="button"
-            onPress={() => (typeof back === "string" ? router.replace(back as never) : router.back())}
+            onPress={() => {
+              if (typeof back === "string") router.replace(back as never);
+              // Opened straight from a link or after a reload: no history to pop.
+              else if (router.canGoBack()) router.back();
+              else router.replace(backFallback(pathname) as never);
+            }}
             style={styles.iconBtn}
             accessibilityLabel="Back"
           >

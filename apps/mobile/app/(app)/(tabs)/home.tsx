@@ -37,13 +37,13 @@ import type { CalendarItem, Task } from "../../../lib/types";
 import { taskEntityColor } from "../../../lib/entityColor";
 import { normalizePriority } from "../../../lib/priority";
 import { eventHref } from "../../../lib/eventOccurrence";
+import { findMeetingUrl } from "../../../lib/meetingUrl";
 import TimelyLogo from "../../../components/ui/TimelyLogo";
 import TodaySuggestionsCard from "../../../components/tasks/TodaySuggestionsCard";
 import HabitsGoalsCard from "../../../components/tasks/HabitsGoalsCard";
 import ScreenTip from "../../../components/ui/ScreenTip";
 
 const MAX_TODAY_FOCUS = 7;
-const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
 
 function formatElapsed(totalSeconds: number) {
   const hours = Math.floor(totalSeconds / 3600);
@@ -54,8 +54,7 @@ function formatElapsed(totalSeconds: number) {
 }
 
 function meetingUrl(item: CalendarItem) {
-  const text = [item.event?.description, item.task?.description].filter(Boolean).join("\n");
-  return text.match(MEETING_URL)?.[0] ?? null;
+  return findMeetingUrl([item.event?.description, item.task?.description].filter(Boolean).join("\n"));
 }
 
 function TaskRow({
@@ -150,6 +149,17 @@ export default function HomeScreen() {
   const scheduled = useMemo(() => data?.items ?? [], [data?.items]);
   const focusCount = data?.todayFocus.length ?? 0;
   const completedFocusCount = data?.todayFocus.filter((task) => task.completedAt).length ?? 0;
+  // Left for tomorrow: open work from today's calendar plus open focus tasks
+  // that never got a time (the server's `unfinished` only covers the first).
+  const leftover = useMemo(() => {
+    if (!data) return [];
+    const seen = new Set<string>();
+    return [...data.unfinished, ...data.todayFocus.filter((task) => !task.completedAt)].filter((task) => {
+      if (seen.has(task.id)) return false;
+      seen.add(task.id);
+      return true;
+    });
+  }, [data]);
   const remainingSlots = Math.max(0, MAX_TODAY_FOCUS - focusCount);
 
   const pickerCandidates = useMemo(() => {
@@ -215,7 +225,7 @@ export default function HomeScreen() {
   function shutdown() {
     if (!data) return;
     const date = addCalendarDays(data.date, 1);
-    const unfinished = data.unfinished;
+    const unfinished = leftover;
     if (unfinished.length === 0) {
       showUndoToast("Nothing left to shut down.");
       return;
@@ -450,12 +460,12 @@ export default function HomeScreen() {
             ) : null}
 
             <Text style={[styles.sectionHeading, styles.endOfDayHeading]}>End of day</Text>
-            {data.unfinished.length === 0 ? (
+            {leftover.length === 0 ? (
               <Text style={styles.meta}>{focusCount === 0 ? "Nothing in today’s focus yet." : "All of today’s focus is done."}</Text>
             ) : (
               <>
                 <Text style={styles.meta}>
-                  {data.unfinished.length} unfinished — move them to tomorrow’s focus.
+                  {leftover.length} unfinished — move {leftover.length === 1 ? "it" : "them"} to tomorrow’s focus.
                 </Text>
                 <AnimatedPressable onPress={shutdown} style={styles.shutdownButton}>
                   <Moon size={20} color={colors.primaryForeground} />

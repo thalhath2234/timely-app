@@ -108,6 +108,8 @@ export default function CalendarItemSheet({
       <DateTimeSheet
         open={picking}
         value={new Date(item.start)}
+        title="Reschedule"
+        clearable={false}
         onClose={() => setPicking(false)}
         onChange={(next) => {
           if (next) onReschedule(item, next);

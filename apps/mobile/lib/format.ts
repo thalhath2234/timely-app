@@ -90,6 +90,11 @@ function localDateOf(stamp: string) {
   return new Date(year, month - 1, day);
 }
 
+/** "Fri, Oct 16" for a calendar date (`YYYY-MM-DD`), as the desktop names it. */
+export function formatShortDay(stamp: string) {
+  return localDateOf(stamp).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
 /**
  * Today / Tomorrow / Yesterday for a calendar date (`YYYY-MM-DD`) relative to
  * `today`, else a weekday and date. `today` comes from `todayInZone`, so the
