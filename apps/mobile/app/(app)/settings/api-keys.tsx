@@ -1,11 +1,14 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import * as Clipboard from "expo-clipboard";
+import { Check, Copy } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import { Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Button, Field, PrimaryButton } from "../../../components/ui/primitives";
 import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import { useApiKeysQuery, useCreateApiKey, useRevokeApiKey } from "../../../lib/hooks";
 import { timeAgo } from "../../../lib/format";
+import { useToastStore } from "../../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
@@ -14,17 +17,36 @@ export default function ApiKeysSettings() {
   const create = useCreateApiKey();
   const revoke = useRevokeApiKey();
   const [name, setName] = useState("");
-  const [secret, setSecret] = useState<string | null>(null);
+  // The full key of the one just created; the server never returns it again.
+  const [secret, setSecret] = useState<{ id: string; key: string } | null>(null);
+  const [copied, setCopied] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
 
   return (
     <Screen>
       <MobileHeader title="API keys" back large={false} />
       <FocusGroupScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
-        <Text style={styles.hint}>Copy a new key immediately. It is only shown once.</Text>
+        <Text style={styles.hint}>API keys let Hermes and other MCP clients use your Timely data. A new key is shown only once.</Text>
         {secret ? (
           <View style={styles.secret}>
-            <Text style={styles.secretText}>{secret}</Text>
+            <Text style={styles.secretLabel}>Copy this key now. It won’t be shown again.</Text>
+            <Text selectable style={styles.secretText} testID="api-key-secret">
+              {secret.key}
+            </Text>
+            <View style={styles.secretActions}>
+              <Button
+                label={copied ? "Copied" : "Copy key"}
+                variant="outline"
+                size="sm"
+                icon={copied ? <Check size={16} color={colors.foreground} /> : <Copy size={16} color={colors.foreground} />}
+                onPress={() => {
+                  void Clipboard.setStringAsync(secret.key).then(
+                    () => setCopied(true),
+                    () => useToastStore.getState().show("Couldn’t copy the key. Select it and copy it instead."),
+                  );
+                }}
+              />
+            </View>
           </View>
         ) : null}
         {(keysQ.data ?? []).map((key) => (
@@ -39,7 +61,11 @@ export default function ApiKeysSettings() {
                   title: "Revoke key?",
                   message: key.name,
                   confirmLabel: "Revoke",
-                  onConfirm: () => revoke.mutate(key.id),
+                  onConfirm: () =>
+                    revoke.mutate(key.id, {
+                      // A revoked key no longer works: stop showing its secret.
+                      onSuccess: () => setSecret((shown) => (shown?.id === key.id ? null : shown)),
+                    }),
                 })
               }
             >
@@ -55,7 +81,8 @@ export default function ApiKeysSettings() {
             onPress={() =>
               create.mutate(name.trim(), {
                 onSuccess: (created) => {
-                  setSecret(created.key);
+                  setSecret({ id: created.id, key: created.key });
+                  setCopied(false);
                   setName("");
                 },
               })
@@ -77,8 +104,10 @@ export default function ApiKeysSettings() {
 
 const styles = createThemedStyleSheet((colors) => ({
   hint: { color: colors.mutedForeground, fontSize: 13 },
-  secret: { borderRadius: 12, backgroundColor: colors.accent, padding: 12 },
-  secretText: { color: colors.accentForeground, fontFamily: "monospace" },
+  secret: { borderRadius: 12, backgroundColor: colors.accent, padding: 12, gap: 8 },
+  secretLabel: { color: colors.accentForeground, fontSize: 13, fontWeight: "500" },
+  secretText: { color: colors.accentForeground, fontFamily: "monospace", fontSize: 13, userSelect: "text" },
+  secretActions: { flexDirection: "row" },
   card: {
     flexDirection: "row",
     alignItems: "center",
