@@ -102,11 +102,15 @@ func (s *Service) UpdateSettings(userID string, settings models.NotificationSett
 	return normalized, nil
 }
 
+// List and UnreadCount first settle overdue and missed notices whose task was
+// finished since, however it was finished (any app, chat or an MCP agent).
 func (s *Service) List(userID string, unreadOnly bool, limit int) ([]models.Notification, error) {
+	_ = s.repo.MarkDoneTaskAlertsRead(userID)
 	return s.repo.List(userID, unreadOnly, limit)
 }
 
 func (s *Service) UnreadCount(userID string) (int64, error) {
+	_ = s.repo.MarkDoneTaskAlertsRead(userID)
 	return s.repo.UnreadCount(userID)
 }
 
