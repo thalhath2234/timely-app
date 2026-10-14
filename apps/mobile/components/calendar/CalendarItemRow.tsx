@@ -61,7 +61,7 @@ export default function CalendarItemRow({
   const recurring = item.kind.endsWith("Occurrence") || Boolean(item.seriesId);
   const Icon = isTaskItem(item) ? ListTodo : CalendarClock;
   const when = timeline
-    ? item.allDay ? "All day event" : overdue ? "Overdue" : isReminderItem(item) ? "Reminder" : "Scheduled"
+    ? done ? "Done" : item.allDay ? "All day event" : overdue ? "Overdue" : isReminderItem(item) ? "Reminder" : "Scheduled"
     : item.allDay
     ? overdue
       ? `Due ${formatRelativeDay(new Date(item.start), undefined)}`
