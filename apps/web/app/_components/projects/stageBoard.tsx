@@ -16,6 +16,7 @@ import { isCompletedStatus } from "@/app/utils/status";
 import { normalizePriority, priorityColor } from "@/app/utils/priority";
 import { sortedStages, stageCode } from "@/app/utils/stages";
 import { entityTitleKey } from "@/app/utils/titleMorph";
+import { plural } from "@/app/utils/plural";
 
 export default function StageBoard({
   projectId,
@@ -141,7 +142,7 @@ export default function StageBoard({
           onSelect: () => {
             void navigator.clipboard
               .writeText(column.items.map((item) => item.name).join("\n"))
-              .then(() => useToastStore.getState().show(`Copied ${column.items.length} names`))
+              .then(() => useToastStore.getState().show(`Copied ${plural(column.items.length, "name")}`))
               .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
           },
         },
@@ -158,7 +159,7 @@ export default function StageBoard({
             Board by stages
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            <span className="text-success">●</span> {columns.length} lanes active
+            <span className="text-success">●</span> {plural(columns.length, "lane")} active
           </p>
         </div>
         <p className="text-xs text-muted-foreground">Scroll horizontally to view future sprints</p>

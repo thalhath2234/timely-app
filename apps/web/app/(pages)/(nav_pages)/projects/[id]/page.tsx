@@ -498,7 +498,7 @@ function UpNext({
   today.setHours(0, 0, 0, 0);
 
   return (
-    <OverviewCard title="Up next" action={`All ${tasks.length} tasks`} onAction={onSeeAll}>
+    <OverviewCard title="Up next" action={tasks.length === 1 ? "Open in Tasks" : `All ${tasks.length} tasks`} onAction={onSeeAll}>
       {open.length === 0 ? (
         <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">Nothing open. Add work from the Tasks tab.</p>
       ) : (

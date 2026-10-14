@@ -25,13 +25,14 @@ import {
 import { buttonClass } from "@/app/_components/_ui/button";
 import Select from "@/app/_components/_ui/select";
 import { controlClass } from "@/app/_components/_ui/field";
+import { plural } from "@/app/utils/plural";
 const fieldClass = controlClass("lg", "w-full");
 export function ReceiptSummary({ receipt }: { receipt: ReceiptDraft }) {
   return (
     <details className="mt-3 rounded-xl border border-border bg-muted/20 p-3 text-sm">
       <summary className="cursor-pointer font-medium">
         {receipt.merchant || "Receipt"} · {receipt.currency}{" "}
-        {receipt.total || "Unknown total"} · {receipt.items.length} items
+        {receipt.total || "Unknown total"} · {plural(receipt.items.length, "item")}
       </summary>
       <p className="mt-2 text-xs text-muted-foreground">
         {receipt.date || "Date needs review"}

@@ -47,6 +47,7 @@ import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { entityTitleKey } from "@/app/utils/titleMorph";
+import { plural } from "@/app/utils/plural";
 
 type TasksTableProps = {
   config: Config;
@@ -758,7 +759,7 @@ export default function TasksTable({
           onSelect: () => {
             void navigator.clipboard
               .writeText(node.rows.map((task) => task.name).join("\n"))
-              .then(() => useToastStore.getState().show(`Copied ${groupIds.length} names`))
+              .then(() => useToastStore.getState().show(`Copied ${plural(groupIds.length, "name")}`))
               .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
           },
         },

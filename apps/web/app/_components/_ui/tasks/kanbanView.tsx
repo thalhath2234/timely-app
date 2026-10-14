@@ -28,6 +28,7 @@ import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
 import { formatTaskDatePoint, nextTaskSlot, taskDateSourceLabel, taskNextDate } from "@/app/utils/taskDates";
 import { motion } from "motion/react";
 import { hoverLift, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
+import { plural } from "@/app/utils/plural";
 
 function formatDateLabel(value?: string | null) {
   if (!value) return "No date";
@@ -264,7 +265,7 @@ export default function KanbanView({
             void navigator.clipboard
               .writeText(column.items.map((item) => item.name).join("\n"))
               .then(() =>
-                useToastStore.getState().show(`Copied ${column.items.length} names`),
+                useToastStore.getState().show(`Copied ${plural(column.items.length, "name")}`),
               )
               .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
           },

@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { useUnreadNotificationCount } from "../../utils/hooks/notifications";
 
 import { useChats } from "@/app/utils/hooks/chat";
+import { plural } from "@/app/utils/plural";
 
 export default function SidebarButton({ item }: { item: SidebarProps }) {
   const { setActiveItem } = useSidebarStore();
@@ -90,7 +91,7 @@ function ChatBadge() {
     <motion.span
       initial={{ scale: 0.5, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
-      aria-label={`${count} unread chats`}
+      aria-label={plural(count, "unread chat")}
       className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
     >
       {count > 9 ? "9+" : count}

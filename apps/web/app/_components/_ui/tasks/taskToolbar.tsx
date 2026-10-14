@@ -18,6 +18,7 @@ import type {
   Workspace,
 } from "@/app/_types/types";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { plural, pluralWord } from "@/app/utils/plural";
 import { useModKey } from "@/app/utils/hooks/useModKey";
 import { mergeStatusesByName, statusNameKey } from "@/app/utils/status";
 
@@ -620,7 +621,7 @@ export function TaskToolbar({
         ) : null}
 
         <span className="text-xs tabular-nums text-muted-foreground">
-          {dataCount} {dataMode === "task" ? (showReminders ? "reminders" : "tasks") : "projects"}
+          {plural(dataCount, dataMode === "task" ? (showReminders ? "reminder" : "task") : "project")}
         </span>
       </div>
     </div>
@@ -813,11 +814,12 @@ export function TaskListStatusBar({
   shown,
   total,
   synced = true,
-  noun = "tasks",
+  noun = "task",
 }: {
   shown: number;
   total: number;
   synced?: boolean;
+  /** Singular; the bar adds the plural ending. */
   noun?: string;
 }) {
   const modKey = useModKey();
@@ -831,7 +833,7 @@ export function TaskListStatusBar({
         <span className="text-border">·</span>
         <span>
           Showing {shown}
-          {total !== shown ? ` of ${total}` : ""} {noun}
+          {total !== shown ? ` of ${total}` : ""} {pluralWord(total !== shown ? total : shown, noun)}
         </span>
       </div>
       <div className="hidden items-center gap-3 sm:flex">
