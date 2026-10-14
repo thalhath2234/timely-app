@@ -18,6 +18,7 @@ type WorkspaceRepository interface {
 	CreateStatuses(status *models.Status) (*models.Status, error)
 	CreateCustomFields(customField *models.CustomField) (*models.CustomField, error)
 	UpdateLabels(lable *models.Lable) (*models.Lable, error)
+	LabelNameTaken(workspaceID, name, exceptID string) (bool, error)
 	DeleteLabels(lableID string, workspaceID string) error
 	UpdateStatuses(status *models.Status) (*models.Status, error)
 	DeleteStatuses(statusID string, workspaceID string) error
@@ -152,6 +153,16 @@ func foundOne(result *gorm.DB) error {
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+// LabelNameTaken reports whether another label in the workspace has this
+// name, ignoring case and outer spaces.
+func (r *workspaceRepository) LabelNameTaken(workspaceID, name, exceptID string) (bool, error) {
+	var n int64
+	err := r.db.Model(&models.Lable{}).
+		Where("workspace_id = ? AND lower(trim(name)) = lower(?) AND id <> ?", workspaceID, name, exceptID).
+		Count(&n).Error
+	return n > 0, err
 }
 
 func (r *workspaceRepository) UpdateLabels(lable *models.Lable) (*models.Lable, error) {
