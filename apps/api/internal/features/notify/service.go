@@ -45,6 +45,9 @@ type Service struct {
 	// dismissedPruned is when each account's old dismissed alerts were last
 	// deleted; sweepDismissed fills it.
 	dismissedPruned map[string]time.Time
+	// reminderSwept is when each account's reminders were last swept, so a
+	// sweep after a gap (the computer slept, the app was closed) catches up.
+	reminderSwept map[string]time.Time
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -582,8 +585,11 @@ func nearInstant(a, b time.Time) bool {
 	return d < time.Second
 }
 
+// sweepReminders queues the reminders due around now. After a gap it also
+// queues the ones that came due since the last sweep, back to the start of
+// the local day, so a reminder is late rather than lost.
 func (s *Service) sweepReminders(userID string, now time.Time) error {
-	from := now.Add(-90 * time.Second)
+	from := s.reminderSweepFrom(userID, now)
 	to := now.Add(90 * time.Second)
 	res, err := s.calendar.Range(userID, from, to)
 	if err != nil {
@@ -597,7 +603,9 @@ func (s *Service) sweepReminders(userID string, now time.Time) error {
 			continue
 		}
 		key := reminderDedupe(item.TaskID, item.Start)
-		if s.queue.HasNotification(key) {
+		// A finished job means the reminder already went out, even if the
+		// person has since cleared it.
+		if s.queue.HasNotification(key) || s.queue.HasJob(key) {
 			continue
 		}
 		original := ""
@@ -620,6 +628,37 @@ func (s *Service) sweepReminders(userID string, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// reminderSweepFrom is where a reminder sweep starts: 90 seconds back
+// normally, the last sweep after a gap, and the start of the local day on the
+// first sweep after the server starts. It never reaches into an earlier day.
+func (s *Service) reminderSweepFrom(userID string, now time.Time) time.Time {
+	if s.reminderSwept == nil {
+		s.reminderSwept = map[string]time.Time{}
+	}
+	// Compare wall clocks: the monotonic clock stops while the computer
+	// sleeps, so it would hide exactly the gap this looks for.
+	wall := now.Round(0)
+	last, seen := s.reminderSwept[userID]
+	s.reminderSwept[userID] = wall
+	from := now.Add(-90 * time.Second)
+	if seen && wall.Sub(last) < time.Minute {
+		return from
+	}
+	settings, err := s.repo.GetSettings(userID)
+	if err != nil {
+		log.Printf("notify: read settings for %s: %v", userID, err)
+	}
+	local := now.In(settings.Location(s.repo.WorkingHoursTimezone(userID)))
+	start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+	if seen && last.Add(-90*time.Second).After(start) {
+		start = last.Add(-90 * time.Second)
+	}
+	if start.Before(from) {
+		return start
+	}
+	return from
 }
 
 func (s *Service) sweepDigests(userID string, now time.Time) error {
