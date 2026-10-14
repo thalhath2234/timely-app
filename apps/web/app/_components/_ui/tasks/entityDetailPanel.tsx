@@ -68,7 +68,8 @@ import {
   useTasks,
   useUpdateTask,
 } from "@/app/utils/hooks/tasks";
-import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useWorkingHoursZone, useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { formatActivityTime } from "@/app/utils/activityTime";
 import { useMe } from "@/app/utils/hooks/user";
 import {
   applyClockToDate,
@@ -182,24 +183,6 @@ interface DetailView {
   createdAt: string;
   updatedAt: string;
   facts: { label: string; value: string }[];
-}
-
-function formatActivityTime(value?: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-
-  const diffMs = Date.now() - date.getTime();
-  const minutes = Math.round(diffMs / 60000);
-  if (Math.abs(minutes) < 1) return "just now";
-  if (Math.abs(minutes) < 60) return `${Math.abs(minutes)} min ago`;
-
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 export interface EntityDetailPanelProps {
@@ -500,6 +483,7 @@ function DetailBody({
   children?: React.ReactNode;
 }) {
   const { data: workspaces } = useWorkspaces();
+  const timeZone = useWorkingHoursZone();
   const { data: me } = useMe();
   const { data: tasks } = useTasks();
   const [title, setTitle] = useState(view.title);
@@ -882,12 +866,12 @@ function DetailBody({
             <TaskActivityFeed taskId={view.id} />
           ) : (
             <p className="text-xs text-muted-foreground">
-              Created {formatActivityTime(view.createdAt)}
+              Created {formatActivityTime(view.createdAt, timeZone)}
               {view.updatedAt && view.updatedAt !== view.createdAt
-                ? ` · Updated ${formatActivityTime(view.updatedAt)}`
+                ? ` · Updated ${formatActivityTime(view.updatedAt, timeZone)}`
                 : ""}
               {view.completedAt
-                ? ` · Completed ${formatActivityTime(view.completedAt)}`
+                ? ` · Completed ${formatActivityTime(view.completedAt, timeZone)}`
                 : ""}
             </p>
           )}
@@ -1297,6 +1281,7 @@ function TaskActivityFeed({ taskId }: { taskId: string }) {
 
 function TaskActivityItem({ entry }: { entry: TaskActivity }) {
   const isComment = entry.action === "commented";
+  const timeZone = useWorkingHoursZone();
 
   return (
     <li className="flex gap-2.5">
@@ -1324,7 +1309,7 @@ function TaskActivityItem({ entry }: { entry: TaskActivity }) {
           </p>
         )}
         <p className="mt-0.5 text-[11px] text-muted-foreground">
-          {formatActivityTime(entry.createdAt)}
+          {formatActivityTime(entry.createdAt, timeZone)}
         </p>
       </div>
     </li>

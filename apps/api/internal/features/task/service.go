@@ -665,7 +665,7 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 		touched["custom_field_values"] = true
 	}
 
-	entries := collectTaskActivity(userID, s.actorName(userID), before, after, touched)
+	entries := collectTaskActivity(userID, s.actorName(userID), before, after, touched, s.activityZone(userID))
 	if err := s.taskRepo.CreateActivities(entries); err != nil {
 		return nil, err
 	}
@@ -762,18 +762,19 @@ func (s *taskService) EditOccurrence(userID, taskID string, action OccurrenceAct
 
 	patch := recurrence.ExceptionPatch{}
 	message := ""
+	zone := s.activityZone(userID)
 	switch action.Action {
 	case "complete":
 		now := time.Now().UTC()
 		patch.CompletedAt = &now
-		message = "completed the occurrence on " + prettyDate(originalStart.Format(time.RFC3339))
+		message = "completed the occurrence on " + prettyDate(originalStart.Format(time.RFC3339), zone)
 	case "uncomplete":
 		patch.ClearDone = true
-		message = "reopened the occurrence on " + prettyDate(originalStart.Format(time.RFC3339))
+		message = "reopened the occurrence on " + prettyDate(originalStart.Format(time.RFC3339), zone)
 	case "skip":
 		cancelled := true
 		patch.IsCancelled = &cancelled
-		message = "skipped the occurrence on " + prettyDate(originalStart.Format(time.RFC3339))
+		message = "skipped the occurrence on " + prettyDate(originalStart.Format(time.RFC3339), zone)
 	case "restore":
 		cancelled := false
 		patch.IsCancelled = &cancelled
@@ -805,7 +806,7 @@ func (s *taskService) EditOccurrence(userID, taskID string, action OccurrenceAct
 		patch.IsCancelled = &cancelled
 		patch.NewStart = &newStart
 		patch.NewEnd = &newEnd
-		message = "moved the occurrence on " + prettyDate(originalStart.Format(time.RFC3339)) + " to " + prettyDate(newStart.Format(time.RFC3339))
+		message = "moved the occurrence on " + prettyDate(originalStart.Format(time.RFC3339), zone) + " to " + prettyDate(newStart.Format(time.RFC3339), zone)
 	default:
 		return nil, errors.New("unknown occurrence action")
 	}
@@ -900,7 +901,7 @@ func (s *taskService) Split(userID, taskID string, input SplitInput) (*models.Ta
 	}
 
 	_ = s.taskRepo.CreateActivities([]models.TaskActivity{
-		newActivity(userID, s.actorName(userID), next.ID, "created", "", "continued this series from "+prettyDate(fromStart.Format(time.RFC3339)), "", ""),
+		newActivity(userID, s.actorName(userID), next.ID, "created", "", "continued this series from "+prettyDate(fromStart.Format(time.RFC3339), s.activityZone(userID)), "", ""),
 	})
 	created, err := s.taskRepo.GetTaskByIdForUser(userID, next.ID)
 	if err != nil {
@@ -1115,6 +1116,16 @@ func (s *taskService) WithActor(name string) TaskService {
 	clone := *s
 	clone.actor = name
 	return &clone
+}
+
+// activityZone is the zone activity text writes times in: the person's
+// Working hours zone, the same one Today and Overdue use, else the server's.
+func (s *taskService) activityZone(userID string) *time.Location {
+	hours, err := s.taskRepo.GetWorkingHours(userID)
+	if err != nil {
+		hours = models.WorkingHours{}
+	}
+	return DayLocation(hours, "")
 }
 
 func (s *taskService) actorName(userID string) string {
