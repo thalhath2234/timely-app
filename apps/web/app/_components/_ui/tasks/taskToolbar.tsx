@@ -1,6 +1,7 @@
 "use client";
 
 import { buttonClass } from "@/app/_components/_ui/button";
+import { controlClass, popoverSurface } from "@/app/_components/_ui/field";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, GripVertical, List, X } from "lucide-react";
@@ -16,7 +17,7 @@ import type {
   TaskRenderMode,
   Workspace,
 } from "@/app/_types/types";
-import { PRIORITY_OPTIONS, priorityColor } from "@/app/utils/priority";
+import { PRIORITY_OPTIONS } from "@/app/utils/priority";
 import { useModKey } from "@/app/utils/hooks/useModKey";
 import { mergeStatusesByName, statusNameKey } from "@/app/utils/status";
 import { plural, pluralWord } from "@/app/utils/plural";
@@ -761,26 +762,7 @@ export function TaskOptionsBar({
           />
         </div>
       ) : null}
-      <div className="w-36">
-        {/* The kit Select, like the Project, Label and Stage filters beside it,
-            so it closes on an outside click or Escape and when the view changes.
-            A saved view may still hold several levels; the trigger counts them. */}
-        <Select
-          size="sm"
-          aria-label="Priority"
-          value={selectedPriorityLevels.length === 1 ? selectedPriorityLevels[0] : selectedPriorityLevels.length === 0 ? "" : "__several"}
-          placeholder={selectedPriorityLevels.length > 1 ? `${selectedPriorityLevels.length} priorities` : "Priority"}
-          onChange={(level) => setSelectedPriorityLevels(level ? [level] : [])}
-          options={[
-            { value: "", label: "All priorities" },
-            ...PRIORITY_OPTIONS.map((option) => ({
-              value: option.value,
-              label: option.label,
-              color: priorityColor(option.value) ?? undefined,
-            })),
-          ]}
-        />
-      </div>
+      <PriorityFilter value={selectedPriorityLevels} onChange={setSelectedPriorityLevels} />
       {labels.length > 0 ? (
         <div className="w-36">
           <Select
@@ -853,5 +835,78 @@ export function TaskListStatusBar({
         </span>
       </div>
     </footer>
+  );
+}
+
+/**
+ * Priority filter: several levels can be ticked at once, so it is a small
+ * popover rather than the single-choice kit Select. Like the Select it closes
+ * on an outside click (which includes switching to Gantt) and on Escape.
+ */
+function PriorityFilter({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const label =
+    value.length === 0 ? "All priorities" : value.length === 1 ? value[0] : `${value.length} priorities`;
+
+  return (
+    <div ref={rootRef} className="relative w-36">
+      <button
+        type="button"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={`Priority: ${label}`}
+        onClick={() => setOpen((current) => !current)}
+        className={controlClass("sm", "flex w-full cursor-pointer items-center justify-between gap-2")}
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      </button>
+      {open ? (
+        <div className={`${popoverSurface} absolute right-0 top-full z-40 mt-1 w-44 p-1`}>
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="mb-1 w-full rounded px-2 py-1 text-left hover:bg-accent"
+          >
+            All priorities
+          </button>
+          {PRIORITY_OPTIONS.map((option) => (
+            <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-accent">
+              <input
+                type="checkbox"
+                checked={value.includes(option.value)}
+                onChange={() =>
+                  onChange(
+                    value.includes(option.value)
+                      ? value.filter((level) => level !== option.value)
+                      : [...value, option.value],
+                  )
+                }
+                className="accent-primary"
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
