@@ -14,21 +14,37 @@ function csvEscape(value: string) {
   return value;
 }
 
+/**
+ * The sheet as CSV for other tools: each cell is what the grid shows (a
+ * formula's worked-out value, not `=B2*C2`). The empty rows at the bottom of
+ * the grid and empty, unnamed columns on the right are left out.
+ */
 export function sheetToCsv(
   columns: SheetColumn[],
   rows: SheetRow[],
   displayAt: (col: number, row: number) => string,
 ) {
-  const header = columns.map((column) => csvEscape(column.name)).join(",");
-  const body = rows.map((row, rowIndex) =>
-    columns
-      .map((column, colIndex) => {
-        const raw = row.cells?.[column.id] ?? "";
-        const shown = displayAt(colIndex, rowIndex);
-        return csvEscape(raw.startsWith("=") ? raw : shown);
-      })
-      .join(","),
-  );
+  const grid = rows.map((_, rowIndex) => columns.map((_, colIndex) => displayAt(colIndex, rowIndex)));
+  const blank = (value: string) => value.trim() === "";
+
+  let rowCount = grid.length;
+  while (rowCount > 0 && grid[rowCount - 1].every(blank)) rowCount -= 1;
+
+  // A column keeps its place while it has a value or a name of its own (not
+  // the default letter).
+  let colCount = columns.length;
+  while (
+    colCount > 1 &&
+    (blank(columns[colCount - 1].name) || columns[colCount - 1].name === columnIndexToLetter(colCount - 1)) &&
+    grid.slice(0, rowCount).every((cells) => blank(cells[colCount - 1]))
+  )
+    colCount -= 1;
+
+  const header = columns
+    .slice(0, colCount)
+    .map((column) => csvEscape(column.name))
+    .join(",");
+  const body = grid.slice(0, rowCount).map((cells) => cells.slice(0, colCount).map(csvEscape).join(","));
   return [header, ...body].join("\n");
 }
 
