@@ -36,6 +36,7 @@ import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { taskEntityColor } from "../../../lib/entityColor";
 import { normalizePriority } from "../../../lib/priority";
+import { eventHref } from "../../../lib/eventOccurrence";
 import TimelyLogo from "../../../components/ui/TimelyLogo";
 import TodaySuggestionsCard from "../../../components/tasks/TodaySuggestionsCard";
 import HabitsGoalsCard from "../../../components/tasks/HabitsGoalsCard";
@@ -198,7 +199,7 @@ export default function HomeScreen() {
       openTask(item.taskId);
       return;
     }
-    if (item.eventId) router.push(`/(app)/events/${item.eventId}`);
+    if (item.eventId) router.push(eventHref(item));
   }
 
   function completeTask(task: Task) {

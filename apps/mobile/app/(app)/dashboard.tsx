@@ -75,6 +75,7 @@ import { forgetPomodoro } from "../../lib/pomodoroStore";
 import { cancelPomodoroNotification } from "../../lib/notifications";
 import { useConfigQuery, useDecisionsStatusQuery, useInvalidateAll } from "../../lib/hooks";
 import { fileHref } from "../../lib/fileRoutes";
+import { eventHref } from "../../lib/eventOccurrence";
 import { showUndoToast, useToastStore } from "../../lib/toast";
 import type { CalendarItem } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -145,7 +146,7 @@ export default function DashboardScreen() {
 
   const openItem = useCallback(
     (item: CalendarItem) => {
-      if (item.eventId) router.push(`/(app)/events/${item.eventId}`);
+      if (item.eventId) router.push(eventHref(item));
       else if (item.taskId) router.push(`/(app)/tasks/${item.taskId}`);
     },
     [router],
