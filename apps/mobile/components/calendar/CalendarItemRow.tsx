@@ -15,6 +15,11 @@ export function isTaskItem(item: CalendarItem) {
   return item.kind === "task" || item.kind === "taskOccurrence";
 }
 
+/** One-off task blocks carry the done state on their task; occurrences carry their own. */
+export function isItemDone(item: CalendarItem) {
+  return Boolean(item.completedAt || (item.kind === "task" && item.task?.completedAt));
+}
+
 export function isReminderItem(item: CalendarItem) {
   return Boolean(
     item.reminder ||
@@ -52,7 +57,7 @@ export default function CalendarItemRow({
   overdue?: boolean;
   timeline?: boolean;
 }) {
-  const done = Boolean(item.completedAt);
+  const done = isItemDone(item);
   const recurring = item.kind.endsWith("Occurrence") || Boolean(item.seriesId);
   const Icon = isTaskItem(item) ? ListTodo : CalendarClock;
   const when = timeline

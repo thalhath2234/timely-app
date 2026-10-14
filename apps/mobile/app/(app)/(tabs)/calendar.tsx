@@ -35,7 +35,7 @@ import {
   useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
+import { isItemDone, isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
 import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
 import { findNextFreeSlot } from "../../../lib/nextFreeSlot";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
@@ -201,7 +201,7 @@ export default function CalendarScreen() {
     } else {
       save.mutate({
         id: item.taskId,
-        data: { completedAt: item.completedAt ? "" : new Date().toISOString() },
+        data: { completedAt: isItemDone(item) ? "" : new Date().toISOString() },
       });
     }
     setOpen(null);

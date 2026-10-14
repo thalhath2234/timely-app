@@ -6,7 +6,7 @@ import { formatRelativeDay, formatTime, formatTimeRange, startOfDay } from "../.
 import BottomSheet from "../ui/BottomSheet";
 import DateTimeSheet from "../ui/DateTimeSheet";
 import { PrimaryButton } from "../ui/primitives";
-import { itemColor, isReminderItem, isTaskItem } from "./CalendarItemRow";
+import { isItemDone, itemColor, isReminderItem, isTaskItem } from "./CalendarItemRow";
 import { useEditEventOccurrence, useEditTaskOccurrence } from "../../lib/hooks";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { useState } from "react";
@@ -56,7 +56,7 @@ export default function CalendarItemSheet({
         </View>
         {task ? (
           <PrimaryButton
-            label={item.completedAt ? "Mark incomplete" : occurrence ? "Complete this day" : "Complete"}
+            label={isItemDone(item) ? "Mark incomplete" : occurrence ? "Complete this day" : "Complete"}
             onPress={() => onToggleComplete(item)}
           />
         ) : null}
