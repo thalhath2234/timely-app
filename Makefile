@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-view-search test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-view-search test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-meeting-url test-mobile-back-fallback test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -344,6 +344,13 @@ test-mobile-task-views: ## Test how the phone's saved views merge with the serve
 .PHONY: test-mobile-keyboard-taps
 test-mobile-keyboard-taps: ## Test that phone scrollers let a sheet's buttons work on the first tap while the keyboard is up
 	@node --test scripts/mobile-keyboard-taps.test.mjs
+
+.PHONY: test-mobile-meeting-url test-mobile-back-fallback
+test-mobile-meeting-url: ## Test which Meet, Zoom and Teams links give a phone Home item its Join call button
+	@node --experimental-strip-types --test scripts/mobile-meeting-url.test.mjs
+
+test-mobile-back-fallback: ## Test where phone Back goes on a screen opened with no history
+	@node --experimental-strip-types --test scripts/mobile-back-fallback.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing
