@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-electron-guards test-electron-supervisor test-desktop-instance test-project-delete ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-electron-guards test-electron-supervisor test-desktop-instance test-project-delete test-bulk-edit ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -284,6 +284,10 @@ format-sheet-formulas: ## Format shared sheet logic and tests
 .PHONY: test-markdown-parity
 test-markdown-parity: ## Test that the web/mobile Markdown importer reads the API's export back into the same doc
 	@node --experimental-strip-types --test scripts/markdown-parity.test.mjs
+
+.PHONY: test-bulk-edit
+test-bulk-edit: ## Test that bulk task edits undo per task and that Set label adds the label by name per workspace
+	@node --experimental-strip-types --test scripts/bulk-edit.test.mjs
 
 .PHONY: test-doc-checklist
 test-doc-checklist: ## Test which doc checklist items are offered as tasks, and the task name and description they get

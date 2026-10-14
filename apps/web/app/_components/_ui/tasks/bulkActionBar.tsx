@@ -3,7 +3,7 @@
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Label, Project, Task, Workspace } from "@/app/_types/types";
+import type { Project, Task, Workspace } from "@/app/_types/types";
 import type { UpdateTaskPayload } from "@/app/utils/api/tasks";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
 import { mergeStatusesByName, statusForWorkspace } from "@/app/utils/status";
@@ -12,53 +12,14 @@ import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import Select from "@/app/_components/_ui/select";
 import DatePicker from "@/app/_components/_ui/datePicker";
 import { AnimatePresence, motion } from "motion/react";
+import {
+  bulkUndoSnapshot,
+  labelIdsWithNamed,
+  mergeLabelsByName,
+  type BulkUndoField,
+} from "@timely/contract/bulkEdit";
 import { springSoft } from "@/app/_components/_ui/motion";
 import { buttonClass } from "@/app/_components/_ui/button";
-
-type UndoableField = keyof Pick<
-  UpdateTaskPayload,
-  "completedAt" | "statusId" | "priorityLevel" | "projectId" | "labelIds" | "deadline"
->;
-
-/**
- * Snapshot the fields a bulk update is about to touch, per task, so Undo can
- * restore each task's own previous value instead of blanking the whole
- * selection. Nullable string fields use "" to mean "clear" on the way back.
- */
-function snapshotBefore(tasks: Task[], fields: UndoableField[]): Map<string, UpdateTaskPayload> {
-  const out = new Map<string, UpdateTaskPayload>();
-  for (const task of tasks) {
-    const previous: UpdateTaskPayload = {};
-    for (const field of fields) {
-      switch (field) {
-        case "completedAt":
-          previous.completedAt = task.completedAt ?? "";
-          break;
-        case "statusId":
-          previous.statusId = task.status?.id ?? task.statusId ?? "";
-          break;
-        case "priorityLevel":
-          previous.priorityLevel = task.priorityLevel ?? "";
-          break;
-        case "projectId":
-          previous.projectId = task.project?.id ?? task.projectId ?? "";
-          break;
-        case "deadline":
-          previous.deadline = task.deadline ?? "";
-          break;
-        case "labelIds": {
-          const ids = new Set<string>();
-          for (const label of task.labels ?? []) ids.add(label.id);
-          for (const ref of task.labelIds ?? []) ids.add(ref.id);
-          previous.labelIds = [...ids].map((id) => ({ id }));
-          break;
-        }
-      }
-    }
-    out.set(task.id, previous);
-  }
-  return out;
-}
 
 export default function BulkActionBar({
   ids,
@@ -82,23 +43,45 @@ export default function BulkActionBar({
     [workspaces],
   );
   const statusGroups = useMemo(() => mergeStatusesByName(statuses), [statuses]);
-  const labels = useMemo(
-    () => workspaces.flatMap((workspace) => workspace.lables ?? []),
+  const labelGroups = useMemo(
+    () => mergeLabelsByName(workspaces.flatMap((workspace) => workspace.lables ?? [])),
     [workspaces],
   );
 
-  const apply = async (update: UpdateTaskPayload, fields: UndoableField[], message: string) => {
+  // `update` is either one patch for the whole selection, or a per-task patch
+  // (adding a label keeps each task's own labels, so it can't be one patch);
+  // a per-task patch of null skips that task.
+  const apply = async (
+    update: UpdateTaskPayload | ((task: Task) => UpdateTaskPayload | null),
+    fields: BulkUndoField[],
+    message: string | ((skipped: number) => string),
+  ) => {
     setBusy(true);
     try {
       const cached = (queryClient.getQueryData<Task[]>(tasksKey) ?? []).filter((task) =>
         ids.includes(task.id),
       );
-      const before = snapshotBefore(cached, fields);
+      const before = bulkUndoSnapshot(cached, fields);
       const missing = ids.filter((id) => !before.has(id));
 
-      await bulk.mutateAsync({ ids, update });
+      let skipped = 0;
+      if (typeof update === "function") {
+        await Promise.all(
+          cached.map((task) => {
+            const patch = update(task);
+            if (!patch) {
+              skipped += 1;
+              before.delete(task.id);
+              return Promise.resolve();
+            }
+            return single.mutateAsync({ id: task.id, ...patch });
+          }),
+        );
+      } else {
+        await bulk.mutateAsync({ ids, update });
+      }
 
-      showUndoToast(message, () => {
+      showUndoToast(typeof message === "function" ? message(skipped) : message, () => {
         // Restore each task to what *it* had; a mixed selection must not end
         // up uniform (or blank) after Undo.
         void Promise.all(
@@ -133,7 +116,7 @@ export default function BulkActionBar({
       const cached = (queryClient.getQueryData<Task[]>(tasksKey) ?? []).filter((task) =>
         ids.includes(task.id),
       );
-      const before = snapshotBefore(cached, ["statusId", "completedAt"]);
+      const before = bulkUndoSnapshot(cached, ["statusId", "completedAt"]);
       const missing = ids.filter((id) => !before.has(id));
       const skipped: string[] = [];
 
@@ -255,15 +238,25 @@ export default function BulkActionBar({
           size="sm"
           value=""
           placeholder="Set label"
-          onChange={(labelId) => {
-            const label = labels.find((item: Label) => item.id === labelId);
-            if (!label) return;
-            void apply({ labelIds: [{ id: labelId }] }, ["labelIds"], `Labeled ${label.name}`);
+          onChange={(key) => {
+            const group = labelGroups.find((item) => item.key === key);
+            if (!group) return;
+            void apply(
+              (task) => {
+                const labelIds = labelIdsWithNamed(task, group);
+                return labelIds ? { labelIds } : null;
+              },
+              ["labelIds"],
+              (skipped) =>
+                skipped
+                  ? `Labeled ${group.name} · skipped ${skipped} without that label`
+                  : `Labeled ${group.name}`,
+            );
           }}
-          options={labels.map((label) => ({
-            value: label.id,
-            label: label.name,
-            color: label.color,
+          options={labelGroups.map((group) => ({
+            value: group.key,
+            label: group.name,
+            color: group.color,
           }))}
         />
       </div>
