@@ -670,10 +670,10 @@ func (s *Service) sweepDigests(userID string, now time.Time) error {
 	local := now.In(loc)
 	day := local.Format("2006-01-02")
 	if settings.DigestMorning || settings.Planning {
-		if nearClock(local, settings.MorningDigestAt, 2*time.Minute) {
+		if digestDue(local, settings.MorningDigestAt) {
 			kind := "morning"
 			key := digestDedupe(kind, userID, day)
-			if !s.queue.HasNotification(key) {
+			if !s.queue.HasNotification(key) && !s.queue.HasJob(key) {
 				if _, err := s.queue.Enqueue(jobs.Enqueue{
 					UserID:    userID,
 					Kind:      models.JobDailyDigest,
@@ -686,10 +686,10 @@ func (s *Service) sweepDigests(userID string, now time.Time) error {
 		}
 	}
 	if settings.DigestEvening {
-		if nearClock(local, settings.EveningDigestAt, 2*time.Minute) {
+		if digestDue(local, settings.EveningDigestAt) {
 			kind := "evening"
 			key := digestDedupe(kind, userID, day)
-			if !s.queue.HasNotification(key) {
+			if !s.queue.HasNotification(key) && !s.queue.HasJob(key) {
 				if _, err := s.queue.Enqueue(jobs.Enqueue{
 					UserID:    userID,
 					Kind:      models.JobDailyDigest,
@@ -702,6 +702,21 @@ func (s *Service) sweepDigests(userID string, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// digestLate is how long after its time a digest still goes out, for a
+// server that was not sweeping at that moment (the computer slept).
+const digestLate = 4 * time.Hour
+
+// digestDue reports whether a digest set for hhmm is due at local: from two
+// minutes before its time until digestLate after it, within the same day.
+func digestDue(local time.Time, hhmm string) bool {
+	if nearClock(local, hhmm, 2*time.Minute) {
+		return true
+	}
+	target := clockMinutes(hhmm)
+	mins := local.Hour()*60 + local.Minute()
+	return target >= 0 && mins >= target && mins <= target+int(digestLate.Minutes())
 }
 
 func nearClock(now time.Time, hhmm string, window time.Duration) bool {

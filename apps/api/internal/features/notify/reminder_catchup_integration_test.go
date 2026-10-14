@@ -82,3 +82,30 @@ func TestIntegrationRemindersCatchUpAfterAGap(t *testing.T) {
 		t.Fatalf("sweep after a gap queued %v", got)
 	}
 }
+
+// A morning digest missed while the computer slept goes out when it wakes,
+// once: clearing it from the notification center does not bring it back.
+func TestIntegrationMorningDigestCatchesUp(t *testing.T) {
+	_, db := zoneService(t, models.NotificationSettings{DigestMorning: true, MorningDigestAt: "08:00"})
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.UTC
+	svc := NewService(db, jobs.NewQueue(db), nil, nil, nil, nil)
+	count := func() int64 {
+		var n int64
+		db.Model(&models.Job{}).Where("kind = ?", models.JobDailyDigest).Count(&n)
+		return n
+	}
+	day := time.Date(2030, 3, 5, 0, 0, 0, 0, time.UTC)
+	if err := svc.sweepDigests(zoneTestUser, day.Add(13*time.Hour)); err != nil || count() != 0 {
+		t.Fatalf("a morning digest went out at 13:00 (%d jobs, err %v)", count(), err)
+	}
+	if err := svc.sweepDigests(zoneTestUser, day.Add(9*time.Hour+15*time.Minute)); err != nil || count() != 1 {
+		t.Fatalf("the missed morning digest was not queued at 09:15 (%d jobs, err %v)", count(), err)
+	}
+	db.Model(&models.Job{}).Where("kind = ?", models.JobDailyDigest).Update("status", models.JobSucceeded)
+	db.Where("1 = 1").Delete(&models.Notification{})
+	if err := svc.sweepDigests(zoneTestUser, day.Add(9*time.Hour+16*time.Minute)); err != nil || count() != 1 {
+		t.Fatalf("a cleared morning digest was queued again (%d jobs, err %v)", count(), err)
+	}
+}
