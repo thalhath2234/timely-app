@@ -260,7 +260,7 @@ export const runNotificationTriage = (id: string, action: TriageStep) =>
 /** Onboarding and personalisation: what the person uses Timely for, starter
  * labels, the one tip for a screen, and example prompts for the chat. */
 export type StarterUse = { key: string; label: string; workspace?: string };
-export type StarterLabel = { name: string; color: string };
+export type StarterLabel = { name: string; color: string; uses?: string[] };
 export type PersonalPrefs = { useCase: string; dismissedTips: string[] };
 export const getPersonalPrefs = () => api<{ prefs: PersonalPrefs; uses: StarterUse[] }>("/suggestions/prefs");
 export const savePersonalUseCase = (useCase: string) =>
