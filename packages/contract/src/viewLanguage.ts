@@ -19,7 +19,7 @@ import type {
   TaskViewRule,
   TaskViewSortBy,
 } from "./config";
-import type { CustomField } from "./entities";
+import type { CustomField, Project, Workspace } from "./entities";
 import { addDaysToDate, todayInZone } from "./workStatus";
 import { GROUP_FIELD_LABELS, isRuleGroup, mondayOf, normalizeRules, priorityValue, resolveDateValue, ruleFieldInfo } from "./taskQuery";
 
@@ -38,6 +38,25 @@ export interface ViewVocabulary {
   stages?: readonly VocabItem[];
   labels?: readonly VocabItem[];
   customFields?: readonly CustomField[];
+}
+
+/** The vocabulary from what both apps already load: workspaces (with their
+ * statuses and labels), projects (with their stages) and custom fields. */
+export function vocabularyFrom(input: {
+  workspaces?: readonly Workspace[];
+  projects?: readonly Project[];
+  customFields?: readonly CustomField[];
+}): ViewVocabulary {
+  const workspaces = input.workspaces ?? [];
+  const projects = input.projects ?? [];
+  return {
+    workspaces: workspaces.map((item) => ({ id: item.id, name: item.name })),
+    statuses: workspaces.flatMap((item) => (item.status ?? []).map((status) => ({ id: status.id, name: status.name }))),
+    labels: workspaces.flatMap((item) => (item.lables ?? []).map((label) => ({ id: label.id, name: label.name }))),
+    projects: projects.map((item) => ({ id: item.id, name: item.title })),
+    stages: projects.flatMap((item) => (item.stages ?? []).map((stage) => ({ id: stage.id, name: stage.name }))),
+    customFields: input.customFields ?? [],
+  };
 }
 
 /** A view without its id and name. */
@@ -1602,6 +1621,66 @@ export function viewName(view: Partial<TaskViewConfig>, vocab: ViewVocabulary = 
 export function viewFromReading(reading: ViewReading, id: string, options: { phone?: boolean; prompt?: string } = {}): TaskViewConfig {
   const view: TaskViewConfig = { ...reading.view, id, name: reading.name || "New view" };
   if (options.phone && view.renderMode === "gantt") view.renderMode = "list";
+  if (options.prompt) view.prompt = options.prompt.slice(0, 300);
+  return view;
+}
+
+/** What `POST /agent/view-query` answers: a view the server already checked. */
+export interface AiViewDraft {
+  name?: string;
+  dataMode?: string;
+  renderMode?: string;
+  showReminders?: boolean;
+  showCompleted?: boolean | null;
+  groupFields?: string[];
+  sortBy?: string;
+  sortDirection?: string;
+  thenSortBy?: string;
+  thenSortDirection?: string;
+  limit?: number;
+  ruleMatch?: string;
+  rules?: unknown;
+}
+
+/**
+ * A full view from the AI's answer, with the same defaults as a reading:
+ * open work unless it says otherwise, and a name made from the filters when
+ * the answer has none.
+ */
+export function viewFromAiDraft(draft: AiViewDraft, id: string, vocab: ViewVocabulary = {}, options: { prompt?: string } = {}): TaskViewConfig {
+  const direction = (value?: string): TaskListSortDirection => (value === "desc" ? "desc" : "asc");
+  const view: TaskViewConfig = {
+    id,
+    name: "",
+    dataMode: draft.dataMode === "project" ? "project" : "task",
+    renderMode: draft.renderMode === "kanban" || draft.renderMode === "gantt" ? draft.renderMode : "list",
+    groupFields: (draft.groupFields ?? []).slice(0, 3) as TaskListGroupField[],
+    groupSortDirection: "asc",
+    groupValueOrders: {},
+    sortBy: (draft.sortBy || "deadline") as TaskViewSortBy,
+    sortDirection: direction(draft.sortDirection),
+    selectedWorkspaceIds: [],
+    selectedStatusIds: [],
+    selectedProjectIds: [],
+    selectedPriorityLevels: [],
+    selectedLabelIds: [],
+    selectedStageIds: [],
+    showCompleted: typeof draft.showCompleted === "boolean" ? draft.showCompleted : false,
+    onlyOverdue: false,
+    onlyScheduled: false,
+    onlyRecurring: false,
+    onlyDated: false,
+    showReminders: Boolean(draft.showReminders),
+    columnOrder: [],
+    rules: normalizeRules(draft.rules),
+  };
+  if (draft.ruleMatch === "any") view.ruleMatch = "any";
+  if (draft.thenSortBy) {
+    view.thenSortBy = draft.thenSortBy as TaskViewSortBy;
+    view.thenSortDirection = direction(draft.thenSortDirection);
+  }
+  if (typeof draft.limit === "number" && draft.limit > 0) view.limit = Math.floor(draft.limit);
+  view.name = (draft.name?.trim() || viewName(view, vocab)).slice(0, 100);
   if (options.prompt) view.prompt = options.prompt.slice(0, 300);
   return view;
 }

@@ -18,10 +18,26 @@ import type {
   Workspace,
 } from "@/app/_types/types";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { GROUP_FIELD_LABELS } from "@timely/contract/taskQuery";
 import { useModKey } from "@/app/utils/hooks/useModKey";
 import { mergeStatusesByName, statusNameKey } from "@/app/utils/status";
 
 export type TaskListScope = "global" | "project";
+
+// Dates group into buckets (Overdue, Today, This week, ...) by the shared
+// engine, so web and phone show the same groups.
+const BUCKET_GROUPS: TaskListGroupField[] = [
+  "label",
+  "deadline",
+  "planned",
+  "startDate",
+  "createdAt",
+  "updatedAt",
+  "completedAt",
+  "effort",
+  "done",
+  "recurring",
+];
 
 const GLOBAL_GROUP_FIELDS: TaskListGroupField[] = [
   "workspace",
@@ -29,9 +45,10 @@ const GLOBAL_GROUP_FIELDS: TaskListGroupField[] = [
   "stage",
   "status",
   "priority",
+  ...BUCKET_GROUPS,
 ];
 
-const PROJECT_GROUP_FIELDS: TaskListGroupField[] = ["stage", "status", "priority"];
+const PROJECT_GROUP_FIELDS: TaskListGroupField[] = ["stage", "status", "priority", ...BUCKET_GROUPS];
 
 const GLOBAL_DEFAULT_GROUPS: TaskListGroupField[] = ["workspace", "project", "stage"];
 
@@ -227,7 +244,7 @@ export function TaskToolbar({
       const field = customFields.find((item) => item.id === value.slice(3));
       return field?.name ?? "Custom Field";
     }
-    return value[0].toUpperCase() + value.slice(1);
+    return GROUP_FIELD_LABELS[value] ?? value[0].toUpperCase() + value.slice(1);
   };
 
   const toggleWorkspace = (workspaceId: string) => {
@@ -267,9 +284,18 @@ export function TaskToolbar({
     { value: "scheduledOn", label: "Scheduled date" },
     { value: "startDate", label: "Start date" },
     { value: "createdAt", label: "Created at" },
+    { value: "updatedAt", label: "Last updated" },
+    { value: "completedAt", label: "Completed at" },
     { value: "priority", label: "Priority" },
+    { value: "urgency", label: "Urgency" },
     { value: "status", label: "Status" },
-    ...(isProjectScope ? [] : [{ value: "project", label: "Project" }]),
+    { value: "stage", label: "Stage" },
+    ...(isProjectScope ? [] : [{ value: "project", label: "Project" }, { value: "workspace", label: "Workspace" }]),
+    { value: "duration", label: "Duration" },
+    { value: "tracked", label: "Time tracked" },
+    { value: "progress", label: "Checklist progress" },
+    { value: "effort", label: "Effort" },
+    ...customFields.map((field) => ({ value: `cf:${field.id}`, label: field.name })),
   ];
 
   const dataModeOptions = [
