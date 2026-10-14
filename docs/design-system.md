@@ -61,6 +61,14 @@ Web `app/_components/_ui/pageHeader.tsx`: 24px semibold title, optional `PageBad
 
 Phone `MobileHeader`: tab roots (Today, Tasks, Calendar, Search, Files) use the large 28px title; every pushed screen (`back`) uses the compact 17px title. `large` defaults to `!back`.
 
+## Sheets and create forms (phone)
+
+`BottomSheet` in `components/ui/BottomSheet.tsx` is the phone's one pop-up: a grabber (pull it or the header down to close), a header with the title (or a `leading` control such as Quick add's kind chip, plus an optional `subtitle`) and a close button, a scrolling body and an optional `footer` action bar.
+
+- **Keyboard.** While the keyboard is up the sheet sits on top of it (`useKeyboardCover`, which adds Android's navigation bar back), so the footer is always the row right above the keys. Never put a form's main button inside the scrolling body.
+- **Pickers open in place.** A `BottomSheet` rendered inside another open sheet (a `Select`, a `DateTimeSheet`, a status list) does not stack a second sheet: it replaces the body with a back arrow, its title, and the parent's title as the subtitle. Back, the backdrop and Android back return to the form. `presentation="modal"` opts out for the rare sheet that must sit on top.
+- **Create forms** (Quick add) are a large bare title field, an optional notes line, a wrapping row of `PropertyChip`s (filled when set, dashed when empty, a tint only for a value that carries meaning such as High priority) and one chip that reveals the rest (repeat, the Auto-schedule window, labels, custom fields). The footer is a live summary of where the item lands and when, plus one primary button (Create, or Capture for the Inbox).
+
 ## Busy states
 
 The animated Timely logo (`LogoSpinner`, `LogoLoader`) wherever a spinner would be, on both apps.

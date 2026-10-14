@@ -66,6 +66,7 @@ export default function TaskMetaEditor({
   onValues,
   showLabels = true,
   showCustomFields = true,
+  compact,
 }: {
   workspace?: Workspace;
   workspaceId: string;
@@ -75,6 +76,8 @@ export default function TaskMetaEditor({
   onValues: (next: CustomFieldValueInput[]) => void;
   showLabels?: boolean;
   showCustomFields?: boolean;
+  /** Inside a create sheet: plain "Labels" / "Custom fields" captions. */
+  compact?: boolean;
 }) {
   const client = useQueryClient();
   const reduceMotion = useReducedMotion();
@@ -189,7 +192,7 @@ export default function TaskMetaEditor({
       {showLabels ? (
         <>
           <View style={styles.heading}>
-            <View style={styles.headingCopy}><TaskSectionHeader icon={<Tags size={18} color={colors.primary} />} title="Labels & Taxonomy" subtitle="Visual categories and focus filters" badge={`${labelIds.length} active`} badgeTone="muted" /></View>
+            <View style={styles.headingCopy}>{compact ? <Text style={styles.caption}>{labelIds.length ? `Labels · ${labelIds.length}` : "Labels"}</Text> : <TaskSectionHeader icon={<Tags size={18} color={colors.primary} />} title="Labels & Taxonomy" subtitle="Visual categories and focus filters" badge={`${labelIds.length} active`} badgeTone="muted" />}</View>
             <SubtlePlus label="Add label" open={addingLabel} onPress={toggleAddingLabel} />
           </View>
           {labels.length > 0 ? (
@@ -232,7 +235,7 @@ export default function TaskMetaEditor({
       {showCustomFields ? (
         <>
           <View style={styles.heading}>
-            <View style={styles.headingCopy}><TaskSectionHeader icon={<Braces size={18} color={colors.primary} />} title="Custom Fields" subtitle="Configurable task details" /></View>
+            <View style={styles.headingCopy}>{compact ? <Text style={styles.caption}>Custom fields</Text> : <TaskSectionHeader icon={<Braces size={18} color={colors.primary} />} title="Custom Fields" subtitle="Configurable task details" />}</View>
             <SubtlePlus label="Add custom field" open={addingField} onPress={toggleAddingField} />
           </View>
           <CustomFieldEditor hideTitle fields={fields} values={values} onChange={onValues} />
@@ -263,6 +266,7 @@ export default function TaskMetaEditor({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  caption: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", marginLeft: 2 },
   root: { gap: 10 },
   heading: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
   headingCopy: { flex: 1, minWidth: 0 },

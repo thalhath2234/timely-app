@@ -123,6 +123,8 @@ export function Field({
   onFocus,
   onBlur,
   bare,
+  large,
+  autoFocus,
   label,
   hint,
 }: {
@@ -141,6 +143,9 @@ export function Field({
   onFocus?: () => void;
   onBlur?: () => void;
   bare?: boolean;
+  /** A bare field typed as a heading: the name of a new task, event or doc. */
+  large?: boolean;
+  autoFocus?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
   const [contentHeight, setContentHeight] = useState(0);
@@ -168,7 +173,8 @@ export function Field({
         setContentHeight((prev) => (Math.abs(next - prev) <= 2 ? prev : next));
       } : undefined}
       selectionColor={colors.primary}
-      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, bare && focused && styles.inputBareFocused, autoGrow && { height: Math.max(bare ? 30 : 38, contentHeight + 2) }]}
+      autoFocus={autoFocus}
+      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, bare && focused && styles.inputBareFocused, large && styles.inputLarge, autoGrow && { height: Math.max(large ? 34 : bare ? 30 : 38, contentHeight + 2) }]}
     />
   );
   if (!label && !hint) return input;
@@ -227,6 +233,73 @@ export function Chip({
       </Text>
     </AnimatedPressable>
   );
+}
+
+/**
+ * A property of a new item shown as a compact chip in a create sheet
+ * (Workspace, Status, Priority, Due). Tapping it opens its picker in the
+ * same sheet. `empty` draws a not-yet-set property: muted, dashed edge.
+ */
+export function PropertyChip({
+  label,
+  icon,
+  dot,
+  tint,
+  empty,
+  active,
+  onPress,
+  accessibilityLabel,
+  testID,
+}: {
+  label: string;
+  /** A lucide icon element, sized 15. */
+  icon?: ReactNode;
+  /** A colour dot before the label (status, project). */
+  dot?: string | null;
+  /** Fill colour for a value that carries meaning (High priority); the text keeps its contrast. */
+  tint?: string | null;
+  empty?: boolean;
+  /** Toggled on (All day, More options open). */
+  active?: boolean;
+  onPress: () => void;
+  accessibilityLabel?: string;
+  testID?: string;
+}) {
+  return (
+    <AnimatedPressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={active !== undefined ? { selected: active } : undefined}
+      onPress={onPress}
+      hitSlop={{ top: 5, bottom: 5 }}
+      android_ripple={{ color: `${colors.primary}22` }}
+      style={[
+        styles.propertyChip,
+        empty && styles.propertyChipEmpty,
+        active && styles.propertyChipActive,
+        tint && !empty ? { backgroundColor: `${tint}1f` } : null,
+      ]}
+    >
+      {dot ? <View style={[styles.propertyChipDot, { backgroundColor: dot }]} /> : null}
+      {icon}
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.propertyChipText,
+          empty && { color: colors.mutedForeground, fontWeight: "500" },
+          active && { color: colors.accentForeground },
+        ]}
+      >
+        {label}
+      </Text>
+    </AnimatedPressable>
+  );
+}
+
+/** Wrapping row of PropertyChips. */
+export function PropertyChips({ children }: { children: ReactNode }) {
+  return <View style={styles.propertyChips}>{children}</View>;
 }
 
 export type SelectOption = { value: string; label: string; color?: string };
@@ -415,10 +488,12 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   inputFocused: { borderColor: colors.primary },
   sheetSearch: { marginBottom: 8 },
-  inputBare: { minHeight: 30, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0 },
+  inputBare: { minHeight: 30, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0, outlineWidth: 0 },
   inputBareArea: { minHeight: 30, paddingTop: 0 },
   inputBareFocused: { borderBottomWidth: 2, borderColor: colors.primary },
   area: { minHeight: 112, textAlignVertical: "top", paddingTop: 12 },
+  // No focus underline: the caret and the size already say where you type.
+  inputLarge: { minHeight: 34, fontSize: 22, fontWeight: "600", letterSpacing: -0.3, lineHeight: 28, paddingVertical: 2, borderBottomWidth: 0 },
   chip: {
     minHeight: 36,
     borderRadius: 18,
@@ -492,7 +567,24 @@ const styles = createThemedStyleSheet((colors) => ({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
-  propertyLabel: { width: 76, color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
+  propertyLabel: { minWidth: 76, flexShrink: 0, color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   propertyValue: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, fontWeight: "500", textAlign: "right" },
   dot: { width: 10, height: 10, borderRadius: 5 },
+  propertyChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  propertyChip: {
+    minHeight: 34,
+    maxWidth: "100%",
+    borderRadius: controlRadius,
+    borderWidth: 1,
+    borderColor: "transparent",
+    backgroundColor: colors.muted,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  propertyChipEmpty: { backgroundColor: "transparent", borderColor: colors.border, borderStyle: "dashed" },
+  propertyChipActive: { backgroundColor: colors.accent },
+  propertyChipDot: { width: 8, height: 8, borderRadius: 4 },
+  propertyChipText: { flexShrink: 1, color: colors.foreground, fontSize: 14, fontWeight: "600" },
 }));
