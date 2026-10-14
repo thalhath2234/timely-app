@@ -367,7 +367,7 @@ func (r *taskRepository) GetCustomFieldsByIDs(workspaceID string, fieldIDs []str
 
 func (r *taskRepository) GetWorkspaceStatuses(workspaceID string) ([]models.Status, error) {
 	var statuses []models.Status
-	if err := r.db.Where("workspace_id = ?", workspaceID).Find(&statuses).Error; err != nil {
+	if err := r.db.Where("workspace_id = ?", workspaceID).Order(models.WorkspaceItemOrder).Find(&statuses).Error; err != nil {
 		return nil, err
 	}
 	return statuses, nil

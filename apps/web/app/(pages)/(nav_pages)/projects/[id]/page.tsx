@@ -32,7 +32,7 @@ import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
 import { projectDeleteCopy } from "@timely/contract/projectDelete";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useWorkingHoursZone, useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
 import type { Project, Status, Task, Workspace } from "@/app/_types/types";
 
@@ -333,7 +333,8 @@ function ProjectHub({ project }: { project: Project }) {
   );
 }
 
-function formatActivityStamp(value: string) {
+/** When a change happened, in the person's Working hours zone. */
+function formatActivityStamp(value: string, timeZone?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString(undefined, {
@@ -341,6 +342,7 @@ function formatActivityStamp(value: string) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
 }
 
@@ -352,6 +354,7 @@ function formatActivityStamp(value: string) {
  */
 function ProjectActivityFeed({ project, recent }: { project: Project; recent: Task[] }) {
   const activity = useProjectActivity(project.id);
+  const timeZone = useWorkingHoursZone();
   const entries = activity.data ?? [];
 
   return (
@@ -403,7 +406,7 @@ function ProjectActivityFeed({ project, recent }: { project: Project; recent: Ta
                     </span>
                   </span>
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {formatActivityStamp(entry.createdAt)}
+                    {formatActivityStamp(entry.createdAt, timeZone)}
                   </span>
                 </>
               );
@@ -546,6 +549,7 @@ function UpNext({
 function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () => void }) {
   const activity = useProjectActivity(project.id);
   const openTask = useEntityDetailStore((state) => state.openTask);
+  const timeZone = useWorkingHoursZone();
   const entries = (activity.data ?? []).slice(0, 6);
 
   return (
@@ -573,7 +577,7 @@ function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () =
                   </span>
                 </span>
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {formatActivityStamp(entry.createdAt)}
+                  {formatActivityStamp(entry.createdAt, timeZone)}
                 </span>
               </button>
             </li>

@@ -132,7 +132,7 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 	var statuses []models.Status
 	statusByName := map[string]string{}
 	if words {
-		s.db.WithContext(ctx).Where("workspace_id = ?", *task.WorkspaceID).Order("created_at").Find(&statuses)
+		s.db.WithContext(ctx).Where("workspace_id = ?", *task.WorkspaceID).Order(models.WorkspaceItemOrder).Find(&statuses)
 	}
 	if len(statuses) > 1 {
 		opts := make([]decide.Option, 0, len(statuses))
@@ -172,7 +172,7 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 		var fields []models.CustomField
 		s.db.WithContext(ctx).Where("workspace_id = ? AND type IN ?", *task.WorkspaceID,
 			[]string{string(models.CustomFieldTypeSelect), string(models.CustomFieldTypeMultiSelect), string(models.CustomFieldTypeBoolean)}).
-			Order("created_at").Find(&fields)
+			Order(models.WorkspaceItemOrder).Find(&fields)
 		filled := map[string]bool{}
 		for _, v := range task.CustomFieldValues {
 			if v != nil && (len(v.OptionsValue) > 0 || (v.StringValue != nil && *v.StringValue != "")) {
