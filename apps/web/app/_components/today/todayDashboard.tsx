@@ -1057,16 +1057,18 @@ export default function TodayDashboard() {
                           onContextMenu={(event) =>
                             openMenu(event, taskMenu(task), { title: task.name })
                           }
-                          className="min-w-0 flex-1 truncate rounded-xl border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent/40"
+                          className="flex min-w-0 flex-1 items-baseline gap-2 rounded-xl border border-border bg-card px-3 py-2 text-left text-sm hover:bg-accent/40"
                         >
                           <span
                             data-entity-title={entityTitleKey("task", task.id)}
-                            className="inline-block max-w-full truncate align-bottom"
+                            className="min-w-0 truncate"
                           >
                             {task.name}
                           </span>
-                          {task.deadline ? (
-                            <span className="ml-2 text-xs text-destructive">{task.deadline}</span>
+                          {/* The space keeps the accessible name "Fix login bug Overdue Oct 10". */}
+                          {" "}
+                          {dueLabel(task, data.date) ? (
+                            <span className="shrink-0 text-xs text-destructive">{dueLabel(task, data.date)}</span>
                           ) : null}
                         </button>
                         <Link
