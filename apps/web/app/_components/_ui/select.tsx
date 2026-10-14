@@ -144,12 +144,6 @@ export default function Select({
     }
 
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setOpen(false);
-        triggerRef.current?.focus();
-        return;
-      }
 
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -175,6 +169,16 @@ export default function Select({
       }
     }
 
+    // Capture phase + stopPropagation, like DatePicker: Escape closes only
+    // this menu, not the dialog it sits in.
+    function onEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+
     function onReposition() {
       const height = panelRef.current?.offsetHeight ?? 240;
       setPos(measure(height));
@@ -182,6 +186,7 @@ export default function Select({
 
     window.addEventListener("mousedown", onPointerDown);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onEscape, true);
     window.addEventListener("resize", onReposition);
     window.addEventListener("scroll", onReposition, true);
 
@@ -189,6 +194,7 @@ export default function Select({
       window.cancelAnimationFrame(frame);
       window.removeEventListener("mousedown", onPointerDown);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onEscape, true);
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };

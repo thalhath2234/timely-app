@@ -1598,12 +1598,13 @@ function AddItemModalInner() {
                   <div className="flex flex-col gap-2">
                     <SectionCaption>{taskLabelIds.length ? `Labels · ${taskLabelIds.length}` : "Labels"}</SectionCaption>
                     <LabelPicker
+                      variant="chip"
+                      className="px-1.5"
                       labels={selectedTaskWorkspace?.lables ?? []}
                       selectedIds={taskLabelIds}
-                      emptyLabel=""
                       onChange={(labelIds) => setValueTask("labelIds", labelIds, { shouldValidate: true, shouldDirty: true })}
+                      trailing={<CreateLabelInline workspaceId={selectedTaskWorkspaceId} onCreated={addTaskLabel} />}
                     />
-                    <CreateLabelInline workspaceId={selectedTaskWorkspaceId} onCreated={addTaskLabel} />
                   </div>
                   <div className="flex flex-col gap-1">
                     <SectionCaption>Custom fields</SectionCaption>
