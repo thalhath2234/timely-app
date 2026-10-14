@@ -63,10 +63,14 @@ type Candidate struct {
 	ExternalBlocked    bool
 	ExternalBlockerEnd *time.Time
 	OccurrenceStart    *time.Time
-	TodayFocus         bool
-	ActualMinutes      int
-	Unscheduled        bool
-	Urgency            *int
+	// FixedStart is the time a repeating occurrence was set for. The engine
+	// keeps it there when that time is free, even outside working hours, and
+	// only looks for other time when something else holds it.
+	FixedStart    *time.Time
+	TodayFocus    bool
+	ActualMinutes int
+	Unscheduled   bool
+	Urgency       *int
 	// GroupKey ties tasks that share a topic or tool; order keeps them next
 	// to each other when their ranks are close.
 	GroupKey string
@@ -148,7 +152,45 @@ func Plan(input PlanInput) PlanResult {
 	ends := map[string]time.Time{}
 	skipped := map[string]bool{}
 
+	// Repeating occurrences go first, at their own time, so the time the
+	// person picked is held before anything else is fitted around it.
+	held := mergeIntervals(input.Busy)
+	fixed := map[string]bool{}
+	for _, candidate := range input.Candidates {
+		start := candidate.FixedStart
+		if start == nil || candidate.DurationMinutes <= 0 || start.Before(input.From) || !start.Before(input.To) {
+			continue
+		}
+		block := Interval{Start: *start, End: start.Add(time.Duration(candidate.DurationMinutes) * time.Minute)}
+		if overlapsAny(held, block) {
+			continue
+		}
+		held = append(held, block)
+		free = subtract(free, Interval{Start: block.Start, End: block.End.Add(time.Duration(breakMinutes) * time.Minute)})
+		result.PlannedMinutes += block.Minutes()
+		fixed[candidate.ID] = true
+		taskID := candidate.TaskID
+		if taskID == "" {
+			taskID = candidate.ID
+		}
+		ends[candidate.ID] = block.End
+		result.Proposals = append(result.Proposals, Proposal{
+			TaskID:          taskID,
+			TaskName:        candidate.Name,
+			Blocks:          []Interval{block},
+			EndsAt:          block.End,
+			Reason:          joinReasons(candidate.Rank.Reasons),
+			OccurrenceStart: candidate.OccurrenceStart,
+			CandidateID:     candidate.ID,
+			RequiredMinutes: candidate.DurationMinutes,
+			PlacedMinutes:   block.Minutes(),
+		})
+	}
+
 	for _, candidate := range order(input.Candidates, byID) {
+		if fixed[candidate.ID] {
+			continue
+		}
 		taskID := candidate.TaskID
 		if taskID == "" {
 			taskID = candidate.ID
@@ -514,6 +556,15 @@ func FreeIntervals(from, to time.Time, hours models.WorkingHours, loc *time.Loca
 		free = subtract(free, item)
 	}
 	return free
+}
+
+func overlapsAny(items []Interval, block Interval) bool {
+	for _, item := range items {
+		if item.Start.Before(block.End) && block.Start.Before(item.End) {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeIntervals(items []Interval) []Interval {
