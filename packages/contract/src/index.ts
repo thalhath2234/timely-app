@@ -16,6 +16,7 @@
  *   config         Config and saved task views
  *   dashboard      Dashboard layout, card queries and the card engine
  *   viewSearch     search finding a saved task view by its name
+ *   projectDelete  the confirm before deleting a project and its tasks
  */
 
 /**
