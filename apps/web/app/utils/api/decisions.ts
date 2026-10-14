@@ -305,7 +305,7 @@ export const runNotificationTriage = (notificationId: string, action: TriageStep
 
 // Personalisation (Phase 9).
 export type StarterUse = { key: string; label: string; workspace?: string };
-export type StarterLabel = { name: string; color: string };
+export type StarterLabel = { name: string; color: string; uses?: string[] };
 export type PersonalPrefs = { useCase: string; dismissedTips: string[] };
 
 export const getPersonalPrefs = () => request<{ prefs: PersonalPrefs; uses: StarterUse[] }>("/suggestions/prefs");
