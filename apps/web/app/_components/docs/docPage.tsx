@@ -37,6 +37,22 @@ import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 import { buttonClass } from "@/app/_components/_ui/button";
 
+/** Page width (px) from which the doc gets the toolbar rail and margin
+ * suggestions: room for the rail, the doc and an 18rem margin. */
+const MARGIN_LAYOUT_WIDTH = 1024;
+
+/** Whether an element is at least `width` px wide, following resizes. */
+function useWiderThan(element: HTMLElement | null, width: number) {
+  const [wider, setWider] = useState(false);
+  useEffect(() => {
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => setWider(entry.contentRect.width >= width));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, width]);
+  return wider;
+}
+
 const ICON_CHOICES = [
   "📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯",
   "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠",
@@ -138,6 +154,12 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const editorRef = useRef<Editor | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
+  const [railHost, setRailHost] = useState<HTMLDivElement | null>(null);
+  const [scrollBox, setScrollBox] = useState<HTMLDivElement | null>(null);
+  // A wide page puts the toolbar in a rail left of the doc and the
+  // suggestions in the margin beside their lines; a narrow one keeps the
+  // toolbar row under the tabs and the suggestions above the text.
+  const wide = useWiderThan(scrollBox, MARGIN_LAYOUT_WIDTH);
   const lastSavedAtRef = useRef<string | null>(doc.updatedAt);
   // The editor is seeded once per document; later remote updates arrive via
   // `remoteContent`, so this deliberately does not track content changes.
@@ -422,10 +444,15 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
       </TabStripActions>
 
       {/* The editor's toolbar, one row across the page under the tabs. */}
-      <div ref={setToolbarHost} className="relative z-20 flex h-10 shrink-0 items-center border-b border-border px-3" />
+      {!wide && <div ref={setToolbarHost} className="relative z-20 flex h-10 shrink-0 items-center border-b border-border px-3" />}
 
-      <div className="doc-page-scroll min-h-0 flex-1 overflow-y-auto">
-        <div className="doc-page-grid px-10 pb-16 pt-8">
+      <div ref={setScrollBox} className="doc-page-scroll min-h-0 flex-1 overflow-y-auto">
+        <div className={`doc-page-grid pb-16 pt-8 ${wide ? "px-6" : "px-10"}`} data-layout={wide ? "margin" : undefined}>
+          {wide && (
+            <div className="doc-page-tools">
+              <div ref={setRailHost} className="sticky top-4 z-20 rounded-xl border border-border bg-card p-1.5" />
+            </div>
+          )}
           <div className="doc-page-head">
             {breadcrumb.length > 0 && (
               <nav aria-label="Parent pages" className="mb-2 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
@@ -509,7 +536,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             </div>
           </div>
 
-          {/* Beside the doc on a wide page, above the text otherwise (globals.css). */}
+          {/* In the margin beside their lines on a wide page, above the text otherwise (globals.css). */}
           <aside className="doc-page-rail" aria-label="Suggestions">
             {/* Rechecks once an empty doc gets a title or text, then as it grows by about fifty words. */}
             <DocHints
@@ -518,13 +545,15 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               nearEmpty={wordCount < 8}
               version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
               onApplyContent={applyContent}
+              layout={wide ? "margin" : "card"}
             />
           </aside>
 
           <div className="doc-page-body">
             <RichTextEditor
               toolbar="fixed"
-              toolbarHost={toolbarHost}
+              toolbarHost={wide ? railHost : toolbarHost}
+              toolbarLayout={wide ? "rail" : "row"}
               content={remoteContent ?? seedContent}
               syncKey={remoteEpoch}
               onReady={handleEditorReady}

@@ -26,6 +26,7 @@ import { DOC_VERSION_REASONS } from "@timely/contract/documents";
 import RichDoc from "./RichDoc";
 import RelatedList from "../search/RelatedList";
 import DocHintsCard from "./DocHintsCard";
+import type { LineHints } from "./lineHints";
 import { PrimaryButton } from "../ui/primitives";
 import { useKeyboardCover } from "../ui/useKeyboardCover";
 import { FILES_TAB, fileHref } from "../../lib/fileRoutes";
@@ -87,6 +88,8 @@ function DocEditor({ docId }: { docId: string }) {
   // What the editor holds, a moment after typing stops, for the checklist
   // items the suggestions card offers as tasks.
   const [liveContent, setLiveContent] = useState<DocContent | null>(null);
+  // Markers and cards for checklist rows, from the suggestions to the editor.
+  const [lineHints, setLineHints] = useState<LineHints | null>(null);
   const liveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(liveTimerRef.current), []);
   useEffect(() => {
@@ -265,6 +268,7 @@ function DocEditor({ docId }: { docId: string }) {
             setEditorSync((value) => value + 1);
             schedule({ content, plainText });
           }}
+          onLineHints={setLineHints}
         />
       </View>
 
@@ -279,6 +283,7 @@ function DocEditor({ docId }: { docId: string }) {
         pdfRequest={pdfRequest}
         propertyRequest={propertyRequest}
         mentionRequest={mentionRequest}
+        lineHints={lineHints}
         linkDocId={docId}
         writeContext={{ kind: "doc", title }}
         onFindClose={() => setFindOpen(false)}

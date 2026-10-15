@@ -1,6 +1,6 @@
 import { docTypePhrase } from "@timely/contract/documents";
 import { checklistTask, draftChecklistTasks, openChecklistItems, type ChecklistTodo } from "@timely/contract/docChecklist";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -27,6 +27,7 @@ import { hrefFor } from "../../lib/searchRoutes";
 import { showUndoToast, useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import type { Doc, DocContent, Task } from "../../lib/types";
+import { checklistLines, type LineHint, type LineHints } from "./lineHints";
 
 type Row = { key: string; text: string; label?: string; run?: () => void; manual?: boolean };
 
@@ -36,7 +37,9 @@ type Row = { key: string; text: string; label?: string; run?: () => void; manual
  * tasks, and whether it looks out of date. Above them, the doc's unchecked
  * checklist items that are not tasks yet, offered as tasks even while
  * suggestions are off. Above the doc it is one summary row; the rows
- * themselves open in a sheet, so the doc keeps the screen. */
+ * themselves open in a sheet, so the doc keeps the screen. Checklist rows
+ * also get a marker in the doc itself (`onLineHints`), which opens a card
+ * with that row's suggestion under it. */
 export default function DocHintsCard({
   doc,
   content,
@@ -45,6 +48,7 @@ export default function DocHintsCard({
   isEmpty,
   onSetProperty,
   onApplyContent,
+  onLineHints,
 }: {
   doc: Doc;
   /** The open editor's content, a moment after typing stops. */
@@ -58,6 +62,9 @@ export default function DocHintsCard({
   onSetProperty?: (key: string, value: string) => void;
   /** Replaces the page's content; the template row needs it. */
   onApplyContent?: (content: DocContent, plainText: string) => void;
+  /** The markers and cards for checklist rows in the doc, for the editor;
+   * null once there are none. */
+  onLineHints?: (value: LineHints | null) => void;
 }) {
   const live = !doc.isTemplate && !doc.archivedAt;
   const { data } = useDocHintsQuery(doc.id, version, live);
@@ -138,6 +145,41 @@ export default function DocHintsCard({
       void queryClient.invalidateQueries({ queryKey: ["doc-checklist", doc.id] });
     });
   };
+
+  // The rows' markers and cards in the doc. The editor gets plain data and
+  // one stable `act`, so it is only told again when what it shows changes.
+  const [openLine, setOpenLine] = useState<string | null>(null);
+  const lines = useMemo(() => checklistLines(content), [content]);
+  const lineHints: LineHint[] = [
+    ...open.map((todo) => ({
+      key: `todo:${todo.name.toLowerCase()}`,
+      kind: "todo" as const,
+      text: lines.get(todo.name.toLowerCase()) ?? "",
+      name: todo.name,
+      details: todo.details,
+    })),
+    ...already.map((task) => ({ key: `task:${task.taskId}`, kind: "task" as const, text: lines.get(task.name.toLowerCase()) ?? "", name: task.name })),
+  ].filter((hint) => hint.text);
+  const actRef = useRef<LineHints["act"]>(() => undefined);
+  actRef.current = (key, action) => {
+    if (key.startsWith("task:")) {
+      router.push(hrefFor("task", key.slice("task:".length)));
+      return;
+    }
+    const todo = open.find((item) => `todo:${item.name.toLowerCase()}` === key);
+    if (action === "toggle") setOpenLine((current) => (current === key ? null : key));
+    else if (action === "dismiss") hide(key);
+    else if (todo) void make([todo], key);
+  };
+  const act = useCallback<LineHints["act"]>((key, action) => actRef.current(key, action), []);
+  const lineSignature = JSON.stringify([lineHints, openLine, making, target?.title ?? null, aiReady]);
+  const onLineHintsRef = useRef(onLineHints);
+  onLineHintsRef.current = onLineHints;
+  useEffect(() => {
+    const [hintList, openKey, busy, targetTitle, writing] = JSON.parse(lineSignature) as [LineHint[], string | null, string | null, string | null, boolean];
+    onLineHintsRef.current?.(hintList.length ? { hints: hintList, open: openKey, busy, target: targetTitle, writing, act } : null);
+  }, [lineSignature, act]);
+  useEffect(() => () => onLineHintsRef.current?.(null), []);
 
   const hints = data?.available ? data : undefined;
   const accept = () => {
@@ -335,8 +377,8 @@ export default function DocHintsCard({
 
   const summary = open.length
     ? open.length === 1
-      ? "1 checklist item isn’t a task yet"
-      : `${open.length} checklist items aren’t tasks yet`
+      ? "1 item isn’t a task yet"
+      : `${open.length} items aren’t tasks yet`
     : shown.length === 1
       ? "1 suggestion for this doc"
       : `${shown.length} suggestions for this doc`;
@@ -348,20 +390,34 @@ export default function DocHintsCard({
   return (
     <>
       {shown.length || open.length ? (
-        <AnimatedPressable
-          accessibilityRole="button"
-          accessibilityLabel={`${summary}. Show`}
-          onPress={() => setSheetOpen(true)}
-          style={styles.summary}
-          testID="doc-hints-summary"
-        >
-          {open.length ? <ListTodo size={16} color={colors.primary} /> : <Sparkles size={16} color={colors.primary} />}
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text numberOfLines={1} style={styles.todoTitle}>{summary}</Text>
-            {detail ? <Text numberOfLines={1} style={styles.text}>{detail}</Text> : null}
-          </View>
-          <ChevronRight size={18} color={colors.mutedForeground} />
-        </AnimatedPressable>
+        // "Make all" sits beside the row, not inside it: one button may not hold another.
+        <View style={styles.summary}>
+          <AnimatedPressable
+            accessibilityRole="button"
+            accessibilityLabel={`${summary}. Show`}
+            onPress={() => setSheetOpen(true)}
+            style={styles.summaryOpen}
+            testID="doc-hints-summary"
+          >
+            {open.length ? <ListTodo size={16} color={colors.primary} /> : <Sparkles size={16} color={colors.primary} />}
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text numberOfLines={1} style={styles.todoTitle}>{summary}</Text>
+              {detail ? <Text numberOfLines={1} style={styles.text}>{detail}</Text> : null}
+            </View>
+            {open.length > 1 ? null : <ChevronRight size={18} color={colors.mutedForeground} />}
+          </AnimatedPressable>
+          {open.length > 1 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              label={aiReady && making === "all" ? "Writing…" : "Make all"}
+              accessibilityLabel={`Make ${open.length} tasks`}
+              loading={making === "all"}
+              disabled={making !== null}
+              onPress={() => void make(open, "all")}
+            />
+          ) : null}
+        </View>
       ) : null}
       <BottomSheet open={sheetOpen && (shown.length > 0 || open.length > 0)} onClose={() => setSheetOpen(false)} title="Suggestions">
         {body}
@@ -382,7 +438,7 @@ const styles = createThemedStyleSheet((colors) => ({
   summary: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     minHeight: 52,
     marginHorizontal: 16,
     marginBottom: 8,
@@ -390,9 +446,10 @@ const styles = createThemedStyleSheet((colors) => ({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingLeft: 14,
+    paddingRight: 8,
   },
+  summaryOpen: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10, minHeight: 50 },
   body: { gap: 8, paddingHorizontal: 4, paddingBottom: 8 },
   header: { flexDirection: "row", alignItems: "center", gap: 6 },
   row: { flexDirection: "row", alignItems: "center", gap: 6 },

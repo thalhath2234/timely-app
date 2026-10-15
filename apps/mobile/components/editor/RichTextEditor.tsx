@@ -84,6 +84,7 @@ import FindBar from "./FindBar";
 import BlockSheet, { type BlockInfo } from "./BlockSheet";
 import HelpMeWriteSheet, { useHelpMeWriteAvailable, type WriteContext, type WriteInfo } from "./HelpMeWriteSheet";
 import { writtenContent } from "@timely/contract/helpMeWrite";
+import type { LineHints } from "../docs/lineHints";
 
 /** The five GitHub callout kinds, coloured as in the editor (editorHtml.ts). */
 const CALLOUT_KINDS: { kind: string; label: string; Icon: typeof Info; color?: string }[] = [
@@ -270,6 +271,7 @@ export default function RichTextEditor({
   mentionRequest,
   writeContext,
   openMentions = true,
+  lineHints,
 }: {
   content: DocContent;
   onChange: (value: { content: DocContent; plainText: string }) => void;
@@ -296,6 +298,9 @@ export default function RichTextEditor({
   propertyRequest?: { key: string; value: string } | null;
   /** Adds a mention of this item at the end of the doc (Related "Add link"). */
   mentionRequest?: { id: string; label: string; entityType: string } | null;
+  /** Suggestions for checklist rows: a marker at each row's end and a card
+   * under the open one (DocHintsCard). */
+  lineHints?: LineHints | null;
   /** Turns on Help me write (dock button and "/" entry), shown only while an
    * AI provider is set up. */
   writeContext?: WriteContext;
@@ -394,6 +399,18 @@ export default function RichTextEditor({
     run("exportHtml", { title: pdfRequest.title });
   }, [pdfRequest, ready, run]);
 
+  const lineHintsRef = useRef(lineHints);
+  useEffect(() => {
+    lineHintsRef.current = lineHints;
+  });
+  const lineHintsPayload = lineHints
+    ? JSON.stringify({ hints: lineHints.hints, open: lineHints.open, busy: lineHints.busy, target: lineHints.target, writing: lineHints.writing })
+    : "null";
+  useEffect(() => {
+    if (!ready) return;
+    run("setLineHints", JSON.parse(lineHintsPayload) ?? { hints: [] });
+  }, [lineHintsPayload, ready, run]);
+
   useEffect(() => {
     if (!ready || !propertyRequest) return;
     run("setProperty", propertyRequest);
@@ -475,7 +492,12 @@ export default function RichTextEditor({
         id?: string;
         entityType?: string;
         images?: { data: string; mime?: string; name?: string }[];
+        key?: string;
+        action?: string;
       };
+      if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss")) {
+        lineHintsRef.current?.act(msg.key, msg.action);
+      }
       if (msg.type === "linkSelection") {
         if (!msg.ok || typeof msg.from !== "number" || typeof msg.to !== "number") {
           useToastStore.getState().show("Select a phrase within one line to link it to an item");

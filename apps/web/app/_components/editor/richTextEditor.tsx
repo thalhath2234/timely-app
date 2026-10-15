@@ -52,6 +52,7 @@ import {
   ListOrdered,
   Map as MapIcon,
   Minus,
+  Plus,
   Radical,
   SquareSigma,
   Strikethrough,
@@ -142,11 +143,73 @@ export interface RichTextEditorProps {
    * (the doc page's bar under the tabs) and leaves scrolling to the page
    * instead of a box of its own. */
   toolbarHost?: HTMLElement | null;
+  /** With a `toolbarHost`: "row" (default) lays the toolbar out across the
+   * host; "rail" stacks it down the host, a column in the doc's left gutter,
+   * with the insert tools folded into one menu so the column fits the window. */
+  toolbarLayout?: "row" | "rail";
 }
 
 /** Puts the toolbar in the page's own toolbar row when there is one. */
 function ToolbarSlot({ host, children }: { host?: HTMLElement | null; children: ReactNode }) {
   return host ? createPortal(children, host) : children;
+}
+
+/** Where the toolbar rail draws a line between groups of tools. */
+const RAIL_GROUP_STARTS = new Set(["Heading 1", "Bulleted list", "Callout", "Mention"]);
+
+/** The rail's Insert button: images, embeds, diagrams, maths and the other
+ * blocks the toolbar row shows one by one, in a menu beside the rail. */
+function InsertMenu({ items }: { items: { label: string; icon: typeof Bold; isActive: boolean; run: () => void }[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title="Insert"
+        aria-label="Insert"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={`flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+          open ? "bg-accent text-accent-foreground" : ""
+        }`}
+      >
+        <Plus className="size-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onMouseDown={() => setOpen(false)} />
+          <div
+            role="menu"
+            aria-label="Insert"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setOpen(false);
+            }}
+            className="absolute left-full top-0 z-50 ml-2 grid w-64 grid-cols-2 gap-0.5 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-xl"
+          >
+            {items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false);
+                    item.run();
+                  }}
+                  className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                >
+                  <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -229,6 +292,7 @@ export default function RichTextEditor({
   docId,
   writeContext,
   toolbarHost,
+  toolbarLayout = "row",
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -999,6 +1063,19 @@ export default function RichTextEditor({
     return <EditorContent editor={editor} />;
   }
 
+  const rail = Boolean(toolbarHost) && toolbarLayout === "rail";
+  const separator = (key: string) => (
+    <span key={key} aria-hidden="true" className={rail ? "my-1 h-px w-5 shrink-0 bg-border" : "mx-0.5 h-5 w-px bg-border"} />
+  );
+  // Down the rail the formatting tools come in small groups, and everything
+  // from Image on (the insert group) folds into one Insert menu.
+  const insertsFrom = toolbarButtons.findIndex((button) => button.startsGroup);
+  const railInserts = insertsFrom >= 0 ? toolbarButtons.slice(insertsFrom) : [];
+  const railButtons = (insertsFrom >= 0 ? toolbarButtons.slice(0, insertsFrom) : toolbarButtons).map((button) => ({
+    ...button,
+    startsGroup: RAIL_GROUP_STARTS.has(button.label),
+  }));
+
   return (
     <>
       {toolbar !== "float" ? (
@@ -1012,8 +1089,13 @@ export default function RichTextEditor({
           {toolbar === "fixed" || focusedWithin || writeAnchor || linkPosition ? (
           <ToolbarSlot host={toolbarHost}>
           <div
+            role="toolbar"
+            aria-label="Formatting"
+            aria-orientation={rail ? "vertical" : undefined}
             className={
-              toolbarHost
+              rail
+                ? "flex flex-col items-center gap-0.5"
+                : toolbarHost
                 ? "flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto scrollbar-none"
                 : "mb-3 flex shrink-0 flex-wrap items-center gap-0.5 rounded-lg border border-border bg-muted/20 p-1"
             }
@@ -1022,24 +1104,25 @@ export default function RichTextEditor({
             {writeOn && (
               <>
                 <HelpMeWriteButton
+                  compact={rail}
                   active={Boolean(writeAnchor)}
-                  onClick={(rect) => setWriteAnchor({ top: rect.bottom + 6, left: rect.left })}
+                  // From the rail the panel opens to its right, beside the doc.
+                  onClick={(rect) => setWriteAnchor(rail ? { top: rect.top, left: rect.right + 8 } : { top: rect.bottom + 6, left: rect.left })}
                 />
-                <span className="mx-1 h-5 w-px bg-border" />
+                {separator("write-gap")}
               </>
             )}
-            {toolbarButtons.map((button) => {
+            {(rail ? railButtons : toolbarButtons).map((button) => {
               const Icon = button.icon;
               return [
-                button.startsGroup && (
-                  <span key={`${button.label}-gap`} className="mx-0.5 h-5 w-px bg-border" />
-                ),
+                button.startsGroup && separator(`${button.label}-gap`),
                 <button
                   key={button.label}
                   type="button"
                   title={button.label}
+                  aria-label={button.label}
                   onClick={button.run}
-                  className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+                  className={`flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
                     button.isActive ? "bg-accent text-accent-foreground" : ""
                   }`}
                 >
@@ -1048,26 +1131,28 @@ export default function RichTextEditor({
               ];
             })}
 
-            <span className="mx-0.5 h-5 w-px bg-border" />
+            {separator("link-gap")}
 
             <button
               type="button"
               title="Add link"
+              aria-label="Add link"
               onClick={openLinkEditor}
-              className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+              className={`flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
                 editor.isActive("link") ? "bg-accent text-accent-foreground" : ""
               }`}
             >
               <Link2 className="size-3.5" />
             </button>
             {variant === "page" && enableMentions && <MentionLinkButton editor={editor} docId={docId} />}
+            {rail && railInserts.length > 0 && <InsertMenu items={railInserts} />}
             {variant === "page" && (
               <button
                 type="button"
                 title="Find and replace (Ctrl+F)"
                 aria-label="Find and replace"
                 onClick={() => setFindOpen(true)}
-                className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+                className={`flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
                   findOpen ? "bg-accent text-accent-foreground" : ""
                 }`}
               >
@@ -1079,14 +1164,22 @@ export default function RichTextEditor({
           ) : null}
 
           <div className="relative flex min-h-0 flex-1 flex-col">
-            {findOpen && (
-              // On a page that scrolls, the find bar hangs under the toolbar row so it stays in view.
-              <ToolbarSlot host={toolbarHost}>
-                <div className={toolbarHost ? "absolute inset-x-0 top-full h-0" : "contents"}>
-                  <FindBar editor={editor} onClose={() => setFindOpen(false)} />
+            {findOpen &&
+              (rail ? (
+                // Beside a toolbar rail there is no row to hang from, so it rides the top of the doc as the page scrolls.
+                <div className="sticky top-0 z-30 h-0">
+                  <div className="relative">
+                    <FindBar editor={editor} onClose={() => setFindOpen(false)} />
+                  </div>
                 </div>
-              </ToolbarSlot>
-            )}
+              ) : (
+                // On a page that scrolls, the find bar hangs under the toolbar row so it stays in view.
+                <ToolbarSlot host={toolbarHost}>
+                  <div className={toolbarHost ? "absolute inset-x-0 top-full h-0" : "contents"}>
+                    <FindBar editor={editor} onClose={() => setFindOpen(false)} />
+                  </div>
+                </ToolbarSlot>
+              ))}
             {variant === "page" && <BlockTransferDialog />}
             {variant === "page" && <ImageViewer />}
             {toolbarHost ? (
