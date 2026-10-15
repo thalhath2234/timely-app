@@ -7,6 +7,8 @@ import {
   getCleanupSuggestions,
   getDocHints,
   getDocChecklist,
+  dismissDocHint,
+  type DocHintKind,
   getClarifySuggestions,
   getProjectInsights,
   getStaleWork,
@@ -183,6 +185,16 @@ export function useDocHints(docId: string | undefined, version = "", enabled = t
     staleTime: 5 * 60 * 1000,
     retry: false,
   }));
+}
+
+/** Dismisses a doc suggestion for good. The doc's cached suggestions are
+ * read again afterwards, so the row stays gone when the doc reopens. */
+export function useDismissDocHint(docId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, value }: { kind: DocHintKind; value?: string }) => dismissDocHint(docId, kind, value),
+    onSettled: () => client.invalidateQueries({ queryKey: ["doc-hints", docId] }),
+  });
 }
 
 /** Which unchecked checklist items of a doc are already tasks, and where new

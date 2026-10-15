@@ -54,6 +54,7 @@ var docTypes = []decide.Option{
 func (s *Service) docRoutes(g *echo.Group) {
 	g.GET("/suggestions/doc/:id", s.docHints)
 	g.POST("/suggestions/doc/:id/checklist", s.docChecklist)
+	g.POST("/suggestions/doc/:id/dismiss", s.docDismiss)
 	g.POST("/suggestions/mention", s.mention)
 	g.POST("/suggestions/import-format", s.importFormat)
 	g.GET("/suggestions/doc-template", s.docTemplate)
@@ -120,6 +121,7 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 		has[strings.ToLower(p.Key)] = true
 	}
 	daily := doc.DailyDate != nil && *doc.DailyDate != ""
+	dismissed := s.docDismissed(ctx, userID, doc.ID)
 
 	state := map[string]any{"title": clip(doc.Title, 200)}
 	questions := map[string]decide.Question{}
@@ -206,7 +208,11 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 					"Yes, it looks outdated or superseded.", "No, it still looks current.")
 			}
 		}
-		lines = s.workLines(ctx, userID, doc.Content)
+		for _, l := range s.workLines(ctx, userID, doc) {
+			if !dismissed[docHintKey("work", l)] {
+				lines = append(lines, l)
+			}
+		}
 		if len(lines) > 0 {
 			list := make([]map[string]string, len(lines))
 			for i, l := range lines {
@@ -259,25 +265,26 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 		}
 		return i - 1
 	}
+	// A suggestion the person dismissed on this doc is not offered again.
 	// Moving a doc is unprompted, so it waits for a confident answer.
-	if i := pick("project", "p", len(projects), decide.Route); i >= 0 {
+	if i := pick("project", "p", len(projects), decide.Route); i >= 0 && !dismissed[docHintKey("project", projects[i].ID)] {
 		out.Project = &DocRef{ID: projects[i].ID, Title: projects[i].Title}
 	}
-	if i := pick("parent", "d", len(parents), decide.Route); i >= 0 {
+	if i := pick("parent", "d", len(parents), decide.Route); i >= 0 && !dismissed[docHintKey("parent", parents[i].ID)] {
 		out.Parent = &DocRef{ID: parents[i].ID, Title: parents[i].Title}
 	}
-	if i := pick("template", "t", len(templates), decide.Prefill); i >= 0 {
+	if i := pick("template", "t", len(templates), decide.Prefill); i >= 0 && !dismissed[docHintKey("template", templates[i].ID)] {
 		out.Template = &DocRef{ID: templates[i].ID, Title: templates[i].Title}
 	}
-	if v, ok := a.Choice("type", decide.Prefill); ok && v != "other" {
+	if v, ok := a.Choice("type", decide.Prefill); ok && v != "other" && !dismissed[docHintKey("type", v)] {
 		out.DocType = v
 	}
 	for i, k := range keys {
-		if j := pick(fmt.Sprintf("prop%d", i+1), "v", len(k.values), decide.Prefill); j >= 0 {
+		if j := pick(fmt.Sprintf("prop%d", i+1), "v", len(k.values), decide.Prefill); j >= 0 && !dismissed[docHintKey("prop", k.key+"="+k.values[j])] {
 			out.Properties = append(out.Properties, PropertyHint{Key: k.key, Value: k.values[j]})
 		}
 	}
-	if yes, ok := a.Yes("outdated", decide.Route); ok && yes {
+	if yes, ok := a.Yes("outdated", decide.Route); ok && yes && !dismissed[docHintKey("outdated", "")] {
 		out.Outdated = true
 	}
 	for i, l := range lines {
@@ -578,10 +585,10 @@ func (s *Service) usedKeys(ctx context.Context, userID, docID string, has map[st
 
 // workLines are the doc's paragraphs and list items short enough to be one
 // piece of Work, leaving out headings, code, checklist items and lines that
-// are already the name of open Work. An unchecked checklist item is a to-do
-// by its own say-so, so the clients offer it without asking Jev
-// (docChecklist).
-func (s *Service) workLines(ctx context.Context, userID string, content map[string]any) []string {
+// are already a task's name. An unchecked checklist item is a to-do by its
+// own say-so, so the clients offer it without asking Jev (docChecklist).
+func (s *Service) workLines(ctx context.Context, userID string, doc models.Document) []string {
+	content := doc.Content
 	var lines []string
 	seen := map[string]bool{}
 	var walk func(node map[string]any)
@@ -618,9 +625,17 @@ func (s *Service) workLines(ctx context.Context, userID string, content map[stri
 	for i, l := range lines {
 		lower[i] = strings.ToLower(l)
 	}
+	// As for checklist items: an open task with the name counts, and a done
+	// one made since the doc, which may have come from this very line, so a
+	// line turned into a task and ticked off is not offered again.
+	since := doc.CreatedAt
+	if len(since) > 10 {
+		since = since[:10]
+	}
 	var existing []string
 	s.db.WithContext(ctx).Model(&models.Task{}).
-		Where("user_id = ? AND completed_at IS NULL AND lower(name) IN ?", userID, lower).Pluck("lower(name)", &existing)
+		Where("user_id = ? AND lower(name) IN ?", userID, lower).
+		Where("completed_at IS NULL OR created_at >= ?", since).Pluck("lower(name)", &existing)
 	taken := map[string]bool{}
 	for _, e := range existing {
 		taken[e] = true

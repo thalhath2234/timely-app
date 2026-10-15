@@ -214,6 +214,44 @@ export function checklistTaskDescription(
   };
 }
 
+/** Blocks whose lines the API never offers as tasks of their own (doc hints'
+ * workLines): a checklist item is offered above, as a checklist item. */
+const NOT_WORK = new Set(["frontmatter", "codeBlock", "heading", "table", "mermaid", "details", "taskItem"]);
+
+/** The text of a node as the API reads it: text nodes only, spaces collapsed. */
+function plainText(node: Node): string {
+  if (typeof node.text === "string") return node.text;
+  return (node.content ?? []).map((raw) => {
+    const child = asNode(raw);
+    return child ? plainText(child) : "";
+  }).join("");
+}
+
+/** The doc's plain paragraphs, lower-cased with spaces collapsed: the lines a
+ * "reads like a task" suggestion can be about. A suggestion whose line is no
+ * longer one of these (it was edited, finished being typed, or turned into a
+ * checklist item since it was read) is out of date and not shown. */
+export function docWorkLines(content: DocContent | null | undefined): Set<string> {
+  const out = new Set<string>();
+  const walk = (raw: unknown) => {
+    const node = asNode(raw);
+    if (!node || NOT_WORK.has(node.type ?? "")) return;
+    if (node.type === "paragraph") {
+      const text = plainText(node).replace(/\s+/g, " ").trim().toLowerCase();
+      if (text) out.add(text);
+      return;
+    }
+    for (const child of node.content ?? []) walk(child);
+  };
+  walk(content);
+  return out;
+}
+
+/** Compares a suggested line with docWorkLines. */
+export function workLineKey(line: string): string {
+  return line.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 /** The name and description of the task an item becomes: the AI's title and
  * brief description when there is a draft, else the item's own words. */
 export function checklistTask(

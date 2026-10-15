@@ -1,7 +1,7 @@
 "use client";
 
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTask, draftChecklistTasks, openChecklistItems, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
@@ -15,7 +15,8 @@ import { getDoc } from "@/app/utils/api/docs";
 import { checklistTaskDrafts } from "@/app/utils/api/write";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
-import { useDecisionFeedback, useDocChecklist, useDocHints } from "@/app/utils/hooks/decisions";
+import { useDecisionFeedback, useDismissDocHint, useDocChecklist, useDocHints } from "@/app/utils/hooks/decisions";
+import type { DocHintKind } from "@/app/utils/api/decisions";
 import { useUpdateDoc } from "@/app/utils/hooks/docs";
 import { useRelated } from "@/app/utils/hooks/search";
 import { openTasksEntity } from "@/app/utils/entityDetail";
@@ -86,6 +87,9 @@ export default function DocHints({
   // Checklists Jev reads as kept in the doc (groceries, packing) offer no tasks.
   const kept = data?.available ? data.keptLists : undefined;
   const todos = useMemo(() => (live ? openChecklistItems(content, kept) : []), [content, live, kept]);
+  // Suggestions are read when the word count moves on, so a line read
+  // mid-typing, or since turned into a checklist item, can still be in them.
+  const lines = useMemo(() => docWorkLines(content), [content]);
   const names = useMemo(() => todos.map((todo) => todo.name), [todos]);
   // New tasks go to the doc's project, else the one suggestions place the doc
   // in, else the project it is most related to; the server checks the pick.
@@ -104,6 +108,13 @@ export default function DocHints({
   const already = (checklist.data?.existing ?? []).filter((task) => todos.some((todo) => todo.name.toLowerCase() === task.name.toLowerCase()));
 
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
+  const dismissHint = useDismissDocHint(doc.id);
+  // A dismissed suggestion is remembered for the doc, on every device; a
+  // checklist item (no kind) only for now, as it is still a to-do.
+  const forget = (key: string, kind?: DocHintKind, value = "") => {
+    hide(key);
+    if (kind) dismissHint.mutate({ kind, value });
+  };
   const make = async (list: ChecklistTodo[], key: string) => {
     setMaking(key);
     // One request for all the items, a few seconds at most; without a
@@ -161,16 +172,16 @@ export default function DocHints({
   const parent = hints?.parent && !doc.parentId && !hidden.has("parent") ? hints.parent : undefined;
   const docType = hints?.docType && !hidden.has("type") ? hints.docType : undefined;
   const properties = (hints?.properties ?? []).filter((p) => !hidden.has(`prop:${p.key}`));
-  const work = (hints?.work ?? []).filter((line) => !hidden.has(`work:${line}`));
+  const work = (hints?.work ?? []).filter((line) => !hidden.has(`work:${line}`) && lines.has(workLineKey(line)));
   const outdated = hints?.outdated && !hidden.has("outdated");
   const suggestions = Boolean(template || project || parent || docType || properties.length || work.length || outdated);
   if (!suggestions && !open.length) return null;
 
-  const dismiss = (key: string) => (
+  const dismiss = (key: string, kind?: DocHintKind, value = "") => (
     <button
       type="button"
       aria-label="Dismiss"
-      onClick={() => hide(key)}
+      onClick={() => forget(key, kind, value)}
       className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
       <X className="size-3.5" />
@@ -181,7 +192,11 @@ export default function DocHints({
   const makeWork = (line: string) => {
     createTask.mutate(
       { name: line, kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId ?? undefined },
-      { onSuccess: () => useToastStore.getState().show(`Task added: ${line}`) },
+      {
+        onSuccess: () => useToastStore.getState().show(`Task added: ${line}`),
+        // Read again, so a reopened doc does not offer the line it made.
+        onSettled: () => void queryClient.invalidateQueries({ queryKey: ["doc-hints", doc.id] }),
+      },
     );
     accept();
     hide(`work:${line}`);
@@ -225,7 +240,7 @@ export default function DocHints({
           >
             Use template
           </button>
-          {dismiss("template")}
+          {dismiss("template", "template", template.id)}
         </li>
       )}
       {project && (
@@ -245,7 +260,7 @@ export default function DocHints({
           >
             Add to project
           </button>
-          {dismiss("project")}
+          {dismiss("project", "project", project.id)}
         </li>
       )}
       {parent && (
@@ -265,7 +280,7 @@ export default function DocHints({
           >
             Move
           </button>
-          {dismiss("parent")}
+          {dismiss("parent", "parent", parent.id)}
         </li>
       )}
       {docType && (
@@ -286,7 +301,7 @@ export default function DocHints({
           >
             Set type
           </button>
-          {dismiss("type")}
+          {dismiss("type", "type", docType)}
         </li>
       )}
       {properties.map((p) => (
@@ -307,7 +322,7 @@ export default function DocHints({
           >
             Set
           </button>
-          {dismiss(`prop:${p.key}`)}
+          {dismiss(`prop:${p.key}`, "prop", `${p.key}=${p.value}`)}
         </li>
       ))}
     </>
@@ -320,13 +335,13 @@ export default function DocHints({
       <button type="button" className={`${button} inline-flex items-center gap-1`} onClick={() => makeWork(line)}>
         <Plus className="size-3" /> Create task
       </button>
-      {dismiss(`work:${line}`)}
+      {dismiss(`work:${line}`, "work", line)}
     </li>
   );
   const outdatedRow = outdated && (
     <li className="flex items-center gap-2 rounded-md px-1 py-1">
       <span className="min-w-0 flex-1">This doc may be out of date. It has not been edited in a while and talks about plans or dates that have likely passed.</span>
-      {dismiss("outdated")}
+      {dismiss("outdated", "outdated")}
     </li>
   );
   const makeAllLabel = aiReady && making === "all" ? "Writing titles…" : open.length === 1 ? "Make task" : "Make all";
@@ -346,7 +361,7 @@ export default function DocHints({
         aiReady={aiReady}
         onMake={(todo) => void make([todo], `todo:${todo.name.toLowerCase()}`)}
         onMakeWork={makeWork}
-        onDismiss={hide}
+        onDismiss={(key) => (key.startsWith("work:") ? forget(key, "work", key.slice("work:".length)) : hide(key))}
         summary={
           open.length > 0 && (
             <div className="flex items-center gap-2.5" data-testid="doc-checklist-tasks">

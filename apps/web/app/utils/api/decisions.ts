@@ -245,6 +245,14 @@ export type DocHints = {
 
 export const getDocHints = (docId: string) => request<DocHints>(`/suggestions/doc/${encodeURIComponent(docId)}`);
 
+/** One kind of doc suggestion and what it offers: an id for a template,
+ * project or page, the type, "key=value" for a property, the line for work. */
+export type DocHintKind = "template" | "project" | "parent" | "type" | "prop" | "work" | "outdated";
+
+/** Remembers a dismissed suggestion for the doc, on every device. */
+export const dismissDocHint = (docId: string, kind: DocHintKind, value = "") =>
+  request<void>(`/suggestions/doc/${encodeURIComponent(docId)}/dismiss`, "POST", { kind, value });
+
 /** Which of a doc's checklist task names are already tasks, and the project
  * new ones go to. Plain code on the server: it answers with no keys. */
 export type DocChecklist = {

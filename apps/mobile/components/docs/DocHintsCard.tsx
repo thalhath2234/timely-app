@@ -1,5 +1,5 @@
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTask, draftChecklistTasks, openChecklistItems, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -18,6 +18,7 @@ import {
   useCreateTask,
   useDecisionFeedback,
   useDeleteTask,
+  useDismissDocHint,
   useDocChecklistQuery,
   useDocHintsQuery,
   useRelatedQuery,
@@ -26,10 +27,20 @@ import {
 import { hrefFor } from "../../lib/searchRoutes";
 import { showUndoToast, useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import type { DocHintKind } from "../../lib/api/decisions";
 import type { Doc, DocContent, Task } from "../../lib/types";
 import { checklistLines, type LineHint, type LineHints } from "./lineHints";
 
-type Row = { key: string; text: string; label?: string; run?: () => void; manual?: boolean };
+type Row = {
+  key: string;
+  text: string;
+  label?: string;
+  run?: () => void;
+  manual?: boolean;
+  /** What the server remembers when the row is dismissed. */
+  kind: DocHintKind;
+  value?: string;
+};
 
 /** Smart suggestions for a doc on the phone, as on the web: a template for a
  * near-empty page, the project or page it may belong under, its type and
@@ -70,6 +81,7 @@ export default function DocHintsCard({
   const { data } = useDocHintsQuery(doc.id, version, live);
   const updateDoc = useUpdateDoc();
   const createTask = useCreateTask();
+  const dismissHint = useDismissDocHint(doc.id);
   const deleteTask = useDeleteTask();
   const queryClient = useQueryClient();
   const feedback = useDecisionFeedback();
@@ -85,6 +97,9 @@ export default function DocHintsCard({
   // Checklists Jev reads as kept in the doc (groceries, packing) offer no tasks.
   const kept = data?.available ? data.keptLists : undefined;
   const todos = useMemo(() => (live ? openChecklistItems(content, kept) : []), [content, live, kept]);
+  // Suggestions are read when the word count moves on, so a line read
+  // mid-typing, or since turned into a checklist item, can still be in them.
+  const workLines = useMemo(() => docWorkLines(content), [content]);
   const names = useMemo(() => todos.map((todo) => todo.name), [todos]);
   // New tasks go to the doc's project, else the one suggestions place the doc
   // in, else the project it is most related to; the server checks the pick.
@@ -211,6 +226,8 @@ export default function DocHintsCard({
   if (template) {
     rows.push({
       key: "template",
+      kind: "template",
+      value: template.id,
       text: `Start from the “${template.title}” template?`,
       label: "Use template",
       manual: true,
@@ -222,6 +239,8 @@ export default function DocHintsCard({
   if (project && !doc.projectId) {
     rows.push({
       key: "project",
+      kind: "project",
+      value: project.id,
       text: `Looks like part of the “${project.title}” project.`,
       label: "Add",
       run: () => {
@@ -234,6 +253,8 @@ export default function DocHintsCard({
   if (parent && !doc.parentId) {
     rows.push({
       key: "parent",
+      kind: "parent",
+      value: parent.id,
       text: `Could live under “${parent.title}”.`,
       label: "Move",
       run: () => {
@@ -244,31 +265,50 @@ export default function DocHintsCard({
   }
   if (onSetProperty && hints?.docType) {
     const docType = hints.docType;
-    rows.push({ key: "type", text: `Reads like ${docTypePhrase(docType)}.`, label: "Set type", run: () => onSetProperty("type", docType) });
+    rows.push({
+      key: "type",
+      kind: "type",
+      value: docType,
+      text: `Reads like ${docTypePhrase(docType)}.`,
+      label: "Set type",
+      run: () => onSetProperty("type", docType),
+    });
   }
   if (onSetProperty) {
     for (const p of hints?.properties ?? []) {
       rows.push({
         key: `prop:${p.key}`,
+        kind: "prop",
+        value: `${p.key}=${p.value}`,
         text: `Set ${p.key} to “${p.value}”, as in your other docs?`,
         label: "Set",
         run: () => onSetProperty(p.key, p.value),
       });
     }
   }
-  for (const line of hints?.work ?? []) {
+  for (const line of (hints?.work ?? []).filter((line) => workLines.has(workLineKey(line)))) {
     rows.push({
       key: `work:${line}`,
+      kind: "work",
+      value: line,
       text: `“${line}” reads like a task.`,
       label: "Create task",
       run: () =>
         void createTask
           .mutateAsync({ name: line, kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId ?? undefined })
           .then(() => useToastStore.getState().show(`Task added: ${line}`))
-          .catch(() => useToastStore.getState().show("Could not add the task")),
+          .catch(() => useToastStore.getState().show("Could not add the task"))
+          // Read again, so a reopened doc does not offer the line it made.
+          .finally(() => void queryClient.invalidateQueries({ queryKey: ["doc-hints", doc.id] })),
     });
   }
-  if (hints?.outdated) rows.push({ key: "outdated", text: "This doc may be out of date. It has not been edited in a while and talks about plans or dates that have likely passed." });
+  if (hints?.outdated) {
+    rows.push({
+      key: "outdated",
+      kind: "outdated",
+      text: "This doc may be out of date. It has not been edited in a while and talks about plans or dates that have likely passed.",
+    });
+  }
   const shown = rows.filter((row) => !hidden.has(row.key));
   if (!shown.length && !open.length && !confirmTemplate) return null;
 
@@ -369,7 +409,16 @@ export default function DocHintsCard({
               <Text style={styles.buttonText}>{row.label}</Text>
             </AnimatedPressable>
           ) : null}
-          <AnimatedPressable accessibilityRole="button" accessibilityLabel="Dismiss" onPress={() => hide(row.key)} style={styles.dismiss} hitSlop={8}>
+          <AnimatedPressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+            onPress={() => {
+              hide(row.key);
+              dismissHint.mutate({ kind: row.kind, value: row.value });
+            }}
+            style={styles.dismiss}
+            hitSlop={8}
+          >
             <X size={14} color={colors.mutedForeground} />
           </AnimatedPressable>
         </View>
