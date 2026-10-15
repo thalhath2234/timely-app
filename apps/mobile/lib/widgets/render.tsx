@@ -1,4 +1,5 @@
 "use no memo";
+import { Fragment, cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { FlexWidget, SvgWidget, TextWidget, type ColorProp } from "react-native-android-widget";
 import { darkColors, lightColors, type ColorTokens } from "@timely/contract/designTokens";
 import { WIDGET_ACTION, type WidgetAction } from "./actions";
@@ -24,6 +25,32 @@ function actionData(action: WidgetAction): Record<string, unknown> {
 }
 
 const DISPLAY_FONT = "Archivo-CondensedExtraBold";
+
+type WidgetElement = ReactElement<{ children?: ReactNode }>;
+
+/**
+ * The widget library expands our components itself but breaks on two things
+ * React allows: a component that returns null (Stat with no figure) and a
+ * Fragment. Either one threw for every Dashboard card on the phone, so the
+ * tree is expanded here first, down to the library's own widgets.
+ */
+function expand(node: ReactNode): ReactNode[] {
+  if (node === null || node === undefined || typeof node === "boolean") return [];
+  if (Array.isArray(node)) return node.flatMap(expand);
+  if (!isValidElement(node)) return [node];
+  const element = node as WidgetElement;
+  if (element.type === Fragment) return expand(element.props.children);
+  const type = element.type as { __name__?: string } | ((props: unknown) => ReactNode);
+  if (typeof type === "function" && !("__name__" in type && type.__name__)) return expand(type(element.props));
+  const children = element.props.children === undefined ? undefined : expand(element.props.children);
+  return [children === undefined ? element : cloneElement(element, undefined, ...children)];
+}
+
+function widgetTree(node: ReactNode): ReactElement {
+  const [root] = expand(node);
+  if (!isValidElement(root)) throw new Error("A widget must draw one root widget");
+  return root;
+}
 
 function palette(dark: boolean) {
   const t: ColorTokens = dark ? darkColors : lightColors;
@@ -375,26 +402,22 @@ function Card({ model, dark, size, options }: { model: WidgetModel; dark: boolea
           </FlexWidget>
         </FlexWidget>
       ) : (
-        <>
-          {model.ring ? (
-            <Ring model={model} p={p} size={size} />
-          ) : (
-            <>
-              {/* A lone figure sits at the bottom, under the title, like a clock widget. */}
-              {alone ? <FlexWidget style={{ flex: 1, width: "match_parent" }} /> : null}
-              <Stat model={model} p={p} size={size} alone={alone} live={live} />
-            </>
-          )}
-          {model.meters ? <Meters model={model} p={p} /> : null}
-          {showBars ? <Bars model={model} p={p} tall={Math.max(24, Math.min(140, size.height - 140))} /> : null}
-          {!showBars && rows.length ? (
-            <FlexWidget style={{ flexDirection: "column", width: "match_parent" }}>
+        // The widget library has no Fragment, so siblings go in as a plain list.
+        [
+          model.ring ? <Ring key="ring" model={model} p={p} size={size} /> : null,
+          // A lone figure sits at the bottom, under the title, like a clock widget.
+          !model.ring && alone ? <FlexWidget key="spacer" style={{ flex: 1, width: "match_parent" }} /> : null,
+          !model.ring ? <Stat key="stat" model={model} p={p} size={size} alone={alone} live={live} /> : null,
+          model.meters ? <Meters key="meters" model={model} p={p} /> : null,
+          showBars ? <Bars key="bars" model={model} p={p} tall={Math.max(24, Math.min(140, size.height - 140))} /> : null,
+          !showBars && rows.length ? (
+            <FlexWidget key="rows" style={{ flexDirection: "column", width: "match_parent" }}>
               {rows.map((row, index) => (
                 <Row key={`${row.title}-${index}`} row={row} p={p} fallbackUri={model.uri} checks={checks} />
               ))}
             </FlexWidget>
-          ) : null}
-        </>
+          ) : null,
+        ]
       )}
       {model.note ? (
         <TextWidget
@@ -418,8 +441,8 @@ function Card({ model, dark, size, options }: { model: WidgetModel; dark: boolea
 
 export function renderCard(model: WidgetModel, size: Size, options: Options = {}) {
   return {
-    light: <Card model={model} dark={false} size={size} options={options} />,
-    dark: <Card model={model} dark size={size} options={options} />,
+    light: widgetTree(<Card model={model} dark={false} size={size} options={options} />),
+    dark: widgetTree(<Card model={model} dark size={size} options={options} />),
   };
 }
 
@@ -439,9 +462,19 @@ export const QUICK_ADD_GLYPHS: Record<string, string[]> = {
   search: ["m21 21-4.34-4.34", "M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0z"],
 };
 
+/**
+ * Quick add as a capture bar: "Add a task" fills the left like a search
+ * field, with Capture, Ask and Search as round buttons on the right. Every
+ * part of the bar belongs to one of the four tap zones and each zone runs the
+ * full height, so there are no dead gaps between buttons.
+ */
 function QuickAdd({ buttons, dark, size }: { buttons: QuickAddButton[]; dark: boolean; size: Size }) {
   const p = palette(dark);
-  const labels = size.width >= 300;
+  const [main, ...rest] = buttons;
+  const round = Math.max(12, Math.min(28, Math.floor(size.height / 2)));
+  const bubble = Math.max(28, Math.min(40, size.height - 16));
+  // Below about 4 cells the prompt can't fit; the four buttons then spread evenly.
+  const prompt = size.width >= 290;
   return (
     <FlexWidget
       style={{
@@ -450,38 +483,53 @@ function QuickAdd({ buttons, dark, size }: { buttons: QuickAddButton[]; dark: bo
         flexDirection: "row",
         alignItems: "center",
         backgroundColor: p.bg,
-        borderRadius: 20,
+        borderRadius: round,
         borderWidth: 1,
         borderColor: p.border,
-        paddingHorizontal: 8,
+        paddingHorizontal: prompt ? 4 : 8,
+        justifyContent: "space-between",
       }}
     >
-      {buttons.map((button, index) => (
+      {main ? (
+        <FlexWidget
+          clickAction="OPEN_URI"
+          clickActionData={{ uri: main.uri }}
+          accessibilityLabel={main.label === "Task" ? "Add a task" : main.label}
+          style={{
+            ...(prompt ? { flex: 1, paddingLeft: 4 } : { width: bubble + 8, justifyContent: "center" as const }),
+            height: "match_parent",
+            flexDirection: "row",
+            alignItems: "center",
+          }}
+        >
+          <FlexWidget
+            style={{ width: bubble, height: bubble, borderRadius: bubble / 2, backgroundColor: p.accent, alignItems: "center", justifyContent: "center" }}
+          >
+            <SvgWidget svg={GLYPH(QUICK_ADD_GLYPHS[main.glyph] ?? [], p.accentFg)} style={{ width: 20, height: 20 }} />
+          </FlexWidget>
+          {prompt ? (
+            <TextWidget
+              text={main.label === "Task" ? "Add a task" : main.label}
+              maxLines={1}
+              truncate="END"
+              style={{ fontSize: 15, color: p.muted, marginLeft: 10 }}
+            />
+          ) : null}
+        </FlexWidget>
+      ) : null}
+      {rest.map((button) => (
         <FlexWidget
           key={button.label}
           clickAction="OPEN_URI"
           clickActionData={{ uri: button.uri }}
           accessibilityLabel={button.label}
-          style={{
-            flex: 1,
-            height: "match_parent",
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            marginVertical: 6,
-            marginHorizontal: 3,
-            borderRadius: 14,
-            backgroundColor: index === 0 ? p.accent : p.soft,
-          }}
+          style={{ width: bubble + 8, height: "match_parent", alignItems: "center", justifyContent: "center" }}
         >
-          <SvgWidget svg={GLYPH(QUICK_ADD_GLYPHS[button.glyph] ?? [], index === 0 ? p.accentFg : p.softFg)} style={{ width: 18, height: 18 }} />
-          {labels ? (
-            <TextWidget
-              text={button.label}
-              maxLines={1}
-              style={{ fontSize: 12, fontWeight: "600", color: index === 0 ? p.accentFg : p.softFg, marginLeft: 6 }}
-            />
-          ) : null}
+          <FlexWidget
+            style={{ width: bubble, height: bubble, borderRadius: bubble / 2, backgroundColor: p.soft, alignItems: "center", justifyContent: "center" }}
+          >
+            <SvgWidget svg={GLYPH(QUICK_ADD_GLYPHS[button.glyph] ?? [], p.softFg)} style={{ width: 18, height: 18 }} />
+          </FlexWidget>
         </FlexWidget>
       ))}
     </FlexWidget>
@@ -489,5 +537,8 @@ function QuickAdd({ buttons, dark, size }: { buttons: QuickAddButton[]; dark: bo
 }
 
 export function renderQuickAdd(buttons: QuickAddButton[], size: Size) {
-  return { light: <QuickAdd buttons={buttons} dark={false} size={size} />, dark: <QuickAdd buttons={buttons} dark size={size} /> };
+  return {
+    light: widgetTree(<QuickAdd buttons={buttons} dark={false} size={size} />),
+    dark: widgetTree(<QuickAdd buttons={buttons} dark size={size} />),
+  };
 }

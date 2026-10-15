@@ -375,7 +375,7 @@ test-mobile-live-activity: ## Test the phone's live notification and the quick a
 
 .PHONY: test-mobile-widgets
 test-mobile-widgets: ## Test that every Dashboard card, custom ones included, becomes a phone home screen widget
-	@node --experimental-strip-types --test scripts/mobile-widgets.test.mjs
+	@node --experimental-strip-types --test scripts/mobile-widgets.test.mjs scripts/mobile-widget-render.test.mjs
 
 .PHONY: test-mobile-meeting-url test-mobile-back-fallback
 test-mobile-meeting-url: ## Test which Meet, Zoom and Teams links give a phone Home item its Join call button
