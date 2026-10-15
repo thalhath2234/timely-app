@@ -147,6 +147,9 @@ export interface RichTextEditorProps {
    * host; "rail" stacks it down the host, a column in the doc's left gutter,
    * with the insert tools folded into one menu so the column fits the window. */
   toolbarLayout?: "row" | "rail";
+  /** The doc page's right margin on a wide page: Help me write docks there
+   * beside the line it writes into instead of floating over the doc. */
+  writeDock?: HTMLElement | null;
 }
 
 /** Puts the toolbar in the page's own toolbar row when there is one. */
@@ -303,6 +306,7 @@ export default function RichTextEditor({
   editable = true,
   docId,
   writeContext,
+  writeDock,
   toolbarHost,
   toolbarLayout = "row",
 }: RichTextEditorProps) {
@@ -336,7 +340,13 @@ export default function RichTextEditor({
   const writeAvailable = useHelpMeWriteAvailable();
   const writeOn = Boolean(writeContext) && writeAvailable && editable;
   const [writeBox] = useState(() => createHandlerBox(writeOn));
-  const [writeAnchor, setWriteAnchor] = useState<FloatingPosition | null>(null);
+  // Help me write stays mounted while it holds a prompt or a draft, hidden
+  // when closed, so opening it again carries on; `key` starts a fresh one.
+  const [write, setWrite] = useState<{ key: number; anchor: FloatingPosition; shown: boolean } | null>(null);
+  const writeAnchor = write?.shown ? write.anchor : null;
+  const openWrite = useCallback((anchor: FloatingPosition) => {
+    setWrite((current) => (current ? { ...current, anchor, shown: true } : { key: Date.now(), anchor, shown: true }));
+  }, []);
   const [focusedWithin, setFocusedWithin] = useState(false);
   useEffect(() => {
     writeBox.set(writeOn);
@@ -668,12 +678,12 @@ export default function RichTextEditor({
     const element = editor.view.dom;
     const handleOpen = () => {
       const coords = editor.view.coordsAtPos(editor.state.selection.from);
-      setWriteAnchor({ top: coords.bottom + 8, left: coords.left });
+      openWrite({ top: coords.bottom + 8, left: coords.left });
     };
 
     element.addEventListener(OPEN_HELP_ME_WRITE_EVENT, handleOpen);
     return () => element.removeEventListener(OPEN_HELP_ME_WRITE_EVENT, handleOpen);
-  }, [editor]);
+  }, [editor, openWrite]);
 
   // Track the selection so the formatting and table toolbars can follow it.
   useEffect(() => {
@@ -1118,8 +1128,9 @@ export default function RichTextEditor({
                 <HelpMeWriteButton
                   compact={rail}
                   active={Boolean(writeAnchor)}
+                  kept={Boolean(write && !write.shown)}
                   // From the rail the panel opens to its right, beside the doc.
-                  onClick={(rect) => setWriteAnchor(rail ? { top: rect.top, left: rect.right + 8 } : { top: rect.bottom + 6, left: rect.left })}
+                  onClick={(rect) => openWrite(rail ? { top: rect.top, left: rect.right + 8 } : { top: rect.bottom + 6, left: rect.left })}
                 />
                 {separator("write-gap")}
               </>
@@ -1291,12 +1302,16 @@ export default function RichTextEditor({
         </div>
       )}
 
-      {writeAnchor && writeContext && (
+      {write && writeContext && (
         <HelpMeWritePanel
+          key={write.key}
           editor={editor}
           context={writeContext}
-          anchor={writeAnchor}
-          onClose={() => setWriteAnchor(null)}
+          anchor={write.anchor}
+          shown={write.shown}
+          dock={rail ? writeDock : null}
+          onHide={(keep) => setWrite((current) => (keep && current ? { ...current, shown: false } : null))}
+          onDone={() => setWrite(null)}
         />
       )}
 
