@@ -188,7 +188,10 @@ export default function HelpMeWritePanel({
     if (!result) return "";
     const { blocks } = toNodes(result.text);
     try {
-      return generateHTML({ type: "doc", content: blocks }, editor.extensionManager.extensions);
+      // Links and checkboxes in the preview are for looking at, so they are
+      // left out of the tab order as well as out of reach of the pointer.
+      return generateHTML({ type: "doc", content: blocks }, editor.extensionManager.extensions)
+        .replace(/<(a|input)\b/g, '<$1 tabindex="-1"');
     } catch {
       return "";
     }
@@ -276,7 +279,13 @@ export default function HelpMeWritePanel({
           ) : result ? (
             <>
               <div
-                className="doc-editor-content doc-editor-compact pointer-events-none max-h-72 overflow-y-auto rounded-md border border-border bg-background/60 px-3 py-2 text-sm"
+                // The preview must take pointer events or the wheel, trackpad and
+                // scrollbar can't scroll it; only the links and checkboxes inside
+                // are switched off so the draft can't be clicked into.
+                className="doc-editor-content doc-editor-compact max-h-72 overflow-y-auto overscroll-contain rounded-md border border-border bg-background/60 px-3 py-2 text-sm [&_a]:pointer-events-none [&_input]:pointer-events-none [&_label]:pointer-events-none"
+                tabIndex={0}
+                role="region"
+                aria-label="Draft preview"
                 // generateHTML serialises through the editor schema, which escapes text.
                 dangerouslySetInnerHTML={{ __html: preview }}
               />
