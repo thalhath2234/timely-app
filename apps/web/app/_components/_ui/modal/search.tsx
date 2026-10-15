@@ -1,13 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ArrowUpRight, CalendarDays, CheckSquare, Command, FileText, Folder, LayoutGrid, ListFilter, Plus, Search, Sparkles, Table2, X, type LucideIcon } from "lucide-react";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useSearch, useSmartSearch } from "@/app/utils/hooks/search";
-import { useConfig } from "@/app/utils/hooks/workspaces";
-import type { Config } from "@/app/_types/types";
+import { useConfig, useWorkingHoursZone, useWorkspaces } from "@/app/utils/hooks/workspaces";
+import type { Config, Project, Task, TaskViewConfig, Workspace } from "@/app/_types/types";
 import { matchViewByName } from "@timely/contract/viewSearch";
+import { describeView, readingIsListing, readViewQuery, viewFromAiDraft, viewFromReading, viewNoun, vocabularyFrom } from "@timely/contract/viewLanguage";
+import { runView } from "@timely/contract/taskQuery";
+import { todayInZone } from "@timely/contract/workStatus";
+import { useTasks } from "@/app/utils/hooks/tasks";
+import { useProjects } from "@/app/utils/hooks/projects";
+import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
+import { readyProviders } from "@/app/_components/chat/modelMenu";
+import { readViewWithAi } from "@/app/utils/api/viewQuery";
+import { useViewPreviewStore } from "@/app/_store/viewPreviewStore";
+import { ViewChips } from "@/app/_components/_ui/tasks/viewRulesBar";
+import Button from "@/app/_components/_ui/button";
 import type { SearchHit } from "@/app/utils/api/search";
 import { sendDecisionFeedback } from "@/app/utils/api/decisions";
 import { cn } from "@/app/utils/cn";
@@ -25,7 +36,13 @@ const categories = [
   { id: "event", label: "Events", icon: CalendarDays },
 ] as const;
 type Category = typeof categories[number]["id"];
-type PaletteItem = { id: string; title: string; description: string; kind: string; icon: LucideIcon; run: () => void; command?: boolean; section: "suggested" | "results" | "commands" };
+type PaletteItem = {
+  id: string; title: string; description: string; kind: string; icon: LucideIcon; run: () => void; command?: boolean; section: "suggested" | "results" | "commands";
+  /** Extra lines under the title (a listing's chips). */
+  detail?: ReactNode;
+  /** Buttons in place of the kind label. */
+  actions?: ReactNode;
+};
 
 function hrefFor(hit: SearchHit): string {
   switch (hit.kind) {
@@ -93,8 +110,10 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   const suggestedCategory = smartData?.category && category === "all" ? categories.find((tab) => tab.id === smartData.category) : undefined;
   const pending = !!trimmed && (!matchesCurrentQuery || search.isFetching);
   const failed = !!trimmed && matchesCurrentQuery && search.isError;
-  const taskViews = (useConfig().data as Config | undefined)?.taskViews;
+  const config = useConfig().data as Config | undefined;
+  const taskViews = config?.taskViews;
   const savedViews = useMemo(() => taskViews ?? [], [taskViews]);
+  const listing = useListing(trimmed, config);
 
   useEffect(() => {
     const previous = document.activeElement;
@@ -159,8 +178,15 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
       router.push(`/tasks?view=${encodeURIComponent(viewPick.id)}`);
     },
   }] : [];
-  const items = [...viewItems, ...suggested, ...results, ...commands];
-  const pinned = selection.id ? items.findIndex((item) => item.id === selection.id) : -1;
+  const listingItem = listing && (category === "all" || category === "task") ? listing.item(onClose, router.push) : undefined;
+  const listingItems: PaletteItem[] = listingItem && listingItem.section !== "commands" ? [listingItem] : [];
+  // A saved view named outright comes first; Smart suggestions' looser pick
+  // follows the listing the words themselves describe.
+  const viewsFirst = namedView ? [...viewItems, ...listingItems] : [...listingItems, ...viewItems];
+  const items = [...viewsFirst, ...suggested, ...results, ...(listingItem?.section === "commands" ? [listingItem] : []), ...commands];
+  // The AI offer turns into the card it read, so the highlight follows it.
+  const pinnedId = selection.id === "listing-ai" && listing?.fromAi ? "listing" : selection.id;
+  const pinned = pinnedId ? items.findIndex((item) => item.id === pinnedId) : -1;
   const active = pinned >= 0 ? pinned : Math.min(selection.index, Math.max(0, items.length - 1));
   const select = (index: number) => setSelection({ index, id: items[index]?.id });
   const activeId = items.length ? `palette-option-${active}` : undefined;
@@ -214,8 +240,8 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
         <div role="status" className="px-3 text-xs text-muted-foreground">
           {pending && <p className="py-3">Searching your workspace…</p>}
           {failed && <p className="py-3 text-destructive">Couldn’t search your workspace. Try again; commands are still available.</p>}
-          {!pending && !failed && trimmed && !results.length && !hidden.length && viewItems.length > 0 && <p className="py-3">No items match this search.</p>}
-          {!pending && !failed && trimmed && !results.length && !hidden.length && !viewItems.length && <p className="py-3">No matching {category === "all" ? "items" : categories.find((tab) => tab.id === category)?.label.toLowerCase()}. Try another keyword or tab.</p>}
+          {!pending && !failed && trimmed && !results.length && !hidden.length && viewItems.length > 0 && !listingItems.length && <p className="py-3">No items match this search.</p>}
+          {!pending && !failed && trimmed && !results.length && !hidden.length && !viewItems.length && !listingItems.length && <p className="py-3">No matching {category === "all" ? "items" : categories.find((tab) => tab.id === category)?.label.toLowerCase()}. Try another keyword or tab.</p>}
           {!pending && !failed && hidden.length > 0 && (
             <p className="py-1" data-testid="smart-hidden">
               {results.length ? "" : "No good matches. "}
@@ -238,8 +264,8 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
             <div id={`palette-option-${index}`} role="option" aria-selected={active === index} onClick={item.run} onPointerMove={() => select(index)}
               className={cn("group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left", active === index ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-muted")}>
               <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg border", active === index ? "border-primary/20 bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground")}><item.icon size={17} aria-hidden="true" /></span>
-              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.title}</span><span className="block truncate text-xs text-muted-foreground">{item.description || item.kind}</span></span>
-              <span className="hidden text-[10px] capitalize text-muted-foreground sm:inline">{item.command ? "Command" : item.kind}</span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.title}</span>{item.detail}<span className="block truncate text-xs text-muted-foreground">{item.description || item.kind}</span></span>
+              {item.actions ?? <span className="hidden text-[10px] capitalize text-muted-foreground sm:inline">{item.command ? "Command" : item.kind}</span>}
               <ArrowUpRight size={14} aria-hidden="true" className={active === index ? "text-primary" : "text-muted-foreground/40"} />
             </div>
           </div>)}
@@ -251,4 +277,106 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
       </div>
     </OverlayPanel>
   );
+}
+
+/**
+ * Search words read as a list of tasks [natural-language views]: "show task
+ * deadline" lists tasks with a deadline instead of keyword hits. The reading
+ * needs no AI key; when words are left over and an AI provider is set up,
+ * "Read with AI" asks it for a richer reading of the same words.
+ */
+function useListing(query: string, config: Config | undefined) {
+  const { data: tasks } = useTasks();
+  const { data: workspaces } = useWorkspaces();
+  const { data: projects } = useProjects();
+  const { data: providers } = useAgentProviders();
+  const timeZone = useWorkingHoursZone();
+  const setPending = useViewPreviewStore((state) => state.setPending);
+  const aiReady = readyProviders(providers).length > 0;
+  const [ai, setAi] = useState<{ query: string; view?: TaskViewConfig; busy?: boolean; error?: string; dropped?: string[] } | null>(null);
+  const vocab = useMemo(
+    () => vocabularyFrom({ workspaces: (workspaces ?? []) as Workspace[], projects: (projects ?? []) as Project[], customFields: config?.customFields }),
+    [workspaces, projects, config?.customFields],
+  );
+  const today = todayInZone(timeZone);
+  const reading = useMemo(() => (query ? readViewQuery(query, vocab, { today }) : undefined), [query, vocab, today]);
+  const aiView = ai?.query === query ? ai.view : undefined;
+  const view = useMemo(
+    () => aiView ?? (reading && readingIsListing(reading) ? viewFromReading(reading, "preview", { prompt: query }) : undefined),
+    [aiView, reading, query],
+  );
+  const rows = useMemo(
+    () => (view ? runView((tasks ?? []) as Task[], view, { timeZone }) : []),
+    [view, tasks, timeZone],
+  );
+  if (!reading) return undefined;
+  const aiState = ai?.query === query ? ai : undefined;
+  const askAi = () => {
+    setAi({ query, busy: true });
+    readViewWithAi({ query, today, client: "web" })
+      .then((result) => setAi({ query, view: viewFromAiDraft(result.view, "preview", vocab, { prompt: query }), dropped: result.dropped }))
+      .catch((error: Error) => setAi({ query, error: error.message }));
+  };
+  if (!view) {
+    // Words the plain reading can't place ("stuff I keep putting off") can
+    // still be read by the AI provider, on request.
+    if (!aiReady || query.split(/\s+/).length < 3) return undefined;
+    return {
+      fromAi: false,
+      item: (): PaletteItem => ({
+        id: "listing-ai",
+        title: aiState?.busy ? "Reading your words…" : "Make a task view from these words",
+        description: aiState?.error ?? "Your AI provider reads what to list, sort and group",
+        kind: "view",
+        icon: Sparkles,
+        command: true,
+        section: "commands",
+        run: () => { if (!aiState?.busy) askAi(); },
+      }),
+    };
+  }
+  const create = reading.createView;
+  const noun = viewNoun(view).toLowerCase();
+  const count = rows.length;
+  const first = rows.slice(0, 3).map((task) => task.name || "Untitled").join(", ");
+  const chips = describeView(view, vocab).filter((chip) => chip.kind !== "layout" || view.renderMode !== "list");
+
+  return {
+    fromAi: Boolean(aiView),
+    item(onClose: () => void, push: (href: string) => void): PaletteItem {
+      const open = (save: boolean) => {
+        onClose();
+        setPending({ view, save });
+        push("/tasks");
+      };
+      return {
+        id: "listing",
+        title: create ? `Create view “${view.name}”` : `${count} ${count === 1 ? noun.replace(/s$/, "") : noun} · ${view.name}`,
+        description: aiState?.error
+          ? aiState.error
+          : count
+            ? `${create ? `${count} ${count === 1 ? noun.replace(/s$/, "") : noun} now: ` : ""}${first}${count > 3 ? ", …" : ""}`
+            : "Nothing matches yet; it will fill as work comes in",
+        kind: "view",
+        icon: aiView ? Sparkles : ListFilter,
+        section: "suggested",
+        detail: <ViewChips chips={chips} className="my-1" />,
+        actions: (
+          <span className="flex shrink-0 items-center gap-1">
+            {aiReady && reading.leftover.length > 0 && !aiView ? (
+              <Button size="sm" variant="ghost" leading={<Sparkles />} loading={aiState?.busy} onClick={(event) => { event.stopPropagation(); askAi(); }}>
+                Read with AI
+              </Button>
+            ) : null}
+            {create ? null : (
+              <Button size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); open(true); }}>
+                Save as view
+              </Button>
+            )}
+          </span>
+        ),
+        run: () => open(create),
+      };
+    },
+  };
 }

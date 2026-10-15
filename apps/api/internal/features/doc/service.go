@@ -29,10 +29,11 @@ type DocumentUpdate struct {
 	Archived   *bool
 	Order      *int
 	IsTemplate *bool
-	// Snapshot saves the doc as it is before this change, whatever the
-	// timing; the assistant's edits use it so they can always be undone.
-	Snapshot    bool
-	skipVersion bool
+	// Snapshot keeps this change as a version of its own, with the doc as it
+	// was before it; the assistant's edits use it so they can always be undone.
+	Snapshot bool
+	// versionReason overrides why the history saves this change (a restore).
+	versionReason string
 }
 
 type DocumentFilter struct {
@@ -160,20 +161,18 @@ func (s *documentService) Update(userID string, documentID string, update Docume
 	if update.Icon != nil {
 		updates["icon"] = *update.Icon
 	}
+	// The doc and its newest version before the change, for the history.
+	var before *models.Document
+	var latestVersion *Version
 	if update.Content != nil {
-		if !update.skipVersion {
-			current, err := s.repo.GetDocumentByID(userID, documentID)
-			if err != nil {
-				return nil, err
-			}
-			reason := VersionEdit
-			if update.Snapshot {
-				reason = VersionAssistant
-			}
-			// History is a safety net; a failure there must not lose the edit.
-			if err := s.saveVersion(current, reason, update.Snapshot); err != nil {
-				log.Printf("doc %s: could not save a version: %v", documentID, err)
-			}
+		current, err := s.repo.GetDocumentByID(userID, documentID)
+		if err != nil {
+			return nil, err
+		}
+		before = current
+		// History is a safety net; a failure there must not lose the edit.
+		if latestVersion, err = s.repo.LatestVersion(documentID); err != nil {
+			log.Printf("doc %s: could not read the history: %v", documentID, err)
 		}
 		content := models.NormalizeDocumentContent(*update.Content)
 		if update.PlainText != nil && strings.TrimSpace(*update.PlainText) != "" && models.IsDocumentContentEmpty(content) {
@@ -243,6 +242,18 @@ func (s *documentService) Update(userID string, documentID string, update Docume
 	doc, err := s.repo.UpdateDocument(userID, documentID, updates)
 	if err != nil {
 		return nil, err
+	}
+	if before != nil {
+		reason := VersionEdit
+		switch {
+		case update.versionReason != "":
+			reason = update.versionReason
+		case update.Snapshot:
+			reason = VersionAssistantChange
+		}
+		if err := s.recordVersion(before, latestVersion, doc, reason); err != nil {
+			log.Printf("doc %s: could not save a version: %v", documentID, err)
+		}
 	}
 	s.indexDoc(doc)
 	s.publish(doc.UserID, doc.ID, realtime.Event{

@@ -62,7 +62,7 @@ A Block, or all Blocks of one Work, that neither Auto-schedule nor manual placem
 _Avoid_: locked, frozen (frozen is the near-term window the engine leaves alone)
 
 **Auto-schedule**:
-The Preview, Apply, and Undo operation that places Work within Working hours around existing busy time. It does not place or move Events.
+The Preview, Apply, and Undo operation that places Work within Working hours around existing busy time. It does not place or move Events. When Apply places Work again, the engine time it missed earlier that same day moves with it rather than staying behind; missed time from earlier days and hand-placed time stay.
 _Avoid_: schedule, reschedule (when referring to this operation)
 
 ### Agent assistance

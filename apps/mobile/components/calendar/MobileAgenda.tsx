@@ -29,9 +29,8 @@ export default function MobileAgenda({
   onOpen: (item: CalendarItem) => void;
 }) {
   const today = startOfDay(new Date());
-  const sorted = [...items]
-    .filter((item) => !isReminderItem(item))
-    .sort((a, b) => a.start.localeCompare(b.start));
+  // Reminders are listed too, as in Week and Month.
+  const sorted = [...items].sort((a, b) => a.start.localeCompare(b.start));
   const overdueIds = new Set(overdue.map((item) => item.taskId ?? item.id));
   const groups = new Map<string, { date: Date; items: CalendarItem[] }>();
   for (const item of sorted) {
@@ -48,7 +47,7 @@ export default function MobileAgenda({
       <EmptyState
         icon={CalendarDays}
         title="Nothing scheduled"
-        description="Events and scheduled task blocks for the coming days will show here."
+        description="Events, task blocks and reminders for the coming days will show here."
       />
     );
   }

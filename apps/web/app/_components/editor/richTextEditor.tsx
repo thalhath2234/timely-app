@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { DocContent } from "@/app/_types/types";
@@ -51,6 +52,7 @@ import {
   ListOrdered,
   Map as MapIcon,
   Minus,
+  Plus,
   Radical,
   SquareSigma,
   Strikethrough,
@@ -61,14 +63,16 @@ import {
   Workflow,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AutoCapitalize } from "./autoCapitalize";
 import { Callout } from "./callout";
 import { DocImage } from "./docImage";
+import { applyRemoteContent } from "./applyRemote";
 import { Details, DetailsSummary } from "./details";
 import { BlockHandle } from "./blockHandle";
 import { BlockSelection } from "./blockSelection";
 import BlockTransferDialog from "./blockTransfer";
+import ImageViewer from "./imageViewer";
 import { Bookmark, Embed } from "./linkBlocks";
 import { FindReplace } from "./findReplace";
 import { Column, Columns } from "./columns";
@@ -115,8 +119,12 @@ export interface RichTextEditorProps {
   placeholder?: string;
   /** "page" is a full document body; "compact" is a description field. */
   variant?: "page" | "compact";
-  /** "fixed" pins formatting controls above the editor. "float" shows them on selection. */
-  toolbar?: "float" | "fixed";
+  /**
+   * "fixed" pins formatting controls above the editor. "float" shows them on
+   * selection. "focus" pins them only while the editor (or its link or Help
+   * me write panel) is in use, for a notes field in a create form.
+   */
+  toolbar?: "float" | "fixed" | "focus";
   enableSlashCommands?: boolean;
   enableMentions?: boolean;
   autoFocus?: boolean;
@@ -131,6 +139,92 @@ export interface RichTextEditorProps {
   /** Turns on Help me write (toolbar button and "/" entry) for this editor,
    * shown only while an AI provider is set up. */
   writeContext?: WriteContext;
+  /** Fixed toolbar only: renders the toolbar as one row inside this element
+   * (the doc page's bar under the tabs) and leaves scrolling to the page
+   * instead of a box of its own. */
+  toolbarHost?: HTMLElement | null;
+  /** With a `toolbarHost`: "row" (default) lays the toolbar out across the
+   * host; "rail" stacks it down the host, a column in the doc's left gutter,
+   * with the insert tools folded into one menu so the column fits the window. */
+  toolbarLayout?: "row" | "rail";
+  /** The doc page's right margin on a wide page: Help me write docks there
+   * beside the line it writes into instead of floating over the doc. */
+  writeDock?: HTMLElement | null;
+}
+
+/** Puts the toolbar in the page's own toolbar row when there is one. */
+function ToolbarSlot({ host, children }: { host?: HTMLElement | null; children: ReactNode }) {
+  return host ? createPortal(children, host) : children;
+}
+
+/** Where the toolbar rail draws a line between groups of tools. */
+const RAIL_GROUP_STARTS = new Set(["Heading 1", "Bulleted list", "Callout", "Mention"]);
+
+/** The rail's Insert button: images, embeds, diagrams, maths and the other
+ * blocks the toolbar row shows one by one, in a menu beside the rail. */
+function InsertMenu({ items }: { items: { label: string; icon: typeof Bold; isActive: boolean; run: () => void }[] }) {
+  const [open, setOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  // The Insert button sits low on the rail, so on a short window the menu
+  // lifts until its bottom fits on screen instead of running off the edge.
+  const [lift, setLift] = useState(0);
+  useLayoutEffect(() => {
+    if (!open || !menu.current) return setLift(0);
+    const rect = menu.current.getBoundingClientRect();
+    const overflow = rect.top + rect.height - (window.innerHeight - 8);
+    setLift(overflow > 0 ? Math.min(overflow, rect.top - 8) : 0);
+  }, [open]);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title="Insert"
+        aria-label="Insert"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={`flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+          open ? "bg-accent text-accent-foreground" : ""
+        }`}
+      >
+        <Plus className="size-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onMouseDown={() => setOpen(false)} />
+          <div
+            ref={menu}
+            role="menu"
+            aria-label="Insert"
+            style={lift ? { transform: `translateY(-${lift}px)` } : undefined}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setOpen(false);
+            }}
+            className="absolute left-full top-0 z-50 ml-2 grid max-h-[calc(100vh-16px)] w-64 grid-cols-2 gap-0.5 overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-xl"
+          >
+            {items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false);
+                    item.run();
+                  }}
+                  className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                >
+                  <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -212,6 +306,9 @@ export default function RichTextEditor({
   editable = true,
   docId,
   writeContext,
+  writeDock,
+  toolbarHost,
+  toolbarLayout = "row",
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -243,7 +340,14 @@ export default function RichTextEditor({
   const writeAvailable = useHelpMeWriteAvailable();
   const writeOn = Boolean(writeContext) && writeAvailable && editable;
   const [writeBox] = useState(() => createHandlerBox(writeOn));
-  const [writeAnchor, setWriteAnchor] = useState<FloatingPosition | null>(null);
+  // Help me write stays mounted while it holds a prompt or a draft, hidden
+  // when closed, so opening it again carries on; `key` starts a fresh one.
+  const [write, setWrite] = useState<{ key: number; anchor: FloatingPosition; shown: boolean } | null>(null);
+  const writeAnchor = write?.shown ? write.anchor : null;
+  const openWrite = useCallback((anchor: FloatingPosition) => {
+    setWrite((current) => (current ? { ...current, anchor, shown: true } : { key: Date.now(), anchor, shown: true }));
+  }, []);
+  const [focusedWithin, setFocusedWithin] = useState(false);
   useEffect(() => {
     writeBox.set(writeOn);
   }, [writeBox, writeOn]);
@@ -450,9 +554,7 @@ export default function RichTextEditor({
     }
     if (appliedSyncKey.current === syncKey) return;
     appliedSyncKey.current = syncKey;
-    editor.commands.setContent(JSON.parse(incomingContentKey) as JSONContent, {
-      emitUpdate: false,
-    });
+    applyRemoteContent(editor, JSON.parse(incomingContentKey) as JSONContent);
   }, [editor, incomingContentKey, syncKey]);
 
   useEffect(() => {
@@ -576,12 +678,12 @@ export default function RichTextEditor({
     const element = editor.view.dom;
     const handleOpen = () => {
       const coords = editor.view.coordsAtPos(editor.state.selection.from);
-      setWriteAnchor({ top: coords.bottom + 8, left: coords.left });
+      openWrite({ top: coords.bottom + 8, left: coords.left });
     };
 
     element.addEventListener(OPEN_HELP_ME_WRITE_EVENT, handleOpen);
     return () => element.removeEventListener(OPEN_HELP_ME_WRITE_EVENT, handleOpen);
-  }, [editor]);
+  }, [editor, openWrite]);
 
   // Track the selection so the formatting and table toolbars can follow it.
   useEffect(() => {
@@ -592,7 +694,7 @@ export default function RichTextEditor({
       const { empty, from, to } = state.selection;
 
       if (
-        toolbar === "fixed" ||
+        toolbar !== "float" ||
         empty ||
         !view.hasFocus() ||
         editor.isActive("codeBlock")
@@ -983,35 +1085,67 @@ export default function RichTextEditor({
     return <EditorContent editor={editor} />;
   }
 
+  const rail = Boolean(toolbarHost) && toolbarLayout === "rail";
+  const separator = (key: string) => (
+    <span key={key} aria-hidden="true" className={rail ? "my-1 h-px w-5 shrink-0 bg-border" : "mx-0.5 h-5 w-px bg-border"} />
+  );
+  // Down the rail the formatting tools come in small groups, and everything
+  // from Image on (the insert group) folds into one Insert menu.
+  const insertsFrom = toolbarButtons.findIndex((button) => button.startsGroup);
+  const railInserts = insertsFrom >= 0 ? toolbarButtons.slice(insertsFrom) : [];
+  const railButtons = (insertsFrom >= 0 ? toolbarButtons.slice(0, insertsFrom) : toolbarButtons).map((button) => ({
+    ...button,
+    startsGroup: RAIL_GROUP_STARTS.has(button.label),
+  }));
+
   return (
     <>
-      {toolbar === "fixed" ? (
-        <div className="flex h-full min-h-0 flex-col">
+      {toolbar !== "float" ? (
+        <div
+          className="flex h-full min-h-0 flex-col"
+          onFocus={() => setFocusedWithin(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusedWithin(false);
+          }}
+        >
+          {toolbar === "fixed" || focusedWithin || writeAnchor || linkPosition ? (
+          <ToolbarSlot host={toolbarHost}>
           <div
-            className="mb-3 flex shrink-0 flex-wrap items-center gap-0.5 rounded-lg border border-border bg-muted/20 p-1"
+            role="toolbar"
+            aria-label="Formatting"
+            aria-orientation={rail ? "vertical" : undefined}
+            className={
+              rail
+                ? "flex flex-col items-center gap-0.5"
+                : toolbarHost
+                ? "flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto scrollbar-none"
+                : "mb-3 flex shrink-0 flex-wrap items-center gap-0.5 rounded-lg border border-border bg-muted/20 p-1"
+            }
             onMouseDown={(event) => event.preventDefault()}
           >
             {writeOn && (
               <>
                 <HelpMeWriteButton
+                  compact={rail}
                   active={Boolean(writeAnchor)}
-                  onClick={(rect) => setWriteAnchor({ top: rect.bottom + 6, left: rect.left })}
+                  kept={Boolean(write && !write.shown)}
+                  // From the rail the panel opens to its right, beside the doc.
+                  onClick={(rect) => openWrite(rail ? { top: rect.top, left: rect.right + 8 } : { top: rect.bottom + 6, left: rect.left })}
                 />
-                <span className="mx-1 h-5 w-px bg-border" />
+                {separator("write-gap")}
               </>
             )}
-            {toolbarButtons.map((button) => {
+            {(rail ? railButtons : toolbarButtons).map((button) => {
               const Icon = button.icon;
               return [
-                button.startsGroup && (
-                  <span key={`${button.label}-gap`} className="mx-0.5 h-5 w-px bg-border" />
-                ),
+                button.startsGroup && separator(`${button.label}-gap`),
                 <button
                   key={button.label}
                   type="button"
                   title={button.label}
+                  aria-label={button.label}
                   onClick={button.run}
-                  className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+                  className={`flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
                     button.isActive ? "bg-accent text-accent-foreground" : ""
                   }`}
                 >
@@ -1020,26 +1154,28 @@ export default function RichTextEditor({
               ];
             })}
 
-            <span className="mx-0.5 h-5 w-px bg-border" />
+            {separator("link-gap")}
 
             <button
               type="button"
               title="Add link"
+              aria-label="Add link"
               onClick={openLinkEditor}
-              className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+              className={`flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
                 editor.isActive("link") ? "bg-accent text-accent-foreground" : ""
               }`}
             >
               <Link2 className="size-3.5" />
             </button>
             {variant === "page" && enableMentions && <MentionLinkButton editor={editor} docId={docId} />}
+            {rail && railInserts.length > 0 && <InsertMenu items={railInserts} />}
             {variant === "page" && (
               <button
                 type="button"
                 title="Find and replace (Ctrl+F)"
                 aria-label="Find and replace"
                 onClick={() => setFindOpen(true)}
-                className={`flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
+                className={`flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground ${
                   findOpen ? "bg-accent text-accent-foreground" : ""
                 }`}
               >
@@ -1047,14 +1183,37 @@ export default function RichTextEditor({
               </button>
             )}
           </div>
+          </ToolbarSlot>
+          ) : null}
 
           <div className="relative flex min-h-0 flex-1 flex-col">
-            {findOpen && <FindBar editor={editor} onClose={() => setFindOpen(false)} />}
+            {findOpen &&
+              (rail ? (
+                // Beside a toolbar rail there is no row to hang from, so it rides the top of the doc as the page scrolls.
+                <div className="sticky top-0 z-30 h-0">
+                  <div className="relative">
+                    <FindBar editor={editor} onClose={() => setFindOpen(false)} />
+                  </div>
+                </div>
+              ) : (
+                // On a page that scrolls, the find bar hangs under the toolbar row so it stays in view.
+                <ToolbarSlot host={toolbarHost}>
+                  <div className={toolbarHost ? "absolute inset-x-0 top-full h-0" : "contents"}>
+                    <FindBar editor={editor} onClose={() => setFindOpen(false)} />
+                  </div>
+                </ToolbarSlot>
+              ))}
             {variant === "page" && <BlockTransferDialog />}
-            {/* The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped. */}
-            <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
+            {variant === "page" && <ImageViewer />}
+            {toolbarHost ? (
+              // The page scrolls, and its padding holds the block drag handle's gutter.
               <EditorContent editor={editor} className="min-h-full" />
-            </div>
+            ) : (
+              // The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped.
+              <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
+                <EditorContent editor={editor} className="min-h-full" />
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -1143,12 +1302,16 @@ export default function RichTextEditor({
         </div>
       )}
 
-      {writeAnchor && writeContext && (
+      {write && writeContext && (
         <HelpMeWritePanel
+          key={write.key}
           editor={editor}
           context={writeContext}
-          anchor={writeAnchor}
-          onClose={() => setWriteAnchor(null)}
+          anchor={write.anchor}
+          shown={write.shown}
+          dock={rail ? writeDock : null}
+          onHide={(keep) => setWrite((current) => (keep && current ? { ...current, shown: false } : null))}
+          onDone={() => setWrite(null)}
         />
       )}
 

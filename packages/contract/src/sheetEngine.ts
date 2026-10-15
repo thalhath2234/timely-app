@@ -5,6 +5,7 @@
  */
 import type { SheetColumn, SheetTab } from "./sheet";
 import { createSheetEvaluator, createWorkbookEvaluators } from "./sheetFormula";
+import { adjustTabForStructure, applyStructureChange, type StructureChange } from "./sheetOps";
 import { serialToIso, type CellResult } from "./sheetValues";
 
 /** A worked-out cell: a number, text, boolean, null when empty, or an error. */
@@ -66,4 +67,37 @@ export function evaluate(json: string): string {
     );
   });
   return JSON.stringify({ tabs: values });
+}
+
+interface RestructureRequest {
+  tabs: SheetTab[];
+  tabId: string;
+  /** Applied in order, each counted on the grid the one before left. */
+  changes: StructureChange[];
+}
+
+const noNewCells = () => {
+  throw new Error("restructure only deletes rows and columns");
+};
+
+/**
+ * Deletes rows or columns of one tab the way the apps do: formulas on every
+ * tab keep pointing at the same cells, and references to deleted cells become
+ * #REF!. Merges, frozen panes and colour rules follow too.
+ */
+export function restructure(json: string): string {
+  const request = JSON.parse(json) as RestructureRequest;
+  let tabs = request.tabs ?? [];
+  for (const change of request.changes ?? []) {
+    if (change.kind !== "delete") noNewCells();
+    const index = tabs.findIndex((tab) => tab.id === request.tabId);
+    if (index < 0) throw new Error("tab not found");
+    const changed = tabs[index].name;
+    tabs = tabs.map((tab, i) =>
+      i === index
+        ? applyStructureChange(tab, change, { row: noNewCells, column: noNewCells })
+        : adjustTabForStructure(tab, change, changed),
+    );
+  }
+  return JSON.stringify({ tabs });
 }

@@ -44,15 +44,147 @@ const (
 	SortByPriority    SortByField = "priority"
 	SortByStatus      SortByField = "status"
 	SortByProject     SortByField = "project"
+	SortByUpdatedAt   SortByField = "updatedAt"
+	SortByCompletedAt SortByField = "completedAt"
+	SortByWorkspace   SortByField = "workspace"
+	SortByStage       SortByField = "stage"
+	SortByDuration    SortByField = "duration"
+	SortByTracked     SortByField = "tracked"
+	SortByUrgency     SortByField = "urgency"
+	SortByProgress    SortByField = "progress"
+	SortByEffort      SortByField = "effort"
 )
 
-// StaticGroupFields are the non-custom-field group keys.
+// ValidSortBy are the sort keys besides "cf:{customFieldId}".
+var ValidSortBy = map[SortByField]bool{
+	SortByName: true, SortByDeadline: true, SortByStartDate: true, SortByScheduledOn: true,
+	SortByCreatedAt: true, SortByPriority: true, SortByStatus: true, SortByProject: true,
+	SortByUpdatedAt: true, SortByCompletedAt: true, SortByWorkspace: true, SortByStage: true,
+	SortByDuration: true, SortByTracked: true, SortByUrgency: true, SortByProgress: true, SortByEffort: true,
+}
+
+// StaticGroupFields are the non-custom-field group keys. The date keys group
+// into buckets (Overdue, Today, This week, ...) and "label" lists a task
+// under each of its labels; the clients do the grouping
+// (packages/contract/src/taskQuery.ts).
 var StaticGroupFields = map[string]bool{
-	"workspace": true,
-	"project":   true,
-	"stage":     true,
-	"status":    true,
-	"priority":  true,
+	"workspace":   true,
+	"project":     true,
+	"stage":       true,
+	"status":      true,
+	"priority":    true,
+	"label":       true,
+	"deadline":    true,
+	"planned":     true,
+	"startDate":   true,
+	"createdAt":   true,
+	"updatedAt":   true,
+	"completedAt": true,
+	"effort":      true,
+	"done":        true,
+	"recurring":   true,
+}
+
+// RuleFields are what a view rule can read besides "cf:{customFieldId}";
+// RuleOps are its operators. packages/contract/src/taskQuery.ts evaluates them.
+var RuleFields = map[string]bool{
+	"workspace": true, "project": true, "status": true, "stage": true, "label": true, "priority": true, "effort": true,
+	"name": true, "description": true, "text": true,
+	"deadline": true, "startDate": true, "planned": true, "createdAt": true, "updatedAt": true, "completedAt": true,
+	"duration": true, "tracked": true, "urgency": true, "progress": true,
+	"done": true, "overdue": true, "recurring": true, "scheduled": true, "blocked": true, "blocking": true,
+	"hasChecklist": true, "inFocus": true, "todayFocus": true, "locked": true, "overEstimate": true,
+}
+
+var RuleOps = map[string]bool{
+	"anyOf": true, "noneOf": true, "allOf": true, "isEmpty": true, "isNotEmpty": true,
+	"contains": true, "notContains": true, "startsWith": true, "is": true,
+	"eq": true, "neq": true, "gt": true, "gte": true, "lt": true, "lte": true, "between": true,
+	"in": true, "notIn": true, "before": true, "after": true, "onOrBefore": true, "onOrAfter": true,
+}
+
+// ViewRule is one condition of a saved view ("deadline in thisWeek"), or a
+// group of conditions when Rules is set ("overdue or due today"). Value and
+// To stay raw JSON so a false or 0 survives a round trip.
+type ViewRule struct {
+	Field string          `json:"field,omitempty"`
+	Op    string          `json:"op,omitempty"`
+	Value json.RawMessage `json:"value,omitempty"`
+	To    json.RawMessage `json:"to,omitempty"`
+	Match string          `json:"match,omitempty"`
+	Rules []ViewRule      `json:"rules,omitempty"`
+}
+
+const (
+	MaxViewRules     = 30
+	MaxViewRuleValue = 4000
+	MaxViewLimit     = 1000
+	MaxViewPromptLen = 300
+)
+
+func validRuleField(field string) bool {
+	if strings.HasPrefix(field, "cf:") {
+		return len(field) > 3
+	}
+	return RuleFields[field]
+}
+
+func (r ViewRule) validate(nested bool) error {
+	if r.Rules != nil || (r.Match != "" && r.Field == "") {
+		if nested {
+			return errors.New("a rule group cannot hold another group")
+		}
+		if r.Match != "all" && r.Match != "any" {
+			return errors.New("invalid rule group match: must be 'all' or 'any'")
+		}
+		if len(r.Rules) == 0 || len(r.Rules) > MaxViewRules {
+			return errors.New("a rule group needs 1 to 30 rules")
+		}
+		for _, inner := range r.Rules {
+			if err := inner.validate(true); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if !validRuleField(r.Field) {
+		return errors.New("invalid rule field: " + r.Field)
+	}
+	if !RuleOps[r.Op] {
+		return errors.New("invalid rule op: " + r.Op)
+	}
+	if len(r.Value) > MaxViewRuleValue || len(r.To) > MaxViewRuleValue {
+		return errors.New("rule value too long")
+	}
+	for _, raw := range []json.RawMessage{r.Value, r.To} {
+		if len(raw) > 0 && !json.Valid(raw) {
+			return errors.New("invalid rule value")
+		}
+	}
+	return nil
+}
+
+// ValidateRules checks a view's rules and how they combine.
+func ValidateRules(rules []ViewRule, match string) error {
+	if len(rules) > MaxViewRules {
+		return errors.New("too many view rules (max 30)")
+	}
+	if match != "" && match != "all" && match != "any" {
+		return errors.New("invalid ruleMatch: must be 'all' or 'any'")
+	}
+	for _, rule := range rules {
+		if err := rule.validate(false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validSortBy(by SortByField) bool {
+	if strings.HasPrefix(string(by), "cf:") {
+		return len(by) > 3
+	}
+	return ValidSortBy[by]
 }
 
 const (
@@ -94,6 +226,17 @@ type TaskViewConfig struct {
 	ColumnOrder   []string `json:"columnOrder"`
 	// OptionsVisible is the project-hub filter chrome; nil means shown.
 	OptionsVisible *bool `json:"optionsVisible,omitempty"`
+	// Rules are conditions on top of the fields above, combined by RuleMatch
+	// ("all" when empty).
+	Rules     []ViewRule `json:"rules,omitempty"`
+	RuleMatch string     `json:"ruleMatch,omitempty"`
+	// ThenSortBy orders ties on SortBy.
+	ThenSortBy        SortByField   `json:"thenSortBy,omitempty"`
+	ThenSortDirection SortDirection `json:"thenSortDirection,omitempty"`
+	// Limit shows only the first rows after sorting; 0 shows all.
+	Limit int `json:"limit,omitempty"`
+	// Prompt is the words the view was described with.
+	Prompt string `json:"prompt,omitempty"`
 }
 
 func (tv TaskViewConfig) Validate(customFieldIDs map[string]bool) error {
@@ -121,12 +264,23 @@ func (tv TaskViewConfig) Validate(customFieldIDs map[string]bool) error {
 	if tv.SortDirection != SortDirectionAsc && tv.SortDirection != SortDirectionDesc {
 		return errors.New("invalid sortDirection: must be 'asc' or 'desc'")
 	}
-	validSortBy := map[SortByField]bool{
-		SortByName: true, SortByDeadline: true, SortByStartDate: true, SortByScheduledOn: true,
-		SortByCreatedAt: true, SortByPriority: true, SortByStatus: true, SortByProject: true,
-	}
-	if !validSortBy[tv.SortBy] {
+	if !validSortBy(tv.SortBy) {
 		return errors.New("invalid sortBy value")
+	}
+	if tv.ThenSortBy != "" && !validSortBy(tv.ThenSortBy) {
+		return errors.New("invalid thenSortBy value")
+	}
+	if tv.ThenSortDirection != "" && tv.ThenSortDirection != SortDirectionAsc && tv.ThenSortDirection != SortDirectionDesc {
+		return errors.New("invalid thenSortDirection: must be 'asc' or 'desc'")
+	}
+	if tv.Limit < 0 || tv.Limit > MaxViewLimit {
+		return errors.New("invalid limit: must be 0 to 1000")
+	}
+	if len(tv.Prompt) > MaxViewPromptLen {
+		return errors.New("view prompt too long")
+	}
+	if err := ValidateRules(tv.Rules, tv.RuleMatch); err != nil {
+		return err
 	}
 	if len(tv.GroupFields) > MaxGroupFields {
 		return errors.New("groupFields exceeds max of 3")

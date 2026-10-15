@@ -3,7 +3,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarItem } from "../../lib/types";
 import { HOURS, formatHour } from "../../lib/types";
 import { isSameDay, startOfDay } from "../../lib/format";
-import { itemColor } from "./CalendarItemRow";
+import { isItemDone, itemColor } from "./CalendarItemRow";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { floatingTabBarInset } from "../ui/FloatingTabBar";
@@ -59,7 +59,7 @@ export default function MobileDay({
   const timed = layout(items.filter((i) => !i.allDay));
 
   return (
-    <ScrollView
+    <ScrollView showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       contentOffset={{ x: 0, y: isToday ? Math.max(0, nowY - 160) : 7 * HOUR_PX }}
       contentContainerStyle={{ paddingBottom: floatingTabBarInset(insets.bottom) }}
@@ -69,7 +69,7 @@ export default function MobileDay({
           {allDay.map((item) => (
             <AnimatedPressable key={item.id} onPress={() => onOpen(item)} style={[styles.allDayItem, { backgroundColor: itemColor(item) + "33" }]}>
               <View style={[styles.dot, { backgroundColor: itemColor(item) }]} />
-              <Text style={[styles.allDayText, Boolean(item.completedAt) && styles.done]}>{item.title}</Text>
+              <Text style={[styles.allDayText, isItemDone(item) && styles.done]}>{item.title}</Text>
             </AnimatedPressable>
           ))}
         </View>
@@ -101,7 +101,7 @@ export default function MobileDay({
             const top = ((s - dayStart) / 3_600_000) * HOUR_PX;
             const height = Math.max(1, ((e - s) / 3_600_000) * HOUR_PX - 2);
             const width = `${100 / cols}%` as const;
-            const done = Boolean(item.completedAt);
+            const done = isItemDone(item);
             const compact = height < 40;
             const lines = height >= 52 ? 3 : height >= 40 ? 2 : 1;
             return (

@@ -66,23 +66,43 @@ export function checklistTaskName(text: string): { name: string; details: string
   return { name, details };
 }
 
+/** A checklist item's own words: its paragraphs, not its nested items. */
+function itemText(node: Node): string {
+  return (node.content ?? [])
+    .map(asNode)
+    .filter((child): child is Node => child?.type === "paragraph")
+    .map(inlineText)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Unchecked checklist items in a doc, in order, one per distinct task name.
  * Checked items, empty ones, ones that already mention a task and ones inside
- * code or properties are left out. A nested item is its own entry. */
-export function openChecklistItems(content: DocContent | null | undefined): ChecklistTodo[] {
+ * code or properties are left out. A nested item is its own entry.
+ *
+ * `keptLists` are the words of items (lower case) on checklists that are kept
+ * in the doc rather than worked as tasks, such as groceries or packing (the
+ * API's doc hints, `keptLists`). A checklist holding any of them is left out
+ * whole, so an item added to it later is left out too. */
+export function openChecklistItems(content: DocContent | null | undefined, keptLists?: readonly string[]): ChecklistTodo[] {
   const out: ChecklistTodo[] = [];
   const seen = new Set<string>();
+  const kept = new Set(keptLists ?? []);
   const walk = (raw: unknown) => {
     const node = asNode(raw);
     if (!node || SKIP.has(node.type ?? "")) return;
+    if (
+      kept.size &&
+      node.type === "taskList" &&
+      (node.content ?? []).some((child) => {
+        const row = asNode(child);
+        return row?.type === "taskItem" && kept.has(itemText(row).toLowerCase());
+      })
+    )
+      return;
     if (node.type === "taskItem" && node.attrs?.checked !== true && !linksTask(node)) {
-      const text = (node.content ?? [])
-        .map(asNode)
-        .filter((child): child is Node => child?.type === "paragraph")
-        .map(inlineText)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
+      const text = itemText(node);
       if ([...text].length >= 2) {
         const { name, details } = checklistTaskName(text);
         const key = name.toLowerCase();
@@ -98,21 +118,98 @@ export function openChecklistItems(content: DocContent | null | undefined): Chec
   return out;
 }
 
+/** What the AI wrote for one item: a clean task title and a brief description. */
+export interface ChecklistTaskDraft {
+  title: string;
+  description: string;
+}
+
+/** What `POST /agent/checklist-tasks` takes: every item being made, in one request. */
+export interface ChecklistTasksRequest {
+  docTitle: string;
+  items: { name: string; details: string }[];
+}
+
+/** Its answer: one draft per item, in order; an empty title means none. */
+export interface ChecklistTasksResult {
+  items: ChecklistTaskDraft[];
+  provider: string;
+  model: string;
+}
+
+/** How long Make task waits for AI titles before using the items' own words. */
+export const CHECKLIST_TASKS_TIMEOUT_MS = 10_000;
+
+/** Most items the API names in one request. */
+const MAX_DRAFTS = 50;
+
+/** Asks the AI (on the account's default model) for a title and a brief
+ * description of each item, in one request. Never throws: an item gets
+ * `null`, and keeps its own words, when the request fails, takes longer than
+ * `timeoutMs` or has nothing usable for it. */
+export async function draftChecklistTasks(
+  todos: ChecklistTodo[],
+  doc: { title: string },
+  ask: (body: ChecklistTasksRequest, signal: AbortSignal) => Promise<ChecklistTasksResult>,
+  timeoutMs = CHECKLIST_TASKS_TIMEOUT_MS,
+): Promise<(ChecklistTaskDraft | null)[]> {
+  const none = todos.map(() => null);
+  const sent = todos.slice(0, MAX_DRAFTS);
+  if (!sent.length) return none;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(null);
+    }, timeoutMs);
+  });
+  try {
+    const result = await Promise.race([
+      ask({ docTitle: doc.title.trim(), items: sent.map((todo) => ({ name: todo.name, details: todo.details })) }, controller.signal),
+      late,
+    ]);
+    if (!result || !Array.isArray(result.items)) return none;
+    return todos.map((_, i) => {
+      const draft = result.items[i];
+      const title = typeof draft?.title === "string" ? draft.title.replace(/\s+/g, " ").trim() : "";
+      if (!title || [...title].length > MAX_TASK_NAME) return null;
+      const description = typeof draft.description === "string" ? draft.description.replace(/\s+/g, " ").trim() : "";
+      return { title, description };
+    });
+  } catch {
+    return none;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** A task description that keeps the item's extra words and links back to
- * the doc it came from, as rich text and as plain text. */
-export function checklistTaskDescription(details: string, doc: { id: string; title: string }): { description: string; descriptionRich: DocContent } {
+ * the doc it came from, as rich text and as plain text. With an AI `summary`
+ * it leads with that and quotes the item it came from after the link
+ * (`From <doc>: “<item>”`), which is also how the API still knows the item
+ * is a task once its name no longer matches (DocChecklist). */
+export function checklistTaskDescription(
+  details: string,
+  doc: { id: string; title: string },
+  ai?: { summary: string; item: string },
+): { description: string; descriptionRich: DocContent } {
   const title = doc.title.trim() || "Untitled";
   const paragraphs: unknown[] = [];
-  if (details) paragraphs.push({ type: "paragraph", content: [{ type: "text", text: details }] });
+  const lead = ai ? ai.summary.trim() : details;
+  if (lead) paragraphs.push({ type: "paragraph", content: [{ type: "text", text: lead }] });
+  const quote = ai ? `: “${ai.item.replace(/\s+/g, " ").trim()}”` : "";
   paragraphs.push({
     type: "paragraph",
     content: [
       { type: "text", text: "From " },
       { type: "mention", attrs: { id: doc.id, label: title, entityType: "doc" } },
+      ...(quote ? [{ type: "text", text: quote }] : []),
     ],
   });
+  const from = `From ${title}${quote}`;
   return {
-    description: details ? `${details}\n\nFrom ${title}` : `From ${title}`,
+    description: lead ? `${lead}\n\n${from}` : from,
     descriptionRich: { type: "doc", content: paragraphs },
   };
 }
@@ -153,4 +250,15 @@ export function docWorkLines(content: DocContent | null | undefined): Set<string
 /** Compares a suggested line with docWorkLines. */
 export function workLineKey(line: string): string {
   return line.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** The name and description of the task an item becomes: the AI's title and
+ * brief description when there is a draft, else the item's own words. */
+export function checklistTask(
+  todo: ChecklistTodo,
+  doc: { id: string; title: string },
+  draft?: ChecklistTaskDraft | null,
+): { name: string; description: string; descriptionRich: DocContent } {
+  if (!draft?.title.trim()) return { name: todo.name, ...checklistTaskDescription(todo.details, doc) };
+  return { name: draft.title.trim(), ...checklistTaskDescription(todo.details, doc, { summary: draft.description, item: todo.text }) };
 }

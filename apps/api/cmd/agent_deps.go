@@ -69,7 +69,7 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		Schedule: scheduleService,
 		// Notifications, snooze and mark-read run in the same transaction too.
 		Notify: notify.NewService(db, jobs.NewQueue(db), calendarService, taskService, scheduleService, indexer),
-		Docs:   doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer),
+		Docs:   doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer, live),
 		Search:    search.NewService(db, indexer),
 		Estimate:  workEstimate,
 		Rerank:    searchRerank,

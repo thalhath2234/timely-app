@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { CalendarDays, Check } from "lucide-react-native";
@@ -17,6 +17,8 @@ function TaskCard({
   selected,
   selecting,
   onSelect,
+  trailing,
+  hideStatus,
 }: {
   task: Task;
   /** Today's date in the Working hours zone (`todayInZone`), computed once by the list. */
@@ -25,6 +27,10 @@ function TaskCard({
   selected?: boolean;
   selecting?: boolean;
   onSelect?: (task: Task) => void;
+  /** Its own column at the card's right edge (the board's drag grip), so it never covers the meta row. */
+  trailing?: ReactNode;
+  /** On a board grouped by status the column already names it. */
+  hideStatus?: boolean;
 }) {
   const router = useRouter();
   const done = Boolean(task.completedAt);
@@ -59,7 +65,7 @@ function TaskCard({
       <AnimatedPressable
         onPress={() => (selecting && onSelect ? onSelect(task) : router.push(`/(app)/tasks/${task.id}`))}
         onLongPress={() => onSelect?.(task)}
-        style={styles.body}
+        style={[styles.body, trailing ? styles.bodyWithTrailing : null]}
       >
         <View style={styles.titleRow}>
           <Text numberOfLines={2} style={[styles.name, done && styles.done]}>
@@ -73,7 +79,7 @@ function TaskCard({
               <Text style={[styles.priorityText, { color: priority.color }]}>{priority.label}</Text>
             </View>
           ) : null}
-          {task.status ? (
+          {task.status && !hideStatus ? (
             <View style={styles.metaItem}>
               <Dot color={task.status.color} />
               <Text style={styles.metaText}>{task.status.name}</Text>
@@ -90,6 +96,7 @@ function TaskCard({
           ))}
         </View>
       </AnimatedPressable>
+      {trailing}
     </View>
   );
 }
@@ -119,6 +126,7 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   boxOn: { backgroundColor: colors.success, borderColor: colors.success },
   body: { flex: 1, minHeight: 76, justifyContent: "center", paddingVertical: 14, paddingRight: 14, gap: 7 },
+  bodyWithTrailing: { paddingRight: 2 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   name: { flex: 1, minWidth: 0, color: colors.cardForeground, fontSize: 15, fontWeight: "600", lineHeight: 21 },
   duration: { color: colors.foreground, fontSize: 12, fontWeight: "600", marginTop: 1, fontVariant: ["tabular-nums"] },

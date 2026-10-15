@@ -53,10 +53,13 @@ export default function RecurrenceEditor({
   value,
   onChange,
   anchor,
+  compact,
 }: {
   value: RecurrenceDraft | null;
   onChange: (draft: RecurrenceDraft | null) => void;
   anchor: Date;
+  /** Inside a create sheet: a plain "Repeat" caption, no card around it. */
+  compact?: boolean;
 }) {
   const matched = draftToPreset(value, anchor);
   const [customOpen, setCustomOpen] = useState(matched === "custom");
@@ -73,14 +76,14 @@ export default function RecurrenceEditor({
   }
 
   return (
-    <View style={styles.root}>
-      <TaskSectionHeader
+    <View style={compact ? styles.rootCompact : styles.root}>
+      {compact ? <Text style={styles.caption}>Repeat</Text> : <TaskSectionHeader
         icon={<Repeat2 size={18} color={colors.accentForeground} />}
         title="Repeat Cadence"
         subtitle="Automate recurring placement"
         badge={value ? presetLabel(matched, anchor) : "Off"}
         badgeTone={value ? "primary" : "muted"}
-      />
+      />}
       <View style={styles.wrap}>
         {PRESETS.map((preset) => (
           <Chip
@@ -284,6 +287,8 @@ function MonthDayGrid({ value, onChange }: { value: number[]; onChange: (days: n
 
 const styles = createThemedStyleSheet((colors) => ({
   root: { gap: 14, borderRadius: 16, backgroundColor: colors.card, padding: 16 },
+  rootCompact: { gap: 8 },
+  caption: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", marginLeft: 2 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   row: { gap: 8 },
   panel: { gap: 12, borderRadius: 14, backgroundColor: colors.background, padding: 14 },

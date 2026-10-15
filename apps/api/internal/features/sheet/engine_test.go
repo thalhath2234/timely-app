@@ -1,6 +1,7 @@
 package sheet
 
 import (
+	"fmt"
 	"testing"
 
 	"timely-api/internal/models"
@@ -70,5 +71,85 @@ func TestSheetValuesStopsARunawayFormula(t *testing.T) {
 	}
 	if m, ok := values[0][0][0].(map[string]any); !ok || m["error"] == nil {
 		t.Fatalf("self reference = %#v", values[0][0][0])
+	}
+}
+
+// Entries past a month's prepared rows get the Total formula filled down, so
+// the month total (=SUM(H2:H)) and the Summary still count them.
+func TestEntriesPastPreparedRowsKeepTheirTotal(t *testing.T) {
+	sh, err := BuildBuiltin("builtin:yearly-expenses", 2027, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := &sh.Tabs[13]
+	col := map[string]string{}
+	for _, column := range dec.Columns {
+		col[column.Name] = column.ID
+	}
+	prepared := len(dec.Rows)
+	want := 0.0
+	for i := 1; i <= prepared+5; i++ {
+		AppendRow(dec, models.SheetRow{ID: "r", Cells: map[string]string{col["Item"]: "Thing", col["Qty"]: "2", col["Unit price"]: "10"}})
+		want += 20
+	}
+	if len(dec.Rows) <= prepared {
+		t.Fatalf("grid did not grow: %d rows", len(dec.Rows))
+	}
+	last := dec.Rows[len(dec.Rows)-1].Cells[col["Total"]]
+	if last != fmt.Sprintf(`=IF(G%d="","",IF(E%d="",1,E%d)*G%d)`, len(dec.Rows), len(dec.Rows), len(dec.Rows), len(dec.Rows)) {
+		t.Fatalf("last row Total = %q", last)
+	}
+	values, err := SheetValues(sh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := values[0][11][1]; got != want {
+		t.Fatalf("Summary December Spent = %v, want %v", got, want)
+	}
+}
+
+// Deleting an entry row moves the rows below up with their formulas fixed,
+// as the apps do; before, the Totals below read the next row's numbers.
+func TestDeleteFromTabKeepsFormulasOnTheirCells(t *testing.T) {
+	sh, err := BuildBuiltin("builtin:yearly-expenses", 2027, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jan := &sh.Tabs[2]
+	col := map[string]string{}
+	for _, column := range jan.Columns {
+		col[column.Name] = column.ID
+	}
+	for i, price := range []string{"100", "200", "300", "400"} {
+		AppendRow(jan, models.SheetRow{ID: fmt.Sprint("r", i), Cells: map[string]string{col["Item"]: "Thing", col["Qty"]: "2", col["Unit price"]: price}})
+	}
+	// Rows 3 and 4 (index 2 and 3; 100 is row 2) hold 200 and 300.
+	tabs, err := deleteFromTab(sh.Tabs, jan.ID, "row", []int{3, 2, 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh.Tabs = tabs
+	jan = &sh.Tabs[2]
+	if got := jan.Rows[2].Cells[col["Total"]]; got != `=IF(G3="","",IF(E3="",1,E3)*G3)` {
+		t.Fatalf("moved-up Total = %q", got)
+	}
+	values, err := SheetValues(sh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := values[0][0][1]; got != 1000.0 {
+		t.Fatalf("Summary January Spent = %v, want 1000 (2×100 + 2×400)", got)
+	}
+	// Deleting a column fixes the formulas right of it; ones that read it get #REF!.
+	tabs, err = deleteFromTab(sh.Tabs, jan.ID, "col", []int{5}) // Unit
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := tabs[2].Rows[1].Cells[col["Total"]]
+	if total != `=IF(F2="","",IF(E2="",1,E2)*F2)` {
+		t.Fatalf("Total after deleting Unit = %q", total)
+	}
+	if _, ok := tabs[2].Rows[1].Cells[col["Unit"]]; ok || len(tabs[2].Columns) != len(jan.Columns)-1 {
+		t.Fatal("Unit column kept")
 	}
 }

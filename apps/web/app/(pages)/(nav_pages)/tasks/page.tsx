@@ -26,8 +26,15 @@ import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import StaleWorkReview from "@/app/_components/_ui/tasks/staleWorkReview";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { filterTasks } from "@/app/utils/taskFilters";
+import { bucketGroupLabels, queryContext, sortTasks } from "@timely/contract/taskQuery";
+import { vocabularyFrom } from "@timely/contract/viewLanguage";
+import { todayInZone } from "@timely/contract/workStatus";
+import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
+import { readyProviders } from "@/app/_components/chat/modelMenu";
+import ViewRulesBar from "@/app/_components/_ui/tasks/viewRulesBar";
+import { useViewPreviewStore } from "@/app/_store/viewPreviewStore";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
-import { useTaskViewsState } from "@/app/utils/hooks/taskViews";
+import { MAX_TASK_VIEWS, PREVIEW_VIEW_ID, useTaskViewsState } from "@/app/utils/hooks/taskViews";
 import ScreenTip from "@/app/_components/_ui/screenTip";
 import { beginOpenMorph, entityTitleKey } from "@/app/utils/titleMorph";
 import { runViewTransition } from "@/app/utils/viewTransition";
@@ -61,7 +68,13 @@ function Tasks() {
     typedConfig,
     taskViews,
     activeTaskViewId,
+    activeTaskView,
     setActiveTaskViewId,
+    preview,
+    openPreview,
+    closePreview,
+    savePreview,
+    saveViewAsNew,
     patchActiveView,
     addNewView,
     deleteActiveView,
@@ -87,6 +100,11 @@ function Tasks() {
     groupValueOrders,
     sortBy,
     sortDirection,
+    thenSortBy,
+    thenSortDirection,
+    limit,
+    rules,
+    ruleMatch,
   } = views;
   const { isLoading, status } = configQuery;
   const { data: workspaces } = useWorkspaces();
@@ -96,6 +114,7 @@ function Tasks() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [optionsVisible, setOptionsVisible] = useState(true);
 
+  const configLoaded = Boolean(typedConfig);
   const typedWorkspaces = useMemo(() => (workspaces ?? []) as Workspace[], [workspaces]);
   const typedProjects = useMemo(() => (projects ?? []) as Project[], [projects]);
   const allTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
@@ -105,12 +124,28 @@ function Tasks() {
   );
   const stageNames = useMemo(() => stageNameMap(typedProjects), [typedProjects]);
   const stageColors = useMemo(() => stageColorMap(typedProjects), [typedProjects]);
+  const { data: providers } = useAgentProviders();
+  const aiReady = readyProviders(providers).length > 0;
+  const vocab = useMemo(
+    () => vocabularyFrom({ workspaces: typedWorkspaces, projects: typedProjects, customFields }),
+    [typedWorkspaces, typedProjects, customFields],
+  );
+
+  // Search hands over a view read from words: a Preview tab, or a new saved
+  // view when the person asked for one ("new view called …").
+  const pendingPreview = useViewPreviewStore((state) => state.pending);
+  const setPendingPreview = useViewPreviewStore((state) => state.setPending);
+  useEffect(() => {
+    if (!pendingPreview || !configLoaded) return;
+    setPendingPreview(null);
+    if (pendingPreview.save && saveViewAsNew(pendingPreview.view)) return;
+    openPreview(pendingPreview.view);
+  }, [pendingPreview, configLoaded, setPendingPreview, saveViewAsNew, openPreview]);
 
   // Search can open a saved view by id (?view=…); the param is dropped once
   // the view is active so later view switches are the person's own.
   const viewParam = searchParams.get("view");
   const hasViewParam = Boolean(viewParam && taskViews.some((view) => view.id === viewParam));
-  const configLoaded = Boolean(typedConfig);
   useEffect(() => {
     if (!viewParam || !configLoaded) return;
     // A view deleted since the search ran is dropped from the URL too.
@@ -166,6 +201,8 @@ function Tasks() {
       onlyRecurring,
       onlyDated,
       showReminders,
+      rules,
+      ruleMatch,
     }),
     [
       selectedWorkspaceIds,
@@ -180,6 +217,8 @@ function Tasks() {
       onlyRecurring,
       onlyDated,
       showReminders,
+      rules,
+      ruleMatch,
       detailProjectId,
     ],
   );
@@ -252,20 +291,35 @@ function Tasks() {
     [stageNames],
   );
 
+  const bucketCtx = useMemo(
+    () => queryContext(allTasks, typedConfig?.workingHours?.timezone),
+    [allTasks, typedConfig?.workingHours?.timezone],
+  );
+
   const groupOptionsByField = useMemo(() => {
     const options: Record<string, string[]> = {};
     groupFields.forEach((field) => {
       const values = new Set<string>();
-      dataRows.forEach((row) => values.add(getGroupLabel(row, field)));
+      dataRows.forEach((row) => {
+        const buckets = bucketGroupLabels(row, field, bucketCtx);
+        if (buckets) buckets.forEach((label) => values.add(label));
+        else values.add(getGroupLabel(row, field));
+      });
       options[field] = Array.from(values).sort((a, b) =>
         a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })
       );
     });
     return options;
-  }, [dataRows, groupFields, getGroupLabel]);
+  }, [dataRows, groupFields, getGroupLabel, bucketCtx]);
 
-  const filteredDataRows = dataRows;
-  const dataCount = filteredDataRows.length;
+  // Board and timeline get the view's sort and limit too; the list sorts itself.
+  const filteredDataRows = useMemo(() => {
+    if (viewMode === "list") return dataRows;
+    const ctx = queryContext(allTasks, typedConfig?.workingHours?.timezone, new Date(), stageNames);
+    const sorted = sortTasks(dataRows, { sortBy, sortDirection, thenSortBy, thenSortDirection }, ctx);
+    return limit && limit > 0 ? sorted.slice(0, limit) : sorted;
+  }, [viewMode, dataRows, allTasks, typedConfig?.workingHours?.timezone, stageNames, sortBy, sortDirection, thenSortBy, thenSortDirection, limit]);
+  const dataCount = limit && limit > 0 ? Math.min(limit, dataRows.length) : dataRows.length;
   const headerTaskCount = useMemo(
     () => filterTasks(allTasks, { ...listFilters, showReminders: false }, typedConfig?.workingHours?.timezone).length,
     [allTasks, listFilters, typedConfig?.workingHours?.timezone],
@@ -308,7 +362,7 @@ function Tasks() {
       <ScreenTip screen="tasks" className="mx-5 mt-3" />
 
       <TaskNavigationBar
-        views={taskViews}
+        views={preview ? [...taskViews, preview] : taskViews}
         activeTaskViewId={activeTaskViewId}
         onSelectView={setActiveTaskViewId}
         onAddView={addNewView}
@@ -378,6 +432,11 @@ function Tasks() {
             customFields={customFields}
             showReminders={showReminders}
             setShowReminders={(next) => patchActiveView({ showReminders: next })}
+            thenSortBy={thenSortBy}
+            thenSortDirection={thenSortDirection}
+            setThenSort={(by, direction) => patchActiveView({ thenSortBy: by, thenSortDirection: direction })}
+            limit={limit}
+            setLimit={(next) => patchActiveView({ limit: next })}
           />
 
           {optionsVisible && (
@@ -404,6 +463,20 @@ function Tasks() {
               setSelectedStageIds={(next) => patchActiveView({ selectedStageIds: next })}
             />
           )}
+
+          <ViewRulesBar
+            view={activeTaskView}
+            vocab={vocab}
+            customFields={customFields}
+            today={todayInZone(typedConfig?.workingHours?.timezone)}
+            aiReady={aiReady}
+            onPatch={patchActiveView}
+            preview={
+              preview
+                ? { onSave: () => void savePreview(), onClose: closePreview, full: taskViews.length >= MAX_TASK_VIEWS }
+                : undefined
+            }
+          />
 
           {detailProjectId ? (
             <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-sm">
@@ -440,6 +513,10 @@ function Tasks() {
                 dataMode={showReminders ? "task" : dataMode}
                 sortBy={sortBy}
                 sortDirection={sortDirection}
+                emptyText={allTasks.length ? "Nothing matches this view. Change or remove a filter above." : undefined}
+                thenSortBy={thenSortBy}
+                thenSortDirection={thenSortDirection}
+                limit={limit}
                 columnOrder={columnOrder}
                 onColumnOrderChange={(next) => patchActiveView({ columnOrder: next })}
                 onSelectRow={openRow}
@@ -477,7 +554,7 @@ function Tasks() {
             shown={dataCount}
             total={showReminders || dataMode !== "task" ? dataCount : headerTaskCount}
             synced={!syncError}
-            noun={showReminders ? "reminders" : dataMode === "project" ? "projects" : "tasks"}
+            noun={showReminders ? "reminder" : dataMode === "project" ? "project" : "task"}
           />
         </>
       )}
@@ -638,6 +715,7 @@ function TaskNavigationBar({
               }
               onClick={() => onSelectView(view.id)}
             >
+              {view.id === PREVIEW_VIEW_ID ? <span className="font-normal text-muted-foreground">Preview:</span> : null}
               {view.name}
               {isActive ? (
                 <span className="size-1.5 rounded-full bg-primary" aria-hidden />
@@ -672,8 +750,8 @@ function TaskNavigationBar({
             className="rounded-md p-1 transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
             onClick={onDeleteView}
             disabled={views.length <= 1}
-            title={views.length <= 1 ? "At least one view is required" : "Delete active view"}
-            aria-label="Delete active view"
+            title={activeTaskViewId === PREVIEW_VIEW_ID ? "Close preview" : views.length <= 1 ? "At least one view is required" : "Delete active view"}
+            aria-label={activeTaskViewId === PREVIEW_VIEW_ID ? "Close preview" : "Delete active view"}
           >
             <X size={12} />
           </button>

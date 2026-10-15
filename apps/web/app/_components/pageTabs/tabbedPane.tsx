@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Reorder } from "motion/react";
-import { ArrowLeft, ArrowRight, FileText, LayoutTemplate, Plus, Sheet, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, FileText, LayoutTemplate, PanelLeftClose, PanelLeftOpen, Plus, Sheet, X } from "lucide-react";
 import {
   currentHref,
   isSectionIndex,
@@ -15,6 +15,8 @@ import { useSheets } from "@/app/utils/hooks/sheets";
 import { fileIdFromPath, fileKind, FILES_PATH } from "@/app/utils/fileRoutes";
 import FileView from "@/app/_components/files/fileView";
 import { cn } from "@/app/utils/cn";
+import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
+import { StripActionsSlot } from "@/app/_components/pageTabs/stripActions";
 
 type Scroll = NonNullable<PageTab["scroll"]>;
 
@@ -47,6 +49,7 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
   const router = useRouter();
   const contentRef = useRef<HTMLDivElement>(null);
   const hydrated = usePageTabsStore((state) => state.hydrated);
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   // The pathname the sync below last handled; null until the first visit.
   const handled = useRef<string | null>(null);
   const docs = useDocs();
@@ -190,9 +193,15 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-      {hydrated ? <PageTabStrip show={show} rememberScroll={rememberScroll} /> : <div className="h-9 shrink-0 border-b border-border bg-muted/40" />}
+      {hydrated ? (
+        <PageTabStrip show={show} rememberScroll={rememberScroll} actionsRef={setActionsSlot} />
+      ) : (
+        <div className="h-9 shrink-0 border-b border-border bg-muted/40" />
+      )}
       <div ref={contentRef} className="min-h-0 flex-1 overflow-hidden">
-        {shownId ? <FileView key={shownId} id={shownId} /> : children}
+        <StripActionsSlot.Provider value={actionsSlot}>
+          {shownId ? <FileView key={shownId} id={shownId} /> : children}
+        </StripActionsSlot.Provider>
       </div>
     </div>
   );
@@ -201,11 +210,15 @@ export default function TabbedPane({ children }: { children: ReactNode }) {
 function PageTabStrip({
   show,
   rememberScroll,
+  actionsRef,
 }: {
   show: (tab: PageTab) => void;
   rememberScroll: () => void;
+  /** The open page's save status and actions are portalled in here (stripActions.tsx). */
+  actionsRef: (element: HTMLDivElement | null) => void;
 }) {
   const router = useRouter();
+  const filesList = useCollapsedPanel("timely.filesListCollapsed");
   const tabs = usePageTabsStore((state) => state.tabs);
   const activeId = usePageTabsStore((state) => state.activeId);
   const active = tabs.find((tab) => tab.id === activeId);
@@ -270,6 +283,9 @@ function PageTabStrip({
   return (
     <div className="flex h-9 shrink-0 items-end gap-1 border-b border-border bg-muted/40 pl-1.5 pr-1">
       <div className="flex h-full shrink-0 items-center gap-0.5 pr-1">
+        <StripButton label={filesList.collapsed ? "Show files list" : "Hide files list"} onClick={filesList.toggle}>
+          {filesList.collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+        </StripButton>
         <StripButton label="Back" disabled={!canGoBack} onClick={() => go(-1)}>
           <ArrowLeft className="size-3.5" />
         </StripButton>
@@ -351,6 +367,8 @@ function PageTabStrip({
           </StripButton>
         </div>
       </div>
+
+      <div ref={actionsRef} className="flex h-full shrink-0 items-center gap-0.5 pl-2 text-muted-foreground empty:hidden" />
     </div>
   );
 }

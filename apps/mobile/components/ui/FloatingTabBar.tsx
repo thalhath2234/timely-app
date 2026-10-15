@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, type ComponentProps } from "react";
-import { Text, View, type LayoutChangeEvent } from "react-native";
+import { View, type LayoutChangeEvent } from "react-native";
 import { Tabs } from "expo-router";
 import Animated, {
   useAnimatedStyle,
@@ -16,7 +16,7 @@ export const FLOATING_TAB_HEIGHT = 58;
 export const FLOATING_TAB_MARGIN = 12;
 const PILL_INSET_X = 4;
 const PILL_INSET_Y = 5;
-const VISIBLE_TABS = new Set(["home", "calendar", "tasks", "search", "files"]);
+const VISIBLE_TABS = new Set(["home", "dashboard", "calendar", "tasks", "search", "files"]);
 
 export function floatingTabBarInset(bottomInset: number) {
   return Math.max(bottomInset, 8) + FLOATING_TAB_MARGIN + FLOATING_TAB_HEIGHT;
@@ -118,8 +118,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }: TabBa
                   }}
                   style={styles.tabHit}
                 >
-                  {options.tabBarIcon?.({ focused, color, size: 20 })}
-                  <Text style={[styles.label, { color }]}>{label}</Text>
+                  {options.tabBarIcon?.({ focused, color, size: 22 })}
                 </AnimatedPressable>
               </View>
             );
@@ -170,15 +169,14 @@ const styles = createThemedStyleSheet((colors) => ({
   tab: {
     flex: 1,
   },
+  // Icons only, so the name lives in accessibilityLabel; the whole column
+  // takes the tap, not just the pill inside it.
   tabHit: {
     flex: 1,
-    marginHorizontal: PILL_INSET_X,
     marginVertical: PILL_INSET_Y,
     borderRadius: radius,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
   },
-  label: { fontSize: 11, fontWeight: "600" },
 }));

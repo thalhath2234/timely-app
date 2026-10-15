@@ -20,10 +20,43 @@ const FIXED_TYPES = new Set(["frontmatter"]);
 const GRIP =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
 
+/** The list or task item drawn under the pointer, read from the DOM. Over a
+ * task item's checkbox posAtCoords lands in the list itself, which sent the
+ * grip to the top of the list just as the pointer headed for it. */
+function itemAt(view: EditorView, x: number, y: number) {
+  const target = view.dom.ownerDocument.elementFromPoint(x, y);
+  let li = target?.closest("li") ?? null;
+  // In a list's left padding, the item is the row level with the pointer.
+  const list = li ? null : target?.closest("ul, ol");
+  if (list) {
+    li = [...list.children].find((child): child is HTMLLIElement => {
+      if (!(child instanceof HTMLLIElement)) return false;
+      const rect = child.getBoundingClientRect();
+      return y >= rect.top && y < rect.bottom;
+    }) ?? null;
+  }
+  if (!li || !view.dom.contains(li)) return null;
+  let pos: number;
+  try {
+    pos = view.posAtDOM(li, 0);
+  } catch {
+    return null;
+  }
+  // posAtDOM gives the item's start, or the first point inside it.
+  for (const at of [pos, pos - 1]) {
+    const node = at >= 0 ? view.state.doc.nodeAt(at) : null;
+    if (node && ITEM_TYPES.has(node.type.name) && view.nodeDOM(at) === li) return { pos: at, node };
+  }
+  return null;
+}
+
 /** The block under the pointer: the innermost list item, else the top-level block. */
 function blockAt(view: EditorView, x: number, y: number) {
   const box = view.dom.getBoundingClientRect();
-  const hit = view.posAtCoords({ left: Math.min(Math.max(x, box.left + 1), box.right - 1), top: y });
+  const left = Math.min(Math.max(x, box.left + 1), box.right - 1);
+  const item = itemAt(view, left, y);
+  if (item) return item;
+  const hit = view.posAtCoords({ left, top: y });
   if (!hit) return null;
   const $pos = view.state.doc.resolve(hit.inside >= 0 ? hit.inside : hit.pos);
   let depth = 0;
@@ -152,8 +185,9 @@ export const BlockHandle = Extension.create({
             const style = getComputedStyle(dom);
             const line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5 || 24;
             const top = rect.top - hostRect.top + host.scrollTop + parseFloat(style.paddingTop || "0") + Math.max(0, (Math.min(line, 32) - 24) / 2);
-            const isItem = ITEM_TYPES.has(found.node.type.name);
-            const left = rect.left - hostRect.left + host.scrollLeft - (isItem ? 46 : 28);
+            // A list item's bullet hangs outside it; a task item's checkbox is inside, so its grip sits closer.
+            const gap = found.node.type.name === "taskItem" ? 26 : found.node.type.name === "listItem" ? 46 : 28;
+            const left = rect.left - hostRect.left + host.scrollLeft - gap;
             handle.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
             handle.setAttribute("data-visible", "");
             current = { pos: found.pos };

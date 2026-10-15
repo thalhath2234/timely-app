@@ -75,7 +75,7 @@ export default function HistoryPage({
           ) : null}
         </View>
       </View>
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
         refreshControl={

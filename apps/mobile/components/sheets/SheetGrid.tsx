@@ -1663,7 +1663,7 @@ export default function SheetGrid({
             style={{ width: viewport.width, height: viewport.height }}
             {...gridPan.panHandlers}
           >
-          <Animated.ScrollView
+          <Animated.ScrollView showsVerticalScrollIndicator={false}
             style={{ width: viewport.width, height: viewport.height }}
             contentContainerStyle={{ minHeight: viewport.height }}
             nestedScrollEnabled
@@ -1675,7 +1675,7 @@ export default function SheetGrid({
             onScroll={onScrollY}
             scrollEventThrottle={16}
           >
-            <Animated.ScrollView
+            <Animated.ScrollView showsHorizontalScrollIndicator={false}
               horizontal
               nestedScrollEnabled
               keyboardShouldPersistTaps="always"

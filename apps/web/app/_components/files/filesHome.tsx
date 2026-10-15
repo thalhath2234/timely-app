@@ -8,7 +8,6 @@ import { ChevronDown, Plus, Upload } from "lucide-react";
 import { useCreateDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
 import {
   useCreateSheet,
-  useDeleteSheetTemplate,
   useSheets,
   useSheetTemplates,
   useUpdateSheet,
@@ -19,17 +18,17 @@ import { importCsvGrid } from "@/app/utils/sheetCsv";
 import { formatSheetDate, sheetMetaLabel } from "@/app/utils/sheetWorkbook";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
-import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
 import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
+import { useTemplateDelete } from "@/app/utils/hooks/useTemplateDelete";
 import { newSheetMenuItems, sheetCreatePayload } from "@/app/_components/sheets/sheetTemplateMenu";
 import { DocCard } from "@/app/_components/docs/docCard";
 import { SheetCard, TemplateCard } from "@/app/_components/sheets/sheetCards";
-import { requestConfirm } from "@/app/_store/confirmStore";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import type { Doc, Sheet } from "@/app/_types/types";
+import { plural } from "@/app/utils/plural";
 
 type Item = { kind: "doc"; doc: Doc } | { kind: "sheet"; sheet: Sheet };
 
@@ -50,7 +49,7 @@ export default function FilesHome() {
   const createSheet = useCreateSheet();
   const updateSheet = useUpdateSheet();
   const updateTemplate = useUpdateSheetTemplate();
-  const deleteTemplate = useDeleteSheetTemplate();
+  const { confirmSheetTemplate } = useTemplateDelete();
   const openMenu = useContextMenu();
   const docMenu = useDocContextMenu();
   const sheetMenu = useSheetContextMenu();
@@ -82,6 +81,7 @@ export default function FilesHome() {
         templates,
         onBlank: () => void createNewSheet(),
         onTemplate: (templateId) => void createNewSheet(templateId),
+        onDeleteTemplate: confirmSheetTemplate,
       }),
       { title: "New sheet" },
     );
@@ -153,7 +153,7 @@ export default function FilesHome() {
       <SheetCard
         key={key}
         sheet={sheet}
-        meta={group === "favorite" ? sheetMetaLabel(sheet) : `${sheet.rows.length} rows · ${sheet.columns.length} columns`}
+        meta={group === "favorite" ? sheetMetaLabel(sheet) : `${plural(sheet.rows.length, "row")} · ${plural(sheet.columns.length, "column")}`}
         updated={group === "recent" ? formatSheetDate(sheet.updatedAt) : undefined}
         favorite={sheet.isFavorite}
         renaming={renamingKey === key}
@@ -169,12 +169,7 @@ export default function FilesHome() {
   return (
     <div className="h-full overflow-y-auto">
       <PageHeader
-        title={
-          <span className="flex items-center gap-2">
-            <ExpandCollapsedListButton storageKey="timely.filesListCollapsed" label="files list" />
-            Files
-          </span>
-        }
+        title="Files"
         description={
           <>
             Docs for notes, specs and meeting minutes; sheets for numbers in a grid. Type{" "}
@@ -306,15 +301,7 @@ export default function FilesHome() {
                           kind: "action",
                           label: "Delete",
                           danger: true,
-                          onSelect: () =>
-                            requestConfirm({
-                              title: `Delete template “${template.name}”?`,
-                              description: "Sheets already created from it are kept.",
-                              onConfirm: async () => {
-                                await deleteTemplate.mutateAsync(template.id);
-                                useToastStore.getState().show("Template deleted");
-                              },
-                            }),
+                          onSelect: () => confirmSheetTemplate(template),
                         },
                       ]),
                       { title: template.name },

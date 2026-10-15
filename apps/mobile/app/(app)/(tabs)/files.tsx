@@ -30,7 +30,8 @@ import { easeOut, expandEntering, expandExiting, listLayout, overlayDuration } f
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
 import { openDailyDoc } from "../../../lib/api/docs";
-import { NewFileSheet, type FileKind } from "../../../components/files/NewFileTemplates";
+import { DeleteTemplateConfirm, NewFileSheet, type FileKind } from "../../../components/files/NewFileTemplates";
+import { Button } from "../../../components/ui/primitives";
 import type { Doc, Sheet } from "../../../lib/types";
 
 function DocsExpandButton({
@@ -109,6 +110,7 @@ export default function FilesScreen() {
   const [menuDoc, setMenuDoc] = useState<Doc | null>(null);
   const [deleteDocItem, setDeleteDocItem] = useState<Doc | null>(null);
   const [pendingDeleteDoc, setPendingDeleteDoc] = useState<Doc | null>(null);
+  const [deleteTemplateItem, setDeleteTemplateItem] = useState<{ id: string; name: string } | null>(null);
   const [newKind, setNewKind] = useState<FileKind | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -370,9 +372,14 @@ export default function FilesScreen() {
       <>
         {templates.length ? <Text style={styles.section}>Sheet templates</Text> : null}
         {templates.map((template) => (
-          <AnimatedPressable key={template.id} onPress={() => openFile(template.id)} style={styles.card}>
+          <View key={template.id} style={styles.card}>
             {filter === "all" ? <View style={styles.chevron} /> : null}
-            <View style={styles.sheetBody}>
+            <AnimatedPressable
+              accessibilityRole="button"
+              accessibilityLabel={template.name || "Untitled"}
+              onPress={() => openFile(template.id)}
+              style={styles.sheetBody}
+            >
               {template.icon ? (
                 <Text style={styles.icon}>{template.icon}</Text>
               ) : (
@@ -387,8 +394,17 @@ export default function FilesScreen() {
                   {(template.tabs?.length ?? 0) > 1 ? ` · ${template.tabs?.length} tabs` : ""}
                 </Text>
               </View>
-            </View>
-          </AnimatedPressable>
+            </AnimatedPressable>
+            <Button
+              label={`Delete template ${template.name || "Untitled"}`}
+              iconOnly
+              variant="ghost"
+              size="sm"
+              testID={`template-delete-${template.id}`}
+              icon={<Trash2 size={16} color={colors.mutedForeground} />}
+              onPress={() => setDeleteTemplateItem({ id: template.id, name: template.name })}
+            />
+          </View>
         ))}
       </>
     );
@@ -507,7 +523,7 @@ export default function FilesScreen() {
           />
         </View>
       </MobileHeader>
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
         refreshControl={
@@ -674,6 +690,7 @@ export default function FilesScreen() {
         </SheetOption>
       </BottomSheet>
       <NewFileSheet kind={newKind ?? "doc"} open={newKind !== null} onClose={() => setNewKind(null)} workspaceId={spaces[0]?.id} />
+      <DeleteTemplateConfirm kind="sheet" template={deleteTemplateItem} onClose={() => setDeleteTemplateItem(null)} />
       <ConfirmSheet
         open={deleteDocItem !== null}
         onClose={() => setDeleteDocItem(null)}

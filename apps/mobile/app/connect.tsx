@@ -107,7 +107,7 @@ export default function ConnectScreen() {
   return (
     <Screen>
       {changing ? <MobileHeader title="Change server" back large={false} /> : null}
-      <ScrollView contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
         <TimelyLogo size={44} style={styles.logo} />
         <Text style={styles.title}>Connect to your Timely desktop</Text>
         <Text style={styles.sub}>

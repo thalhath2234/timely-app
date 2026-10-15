@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -145,6 +146,29 @@ type createViewIn struct {
 	OnlyDated              *bool               `json:"onlyDated,omitempty" jsonschema:"only work with a deadline or planned time"`
 	ShowReminders          *bool               `json:"showReminders,omitempty" jsonschema:"list reminders instead of work"`
 	ColumnOrder            []string            `json:"columnOrder,omitempty"`
+	Rules                  []agentRule         `json:"rules,omitempty" jsonschema:"conditions beyond the fields above; see the tool description"`
+	RuleMatch              string              `json:"ruleMatch,omitempty" jsonschema:"all (default) or any"`
+	ThenSortBy             string              `json:"thenSortBy,omitempty" jsonschema:"second sort for ties"`
+	ThenSortDirection      string              `json:"thenSortDirection,omitempty" jsonschema:"asc or desc"`
+	Limit                  *int                `json:"limit,omitempty" jsonschema:"show only the first N rows; 0 shows all"`
+}
+
+// agentRule is a view rule as the model writes it: names instead of ids and
+// plain JSON values. A group holds conditions only.
+type agentRule struct {
+	Field string          `json:"field,omitempty" jsonschema:"what the condition reads; empty for a group"`
+	Op    string          `json:"op,omitempty"`
+	Value any             `json:"value,omitempty"`
+	To    any             `json:"to,omitempty" jsonschema:"end of a between"`
+	Match string          `json:"match,omitempty" jsonschema:"for a group: any or all"`
+	Rules []agentRuleLeaf `json:"rules,omitempty" jsonschema:"for a group: its conditions"`
+}
+
+type agentRuleLeaf struct {
+	Field string `json:"field"`
+	Op    string `json:"op"`
+	Value any    `json:"value,omitempty"`
+	To    any    `json:"to,omitempty"`
 }
 
 func viewFromInput(in createViewIn, existing *models.TaskViewConfig) models.TaskViewConfig {
@@ -232,6 +256,25 @@ func viewFromInput(in createViewIn, existing *models.TaskViewConfig) models.Task
 	if in.ShowReminders != nil {
 		view.ShowReminders = *in.ShowReminders
 	}
+	if in.Rules != nil {
+		view.Rules = toViewRules(in.Rules)
+	}
+	if in.RuleMatch != "" {
+		view.RuleMatch = in.RuleMatch
+		if view.RuleMatch == "all" {
+			view.RuleMatch = ""
+		}
+	}
+	if in.ThenSortBy != "" {
+		view.ThenSortBy = models.SortByField(in.ThenSortBy)
+		view.ThenSortDirection = models.SortDirectionAsc
+	}
+	if in.ThenSortDirection != "" {
+		view.ThenSortDirection = models.SortDirection(in.ThenSortDirection)
+	}
+	if in.Limit != nil {
+		view.Limit = *in.Limit
+	}
 	if view.GroupFields == nil {
 		view.GroupFields = []string{}
 	}
@@ -260,6 +303,29 @@ func viewFromInput(in createViewIn, existing *models.TaskViewConfig) models.Task
 		view.ColumnOrder = []string{}
 	}
 	return view
+}
+
+// toViewRules stores the model's rules; names were resolved to ids already.
+func toViewRules(in []agentRule) []models.ViewRule {
+	raw := func(value any) json.RawMessage {
+		if value == nil {
+			return nil
+		}
+		b, err := json.Marshal(value)
+		if err != nil {
+			return nil
+		}
+		return b
+	}
+	out := make([]models.ViewRule, 0, len(in))
+	for _, rule := range in {
+		next := models.ViewRule{Field: rule.Field, Op: rule.Op, Value: raw(rule.Value), To: raw(rule.To), Match: rule.Match}
+		for _, leaf := range rule.Rules {
+			next.Rules = append(next.Rules, models.ViewRule{Field: leaf.Field, Op: leaf.Op, Value: raw(leaf.Value), To: raw(leaf.To)})
+		}
+		out = append(out, next)
+	}
+	return out
 }
 
 func (s *Server) createTaskView(ctx context.Context, req *mcp.CallToolRequest, in createViewIn) (*mcp.CallToolResult, any, error) {

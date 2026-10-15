@@ -1,7 +1,6 @@
 package doc
 
 import (
-	"database/sql"
 	"strings"
 	"time"
 	"timely-api/internal/models"
@@ -21,7 +20,8 @@ type DocumentRepository interface {
 	DefaultWorkspaceID(userID string) (string, error)
 	BacklinkCandidates(userID, documentID, title string) ([]models.Document, error)
 	CreateVersion(version *Version) error
-	LatestVersionAt(documentID string) (time.Time, error)
+	LatestVersion(documentID string) (*Version, error)
+	UpdateVersion(id, title string, content models.JSONMap, plainText string, editedAt time.Time) error
 	PruneVersions(documentID string, keep int) error
 	ListVersions(userID, documentID string) ([]Version, error)
 	GetVersion(userID, documentID, versionID string) (*Version, error)
@@ -222,13 +222,26 @@ func (r *documentRepository) CreateVersion(version *Version) error {
 	return r.db.Create(version).Error
 }
 
-func (r *documentRepository) LatestVersionAt(documentID string) (time.Time, error) {
-	var latest sql.NullTime
-	err := r.db.Model(&Version{}).Where("document_id = ?", documentID).Select("MAX(created_at)").Row().Scan(&latest)
-	if err != nil || !latest.Valid {
-		return time.Time{}, err
+// LatestVersion is the doc's newest version with its content, nil when none.
+func (r *documentRepository) LatestVersion(documentID string) (*Version, error) {
+	var versions []Version
+	if err := r.db.Where("document_id = ?", documentID).Order("created_at DESC").Limit(1).Find(&versions).Error; err != nil {
+		return nil, err
 	}
-	return latest.Time, nil
+	if len(versions) == 0 {
+		return nil, nil
+	}
+	return &versions[0], nil
+}
+
+func (r *documentRepository) UpdateVersion(id, title string, content models.JSONMap, plainText string, editedAt time.Time) error {
+	encoded, err := models.MarshalJSONMap(content)
+	if err != nil {
+		return err
+	}
+	return r.db.Model(&Version{}).Where("id = ?", id).Updates(map[string]any{
+		"title": title, "content": encoded, "plain_text": plainText, "edited_at": editedAt,
+	}).Error
 }
 
 func (r *documentRepository) PruneVersions(documentID string, keep int) error {

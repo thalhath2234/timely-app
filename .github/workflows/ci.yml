@@ -50,6 +50,7 @@ jobs:
       # Keep in sync with the `test` target in the Makefile (minus test-api).
       - run: make test-sheet-formulas
       - run: make test-markdown-parity
+      - run: make test-view-language
       - run: make test-mobile-assistant
       - run: make test-mobile-offline
       - run: make test-mobile-server-config

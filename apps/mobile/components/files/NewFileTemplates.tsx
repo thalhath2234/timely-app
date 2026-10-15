@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { FileText, LayoutTemplate, Sheet as SheetIcon, Sparkles } from "lucide-react-native";
-import { availableTemplates, contentFromTemplate, templateVars } from "@timely/contract/templates";
+import { FileText, LayoutTemplate, Sheet as SheetIcon, Sparkles, Trash2 } from "lucide-react-native";
+import { availableTemplates, contentFromTemplate, subpageIds, templateDeleteCopy, templateVars } from "@timely/contract/templates";
 import { builtinSheetTemplate, isBuiltinSheetTemplate } from "@timely/contract/sheetTemplates";
 import BottomSheet from "../ui/BottomSheet";
 import AnimatedPressable from "../ui/AnimatedPressable";
-import { Field, PropertyRow } from "../ui/primitives";
-import { useCreateDoc, useCreateSheet, useDecisionsStatusQuery, useDocsQuery, useSheetTemplatesQuery } from "../../lib/hooks";
+import ConfirmSheet from "../ui/ConfirmSheet";
+import { Button, Field, PropertyRow } from "../ui/primitives";
+import { useCreateDoc, useCreateSheet, useDecisionsStatusQuery, useDeleteDoc, useDeleteSheetTemplate, useDocsQuery, useSheetTemplatesQuery } from "../../lib/hooks";
+import { useToastStore } from "../../lib/toast";
 import { getDocTemplateSuggestion, getSheetTemplateSuggestion, sendDecisionFeedback } from "../../lib/api/decisions";
 import {
   builtinSheetTemplateChoices,
@@ -137,6 +139,7 @@ function ChoiceRow({
   selected,
   disabled,
   onPress,
+  onDelete,
 }: {
   kind: FileKind;
   choice?: TemplateChoice;
@@ -144,39 +147,100 @@ function ChoiceRow({
   selected?: boolean;
   disabled?: boolean;
   onPress: () => void;
+  /** The person's own templates only: asks before deleting it. */
+  onDelete?: () => void;
 }) {
   const name = choice ? choice.name : kind === "doc" ? "Blank doc" : "Blank sheet";
   const description = choice ? choice.description : kind === "doc" ? "An empty page" : "An empty grid";
+  // The delete button sits beside the row's pressable, not inside it, so a
+  // screen reader reaches both.
   return (
-    <AnimatedPressable
-      accessibilityRole="button"
-      accessibilityLabel={suggested ? `Suggested: ${name}` : name}
-      accessibilityState={{ selected: Boolean(selected), disabled: Boolean(disabled) }}
-      testID={suggested ? "template-suggested" : choice ? `template-${choice.id}` : "template-blank"}
-      disabled={disabled}
-      onPress={onPress}
-      style={[styles.row, suggested && styles.rowSuggested, selected && styles.rowSelected]}
-    >
-      <ChoiceIcon choice={choice} kind={kind} />
-      <View style={styles.rowText}>
-        <View style={styles.rowTitleLine}>
-          <Text numberOfLines={1} style={styles.rowTitle}>
-            {name}
+    <View style={[styles.row, suggested && styles.rowSuggested, selected && styles.rowSelected]}>
+      <AnimatedPressable
+        accessibilityRole="button"
+        accessibilityLabel={suggested ? `Suggested: ${name}` : name}
+        accessibilityState={{ selected: Boolean(selected), disabled: Boolean(disabled) }}
+        testID={suggested ? "template-suggested" : choice ? `template-${choice.id}` : "template-blank"}
+        disabled={disabled}
+        onPress={onPress}
+        style={styles.rowPress}
+      >
+        <ChoiceIcon choice={choice} kind={kind} />
+        <View style={styles.rowText}>
+          <View style={styles.rowTitleLine}>
+            <Text numberOfLines={1} style={styles.rowTitle}>
+              {name}
+            </Text>
+            {suggested ? (
+              <View style={styles.badge}>
+                <Sparkles size={10} color={colors.primary} />
+                <Text style={styles.badgeText}>Suggested</Text>
+              </View>
+            ) : choice?.mine && kind === "doc" ? (
+              <Text style={styles.yours}>Yours</Text>
+            ) : null}
+          </View>
+          <Text numberOfLines={1} style={styles.rowMeta}>
+            {description}
           </Text>
-          {suggested ? (
-            <View style={styles.badge}>
-              <Sparkles size={10} color={colors.primary} />
-              <Text style={styles.badgeText}>Suggested</Text>
-            </View>
-          ) : choice?.mine && kind === "doc" ? (
-            <Text style={styles.yours}>Yours</Text>
-          ) : null}
         </View>
-        <Text numberOfLines={1} style={styles.rowMeta}>
-          {description}
-        </Text>
-      </View>
-    </AnimatedPressable>
+      </AnimatedPressable>
+      {onDelete ? (
+        <Button
+          label={`Delete template ${name}`}
+          iconOnly
+          variant="ghost"
+          size="sm"
+          testID={choice ? `template-delete-${choice.id}` : undefined}
+          disabled={disabled}
+          icon={<Trash2 size={16} color={colors.mutedForeground} />}
+          onPress={onDelete}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/** Asks before deleting one of the person's own templates, then deletes it.
+ * A doc template is a doc, so the doc and its subpages go; a sheet template
+ * is only the template. Rendered inside a sheet it opens as a page of it. */
+export function DeleteTemplateConfirm({
+  kind,
+  template,
+  onClose,
+  onDeleted,
+}: {
+  kind: FileKind;
+  template: { id: string; name: string } | null;
+  onClose: () => void;
+  onDeleted?: (id: string) => void;
+}) {
+  const docsQ = useDocsQuery();
+  const deleteDoc = useDeleteDoc();
+  const deleteSheetTemplate = useDeleteSheetTemplate();
+  // The last asked-about template keeps its words while the sheet closes.
+  const [shown, setShown] = useState(template);
+  if (template && template !== shown) setShown(template);
+  const subpages = shown && kind === "doc" ? subpageIds(docsQ.data ?? [], shown.id).length : 0;
+  const copy = shown ? templateDeleteCopy(kind, shown.name, subpages) : undefined;
+  return (
+    <ConfirmSheet
+      open={template !== null}
+      onClose={onClose}
+      title={copy?.title ?? ""}
+      message={copy?.message}
+      onConfirm={() => {
+        if (!template) return;
+        const remove = kind === "doc" ? deleteDoc : deleteSheetTemplate;
+        remove.mutate(template.id, {
+          onSuccess: () => {
+            onDeleted?.(template.id);
+            useToastStore.getState().show("Template deleted");
+          },
+          onError: (cause) => Alert.alert("Could not delete template", cause instanceof Error ? cause.message : "Try again."),
+        });
+      }}
+    />
   );
 }
 
@@ -187,23 +251,44 @@ export function TemplateRows({
   selectedId,
   disabled,
   onPick,
+  onDeleted,
 }: {
   templates: NewFileTemplates;
   /** "" is Blank; undefined marks nothing as picked. */
   selectedId?: string;
   disabled?: boolean;
   onPick: (templateId: string) => void;
+  /** After one of the person's own templates is deleted from the list. */
+  onDeleted?: (templateId: string) => void;
 }) {
   const { kind, suggested, rest } = templates;
+  const [deleting, setDeleting] = useState<TemplateChoice | null>(null);
+  const askDelete = (choice: TemplateChoice) => (choice.mine ? () => setDeleting(choice) : undefined);
   return (
     <View style={styles.rows}>
       {suggested ? (
-        <ChoiceRow kind={kind} choice={suggested} suggested selected={selectedId === suggested.id} disabled={disabled} onPress={() => onPick(suggested.id)} />
+        <ChoiceRow
+          kind={kind}
+          choice={suggested}
+          suggested
+          selected={selectedId === suggested.id}
+          disabled={disabled}
+          onPress={() => onPick(suggested.id)}
+          onDelete={askDelete(suggested)}
+        />
       ) : null}
       <ChoiceRow kind={kind} selected={selectedId === ""} disabled={disabled} onPress={() => onPick("")} />
       {rest.length ? <Text style={styles.section}>Templates</Text> : null}
       {rest.map((choice) => (
-        <ChoiceRow key={choice.id} kind={kind} choice={choice} selected={selectedId === choice.id} disabled={disabled} onPress={() => onPick(choice.id)} />
+        <ChoiceRow
+          key={choice.id}
+          kind={kind}
+          choice={choice}
+          selected={selectedId === choice.id}
+          disabled={disabled}
+          onPress={() => onPick(choice.id)}
+          onDelete={askDelete(choice)}
+        />
       ))}
       {templates.loadError ? (
         <Text style={styles.error} onPress={templates.loadError}>
@@ -215,6 +300,7 @@ export function TemplateRows({
           ? "Turn any page into a template from its menu. Text like {{date}} is filled in."
           : "Save any sheet as a template from its menu."}
       </Text>
+      <DeleteTemplateConfirm kind={kind} template={deleting} onClose={() => setDeleting(null)} onDeleted={onDeleted} />
     </View>
   );
 }
@@ -309,6 +395,9 @@ export function TemplateField({
             onChange(id);
             setPicking(false);
           }}
+          onDeleted={(id) => {
+            if (id === value) onChange("");
+          }}
         />
       </BottomSheet>
     </>
@@ -318,7 +407,8 @@ export function TemplateField({
 const styles = createThemedStyleSheet((colors) => ({
   nameField: { marginBottom: 10 },
   rows: { gap: 2 },
-  row: { minHeight: 52, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "transparent" },
+  row: { minHeight: 52, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 4, paddingRight: 4, borderWidth: 1, borderColor: "transparent" },
+  rowPress: { flex: 1, minWidth: 0, minHeight: 50, paddingLeft: 10, paddingRight: 6, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 10 },
   rowSuggested: { backgroundColor: colors.accent, borderColor: `${colors.primary}55` },
   rowSelected: { borderColor: colors.primary },
   rowText: { flex: 1, minWidth: 0, gap: 1 },

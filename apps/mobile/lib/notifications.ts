@@ -1,24 +1,21 @@
-import { routeForNotification } from "./notificationRoute";
 export { routeForNotification } from "./notificationRoute";
 import { PermissionsAndroid, Platform } from "react-native";
 import Constants from "expo-constants";
 import type { CalendarItem } from "./types";
 import { registerPushDevice, unregisterPushDevice } from "./api/notifications";
+import { LEGACY_OVERDUE_CATEGORY, LEGACY_PRIORITIZE_ACTION, NOTIFICATION_CATEGORIES } from "./notificationCategories";
 
 const CHANNEL = "reminders";
-export const OVERDUE_CATEGORY = "overdue_task";
-export const PRIORITIZE_ACTION = "prioritize_urgent";
 const PREFIX = "timely-reminder:";
 const HORIZON_DAYS = 60;
 const MAX_SCHEDULED = 60;
 
 type NotificationsModule = typeof import("expo-notifications");
-type NotificationResponse = import("expo-notifications").NotificationResponse;
 
 let loaded: NotificationsModule | null | undefined;
 let serverPush = false;
 let lastPushToken: string | null = null;
-let lastHandledResponseKey: string | null = null;
+let categoriesReady = false;
 
 export function isServerPushEnabled() {
   return serverPush;
@@ -27,6 +24,11 @@ export function isServerPushEnabled() {
 function easProjectId() {
   const extra = Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined;
   return extra?.eas?.projectId;
+}
+
+/** expo-notifications, or null where it can't run (Expo Go, web). */
+export function notificationsModule(): NotificationsModule | null {
+  return notifications();
 }
 
 function notifications(): NotificationsModule | null {
@@ -99,13 +101,49 @@ export async function ensureReminderChannel() {
       enableVibrate: true,
     });
   }
-  await N.setNotificationCategoryAsync(OVERDUE_CATEGORY, [
-    {
-      identifier: PRIORITIZE_ACTION,
-      buttonTitle: "Reschedule urgently",
-      options: { opensAppToForeground: true },
-    },
-  ]);
+  if (categoriesReady) return;
+  // Buttons that act in the background (Done, Snooze, Start focus…) run in the
+  // notification task in lib/background/register.ts without opening the app.
+  await Promise.all([
+    ...Object.entries(NOTIFICATION_CATEGORIES).map(([id, actions]) =>
+      N.setNotificationCategoryAsync(
+        id,
+        actions.map((action) => ({
+          identifier: action.id,
+          buttonTitle: action.title,
+          options: { opensAppToForeground: Boolean(action.opensApp) },
+          ...(action.textInput
+            ? { textInput: { placeholder: action.textInput.placeholder, submitButtonTitle: action.textInput.submit } }
+            : {}),
+        })),
+      ),
+    ),
+    N.setNotificationCategoryAsync(LEGACY_OVERDUE_CATEGORY, [
+      { identifier: LEGACY_PRIORITIZE_ACTION, buttonTitle: "Reschedule urgently", options: { opensAppToForeground: false } },
+    ]),
+  ]).catch(() => undefined);
+  categoriesReady = true;
+}
+
+function clockTime(at: number) {
+  return new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** "3:00 PM · Website relaunch" — when, and where the work lives. */
+export function reminderBody(item: CalendarItem, at: number) {
+  const parts = [clockTime(at)];
+  const project = item.task?.project?.title;
+  if (project) parts.push(project);
+  if (item.task?.deadline) {
+    const due = new Date(`${item.task.deadline.slice(0, 10)}T00:00:00`);
+    const today = new Date(at);
+    today.setHours(0, 0, 0, 0);
+    const days = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+    if (days === 0) parts.push("due today");
+    else if (days === 1) parts.push("due tomorrow");
+    else if (days < 0) parts.push("overdue");
+  }
+  return parts.join(" · ");
 }
 
 export async function getNotificationPermission() {
@@ -191,9 +229,16 @@ export async function syncReminderNotifications(items: CalendarItem[]) {
     upcoming.map(async ({ item, at }) => {
       const content = {
         title: item.title || "Reminder",
-        body: "Reminder",
+        body: reminderBody(item, at),
         sound: "default" as const,
-        data: { taskId: item.taskId ?? "", kind: "reminder" },
+        categoryIdentifier: item.taskId ? "timely_reminder_local" : undefined,
+        data: {
+          taskId: item.taskId ?? "",
+          kind: "reminder",
+          start: item.start,
+          // Done on a repeating reminder finishes this occurrence, not the series.
+          originalStart: item.originalStart ?? (item.kind === "taskOccurrence" ? item.start : ""),
+        },
       };
       try {
         await N.scheduleNotificationAsync({
@@ -240,40 +285,6 @@ export async function unregisterServerPush() {
   }
 }
 
-
-export function addReminderResponseListener(
-  onRoute: (href: string) => void,
-  onNotification?: (notificationId: string) => void,
-  onPrioritize?: (taskId: string) => void,
-) {
-  const N = notifications();
-  if (!N) return () => undefined;
-
-  const handleResponse = (response: NotificationResponse) => {
-    const responseId = response.notification.request.identifier;
-    const responseKey = `${responseId}:${response.notification.date}:${response.actionIdentifier}`;
-    if (responseKey === lastHandledResponseKey) return;
-    lastHandledResponseKey = responseKey;
-    const data = response.notification.request.content.data ?? {};
-    const notificationId = data.notificationId;
-    if (response.actionIdentifier === PRIORITIZE_ACTION) {
-      const taskId = data.taskId;
-      if (typeof taskId === "string" && taskId) {
-        onPrioritize?.(taskId);
-      }
-      N.clearLastNotificationResponse();
-      return;
-    }
-    if (typeof notificationId === "string" && notificationId) onNotification?.(notificationId);
-    onRoute(routeForNotification(data));
-    N.clearLastNotificationResponse();
-  };
-
-  const initial = N.getLastNotificationResponse();
-  if (initial) handleResponse(initial);
-  const sub = N.addNotificationResponseReceivedListener(handleResponse);
-  return () => sub.remove();
-}
 
 const POMODORO_PREFIX = "timely-pomodoro:";
 

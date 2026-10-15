@@ -455,17 +455,11 @@ func (s *Service) receiptColumnMatches(ctx context.Context, uid string, d *Recei
 	}
 	ctx, cancel := context.WithTimeout(ctx, receiptBudget)
 	defer cancel()
-	result, err := s.factory(s.db.WithContext(ctx))["get_sheet"].Call(ctx, uid, raw(map[string]string{"sheetId": d.SheetID}))
-	if err != nil {
+	found, err := s.rows(s.db.WithContext(ctx)).Sheet(uid, d.SheetID)
+	if err != nil || found == nil || found.ID == "" {
 		return nil
 	}
-	var payload struct {
-		Sheet models.Sheet `json:"sheet"`
-	}
-	if json.Unmarshal(raw(result), &payload) != nil || payload.Sheet.ID == "" {
-		return nil
-	}
-	tabs := sheet.TabsOf(payload.Sheet)
+	tabs := sheet.TabsOf(*found)
 	expense := -1
 	for i := range tabs {
 		if (d.ExpenseTabID != "" && tabs[i].ID == d.ExpenseTabID) || (d.ExpenseTabID == "" && expense < 0 && normal(tabs[i].Name) == "expenses") {
@@ -535,7 +529,7 @@ func (s *Service) receiptColumnMatches(ctx context.Context, uid string, d *Recei
 	if len(questions) == 0 {
 		return nil
 	}
-	state["sheet"] = clip(payload.Sheet.Title, 80)
+	state["sheet"] = clip(found.Title, 80)
 	a, err := s.decisions.Ask(ctx, uid, decide.Request{Feature: "receipt_columns", State: state, Questions: questions, Private: true})
 	if err != nil {
 		return nil
@@ -720,13 +714,10 @@ func sameCells(a, b map[string]string) bool {
 // index, against the sheet as it is now.
 func (s *Service) sheetChanges(ctx context.Context, uid string, steps []Step) map[int]string {
 	out := map[int]string{}
-	if s.factory == nil {
+	if s.rows == nil {
 		return out
 	}
-	get := s.factory(s.db.WithContext(ctx))["get_sheet"]
-	if get.Call == nil {
-		return out
-	}
+	rows := s.rows(s.db.WithContext(ctx))
 	for i, step := range steps {
 		if step.Tool != "update_sheet" {
 			continue
@@ -737,17 +728,11 @@ func (s *Service) sheetChanges(ctx context.Context, uid string, steps []Step) ma
 		if json.Unmarshal(step.Arguments, &in) != nil || in.SheetID == "" || strings.HasPrefix(in.SheetID, "$") {
 			continue
 		}
-		result, err := get.Call(ctx, uid, raw(map[string]string{"sheetId": in.SheetID}))
-		if err != nil {
+		current, err := rows.Sheet(uid, in.SheetID)
+		if err != nil || current == nil || current.ID == "" {
 			continue
 		}
-		var payload struct {
-			Sheet models.Sheet `json:"sheet"`
-		}
-		if json.Unmarshal(raw(result), &payload) != nil || payload.Sheet.ID == "" {
-			continue
-		}
-		if text := sheetChange(payload.Sheet, step.Arguments); text != "" {
+		if text := sheetChange(*current, step.Arguments); text != "" {
 			out[i] = text
 		}
 	}

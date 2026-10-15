@@ -45,11 +45,12 @@ type StarterUse struct {
 	Workspace string `json:"workspace"`
 }
 
-// StarterLabel is a label the catalog can offer.
+// StarterLabel is a label the catalog can offer. Uses are the starter uses
+// it fits, so onboarding can give each new workspace its own labels.
 type StarterLabel struct {
-	Name  string `json:"name"`
-	Color string `json:"color"`
-	uses  []string
+	Name  string   `json:"name"`
+	Color string   `json:"color"`
+	Uses  []string `json:"uses,omitempty"`
 }
 
 var starterUses = []StarterUse{
@@ -59,7 +60,7 @@ var starterUses = []StarterUse{
 }
 
 func lbl(name, color string, uses ...string) StarterLabel {
-	return StarterLabel{Name: name, Color: color, uses: uses}
+	return StarterLabel{Name: name, Color: color, Uses: uses}
 }
 
 // starterCatalog is every label Timely can suggest, most general first.
@@ -170,7 +171,7 @@ func Presets(uses []string, taken map[string]bool) []StarterLabel {
 		}
 		var list []StarterLabel
 		for _, l := range starterCatalog {
-			if slices.Contains(l.uses, u.Key) {
+			if slices.Contains(l.Uses, u.Key) {
 				list = append(list, l)
 			}
 		}

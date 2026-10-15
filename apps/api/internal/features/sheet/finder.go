@@ -22,6 +22,8 @@ type RowFinder interface {
 	// selected. Other accounts' sheets are never visible. Results follow the
 	// sheets' updated_at DESC order, then tab order, then row order.
 	FindRows(userID string, match TabMatcher) ([]RowMatch, error)
+	// Sheet reads one of the account's sheets with every tab's full grid.
+	Sheet(userID, sheetID string) (*models.Sheet, error)
 }
 
 type rowFinder struct {
@@ -30,6 +32,10 @@ type rowFinder struct {
 
 func NewRowFinder(repo SheetRepository) RowFinder {
 	return &rowFinder{repo: repo}
+}
+
+func (f *rowFinder) Sheet(userID, sheetID string) (*models.Sheet, error) {
+	return f.repo.GetSheetByID(userID, sheetID)
 }
 
 func (f *rowFinder) FindRows(userID string, match TabMatcher) ([]RowMatch, error) {

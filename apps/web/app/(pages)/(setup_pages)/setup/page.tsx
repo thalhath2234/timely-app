@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
@@ -28,15 +28,19 @@ import {
 import {
   useAgentProviders,
   useRescanProviders,
+  useSetOpenRouterKey,
 } from "@/app/utils/hooks/agentProviders";
 import {
   PROVIDER_LABELS,
+  type AgentProviders,
   type CliProviderView,
 } from "@/app/utils/api/agentProviders";
 import {
   Badge,
   CLI_INSTALL_URLS,
+  MoreApiKeys,
 } from "@/app/_components/settings/agentSettings";
+import { AuthField } from "@/app/_components/auth/fields";
 import {
   AddressList,
   StatusBadge,
@@ -140,6 +144,88 @@ function CliRow({
   );
 }
 
+/** The OpenRouter key, saved right here so adding one never leaves setup. */
+function OpenRouterKeyForm({ data }: { data: AgentProviders }) {
+  const setKey = useSetOpenRouterKey();
+  const [editing, setEditing] = useState(!data.openrouter.keySet);
+  const [key, setKeyValue] = useState("");
+  const [keyError, setKeyError] = useState<string | null>(null);
+
+  const onSave = async (event: FormEvent) => {
+    event.preventDefault();
+    setKeyError(null);
+    try {
+      await setKey.mutateAsync(key.trim());
+      setKeyValue("");
+      setEditing(false);
+    } catch (err) {
+      setKeyError(errorMessage(err, "Could not save the key."));
+    }
+  };
+
+  if (!editing && data.openrouter.keySet) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="ok">
+          <KeyRound className="size-3" /> Key saved {data.openrouter.keyHint}
+        </Badge>
+        <Button variant="ghost" onClick={() => setEditing(true)}>
+          Replace
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={(event) => void onSave(event)} className="flex flex-col gap-1.5">
+      <div className="flex items-end gap-2">
+        <AuthField
+          id="setup-openrouter-key"
+          label="OpenRouter API key"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="sk-or-v1-…"
+          value={key}
+          onChange={(event) => setKeyValue(event.target.value)}
+          disabled={setKey.isPending}
+          className="min-w-0 flex-1"
+        />
+        <Button
+          type="submit"
+          size="lg"
+          disabled={key.trim().length < 8}
+          loading={setKey.isPending}
+          leading={<Check />}
+        >
+          {setKey.isPending ? "Checking…" : "Save key"}
+        </Button>
+        {data.openrouter.keySet && (
+          <Button
+            variant="ghost"
+            size="lg"
+            onClick={() => {
+              setKeyError(null);
+              setEditing(false);
+            }}
+          >
+            Cancel
+          </Button>
+        )}
+      </div>
+      {keyError ? (
+        <p className="text-xs text-destructive" role="alert">
+          {keyError}
+        </p>
+      ) : (
+        <p className="text-xs text-[var(--lp-soft)]">
+          Stored encrypted on this computer. Saving sends one tiny test request.
+        </p>
+      )}
+    </form>
+  );
+}
+
 export default function SetupPage() {
   const router = useRouter();
   const { instance, loading, error } = useDesktopInstance();
@@ -204,7 +290,7 @@ export default function SetupPage() {
     tailscale:
       "Timely keeps everything on this computer. To use it from your phone, the two need a private link. Tailscale gives you one for free, and nothing is opened to the internet. If you only use Timely on this computer, skip this step.",
     openrouter:
-      "The assistant in Timely needs a model to think with. The simplest option is OpenRouter: create a free account, add a little credit, and paste your key into Settings → Agent. The key stays on this computer, encrypted.",
+      "The assistant in Timely needs a model to think with. The simplest option is OpenRouter: create a free account, add a little credit, and paste your key below. Keys from Anthropic, OpenAI, Gemini and others go under More API keys.",
     cli: "If you have a Claude or ChatGPT subscription, Timely can use the Claude Code or Codex command-line app installed on this computer instead of a key. Install the CLI, sign in from a terminal, then press Re-scan.",
     pair: "Install Timely on your phone, then scan this code. You can always find it again under Settings → Server.",
   };
@@ -292,22 +378,11 @@ export default function SetupPage() {
 
           {current.id === "openrouter" && (
             <>
-              <div className="lp-day flex flex-wrap items-center gap-2 p-4">
+              <div className="lp-day flex flex-col gap-3 p-4">
                 {providers.isLoading && (
                   <span className="flex items-center gap-2 text-sm text-[var(--lp-soft)]">
                     <LogoSpinner size={14} label="Checking" /> Checking…
                   </span>
-                )}
-                {providers.data?.openrouter.keySet && (
-                  <Badge tone="ok">
-                    <KeyRound className="size-3" /> Key saved{" "}
-                    {providers.data.openrouter.keyHint}
-                  </Badge>
-                )}
-                {providers.data && !providers.data.openrouter.keySet && (
-                  <Badge tone="warn">
-                    <CircleAlert className="size-3" /> No key yet
-                  </Badge>
                 )}
                 {providers.error && (
                   <span className="text-xs text-destructive">
@@ -317,24 +392,21 @@ export default function SetupPage() {
                     )}
                   </span>
                 )}
-                <Link href="/settings?tab=agent" className={secondaryButton}>
-                  <KeyRound className="size-3.5" /> Add an OpenRouter key
-                </Link>
+                {providers.data && <OpenRouterKeyForm data={providers.data} />}
                 <a
                   href="https://openrouter.ai/keys"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-[var(--lp-now)] hover:underline"
+                  className="inline-flex w-fit items-center gap-1 text-xs text-[var(--lp-now)] hover:underline"
                 >
-                  Get a key at openrouter.ai
+                  <ExternalLink className="size-3" /> Get a key at
+                  openrouter.ai
                 </a>
               </div>
+              {providers.data && <MoreApiKeys data={providers.data} />}
               <p className="text-xs leading-relaxed text-[var(--lp-soft)]">
-                Already have a key from Anthropic, OpenAI, Gemini, DeepSeek,
-                xAI, Mistral, Z.ai, Kimi, NVIDIA or OpenCode, or run Ollama? Add
-                it under More API keys in Settings → Agent instead. Prefer a
-                subscription you already pay for? The next step covers Claude
-                Code and Codex.
+                Prefer a subscription you already pay for? The next step covers
+                Claude Code and Codex.
               </p>
             </>
           )}

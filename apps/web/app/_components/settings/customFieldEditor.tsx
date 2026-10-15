@@ -10,6 +10,7 @@ import {
 } from "@/app/_types/types";
 import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
+import { plural } from "@/app/utils/plural";
 
 const FIELD_TYPES: { value: CustomFieldType; label: string }[] = [
   { value: "text", label: "Text" },
@@ -229,7 +230,7 @@ export default function CustomFieldEditor({
                           ?.label ?? field.type}
                         {needsOptions(field.type) &&
                           field.options?.options?.length
-                          ? ` · ${field.options.options.length} options`
+                          ? ` · ${plural(field.options.options.length, "option")}`
                           : ""}
                       </p>
                     </div>

@@ -115,6 +115,17 @@ func (r *repository) MarkOverdueRead(userID, taskID string) error {
 		Update("read_at", time.Now().UTC()).Error
 }
 
+// MarkDoneTaskAlertsRead marks read the unread overdue and missed
+// notifications whose task is now done or gone, so they stop offering steps
+// that can no longer run. A repeating task is never done, so its missed
+// notices stay.
+func (r *repository) MarkDoneTaskAlertsRead(userID string) error {
+	return r.db.Exec(`UPDATE notifications SET read_at = ?
+		WHERE user_id = ? AND read_at IS NULL AND category IN (?, ?) AND entity_type = 'task'
+		AND NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.id = notifications.entity_id AND tasks.completed_at IS NULL)`,
+		time.Now().UTC(), userID, models.NotifyOverdue, models.NotifyMissed).Error
+}
+
 // ClearAll deletes a person's notifications except smart alerts, which
 // DismissAlerts hides instead.
 func (r *repository) ClearAll(userID string) error {

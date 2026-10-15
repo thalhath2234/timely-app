@@ -305,6 +305,11 @@ func (s *eventService) Update(userID, eventID string, update EventUpdate) (*mode
 		return nil, err
 	}
 	updated = inZone(updated, start.Location())
+	if update.Start != nil && updated.Recurrence == nil {
+		// PlaceEvent re-places a one-off Event's Blocks where they are, so a new
+		// start has to carry them along or the calendar keeps the old time.
+		shiftBlocks(updated.Blocks, start.Sub(before.StartAt))
+	}
 	if err := s.placement.PlaceEvent(userID, updated); err != nil {
 		return nil, err
 	}
@@ -314,6 +319,17 @@ func (s *eventService) Update(userID, eventID string, update EventUpdate) (*mode
 	}
 	s.indexEvent(updated)
 	return updated, nil
+}
+
+// shiftBlocks moves each Block by delta, keeping its length.
+func shiftBlocks(blocks []models.ScheduledBlock, delta time.Duration) {
+	if delta == 0 {
+		return
+	}
+	for i := range blocks {
+		blocks[i].StartAt = blocks[i].StartAt.Add(delta)
+		blocks[i].EndAt = blocks[i].EndAt.Add(delta)
+	}
 }
 
 func inZone(event *models.Event, loc *time.Location) *models.Event {

@@ -9,7 +9,7 @@ import type { DesktopAction, DesktopActionResult, DesktopInstance, DesktopSettin
 import { ApiManager, apiBinds, buildApiEnv } from "./api.ts";
 import { copyDataDir, manualBackupName, preUpgradeBackupName, pruneBackups, KEEP_PRE_UPGRADE_BACKUPS, PRE_UPGRADE_PREFIX } from "./backup.ts";
 import { ensureSecrets, loadConfig, saveConfig, type DesktopConfig, type Sealer, type Secrets } from "./config.ts";
-import { findOrphans, setprivPath, stopOrphans } from "./lifetime.ts";
+import { findOrphans, scanWithCap, setprivPath, stopOrphans } from "./lifetime.ts";
 import { FileLog, createLogger, type Logger } from "./logger.ts";
 import { NextManager } from "./next.ts";
 import { userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
@@ -333,13 +333,11 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     if (this.deps.sweepOrphans === false || !this.secrets) return;
     try {
       // Bounded: a /proc read can hang on a process stuck in the kernel.
-      const orphans = await Promise.race([
+      const orphans = await scanWithCap(
         findOrphans({ secret: this.secrets.jwtSecret, dataDir: this.paths.dataDir, selfPid: process.pid }),
-        sleep(SWEEP_SCAN_CAP_MS).then(() => {
-          this.log.warn("orphans: scan timed out; skipping it");
-          return [];
-        }),
-      ]);
+        SWEEP_SCAN_CAP_MS,
+        () => this.log.warn("orphans: scan timed out; skipping it"),
+      );
       if (orphans.length) await stopOrphans(orphans, { log: this.log });
     } catch (error) {
       this.log.warn(`orphans: sweep failed: ${describe(error)}`);

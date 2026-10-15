@@ -152,14 +152,85 @@ func describeView(v models.TaskViewConfig, statuses, projects, labels []string) 
 	if len(labels) > 0 {
 		parts = append(parts, "labelled "+strings.Join(labels, ", "))
 	}
-	if w := sortWords[v.SortBy]; w != "" {
-		parts = append(parts, fmt.Sprintf("sorted by %s", w))
+	if len(v.Rules) > 0 {
+		join := " and "
+		if v.RuleMatch == "any" {
+			join = " or "
+		}
+		var rules []string
+		for _, rule := range v.Rules {
+			rules = append(rules, ruleWords(rule))
+		}
+		parts = append(parts, "where "+strings.Join(rules, join))
+	}
+	if w := sortName(v.SortBy); w != "" {
+		sorted := "sorted by " + w
+		if then := sortName(v.ThenSortBy); then != "" {
+			sorted += " then " + then
+		}
+		parts = append(parts, sorted)
+	}
+	if v.Limit > 0 {
+		parts = append(parts, fmt.Sprintf("first %d only", v.Limit))
 	}
 	return strings.Join(parts, "; ")
+}
+
+// ruleWords describes one view rule [natural-language views]. Choice values
+// are ids the reader can't use, so they are left out; dates and numbers stay
+// as written ("thisWeek", "next:3", "-30" days ago).
+func ruleWords(rule models.ViewRule) string {
+	if len(rule.Rules) > 0 {
+		join := " or "
+		if rule.Match == "all" {
+			join = " and "
+		}
+		var inner []string
+		for _, r := range rule.Rules {
+			inner = append(inner, ruleWords(r))
+		}
+		return "(" + strings.Join(inner, join) + ")"
+	}
+	field := rule.Field
+	if strings.HasPrefix(field, "cf:") {
+		field = "a custom field"
+	}
+	switch rule.Op {
+	case "isEmpty":
+		return field + " is empty"
+	case "isNotEmpty":
+		return field + " is set"
+	case "anyOf", "noneOf", "allOf":
+		if field == "priority" || field == "effort" {
+			return field + " " + rule.Op + " " + string(rule.Value)
+		}
+		return field + " " + rule.Op + " chosen values"
+	}
+	words := field + " " + rule.Op
+	if len(rule.Value) > 0 {
+		words += " " + strings.Trim(string(rule.Value), `"`)
+	}
+	if len(rule.To) > 0 {
+		words += " to " + strings.Trim(string(rule.To), `"`)
+	}
+	return words
+}
+
+func sortName(sortBy models.SortByField) string {
+	if w := sortWords[sortBy]; w != "" {
+		return w
+	}
+	if strings.HasPrefix(string(sortBy), "cf:") {
+		return "a custom field"
+	}
+	return string(sortBy)
 }
 
 var sortWords = map[models.SortByField]string{
 	models.SortByName: "name", models.SortByDeadline: "deadline", models.SortByStartDate: "start date",
 	models.SortByScheduledOn: "planned day", models.SortByCreatedAt: "date added", models.SortByPriority: "priority",
-	models.SortByStatus: "status", models.SortByProject: "project",
+	models.SortByStatus: "status", models.SortByProject: "project", models.SortByUpdatedAt: "last update",
+	models.SortByCompletedAt: "date finished", models.SortByWorkspace: "workspace", models.SortByStage: "stage",
+	models.SortByDuration: "length", models.SortByTracked: "time tracked", models.SortByUrgency: "urgency",
+	models.SortByProgress: "progress", models.SortByEffort: "effort",
 }

@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
+import Button from "@/app/_components/_ui/button";
 
 /** Title field shared by the detail panel and the create modals. */
 export const modalTitleClass =
@@ -146,5 +147,105 @@ export function SidebarSectionTitle({ children }: { children: ReactNode }) {
     <p className="mb-1.5 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
       {children}
     </p>
+  );
+}
+
+/** Title field of a create dialog. */
+export const createTitleClass =
+  "w-full bg-transparent text-[26px] font-semibold leading-tight tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50";
+
+/**
+ * The desktop create dialog (docs/design-system.md#sheets-and-create-forms):
+ * header with a kind chip and close, a body as tall as its content, and a
+ * footer with a one-line summary, Cancel and the one primary action. It sits
+ * near the top of the screen so it grows downward when "More" opens.
+ */
+export function CreateDialogShell({
+  label,
+  header,
+  footer,
+  size = "md",
+  onClose,
+  children,
+}: {
+  label: string;
+  header: ReactNode;
+  footer: ReactNode;
+  size?: "sm" | "md";
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <>
+      <OverlayScrim
+        className="z-50 bg-black/60 backdrop-blur-[4px]"
+        onPointerDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          // Slash/mention menus render on document.body above this overlay.
+          if (document.querySelector("[data-caret-popup]")) return;
+          onClose();
+        }}
+      />
+      <OverlayFrame className="z-50 items-start justify-center p-3 pt-[10vh] md:px-6">
+        <OverlayPanel
+          role="dialog"
+          aria-modal="true"
+          aria-label={label}
+          className={cn(
+            "relative flex max-h-[calc(90vh-1.5rem)] w-full flex-col overflow-hidden rounded-[20px] border border-border bg-background shadow-2xl shadow-black/40",
+            size === "sm" ? "max-w-[560px]" : "max-w-[720px]",
+          )}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <header className="flex h-14 shrink-0 items-center gap-2 pl-5 pr-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2">{header}</div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="inline-flex size-8 cursor-pointer items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">{children}</div>
+          {footer}
+        </OverlayPanel>
+      </OverlayFrame>
+    </>
+  );
+}
+
+/** Summary of what will be created, then Cancel and the primary action. */
+export function CreateDialogFooter({
+  summary,
+  error,
+  onCancel,
+  children,
+}: {
+  summary?: ReactNode;
+  error?: ReactNode;
+  onCancel: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <footer className="flex min-h-15 shrink-0 items-center gap-2 border-t border-border bg-muted/20 py-3 pl-6 pr-4">
+      <p className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground" data-testid="create-summary">
+        {summary}
+      </p>
+      {error ? <span className="shrink-0 text-xs text-destructive">{error}</span> : null}
+      <Button variant="secondary" onClick={onCancel}>
+        Cancel
+      </Button>
+      {children}
+    </footer>
   );
 }
