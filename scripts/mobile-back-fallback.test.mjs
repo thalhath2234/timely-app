@@ -90,3 +90,23 @@ describe("backPlan", () => {
     assert.match(source, /addListener\("state"/);
   });
 });
+
+// The back preview shows the screen you're going back to, so every pushed
+// screen keeps the one underneath drawn and the preview well stays clear.
+describe("back preview", () => {
+  const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+
+  test("pushed screens keep the screen underneath drawn", () => {
+    const layout = read("../apps/mobile/app/(app)/_layout.tsx");
+    assert.match(layout, /\.\.\.predictiveBackScreenOptions\(route\.name === "\(tabs\)"\)/);
+    const back = read("../apps/mobile/lib/predictiveBack.tsx");
+    assert.match(back, /presentation: "transparentModal"/);
+    assert.match(back, /if \(isRoot \|\| !hasTimelyAndroid\(\)\) return null/);
+  });
+
+  test("nothing paints over the screen behind the shrinking page", () => {
+    const back = read("../apps/mobile/lib/predictiveBack.tsx");
+    assert.match(back, /<View style=\{styles\.well\}>/);
+    assert.match(back, /well: \{ flex: 1 \}/);
+  });
+});

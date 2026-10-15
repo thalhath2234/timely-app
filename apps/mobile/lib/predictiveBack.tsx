@@ -9,7 +9,9 @@ import { colors } from "./theme";
 /**
  * Android's predictive back gesture. While the swipe runs, the top screen
  * shrinks toward the edge it came from and rounds its corners (the Material
- * 3 "back preview"), so you see Back is about to happen before you let go.
+ * 3 "back preview"), and the screen you're going back to shows, live, behind
+ * it. Pushed screens are transparent stack screens on Android (see
+ * `predictiveBackScreenOptions`), so the one underneath stays drawn.
  * At the root (Home with nothing to go back to) the app steps aside and
  * Android plays its own back-to-home animation.
  */
@@ -17,6 +19,18 @@ import { colors } from "./theme";
 const SCALE_AT_END = 0.9;
 const SHIFT_AT_END = 24;
 const RADIUS_AT_END = 28;
+/** How long the stack's pop takes to cover the screen; after that it settles if it's still here. */
+const POP_GRACE_MS = 400;
+
+/**
+ * Stack options that keep the screen underneath drawn, so the back preview
+ * shows it. Only with the native back module (a dev or release build); Expo
+ * Go and iOS keep plain cards.
+ */
+export function predictiveBackScreenOptions(isRoot: boolean) {
+  if (isRoot || !hasTimelyAndroid()) return null;
+  return { presentation: "transparentModal" as const, contentStyle: { backgroundColor: "transparent" } };
+}
 
 type StackNavigation = {
   isFocused: () => boolean;
@@ -31,7 +45,9 @@ export function PredictiveBackScreen({ navigation, children }: { navigation: Sta
 
   useEffect(() => {
     if (!hasTimelyAndroid() || reduceMotion) return;
-    return addBackListener((event) => {
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const remove = addBackListener((event) => {
+      clearTimeout(settle);
       // Only the screen on top of a stack that can pop previews; tab roots
       // and the first screen leave the gesture to the navigator or Android.
       if (!navigation.isFocused() || navigation.getState().index === 0) {
@@ -48,12 +64,19 @@ export function PredictiveBackScreen({ navigation, children }: { navigation: Sta
           progress.value = withSpring(0, { damping: 18, stiffness: 220 });
           break;
         case "invoked":
-          // The stack's pop animation takes it from here; if Back was used for
-          // something else (closing a menu), the screen settles back.
-          progress.value = withTiming(0, { duration: 260 });
+          // The stack's pop slides the screen out from where the swipe left
+          // it. If Back went to something else and the screen is still on
+          // top, it settles back to full size.
+          settle = setTimeout(() => {
+            if (navigation.isFocused()) progress.value = withTiming(0, { duration: 260 });
+          }, POP_GRACE_MS);
           break;
       }
     });
+    return () => {
+      clearTimeout(settle);
+      remove();
+    };
   }, [navigation, progress, direction, reduceMotion]);
 
   const style = useAnimatedStyle(() => {
@@ -63,12 +86,20 @@ export function PredictiveBackScreen({ navigation, children }: { navigation: Sta
       transform: [{ translateX: direction.value * SHIFT_AT_END * p }, { scale: 1 - (1 - SCALE_AT_END) * p }],
     };
   });
+  // Dark page over a dark screen: a hairline keeps the page's edge visible.
+  const edgeStyle = useAnimatedStyle(() => {
+    const p = Easing.out(Easing.quad)(progress.value);
+    return { borderRadius: RADIUS_AT_END * p, opacity: Math.min(1, p * 4) };
+  });
 
-  // The well behind the shrinking screen is the app's fill colour, so its
-  // rounded edges read against it.
+  // The well is clear so the previous screen shows through. The shadow and
+  // the hairline only show once the page shrinks.
   return (
-    <View style={[styles.well, { backgroundColor: colors.muted }]}>
-      <Animated.View style={[styles.screen, { backgroundColor: colors.background }, style]}>{children}</Animated.View>
+    <View style={styles.well}>
+      <Animated.View style={[styles.screen, { backgroundColor: colors.background }, style]}>
+        {children}
+        <Animated.View pointerEvents="none" style={[styles.edge, { borderColor: colors.border }, edgeStyle]} />
+      </Animated.View>
     </View>
   );
 }
@@ -110,5 +141,6 @@ export function useBackSync() {
 
 const styles = StyleSheet.create({
   well: { flex: 1 },
-  screen: { flex: 1, overflow: "hidden" },
+  screen: { flex: 1, overflow: "hidden", elevation: 16 },
+  edge: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderWidth: StyleSheet.hairlineWidth },
 });
