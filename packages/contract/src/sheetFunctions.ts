@@ -388,8 +388,21 @@ export interface CallContext {
   col: number;
 }
 
+/** The only functions that take no arguments. */
+const NO_ARGUMENT_FUNCTIONS = new Set(["PI", "RAND", "TRUE", "FALSE", "NA", "ROW", "COLUMN", "TODAY", "NOW"]);
+
 export function callFunction(name: string, args: EvalValue[], context: CallContext): CellResult {
-  const arg = (index: number): CellResult => single(args[index]);
+  // `=SUM(` is committed as `=SUM()`: an unfinished formula, so it shows an
+  // error instead of 0. An unknown name still reads #NAME?.
+  if (args.length === 0 && !NO_ARGUMENT_FUNCTIONS.has(name)) {
+    const result = callFunctionWith(name, args, context);
+    return isError(result) && result.message === "#NAME?" ? result : error("#N/A");
+  }
+  return callFunctionWith(name, args, context);
+}
+
+function callFunctionWith(name: string, args: EvalValue[], context: CallContext): CellResult {
+  const arg =(index: number): CellResult => single(args[index]);
   const numberArg = (index: number, fallback?: number): number | CellResult => {
     if (args[index] === undefined || (fallback !== undefined && arg(index).type === "empty")) {
       return fallback ?? error("#N/A");

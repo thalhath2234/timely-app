@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, X } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 import { controlClass, popoverSurface, type ControlSize } from "@/app/_components/_ui/field";
 import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
+import { propertyChipClass } from "@/app/_components/_ui/propertyChip";
 import {
   fromDatetimeLocalValue,
   toDateInputValue,
@@ -26,6 +27,15 @@ type DatePickerProps = {
   size?: ControlSize;
   /** Only the calendar icon as the trigger, for a picker inside a cell. */
   iconOnly?: boolean;
+  /**
+   * "chip" is a property chip in a create form: dashed `chipLabel` while
+   * empty, otherwise `chipPrefix` and a short date ("Due Fri, Oct 16").
+   */
+  variant?: "default" | "chip";
+  chipLabel?: string;
+  chipPrefix?: string;
+  /** Chip only: replaces the calendar or clock icon. */
+  icon?: ReactNode;
   "aria-label"?: string;
 };
 
@@ -94,6 +104,21 @@ function parseClock(value: string): { hours: number; minutes: number } | null {
 
 function formatClock(hours: number, minutes: number) {
   return `${hour12(hours)}:${pad2(minutes)} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
+/** Short form for a chip: no year unless it differs, weekday first. */
+function formatChip(value: string, mode: DatePickerMode) {
+  if (mode === "time") return formatDisplay(value, mode);
+  const date = parseLocalDate(value);
+  if (!date) return "";
+  const otherYear = date.getFullYear() !== new Date().getFullYear();
+  return date.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(otherYear ? { year: "numeric" } : {}),
+    ...(mode === "datetime" ? { hour: "numeric", minute: "2-digit" } : {}),
+  });
 }
 
 function formatDisplay(value: string, mode: DatePickerMode) {
@@ -237,6 +262,10 @@ export default function DatePicker({
   clearable = true,
   size = "md",
   iconOnly = false,
+  variant = "default",
+  chipLabel,
+  chipPrefix,
+  icon,
   "aria-label": ariaLabel,
 }: DatePickerProps) {
   const panelId = useId();
@@ -389,8 +418,11 @@ export default function DatePicker({
 
   const TriggerIcon = mode === "time" ? Clock : CalendarDays;
 
-  return (
-    <>
+  const chipText = value
+    ? [chipPrefix, formatChip(value, mode)].filter(Boolean).join(" ")
+    : chipLabel ?? label;
+  const trigger =
+    variant === "chip" ? (
       <button
         ref={triggerRef}
         type="button"
@@ -398,41 +430,76 @@ export default function DatePicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={panelId}
-        aria-label={ariaLabel}
+        aria-label={ariaLabel ? `${ariaLabel}, ${value ? formatChip(value, mode) : "none"}` : undefined}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => (open ? setOpen(false) : openPanel())}
-        className={
-          iconOnly
-            ? cn("flex items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground", className)
-            : cn("flex w-full items-center gap-2 text-left", controlClass(size), className)
-        }
+        className={propertyChipClass({ empty: !value, className })}
       >
-        <TriggerIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        {!iconOnly && (
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate",
-            !value && "text-muted-foreground",
-          )}
-        >
-          {label}
-        </span>
-        )}
-        {!iconOnly && clearable && value && !disabled && (
+        {icon ?? <TriggerIcon />}
+        <span className="truncate">{chipText}</span>
+        {clearable && value && !disabled && (
           <span
             role="button"
             tabIndex={-1}
             aria-label="Clear date"
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="-mr-1 rounded p-0.5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();
               onChange("");
             }}
           >
-            <X className="size-3.5" />
+            <X />
           </span>
         )}
       </button>
+    ) : (
+        <button
+          ref={triggerRef}
+          type="button"
+          disabled={disabled}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={panelId}
+          aria-label={ariaLabel}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => (open ? setOpen(false) : openPanel())}
+          className={
+            iconOnly
+              ? cn("flex items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground", className)
+              : cn("flex w-full items-center gap-2 text-left", controlClass(size), className)
+          }
+        >
+          <TriggerIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          {!iconOnly && (
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate",
+              !value && "text-muted-foreground",
+            )}
+          >
+            {label}
+          </span>
+          )}
+          {!iconOnly && clearable && value && !disabled && (
+            <span
+              role="button"
+              tabIndex={-1}
+              aria-label="Clear date"
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={(event) => {
+                event.stopPropagation();
+                onChange("");
+              }}
+            >
+              <X className="size-3.5" />
+            </span>
+          )}
+        </button>
+    );
+
+  return (
+    <>
+      {trigger}
 
       {mounted &&
         createPortal(
@@ -631,13 +698,14 @@ export function TimeField({
   className,
   clearable = false,
   "aria-label": ariaLabel,
+  ...chip
 }: {
   value: string;
   onChange: (value: string) => void;
   className?: string;
   clearable?: boolean;
   "aria-label"?: string;
-}) {
+} & Pick<DatePickerProps, "variant" | "chipLabel" | "chipPrefix" | "icon">) {
   return (
     <DatePicker
       mode="time"
@@ -646,6 +714,7 @@ export function TimeField({
       className={className}
       clearable={clearable}
       aria-label={ariaLabel}
+      {...chip}
     />
   );
 }

@@ -24,6 +24,7 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import DateTimeSheet from "../ui/DateTimeSheet";
 import { Meter } from "./charts";
+import { calendarItemDone } from "@timely/contract/calendar";
 
 /* Today */
 
@@ -51,7 +52,7 @@ export function TodayCard({
   }
   for (const task of today.todayFocus) planned.add(task.id);
   const upNext = today.items
-    .filter((item) => new Date(item.end).getTime() >= now.getTime() && !item.completedAt)
+    .filter((item) => new Date(item.end).getTime() >= now.getTime() && !calendarItemDone(item))
     .sort((a, b) => a.start.localeCompare(b.start))
     .slice(0, 6);
   const focusing = today.focusing ?? today.pausedFocus;

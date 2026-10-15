@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LayoutTemplate, Sheet as SheetIcon, Star } from "lucide-react";
 import { fileHref } from "@/app/utils/fileRoutes";
 import type { Sheet, SheetTemplate } from "@/app/_types/types";
+import { plural } from "@/app/utils/plural";
 
 export function SheetCard({
   sheet,
@@ -105,7 +106,7 @@ export function TemplateCard({
   onCancelRename: () => void;
 }) {
   const tabCount = template.tabs?.length || 1;
-  const meta = `${template.rows.length} rows · ${template.columns.length} columns${
+  const meta = `${plural(template.rows.length, "row")} · ${plural(template.columns.length, "column")}${
     tabCount > 1 ? ` · ${tabCount} tabs` : ""
   }`;
   const icon = (

@@ -1,8 +1,9 @@
-import { type ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useCallback, type ReactNode } from "react";
+import { BackHandler, StyleSheet, Text, View } from "react-native";
+import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import { Bell, ChevronLeft, Settings } from "lucide-react-native";
 import { useUnreadNotificationCount } from "../../lib/hooks";
+import { backFallback } from "../../lib/backFallback";
 import { colors, controlRadius, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "./AnimatedPressable";
 
@@ -74,15 +75,34 @@ export default function MobileHeader({
   children?: ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const showAccountActions = accountActions === true;
   const isLarge = large ?? !back;
+  // Android Back on a screen opened from a link or a notification has nothing
+  // to pop and would close the app; go where the header Back goes instead.
+  useFocusEffect(
+    useCallback(() => {
+      if (!back) return;
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (router.canGoBack()) return false;
+        router.replace((typeof back === "string" ? back : backFallback(pathname)) as never);
+        return true;
+      });
+      return () => sub.remove();
+    }, [back, pathname, router]),
+  );
   return (
     <View style={styles.wrap}>
       <View style={[styles.row, !isLarge && styles.rowCompact]}>
         {back ? (
           <AnimatedPressable
             accessibilityRole="button"
-            onPress={() => (typeof back === "string" ? router.replace(back as never) : router.back())}
+            onPress={() => {
+              if (typeof back === "string") router.replace(back as never);
+              // Opened straight from a link or after a reload: no history to pop.
+              else if (router.canGoBack()) router.back();
+              else router.replace(backFallback(pathname) as never);
+            }}
             style={styles.iconBtn}
             accessibilityLabel="Back"
           >

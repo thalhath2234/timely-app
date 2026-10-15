@@ -21,6 +21,7 @@ import { PRIORITY_OPTIONS } from "@/app/utils/priority";
 import { GROUP_FIELD_LABELS } from "@timely/contract/taskQuery";
 import { useModKey } from "@/app/utils/hooks/useModKey";
 import { mergeStatusesByName, statusNameKey } from "@/app/utils/status";
+import { plural, pluralWord } from "@/app/utils/plural";
 
 export type TaskListScope = "global" | "project";
 
@@ -383,6 +384,7 @@ export function TaskToolbar({
                     <div className="flex-1">
                       <Select
                         size="sm"
+                        aria-label={`Group level ${index + 1}`}
                         value={value}
                         onChange={(next) => updateGroupField(index, next as TaskListGroupField | "none")}
                         options={availableGroups.map((option) => ({
@@ -394,10 +396,13 @@ export function TaskToolbar({
                     </div>
 
                     <button
+                      type="button"
+                      aria-label={`Remove ${groupLabel(value)} grouping`}
+                      title={`Remove ${groupLabel(value)} grouping`}
                       className="p-1 text-muted-foreground hover:text-foreground"
                       onClick={() => updateGroupField(index, "none")}
                     >
-                      <X size={14} />
+                      <X size={14} aria-hidden />
                     </button>
                   </div>
                 ))}
@@ -743,7 +748,7 @@ export function TaskToolbar({
         ) : null}
 
         <span className="text-xs tabular-nums text-muted-foreground">
-          {dataCount} {dataMode === "task" ? (showReminders ? "reminders" : "tasks") : "projects"}
+          {plural(dataCount, dataMode === "task" ? (showReminders ? "reminder" : "task") : "project")}
         </span>
       </div>
     </div>
@@ -908,21 +913,7 @@ export function TaskOptionsBar({
           />
         </div>
       ) : null}
-      <details className="relative w-36">
-        <summary className={controlClass("sm", "flex cursor-pointer list-none items-center justify-between gap-2")}>
-          <span className="truncate">{selectedPriorityLevels.length === 0 ? "All priorities" : selectedPriorityLevels.length === 1 ? selectedPriorityLevels[0] : `${selectedPriorityLevels.length} priorities`}</span>
-          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-        </summary>
-        <div className={`${popoverSurface} absolute right-0 top-full z-40 mt-1 w-44 p-1`}>
-          <button type="button" onClick={() => setSelectedPriorityLevels([])} className="mb-1 w-full rounded px-2 py-1 text-left hover:bg-accent">All priorities</button>
-          {PRIORITY_OPTIONS.map((option) => (
-            <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-accent">
-              <input type="checkbox" checked={selectedPriorityLevels.includes(option.value)} onChange={() => setSelectedPriorityLevels(selectedPriorityLevels.includes(option.value) ? selectedPriorityLevels.filter((value) => value !== option.value) : [...selectedPriorityLevels, option.value])} className="accent-primary" />
-              {option.label}
-            </label>
-          ))}
-        </div>
-      </details>
+      <PriorityFilter value={selectedPriorityLevels} onChange={setSelectedPriorityLevels} />
       {labels.length > 0 ? (
         <div className="w-36">
           <Select
@@ -964,11 +955,12 @@ export function TaskListStatusBar({
   shown,
   total,
   synced = true,
-  noun = "tasks",
+  noun = "task",
 }: {
   shown: number;
   total: number;
   synced?: boolean;
+  /** Singular; the bar adds the plural ending. */
   noun?: string;
 }) {
   const modKey = useModKey();
@@ -982,7 +974,7 @@ export function TaskListStatusBar({
         <span className="text-border">·</span>
         <span>
           Showing {shown}
-          {total !== shown ? ` of ${total}` : ""} {noun}
+          {total !== shown ? ` of ${total}` : ""} {pluralWord(total !== shown ? total : shown, noun)}
         </span>
       </div>
       <div className="hidden items-center gap-3 sm:flex">
@@ -994,5 +986,78 @@ export function TaskListStatusBar({
         </span>
       </div>
     </footer>
+  );
+}
+
+/**
+ * Priority filter: several levels can be ticked at once, so it is a small
+ * popover rather than the single-choice kit Select. Like the Select it closes
+ * on an outside click (which includes switching to Gantt) and on Escape.
+ */
+function PriorityFilter({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const label =
+    value.length === 0 ? "All priorities" : value.length === 1 ? value[0] : `${value.length} priorities`;
+
+  return (
+    <div ref={rootRef} className="relative w-36">
+      <button
+        type="button"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={`Priority: ${label}`}
+        onClick={() => setOpen((current) => !current)}
+        className={controlClass("sm", "flex w-full cursor-pointer items-center justify-between gap-2")}
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      </button>
+      {open ? (
+        <div className={`${popoverSurface} absolute right-0 top-full z-40 mt-1 w-44 p-1`}>
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="mb-1 w-full rounded px-2 py-1 text-left hover:bg-accent"
+          >
+            All priorities
+          </button>
+          {PRIORITY_OPTIONS.map((option) => (
+            <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-accent">
+              <input
+                type="checkbox"
+                checked={value.includes(option.value)}
+                onChange={() =>
+                  onChange(
+                    value.includes(option.value)
+                      ? value.filter((level) => level !== option.value)
+                      : [...value, option.value],
+                  )
+                }
+                className="accent-primary"
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

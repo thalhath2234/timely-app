@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./account": "./src/account.ts",
+    "./bulkEdit": "./src/bulkEdit.ts",
     "./calendar": "./src/calendar.ts",
     "./config": "./src/config.ts",
     "./dashboard": "./src/dashboard.ts",
@@ -19,6 +20,7 @@
     "./inbox": "./src/inbox.ts",
     "./markdown": "./src/markdown.ts",
     "./notifications": "./src/notifications.ts",
+    "./projectDelete": "./src/projectDelete.ts",
     "./properties": "./src/properties.ts",
     "./ruleBuilder": "./src/ruleBuilder.ts",
     "./schedule": "./src/schedule.ts",
@@ -35,6 +37,7 @@
     "./sheetTemplates": "./src/sheetTemplates.ts",
     "./sheetTypes": "./src/sheetTypes.ts",
     "./sheetValues": "./src/sheetValues.ts",
+    "./starterLabels": "./src/starterLabels.ts",
     "./taskQuery": "./src/taskQuery.ts",
     "./templates": "./src/templates.ts",
     "./viewLanguage": "./src/viewLanguage.ts",

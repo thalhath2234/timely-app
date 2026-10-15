@@ -562,7 +562,17 @@ export default function Assistant() {
       toast("Restored your unsent draft.");
       return;
     }
-    assistant.updateCache((cache) => ({ ...cache, draft: emptyDraft() }));
+    // A new chat asks about the screen under the assistant, as a pinch does.
+    let context: ReturnType<typeof assistant.currentContext> = [];
+    try {
+      context = assistant.currentContext();
+    } catch (reason) {
+      setError((reason as Error).message);
+    }
+    assistant.updateCache((cache) => ({
+      ...cache,
+      draft: emptyDraft(context),
+    }));
     assistant.select(null);
     setPage("chat");
   }
@@ -860,6 +870,7 @@ export default function Assistant() {
                       disabled={otherDraft}
                       projectId={contextProjectId(context)}
                       onPick={editText}
+                      onOpenSettings={() => assistant.openResult("/(app)/settings/agent")}
                     />
                   ) : null}
                   {chat ? (
@@ -966,6 +977,7 @@ export default function Assistant() {
                       chat={chat}
                       locked={locked}
                       onRetry={() => act("/retry")}
+                      onOpenSettings={() => assistant.openResult("/(app)/settings/agent")}
                     />
                   ) : null}
                 </>

@@ -821,13 +821,15 @@ function shouldAutoScheduleAfterCreate(payload: CreateTaskPayload) {
 export function useSaveTask() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateTaskPayload }) => updateTask(id, data),
-    onMutate: async ({ id, data }) => {
+    // `optimistic` fills in what `data` only names by id (e.g. the `status`
+    // object for a `statusId`) so the board shows the move before the server answers.
+    mutationFn: ({ id, data }: { id: string; data: UpdateTaskPayload; optimistic?: Partial<Task> }) => updateTask(id, data),
+    onMutate: async ({ id, data, optimistic }) => {
       const previousTask = client.getQueryData<Task>(keys.task(id));
       const previousList = client.getQueryData<Task[]>(keys.tasks);
       const current = previousTask ?? previousList?.find((item) => item.id === id);
       if (current) {
-        const next = { ...current, ...data } as Task;
+        const next = { ...current, ...data, ...optimistic } as Task;
         if (Object.prototype.hasOwnProperty.call(data, "blockedById") && !data.blockedById) {
           next.blockedById = null;
           next.blockedBy = null;
@@ -954,7 +956,11 @@ export function useCaptureInbox() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (name: string) => captureInbox(name),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.inbox }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.inbox });
+      // Home's Inbox card counts captures too (the + sheet captures from any tab).
+      client.invalidateQueries({ queryKey: keys.today });
+    },
   });
 }
 

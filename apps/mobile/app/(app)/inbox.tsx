@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Alert, Keyboard, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
+import { useState } from "react";
+import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronRight, Clock, Inbox, Sparkles, Trash2 } from "lucide-react-native";
@@ -11,8 +11,9 @@ import { Button } from "../../components/ui/primitives";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import { LogoSpinner } from "../../components/ui/TimelyLogo";
+import InboxCapture from "../../components/inbox/InboxCapture";
+import { useKeyboardCover } from "../../components/ui/useKeyboardCover";
 import {
-  useCaptureInbox,
   useDecisionsStatusQuery,
   useDeleteTask,
   useInboxQuery,
@@ -93,40 +94,20 @@ export default function InboxScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const inbox = useInboxQuery();
-  const capture = useCaptureInbox();
   const remove = useDeleteTask();
   const zone = useWorkingHoursZone();
-  const [title, setTitle] = useState("");
   // Android draws edge to edge, so the window no longer shrinks for the
-  // keyboard: the composer has to lift itself, and drops the gesture-bar
-  // gap while the keyboard is up.
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardOpen(true));
-    const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardOpen(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
+  // keyboard: the screen lifts the composer itself, and drops the
+  // gesture-bar gap while the keyboard is up.
+  const keyboard = useKeyboardCover();
   const [skipped, setSkipped] = useState<string[]>([]);
   const [deleteItem, setDeleteItem] = useState<{ id: string; name: string } | null>(null);
-  const inputRef = useRef<TextInput>(null);
   const items = inbox.data ?? [];
   const networkCopy = needsNetworkCopy(inbox);
   const { next, rest } = inboxQueue(items, skipped);
   const now = new Date();
   const oldest = items.length > 0 ? inboxAge(inboxQueue(items).next!.createdAt, now, zone) : null;
   const review = (id: string) => router.push(`/(app)/tasks/${id}`);
-
-  const onCapture = () => {
-    const name = title.trim();
-    if (!name) return;
-    void capture.mutateAsync(name).then(() => {
-      setTitle("");
-      inputRef.current?.focus();
-    });
-  };
 
   const subtitle =
     items.length === 0
@@ -138,7 +119,7 @@ export default function InboxScreen() {
   return (
     <Screen>
       <MobileHeader title="Inbox" back subtitle={subtitle} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <View style={{ flex: 1, paddingBottom: keyboard }}>
         <ScrollView
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
@@ -249,33 +230,10 @@ export default function InboxScreen() {
             </>
           )}
         </ScrollView>
-        <View style={[styles.composer, { paddingBottom: (keyboardOpen ? 12 : Math.max(insets.bottom, 12)) + 4 }]}>
-          <Text style={styles.composerLabel}>What&apos;s on your mind?</Text>
-          <TextInput
-            ref={inputRef}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Capture a thought…"
-            placeholderTextColor={colors.mutedForeground}
-            autoCapitalize="sentences"
-            returnKeyType="done"
-            onSubmitEditing={onCapture}
-            submitBehavior="submit"
-            accessibilityLabel="Capture to inbox"
-            style={styles.composerInput}
-          />
-          <View style={styles.composerRow}>
-            <Text style={[styles.hint, { flex: 1, textAlign: "left" }]} numberOfLines={2}>
-              {capture.isError
-                ? capture.error instanceof Error
-                  ? capture.error.message
-                  : "Could not capture."
-                : "Nothing is scheduled until you decide."}
-            </Text>
-            <Button label="Capture" size="lg" loading={capture.isPending} disabled={!title.trim()} onPress={onCapture} />
-          </View>
+        <View style={[styles.composer, { paddingBottom: (keyboard > 0 ? 12 : Math.max(insets.bottom, 12)) + 4 }]}>
+          <InboxCapture keepFocus />
         </View>
-      </KeyboardAvoidingView>
+      </View>
       <ConfirmSheet
         open={deleteItem !== null}
         onClose={() => setDeleteItem(null)}
@@ -380,7 +338,4 @@ const styles = createThemedStyleSheet((colors) => ({
     shadowOffset: { width: 0, height: -6 },
     elevation: 8,
   },
-  composerLabel: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
-  composerInput: { color: colors.foreground, fontSize: 18, fontWeight: "500", paddingVertical: 4 },
-  composerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
 }));

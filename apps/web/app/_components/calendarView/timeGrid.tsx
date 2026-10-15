@@ -420,7 +420,8 @@ export default function TimeGrid({
                   <button
                     key={hour}
                     type="button"
-                    aria-label={`Schedule at ${formatHour(hour)} on ${day.toLocaleDateString()}`}
+                    // The gutter leaves midnight blank; the slot's name still needs it.
+                    aria-label={`Schedule at ${hour === 0 ? "12 AM" : formatHour(hour)} on ${day.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`}
                     onClick={() => {
                       if (preview) return;
                       onSelectSlot?.(day, hour);

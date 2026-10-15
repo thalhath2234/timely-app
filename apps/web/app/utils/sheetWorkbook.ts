@@ -1,6 +1,7 @@
 import type { Sheet, SheetColumn, SheetRow, SheetTab } from "@/app/_types/types";
 import { newColumnId, newRowId, newTabId } from "@/app/utils/sheetColumns";
 import { columnIndexToLetter } from "@timely/contract/sheetFormula";
+import { plural } from "@/app/utils/plural";
 
 export function emptySheetRow(columns: SheetColumn[]): SheetRow {
   const cells: Record<string, string> = {};
@@ -120,7 +121,7 @@ export function templateTabChoices(template: {
 }
 
 export function sheetMetaLabel(sheet: Pick<Sheet, "columns" | "rows" | "updatedAt">) {
-  return `${sheet.rows.length} rows · ${sheet.columns.length} cols · ${formatSheetDate(sheet.updatedAt)}`;
+  return `${plural(sheet.rows.length, "row")} · ${plural(sheet.columns.length, "col")} · ${formatSheetDate(sheet.updatedAt)}`;
 }
 
 export function formatSheetDate(value: string) {

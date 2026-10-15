@@ -104,7 +104,8 @@ export function FocusGroupScrollView({
       node.measureInWindow((_x, y, _w, height) => {
         if (!viewport || !height) return;
         // Edge-to-edge screens don't shrink for the keyboard: stop at its top.
-        const keyboard = Keyboard.metrics();
+        // react-native-web has no Keyboard.metrics.
+        const keyboard = Keyboard.metrics?.();
         const visible = keyboard ? Math.min(viewport, keyboard.screenY - scrollY) : viewport;
         const top = y - scrollY - MARGIN;
         const bottom = y - scrollY + height + MARGIN;

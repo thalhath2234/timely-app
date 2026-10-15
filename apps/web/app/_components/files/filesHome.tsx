@@ -30,6 +30,7 @@ import { requestConfirm } from "@/app/_store/confirmStore";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import type { Doc, Sheet } from "@/app/_types/types";
+import { plural } from "@/app/utils/plural";
 
 type Item = { kind: "doc"; doc: Doc } | { kind: "sheet"; sheet: Sheet };
 
@@ -153,7 +154,7 @@ export default function FilesHome() {
       <SheetCard
         key={key}
         sheet={sheet}
-        meta={group === "favorite" ? sheetMetaLabel(sheet) : `${sheet.rows.length} rows · ${sheet.columns.length} columns`}
+        meta={group === "favorite" ? sheetMetaLabel(sheet) : `${plural(sheet.rows.length, "row")} · ${plural(sheet.columns.length, "column")}`}
         updated={group === "recent" ? formatSheetDate(sheet.updatedAt) : undefined}
         favorite={sheet.isFavorite}
         renaming={renamingKey === key}

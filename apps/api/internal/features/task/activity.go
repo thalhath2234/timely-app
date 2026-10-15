@@ -40,20 +40,27 @@ func deref(value *string) string {
 	return *value
 }
 
-func displayValue(value string) string {
+func displayValue(value string, loc *time.Location) string {
 	if strings.TrimSpace(value) == "" {
 		return "None"
 	}
-	return prettyDate(value)
+	return prettyDate(value, loc)
 }
 
-func prettyDate(value string) string {
+// prettyDate writes an instant as the person reads it, in loc (their Working
+// hours zone; see activityZone). The text is stored in the activity message,
+// so the zone must be the person's, not the server's. A date-only value has
+// no zone and is written as is.
+func prettyDate(value string, loc *time.Location) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return "None"
 	}
 	if parsed, err := time.Parse(time.RFC3339, trimmed); err == nil {
-		return parsed.Local().Format("Jan 2, 2006 3:04 PM")
+		if loc == nil {
+			loc = time.Local
+		}
+		return parsed.In(loc).Format("Jan 2, 2006 3:04 PM")
 	}
 	if parsed, err := time.Parse("2006-01-02", trimmed); err == nil {
 		return parsed.Format("Jan 2, 2006")
@@ -158,7 +165,7 @@ func labelKey(task *models.Task) string {
 	return strings.Join(ids, ",")
 }
 
-func collectTaskActivity(userID, actorName string, before, after *models.Task, touched map[string]bool) []models.TaskActivity {
+func collectTaskActivity(userID, actorName string, before, after *models.Task, touched map[string]bool, loc *time.Location) []models.TaskActivity {
 	if before == nil || after == nil {
 		return nil
 	}
@@ -187,33 +194,33 @@ func collectTaskActivity(userID, actorName string, before, after *models.Task, t
 	}
 
 	if touched["deadline"] && deref(before.Deadline) != deref(after.Deadline) {
-		oldValue, newValue := displayValue(deref(before.Deadline)), displayValue(deref(after.Deadline))
+		oldValue, newValue := displayValue(deref(before.Deadline), loc), displayValue(deref(after.Deadline), loc)
 		add("deadline", fmt.Sprintf("changed the deadline from %s to %s", oldValue, newValue), oldValue, newValue)
 	}
 
 	if touched["start_date"] && deref(before.StartDate) != deref(after.StartDate) {
-		oldValue, newValue := displayValue(deref(before.StartDate)), displayValue(deref(after.StartDate))
+		oldValue, newValue := displayValue(deref(before.StartDate), loc), displayValue(deref(after.StartDate), loc)
 		add("startDate", fmt.Sprintf("changed the start date from %s to %s", oldValue, newValue), oldValue, newValue)
 	}
 
 	if touched["scheduled_on"] && deref(before.ScheduledOn) != deref(after.ScheduledOn) {
 		if after.ScheduledOn == nil || *after.ScheduledOn == "" {
-			add("scheduledOn", "removed this task from the calendar", prettyDate(deref(before.ScheduledOn)), "")
+			add("scheduledOn", "removed this task from the calendar", prettyDate(deref(before.ScheduledOn), loc), "")
 		} else {
-			add("scheduledOn", fmt.Sprintf("scheduled this task for %s", prettyDate(*after.ScheduledOn)), prettyDate(deref(before.ScheduledOn)), prettyDate(*after.ScheduledOn))
+			add("scheduledOn", fmt.Sprintf("scheduled this task for %s", prettyDate(*after.ScheduledOn, loc)), prettyDate(deref(before.ScheduledOn), loc), prettyDate(*after.ScheduledOn, loc))
 		}
 	}
 
 	if touched["completed_at"] && deref(before.CompletedAt) != deref(after.CompletedAt) {
 		if after.CompletedAt == nil || *after.CompletedAt == "" {
-			add("completedAt", "reopened this task", prettyDate(deref(before.CompletedAt)), "")
+			add("completedAt", "reopened this task", prettyDate(deref(before.CompletedAt), loc), "")
 		} else {
-			add("completedAt", "marked this task complete", "", prettyDate(*after.CompletedAt))
+			add("completedAt", "marked this task complete", "", prettyDate(*after.CompletedAt, loc))
 		}
 	}
 
 	if touched["priority_level"] && deref(before.PriorityLevel) != deref(after.PriorityLevel) {
-		oldValue, newValue := displayValue(deref(before.PriorityLevel)), displayValue(deref(after.PriorityLevel))
+		oldValue, newValue := displayValue(deref(before.PriorityLevel), loc), displayValue(deref(after.PriorityLevel), loc)
 		add("priorityLevel", fmt.Sprintf("changed priority from %s to %s", oldValue, newValue), oldValue, newValue)
 	}
 
@@ -226,7 +233,7 @@ func collectTaskActivity(userID, actorName string, before, after *models.Task, t
 		if after.Status != nil {
 			newName = after.Status.Name
 		}
-		add("status", fmt.Sprintf("changed status from %s to %s", displayValue(oldName), displayValue(newName)), oldName, newName)
+		add("status", fmt.Sprintf("changed status from %s to %s", displayValue(oldName, loc), displayValue(newName, loc)), oldName, newName)
 	}
 
 	if touched["project_id"] && deref(before.ProjectID) != deref(after.ProjectID) {
