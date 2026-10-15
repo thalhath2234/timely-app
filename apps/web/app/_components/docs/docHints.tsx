@@ -1,7 +1,7 @@
 "use client";
 
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTaskDescription, openChecklistItems, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, draftChecklistTasks, openChecklistItems, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useEffect, useMemo, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,6 +10,9 @@ import { contentFromTemplate, templateVars } from "@timely/contract/templates";
 import type { Doc, Task } from "@/app/_types/types";
 import Button from "@/app/_components/_ui/button";
 import { getDoc } from "@/app/utils/api/docs";
+import { checklistTaskDrafts } from "@/app/utils/api/write";
+import { readyProviders } from "@/app/_components/chat/modelMenu";
+import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { useDecisionFeedback, useDocChecklist, useDocHints } from "@/app/utils/hooks/decisions";
 import { useUpdateDoc } from "@/app/utils/hooks/docs";
 import { useRelated } from "@/app/utils/hooks/search";
@@ -48,6 +51,9 @@ export default function DocHints({
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [sent, setSent] = useState(false);
   const [making, setMaking] = useState<string | null>(null);
+  // With an AI provider set up (Settings → Agent keys), Make task first asks
+  // its default model for a clean title and a brief description.
+  const aiReady = readyProviders(useAgentProviders().data).length > 0;
 
   // The checklist is read from the open editor, a moment after typing stops,
   // so a ticked or deleted item leaves at once and a new one shows up.
@@ -87,19 +93,23 @@ export default function DocHints({
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
   const make = async (list: ChecklistTodo[], key: string) => {
     setMaking(key);
+    // One request for all the items, a few seconds at most; without a
+    // provider, or on any error, the tasks keep the items' own words.
+    const drafts = aiReady ? await draftChecklistTasks(list, doc, checklistTaskDrafts) : list.map(() => null);
     const made: Task[] = [];
-    for (const todo of list) {
+    // The card's key of the item each task came from; the name may differ.
+    const from = new Map<string, string>();
+    for (const [i, todo] of list.entries()) {
       try {
-        made.push(
-          await createTask.mutateAsync({
-            name: todo.name,
-            kind: "task",
-            duration: 30,
-            workspaceId: target?.workspaceId ?? doc.workspaceId,
-            projectId: target?.id,
-            ...checklistTaskDescription(todo.details, doc),
-          }),
-        );
+        const task = await createTask.mutateAsync({
+          ...checklistTask(todo, doc, drafts[i]),
+          kind: "task",
+          duration: 30,
+          workspaceId: target?.workspaceId ?? doc.workspaceId,
+          projectId: target?.id,
+        });
+        made.push(task);
+        from.set(task.id, `todo:${todo.name.toLowerCase()}`);
         hide(`todo:${todo.name.toLowerCase()}`);
       } catch {
         // Reported below with the count.
@@ -118,7 +128,7 @@ export default function DocHints({
       for (const task of made) deleteTask.mutate(task.id);
       setHidden((prev) => {
         const next = new Set(prev);
-        for (const task of made) next.delete(`todo:${task.name.toLowerCase()}`);
+        for (const task of made) next.delete(from.get(task.id) ?? `todo:${task.name.toLowerCase()}`);
         return next;
       });
       void queryClient.invalidateQueries({ queryKey: ["doc-checklist", doc.id] });
@@ -173,7 +183,7 @@ export default function DocHints({
             </h3>
             {open.length > 1 && (
               <Button size="sm" variant="soft" loading={making === "all"} disabled={making !== null} leading={<Plus />} onClick={() => void make(open, "all")}>
-                Make {open.length} tasks
+                {aiReady && making === "all" ? "Writing titles…" : `Make ${open.length} tasks`}
               </Button>
             )}
           </div>
@@ -187,7 +197,7 @@ export default function DocHints({
                     {todo.details && <span className="block truncate text-xs">{todo.details}</span>}
                   </span>
                   <Button size="sm" variant="outline" loading={making === key} disabled={making !== null} leading={<Plus />} onClick={() => void make([todo], key)}>
-                    Make task
+                    {aiReady && making === key ? "Writing…" : "Make task"}
                   </Button>
                   {dismiss(key)}
                 </li>
